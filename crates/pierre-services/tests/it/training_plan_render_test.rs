@@ -12,7 +12,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::parse_plan_date;
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_services::training_plan_render::render_training_plan_block;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -149,7 +149,10 @@ fn renders_goal_countdown_blocks_and_current_weeks() {
         &weeks,
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     assert!(block.contains("## Current training plan"));
@@ -173,7 +176,10 @@ fn past_weeks_render_nothing_and_future_weeks_relabel() {
         &weeks,
         d("2026-07-15"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     assert!(
@@ -199,7 +205,10 @@ fn injection_in_plan_text_is_neutralized() {
         &[wk],
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
 
@@ -245,7 +254,10 @@ fn week_at_the_calendar_edge_is_skipped_not_panicked() {
         &weeks,
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     assert!(
@@ -283,7 +295,10 @@ fn phase_past_the_calendar_edge_renders_without_a_marker() {
         &[],
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     assert!(
@@ -328,7 +343,10 @@ fn phase_and_priority_render_their_serde_labels() {
         &[],
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     assert!(
@@ -352,7 +370,10 @@ fn oversized_field_is_truncated() {
         &[],
         d("2026-07-14"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
     // Strategy line is capped well under the raw length.
@@ -412,7 +433,10 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
         &[current],
         d("2026-08-26"),
         &catalogue(),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap_or_default();
 

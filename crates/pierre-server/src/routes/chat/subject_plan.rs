@@ -43,7 +43,7 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublishOutcome,
 };
@@ -144,9 +144,12 @@ pub(super) async fn get_subject_plan(
     )
     .await?;
     let registry = &resources.mcp.messaging_strings_registry;
-    let card = |plan, weeks: &[_]| {
-        PlanCard::build(plan, weeks, today, registry, &locale, (&fueling, &products))
+    let fuel_view = PlanFuelView {
+        disclosure: &fueling,
+        products: &products,
     };
+    let card =
+        |plan, weeks: &[_]| PlanCard::build(plan, weeks, today, registry, &locale, fuel_view);
     let live = view
         .live
         .as_ref()

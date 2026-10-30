@@ -31,7 +31,7 @@ use std::fmt::Write as _;
 
 use crate::agent_package::PackagedCatalogue;
 use crate::plan_fuel_products::PlanFuelProducts;
-use crate::plan_fueling::FuelingDisclosure;
+use crate::plan_fueling::PlanFuelView;
 
 /// Weeks [`select_active_weeks`] may return: the current one and the next —
 /// the fortnight the athlete acts on, and the unit `save_training_plan`
@@ -267,19 +267,23 @@ fn step_extent(step: &WorkoutStep) -> String {
 ///
 /// `today` is the current civil date in the athlete's timezone — it selects
 /// which weeks count as "current/next" and computes the race countdown.
-/// `fueling` decides whether a day's stored fuelling rates are rendered or
+/// `fuel_view` decides whether a day's stored fuelling rates are rendered or
 /// withheld; withheld, the block also says so up front, so the agent writes
-/// the next save's fuelling in words rather than having it refused.
-/// `products` names the fuel products a day references; names show either
-/// way, a product's name not being an amount.
+/// the next save's fuelling in words rather than having it refused. It also
+/// names the fuel products a day references; names show either way, a
+/// product's name not being an amount.
 #[must_use]
 pub fn render_training_plan_block(
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
     today: NaiveDate,
     catalogue: &PackagedCatalogue<'_>,
-    (fueling, products): (&FuelingDisclosure, &PlanFuelProducts),
+    fuel_view: PlanFuelView<'_>,
 ) -> Option<String> {
+    let PlanFuelView {
+        disclosure,
+        products,
+    } = fuel_view;
     let mut out = String::with_capacity(1_024);
     out.push_str("\n\n## Current training plan (persisted)\n\n");
     out.push_str(
@@ -291,7 +295,7 @@ pub fn render_training_plan_block(
          athlete's activities before saying whether that session happened, and \
          never report a prescribed session as completed.\n\n",
     );
-    if fueling.withheld().is_some() {
+    if disclosure.withheld().is_some() {
         out.push_str(
             "Fuelling amounts: a medical/PAR-Q flag is on file, so this athlete's clinician \
              sets their carbohydrate, fluid and sodium amounts. Describe fuelling in words — \
@@ -467,7 +471,7 @@ pub fn render_training_plan_block(
                 let fuel = day.fueling.as_ref().map_or_else(String::new, |f| {
                     format!(
                         " · fuel: {}",
-                        sanitize_prompt_field(&fueling.clause(f), MAX_FIELD_LEN)
+                        sanitize_prompt_field(&disclosure.clause(f), MAX_FIELD_LEN)
                     )
                 });
                 let fuel_products = fuel_products_clause(products, day);

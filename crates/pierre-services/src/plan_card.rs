@@ -49,7 +49,7 @@ use uuid::Uuid;
 use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget, DraftState};
 use crate::medical_flag::FiguresWithheld;
 use crate::plan_fuel_products::{DayFuelProduct, PlanFuelProducts};
-use crate::plan_fueling::FuelingDisclosure;
+use crate::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
 use pierre_core::json_value::to_value_as_written;
 
@@ -202,9 +202,9 @@ impl PlanCard {
     /// Project a stored plan and its weeks for `today`.
     ///
     /// `registry` and `locale` name the plan's flavour in the athlete's own
-    /// words; they are read only when the plan carries a flavour. `fueling`
-    /// decides whether a day's stored rates are shown or withheld, and
-    /// `products` names the fuel products the days reference.
+    /// words; they are read only when the plan carries a flavour. `fuel_view`
+    /// decides whether a day's stored rates are shown or withheld, and names
+    /// the fuel products the days reference.
     #[must_use]
     pub fn build(
         plan: &TrainingPlan,
@@ -212,7 +212,7 @@ impl PlanCard {
         today: NaiveDate,
         registry: &MessagingStringsRegistry,
         locale: &str,
-        fueling: (&FuelingDisclosure, &PlanFuelProducts),
+        fuel_view: PlanFuelView<'_>,
     ) -> Self {
         let phases: Vec<PhaseCard> = plan
             .phases
@@ -254,7 +254,7 @@ impl PlanCard {
             weeks: selection
                 .weeks
                 .iter()
-                .map(|w| week_card(w.week, w.is_current, fueling))
+                .map(|w| week_card(w.week, w.is_current, fuel_view))
                 .collect(),
             weeks_deferred: selection.deferred,
         }
@@ -383,7 +383,17 @@ pub async fn try_load_subject_plan_card(
     let fueling = FuelingDisclosure::for_athlete(repos, target.tenant(), target.athlete()).await?;
     let products = PlanFuelProducts::for_weeks(repos, weeks).await?;
     Ok(Some(SubjectPlanCard {
-        card: PlanCard::build(plan, weeks, today, registry, locale, (&fueling, &products)),
+        card: PlanCard::build(
+            plan,
+            weeks,
+            today,
+            registry,
+            locale,
+            PlanFuelView {
+                disclosure: &fueling,
+                products: &products,
+            },
+        ),
         draft: PlanCardDraft {
             subject,
             draft: state,
@@ -391,25 +401,18 @@ pub async fn try_load_subject_plan_card(
     }))
 }
 
-fn week_card(
-    week: &PlanWeek,
-    current: bool,
-    fueling: (&FuelingDisclosure, &PlanFuelProducts),
-) -> WeekCard {
+fn week_card(week: &PlanWeek, current: bool, fuel_view: PlanFuelView<'_>) -> WeekCard {
     WeekCard {
         week_start: week.week_start.clone(),
         focus: week.focus.clone(),
         phase_index: week.phase_index,
         current,
-        days: week.days.iter().map(|d| day_card(d, fueling)).collect(),
+        days: week.days.iter().map(|d| day_card(d, fuel_view)).collect(),
     }
 }
 
-fn day_card(
-    day: &PlannedDay,
-    (disclosure, products): (&FuelingDisclosure, &PlanFuelProducts),
-) -> DayCard {
-    let (fueling, fueling_withheld) = disclosure.day_fueling(day);
+fn day_card(day: &PlannedDay, fuel_view: PlanFuelView<'_>) -> DayCard {
+    let (fueling, fueling_withheld) = fuel_view.disclosure.day_fueling(day);
     DayCard {
         date: day.date.clone(),
         sport: day.sport.clone(),
@@ -420,7 +423,7 @@ fn day_card(
         steps: day.steps.clone(),
         fueling,
         fueling_withheld,
-        fuel_products: products.day(day),
+        fuel_products: fuel_view.products.day(day),
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
     }
@@ -503,7 +506,7 @@ pub async fn try_load_plan_card(
         today,
         registry,
         locale,
-        (&active.fueling, &active.products),
+        active.fuel_view(),
     )))
 }
 
@@ -534,7 +537,7 @@ pub async fn try_load_plan_weeks_between(
     };
     Ok(Some(
         weeks_between(&active.weeks, today, from, to)
-            .map(|(week, current)| week_card(week, current, (&active.fueling, &active.products)))
+            .map(|(week, current)| week_card(week, current, active.fuel_view()))
             .collect(),
     ))
 }
@@ -565,6 +568,16 @@ struct ActivePlan {
     weeks: Vec<PlanWeek>,
     fueling: FuelingDisclosure,
     products: PlanFuelProducts,
+}
+
+impl ActivePlan {
+    /// The view the card and the calendar project this plan's days through.
+    const fn fuel_view(&self) -> PlanFuelView<'_> {
+        PlanFuelView {
+            disclosure: &self.fueling,
+            products: &self.products,
+        }
+    }
 }
 
 /// The one read behind both the card and the calendar: the athlete's active

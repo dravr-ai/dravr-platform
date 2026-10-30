@@ -15,7 +15,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -544,7 +544,10 @@ async fn a_plan_day_names_only_products_the_athlete_carries() -> Result<()> {
         athlete,
         &weeks,
         chrono::NaiveDate::from_ymd_opt(2026, 7, 13).expect("valid date"),
-        (&disclosure, &products),
+        PlanFuelView {
+            disclosure: &disclosure,
+            products: &products,
+        },
     )
     .into_iter()
     .find(|entry| entry.session.date.to_string() == "2026-07-15")

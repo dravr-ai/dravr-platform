@@ -26,7 +26,7 @@ use pierre_services::plan_calendar_render::{
     desired_entries, plan_day_session, plan_sport, DesiredEntry,
 };
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use uuid::Uuid;
 
 fn date(s: &str) -> NaiveDate {
@@ -160,7 +160,10 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
             "Z2",
         ),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a training day renders");
     assert_eq!(zoned.kind, PlannedSessionKind::Workout);
@@ -194,7 +197,10 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
             "3x8min @ 88-93% FTP",
         ),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(prose.steps, []);
@@ -206,7 +212,10 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
         user,
         &day("2026-09-09", "run", "Easy jog", None, "Z2"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(untimed.steps, []);
@@ -215,7 +224,10 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
         user,
         &rest("2026-09-10"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default())
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default()
+        }
     )
     .is_none());
 }
@@ -232,7 +244,10 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
         user,
         &structured,
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a structured day renders");
     assert_eq!(
@@ -263,7 +278,10 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
         user,
         &day("2026-09-08", "vélo", workout, Some(61), "Z4"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(prose.steps.len(), 1);
@@ -282,7 +300,10 @@ fn titles_are_bounded_and_fall_back_to_the_sport() {
         user,
         &day("2026-09-07", "run", &long, Some(30), ""),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(session.name.chars().count(), 60);
@@ -291,7 +312,10 @@ fn titles_are_bounded_and_fall_back_to_the_sport() {
         user,
         &day("2026-09-07", "swim", "   ", Some(30), ""),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(blank.name, SportType::Swim.display_name());
@@ -335,7 +359,10 @@ fn desired_entries_skip_the_past_and_rest_and_key_double_days_by_ordinal() {
         user,
         &weeks,
         from,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     );
     let keys: Vec<&str> = entries
         .iter()
@@ -421,7 +448,10 @@ fn a_two_author_season_names_each_weeks_author_on_its_ledger_rows() {
         user,
         &weeks,
         from,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     );
     let season = season_laid_by(Some("endurance-agent"));
 
@@ -466,7 +496,10 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
             ],
         )],
         from,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     );
     assert_eq!(first.len(), 3);
     let ledger: Vec<PrescribedWorkout> = first.iter().map(|e| live_row(user, e)).collect();
@@ -494,7 +527,10 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
             ],
         )],
         from,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     );
     let changed = diff_against_ledger(&adjusted, &ledger).unwrap();
     assert_eq!(
@@ -627,21 +663,30 @@ fn the_payload_hash_moves_with_the_content_and_only_the_content() {
         user,
         &day("2026-09-07", "ride", "Endurance", Some(60), "Z2"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     let b = plan_day_session(
         user,
         &day("2026-09-07", "ride", "Endurance", Some(60), "Z2"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     let c = plan_day_session(
         user,
         &day("2026-09-07", "ride", "Endurance", Some(90), "Z2"),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .unwrap();
     assert_eq!(a.payload_hash().unwrap(), b.payload_hash().unwrap());

@@ -47,7 +47,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::plan_fuel_products::PlanFuelProducts;
-use crate::plan_fueling::FuelingDisclosure;
+use crate::plan_fueling::{FuelingDisclosure, PlanFuelView};
 
 use crate::plan_calendar_render::{desired_entries, DesiredEntry};
 
@@ -393,7 +393,15 @@ pub async fn push_active_plan(
     let fueling = FuelingDisclosure::for_athlete(repos, params.tenant, params.user_id).await?;
     let products = PlanFuelProducts::for_weeks(repos, &weeks).await?;
     let desired = for_calendar(
-        desired_entries(params.user_id, &weeks, params.from, (&fueling, &products)),
+        desired_entries(
+            params.user_id,
+            &weeks,
+            params.from,
+            PlanFuelView {
+                disclosure: &fueling,
+                products: &products,
+            },
+        ),
         params.week_notes,
     );
     let live_rows: Vec<PrescribedWorkout> = repos

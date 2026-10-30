@@ -37,7 +37,7 @@ use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use pierre_services::training_plan_render::render_training_plan_block;
 
@@ -219,7 +219,11 @@ pub(crate) async fn append_plan_block(
             tracing::warn!(error = %e, "fuel catalogue read failed; rendering the plan without product names");
             PlanFuelProducts::default()
         });
-    match render_training_plan_block(plan, weeks, today, &catalogue, (&fueling, &products)) {
+    let fuel_view = PlanFuelView {
+        disclosure: &fueling,
+        products: &products,
+    };
+    match render_training_plan_block(plan, weeks, today, &catalogue, fuel_view) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }

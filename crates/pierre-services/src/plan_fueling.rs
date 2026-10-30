@@ -55,6 +55,21 @@ pub enum FuelingDisclosure {
     Withheld(FiguresWithheld),
 }
 
+/// What a plan surface projects a day's fuelling through: whether the
+/// athlete's stored rates may be shown, and the names of the fuel products
+/// the plan's days reference.
+///
+/// The card, the prompt's plan block and the calendar note each take one, so
+/// the disclosure and the product names travel together and no surface can
+/// pair one athlete's disclosure with another read's products.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanFuelView<'a> {
+    /// Whether the athlete's stored fuelling rates are shown or withheld.
+    pub disclosure: &'a FuelingDisclosure,
+    /// The fuel products the plan's days reference, by id.
+    pub products: &'a PlanFuelProducts,
+}
+
 /// What `get_training_plan` states when a medical flag withholds the plan's
 /// fuelling rates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]

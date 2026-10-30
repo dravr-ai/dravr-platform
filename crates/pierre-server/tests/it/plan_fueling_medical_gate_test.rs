@@ -31,7 +31,7 @@ use pierre_services::parq;
 use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_card::try_load_plan_card;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::{FuelingDisclosure, FUELING_WITHHELD_CLAUSE};
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView, FUELING_WITHHELD_CLAUSE};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -470,7 +470,10 @@ async fn the_calendar_note_carries_rates_unflagged_and_the_clause_flagged() -> R
             athlete.user_id,
             &weeks,
             from,
-            (disclosure, &PlanFuelProducts::default()),
+            PlanFuelView {
+                disclosure,
+                products: &PlanFuelProducts::default(),
+            },
         )
         .into_iter()
         .find(|entry| entry.session.date.format("%Y-%m-%d").to_string() == FUELLED_DATE)

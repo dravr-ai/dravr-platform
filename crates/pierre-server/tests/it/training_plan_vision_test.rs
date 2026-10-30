@@ -28,7 +28,7 @@ use pierre_memory::training_plans::{
 };
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_services::training_plan_render::render_training_plan_block;
 use pierre_test_support::db::create_test_db;
 
@@ -296,7 +296,10 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         &[],
         d("2026-09-02"),
         &catalogue,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a plan renders");
 
@@ -375,7 +378,10 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         &[],
         d("2026-09-29"),
         &catalogue,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a plan renders");
     assert!(
@@ -452,7 +458,10 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
         &weeks,
         d("2026-09-21"),
         &catalogue,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a plan renders");
 
@@ -501,7 +510,10 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
         &weeks,
         d("2026-08-31"),
         &catalogue,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a plan renders");
 

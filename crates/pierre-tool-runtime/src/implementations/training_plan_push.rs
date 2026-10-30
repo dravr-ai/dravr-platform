@@ -22,7 +22,7 @@ use pierre_services::plan_calendar_push::{
 };
 use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use serde_json::Value;
 use tracing::warn;
 
@@ -82,7 +82,15 @@ pub(super) async fn calendar_block(
     ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
     let products = PlanFuelProducts::for_weeks(repos, active_weeks).await?;
     let desired = for_calendar(
-        desired_entries(user_id, active_weeks, today, (fueling, &products)),
+        desired_entries(
+            user_id,
+            active_weeks,
+            today,
+            PlanFuelView {
+                disclosure: fueling,
+                products: &products,
+            },
+        ),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = diff_against_ledger(&desired, &live)?;
@@ -186,7 +194,15 @@ pub(super) async fn calendar_preview_after_save(
         "fuel products unreadable for the calendar preview",
     )?;
     let desired = for_calendar(
-        desired_entries(user_id, &weeks, today, (fueling, &products)),
+        desired_entries(
+            user_id,
+            &weeks,
+            today,
+            PlanFuelView {
+                disclosure: fueling,
+                products: &products,
+            },
+        ),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = best_effort(

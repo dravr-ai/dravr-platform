@@ -24,7 +24,7 @@ use pierre_memory::training_plans::{
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_calendar_render::plan_day_session;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
-use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::plan_fueling::{FuelingDisclosure, PlanFuelView};
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
 
@@ -172,7 +172,10 @@ fn the_calendar_note_carries_the_fuelling_line() {
         Uuid::new_v4(),
         &fuelled_day(),
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("a fuelled training day is not a rest day");
 
@@ -213,7 +216,10 @@ fn a_rest_day_produces_no_session_to_fuel() {
         Uuid::new_v4(),
         &rest,
         0,
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default())
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default()
+        }
     )
     .is_none());
 }
@@ -230,7 +236,10 @@ fn the_prompt_renders_the_fuelling_clause() {
         &[week],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("an active plan renders a block");
 
@@ -255,7 +264,10 @@ fn a_day_without_fuelling_renders_no_clause() {
         &[week_with(vec![day])],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
-        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+        PlanFuelView {
+            disclosure: &FuelingDisclosure::Shown,
+            products: &PlanFuelProducts::default(),
+        },
     )
     .expect("an active plan renders a block");
 

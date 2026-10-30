@@ -26,8 +26,7 @@ use pierre_core::models::{
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
 use uuid::Uuid;
 
-use crate::plan_fuel_products::PlanFuelProducts;
-use crate::plan_fueling::FuelingDisclosure;
+use crate::plan_fueling::PlanFuelView;
 
 /// Longest title a plan day gets on the calendar.
 const MAX_TITLE_CHARS: usize = 60;
@@ -99,7 +98,7 @@ fn day_title(workout: &str, sport: &SportType) -> String {
 /// drawn from the prose could carry a "2h" the provider's parser would read
 /// as a duration.
 ///
-/// `fueling` decides whether the note's fuel line carries the day's fuelling
+/// `fuel_view` decides whether the note's fuel line carries the day's fuelling
 /// rates or the statement that a clinician sets them, and names the fuel
 /// products the day uses after them, as the plan card does.
 #[must_use]
@@ -107,7 +106,7 @@ pub fn plan_day_session(
     user_id: Uuid,
     day: &PlannedDay,
     ordinal: usize,
-    (disclosure, products): (&FuelingDisclosure, &PlanFuelProducts),
+    fuel_view: PlanFuelView<'_>,
 ) -> Option<PlannedSession> {
     if day.is_rest() {
         return None;
@@ -128,7 +127,7 @@ pub fn plan_day_session(
     // athlete cannot see on the day is the same as no protocol at all — and
     // for an athlete whose clinician sets the amounts, the line says so in
     // place of the rates.
-    if let Some(line) = disclosure.day_line(day, products) {
+    if let Some(line) = fuel_view.disclosure.day_line(day, fuel_view.products) {
         if !notes.is_empty() {
             notes.push('\n');
         }
@@ -216,7 +215,7 @@ pub struct DesiredEntry {
 /// Two sessions on one date get ordinals 0 and 1 in the week's own order, so
 /// a brick day is two entries with two stable keys. A week note is wanted only
 /// for weeks starting on or after `from`: a week already under way is partly
-/// past, and the past is not rewritten. `fueling` is the athlete's fuelling
+/// past, and the past is not rewritten. `fuel_view` is the athlete's fuelling
 /// disclosure and the names of the products the weeks reference, applied to
 /// every day's note.
 #[must_use]
@@ -224,7 +223,7 @@ pub fn desired_entries(
     user_id: Uuid,
     weeks: &[PlanWeek],
     from: NaiveDate,
-    fueling: (&FuelingDisclosure, &PlanFuelProducts),
+    fuel_view: PlanFuelView<'_>,
 ) -> Vec<DesiredEntry> {
     let mut out = Vec::new();
     for week in weeks {
@@ -254,7 +253,7 @@ pub fn desired_entries(
             if date < from {
                 continue;
             }
-            if let Some(session) = plan_day_session(user_id, day, this_ordinal, fueling) {
+            if let Some(session) = plan_day_session(user_id, day, this_ordinal, fuel_view) {
                 out.push(DesiredEntry {
                     session,
                     plan_week_id: week.id.clone(),
