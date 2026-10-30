@@ -110,10 +110,11 @@ jobs:
       # nothing running (2026-10-29 23:43), so Ready proves nothing about the
       # database. The canary is the queue (carnet#1269): 1% of traffic starts
       # ONE new pod while the old revision keeps 99%; once that pod has logged
-      # reading its key from the database the rest moves in steps (33%, 66%,
-      # 100%), each next step only once Cloud SQL shows free slots (a single
-      # jump to 100% started 3-4 pods at once, 2026-10-30 18:59); any failure or
-      # cancel sends the new revision's share back. On 2026-10-29, rolled with
+      # reading its key from the database the new revision takes 100%, and any
+      # failure or cancel sends its share back. The script's stepped ramp
+      # (--ramp-db-prefix) is off: each idle API pod still holds its full
+      # 6-connection pool, so dev idles at 17-18 of 22 slots and a ramp step
+      # can never see 6 free (2026-10-30 21:20, carnet#1269). On 2026-10-29, rolled with
       # traffic, three new pods booted beside three old ones holding 18 of
       # Cloud SQL's 22 slots, and two waited out their boot window and restarted.
       # `exec`: a cancel signals the step's own process only, and the script's
@@ -123,8 +124,7 @@ jobs:
         env:
           SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
-          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
-        run: exec ./scripts/ci/cloud-run-canary.sh --service "${SERVICE}" --region "${REGION}" --ramp-db-prefix "${PREFIX}"
+        run: exec ./scripts/ci/cloud-run-canary.sh --service "${SERVICE}" --region "${REGION}"
 
       # A deploy that failed or was cancelled leaves its no_traffic pin on the
       # revision serving now, and a pin left behind holds until something moves

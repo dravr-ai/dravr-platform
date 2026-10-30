@@ -778,8 +778,7 @@ done
 # reaches it, and by a `--to-latest` traffic move on the same service that runs
 # on a failed or cancelled deploy and never after a successful one;
 # that move is the second half of the same roll, so no quiesce sits between
-# them (carnet#1269), and the API's canary ramps on Cloud SQL headroom
-# (--ramp-db-prefix); and checkout runs before auth
+# them (carnet#1269); and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
@@ -940,11 +939,6 @@ def scan(workflows):
                     for c in found_canaries:
                         if not execs_canary(c):
                             problems.append(f"{where}: '{c.get('name')}' does not exec {CANARY}; a cancel would never reach its send-back")
-                        # Only the API holds Cloud SQL connections, so its canary
-                        # ramps on database headroom; one jump to 100% started
-                        # 3-4 pods at once (2026-10-30 18:59, carnet#1269).
-                        if service.endswith("-api") and not re.search(r"--ramp-db-prefix\s+\S", c.get("run") or ""):
-                            problems.append(f"{where}: '{c.get('name')}' does not pass --ramp-db-prefix; the API's canary must ramp on Cloud SQL headroom")
             for i in uses_wait:
                 t = text(steps[i])
                 for var in ("vars.GCP_DEV_CLOUD_RUN_REGION", "vars.GCP_DEV_SERVICE_NAME"):
@@ -1027,8 +1021,6 @@ BROKEN = [
      lambda wf: set_if(wf, "deploy-api", MOVE_TRAFFIC, "${{ always() && steps.deploy.outcome != 'skipped' }}")),
     ("publish-images.yml", f"publish-images.yml:deploy-dev: '{CANARY_STEP}' does not exec {CANARY}",
      lambda wf: edit_run(wf, "deploy-dev", CANARY_STEP, "exec ./", "./")),
-    ("deploy-gcp.yml", f"deploy-gcp.yml:deploy-api: '{CANARY_STEP}' does not pass --ramp-db-prefix",
-     lambda wf: edit_run(wf, "deploy-api", CANARY_STEP, ' --ramp-db-prefix "${PREFIX}"', "")),
 ]
 for wf_name, expected, breaker in BROKEN:
     broken = copy.deepcopy(workflows)
