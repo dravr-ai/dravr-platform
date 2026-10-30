@@ -670,6 +670,45 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_mixed_listing_is_refused_a_panel_before_its_page_is_fetched() {
+        let gu = super::super::BRANDS
+            .iter()
+            .find(|brand| brand.slug == "gu")
+            .unwrap_or_else(|| panic!("no gu brand"));
+        let candidate = LabelCandidate {
+            page_url: "https://guenergy.com/products/energy-gel".to_owned(),
+            flavour: None,
+            title: "Energy Gel".to_owned(),
+            image_urls: Vec::new(),
+            variant_ids: vec![31_169_146_912_819, 31_693_107_593_267],
+            untied_flavours: vec!["Chocolate Outrage".to_owned(), "Cola".to_owned()],
+        };
+        let http = reqwest::Client::new();
+        let mut pacer = PagePacer::default();
+        let mut tally = Tally::default();
+        let mut page = ProductPage::new(candidate.page_url.clone());
+        let mut fetch = Fetcher {
+            http: &http,
+            pacer: &mut pacer,
+            tally: &mut tally,
+        };
+        let found = find_panel(&mut fetch, gu, &mut page, &candidate)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let why = found.err().unwrap_or_else(|| panic!("a panel was sent"));
+        assert!(
+            why.contains("offers several, so no panel was sent"),
+            "{why}"
+        );
+        assert!(matches!(page.state, PageState::Unfetched));
+        assert!(pacer.last.is_empty());
+        assert_eq!(
+            (tally.panel_missing, tally.page_failed, tally.panel_sent),
+            (1, 0, 0)
+        );
+    }
+
     #[test]
     fn only_a_family_panel_is_read_once_per_product() {
         assert!(PanelLocator::TailwindTab.per_family());
