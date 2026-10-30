@@ -88,6 +88,9 @@ export const SOURCE_LABELS: Record<string, string> = {
   admin: 'operator',
 };
 
+/** Longest rejection note the server accepts, in characters (`MAX_REJECT_NOTE_CHARS`). */
+export const REJECT_NOTE_MAX_CHARS = 2000;
+
 /** Rows one page of the queue or the catalogue shows. */
 export const PAGE_SIZE = 50;
 
@@ -98,7 +101,13 @@ export type FieldEdit = { mode: 'set'; text: string } | { mode: 'clear' };
 export type IdentityKey = 'brand' | 'name' | 'variant' | 'form' | 'gtin';
 
 /** Typed identity values; a key left out is untouched. A `null` GTIN is cleared. */
-export type IdentityEdits = Partial<Record<Exclude<IdentityKey, 'gtin'>, string>> & { gtin?: string | null };
+export type IdentityEdits = {
+  brand?: string;
+  name?: string;
+  variant?: string;
+  form?: FuelForm;
+  gtin?: string | null;
+};
 
 export function formLabel(form: FuelForm): string {
   return FORM_OPTIONS.find((option) => option.value === form)?.label ?? form;
@@ -136,7 +145,7 @@ function identityOverrides(
     if (text !== proposal.variant) overrides.variant = text.length === 0 ? null : text;
   }
   if (edits.form !== undefined && edits.form !== proposal.form) {
-    overrides.form = edits.form as FuelForm;
+    overrides.form = edits.form;
   }
   if (edits.gtin === null) {
     if (proposal.gtin !== null) overrides.gtin = null;

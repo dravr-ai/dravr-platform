@@ -537,10 +537,22 @@ mod tests {
 
     #[test]
     fn only_allowlisted_photo_types_are_served_folded() {
-        assert_eq!(servable_type("image/png"), Some("image/png"));
-        assert_eq!(servable_type(" IMAGE/JPEG "), Some("image/jpeg"));
+        assert_eq!(
+            servable_type("image/png"),
+            Some("image/png"),
+            "bug: an allowlisted type must be served as itself"
+        );
+        assert_eq!(
+            servable_type(" IMAGE/JPEG "),
+            Some("image/jpeg"),
+            "bug: a stored type must be trimmed and folded before the allowlist check"
+        );
         for refused in ["text/html", "image/svg+xml", "application/octet-stream", ""] {
-            assert_eq!(servable_type(refused), None, "{refused}");
+            assert_eq!(
+                servable_type(refused),
+                None,
+                "bug: `{refused}` is outside the allowlist and must never be served"
+            );
         }
     }
 
@@ -548,16 +560,30 @@ mod tests {
     fn a_reject_note_is_trimmed_capped_and_required_for_other() {
         assert_eq!(
             checked_reject_note(FuelRejectReason::Illegible, Some("  blurry  ")).ok(),
-            Some(Some("blurry"))
+            Some(Some("blurry")),
+            "bug: a note must be trimmed"
         );
         assert_eq!(
             checked_reject_note(FuelRejectReason::Duplicate, Some("   ")).ok(),
-            Some(None)
+            Some(None),
+            "bug: a blank note must read as no note"
         );
         let at_cap = "x".repeat(MAX_REJECT_NOTE_CHARS);
-        assert!(checked_reject_note(FuelRejectReason::Other, Some(&at_cap)).is_ok());
-        assert!(checked_reject_note(FuelRejectReason::Other, Some(&format!("{at_cap}x"))).is_err());
-        assert!(checked_reject_note(FuelRejectReason::Other, None).is_err());
-        assert!(checked_reject_note(FuelRejectReason::Other, Some("  ")).is_err());
+        assert!(
+            checked_reject_note(FuelRejectReason::Other, Some(&at_cap)).is_ok(),
+            "bug: a note exactly at the cap must be accepted"
+        );
+        assert!(
+            checked_reject_note(FuelRejectReason::Other, Some(&format!("{at_cap}x"))).is_err(),
+            "caller misuse: a note one character over the cap must be refused"
+        );
+        assert!(
+            checked_reject_note(FuelRejectReason::Other, None).is_err(),
+            "caller misuse: reason `other` without a note must be refused"
+        );
+        assert!(
+            checked_reject_note(FuelRejectReason::Other, Some("  ")).is_err(),
+            "caller misuse: reason `other` with a blank note must be refused"
+        );
     }
 }

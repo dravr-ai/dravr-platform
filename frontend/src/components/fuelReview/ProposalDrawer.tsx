@@ -22,6 +22,7 @@ import ProposalPhotos from './ProposalPhotos';
 import { FactRow, IdentityFields } from './ReviewFields';
 import {
   FACT_FIELDS,
+  REJECT_NOTE_MAX_CHARS,
   REJECT_REASONS,
   SOURCE_LABELS,
   buildOverrides,
@@ -314,7 +315,7 @@ export default function ProposalDrawer({
                 <Textarea
                   label="Note"
                   value={note}
-                  maxLength={2000}
+                  maxLength={REJECT_NOTE_MAX_CHARS}
                   rows={3}
                   placeholder={reason === 'other' ? 'Required: what is wrong' : 'Optional'}
                   onChange={(e) => setNote(e.target.value)}

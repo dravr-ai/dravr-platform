@@ -188,8 +188,9 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 /**
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
- * carries — rates and products on one Fuel line. A rest day is the one word. Rows are separated by space, not by a
- * rule; the card's one hairline sits under its header. The Home tab draws its
+ * carries — rates and products on one Fuel line. A rest day is the one word.
+ * Rows are separated by space, not by a rule; the card's one hairline sits
+ * under its header. The Home tab draws its
  * selected and next-week days with this same row, so a day reads alike there.
  */
 export function DayRow({ day }: { day: PlanDay }) {

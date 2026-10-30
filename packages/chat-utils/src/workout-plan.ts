@@ -33,7 +33,7 @@ export function fuelParts(fueling: PlanFueling, t: Translate): string[] {
 /**
  * A day's one fuel line: its rates — or, under a medical flag, the statement
  * that a clinician sets them — then the fuel products it names, as
- * "60 g/h carbs · 600 ml/h · Maurten Gel 100, Näak Drink Mix". `null` when the
+ * "60 g/h carbs · 600 ml/h fluid · Maurten Gel 100, Näak Drink Mix". `null` when the
  * day carries neither, so the card prints no Fuel row.
  */
 export function dayFuelLine(
