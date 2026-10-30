@@ -207,6 +207,8 @@ async fn classify_locale_with_llm(
                     recorder,
                     provider: served.map_or_else(|| provider.name(), |tier| tier.provider),
                     model,
+                    configured_provider: provider.name(),
+                    configured_model: &requested_model,
                     usage,
                     latency_ms,
                     success,

@@ -300,6 +300,8 @@ async fn retry_headless_turn(
             recorder: params.call_recorder.as_ref(),
             provider: params.provider.name(),
             model: &retry.model,
+            configured_provider: params.provider.name(),
+            configured_model: params.model,
             usage: retry.usage.as_ref(),
             latency_ms: retry_latency_ms,
             success: true,

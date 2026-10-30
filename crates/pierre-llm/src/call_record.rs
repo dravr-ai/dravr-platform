@@ -1,5 +1,5 @@
 // ABOUTME: What one recorded LLM call is — the per-call metric, its sink trait, and the recorded completion
-// ABOUTME: Shared by the tool loops and by every LLM call the platform makes outside them
+// ABOUTME: Shared by the tool loops and by every LLM call the platform makes outside them; announces each call
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,6 +13,12 @@
 //! every crate that makes such a call, means one recorder serves them all and
 //! the billing pipeline can depend on the shape of a call without depending on
 //! how the call was made.
+//!
+//! The same chokepoint announces the call: one `embacle.call_completed` notify
+//! event per call it is handed, recorded or not, carrying the model that
+//! answered, the tokens with their cache split and the call's place in its
+//! turn. Every path that bills a call therefore shows up in the completion
+//! count, with no path left to announce its own calls (carnet#1194).
 
 use std::fmt;
 use std::sync::Arc;
@@ -21,6 +27,7 @@ use std::time::Instant;
 use pierre_core::errors::AppResult;
 use pierre_core::llm::{ChatRequest, ChatResponse, LlmProvider, TokenUsage};
 use pierre_core::tokens::{estimate_chat_tokens, estimate_prompt_tokens};
+use tracing::info;
 
 use crate::served_tier::observe_served_tier;
 
@@ -164,6 +171,12 @@ pub struct CallRecordInputs<'a> {
     pub provider: &'a str,
     /// Model identifier as reported by the provider.
     pub model: &'a str,
+    /// Provider the call was configured to go to: the chain's head, which a
+    /// fallback leaves behind. The completion event carries it beside
+    /// [`Self::provider`] so a fallback reads as the difference between the two.
+    pub configured_provider: &'a str,
+    /// Model the call asked for; [`Self::model`] is the one that answered.
+    pub configured_model: &'a str,
     /// Token-usage payload reported by the provider; `None` when the provider
     /// emits no usage and the caller will fall back to text-based estimation.
     pub usage: Option<&'a TokenUsage>,
@@ -182,6 +195,8 @@ impl fmt::Debug for CallRecordInputs<'_> {
         f.debug_struct("CallRecordInputs")
             .field("provider", &self.provider)
             .field("model", &self.model)
+            .field("configured_provider", &self.configured_provider)
+            .field("configured_model", &self.configured_model)
             .field("usage", &self.usage)
             .field("latency_ms", &self.latency_ms)
             .field("success", &self.success)
@@ -191,13 +206,18 @@ impl fmt::Debug for CallRecordInputs<'_> {
     }
 }
 
-/// Hand one [`LlmCallRecord`] to the optional sink, estimating its tokens.
+/// Announce one LLM call and hand its [`LlmCallRecord`] to the optional sink,
+/// estimating its tokens.
 ///
 /// When the provider returns no usage, the counts are estimated from the
 /// character length of the prompt and completion text, so CLI runners
 /// (Claude Code, Copilot, Cursor, etc.) produce non-zero usage rows instead
 /// of silently dropping. Also the path for an LLM call made outside the tool
 /// loop, such as the turn's language classification.
+///
+/// The `embacle.call_completed` event is emitted whether or not a recorder is
+/// installed: a one-shot run with no row to write is still a call an operator
+/// counts.
 pub fn emit_call_record_with_text(
     inputs: CallRecordInputs<'_>,
     prompt_text: Option<&str>,
@@ -207,15 +227,14 @@ pub fn emit_call_record_with_text(
         recorder,
         provider,
         model,
+        configured_provider,
+        configured_model,
         usage,
         latency_ms,
         success,
         call_sequence,
         tools_called,
     } = inputs;
-    let Some(recorder) = recorder else {
-        return;
-    };
     let (prompt_tokens, completion_tokens, estimated) =
         recorded_token_counts(usage, prompt_text, completion_text);
     // Every cache and reasoning count is read off the same `usage` the prompt
@@ -233,6 +252,39 @@ pub fn emit_call_record_with_text(
         .and_then(|u| u.cached_write_1h_tokens)
         .map_or(0, i64::from);
     let reasoning_tokens = usage.and_then(|u| u.reasoning_tokens).map_or(0, i64::from);
+    // notify: one completion event per LLM call, from the one place every
+    // billed call passes through, so calls per turn, latency and the token
+    // split are measurable wherever the call was made: the API and text tool
+    // loops, the headless runner and its retry, language classification, a
+    // judge. A loop announcing its own calls would leave every other path
+    // uncounted and the cost rows outnumbering the completions (carnet#1194).
+    // `ok = false` lets the routing rule amplify failures past the sample
+    // rate; the tokens on a failed call are the prompt it sent, estimated.
+    // `tenant_id`, `user_id`, `turn_id` and `conversation_id` come from the
+    // enclosing `chat.turn` span.
+    info!(
+        target: "notify",
+        event = "embacle.call_completed",
+        provider,
+        model,
+        configured_provider,
+        configured_model,
+        latency_ms,
+        ok = success,
+        prompt_tokens,
+        completion_tokens,
+        cached_read_tokens = cached_tokens,
+        cached_write_tokens,
+        cached_write_1h_tokens,
+        reasoning_tokens,
+        token_counts_estimated = estimated,
+        call_sequence,
+        "LLM call {}",
+        if success { "completed" } else { "failed" }
+    );
+    let Some(recorder) = recorder else {
+        return;
+    };
     recorder.record(LlmCallRecord {
         provider: provider.to_owned(),
         model: model.to_owned(),
@@ -257,7 +309,8 @@ pub fn emit_call_record_with_text(
 /// nothing on paper. The row names the chain tier that answered rather than
 /// the head the chain is named after, and a call that failed still records
 /// the prompt it sent, estimated: that prompt was billed before the error
-/// came back.
+/// came back. The call is announced whether or not a recorder is handed in;
+/// only the row needs one.
 ///
 /// # Errors
 ///
@@ -270,23 +323,14 @@ pub async fn complete_recorded<P: LlmProvider + ?Sized>(
     let started = Instant::now();
     let (outcome, served) = observe_served_tier(provider.complete(request)).await;
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    if recorder.is_none() {
-        return outcome;
-    }
     let prompt = prompt_text(request);
     let provider_name = served.map_or_else(|| provider.name(), |tier| tier.provider);
+    let requested_model = request
+        .model
+        .as_deref()
+        .unwrap_or_else(|| provider.default_model());
     let (model, usage, success, completion) = outcome.as_ref().map_or_else(
-        |_| {
-            (
-                request
-                    .model
-                    .as_deref()
-                    .unwrap_or_else(|| provider.default_model()),
-                None,
-                false,
-                None,
-            )
-        },
+        |_| (requested_model, None, false, None),
         |reply| {
             (
                 reply.model.as_str(),
@@ -301,6 +345,8 @@ pub async fn complete_recorded<P: LlmProvider + ?Sized>(
             recorder,
             provider: provider_name,
             model,
+            configured_provider: provider.name(),
+            configured_model: requested_model,
             usage,
             latency_ms,
             success,
@@ -322,4 +368,147 @@ fn prompt_text(request: &ChatRequest) -> String {
         .map(|message| message.content.as_str())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::fmt::Debug;
+    use std::sync::{Mutex, PoisonError};
+
+    use tracing::field::{Field, Visit};
+    use tracing::{callsite, subscriber, Event, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::Registry;
+
+    use super::*;
+
+    /// The fields of every `embacle.call_completed` event logged while installed.
+    #[derive(Clone, Default)]
+    struct Completions(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+
+    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
+
+    impl Visit for FieldText<'_> {
+        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+    }
+
+    impl<S: Subscriber> Layer<S> for Completions {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut fields = BTreeMap::new();
+            event.record(&mut FieldText(&mut fields));
+            if fields.get("event").map(String::as_str) == Some("embacle.call_completed") {
+                self.0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(fields);
+            }
+        }
+    }
+
+    /// Every completion event `run` emits, in order.
+    fn completions_while(run: impl FnOnce()) -> Vec<BTreeMap<String, String>> {
+        let lines = Completions::default();
+        subscriber::with_default(Registry::default().with(lines.clone()), || {
+            callsite::rebuild_interest_cache();
+            run();
+        });
+        // Bound first: the guard is a temporary the tail expression would
+        // drop while the clone still borrows it.
+        let taken = lines
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        taken
+    }
+
+    fn the_one_line(lines: &[BTreeMap<String, String>]) -> &BTreeMap<String, String> {
+        assert_eq!(lines.len(), 1, "one completion event per call: {lines:?}");
+        lines.first().expect("one completion event") // Safe: asserted above
+    }
+
+    /// A call that answered is announced with the model that answered, the
+    /// tier it was configured for, its tokens with the cache split and its
+    /// place in the turn, whether or not a recorder is installed (carnet#1194).
+    #[test]
+    fn a_recorded_call_announces_the_model_that_answered_and_its_tokens() {
+        let usage = TokenUsage::new(70_000, 1_000, 71_000)
+            .with_cache(Some(62_000), Some(7_000))
+            .with_cache_write_1h(Some(5_000));
+        let lines = completions_while(|| {
+            emit_call_record_with_text(
+                CallRecordInputs {
+                    recorder: None,
+                    provider: "anthropic#2",
+                    model: "claude-haiku-5-5",
+                    configured_provider: "anthropic",
+                    configured_model: "claude-opus-5-5",
+                    usage: Some(&usage),
+                    latency_ms: 900,
+                    success: true,
+                    call_sequence: Some(3),
+                    tools_called: Vec::new(),
+                },
+                None,
+                None,
+            );
+        });
+        let line = the_one_line(&lines);
+        let field = |name: &str| line.get(name).map(String::as_str);
+        assert_eq!(field("message"), Some("LLM call completed"));
+        assert_eq!(field("provider"), Some("anthropic#2"));
+        assert_eq!(field("model"), Some("claude-haiku-5-5"));
+        assert_eq!(field("configured_provider"), Some("anthropic"));
+        assert_eq!(field("configured_model"), Some("claude-opus-5-5"));
+        assert_eq!(field("ok"), Some("true"));
+        assert_eq!(field("latency_ms"), Some("900"));
+        assert_eq!(field("prompt_tokens"), Some("70000"));
+        assert_eq!(field("completion_tokens"), Some("1000"));
+        assert_eq!(field("cached_read_tokens"), Some("62000"));
+        assert_eq!(field("cached_write_tokens"), Some("7000"));
+        assert_eq!(field("cached_write_1h_tokens"), Some("5000"));
+        assert_eq!(field("call_sequence"), Some("3"));
+        assert_eq!(field("token_counts_estimated"), Some("false"));
+    }
+
+    /// A call that failed is announced too, `ok = false`, charged for the
+    /// prompt it sent as an estimate; made outside a loop, it carries no
+    /// sequence.
+    #[test]
+    fn a_failed_call_announces_the_prompt_it_sent_as_estimated() {
+        let prompt = "word ".repeat(400);
+        let lines = completions_while(|| {
+            emit_call_record_with_text(
+                CallRecordInputs {
+                    recorder: None,
+                    provider: "copilot_sdk",
+                    model: "claude-sonnet-5",
+                    configured_provider: "copilot_sdk",
+                    configured_model: "claude-sonnet-5",
+                    usage: None,
+                    latency_ms: 12_000,
+                    success: false,
+                    call_sequence: None,
+                    tools_called: Vec::new(),
+                },
+                Some(&prompt),
+                None,
+            );
+        });
+        let line = the_one_line(&lines);
+        let field = |name: &str| line.get(name).map(String::as_str);
+        assert_eq!(field("message"), Some("LLM call failed"));
+        assert_eq!(field("ok"), Some("false"));
+        assert_eq!(field("token_counts_estimated"), Some("true"));
+        assert_eq!(field("completion_tokens"), Some("0"));
+        assert_ne!(field("prompt_tokens"), Some("0"));
+        assert_eq!(field("call_sequence"), None);
+    }
 }

@@ -86,23 +86,14 @@ pub(crate) async fn cli_loop_call(
     let latency_ms = millis_elapsed(call_start);
     // After a fallback the chain's own name is still its head, so the call
     // is attributed to the tier that answered: those tokens are that
-    // provider's bill, and the log line keeps the configured tier beside it
-    // so a fallback reads as a difference between the two.
+    // provider's bill, and the completion event the recorder emits keeps the
+    // configured tier beside it so a fallback reads as a difference between
+    // the two.
     let served_provider = served_provider_name(served, params.provider.name());
     match response_result {
         Ok(r) => {
-            // notify: CLI call succeeded.
-            info!(
-                target: "notify",
-                event = "embacle.call_completed",
-                provider = served_provider,
-                model = %r.model,
-                configured_provider = params.provider.name(),
-                configured_model = %params.model,
-                latency_ms = latency_ms,
-                ok = true,
-                "LLM call completed"
-            );
+            // The loop records the call once it has parsed the reply's tool
+            // calls, so the row and the completion event name them.
             Ok((
                 r,
                 CliLoopCall {
@@ -120,6 +111,8 @@ pub(crate) async fn cli_loop_call(
                     recorder: params.call_recorder.as_ref(),
                     provider: params.provider.name(),
                     model: params.model,
+                    configured_provider: params.provider.name(),
+                    configured_model: params.model,
                     usage: None,
                     latency_ms,
                     success: false,
@@ -128,15 +121,6 @@ pub(crate) async fn cli_loop_call(
                 },
                 Some(&prompt_text),
                 None,
-            );
-            // notify: CLI call failed.
-            info!(
-                target: "notify",
-                event = "embacle.call_completed",
-                model = %params.model,
-                latency_ms = latency_ms,
-                ok = false,
-                "LLM call failed"
             );
             Err(e)
         }

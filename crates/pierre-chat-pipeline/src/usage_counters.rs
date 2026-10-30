@@ -13,12 +13,13 @@
 //! precisely how messaging usage became invisible to every quota read
 //! (registre#9), so the tenant is a parameter of the turn, not of the surface.
 
+use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_llm::TokenUsage;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::envelope::TurnEnvelope;
@@ -135,12 +136,33 @@ async fn increment_base_counters(
     }
 
     for (counter_type, amount) in counters {
-        if let Err(e) = usage_svc
+        let outcome = usage_svc
             .increment(tenant_id, user_id, counter_type, amount)
-            .await
-        {
-            warn!("Failed to increment {counter_type} counter: {e}");
-        }
+            .await;
+        note_counter_charge(counter_type, None, amount, &outcome);
+    }
+}
+
+/// Log what a turn charged against one counter and where the counter stands.
+///
+/// Without it the 80% and burst notices a turn triggers can only be inferred,
+/// since nothing else says what the turn charged against `daily_tokens` or
+/// what the counter read afterwards (carnet#1194). `current` is the value the
+/// increment returned, so the line and the counter the next pre-turn check
+/// reads agree. The caps are not repeated here: the pre-turn ladder resolved
+/// them for this turn already and refused it if a hard one was breached.
+fn note_counter_charge(
+    counter_type: &str,
+    dimension: Option<&str>,
+    charged: i64,
+    outcome: &AppResult<i64>,
+) {
+    match outcome {
+        Ok(current) => info!(
+            counter_type,
+            dimension, charged, current, "quota counter charged for the turn"
+        ),
+        Err(e) => warn!("Failed to increment {counter_type} counter: {e}"),
     }
 }
 
@@ -152,27 +174,125 @@ async fn increment_scoped_counters(
     scope: &UsageIncrementScope<'_>,
 ) {
     if let Some(conv_id) = scope.conversation_id {
-        if let Err(e) = usage_svc
+        let outcome = usage_svc
             .increment_with_dimension(tenant_id, user_id, "conversation_messages", conv_id, 1)
-            .await
-        {
-            warn!("Failed to increment conversation_messages:{conv_id} counter: {e}");
-        }
+            .await;
+        note_counter_charge("conversation_messages", Some(conv_id), 1, &outcome);
     }
 
     if let Some(agent_id) = scope.agent_id {
-        if let Err(e) = usage_svc
+        let outcome = usage_svc
             .increment_with_dimension(tenant_id, user_id, "daily_coach_messages", agent_id, 1)
-            .await
-        {
-            warn!("Failed to increment daily_coach_messages:{agent_id} counter: {e}");
-        }
+            .await;
+        note_counter_charge("daily_coach_messages", Some(agent_id), 1, &outcome);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::fmt::Debug;
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use pierre_core::errors::AppError;
+    use tracing::field::{Field, Visit};
+    use tracing::{callsite, subscriber, Event, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::Registry;
+
     use super::*;
+
+    /// The fields of every quota-charge line logged while installed.
+    #[derive(Clone, Default)]
+    struct ChargeLines(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+
+    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
+
+    impl Visit for FieldText<'_> {
+        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+    }
+
+    impl<S: Subscriber> Layer<S> for ChargeLines {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut fields = BTreeMap::new();
+            event.record(&mut FieldText(&mut fields));
+            if fields.get("message").map(String::as_str)
+                == Some("quota counter charged for the turn")
+            {
+                self.0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(fields);
+            }
+        }
+    }
+
+    fn charge_lines_while(run: impl FnOnce()) -> Vec<BTreeMap<String, String>> {
+        let lines = ChargeLines::default();
+        subscriber::with_default(Registry::default().with(lines.clone()), || {
+            callsite::rebuild_interest_cache();
+            run();
+        });
+        // Bound first: the guard is a temporary the tail expression would
+        // drop while the clone still borrows it.
+        let taken = lines
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        taken
+    }
+
+    /// The line says what the turn charged and what the counter reads after,
+    /// so the 80% and burst notices are explained by the log rather than
+    /// inferred (carnet#1194).
+    #[test]
+    fn a_charged_counter_logs_the_charge_and_where_it_stands() {
+        let lines =
+            charge_lines_while(|| note_counter_charge("daily_tokens", None, 70_973, &Ok(146_249)));
+        assert_eq!(lines.len(), 1, "one line per counter: {lines:?}");
+        let line = lines.first().expect("one charge line"); // Safe: asserted above
+        let field = |name: &str| line.get(name).map(String::as_str);
+        assert_eq!(field("counter_type"), Some("daily_tokens"));
+        assert_eq!(field("charged"), Some("70973"));
+        assert_eq!(field("current"), Some("146249"));
+        assert_eq!(field("dimension"), None);
+    }
+
+    /// A scoped counter keeps its type and its dimension apart, so a query on
+    /// the exact `counter_type` finds it.
+    #[test]
+    fn a_scoped_counter_logs_its_dimension_apart_from_its_type() {
+        let lines = charge_lines_while(|| {
+            note_counter_charge("conversation_messages", Some("conv-1"), 1, &Ok(4));
+        });
+        assert_eq!(lines.len(), 1, "one line per counter: {lines:?}");
+        let line = lines.first().expect("one charge line"); // Safe: asserted above
+        assert_eq!(
+            line.get("counter_type").map(String::as_str),
+            Some("conversation_messages")
+        );
+        assert_eq!(line.get("dimension").map(String::as_str), Some("conv-1"));
+    }
+
+    /// A counter that could not be incremented charged nothing, so no charge
+    /// line claims it did.
+    #[test]
+    fn a_failed_increment_logs_no_charge() {
+        let lines = charge_lines_while(|| {
+            note_counter_charge("daily_tokens", None, 1, &Err(AppError::internal("db down")));
+        });
+        assert!(
+            lines.is_empty(),
+            "no charge line on a failed increment: {lines:?}"
+        );
+    }
 
     /// The 2026-10-01 incident turn: five Copilot ACP tool-loop calls,
     /// split by the usage line as cachedRead 378,608 + cachedWrite 76,873

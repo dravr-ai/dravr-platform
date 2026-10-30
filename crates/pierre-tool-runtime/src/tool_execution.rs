@@ -389,6 +389,8 @@ pub async fn run_cli_tool_loop(
                     recorder: params.call_recorder.as_ref(),
                     provider: asked.served_provider,
                     model: &response.model,
+                    configured_provider: params.provider.name(),
+                    configured_model: params.model,
                     usage: response.usage.as_ref(),
                     latency_ms: asked.latency_ms,
                     success: true,
@@ -1057,6 +1059,8 @@ pub(crate) async fn run_headless_tool_loop(
                     // The model that served, as the runtime reported it — the
                     // SDK transport names it per call; ACP echoes the request.
                     model: &r.model,
+                    configured_provider: params.provider.name(),
+                    configured_model: params.model,
                     usage: r.usage.as_ref(),
                     latency_ms,
                     success: true,
@@ -1076,6 +1080,8 @@ pub(crate) async fn run_headless_tool_loop(
                     recorder: params.call_recorder.as_ref(),
                     provider: params.provider.name(),
                     model: params.model,
+                    configured_provider: params.provider.name(),
+                    configured_model: params.model,
                     usage: None,
                     latency_ms,
                     success: false,

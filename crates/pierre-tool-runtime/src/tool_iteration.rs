@@ -332,7 +332,7 @@ async fn head_call(
         Ok(response) => {
             call.record_success(served_provider, &response);
             tally.note_provider_warnings(response.warnings.as_deref());
-            log_iteration_response(iteration, latency_ms, &response);
+            log_iteration_response(iteration, call_seq, served_provider, latency_ms, &response);
             if let Some(usage) = response.usage.as_ref() {
                 spend.add(usage);
             }
@@ -357,7 +357,8 @@ struct CallFacts<'a> {
 }
 
 impl CallFacts<'_> {
-    /// Bill and announce a call `served_provider` answered with `response`.
+    /// Bill a call `served_provider` answered with `response`; the recorder
+    /// announces it.
     fn record_success(&self, served_provider: &'static str, response: &ChatResponseWithTools) {
         // The row's `tools_called` is what the admin tool-usage view counts
         // as run, and an iteration-model write is discarded unrun.
@@ -376,28 +377,18 @@ impl CallFacts<'_> {
             recorder: self.params.call_recorder.as_ref(),
             provider: served_provider,
             model: &response.model,
+            configured_provider: self.params.provider.name(),
+            configured_model: self.model,
             usage: response.usage.as_ref(),
             latency_ms: self.latency_ms,
             success: true,
             call_sequence: self.call_seq,
             tools_called: tools_in_response,
         });
-        // notify: LLM call succeeded — latency lands on the Slack ping so a
-        // regression in tail latency surfaces in chat.
-        info!(
-            target: "notify",
-            event = "embacle.call_completed",
-            provider = served_provider,
-            model = %response.model,
-            configured_provider = self.params.provider.name(),
-            configured_model = %self.model,
-            latency_ms = self.latency_ms,
-            ok = true,
-            "LLM call completed"
-        );
     }
 
-    /// Bill and announce a call that failed after `llm_messages` were sent.
+    /// Bill a call that failed after `llm_messages` were sent; the recorder
+    /// announces it.
     fn record_failure(&self, llm_messages: &[ChatMessage]) {
         // The prompt reached the provider before it failed, so the abandoned
         // leg is charged for what it actually sent.
@@ -407,6 +398,8 @@ impl CallFacts<'_> {
                 recorder: self.params.call_recorder.as_ref(),
                 provider: self.params.provider.name(),
                 model: self.model,
+                configured_provider: self.params.provider.name(),
+                configured_model: self.model,
                 usage: None,
                 latency_ms: self.latency_ms,
                 success: false,
@@ -415,16 +408,6 @@ impl CallFacts<'_> {
             },
             Some(&prompt_text),
             None,
-        );
-        // notify: LLM call failed — ok=false so the routing rule can amplify
-        // failures even when sample_rate hides successes.
-        info!(
-            target: "notify",
-            event = "embacle.call_completed",
-            model = %self.model,
-            latency_ms = self.latency_ms,
-            ok = false,
-            "LLM call failed"
         );
     }
 }

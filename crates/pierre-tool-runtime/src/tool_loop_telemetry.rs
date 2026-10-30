@@ -142,18 +142,32 @@ pub(crate) fn log_iteration_start(
 
 /// Emit a structured log summarizing the provider's response for one
 /// tool-loop iteration.
+///
+/// The line names the provider and model that answered this call: an
+/// iteration re-asked on a cheaper model would otherwise inherit the turn's
+/// `model` from the `chat.turn` span, and twelve Haiku calls read as Opus
+/// (carnet#1194). The cache split rides along so the line and the
+/// `llm call cost` line for the same `call_sequence` agree without a back-solve.
 pub(crate) fn log_iteration_response(
     iteration: usize,
+    call_sequence: Option<i64>,
+    provider: &str,
     latency_ms: i64,
     response: &ChatResponseWithTools,
 ) {
+    let usage = response.usage.as_ref();
     info!(
         iteration,
+        call_sequence,
+        provider,
+        model = %response.model,
         latency_ms,
         content_len = response.content.as_deref().map_or(0, str::len),
         function_calls = response.function_calls.as_ref().map_or(0, Vec::len),
-        prompt_tokens = response.usage.as_ref().map_or(0, |u| u.prompt_tokens),
-        completion_tokens = response.usage.as_ref().map_or(0, |u| u.completion_tokens),
+        prompt_tokens = usage.map_or(0, |u| u.prompt_tokens),
+        completion_tokens = usage.map_or(0, |u| u.completion_tokens),
+        cached_read_tokens = usage.and_then(|u| u.cached_read_tokens).unwrap_or(0),
+        cached_write_tokens = usage.and_then(|u| u.cached_write_tokens).unwrap_or(0),
         "tool loop iteration: provider response received"
     );
 }
@@ -223,4 +237,85 @@ pub(crate) fn note_tool_loop_cooldown_skip(
         remaining_secs,
         "tool loop: chain head is in a quota cooldown; the turn goes to the chain's tail"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::fmt::Debug;
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use pierre_llm::TokenUsage;
+    use tracing::field::{Field, Visit};
+    use tracing::{callsite, subscriber, Event, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::Registry;
+
+    use super::*;
+
+    /// The fields of every iteration-response line logged while installed.
+    #[derive(Clone, Default)]
+    struct IterationLines(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
+
+    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
+
+    impl Visit for FieldText<'_> {
+        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+    }
+
+    impl<S: Subscriber> Layer<S> for IterationLines {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut fields = BTreeMap::new();
+            event.record(&mut FieldText(&mut fields));
+            if fields.get("message").map(String::as_str)
+                == Some("tool loop iteration: provider response received")
+            {
+                self.0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(fields);
+            }
+        }
+    }
+
+    /// An iteration re-asked on a cheaper model is logged under that model
+    /// and the tier that answered, with its sequence and cache split, rather
+    /// than inheriting the turn's model from the span (carnet#1194).
+    #[test]
+    fn the_iteration_line_names_the_model_that_answered() {
+        let response = ChatResponseWithTools {
+            content: Some("done".to_owned()),
+            function_calls: None,
+            model: "claude-haiku-5-5".to_owned(),
+            usage: Some(
+                TokenUsage::new(82_235, 6_398, 88_633).with_cache(Some(73_065), Some(9_170)),
+            ),
+            finish_reason: None,
+            warnings: None,
+        };
+        let lines = IterationLines::default();
+        subscriber::with_default(Registry::default().with(lines.clone()), || {
+            callsite::rebuild_interest_cache();
+            log_iteration_response(3, Some(6), "anthropic", 1_200, &response);
+        });
+        let lines = lines.0.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(lines.len(), 1, "one line per iteration: {lines:?}");
+        let line = lines.first().expect("one iteration line"); // Safe: asserted above
+        let field = |name: &str| line.get(name).map(String::as_str);
+        assert_eq!(field("iteration"), Some("3"));
+        assert_eq!(field("call_sequence"), Some("6"));
+        assert_eq!(field("provider"), Some("anthropic"));
+        assert_eq!(field("model"), Some("claude-haiku-5-5"));
+        assert_eq!(field("latency_ms"), Some("1200"));
+        assert_eq!(field("prompt_tokens"), Some("82235"));
+        assert_eq!(field("completion_tokens"), Some("6398"));
+        assert_eq!(field("cached_read_tokens"), Some("73065"));
+        assert_eq!(field("cached_write_tokens"), Some("9170"));
+    }
 }
