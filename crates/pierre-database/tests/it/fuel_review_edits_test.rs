@@ -162,6 +162,58 @@ async fn a_corrected_name_lands_on_the_product_it_names() {
 }
 
 #[tokio::test]
+async fn a_corrected_form_is_written_onto_the_live_product() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let first = proposal("Form Co", gel_facts());
+    let first_id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&first)
+        .await
+        .unwrap();
+    let FuelApprovalOutcome::Approved(live) =
+        approve(repos, first_id, reviewer, &FuelFactOverrides::default()).await
+    else {
+        panic!("the first proposal is approved");
+    };
+    assert_eq!(live.product.form, FuelForm::Gel);
+
+    // The same product read again; the operator sees it is a puree.
+    let mut again = proposal("Form Co", gel_facts());
+    again.name.clone_from(&first.name);
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&again)
+        .await
+        .unwrap();
+    let edits = FuelFactOverrides {
+        form: FieldOverride::Set(FuelForm::Puree),
+        ..FuelFactOverrides::default()
+    };
+    let FuelApprovalOutcome::Approved(updated) = approve(repos, id, reviewer, &edits).await else {
+        panic!("the corrected form is approved");
+    };
+    assert_eq!(updated.product.id, live.product.id);
+    assert_eq!(updated.product.form, FuelForm::Puree);
+    assert_eq!(
+        updated.current.provenance["form"].source,
+        FactSource::AdminEdit
+    );
+    assert_eq!(
+        updated.current.provenance["form"].operator_user_id,
+        Some(reviewer)
+    );
+    let stored = repos
+        .fuel_catalogue
+        .get_fuel_product(live.product.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.product.form, FuelForm::Puree);
+}
+
+#[tokio::test]
 async fn an_identity_edit_never_renames_a_live_product() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
