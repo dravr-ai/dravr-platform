@@ -287,6 +287,12 @@ variable "backend_sciotte_phone_tap_timeout_secs" {
   default     = 240
 }
 
+variable "sciotte_max_concurrent_reads" {
+  description = "Concurrent HTTP reads the sciotte service runs at once. Used as DRAVR_SCIOTTE_MAX_CONCURRENT_READS env var, which the service requires from 1.0.0 (no crate default). Each read is a plain HTTP request over the session's cookie jar, measured at ~16 MB, against 2.8 GB for a headless Chrome; DRAVR_SCIOTTE_MAX_CONCURRENT still bounds the Chrome logins."
+  type        = number
+  default     = 16
+}
+
 variable "enable_sciotte_service" {
   description = "Deploy the dedicated sciotte scraper Cloud Run service (ADR-021). Deploying it does NOT route traffic — backend_sciotte_remote flips the API's client toggle separately."
   type        = bool

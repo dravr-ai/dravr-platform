@@ -1209,6 +1209,10 @@ module "sciotte" {
     DRAVR_SCIOTTE_WATCHDOG_INTERVAL_SECS  = "15"
     DRAVR_SCIOTTE_RETRY_AFTER_HINT_SECS   = "5"
     DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS = "60"
+    # Reads run over HTTP with a per-session cookie jar, not in a browser, so
+    # they are admitted apart from the Chrome logins above. Required from
+    # sciotte 1.0.0; the 0.28 image ignores it.
+    DRAVR_SCIOTTE_MAX_CONCURRENT_READS = tostring(var.sciotte_max_concurrent_reads)
 
     # Interactive-login windows — one source of truth with the API pod's
     # in-process path during the migration.
