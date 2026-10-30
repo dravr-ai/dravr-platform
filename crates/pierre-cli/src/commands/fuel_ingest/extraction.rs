@@ -37,10 +37,11 @@ use super::shopify::LabelImage;
 /// Room for the whole JSON object, ingredients list included. A bilingual
 /// Näak pouch's verbatim ingredients ran a 2,000-token answer out mid-object
 /// (live dry run, 2026-10-29); the cap bounds a runaway, not a normal read.
-const MAX_OUTPUT_TOKENS: u32 = 4_000;
+pub(super) const MAX_OUTPUT_TOKENS: u32 = 4_000;
 
-/// A transcription, not a composition.
-const TEMPERATURE: f32 = 0.0;
+/// A transcription, not a composition. This and [`MAX_OUTPUT_TOKENS`] are
+/// hashed into every read ([`pierre_core::models::fuel_read_hash`]).
+pub(super) const TEMPERATURE: f32 = 0.0;
 
 /// The `per_serving` block of the prompt's answer.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

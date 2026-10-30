@@ -94,20 +94,38 @@ fn update_field(hasher: &mut Sha256, field: &[u8]) {
     hasher.update(field);
 }
 
+/// What a label read sends besides its page and photos: everything that
+/// can change the answer, so each is part of [`fuel_read_hash`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FuelReadRequest<'a> {
+    /// The `fuel_panel_extraction` prompt text sent.
+    pub prompt: &'a str,
+    /// The configured model, as `provider=model`.
+    pub model: &'a str,
+    /// The request's output cap: an answer cut off at a lower one may parse
+    /// at a higher one.
+    pub max_tokens: u32,
+    /// The request's sampling temperature.
+    pub temperature: f32,
+}
+
 /// The hash of one label read the ingestion job pays for.
 ///
 /// SHA-256, lowercase hex, over the page URL, the prompt text sent, the model
-/// it was sent to and every photo sent, in order, each field length-prefixed.
-/// A read with this hash on file is not paid for again; a new photo, a
-/// reworded `fuel_panel_extraction` prompt or another configured model is a
-/// new read. The proposal the read files carries the same hash.
+/// it was sent to, the output cap and temperature, and every photo sent, in
+/// order, each field length-prefixed. A read with this hash on file is not
+/// paid for again; a new photo, a reworded `fuel_panel_extraction` prompt,
+/// another configured model or a raised output cap is a new read. The
+/// proposal the read files carries the same hash.
 #[must_use]
-pub fn fuel_read_hash(source_url: &str, images: &[&[u8]], prompt: &str, model: &str) -> String {
+pub fn fuel_read_hash(source_url: &str, images: &[&[u8]], request: FuelReadRequest<'_>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"fuel-ingest-read\0");
     update_field(&mut hasher, source_url.as_bytes());
-    update_field(&mut hasher, prompt.as_bytes());
-    update_field(&mut hasher, model.as_bytes());
+    update_field(&mut hasher, request.prompt.as_bytes());
+    update_field(&mut hasher, request.model.as_bytes());
+    hasher.update(request.max_tokens.to_le_bytes());
+    hasher.update(request.temperature.to_bits().to_le_bytes());
     hasher.update((images.len() as u64).to_le_bytes());
     for image in images {
         update_field(&mut hasher, image);
@@ -198,33 +216,66 @@ mod tests {
     }
 
     #[test]
-    fn a_read_hash_changes_with_the_photos_the_prompt_and_the_model() {
+    fn a_read_hash_changes_with_the_photos_the_prompt_the_model_and_the_cap() {
         let url = "https://naak.com/products/gel";
         let set: [&[u8]; 2] = [b"front", b"panel"];
-        let base = fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-opus-5-5");
+        let opus = FuelReadRequest {
+            prompt: "prompt v1",
+            model: "anthropic=claude-opus-5-5",
+            max_tokens: 4_000,
+            temperature: 0.0,
+        };
+        let base = fuel_read_hash(url, &set, opus);
         assert_eq!(base.len(), 64);
-        assert_eq!(
-            base,
-            fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-opus-5-5")
-        );
+        assert_eq!(base, fuel_read_hash(url, &set, opus));
         for other in [
+            fuel_read_hash(url, &[b"panel", b"front"], opus),
             fuel_read_hash(
                 url,
-                &[b"panel", b"front"],
-                "prompt v1",
-                "anthropic=claude-opus-5-5",
-            ),
-            fuel_read_hash(url, &set, "prompt v2", "anthropic=claude-opus-5-5"),
-            fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-haiku-5-5"),
-            fuel_read_hash(
-                "https://naak.com/products/bar",
                 &set,
-                "prompt v1",
-                "anthropic=claude-opus-5-5",
+                FuelReadRequest {
+                    prompt: "prompt v2",
+                    ..opus
+                },
             ),
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    model: "anthropic=claude-haiku-5-5",
+                    ..opus
+                },
+            ),
+            // A raised output cap reads again: an answer cut off mid-object
+            // at 2,000 tokens (`parse_failed`) may parse at 4,000.
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    max_tokens: 2_000,
+                    ..opus
+                },
+            ),
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    temperature: 0.2,
+                    ..opus
+                },
+            ),
+            fuel_read_hash("https://naak.com/products/bar", &set, opus),
             // Length prefixes: text moved between the prompt and the model
             // is another read.
-            fuel_read_hash(url, &set, "prompt v", "1anthropic=claude-opus-5-5"),
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    prompt: "prompt v",
+                    model: "1anthropic=claude-opus-5-5",
+                    ..opus
+                },
+            ),
         ] {
             assert_ne!(base, other);
         }

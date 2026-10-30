@@ -17,6 +17,7 @@ use pierre_core::models::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use sqlx::error::DatabaseError;
 use uuid::Uuid;
 
 /// The most words of a search query matched; more are ignored.
@@ -27,6 +28,36 @@ pub(crate) const MAX_FUEL_PAGE: i64 = 100;
 
 pub(crate) fn fuel_error(action: &str, e: impl Display) -> AppError {
     AppError::database(format!("Failed to {action} the fuel-product bank: {e}"))
+}
+
+/// Why an approval cannot land on the identity it reviewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdentityClash {
+    /// This product already holds the reviewed key or barcode.
+    Held(Uuid),
+    /// A unique index fired on an identity write: a concurrent approval
+    /// committed that key or barcode after this one's checks. The
+    /// transaction is spoiled (Postgres aborts it); the approval is retried,
+    /// and its checks then name the holder.
+    Raced,
+}
+
+/// An identity write's result: `Ok(Err(Raced))` when a unique index fired,
+/// else the database error, if any.
+pub(crate) fn identity_written<T>(
+    written: Result<T, sqlx::Error>,
+    action: &str,
+) -> AppResult<Result<(), IdentityClash>> {
+    match written {
+        Ok(_) => Ok(Ok(())),
+        Err(e)
+            if e.as_database_error()
+                .is_some_and(DatabaseError::is_unique_violation) =>
+        {
+            Ok(Err(IdentityClash::Raced))
+        }
+        Err(e) => Err(fuel_error(action, e)),
+    }
 }
 
 /// The four `LIKE` patterns a search binds: each of the query's first words,
@@ -354,4 +385,29 @@ pub(crate) enum FuelIdentityKey<'k> {
     Id(Uuid),
     /// By a GTIN or natural key.
     Text(&'k str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_unique_index_firing_on_an_identity_write_is_a_race() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE products (natural_key TEXT NOT NULL UNIQUE)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let insert = || {
+            sqlx::query("INSERT INTO products (natural_key) VALUES ('naak|gel|')").execute(&pool)
+        };
+        assert_eq!(identity_written(insert().await, "enter").unwrap(), Ok(()));
+        assert_eq!(
+            identity_written(insert().await, "enter").unwrap(),
+            Err(IdentityClash::Raced)
+        );
+        // Any other failure stays a database error.
+        let missing = sqlx::query("UPDATE nowhere SET x = 1").execute(&pool).await;
+        assert!(identity_written(missing, "enter").is_err());
+    }
 }

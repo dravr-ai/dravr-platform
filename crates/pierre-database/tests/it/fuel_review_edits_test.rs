@@ -422,6 +422,59 @@ async fn an_identity_edit_another_product_holds_is_a_conflict() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_approvals_racing_onto_one_name_approve_one_and_conflict_the_other() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    // Each round renames two products onto one new name at once. On Postgres
+    // both checks can pass before either commits, and the unique index fires
+    // on the second: whether a round hits that window is up to the
+    // scheduler, so a few are run. Either way the answer is the sequential
+    // one, never an error.
+    for _ in 0..5 {
+        let first = live_product(repos, reviewer, "Rename Co", None).await;
+        let second = live_product(repos, reviewer, "Rename Co", None).await;
+        let first_update = update_of(repos, first.product.id, &first.product.name, None).await;
+        let second_update = update_of(repos, second.product.id, &second.product.name, None).await;
+        let onto_one = FuelFactOverrides {
+            name: FieldOverride::Set(format!("Raced {}", Uuid::new_v4())),
+            ..FuelFactOverrides::default()
+        };
+        let catalogue = &repos.fuel_catalogue;
+        let (a, b) = tokio::join!(
+            catalogue.approve_fuel_proposal(first_update, reviewer, &onto_one),
+            catalogue.approve_fuel_proposal(second_update, reviewer, &onto_one),
+        );
+        let (won, lost, loser) = match (a.unwrap(), b.unwrap()) {
+            (
+                FuelApprovalOutcome::Approved(won),
+                FuelApprovalOutcome::IdentityConflict { product_id },
+            ) => (won, product_id, (second_update, &second)),
+            (
+                FuelApprovalOutcome::IdentityConflict { product_id },
+                FuelApprovalOutcome::Approved(won),
+            ) => (won, product_id, (first_update, &first)),
+            other => panic!("one rename lands, the other conflicts: {other:?}"),
+        };
+        assert_eq!(lost, won.product.id, "the conflict names the winner");
+        let (loser_update, loser_product) = loser;
+        let stored = catalogue
+            .get_fuel_proposal(loser_update)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status, ProposalStatus::Pending);
+        let still = catalogue
+            .get_fuel_product(loser_product.product.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still.product, loser_product.product);
+        assert_eq!(still.current.id, loser_product.current.id);
+    }
+}
+
 #[tokio::test]
 async fn a_refused_edit_is_invalid_input_and_writes_nothing() {
     let db = create_test_db().await.unwrap();

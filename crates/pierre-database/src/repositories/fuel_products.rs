@@ -38,9 +38,10 @@ mod traits;
 
 pub(crate) use items::impl_athlete_fuel_items;
 pub(crate) use rows::{
-    bind_fuel_facts, catalogue_from_row, check_gtin, from_json, fuel_error, image_meta_from_row,
-    merge_for_approval, parse_form, parse_status, proposal_from_row, search_patterns, to_json,
-    CatalogueIds, FuelIdentityKey, ProductIdentity, ProposalIds, MAX_FUEL_PAGE,
+    bind_fuel_facts, catalogue_from_row, check_gtin, from_json, fuel_error, identity_written,
+    image_meta_from_row, merge_for_approval, parse_form, parse_status, proposal_from_row,
+    search_patterns, to_json, CatalogueIds, FuelIdentityKey, IdentityClash, ProductIdentity,
+    ProposalIds, MAX_FUEL_PAGE,
 };
 pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_INGEST_READS_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL,
@@ -55,10 +56,10 @@ pub(crate) use sql::{
     SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL, SUPERSEDE_CURRENT_VERSION_SQL,
 };
 pub(crate) use sql::{
-    COUNT_CATALOGUE_SQL, COUNT_PROPOSALS_BY_STATUS_SQL, PENDING_UPDATE_SQL,
+    COUNT_CATALOGUE_SQL, COUNT_PROPOSALS_BY_STATUS_SQL, LINK_INGEST_READ_SQL, PENDING_UPDATE_SQL,
     PRODUCT_HOLDING_LISTING_SQL, PROPOSAL_HOLDING_LISTING_SQL, RECORD_INGEST_READ_SQL,
-    REPLACE_PRODUCT_GTIN_SQL, SET_PRODUCT_FORM_SQL, SET_PRODUCT_IDENTITY_SQL,
-    SET_PRODUCT_LISTING_KEY_SQL,
+    RELEASE_DUPLICATE_READS_SQL, REPLACE_PRODUCT_GTIN_SQL, SET_PRODUCT_FORM_SQL,
+    SET_PRODUCT_IDENTITY_SQL, SET_PRODUCT_LISTING_KEY_SQL,
 };
 pub use traits::{AthleteFuelItemRepository, FuelCatalogueRepository};
 
@@ -182,7 +183,7 @@ macro_rules! impl_fuel_product_repositories {
             }
 
             /// The product an approval lands on, or `Err` with the one it
-            /// conflicts with.
+            /// conflicts with, or `Raced` when a unique index fired.
             ///
             /// The product the proposal updates (`product_id`), else the one
             /// its reviewed brand, name and variant name; else the one its
@@ -199,7 +200,8 @@ macro_rules! impl_fuel_product_repositories {
                 product_id: Option<Uuid>,
                 listing_key: Option<&str>,
                 now: DateTime<Utc>,
-            ) -> AppResult<Result<Uuid, Uuid>> {
+            ) -> AppResult<Result<Uuid, $crate::repositories::fuel_products::IdentityClash>> {
+                use $crate::repositories::fuel_products::IdentityClash::Held;
                 let identity = &reviewed.identity;
                 let key = identity.natural_key();
                 let key_edited =
@@ -235,13 +237,15 @@ macro_rules! impl_fuel_product_repositories {
                     }
                 };
                 let existing = match (named, by_gtin) {
-                    (Some(named), Some(holder)) if holder.id != named.id => return Ok(Err(holder.id)),
+                    (Some(named), Some(holder)) if holder.id != named.id => {
+                        return Ok(Err(Held(holder.id)))
+                    }
                     // The named product carries another barcode than the one
                     // read; an operator's barcode replaces it.
                     (Some(named), None)
                         if named.gtin.is_some() && identity.gtin.is_some() && !gtin_edited =>
                     {
-                        return Ok(Err(named.id))
+                        return Ok(Err(Held(named.id)))
                     }
                     (Some(named), _) => named,
                     (None, Some(holder)) => {
@@ -250,13 +254,13 @@ macro_rules! impl_fuel_product_repositories {
                         // on it by its printed barcode, an operator's edit
                         // never moves a read onto it.
                         if key_edited || gtin_edited {
-                            return Ok(Err(holder.id));
+                            return Ok(Err(Held(holder.id)));
                         }
                         holder
                     }
                     (None, None) => {
                         let id = Uuid::new_v4();
-                        sqlx::query(INSERT_PRODUCT_SQL)
+                        let inserted = sqlx::query(INSERT_PRODUCT_SQL)
                             .bind($ids::bind(id))
                             .bind(identity.gtin.as_deref())
                             .bind(identity.brand.as_str())
@@ -267,13 +271,16 @@ macro_rules! impl_fuel_product_repositories {
                             .bind(now)
                             .bind(listing_key)
                             .execute(&mut **tx)
-                            .await
-                            .map_err(|e| fuel_error("enter a product in", e))?;
-                        return Ok(Ok(id));
+                            .await;
+                        return Ok($crate::repositories::fuel_products::identity_written(
+                            inserted,
+                            "enter a product in",
+                        )?
+                        .map(|()| id));
                     }
                 };
-                if let Err(other) = Self::apply_fuel_identity_edits(tx, reviewed, &existing).await? {
-                    return Ok(Err(other));
+                if let Err(clash) = Self::apply_fuel_identity_edits(tx, reviewed, &existing).await? {
+                    return Ok(Err(clash));
                 }
                 if let Some(listing_key) = listing_key {
                     sqlx::query($crate::repositories::fuel_products::SET_PRODUCT_LISTING_KEY_SQL)
@@ -291,12 +298,14 @@ macro_rules! impl_fuel_product_repositories {
             /// included), the form, and a GTIN they set or cleared. A barcode
             /// read and never edited only fills a product that has none.
             /// `Err` with the product that already holds the renamed key,
-            /// checked before any write so the unique index never fires.
+            /// checked before any write, or `Raced` when a concurrent
+            /// approval committed that key or barcode after the check.
             async fn apply_fuel_identity_edits(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 reviewed: &pierre_core::models::ReviewedProposal,
                 existing: &$crate::repositories::fuel_products::ProductIdentity,
-            ) -> AppResult<Result<(), Uuid>> {
+            ) -> AppResult<Result<(), $crate::repositories::fuel_products::IdentityClash>> {
+                use $crate::repositories::fuel_products::identity_written;
                 let identity = &reviewed.identity;
                 if reviewed.changed("brand") || reviewed.changed("name") || reviewed.changed("variant") {
                     let (brand, name, variant) = existing.renamed_by(reviewed);
@@ -309,34 +318,42 @@ macro_rules! impl_fuel_product_repositories {
                         )
                         .await?;
                         if let Some(holder) = holder.filter(|holder| holder.id != existing.id) {
-                            return Ok(Err(holder.id));
+                            return Ok(Err($crate::repositories::fuel_products::IdentityClash::Held(
+                                holder.id,
+                            )));
                         }
                     }
-                    sqlx::query($crate::repositories::fuel_products::SET_PRODUCT_IDENTITY_SQL)
+                    let renamed = sqlx::query($crate::repositories::fuel_products::SET_PRODUCT_IDENTITY_SQL)
                         .bind($ids::bind(existing.id))
                         .bind(brand)
                         .bind(name)
                         .bind(variant)
                         .bind(key)
                         .execute(&mut **tx)
-                        .await
-                        .map_err(|e| fuel_error("correct a product's identity in", e))?;
+                        .await;
+                    if let Err(clash) = identity_written(renamed, "correct a product's identity in")? {
+                        return Ok(Err(clash));
+                    }
                 }
                 if reviewed.changed("gtin") {
-                    sqlx::query($crate::repositories::fuel_products::REPLACE_PRODUCT_GTIN_SQL)
+                    let replaced = sqlx::query($crate::repositories::fuel_products::REPLACE_PRODUCT_GTIN_SQL)
                         .bind($ids::bind(existing.id))
                         .bind(identity.gtin.as_deref())
                         .execute(&mut **tx)
-                        .await
-                        .map_err(|e| fuel_error("correct a product's GTIN in", e))?;
+                        .await;
+                    if let Err(clash) = identity_written(replaced, "correct a product's GTIN in")? {
+                        return Ok(Err(clash));
+                    }
                 } else if existing.gtin.is_none() {
                     if let Some(gtin) = identity.gtin.as_deref() {
-                        sqlx::query(SET_PRODUCT_GTIN_SQL)
+                        let set = sqlx::query(SET_PRODUCT_GTIN_SQL)
                             .bind($ids::bind(existing.id))
                             .bind(gtin)
                             .execute(&mut **tx)
-                            .await
-                            .map_err(|e| fuel_error("set a product's GTIN in", e))?;
+                            .await;
+                        if let Err(clash) = identity_written(set, "set a product's GTIN in")? {
+                            return Ok(Err(clash));
+                        }
                     }
                 }
                 if reviewed.changed("form") {
@@ -683,8 +700,10 @@ macro_rules! impl_fuel_product_repositories {
                 source_hash: &str,
                 outcome: pierre_core::models::FuelIngestOutcome,
                 proposal: Option<(&NewFuelProposal, &str)>,
-            ) -> AppResult<Option<Uuid>> {
-                let proposed = outcome == pierre_core::models::FuelIngestOutcome::Proposed;
+                held_by: Option<Uuid>,
+            ) -> AppResult<pierre_core::models::FuelReadRecorded> {
+                use pierre_core::models::{FuelIngestOutcome, FuelReadRecorded};
+                let proposed = outcome == FuelIngestOutcome::Proposed;
                 if proposed != proposal.is_some() {
                     return Err(AppError::invalid_input(format!(
                         "A label read that came to `{}` {} a proposal",
@@ -692,32 +711,54 @@ macro_rules! impl_fuel_product_repositories {
                         if proposed { "must file" } else { "files no" }
                     )));
                 }
+                let duplicate = outcome == FuelIngestOutcome::Duplicate;
+                if duplicate != held_by.is_some() {
+                    return Err(AppError::invalid_input(format!(
+                        "A label read that came to `{}` {} the proposal holding its product",
+                        outcome.as_str(),
+                        if duplicate { "must name" } else { "names no" }
+                    )));
+                }
                 if let Some((filed, _)) = proposal {
                     check_gtin(filed.gtin.as_deref())?;
                 }
                 let mut tx = self
                     .pool()
-                    .begin()
+                    .begin_with($begin)
                     .await
                     .map_err(|e| fuel_error("begin a label read in", e))?;
-                let filed = match proposal {
-                    Some((filed, listing_key)) => {
-                        Some(Self::insert_fuel_proposal(&mut tx, filed, Some(listing_key)).await?)
-                    }
-                    None => None,
-                };
-                sqlx::query($crate::repositories::fuel_products::RECORD_INGEST_READ_SQL)
+                // The read first: a run racing another on the same hash waits
+                // here for the first to commit, then records and files
+                // nothing, so the first read and its proposal stand.
+                let recorded = sqlx::query($crate::repositories::fuel_products::RECORD_INGEST_READ_SQL)
                     .bind(source_hash)
                     .bind(outcome.as_str())
-                    .bind($ids::bind_opt(filed))
+                    .bind($ids::bind_opt(held_by))
                     .bind(Utc::now())
                     .execute(&mut *tx)
                     .await
-                    .map_err(|e| fuel_error("record a label read in", e))?;
+                    .map_err(|e| fuel_error("record a label read in", e))?
+                    .rows_affected();
+                if recorded == 0 {
+                    return Ok(FuelReadRecorded::AlreadyOnFile);
+                }
+                let filed = match proposal {
+                    Some((filed, listing_key)) => {
+                        let id = Self::insert_fuel_proposal(&mut tx, filed, Some(listing_key)).await?;
+                        sqlx::query($crate::repositories::fuel_products::LINK_INGEST_READ_SQL)
+                            .bind(source_hash)
+                            .bind($ids::bind(id))
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| fuel_error("link a label read in", e))?;
+                        Some(id)
+                    }
+                    None => None,
+                };
                 tx.commit()
                     .await
                     .map_err(|e| fuel_error("commit a label read to", e))?;
-                Ok(filed)
+                Ok(FuelReadRecorded::Recorded(filed))
             }
 
             async fn fuel_ingest_read_seen(&self, source_hash: &str) -> AppResult<bool> {
@@ -881,68 +922,88 @@ macro_rules! impl_fuel_product_repositories {
                     return Ok(FuelApprovalOutcome::Implausible(violations));
                 }
                 let now = Utc::now();
-                let mut tx = self
-                    .pool()
-                    .begin_with($begin)
-                    .await
-                    .map_err(|e| fuel_error("begin an approval in", e))?;
-                let claimed = sqlx::query(CLAIM_PROPOSAL_SQL)
-                    .bind($ids::bind(proposal_id))
-                    .bind($ids::bind(reviewer_user_id))
-                    .bind(now)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| fuel_error("claim a proposal in", e))?
-                    .rows_affected();
-                if claimed != 1 {
-                    let status: String = sqlx::query_scalar(PROPOSAL_STATUS_SQL)
-                        .bind($ids::bind(proposal_id))
-                        .fetch_one(&mut *tx)
+                // A unique index firing on an identity write means a
+                // concurrent approval committed that key or barcode after
+                // this one's checks: roll back and decide once more, when the
+                // checks see it and answer IdentityConflict.
+                let mut raced = false;
+                let product_id = loop {
+                    let mut tx = self
+                        .pool()
+                        .begin_with($begin)
                         .await
-                        .map_err(|e| fuel_error("read a proposal in", e))?;
-                    return Ok(FuelApprovalOutcome::NotPending(parse_status(&status)?));
-                }
-                let product_id = match Self::resolve_fuel_product(
-                    &mut tx,
-                    &reviewed,
-                    proposal.product_id,
-                    proposal.listing_key.as_deref(),
-                    now,
-                )
-                .await?
-                {
-                    Ok(id) => id,
-                    // Dropping the transaction rolls the claim back.
-                    Err(product_id) => {
-                        return Ok(FuelApprovalOutcome::IdentityConflict { product_id })
+                        .map_err(|e| fuel_error("begin an approval in", e))?;
+                    let claimed = sqlx::query(CLAIM_PROPOSAL_SQL)
+                        .bind($ids::bind(proposal_id))
+                        .bind($ids::bind(reviewer_user_id))
+                        .bind(now)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| fuel_error("claim a proposal in", e))?
+                        .rows_affected();
+                    if claimed != 1 {
+                        let status: String = sqlx::query_scalar(PROPOSAL_STATUS_SQL)
+                            .bind($ids::bind(proposal_id))
+                            .fetch_one(&mut *tx)
+                            .await
+                            .map_err(|e| fuel_error("read a proposal in", e))?;
+                        return Ok(FuelApprovalOutcome::NotPending(parse_status(&status)?));
                     }
+                    let resolved = Self::resolve_fuel_product(
+                        &mut tx,
+                        &reviewed,
+                        proposal.product_id,
+                        proposal.listing_key.as_deref(),
+                        now,
+                    )
+                    .await?;
+                    let product_id = match resolved {
+                        Ok(id) => id,
+                        // Dropping the transaction rolls the claim back.
+                        Err($crate::repositories::fuel_products::IdentityClash::Held(product_id)) => {
+                            return Ok(FuelApprovalOutcome::IdentityConflict { product_id })
+                        }
+                        Err($crate::repositories::fuel_products::IdentityClash::Raced) if !raced => {
+                            tx.rollback()
+                                .await
+                                .map_err(|e| fuel_error("roll back a raced approval in", e))?;
+                            raced = true;
+                            continue;
+                        }
+                        Err($crate::repositories::fuel_products::IdentityClash::Raced) => {
+                            return Err(AppError::database(
+                                "A fuel approval hit a unique index twice: its identity checks miss a holder",
+                            ))
+                        }
+                    };
+                    let version_id = Self::write_fuel_version(
+                        &mut tx,
+                        product_id,
+                        &reviewed.facts,
+                        &provenance,
+                        reviewer_user_id,
+                        now,
+                    )
+                    .await?;
+                    sqlx::query(RECORD_APPROVAL_SQL)
+                        .bind($ids::bind(proposal_id))
+                        .bind($ids::bind(version_id))
+                        .bind($ids::bind(product_id))
+                        .bind(reviewed.identity.brand.as_str())
+                        .bind(reviewed.identity.name.as_str())
+                        .bind(reviewed.identity.variant.as_str())
+                        .bind(reviewed.identity.form.as_str())
+                        .bind(reviewed.identity.natural_key())
+                        .bind(reviewed.identity.gtin.as_deref())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| fuel_error("record an approval in", e))?;
+                    Self::relink_fuel_items(&mut tx, proposal_id, product_id, now).await?;
+                    tx.commit()
+                        .await
+                        .map_err(|e| fuel_error("commit an approval to", e))?;
+                    break product_id;
                 };
-                let version_id = Self::write_fuel_version(
-                    &mut tx,
-                    product_id,
-                    &reviewed.facts,
-                    &provenance,
-                    reviewer_user_id,
-                    now,
-                )
-                .await?;
-                sqlx::query(RECORD_APPROVAL_SQL)
-                    .bind($ids::bind(proposal_id))
-                    .bind($ids::bind(version_id))
-                    .bind($ids::bind(product_id))
-                    .bind(reviewed.identity.brand.as_str())
-                    .bind(reviewed.identity.name.as_str())
-                    .bind(reviewed.identity.variant.as_str())
-                    .bind(reviewed.identity.form.as_str())
-                    .bind(reviewed.identity.natural_key())
-                    .bind(reviewed.identity.gtin.as_deref())
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| fuel_error("record an approval in", e))?;
-                Self::relink_fuel_items(&mut tx, proposal_id, product_id, now).await?;
-                tx.commit()
-                    .await
-                    .map_err(|e| fuel_error("commit an approval to", e))?;
                 let approved = self.get_fuel_product(product_id).await?.ok_or_else(|| {
                     AppError::database("An approved fuel product has no current version")
                 })?;
@@ -956,17 +1017,35 @@ macro_rules! impl_fuel_product_repositories {
                 reason: FuelRejectReason,
                 note: Option<&str>,
             ) -> AppResult<bool> {
+                let mut tx = self
+                    .pool()
+                    .begin_with($begin)
+                    .await
+                    .map_err(|e| fuel_error("begin a rejection in", e))?;
                 let rejected = sqlx::query(REJECT_PROPOSAL_SQL)
                     .bind($ids::bind(proposal_id))
                     .bind($ids::bind(reviewer_user_id))
                     .bind(Utc::now())
                     .bind(reason.as_str())
                     .bind(note)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| fuel_error("reject a proposal in", e))?
                     .rows_affected();
-                Ok(rejected == 1)
+                if rejected != 1 {
+                    return Ok(false);
+                }
+                // The reads it held as duplicates come off file: nothing
+                // holds their product now, so their listings are read again.
+                sqlx::query($crate::repositories::fuel_products::RELEASE_DUPLICATE_READS_SQL)
+                    .bind($ids::bind(proposal_id))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| fuel_error("release a rejected proposal's reads in", e))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| fuel_error("commit a rejection to", e))?;
+                Ok(true)
             }
         }
 

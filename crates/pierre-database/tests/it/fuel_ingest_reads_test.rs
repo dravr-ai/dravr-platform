@@ -1,5 +1,5 @@
 // ABOUTME: Covers the ingestion job's storage against whichever backend DATABASE_URL names: the paid-read ledger and the listing key
-// ABOUTME: A read is recorded once, a proposed read files atomically, a listing is held until rejected, an update supersedes one version (carnet#155)
+// ABOUTME: A read is recorded once (the first of two racing runs stands), a proposed read files atomically, a rejection frees its listing and duplicates (carnet#155)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,8 +14,9 @@
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
     FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelIngestOutcome, FuelKeyHolder,
-    FuelRejectReason, ProposalStatus,
+    FuelReadRecorded, FuelRejectReason, ProposalStatus,
 };
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
@@ -24,6 +25,42 @@ use super::fuel_product_bank_test::{fresh_user, gel_facts, proposal};
 /// A read hash unique to this run.
 fn fresh_hash() -> String {
     format!("{:064x}", Uuid::new_v4().as_u128())
+}
+
+/// The proposal a read that filed one names.
+trait Filed {
+    fn filed(self) -> Uuid;
+}
+
+impl Filed for FuelReadRecorded {
+    fn filed(self) -> Uuid {
+        match self {
+            Self::Recorded(Some(id)) => id,
+            other => panic!("the read files a proposal: {other:?}"),
+        }
+    }
+}
+
+/// The outcome and proposal a read hash is on file with; no repository
+/// method reads them back.
+async fn ledger_row(db: &Database, hash: &str) -> Option<(String, Option<Uuid>)> {
+    const SQL: &str = "SELECT outcome, proposal_id FROM fuel_ingest_reads WHERE source_hash = $1";
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            let row: Option<(String, Option<String>)> = sqlx::query_as(SQL)
+                .bind(hash)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap();
+            row.map(|(outcome, id)| (outcome, id.map(|id| Uuid::parse_str(&id).unwrap())))
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(SQL)
+            .bind(hash)
+            .fetch_optional(pg.pool())
+            .await
+            .unwrap(),
+    }
 }
 
 /// A listing key unique to this run, shaped as the job derives it.
@@ -44,10 +81,15 @@ async fn a_proposed_read_files_its_proposal_under_its_listing_in_one_step() {
     let mut read = proposal("Näak", gel_facts());
     read.source_hash = Some(hash.clone());
     let id = catalogue
-        .record_fuel_ingest_read(&hash, FuelIngestOutcome::Proposed, Some((&read, &listing)))
+        .record_fuel_ingest_read(
+            &hash,
+            FuelIngestOutcome::Proposed,
+            Some((&read, &listing)),
+            None,
+        )
         .await
         .unwrap()
-        .unwrap();
+        .filed();
     assert!(catalogue.fuel_ingest_read_seen(&hash).await.unwrap());
     let stored = catalogue.get_fuel_proposal(id).await.unwrap().unwrap();
     assert_eq!(stored.listing_key.as_deref(), Some(listing.as_str()));
@@ -90,10 +132,11 @@ async fn a_proposed_read_files_its_proposal_under_its_listing_in_one_step() {
             &update_hash,
             FuelIngestOutcome::Proposed,
             Some((&update, &listing)),
+            None,
         )
         .await
         .unwrap()
-        .unwrap();
+        .filed();
     assert_eq!(
         catalogue
             .pending_fuel_update(product.product.id)
@@ -113,31 +156,42 @@ async fn a_read_that_filed_nothing_is_on_file_all_the_same() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let catalogue = &repos.fuel_catalogue;
+    let holder = catalogue
+        .create_fuel_proposal(&proposal("Näak", gel_facts()))
+        .await
+        .unwrap();
     let before = catalogue
         .count_fuel_proposals(ProposalStatus::Pending)
         .await
         .unwrap();
-    for outcome in [
-        FuelIngestOutcome::Illegible,
-        FuelIngestOutcome::Duplicate,
-        FuelIngestOutcome::ParseFailed,
-        FuelIngestOutcome::Unchanged,
+    for (outcome, held_by) in [
+        (FuelIngestOutcome::Illegible, None),
+        (FuelIngestOutcome::Duplicate, Some(holder)),
+        (FuelIngestOutcome::ParseFailed, None),
+        (FuelIngestOutcome::Unchanged, None),
     ] {
         let hash = fresh_hash();
         assert_eq!(
             catalogue
-                .record_fuel_ingest_read(&hash, outcome, None)
+                .record_fuel_ingest_read(&hash, outcome, None, held_by)
                 .await
                 .unwrap(),
-            None,
+            FuelReadRecorded::Recorded(None),
             "{outcome:?}"
         );
         assert!(catalogue.fuel_ingest_read_seen(&hash).await.unwrap());
-        // Recorded again (a racing run), it stays one read.
-        catalogue
-            .record_fuel_ingest_read(&hash, outcome, None)
-            .await
-            .unwrap();
+        // Recorded again (a racing run), the first stands.
+        assert_eq!(
+            catalogue
+                .record_fuel_ingest_read(&hash, outcome, None, held_by)
+                .await
+                .unwrap(),
+            FuelReadRecorded::AlreadyOnFile
+        );
+        assert_eq!(
+            ledger_row(&db, &hash).await,
+            Some((outcome.as_str().to_owned(), held_by))
+        );
     }
     assert_eq!(
         catalogue
@@ -159,7 +213,7 @@ async fn an_outcome_and_its_proposal_must_agree() {
 
     let unfiled = fresh_hash();
     let refused = catalogue
-        .record_fuel_ingest_read(&unfiled, FuelIngestOutcome::Proposed, None)
+        .record_fuel_ingest_read(&unfiled, FuelIngestOutcome::Proposed, None, None)
         .await
         .unwrap_err();
     assert_eq!(refused.code, ErrorCode::InvalidInput);
@@ -170,13 +224,37 @@ async fn an_outcome_and_its_proposal_must_agree() {
             &illegible,
             FuelIngestOutcome::Illegible,
             Some((&read, &listing)),
+            None,
         )
         .await
         .unwrap_err();
     assert_eq!(refused.code, ErrorCode::InvalidInput);
 
-    // Neither was recorded, and nothing holds the listing.
-    for hash in [unfiled, illegible] {
+    // A duplicate names the proposal holding its product; nothing else does.
+    let holder = catalogue
+        .create_fuel_proposal(&proposal("Näak", gel_facts()))
+        .await
+        .unwrap();
+    let unheld = fresh_hash();
+    let refused = catalogue
+        .record_fuel_ingest_read(&unheld, FuelIngestOutcome::Duplicate, None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::InvalidInput);
+    let held_illegible = fresh_hash();
+    let refused = catalogue
+        .record_fuel_ingest_read(
+            &held_illegible,
+            FuelIngestOutcome::Illegible,
+            None,
+            Some(holder),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::InvalidInput);
+
+    // None was recorded, and nothing holds the listing.
+    for hash in [unfiled, illegible, unheld, held_illegible] {
         assert!(!catalogue.fuel_ingest_read_seen(&hash).await.unwrap());
     }
     assert_eq!(catalogue.fuel_listing_holder(&listing).await.unwrap(), None);
@@ -195,10 +273,11 @@ async fn a_rejected_listing_holds_nothing() {
             &hash,
             FuelIngestOutcome::Proposed,
             Some((&proposal("Näak", gel_facts()), &listing)),
+            None,
         )
         .await
         .unwrap()
-        .unwrap();
+        .filed();
     assert!(catalogue
         .reject_fuel_proposal(id, reviewer, FuelRejectReason::WrongProduct, None)
         .await
@@ -206,6 +285,162 @@ async fn a_rejected_listing_holds_nothing() {
     assert_eq!(catalogue.fuel_listing_holder(&listing).await.unwrap(), None);
     // Its read stays on file: the same photos are not paid for again.
     assert!(catalogue.fuel_ingest_read_seen(&hash).await.unwrap());
+}
+
+#[tokio::test]
+async fn rejecting_a_holder_takes_its_duplicate_reads_off_file() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let catalogue = &repos.fuel_catalogue;
+    let reviewer = fresh_user(repos).await;
+    // One listing's read filed the product; the other pack's listing read it
+    // again and was held as a duplicate of that proposal.
+    let filed_hash = fresh_hash();
+    let holder = catalogue
+        .record_fuel_ingest_read(
+            &filed_hash,
+            FuelIngestOutcome::Proposed,
+            Some((&proposal("Näak", gel_facts()), &fresh_listing())),
+            None,
+        )
+        .await
+        .unwrap()
+        .filed();
+    let held_hash = fresh_hash();
+    assert_eq!(
+        catalogue
+            .record_fuel_ingest_read(&held_hash, FuelIngestOutcome::Duplicate, None, Some(holder))
+            .await
+            .unwrap(),
+        FuelReadRecorded::Recorded(None)
+    );
+    // A duplicate another proposal holds is not this rejection's.
+    let other = catalogue
+        .create_fuel_proposal(&proposal("Näak", gel_facts()))
+        .await
+        .unwrap();
+    let other_hash = fresh_hash();
+    catalogue
+        .record_fuel_ingest_read(&other_hash, FuelIngestOutcome::Duplicate, None, Some(other))
+        .await
+        .unwrap();
+
+    assert!(catalogue
+        .reject_fuel_proposal(holder, reviewer, FuelRejectReason::WrongProduct, None)
+        .await
+        .unwrap());
+    assert!(
+        !catalogue.fuel_ingest_read_seen(&held_hash).await.unwrap(),
+        "nothing holds its product now, so the next run reads it again"
+    );
+    assert!(
+        catalogue.fuel_ingest_read_seen(&filed_hash).await.unwrap(),
+        "the rejected read itself stays paid for"
+    );
+    assert!(catalogue.fuel_ingest_read_seen(&other_hash).await.unwrap());
+
+    // Rejecting it again changes nothing.
+    assert!(!catalogue
+        .reject_fuel_proposal(holder, reviewer, FuelRejectReason::WrongProduct, None)
+        .await
+        .unwrap());
+    assert!(catalogue.fuel_ingest_read_seen(&other_hash).await.unwrap());
+}
+
+#[tokio::test]
+async fn the_first_of_two_runs_recording_one_read_stands() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let catalogue = &repos.fuel_catalogue;
+    let pending = || async {
+        catalogue
+            .count_fuel_proposals(ProposalStatus::Pending)
+            .await
+            .unwrap()
+    };
+
+    // Filed first: a second run's illegible answer leaves it filed and linked.
+    let hash = fresh_hash();
+    let listing = fresh_listing();
+    let filed = catalogue
+        .record_fuel_ingest_read(
+            &hash,
+            FuelIngestOutcome::Proposed,
+            Some((&proposal("Näak", gel_facts()), &listing)),
+            None,
+        )
+        .await
+        .unwrap()
+        .filed();
+    assert_eq!(
+        catalogue
+            .record_fuel_ingest_read(&hash, FuelIngestOutcome::Illegible, None, None)
+            .await
+            .unwrap(),
+        FuelReadRecorded::AlreadyOnFile
+    );
+    assert_eq!(
+        ledger_row(&db, &hash).await,
+        Some(("proposed".to_owned(), Some(filed)))
+    );
+
+    // Illegible first: a second run's proposal is not filed.
+    let hash = fresh_hash();
+    catalogue
+        .record_fuel_ingest_read(&hash, FuelIngestOutcome::Illegible, None, None)
+        .await
+        .unwrap();
+    let before = pending().await;
+    let late = fresh_listing();
+    assert_eq!(
+        catalogue
+            .record_fuel_ingest_read(
+                &hash,
+                FuelIngestOutcome::Proposed,
+                Some((&proposal("Näak", gel_facts()), &late)),
+                None,
+            )
+            .await
+            .unwrap(),
+        FuelReadRecorded::AlreadyOnFile
+    );
+    assert_eq!(pending().await, before);
+    assert_eq!(catalogue.fuel_listing_holder(&late).await.unwrap(), None);
+    assert_eq!(
+        ledger_row(&db, &hash).await,
+        Some(("illegible".to_owned(), None))
+    );
+
+    // At once: one files and is linked, the other files nothing.
+    for _ in 0..5 {
+        let hash = fresh_hash();
+        let before = pending().await;
+        let (first, second) = (proposal("Näak", gel_facts()), proposal("Näak", gel_facts()));
+        let (a, b) = tokio::join!(
+            catalogue.record_fuel_ingest_read(
+                &hash,
+                FuelIngestOutcome::Proposed,
+                Some((&first, &listing)),
+                None,
+            ),
+            catalogue.record_fuel_ingest_read(
+                &hash,
+                FuelIngestOutcome::Proposed,
+                Some((&second, &listing)),
+                None,
+            ),
+        );
+        let won = match (a.unwrap(), b.unwrap()) {
+            (FuelReadRecorded::Recorded(Some(id)), FuelReadRecorded::AlreadyOnFile)
+            | (FuelReadRecorded::AlreadyOnFile, FuelReadRecorded::Recorded(Some(id))) => id,
+            other => panic!("one run files the read, the other nothing: {other:?}"),
+        };
+        assert_eq!(pending().await, before + 1);
+        assert_eq!(
+            ledger_row(&db, &hash).await,
+            Some(("proposed".to_owned(), Some(won)))
+        );
+    }
 }
 
 #[tokio::test]
@@ -220,10 +455,11 @@ async fn an_approved_update_supersedes_exactly_the_products_current_version() {
             &fresh_hash(),
             FuelIngestOutcome::Proposed,
             Some((&proposal("Näak", gel_facts()), &listing)),
+            None,
         )
         .await
         .unwrap()
-        .unwrap();
+        .filed();
     let FuelApprovalOutcome::Approved(v1) = catalogue
         .approve_fuel_proposal(first, reviewer, &FuelFactOverrides::default())
         .await
@@ -247,10 +483,11 @@ async fn an_approved_update_supersedes_exactly_the_products_current_version() {
             &fresh_hash(),
             FuelIngestOutcome::Proposed,
             Some((&update, &listing)),
+            None,
         )
         .await
         .unwrap()
-        .unwrap();
+        .filed();
     let outcome = catalogue
         .approve_fuel_proposal(update_id, reviewer, &FuelFactOverrides::default())
         .await

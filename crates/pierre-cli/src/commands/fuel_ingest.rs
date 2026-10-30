@@ -15,11 +15,15 @@
 //!
 //! - **Never pay twice.** Every read the job pays for is recorded in
 //!   `fuel_ingest_reads` under its [`fuel_read_hash`] — the page URL, every
-//!   photo sent in order, the `fuel_panel_extraction` prompt text and the
-//!   configured model — whatever it came to: a proposal, an illegible label,
-//!   a duplicate, an unchanged product or an answer that did not parse. A
-//!   hash on file is skipped before the call, so an unchanged weekly run
-//!   costs only the downloads, and a new photo, prompt or model reads again.
+//!   photo sent in order, the `fuel_panel_extraction` prompt text, the
+//!   configured model, the output cap and the temperature — whatever it came
+//!   to: a proposal, an illegible label, a duplicate, an unchanged product or
+//!   an answer that did not parse. A hash on file is skipped before the call,
+//!   so an unchanged weekly run costs only the downloads, and a new photo,
+//!   prompt, model or cap reads again. Of two runs racing on one read, the
+//!   first recorded stands and the second files nothing. A `duplicate` read
+//!   names the proposal that held its product, and rejecting that proposal
+//!   takes the read off file, so the listing is read again.
 //!   A provider error or a tier that cannot see images is not recorded: the
 //!   next run tries again. Nor is a read that filed nothing when a fallback
 //!   tier on another model answered it ([`read_by_hashed_model`]): the hash
@@ -51,12 +55,14 @@
 //!   notes when the photos were not tied to one flavour or the proposal
 //!   updates a catalogued product.
 //!
-//! The run fails (non-zero exit, which the job-failure alert counts) when
-//! labels were sent and not one read came back, when every candidate failed
-//! outside the read, or when no brand could be listed.
+//! The run fails (non-zero exit, logged at ERROR, which the job-failure
+//! alert counts) when labels were sent and not one came back legible, when
+//! every candidate failed outside the read, or when no brand could be listed
+//! ([`Tally::verdict`]). A run that sent nothing is no failure.
 
 mod extraction;
 mod shopify;
+mod tally;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -64,8 +70,8 @@ use std::sync::Arc;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    fuel_natural_key, fuel_read_hash, FuelFacts, FuelIngestOutcome, FuelKeyHolder, NewFuelProposal,
-    ProposalSource, ProposalSourceImage,
+    fuel_natural_key, fuel_read_hash, FuelFacts, FuelIngestOutcome, FuelKeyHolder,
+    FuelReadRecorded, FuelReadRequest, NewFuelProposal, ProposalSource, ProposalSourceImage,
 };
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
@@ -77,11 +83,14 @@ use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use extraction::{label_request, map_reading, read_label, ReadFailure, Reading};
+use extraction::{
+    label_request, map_reading, read_label, ReadFailure, Reading, MAX_OUTPUT_TOKENS, TEMPERATURE,
+};
 use shopify::{
     download_image, fetch_fuel_products, label_candidates, listing_key, LabelCandidate, LabelImage,
     ShopifyProduct, MAX_READ_BYTES,
 };
+use tally::Tally;
 
 /// A brand the job reads, and how its storefront is filtered to fuel.
 #[derive(Debug)]
@@ -167,108 +176,6 @@ pub(crate) struct FuelIngestArgs {
     /// Read the labels and print what would be proposed; write nothing.
     #[arg(long)]
     pub dry_run: bool,
-}
-
-/// What the run did, counted.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Tally {
-    brands_failed: usize,
-    products_listed: usize,
-    products_seen: usize,
-    candidates: usize,
-    /// Reads filed as a new product's proposal.
-    proposed: usize,
-    /// Reads filed as an update of a catalogued product whose facts changed.
-    proposed_update: usize,
-    /// Reads that found no readable panel; nothing filed.
-    illegible: usize,
-    /// Reads whose product a live proposal already holds; nothing filed.
-    duplicate: usize,
-    /// Reads of a catalogued product whose facts are unchanged; nothing filed.
-    unchanged: usize,
-    /// Answers that were not the prompt's object; recorded, nothing filed.
-    parse_failed: usize,
-    /// Candidates whose read hash is on file: no call.
-    skipped_already_read: usize,
-    /// Candidates whose listing a live proposal holds: no call.
-    skipped_listing_held: usize,
-    skipped_no_photo: usize,
-    llm_calls: usize,
-    /// Prompt tokens the answers were billed for, as the providers report.
-    prompt_tokens: u64,
-    /// Completion tokens the answers were billed for.
-    completion_tokens: u64,
-    discarded_no_vision: usize,
-    /// Reads that errored on every tier (not recorded: retried next run).
-    read_failed: usize,
-    /// Reads that filed nothing, answered by a fallback tier on another model
-    /// than the hashed one (not recorded: retried next run).
-    unrecorded_fallback: usize,
-    /// Candidates that failed outside the read (download, database).
-    failed: usize,
-}
-
-impl Tally {
-    /// Log the summary the job-failure alert's reader starts from.
-    fn log(&self, dry_run: bool, brands: usize) {
-        info!(
-            dry_run,
-            brands,
-            brands_failed = self.brands_failed,
-            listed = self.products_listed,
-            products_seen = self.products_seen,
-            candidates = self.candidates,
-            proposed = self.proposed,
-            proposed_update = self.proposed_update,
-            illegible = self.illegible,
-            duplicate = self.duplicate,
-            unchanged = self.unchanged,
-            parse_failed = self.parse_failed,
-            skipped_already_read = self.skipped_already_read,
-            skipped_listing_held = self.skipped_listing_held,
-            skipped_no_photo = self.skipped_no_photo,
-            llm_calls = self.llm_calls,
-            prompt_tokens = self.prompt_tokens,
-            completion_tokens = self.completion_tokens,
-            discarded_no_vision = self.discarded_no_vision,
-            read_failed = self.read_failed,
-            unrecorded_fallback = self.unrecorded_fallback,
-            failed = self.failed,
-            "fuel ingestion finished"
-        );
-    }
-
-    /// The run's verdict: an error when labels were sent and none was read,
-    /// when every candidate failed before or after its read (the database
-    /// down, every photo download refused), or when no brand could be listed.
-    fn verdict(&self, brands: usize) -> AppResult<()> {
-        let unread = self.discarded_no_vision + self.read_failed + self.parse_failed;
-        if self.llm_calls > 0 && unread >= self.llm_calls {
-            return Err(AppError::external_service(
-                "llm",
-                format!(
-                    "every label read failed ({} sent, {} discarded for no vision, {} errored, {} unparseable)",
-                    self.llm_calls, self.discarded_no_vision, self.read_failed, self.parse_failed
-                ),
-            ));
-        }
-        if self.candidates > 0 && self.failed == self.candidates {
-            return Err(AppError::external_service(
-                "fuel-ingest",
-                format!(
-                    "every label candidate failed outside the read ({} of {}: downloads or the database)",
-                    self.failed, self.candidates
-                ),
-            ));
-        }
-        if brands > 0 && self.brands_failed == brands {
-            return Err(AppError::external_service(
-                "shopify",
-                "no brand storefront could be listed",
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// The brands `slugs` names, every brand when it names none.
@@ -579,7 +486,16 @@ impl Run {
             return Ok(None);
         }
         let sent: Vec<&[u8]> = images.iter().map(|image| image.bytes.as_slice()).collect();
-        let hash = fuel_read_hash(&candidate.page_url, &sent, &self.prompt, &self.model);
+        let hash = fuel_read_hash(
+            &candidate.page_url,
+            &sent,
+            FuelReadRequest {
+                prompt: &self.prompt,
+                model: &self.model,
+                max_tokens: MAX_OUTPUT_TOKENS,
+                temperature: TEMPERATURE,
+            },
+        );
         if self
             .repos
             .fuel_catalogue
@@ -700,16 +616,13 @@ impl Run {
         let (read, by_hashed_model) = match self.read(brand, candidate, &images).await? {
             None => return Ok(()),
             Some((Err(_), by_hashed_model)) => {
-                self.record(
-                    candidate,
-                    &hash,
-                    &listing,
-                    Filing::ParseFailed,
-                    None,
-                    by_hashed_model,
-                )
-                .await?;
-                self.count(Filing::ParseFailed, None, &listing);
+                let filing = Filing::ParseFailed;
+                if self
+                    .record(candidate, &hash, &listing, filing, None, by_hashed_model)
+                    .await?
+                {
+                    self.count(filing, None, &listing);
+                }
                 return Ok(());
             }
             Some((Ok(read), by_hashed_model)) => (read, by_hashed_model),
@@ -737,8 +650,8 @@ impl Run {
         }
         if self.preview {
             println!("{}", preview_line(&proposal, &read, filing));
-        } else {
-            self.record(
+        } else if !self
+            .record(
                 candidate,
                 &hash,
                 &listing,
@@ -746,7 +659,9 @@ impl Run {
                 Some(&proposal),
                 by_hashed_model,
             )
-            .await?;
+            .await?
+        {
+            return Ok(());
         }
         self.count(filing, Some(&proposal), &listing);
         Ok(())
@@ -755,7 +670,9 @@ impl Run {
     /// [`Self::file`] the read, unless it filed nothing and the hashed model
     /// did not make it: then it is counted and left off file, so the next
     /// run reads it again. A filed proposal is always recorded: its listing
-    /// holds the product, so the next run would not read it anyway.
+    /// holds the product, so the next run would not read it anyway. `false`
+    /// (counted) when a concurrent run recorded the read first, so this one
+    /// is not counted under its filing.
     async fn record(
         &mut self,
         candidate: &LabelCandidate,
@@ -764,9 +681,15 @@ impl Run {
         filing: Filing,
         proposal: Option<&NewFuelProposal>,
         by_hashed_model: bool,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         if by_hashed_model || matches!(filing, Filing::New | Filing::Update(_)) {
-            return self.file(candidate, hash, listing, filing, proposal).await;
+            let stands = self
+                .file(candidate, hash, listing, filing, proposal)
+                .await?;
+            if !stands {
+                self.tally.raced += 1;
+            }
+            return Ok(stands);
         }
         warn!(
             page = %redact_url(&candidate.page_url),
@@ -775,11 +698,13 @@ impl Run {
             "a fallback tier on another model read this label; not recorded, so the next run reads it again"
         );
         self.tally.unrecorded_fallback += 1;
-        Ok(())
+        Ok(true)
     }
 
     /// Record the read (not in a dry run), filing `proposal` when it came
-    /// to one.
+    /// to one, and a duplicate under the proposal that holds its product.
+    /// `false` (logged) when a concurrent run recorded it first: that run's
+    /// outcome stands, and nothing was filed.
     async fn file(
         &self,
         candidate: &LabelCandidate,
@@ -787,7 +712,7 @@ impl Run {
         listing: &str,
         filing: Filing,
         proposal: Option<&NewFuelProposal>,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         if self.preview {
             if filing == Filing::ParseFailed {
                 println!(
@@ -795,14 +720,26 @@ impl Run {
                     json!({ "would_record": { "as": filing.label(), "source_url": candidate.page_url } })
                 );
             }
-            return Ok(());
+            return Ok(true);
         }
         let filed = proposal.filter(|_| matches!(filing, Filing::New | Filing::Update(_)));
-        let id = self
+        let held_by = match filing {
+            Filing::Duplicate(Some(FuelKeyHolder::Proposal(holder))) => Some(holder),
+            _ => None,
+        };
+        let recorded = self
             .repos
             .fuel_catalogue
-            .record_fuel_ingest_read(hash, filing.outcome(), filed.map(|p| (p, listing)))
+            .record_fuel_ingest_read(hash, filing.outcome(), filed.map(|p| (p, listing)), held_by)
             .await?;
+        let FuelReadRecorded::Recorded(id) = recorded else {
+            warn!(
+                page = %redact_url(&candidate.page_url),
+                outcome = filing.label(),
+                "a concurrent run recorded this read first; its outcome stands, nothing filed"
+            );
+            return Ok(false);
+        };
         info!(
             page = %redact_url(&candidate.page_url),
             proposal = ?id,
@@ -810,7 +747,7 @@ impl Run {
             flags = filed.map_or(0, |p| p.gate_flags.len()),
             "label read recorded"
         );
-        Ok(())
+        Ok(true)
     }
 
     /// Count `filing`, and in a dry run remember what it would have filed.
@@ -1018,74 +955,6 @@ mod tests {
             reviewer_notes(None, Some("b".to_owned())).as_deref(),
             Some("Ingestion job: b")
         );
-    }
-
-    #[test]
-    fn the_run_fails_only_when_every_read_failed_or_no_brand_listed() {
-        let mut tally = Tally {
-            llm_calls: 3,
-            read_failed: 2,
-            discarded_no_vision: 1,
-            ..Tally::default()
-        };
-        assert!(tally.verdict(1).is_err());
-        tally.proposed = 1;
-        tally.read_failed = 1;
-        assert!(tally.verdict(1).is_ok());
-        // A download or database failure is not a failed read.
-        assert!(Tally {
-            candidates: 5,
-            llm_calls: 1,
-            proposed: 1,
-            failed: 4,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_ok());
-        // But a run where every candidate failed (the database down: even the
-        // dedupe lookup errors, so no read is ever sent) filed nothing.
-        assert!(Tally {
-            candidates: 4,
-            failed: 4,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_err());
-        // Reads on file and held listings are no call, and no failure.
-        assert!(Tally {
-            skipped_already_read: 5,
-            skipped_listing_held: 2,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_ok());
-        // Illegible, duplicate and unchanged reads were read.
-        assert!(Tally {
-            candidates: 3,
-            llm_calls: 3,
-            illegible: 1,
-            duplicate: 1,
-            unchanged: 1,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_ok());
-        // Answers that never parse are failed reads.
-        assert!(Tally {
-            candidates: 2,
-            llm_calls: 2,
-            parse_failed: 1,
-            read_failed: 1,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_err());
-        assert!(Tally {
-            brands_failed: 2,
-            ..Tally::default()
-        }
-        .verdict(2)
-        .is_err());
     }
 
     fn read() -> Reading {

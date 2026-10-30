@@ -161,15 +161,18 @@ CREATE TABLE IF NOT EXISTS fuel_proposal_images (
 -- source, whatever it found, so an unchanged weekly run makes no LLM call.
 -- Global like the catalogue.
 --   source_hash  sha256 hex over the page URL, every photo sent in order, the
---                fuel_panel_extraction prompt text sent and the configured
---                model: a new photo, prompt or model is a new source and is
---                read again
+--                fuel_panel_extraction prompt text sent, the configured
+--                model, the output cap and the temperature: a new photo,
+--                prompt, model or cap is a new source and is read again; of
+--                two runs racing on one hash, the first recorded stands
 --   outcome      proposed (a new or an update proposal was filed), illegible
 --                (no panel could be read; nothing filed), duplicate (a live
 --                proposal already holds the product), parse_failed (the
 --                answer was not the prompt's object), unchanged (the
 --                catalogued product's current facts are what was read)
---   proposal_id  the proposal a `proposed` read filed
+--   proposal_id  the proposal a `proposed` read filed, or the one holding a
+--                `duplicate` read's product: rejecting it deletes the
+--                duplicate row, so that listing is read again
 CREATE TABLE IF NOT EXISTS fuel_ingest_reads (
     source_hash TEXT PRIMARY KEY,
     outcome TEXT NOT NULL CHECK (outcome IN ('proposed', 'illegible', 'duplicate', 'parse_failed', 'unchanged')),

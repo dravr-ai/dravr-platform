@@ -170,16 +170,25 @@ pub(crate) const PENDING_UPDATE_SQL: &str = r"
 pub(crate) const COUNT_INGEST_READS_SQL: &str =
     "SELECT COUNT(*) FROM fuel_ingest_reads WHERE source_hash = $1";
 
-/// Record label read `$1`: outcome `$2`, the proposal `$3` it filed, at `$4`.
-/// A hash already on file takes the new outcome: the job never reads one
-/// twice, so only a run racing another lands here.
+/// Record label read `$1`: outcome `$2`, the proposal `$3` that holds a
+/// duplicate's product (a proposed read is linked by
+/// [`LINK_INGEST_READ_SQL`] once filed), at `$4`. A hash already on file is
+/// left as it is: the job never reads one twice, so only a run racing another
+/// lands here, and the first recorded stands.
 pub(crate) const RECORD_INGEST_READ_SQL: &str = r"
             INSERT INTO fuel_ingest_reads (source_hash, outcome, proposal_id, read_at)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (source_hash) DO UPDATE
-            SET outcome = excluded.outcome, proposal_id = excluded.proposal_id,
-                read_at = excluded.read_at
+            ON CONFLICT (source_hash) DO NOTHING
             ";
+
+/// Link label read `$1` to the proposal `$2` it filed.
+pub(crate) const LINK_INGEST_READ_SQL: &str =
+    "UPDATE fuel_ingest_reads SET proposal_id = $2 WHERE source_hash = $1";
+
+/// Take off file the `duplicate` reads rejected proposal `$1` held, so their
+/// listings are read again.
+pub(crate) const RELEASE_DUPLICATE_READS_SQL: &str =
+    "DELETE FROM fuel_ingest_reads WHERE proposal_id = $1 AND outcome = 'duplicate'";
 
 /// Proposals in status `$1`, oldest first, `$2` of them after `$3`.
 pub(crate) const LIST_PROPOSALS_SQL: &str = concat!(

@@ -9,8 +9,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{
     AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome,
     FuelFactOverrides, FuelIngestOutcome, FuelItemCarried, FuelKeyHolder, FuelProductProposal,
-    FuelProposalImageMeta, FuelRejectReason, NewFuelProposal, ProposalSourceImage, ProposalStatus,
-    TenantId,
+    FuelProposalImageMeta, FuelReadRecorded, FuelRejectReason, NewFuelProposal,
+    ProposalSourceImage, ProposalStatus, TenantId,
 };
 use uuid::Uuid;
 
@@ -66,18 +66,24 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// [`pierre_core::models::fuel_read_hash`], so no later run pays for it
     /// again. A [`FuelIngestOutcome::Proposed`] read files `proposal` —
     /// queued for review with its photos and the storefront `listing_key` it
-    /// was read from — in the same transaction, and its id is returned; every
-    /// other outcome files nothing and returns `None`.
+    /// was read from — in the same transaction, and its id comes back; every
+    /// other outcome files nothing. A [`FuelIngestOutcome::Duplicate`] read
+    /// names the proposal `held_by` that holds its product, and
+    /// [`Self::reject_fuel_proposal`] takes it off file. A hash already on
+    /// file (a run racing another) is left as it is and nothing is filed:
+    /// [`FuelReadRecorded::AlreadyOnFile`].
     ///
     /// # Errors
     /// An invalid-input error when a proposal comes with any outcome but
-    /// `Proposed` or none with it, or as [`Self::create_fuel_proposal`].
+    /// `Proposed` or none with it, or a holder with any outcome but
+    /// `Duplicate` or none with it, or as [`Self::create_fuel_proposal`].
     async fn record_fuel_ingest_read(
         &self,
         source_hash: &str,
         outcome: FuelIngestOutcome,
         proposal: Option<(&NewFuelProposal, &str)>,
-    ) -> AppResult<Option<Uuid>>;
+        held_by: Option<Uuid>,
+    ) -> AppResult<FuelReadRecorded>;
 
     /// Whether a label read with this hash is on file, whatever it came to.
     async fn fuel_ingest_read_seen(&self, source_hash: &str) -> AppResult<bool>;
@@ -155,7 +161,8 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// show. An edit whose new key or GTIN another product already holds, or
     /// a GTIN edit (or a key edit) that would land a new read on a barcoded
     /// product filed under another key, is an
-    /// [`FuelApprovalOutcome::IdentityConflict`] and writes nothing. The
+    /// [`FuelApprovalOutcome::IdentityConflict`] and writes nothing, as is
+    /// one that a concurrent approval beats to that key or barcode. The
     /// proposal's storefront listing key is given to a product that has none.
     ///
     /// # Errors
@@ -168,7 +175,9 @@ pub trait FuelCatalogueRepository: Send + Sync {
         overrides: &FuelFactOverrides,
     ) -> AppResult<FuelApprovalOutcome>;
 
-    /// Reject a pending proposal. Returns whether it was pending.
+    /// Reject a pending proposal, and take off file the `duplicate` label
+    /// reads it held, so their listings are read again. Returns whether it
+    /// was pending.
     async fn reject_fuel_proposal(
         &self,
         proposal_id: Uuid,

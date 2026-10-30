@@ -35,6 +35,7 @@ pub use gate::{
 };
 pub use identity::{
     fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin, proposal_source_hash,
+    FuelReadRequest,
 };
 pub use overrides::{FieldOverride, FuelFactOverrides, FuelIdentity, ReviewedProposal};
 
@@ -468,6 +469,16 @@ impl FuelIngestOutcome {
             .into_iter()
             .find(|outcome| outcome.as_str() == stored)
     }
+}
+
+/// What recording a label read the ingestion job paid for came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuelReadRecorded {
+    /// On file now, with the proposal it filed, if it filed one.
+    Recorded(Option<Uuid>),
+    /// A concurrent run recorded the same read first: its outcome stands, and
+    /// nothing was filed.
+    AlreadyOnFile,
 }
 
 /// One photo a proposal's label was read from.
