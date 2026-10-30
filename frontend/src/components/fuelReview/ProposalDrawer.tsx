@@ -43,7 +43,7 @@ function outcomeMessage(result: FuelApprovalResult | FuelRejectResult): string {
     case 'not_pending':
       return `Already reviewed: this proposal is ${result.status}.`;
     case 'identity_conflict':
-      return 'Its barcode or name lands on another catalogue product than the one it names, and an approval never renames a live product. Correct the identity, or reject it as a duplicate or wrong product.';
+      return 'Its barcode or name is already another catalogue product\'s, and an approval never files two products under one name or one barcode. Correct the identity, or reject it as a duplicate or wrong product.';
     case 'not_found':
       return 'This proposal no longer exists.';
     case 'implausible':

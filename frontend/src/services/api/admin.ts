@@ -1532,12 +1532,14 @@ export interface FuelProductProposal {
   gtin: string | null;
   source_kind: FuelProposalSource;
   source_url: string | null;
+  /** The storefront listing the ingestion job filed it from; `null` for an athlete's or an operator's filing. */
+  listing_key: string | null;
   /** How many photos are stored with it. */
   image_count: number;
   source_hash: string | null;
   facts: FuelFacts;
   provenance: Record<string, FuelFieldProvenance>;
-  /** Gate codes the facts tripped when they were proposed, or `illegible`. */
+  /** Gate codes the facts tripped when they were proposed. */
   gate_flags: string[];
   /** The label reader's notes to the reviewer, and the ingestion job's. */
   notes: string | null;

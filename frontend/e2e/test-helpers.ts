@@ -566,6 +566,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       gtin: '07350053630050',
       source_kind: 'shopify_ocr',
       source_url: 'https://shop.example/products/gel-100',
+      listing_key: 'maurten|gel 100|',
       image_count: 2,
       source_hash: 'sweep',
       facts: { serving_label: '1 gel (40 g)', serving_g: 40, energy_kcal: 100, carbs_g: 25, sugars_g: 12, glucose_fructose_ratio: 0.8 },

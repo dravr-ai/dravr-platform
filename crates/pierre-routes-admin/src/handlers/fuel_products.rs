@@ -318,7 +318,7 @@ fn approval_response(outcome: FuelApprovalOutcome) -> Response {
             StatusCode::CONFLICT,
             json!({
                 "outcome": "identity_conflict",
-                "error": "The proposal's barcode or name lands on another catalogue product than the one it names, and an approval never renames a live product",
+                "error": "The proposal's barcode or name is already another catalogue product's: an approval never files two products under one name or one barcode",
                 "product_id": product_id,
             }),
         ),

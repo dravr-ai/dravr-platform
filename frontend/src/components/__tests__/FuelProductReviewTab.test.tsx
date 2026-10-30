@@ -37,6 +37,7 @@ function proposal(overrides: Partial<FuelProductProposal> = {}): FuelProductProp
     gtin: '07350053630050',
     source_kind: 'shopify_ocr',
     source_url: 'https://shop.example/products/gel-100',
+    listing_key: 'maurten|gel 100|',
     image_count: 2,
     source_hash: 'abc',
     facts: {
@@ -313,7 +314,7 @@ describe('FuelProductReviewTab', () => {
     fireEvent.change(await within(drawer).findByLabelText('Brand'), { target: { value: 'SiS' } });
     fireEvent.click(within(drawer).getByRole('button', { name: /Save and approve \(1 edit\)/ }));
     expect(await within(drawer).findByTestId('fuel-review-problem')).toHaveTextContent(
-      'never renames a live product',
+      'never files two products under one name or one barcode',
     );
     expect(adminApi.approveFuelProposal).toHaveBeenCalledWith(PROPOSAL_ID, { brand: 'SiS' });
   });

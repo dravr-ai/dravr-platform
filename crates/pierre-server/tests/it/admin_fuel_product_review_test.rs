@@ -677,7 +677,7 @@ async fn approve_answers_not_found_and_identity_conflict_apart() -> Result<()> {
 
 #[tokio::test]
 #[serial]
-async fn identity_edits_land_under_the_corrected_name_and_never_rename() -> Result<()> {
+async fn identity_edits_land_under_the_corrected_name_never_on_another_product() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (reviewer, auth) = operator(&resources, UserRole::SuperAdmin).await;
     let repos = &resources.common.repos;

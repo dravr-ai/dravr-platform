@@ -32,7 +32,7 @@ test.describe('fuel-product review drawer', () => {
 
     await drawer.getByLabel('Form').selectOption('puree');
     await drawer.getByRole('button', { name: /Save and approve \(1 edit\)/ }).click();
-    await expect(drawer.getByTestId('fuel-review-problem')).toContainText('never renames a live product');
+    await expect(drawer.getByTestId('fuel-review-problem')).toContainText('never files two products under one name or one barcode');
     expect(approved).toEqual({ overrides: { form: 'puree' } });
   });
 });

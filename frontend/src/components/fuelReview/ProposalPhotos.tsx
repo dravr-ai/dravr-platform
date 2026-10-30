@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Every photo a fuel proposal's label was read from, in the order sent, each served by the backend as a data URL
-// ABOUTME: The reviewer sees what the reader saw — fronts of pack included — to judge a read, or an illegible filing, against the photos
+// ABOUTME: The reviewer sees what the reader saw — fronts of pack included — to judge a read against the photos
 
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '../../constants/queryKeys';
