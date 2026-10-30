@@ -15,7 +15,8 @@
 //! `Retry-After`-aware backoff. The read then sends the panel first and at
 //! most [`STORE_PHOTOS_WITH_PANEL`] store photos after it, the fronts that
 //! confirm brand and flavour ([`gather`]). With no panel — the page shows
-//! none, could not be fetched, or its image could not be downloaded — the
+//! none, could not be fetched, or its image could not be downloaded, or the
+//! listing mixes flavours a per-flavour panel cannot speak for — the
 //! read sends the store photos as it always did, and the job's note says why.
 
 use std::collections::HashMap;
@@ -82,6 +83,15 @@ impl PanelLocator {
     /// uncaffeinated panel).
     pub(crate) const fn per_family(self) -> bool {
         matches!(self, Self::TailwindTab)
+    }
+
+    /// Whether the panel this locator finds can be sent for `candidate`. A
+    /// candidate that offers several flavours its photos are tied to none of
+    /// has no one flavour, and only a family panel speaks for all of them:
+    /// any other locator would find one flavour's panel (the lowest variant
+    /// id's, or the page's only one) and file it for the whole listing.
+    pub(super) fn serves(self, candidate: &LabelCandidate) -> bool {
+        self.per_family() || candidate.untied_flavours.is_empty()
     }
 }
 
@@ -292,25 +302,35 @@ impl ProductPage {
     }
 }
 
-/// GET a product page, up to [`MAX_PAGE_BYTES`].
+/// GET a product page, up to [`MAX_PAGE_BYTES`]: a longer one is refused as
+/// it streams in, never buffered whole first.
 async fn fetch_page(http: &reqwest::Client, page: &str) -> AppResult<String> {
     let url = Url::parse(page)
         .map_err(|e| AppError::external_service("shopify", format!("bad page URL: {e}")))?;
-    let body = get_with_backoff(http, &url)
-        .await?
-        .bytes()
-        .await
-        .map_err(|e| {
-            AppError::external_service(
-                "shopify",
-                format!("reading {} failed: {e}", redact_url(page)),
-            )
-        })?;
-    if body.len() > MAX_PAGE_BYTES {
-        return Err(AppError::external_service(
+    let over_cap = || {
+        AppError::external_service(
             "shopify",
             format!("{} is over the page size cap", redact_url(page)),
-        ));
+        )
+    };
+    let mut response = get_with_backoff(http, &url).await?;
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_PAGE_BYTES as u64)
+    {
+        return Err(over_cap());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| {
+        AppError::external_service(
+            "shopify",
+            format!("reading {} failed: {e}", redact_url(page)),
+        )
+    })? {
+        if body.len() + chunk.len() > MAX_PAGE_BYTES {
+            return Err(over_cap());
+        }
+        body.extend_from_slice(&chunk);
     }
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
@@ -337,49 +357,17 @@ pub(super) struct Fetcher<'a> {
 /// # Errors
 /// Returns an error when a store photo cannot be fetched.
 pub(super) async fn gather(
-    fetch: Fetcher<'_>,
+    mut fetch: Fetcher<'_>,
     brand: &Brand,
     page: &mut ProductPage,
     candidate: &LabelCandidate,
 ) -> AppResult<Gathered> {
-    let shown = page.url.clone();
-    let Some(html) = page.html(fetch.http, fetch.pacer, brand.store).await else {
-        fetch.tally.page_failed += 1;
-        return Ok(Gathered {
-            images: store_photos(fetch.http, candidate).await?,
-            note: "The product page could not be fetched, so its nutrition panel was not \
-                   read; only the store photos were."
-                .to_owned(),
-        });
-    };
-    let base = Url::parse(&shown)
-        .map_err(|e| AppError::external_service("shopify", format!("bad page URL: {e}")))?;
-    let located = locate(brand.panel, &base, html, &candidate.variant_ids)?;
-    let Some(panel_src) = located else {
-        info!(brand = brand.slug, page = %redact_url(&candidate.page_url), "product page shows no nutrition panel");
-        fetch.tally.panel_missing += 1;
-        return Ok(Gathered {
-            images: store_photos(fetch.http, candidate).await?,
-            note: "The product page shows no nutrition panel; only the store photos were read."
-                .to_owned(),
-        });
-    };
-    let panel = match download_url(fetch.http, panel_src.clone()).await {
-        Ok(Some(panel)) => panel,
-        // A refused type or size was logged by the download.
-        refused => {
-            let why = refused.err().map_or_else(
-                || "not png, jpeg or webp, or over the size cap".to_owned(),
-                |e| e.to_string(),
-            );
-            warn!(brand = brand.slug, panel = %redact_url(panel_src.as_str()), "nutrition panel image not usable ({why}); reading the store photos");
-            fetch.tally.panel_missing += 1;
+    let (panel, panel_src) = match find_panel(&mut fetch, brand, page, candidate).await? {
+        Ok(found) => found,
+        Err(why) => {
             return Ok(Gathered {
                 images: store_photos(fetch.http, candidate).await?,
-                note: format!(
-                    "The product page's nutrition panel ({panel_src}) could not be downloaded \
-                     as an image; only the store photos were read."
-                ),
+                note: format!("{why}; only the store photos were read."),
             });
         }
     };
@@ -402,6 +390,58 @@ pub(super) async fn gather(
         );
     }
     Ok(Gathered { images, note })
+}
+
+/// The panel image `candidate`'s product page shows and where it came from;
+/// else (counted, logged) why none is sent, as the reviewer's note opens.
+///
+/// # Errors
+/// Returns an error when a selector does not parse or a URL is malformed.
+async fn find_panel(
+    fetch: &mut Fetcher<'_>,
+    brand: &Brand,
+    page: &mut ProductPage,
+    candidate: &LabelCandidate,
+) -> AppResult<Result<(LabelImage, Url), String>> {
+    let shown = redact_url(&candidate.page_url);
+    if !brand.panel.serves(candidate) {
+        info!(brand = brand.slug, page = %shown, "listing mixes flavours its page has one panel each for; no panel sent");
+        fetch.tally.panel_missing += 1;
+        return Ok(Err(
+            "The product page shows one flavour's nutrition panel and this \
+                       listing offers several, so no panel was sent"
+                .to_owned(),
+        ));
+    }
+    let base = Url::parse(&page.url)
+        .map_err(|e| AppError::external_service("shopify", format!("bad page URL: {e}")))?;
+    let Some(html) = page.html(fetch.http, fetch.pacer, brand.store).await else {
+        fetch.tally.page_failed += 1;
+        return Ok(Err(
+            "The product page could not be fetched, so its nutrition panel was not read".to_owned(),
+        ));
+    };
+    let Some(panel_src) = locate(brand.panel, &base, html, &candidate.variant_ids)? else {
+        info!(brand = brand.slug, page = %shown, "product page shows no nutrition panel");
+        fetch.tally.panel_missing += 1;
+        return Ok(Err("The product page shows no nutrition panel".to_owned()));
+    };
+    match download_url(fetch.http, panel_src.clone()).await {
+        Ok(Some(panel)) => Ok(Ok((panel, panel_src))),
+        // A refused type or size was logged by the download.
+        refused => {
+            let why = refused.err().map_or_else(
+                || "not png, jpeg or webp, or over the size cap".to_owned(),
+                |e| e.to_string(),
+            );
+            warn!(brand = brand.slug, panel = %redact_url(panel_src.as_str()), "nutrition panel image not usable ({why}); reading the store photos");
+            fetch.tally.panel_missing += 1;
+            Ok(Err(format!(
+                "The product page's nutrition panel ({panel_src}) could not be downloaded as \
+                 an image"
+            )))
+        }
+    }
 }
 
 /// The candidate's store photos, every one up to [`MAX_READ_BYTES`]
@@ -596,6 +636,38 @@ mod tests {
         assert_eq!(without_size_suffix("Gel_12_x.jpg"), None);
         assert_eq!(without_size_suffix("protein_15.png"), None);
         assert_eq!(without_size_suffix("_750x.png"), None);
+    }
+
+    #[test]
+    fn a_listing_of_mixed_flavours_gets_only_a_family_panel() {
+        let mut candidate = LabelCandidate {
+            page_url: "https://guenergy.com/products/energy-gel".to_owned(),
+            flavour: Some("Cola".to_owned()),
+            title: "Energy Gel".to_owned(),
+            image_urls: vec!["a".to_owned()],
+            variant_ids: vec![31_169_146_912_819, 31_693_107_593_267],
+            untied_flavours: Vec::new(),
+        };
+        for locator in [
+            PanelLocator::NaakDrawer,
+            PanelLocator::TailwindTab,
+            PanelLocator::SkratchAccordion,
+            PanelLocator::GuVariantLink,
+        ] {
+            assert!(locator.serves(&candidate), "{locator:?}");
+        }
+        // Untied photos of two flavours: the lowest variant's panel (here
+        // Chocolate Outrage's) would be filed for both, so none is sent.
+        candidate.flavour = None;
+        candidate.untied_flavours = vec!["Chocolate Outrage".to_owned(), "Cola".to_owned()];
+        assert!(PanelLocator::TailwindTab.serves(&candidate));
+        for locator in [
+            PanelLocator::NaakDrawer,
+            PanelLocator::SkratchAccordion,
+            PanelLocator::GuVariantLink,
+        ] {
+            assert!(!locator.serves(&candidate), "{locator:?}");
+        }
     }
 
     #[test]

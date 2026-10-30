@@ -33,8 +33,9 @@ pub(super) struct Tally {
     pub skipped_no_photo: usize,
     /// Candidates whose product page showed a nutrition panel, sent first.
     pub panel_sent: usize,
-    /// Candidates whose product page showed no panel, or one that could not
-    /// be downloaded: the store photos were sent instead.
+    /// Candidates whose product page showed no panel, one that could not be
+    /// downloaded, or one flavour's panel for a listing of several: the
+    /// store photos were sent instead.
     pub panel_missing: usize,
     /// Candidates whose product page could not be fetched: the store photos
     /// were sent instead.
