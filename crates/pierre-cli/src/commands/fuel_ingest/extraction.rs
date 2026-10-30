@@ -375,8 +375,16 @@ pub(super) fn map_reading(reading: &LabelReading, source_url: &str) -> MappedRea
     }
 }
 
+/// The user message `photos` photos travel on. The read hash names it
+/// ([`pierre_core::models::FuelReadRequest::user_message`]), so the text
+/// hashed is the text sent.
+pub(super) fn user_message(photos: usize) -> String {
+    format!("Transcribe the label shown in these {photos} photo(s) of one package.")
+}
+
 /// The request that asks for one candidate's label: the contremaitre prompt
-/// as the system message, the photos on the user message.
+/// as the system message, the photos on the [`user_message`], routed as
+/// [`LlmStage::FuelPanelExtraction`].
 ///
 /// # Errors
 /// Returns an error when a photo's media type is one embacle refuses.
@@ -385,6 +393,14 @@ pub(super) fn label_request(
     system_prompt: &str,
     images: &[LabelImage],
 ) -> AppResult<ChatRequest> {
+    Ok(provider.routed(
+        LlmStage::FuelPanelExtraction,
+        label_messages(system_prompt, images)?,
+    ))
+}
+
+/// [`label_request`] before it is routed to a stage.
+fn label_messages(system_prompt: &str, images: &[LabelImage]) -> AppResult<ChatRequest> {
     let parts = images
         .iter()
         .map(|image| {
@@ -392,19 +408,12 @@ pub(super) fn label_request(
                 .map_err(|e| AppError::invalid_input(format!("photo refused: {e}")))
         })
         .collect::<AppResult<Vec<_>>>()?;
-    let request = ChatRequest::new(vec![
+    Ok(ChatRequest::new(vec![
         ChatMessage::system(system_prompt.to_owned()),
-        ChatMessage::user_with_images(
-            format!(
-                "Transcribe the label shown in these {} photo(s) of one package.",
-                parts.len()
-            ),
-            parts,
-        ),
+        ChatMessage::user_with_images(user_message(parts.len()), parts),
     ])
     .with_temperature(TEMPERATURE)
-    .with_max_tokens(MAX_OUTPUT_TOKENS);
-    Ok(provider.routed(LlmStage::FuelPanelExtraction, request))
+    .with_max_tokens(MAX_OUTPUT_TOKENS))
 }
 
 /// Who answered a label read and whether it could see the photos:
@@ -503,6 +512,30 @@ mod tests {
 
     fn reading() -> LabelReading {
         parse_reading(READING).unwrap_or_else(|e| panic!("fixture parses: {e}"))
+    }
+
+    #[test]
+    fn the_user_message_sent_is_the_one_hashed() {
+        let photos = [
+            LabelImage {
+                mime: "image/png".to_owned(),
+                bytes: b"panel".to_vec(),
+            },
+            LabelImage {
+                mime: "image/jpeg".to_owned(),
+                bytes: b"front".to_vec(),
+            },
+        ];
+        let request = label_messages("system", &photos).unwrap_or_else(|e| panic!("{e}"));
+        let user = request
+            .messages
+            .iter()
+            .find(|message| message.images.is_some())
+            .unwrap_or_else(|| panic!("no message carries the photos"));
+        assert_eq!(user.content, user_message(photos.len()));
+        assert_eq!(user.images.as_ref().map(Vec::len), Some(2));
+        // The count is part of the text, so one more photo is another message.
+        assert_ne!(user_message(2), user_message(3));
     }
 
     #[test]

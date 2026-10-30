@@ -100,6 +100,9 @@ fn update_field(hasher: &mut Sha256, field: &[u8]) {
 pub struct FuelReadRequest<'a> {
     /// The `fuel_panel_extraction` prompt text sent.
     pub prompt: &'a str,
+    /// The user message the photos travel on, as sent: rewording it can
+    /// change the answer as much as rewording the prompt.
+    pub user_message: &'a str,
     /// The configured model, as `provider=model`.
     pub model: &'a str,
     /// The request's output cap: an answer cut off at a lower one may parse
@@ -111,11 +114,12 @@ pub struct FuelReadRequest<'a> {
 
 /// The hash of one label read the ingestion job pays for.
 ///
-/// SHA-256, lowercase hex, over the page URL, the prompt text sent, the model
-/// it was sent to, the output cap and temperature, and every photo sent, in
-/// order, each field length-prefixed. A read with this hash on file is not
-/// paid for again; a new photo, a reworded `fuel_panel_extraction` prompt,
-/// another configured model or a raised output cap is a new read. The
+/// SHA-256, lowercase hex, over the page URL, the prompt text sent, the user
+/// message the photos travel on, the model it was sent to, the output cap and
+/// temperature, and every photo sent, in order, each field length-prefixed. A
+/// read with this hash on file is not paid for again; a new photo, a reworded
+/// `fuel_panel_extraction` prompt or user message, another configured model or
+/// a raised output cap is a new read. The
 /// proposal the read files carries the same hash.
 #[must_use]
 pub fn fuel_read_hash(source_url: &str, images: &[&[u8]], request: FuelReadRequest<'_>) -> String {
@@ -123,6 +127,7 @@ pub fn fuel_read_hash(source_url: &str, images: &[&[u8]], request: FuelReadReque
     hasher.update(b"fuel-ingest-read\0");
     update_field(&mut hasher, source_url.as_bytes());
     update_field(&mut hasher, request.prompt.as_bytes());
+    update_field(&mut hasher, request.user_message.as_bytes());
     update_field(&mut hasher, request.model.as_bytes());
     hasher.update(request.max_tokens.to_le_bytes());
     hasher.update(request.temperature.to_bits().to_le_bytes());
@@ -216,11 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn a_read_hash_changes_with_the_photos_the_prompt_the_model_and_the_cap() {
+    fn a_read_hash_changes_with_the_photos_the_prompt_the_message_the_model_and_the_cap() {
         let url = "https://naak.com/products/gel";
         let set: [&[u8]; 2] = [b"front", b"panel"];
         let opus = FuelReadRequest {
             prompt: "prompt v1",
+            user_message: "Transcribe the label shown in these 2 photo(s) of one package.",
             model: "anthropic=claude-opus-5-5",
             max_tokens: 4_000,
             temperature: 0.0,
@@ -235,6 +241,25 @@ mod tests {
                 &set,
                 FuelReadRequest {
                     prompt: "prompt v2",
+                    ..opus
+                },
+            ),
+            // The same photos sent on a reworded user message.
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    user_message: "Transcribe the nutrition panel in these 2 photo(s).",
+                    ..opus
+                },
+            ),
+            // Text moved between the prompt and the user message.
+            fuel_read_hash(
+                url,
+                &set,
+                FuelReadRequest {
+                    prompt: "prompt v1T",
+                    user_message: "ranscribe the label shown in these 2 photo(s) of one package.",
                     ..opus
                 },
             ),

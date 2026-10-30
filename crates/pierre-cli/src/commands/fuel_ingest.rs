@@ -15,15 +15,18 @@
 //!
 //! - **Never pay twice.** Every read the job pays for is recorded in
 //!   `fuel_ingest_reads` under its [`fuel_read_hash`] — the page URL, every
-//!   photo sent in order, the `fuel_panel_extraction` prompt text, the
-//!   configured model, the output cap and the temperature — whatever it came
+//!   photo sent in order, the `fuel_panel_extraction` prompt text, the user
+//!   message the photos travel on, the configured model, the output cap and
+//!   the temperature — whatever it came
 //!   to: a proposal, an illegible label, a duplicate, an unchanged product or
 //!   an answer that did not parse. A hash on file is skipped before the call,
 //!   so an unchanged weekly run costs only the downloads, and a new photo,
 //!   prompt, model or cap reads again. Of two runs racing on one read, the
 //!   first recorded stands and the second files nothing. A `duplicate` read
-//!   names the proposal that held its product, and rejecting that proposal
-//!   takes the read off file, so the listing is read again.
+//!   names the proposal that held its product, and deciding that proposal
+//!   (approving or rejecting it) takes the read off file, so the listing is
+//!   read again: against the approved product, where the same facts file
+//!   nothing, or afresh once nothing holds it.
 //!   A provider error or a tier that cannot see images is not recorded: the
 //!   next run tries again. Nor is a read that filed nothing when a fallback
 //!   tier on another model answered it ([`read_by_hashed_model`]): the hash
@@ -84,7 +87,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use extraction::{
-    label_request, map_reading, read_label, ReadFailure, Reading, MAX_OUTPUT_TOKENS, TEMPERATURE,
+    label_request, map_reading, read_label, user_message, ReadFailure, Reading, MAX_OUTPUT_TOKENS,
+    TEMPERATURE,
 };
 use shopify::{
     download_image, fetch_fuel_products, label_candidates, listing_key, LabelCandidate, LabelImage,
@@ -497,6 +501,7 @@ impl Run {
             &sent,
             FuelReadRequest {
                 prompt: &self.prompt,
+                user_message: &user_message(sent.len()),
                 model: &self.model,
                 max_tokens: MAX_OUTPUT_TOKENS,
                 temperature: TEMPERATURE,
