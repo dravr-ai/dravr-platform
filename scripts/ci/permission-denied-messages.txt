@@ -50,6 +50,8 @@ crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach a
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
+crates/pierre-routes-admin/src/handlers/fuel_products.rs:Reviewing a fuel proposal needs a signed-in operator; a service token names no person
+crates/pierre-routes-admin/src/handlers/fuel_products.rs:The fuel-product catalogue is global: super-admin privileges required
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnecting an admin account requires a super-admin token
