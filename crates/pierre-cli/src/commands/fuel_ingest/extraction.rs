@@ -152,8 +152,8 @@ fn unfenced(text: &str) -> Option<&str> {
 /// refused.
 ///
 /// # Errors
-/// Returns an error naming where the JSON broke — never its text, which
-/// carries label content.
+/// Returns an error naming where the JSON broke (the field path, line and
+/// column) — never its text, which carries label content.
 pub(super) fn parse_reading(content: &str) -> AppResult<LabelReading> {
     let trimmed = content.trim();
     let body = if trimmed.starts_with("```") {
@@ -165,14 +165,25 @@ pub(super) fn parse_reading(content: &str) -> AppResult<LabelReading> {
     } else {
         trimmed
     };
-    serde_json::from_str::<LabelReading>(body).map_err(|e| {
+    let mut json = serde_json::Deserializer::from_str(body);
+    let reading = serde_path_to_error::deserialize::<_, LabelReading>(&mut json).map_err(|e| {
+        let inner = e.inner();
         AppError::invalid_input(format!(
-            "label reading is not the prompt's JSON object: {:?} error at line {} column {}",
-            e.classify(),
+            "label reading is not the prompt's JSON object: {:?} error at `{}`, line {} column {}",
+            inner.classify(),
+            e.path(),
+            inner.line(),
+            inner.column()
+        ))
+    })?;
+    json.end().map_err(|e| {
+        AppError::invalid_input(format!(
+            "label reading has text after its JSON object, at line {} column {}",
             e.line(),
             e.column()
         ))
-    })
+    })?;
+    Ok(reading)
 }
 
 /// Set one fact and record it came from the label at `source_url`.
@@ -473,6 +484,18 @@ mod tests {
         assert!(parse_reading(&READING.replacen("\"legible\"", "\"readable\"", 1)).is_err());
         assert!(parse_reading(&READING.replacen("\"gel\"", "null", 1)).is_err());
         assert!(parse_reading(&format!("```json\n{READING}\n```\n```{{}}```")).is_err());
+        assert!(parse_reading(&format!("{READING} {{}}")).is_err());
+    }
+
+    #[test]
+    fn a_refused_reading_names_the_field_never_the_label_text() {
+        let mistyped = READING.replacen("\"carbs_g\": 25", "\"carbs_g\": \"25 g net\"", 1);
+        let message = match parse_reading(&mistyped) {
+            Ok(reading) => panic!("a string carb amount was accepted: {reading:?}"),
+            Err(e) => e.to_string(),
+        };
+        assert!(message.contains("`per_serving.carbs_g`"), "{message}");
+        assert!(!message.contains("25 g net"), "{message}");
     }
 
     #[test]
