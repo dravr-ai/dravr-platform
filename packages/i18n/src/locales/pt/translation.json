@@ -811,6 +811,7 @@
   "auth": {
     "activatesOnConfirm": "A tua conta fica ativa assim que o endereço for confirmado",
     "activityLabel": "Atividade",
+    "websiteLink": "Site",
     "adminWillReview": "Um administrador vai analisar o teu registo",
     "afterApprovalAccess": "Depois de aprovado, terás acesso à inteligência fitness do Dravr",
     "alreadyHaveAccount": "Já tens conta?",
