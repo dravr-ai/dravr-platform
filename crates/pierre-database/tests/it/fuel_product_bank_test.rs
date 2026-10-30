@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
     normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldOverride,
     FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemCarried,
@@ -786,11 +787,24 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
     // is not left in the review queue with no athlete carrying it.
     let one_more = proposal("Filed", gel_facts());
     let hash = one_more.source_hash.clone().expect("a source hash");
-    assert!(repos
+    // Refused as the cap, not as any failed write: a broken insert would also
+    // leave nothing queued.
+    let refused = repos
         .athlete_fuel_items
         .file_and_carry_fuel_proposal(tenant, athlete, &one_more, Some("race day"))
-        .await
-        .is_err());
+        .await;
+    assert_eq!(
+        refused.as_ref().err().map(|e| e.code),
+        Some(ErrorCode::InvalidInput),
+        "refused at the cap: {refused:?}"
+    );
+    assert!(
+        refused
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.message.contains("remove one first")),
+        "the refusal names the remedy: {refused:?}"
+    );
     assert!(
         !repos
             .fuel_catalogue
