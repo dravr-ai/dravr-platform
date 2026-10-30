@@ -42,8 +42,9 @@ pub(super) struct Tally {
     /// Reads that filed nothing, answered by a fallback tier on another model
     /// than the hashed one (not recorded: retried next run).
     pub unrecorded_fallback: usize,
-    /// Reads a concurrent run recorded first: its outcome stands, this one
-    /// files nothing.
+    /// Reads that found a panel but that a concurrent run recorded first: its
+    /// outcome stands, this one files nothing. One that found no panel is
+    /// counted as `illegible` or `parse_failed` instead.
     pub raced: usize,
     /// Candidates that failed outside the read (download, database).
     pub failed: usize,
@@ -81,8 +82,8 @@ impl Tally {
     }
 
     /// Reads that found a panel: a proposal, a duplicate or an unchanged
-    /// product. A read a concurrent run recorded first counts too, since
-    /// that run's outcome stands for it.
+    /// product. A read that found a panel but that a concurrent run recorded
+    /// first counts too: this run's call came back legible.
     const fn legible(&self) -> usize {
         self.proposed + self.proposed_update + self.duplicate + self.unchanged + self.raced
     }

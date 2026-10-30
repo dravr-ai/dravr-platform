@@ -283,6 +283,12 @@ impl Filing {
         }
     }
 
+    /// Whether the read found a panel: anything but an illegible label or an
+    /// answer that did not parse.
+    const fn found_panel(self) -> bool {
+        !matches!(self, Self::Illegible | Self::ParseFailed)
+    }
+
     /// How the summary and the dry run name it.
     const fn label(self) -> &'static str {
         match self {
@@ -671,8 +677,10 @@ impl Run {
     /// did not make it: then it is counted and left off file, so the next
     /// run reads it again. A filed proposal is always recorded: its listing
     /// holds the product, so the next run would not read it anyway. `false`
-    /// (counted) when a concurrent run recorded the read first, so this one
-    /// is not counted under its filing.
+    /// (counted as `raced`) when a concurrent run recorded a read that found
+    /// a panel first, so it is not counted as filed. One that found none is
+    /// counted under its filing all the same: nothing was filed either way,
+    /// and the run's verdict must not read it as legible.
     async fn record(
         &mut self,
         candidate: &LabelCandidate,
@@ -686,10 +694,11 @@ impl Run {
             let stands = self
                 .file(candidate, hash, listing, filing, proposal)
                 .await?;
-            if !stands {
+            if !stands && filing.found_panel() {
                 self.tally.raced += 1;
+                return Ok(false);
             }
-            return Ok(stands);
+            return Ok(true);
         }
         warn!(
             page = %redact_url(&candidate.page_url),
@@ -892,6 +901,16 @@ mod tests {
         for (filing, outcome, label) in cases {
             assert_eq!(filing.outcome(), outcome, "{filing:?}");
             assert_eq!(filing.label(), label, "{filing:?}");
+            // Only a read that found a panel may count as `raced`, which
+            // the run's verdict reads as legible.
+            assert_eq!(
+                filing.found_panel(),
+                !matches!(
+                    outcome,
+                    FuelIngestOutcome::Illegible | FuelIngestOutcome::ParseFailed
+                ),
+                "{filing:?}"
+            );
         }
     }
 
