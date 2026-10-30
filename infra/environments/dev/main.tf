@@ -716,11 +716,15 @@ module "backend" {
       # and restarted. Three things share the slots instead of a bigger tier:
       # the deploy waits for free slots before it rolls
       # (scripts/ci/wait-cloud-run-service-ready.sh --db-headroom); an idle
-      # connection closes after 60 s, so a revision that lost its traffic
-      # gives its slots back within a minute; and a booting instance queues
-      # its key-store reads for up to 150 s instead of failing. 150 s plus one
-      # last 30 s acquire stays inside the 240 s startup probe below.
-      SQLX_IDLE_TIMEOUT_SECS  = "60"
+      # connection closes after 10 s, so a pod keeps only the connections its
+      # load uses and a revision that lost its traffic gives its slots back;
+      # and a booting instance queues its key-store reads for up to 150 s
+      # instead of failing. 150 s plus one last 30 s acquire stays inside the
+      # 240 s startup probe below.
+      # At 60 s no connection ever closed: on 2026-10-30 the most-idle of 12
+      # had been idle 26 s, every pod held its full pool of 6 doing almost
+      # nothing, and dev idled at 17-18 of 22 slots (carnet#1269).
+      SQLX_IDLE_TIMEOUT_SECS  = "10"
       POSTGRES_BOOT_WAIT_SECS = "150"
       } : {
       # Fallback to ephemeral SQLite when Cloud SQL is disabled
