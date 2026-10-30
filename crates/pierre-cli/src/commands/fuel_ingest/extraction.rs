@@ -29,7 +29,7 @@ use pierre_core::redaction::redact_url;
 use pierre_llm::served_tier::{observe_served_tier, ServedTier};
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart, LlmCapabilities};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use tracing::{debug, info, warn};
 
 use super::shopify::LabelImage;
@@ -67,14 +67,31 @@ pub(super) struct Per100g {
     pub salt_g: Option<f64>,
 }
 
+/// The form a reading names. A spelling this build does not know is `other`,
+/// never a refused reading: the prompt is live config that may list a form
+/// before the binary that parses it does, and the reviewer sees the form.
+fn tolerant_form<'de, D>(deserializer: D) -> Result<FuelForm, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    Ok(FuelForm::parse(&raw).unwrap_or_else(|| {
+        let shown: String = raw.chars().take(32).collect();
+        warn!(form = %shown, "label form unknown to this build, read as other");
+        FuelForm::Other
+    }))
+}
+
 /// The object the `fuel_panel_extraction` prompt answers with. Unknown keys
-/// are refused: an answer in another shape is not this prompt's answer.
+/// are refused: an answer in another shape is not this prompt's answer. An
+/// unknown `form` value is read as `other` ([`tolerant_form`]).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LabelReading {
     pub brand: Option<String>,
     pub name: Option<String>,
     pub variant: Option<String>,
+    #[serde(deserialize_with = "tolerant_form")]
     pub form: FuelForm,
     pub gtin: Option<String>,
     pub serving_label: Option<String>,
@@ -452,8 +469,21 @@ mod tests {
         assert!(parse_reading(&format!("Here is the label:\n{READING}")).is_err());
         assert!(parse_reading(&READING[..READING.len() / 2]).is_err());
         assert!(parse_reading(&READING.replacen("\"legible\"", "\"readable\"", 1)).is_err());
-        assert!(parse_reading(&READING.replacen("\"gel\"", "\"syrup\"", 1)).is_err());
+        assert!(parse_reading(&READING.replacen("\"gel\"", "null", 1)).is_err());
         assert!(parse_reading(&format!("```json\n{READING}\n```\n```{{}}```")).is_err());
+    }
+
+    #[test]
+    fn a_form_this_build_does_not_know_reads_as_other() {
+        let syrup = parse_reading(&READING.replacen("\"gel\"", "\"syrup\"", 1))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(syrup.form, FuelForm::Other);
+        for form in FuelForm::ALL {
+            let named =
+                parse_reading(&READING.replacen("\"gel\"", &format!("\"{}\"", form.as_str()), 1))
+                    .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(named.form, form);
+        }
     }
 
     #[test]

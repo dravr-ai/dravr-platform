@@ -13,7 +13,8 @@
 //! fuel and drops the gear, bundles and hidden listings, and
 //! [`label_candidates`] turns one product into the packages whose labels are
 //! read: one per flavour when the photos are tied to flavours (GU lists 21
-//! flavours of one gel as one product), else the product itself.
+//! flavours of one gel as one product), else the product itself, with the
+//! flavours its untied photos may mix named for the reviewer.
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -59,13 +60,19 @@ const ALLOWED_IMAGE_TYPES: [&str; 3] = ["image/png", "image/jpeg", "image/webp"]
 
 /// Words in a listing's type or title that mark it as not one fuel package,
 /// whatever the brand: gear, bundles and variety packs (several labels in one
-/// photo), samples, recovery and protein products (not race fuel).
+/// photo), samples, recovery and protein products, and capsule supplements
+/// (amino acids, vitamins, a daily micronutrient blend) that are not race
+/// fuel. Salt and electrolyte capsules stay: GU's "Roctane Electrolyte
+/// Capsules" is kept while its "BCAA Capsules" and "Magnesium Plus Capsules"
+/// (magnesium, zinc and vitamins D and K, "a simple, daily way to cover your
+/// micronutrient bases") are dropped — the only capsule listings in the four
+/// checked-in stores, live on 2026-10-29.
 ///
 /// Matched against the type and title only, never the tags: a brand tags its
 /// fuel with what is in it, and Näak tags every ULTRA gel, drink mix, waffle,
 /// puree and bar "Plant-based Protein" (bars also "Recovery"), so a tag match
 /// dropped 25 of its 33 fuel listings (live, 2026-10-29).
-const EXCLUDED_WORDS: [&str; 27] = [
+const EXCLUDED_WORDS: [&str; 34] = [
     "gear",
     "apparel",
     "accessories",
@@ -93,6 +100,13 @@ const EXCLUDED_WORDS: [&str; 27] = [
     "box of",
     "rental",
     "subscription",
+    "bcaa",
+    "bcaas",
+    "amino",
+    "aminos",
+    "vitamin",
+    "vitamins",
+    "magnesium plus",
 ];
 
 /// Tags a storefront puts on a listing it hides from shoppers (internal,
@@ -170,6 +184,24 @@ pub(super) struct LabelCandidate {
     pub title: String,
     /// The photos to send, in position order, at most [`MAX_IMAGES_PER_CANDIDATE`].
     pub image_urls: Vec<String>,
+    /// The flavours the listing offers when its photos are tied to none of
+    /// them: the photos may show any of these, so the read is filed with a
+    /// note saying so. Empty when the photos show one flavour.
+    pub untied_flavours: Vec<String>,
+}
+
+impl LabelCandidate {
+    /// The ingestion job's note to the reviewer about these photos, if any.
+    pub(super) fn photo_note(&self) -> Option<String> {
+        (!self.untied_flavours.is_empty()).then(|| {
+            format!(
+                "The listing offers {} flavours ({}) and its photos are not tied to one, so \
+                 they may show different flavours: check the variant against the panel.",
+                self.untied_flavours.len(),
+                self.untied_flavours.join(", ")
+            )
+        })
+    }
 }
 
 /// A downloaded photo.
@@ -251,51 +283,73 @@ fn last_images<'a>(images: impl Iterator<Item = &'a ShopifyImage>) -> Vec<String
         .collect()
 }
 
+/// The flavours `product`'s variants name at option `position`, in variant
+/// order, each once, an assortment ("Mixed Box") left out: its photos show
+/// several labels.
+fn listed_flavours(product: &ShopifyProduct, position: u8) -> Vec<&str> {
+    let mut flavours: Vec<&str> = Vec::new();
+    for variant in &product.variants {
+        let Some(value) = variant.option_value(position) else {
+            continue;
+        };
+        if flavours.contains(&value) {
+            continue;
+        }
+        let words = word_text(value);
+        if EXCLUDED_WORDS.iter().any(|kw| has_word(&words, kw)) {
+            debug!(
+                product = product.id,
+                flavour = value,
+                "flavour is an assortment, skipped"
+            );
+            continue;
+        }
+        flavours.push(value);
+    }
+    flavours
+}
+
 /// The packages `product` shows labels for.
 ///
-/// When the product lists flavours and its photos are tied to variants, each
-/// flavour is its own candidate with the photos of its variants, and a
-/// flavour no photo shows is left out (a product-wide photo shows some other
-/// flavour). Otherwise the product is one candidate with all its photos. A
-/// flavour that names an assortment ("Mixed Box") is left out: its photos
-/// show several labels.
+/// When the product lists two or more flavours and its photos are tied to
+/// variants, each flavour is its own candidate with the photos of its
+/// variants, and a flavour no photo shows is left out (a product-wide photo
+/// shows some other flavour). Otherwise the product is one candidate with all
+/// its photos: of its one flavour when it lists one, else carrying the
+/// flavours its untied photos may mix, so the reviewer is told.
 pub(super) fn label_candidates(store: &str, product: &ShopifyProduct) -> Vec<LabelCandidate> {
     let page = product_url(store, &product.handle);
     let tied = product
         .images
         .iter()
         .any(|image| !image.variant_ids.is_empty());
-    let Some(position) = flavour_option(product).filter(|_| tied) else {
+    let flavours = flavour_option(product)
+        .map(|position| (position, listed_flavours(product, position)))
+        .filter(|(_, flavours)| !flavours.is_empty());
+    let split = flavours
+        .as_ref()
+        .is_some_and(|(_, listed)| tied && listed.len() > 1);
+    let Some((position, flavours)) = flavours.clone().filter(|_| split) else {
         let image_urls = last_images(product.images.iter());
         if image_urls.is_empty() {
             return Vec::new();
         }
+        let listed = flavours.map(|(_, flavours)| flavours).unwrap_or_default();
+        let (flavour, untied_flavours) = match listed.as_slice() {
+            [one] => (Some((*one).to_owned()), Vec::new()),
+            many => (None, many.iter().map(|f| (*f).to_owned()).collect()),
+        };
         return vec![LabelCandidate {
             page_url: page,
-            flavour: None,
+            flavour,
             title: product.title.clone(),
             image_urls,
+            untied_flavours,
         }];
     };
 
-    let mut flavours: Vec<&str> = Vec::new();
-    for variant in &product.variants {
-        if let Some(value) = variant.option_value(position) {
-            if !flavours.contains(&value) {
-                flavours.push(value);
-            }
-        }
-    }
     let mut candidates = Vec::new();
     for flavour in flavours {
-        let words = word_text(flavour);
-        if EXCLUDED_WORDS.iter().any(|kw| has_word(&words, kw)) {
-            debug!(
-                product = product.id,
-                flavour, "flavour is an assortment, skipped"
-            );
-            continue;
-        }
         let variant_ids: BTreeSet<u64> = product
             .variants
             .iter()
@@ -323,6 +377,7 @@ pub(super) fn label_candidates(store: &str, product: &ShopifyProduct) -> Vec<Lab
             flavour: Some(flavour.to_owned()),
             title: product.title.clone(),
             image_urls,
+            untied_flavours: Vec::new(),
         });
     }
     candidates
@@ -568,7 +623,7 @@ mod tests {
     #[test]
     fn a_products_page_parses_without_a_barcode() {
         let products = fixture();
-        assert_eq!(products.len(), 7);
+        assert_eq!(products.len(), 12);
         let gel = product("ULTRA™ Gel 200 · Salted Maple");
         assert_eq!(gel.handle, "ultra-gel-200-salted-maple");
         assert_eq!(gel.images.len(), 2);
@@ -610,6 +665,10 @@ mod tests {
         // A title that names recovery or protein is not race fuel, whatever
         // keyword ("drink mix") it also carries.
         assert!(!is_fuel(gu, &product("Roctane Protein Recovery Drink Mix")));
+        // Salt capsules are fuel; amino-acid and micronutrient capsules are not.
+        assert!(is_fuel(gu, &product("Roctane Electrolyte Capsules")));
+        assert!(!is_fuel(gu, &product("Roctane BCAA Capsules")));
+        assert!(!is_fuel(gu, &product("Roctane Magnesium Plus Capsules")));
     }
 
     #[test]
@@ -633,6 +692,8 @@ mod tests {
             "https://naak.com/products/ultra-gel-200-salted-maple"
         );
         assert_eq!(only.flavour, None);
+        assert_eq!(only.untied_flavours, Vec::<String>::new());
+        assert_eq!(only.photo_note(), None);
         assert_eq!(only.image_urls.len(), 2);
         assert!(
             only.image_urls[1].contains("panel"),
@@ -663,6 +724,34 @@ mod tests {
         assert_eq!(tri_berry.image_urls.len(), MAX_IMAGES_PER_CANDIDATE);
         assert!(tri_berry.image_urls[0].ends_with("tb-2.png?v=1"));
         assert!(tri_berry.image_urls[3].ends_with("tb-panel.png?v=1"));
+    }
+
+    #[test]
+    fn untied_photos_of_several_flavours_are_one_candidate_that_says_so() {
+        let candidates =
+            label_candidates("https://tailwindnutrition.com", &product("Endurance Fuel"));
+        assert_eq!(candidates.len(), 1);
+        let only = &candidates[0];
+        assert_eq!(only.flavour, None);
+        assert_eq!(only.image_urls.len(), 2);
+        assert_eq!(only.untied_flavours, vec!["Berry", "Lemon", "Naked"]);
+        let note = only.photo_note().unwrap_or_default();
+        assert!(note.contains("3 flavours (Berry, Lemon, Naked)"), "{note}");
+    }
+
+    #[test]
+    fn a_single_flavour_keeps_every_photo_tied_or_not() {
+        // One photo is tied to a variant, one is not: with one flavour listed
+        // both show it, so neither is dropped and no note is needed.
+        let candidates = label_candidates(
+            "https://www.skratchlabs.com",
+            &product("Electrolyte Booster"),
+        );
+        assert_eq!(candidates.len(), 1);
+        let only = &candidates[0];
+        assert_eq!(only.flavour.as_deref(), Some("Unflavored"));
+        assert_eq!(only.image_urls.len(), 2);
+        assert_eq!(only.photo_note(), None);
     }
 
     #[test]

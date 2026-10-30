@@ -10,23 +10,31 @@
 //! [`BRANDS`] it lists the storefront's `/products.json`, keeps the fuel
 //! packages, splits each into the flavours its photos show, downloads the last
 //! [`shopify::MAX_IMAGES_PER_CANDIDATE`] photos, and files one proposal per
-//! package the label could be read for. Nothing enters the catalogue here: a
-//! proposal waits for an operator's approval.
+//! package read. Nothing enters the catalogue here: a proposal waits for an
+//! operator's approval.
 //!
-//! - **Dedupe before the LLM.** The source hash is taken over the page URL and
-//!   every photo sent, in order; a hash already on file skips the package
-//!   without a call, so a weekly rerun costs only the downloads.
+//! - **Dedupe before the LLM.** The source hash
+//!   ([`pierre_core::models::proposal_source_hash`]) is taken over the page
+//!   URL and every photo sent, in order; a hash already on file skips the
+//!   package without a call, so a weekly rerun costs only the downloads. Every
+//!   read that costs a call is therefore filed, whatever it found.
 //! - **The label is the only source.** The read goes through the configured
 //!   chain with the contremaitre `fuel_panel_extraction` prompt; an answer
 //!   from a tier that does not read images is discarded
 //!   ([`extraction::read_label`]).
 //! - **Flagged, never clamped.** The gate's violation codes travel on the
-//!   proposal so the reviewer sees why; an illegible label is skipped.
+//!   proposal so the reviewer sees why. A label with no readable panel is
+//!   filed pending with the [`ILLEGIBLE_FLAG`], for a one-click rejection.
+//! - **One proposal per product.** A read whose brand, name and variant a
+//!   catalogue product or a live proposal already holds (Näak sells one drink
+//!   mix as a "Bag" and a "Single Serve" listing) is filed already rejected
+//!   as a duplicate, without its photos, so it never reaches the queue.
 //! - **Identity.** The brand is the table's display name, so one brand is one
 //!   spelling; name and variant are what the label prints, falling back to
 //!   the listing title and its flavour.
-//! - **The stored photo** is the last one sent (the panel is usually last);
-//!   the page URL on the proposal opens all of them.
+//! - **What the reviewer sees.** Every photo sent, in order; the reader's
+//!   notes, the ingredients and the glucose + fructose claim; and the job's
+//!   note when the photos were not tied to one flavour.
 //!
 //! The run fails (non-zero exit, which the job-failure alert counts) when
 //! labels were sent and not one read came back, when every candidate failed
@@ -35,12 +43,14 @@
 mod extraction;
 mod shopify;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    proposal_source_hash, NewFuelProposal, ProposalSource, ProposalSourceImage,
+    fuel_natural_key, proposal_source_hash, FuelKeyHolder, NewFuelProposal, ProposalSource,
+    ProposalSourceImage, ILLEGIBLE_FLAG,
 };
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
@@ -150,8 +160,11 @@ struct Tally {
     products_seen: usize,
     candidates: usize,
     proposed: usize,
+    /// Reads filed pending with the illegible flag.
+    filed_illegible: usize,
+    /// Reads filed already rejected: their natural key was held.
+    filed_duplicate: usize,
     skipped_duplicate: usize,
-    skipped_illegible: usize,
     skipped_no_photo: usize,
     llm_calls: usize,
     discarded_no_vision: usize,
@@ -220,16 +233,46 @@ fn selected_brands(slugs: &[String]) -> AppResult<Vec<&'static Brand>> {
         .collect()
 }
 
-/// The dedupe hash of a package: its page URL, then each photo sent, in
-/// order, each prefixed with its length so two photo sets never collide by
-/// concatenation.
+/// The dedupe hash of a package: its page URL and every photo sent, in order.
 fn source_hash(page_url: &str, images: &[LabelImage]) -> String {
-    let mut sent = Vec::with_capacity(images.iter().map(|image| image.bytes.len() + 8).sum());
-    for image in images {
-        sent.extend_from_slice(&(image.bytes.len() as u64).to_le_bytes());
-        sent.extend_from_slice(&image.bytes);
-    }
+    let sent: Vec<&[u8]> = images.iter().map(|image| image.bytes.as_slice()).collect();
     proposal_source_hash(Some(page_url), &sent)
+}
+
+/// The reviewer's notes on a read: the label reader's, then the job's own
+/// about the photos, each named.
+fn reviewer_notes(reader: Option<&str>, job: Option<String>) -> Option<String> {
+    let reader = reader
+        .map(str::trim)
+        .filter(|note| !note.is_empty())
+        .map(|note| format!("Label reader: {note}"));
+    let job = job.map(|note| format!("Ingestion job: {note}"));
+    match (reader, job) {
+        (Some(reader), Some(job)) => Some(format!("{reader}\n{job}")),
+        (one, other) => one.or(other),
+    }
+}
+
+/// How a read is filed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Filing {
+    /// A pending proposal for review.
+    Proposal,
+    /// A pending proposal flagged illegible.
+    Illegible,
+    /// Already rejected: what holds its natural key, or `None` for a
+    /// candidate earlier in this dry run.
+    Duplicate(Option<FuelKeyHolder>),
+}
+
+impl Filing {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Proposal => "proposal",
+            Self::Illegible => "illegible",
+            Self::Duplicate(_) => "duplicate",
+        }
+    }
 }
 
 /// The text a label printed, or `fallback` when it printed none.
@@ -249,6 +292,9 @@ struct Run {
     http: reqwest::Client,
     /// `--dry-run`: print what would be proposed, write nothing.
     preview: bool,
+    /// The natural keys this run filed a proposal under, so a dry run, which
+    /// writes nothing, still sees a second listing of one product.
+    filed_keys: HashSet<String>,
     tally: Tally,
 }
 
@@ -270,6 +316,7 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
         prompt: PromptRegistry::new().fuel_panel_extraction_prompt(),
         http: shopify::http_client()?,
         preview: args.dry_run,
+        filed_keys: HashSet::new(),
         tally: Tally::default(),
     };
     for brand in &brands {
@@ -284,8 +331,9 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
         products_seen = t.products_seen,
         candidates = t.candidates,
         proposed = t.proposed,
+        filed_illegible = t.filed_illegible,
+        filed_duplicate = t.filed_duplicate,
         skipped_duplicate = t.skipped_duplicate,
-        skipped_illegible = t.skipped_illegible,
         skipped_no_photo = t.skipped_no_photo,
         llm_calls = t.llm_calls,
         discarded_no_vision = t.discarded_no_vision,
@@ -378,9 +426,8 @@ impl Run {
         Ok(Some((images, hash)))
     }
 
-    /// The legible label `images` show, or `None` (counted, logged) when the
-    /// read failed, came from a tier that cannot see images, or found no
-    /// legible panel.
+    /// The label `images` show, or `None` (counted, logged) when the read
+    /// failed or came from a tier that cannot see images.
     async fn read(
         &mut self,
         brand: &Brand,
@@ -402,17 +449,28 @@ impl Run {
                 return Ok(None);
             }
         };
-        if !read.label.legible {
-            info!(
-                brand = brand.slug,
-                %page,
-                provider = read.provider,
-                "label not legible in these photos, skipped"
-            );
-            self.tally.skipped_illegible += 1;
-            return Ok(None);
-        }
         Ok(Some(read))
+    }
+
+    /// How `proposal` is filed: illegible, a duplicate of what holds its
+    /// natural key, or a proposal.
+    async fn filing(&self, read: &Reading, proposal: &NewFuelProposal) -> AppResult<Filing> {
+        if !read.label.legible {
+            return Ok(Filing::Illegible);
+        }
+        let held = self
+            .repos
+            .fuel_catalogue
+            .fuel_key_holder(&proposal.brand, &proposal.name, &proposal.variant)
+            .await?;
+        if held.is_some() {
+            return Ok(Filing::Duplicate(held));
+        }
+        let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
+        if self.preview && self.filed_keys.contains(&key) {
+            return Ok(Filing::Duplicate(None));
+        }
+        Ok(Filing::Proposal)
     }
 
     async fn candidate(&mut self, brand: &Brand, candidate: &LabelCandidate) -> AppResult<()> {
@@ -423,29 +481,49 @@ impl Run {
             return Ok(());
         };
         let proposal = proposal(brand, candidate, &read, &images, hash);
+        let filing = self.filing(&read, &proposal).await?;
         if self.preview {
-            println!("{}", preview_line(&proposal, &read, images.len()));
+            println!("{}", preview_line(&proposal, &read, filing));
         } else {
-            let id = self
-                .repos
-                .fuel_catalogue
-                .create_fuel_proposal(&proposal)
-                .await?;
+            let catalogue = &self.repos.fuel_catalogue;
+            let id = match filing {
+                Filing::Duplicate(Some(holder)) => {
+                    catalogue
+                        .file_duplicate_fuel_proposal(&proposal, holder)
+                        .await?
+                }
+                Filing::Proposal | Filing::Illegible | Filing::Duplicate(None) => {
+                    catalogue.create_fuel_proposal(&proposal).await?
+                }
+            };
             info!(
                 brand = brand.slug,
                 page = %redact_url(&candidate.page_url),
                 proposal = %id,
+                filed_as = filing.label(),
                 flags = proposal.gate_flags.len(),
                 provider = read.provider,
                 "fuel proposal filed"
             );
         }
-        self.tally.proposed += 1;
+        match filing {
+            Filing::Proposal => {
+                self.filed_keys.insert(fuel_natural_key(
+                    &proposal.brand,
+                    &proposal.name,
+                    &proposal.variant,
+                ));
+                self.tally.proposed += 1;
+            }
+            Filing::Illegible => self.tally.filed_illegible += 1,
+            Filing::Duplicate(_) => self.tally.filed_duplicate += 1,
+        }
         Ok(())
     }
 }
 
-/// The proposal a read label files. The stored photo is the last one sent.
+/// The proposal a read label files, with every photo sent, in order. An
+/// illegible read carries the [`ILLEGIBLE_FLAG`] ahead of any gate code.
 fn proposal(
     brand: &Brand,
     candidate: &LabelCandidate,
@@ -455,6 +533,10 @@ fn proposal(
 ) -> NewFuelProposal {
     let label = &read.label;
     let mapped = map_reading(label, &candidate.page_url);
+    let mut gate_flags = mapped.gate_flags;
+    if !label.legible {
+        gate_flags.insert(0, ILLEGIBLE_FLAG.to_owned());
+    }
     NewFuelProposal {
         product_id: None,
         brand: brand.display.to_owned(),
@@ -467,35 +549,54 @@ fn proposal(
         gtin: mapped.gtin,
         source_kind: ProposalSource::ShopifyOcr,
         source_url: Some(candidate.page_url.clone()),
-        source_image: images.last().map(|image| ProposalSourceImage {
-            mime: image.mime.clone(),
-            bytes: image.bytes.clone(),
-        }),
+        images: images
+            .iter()
+            .map(|image| ProposalSourceImage {
+                mime: image.mime.clone(),
+                bytes: image.bytes.clone(),
+            })
+            .collect(),
         source_hash: Some(hash),
         facts: mapped.facts,
         provenance: mapped.provenance,
-        gate_flags: mapped.gate_flags,
+        gate_flags,
+        notes: reviewer_notes(label.notes.as_deref(), candidate.photo_note()),
+        ingredients_text: label
+            .ingredients_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned),
+        multiple_transportable_stated: Some(label.multiple_transportable_stated),
         proposed_by_user_id: None,
     }
 }
 
-/// The `--dry-run` line for a proposal that would be filed.
-fn preview_line(proposal: &NewFuelProposal, read: &Reading, photos: usize) -> serde_json::Value {
+/// The `--dry-run` line for a read that would be filed.
+fn preview_line(proposal: &NewFuelProposal, read: &Reading, filing: Filing) -> serde_json::Value {
+    let held_by = match filing {
+        Filing::Duplicate(Some(holder)) => json!(holder),
+        Filing::Duplicate(None) => json!("an earlier listing in this run"),
+        Filing::Proposal | Filing::Illegible => serde_json::Value::Null,
+    };
     json!({
-        "would_propose": {
+        "would_file": {
+            "as": filing.label(),
+            "held_by": held_by,
             "brand": proposal.brand,
             "name": proposal.name,
             "variant": proposal.variant,
             "form": proposal.form,
             "gtin": proposal.gtin,
             "source_url": proposal.source_url,
-            "photos_sent": photos,
-            "stored_photo_bytes": proposal.source_image.as_ref().map(|image| image.bytes.len()),
+            "photos_stored": proposal.images.len(),
+            "photo_bytes": proposal.images.iter().map(|image| image.bytes.len()).collect::<Vec<_>>(),
             "facts": proposal.facts,
             "gate_flags": proposal.gate_flags,
+            "notes": proposal.notes,
+            "ingredients_text": proposal.ingredients_text,
+            "multiple_transportable_stated": proposal.multiple_transportable_stated,
             "label_brand": read.label.brand,
-            "multiple_transportable_stated": read.label.multiple_transportable_stated,
-            "notes": read.label.notes,
             "served_by": read.provider,
             "served_tier_position": read.position,
         }
@@ -527,22 +628,34 @@ mod tests {
     }
 
     #[test]
-    fn the_source_hash_covers_the_page_and_every_photo_in_order() {
+    fn the_source_hash_is_the_stored_one_over_every_photo_in_order() {
         let url = "https://naak.com/products/gel";
         let a = [image(b"front"), image(b"panel")];
-        assert_eq!(source_hash(url, &a), source_hash(url, &a));
+        assert_eq!(
+            source_hash(url, &a),
+            proposal_source_hash(Some(url), &[b"front", b"panel"])
+        );
         assert_ne!(
             source_hash(url, &a),
             source_hash(url, &[image(b"panel"), image(b"front")])
         );
-        assert_ne!(
-            source_hash(url, &a),
-            source_hash("https://naak.com/products/gel?variant=2", &a)
+    }
+
+    #[test]
+    fn the_reviewer_notes_name_who_wrote_each() {
+        assert_eq!(reviewer_notes(None, None), None);
+        assert_eq!(reviewer_notes(Some("  "), None), None);
+        assert_eq!(
+            reviewer_notes(Some("200 kcal is front-of-pack"), None).as_deref(),
+            Some("Label reader: 200 kcal is front-of-pack")
         );
-        // Length prefixes: moving a byte between photos is a different set.
-        assert_ne!(
-            source_hash(url, &[image(b"ab"), image(b"c")]),
-            source_hash(url, &[image(b"a"), image(b"bc")])
+        assert_eq!(
+            reviewer_notes(Some("a"), Some("b".to_owned())).as_deref(),
+            Some("Label reader: a\nIngestion job: b")
+        );
+        assert_eq!(
+            reviewer_notes(None, Some("b".to_owned())).as_deref(),
+            Some("Ingestion job: b")
         );
     }
 
@@ -585,11 +698,98 @@ mod tests {
         .verdict(1)
         .is_ok());
         assert!(Tally {
+            candidates: 2,
+            llm_calls: 2,
+            filed_illegible: 1,
+            filed_duplicate: 1,
+            ..Tally::default()
+        }
+        .verdict(1)
+        .is_ok());
+        assert!(Tally {
             brands_failed: 2,
             ..Tally::default()
         }
         .verdict(2)
         .is_err());
+    }
+
+    fn read(legible: bool) -> Reading {
+        let mut label =
+            extraction::parse_reading(include_str!("fuel_ingest/fixtures/label_reading.json"))
+                .unwrap_or_else(|e| panic!("{e}"));
+        label.legible = legible;
+        label.notes = Some("Energy is front-of-pack".to_owned());
+        Reading {
+            label,
+            provider: "anthropic",
+            position: Some(0),
+        }
+    }
+
+    fn untied_candidate() -> LabelCandidate {
+        LabelCandidate {
+            page_url: "https://tailwindnutrition.com/products/endurance-fuel".to_owned(),
+            flavour: None,
+            title: "Endurance Fuel".to_owned(),
+            image_urls: vec!["a".to_owned(), "b".to_owned()],
+            untied_flavours: vec!["Berry".to_owned(), "Lemon".to_owned()],
+        }
+    }
+
+    #[test]
+    fn a_read_files_every_photo_in_order_with_the_readers_findings() {
+        let photos = [image(b"front"), image(b"panel")];
+        let filed = proposal(
+            &BRANDS[1],
+            &untied_candidate(),
+            &read(true),
+            &photos,
+            "hash".to_owned(),
+        );
+        assert_eq!(
+            filed
+                .images
+                .iter()
+                .map(|i| i.bytes.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"front".as_slice(), b"panel".as_slice()]
+        );
+        assert_eq!(filed.brand, "Tailwind Nutrition");
+        assert_eq!(filed.name, "ULTRA Energy Gel");
+        assert_eq!(filed.multiple_transportable_stated, Some(true));
+        assert_eq!(
+            filed.ingredients_text.as_deref(),
+            Some("Maple syrup, maltodextrin, water, sea salt")
+        );
+        let notes = filed.notes.unwrap_or_default();
+        assert!(
+            notes.starts_with("Label reader: Energy is front-of-pack\n"),
+            "{notes}"
+        );
+        assert!(
+            notes.contains("Ingestion job: The listing offers 2 flavours (Berry, Lemon)"),
+            "{notes}"
+        );
+        assert_eq!(filed.facts.glucose_fructose_ratio, Some(0.8));
+        assert!(filed.gate_flags.is_empty(), "{:?}", filed.gate_flags);
+    }
+
+    #[test]
+    fn an_illegible_read_is_filed_flagged_first() {
+        let photos = [image(b"front")];
+        let filed = proposal(
+            &BRANDS[1],
+            &untied_candidate(),
+            &read(false),
+            &photos,
+            "hash".to_owned(),
+        );
+        assert_eq!(
+            filed.gate_flags.first().map(String::as_str),
+            Some(ILLEGIBLE_FLAG)
+        );
+        assert_eq!(filed.images.len(), 1);
     }
 
     #[test]
