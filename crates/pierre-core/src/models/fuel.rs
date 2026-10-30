@@ -33,7 +33,7 @@ pub use gate::{
     check_plausibility, FactBasis, PlausibilityViolation, MAX_CAFFEINE_MG_PER_SERVING,
     MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
 };
-pub use identity::{fuel_natural_key, normalize_gtin, proposal_source_hash};
+pub use identity::{fuel_natural_key, image_sha256, normalize_gtin, proposal_source_hash};
 pub use overrides::{FieldOverride, FuelFactOverrides};
 
 /// The physical form a fuel product comes in. Stored as [`FuelForm::as_str`].
@@ -52,11 +52,28 @@ pub enum FuelForm {
     Capsule,
     /// A tablet, typically electrolytes.
     Tablet,
+    /// A fruit or vegetable puree in a pouch, eaten like a gel.
+    Puree,
+    /// A thin filled waffle, eaten like a bar.
+    Waffle,
     /// Any other form.
     Other,
 }
 
 impl FuelForm {
+    /// Every form, in stored-list order: the column's CHECK lists the same set.
+    pub const ALL: [Self; 9] = [
+        Self::Gel,
+        Self::DrinkMix,
+        Self::Bar,
+        Self::Chew,
+        Self::Capsule,
+        Self::Tablet,
+        Self::Puree,
+        Self::Waffle,
+        Self::Other,
+    ];
+
     /// The stored and wire spelling.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -67,6 +84,8 @@ impl FuelForm {
             Self::Chew => "chew",
             Self::Capsule => "capsule",
             Self::Tablet => "tablet",
+            Self::Puree => "puree",
+            Self::Waffle => "waffle",
             Self::Other => "other",
         }
     }
@@ -81,6 +100,8 @@ impl FuelForm {
             "chew" => Some(Self::Chew),
             "capsule" => Some(Self::Capsule),
             "tablet" => Some(Self::Tablet),
+            "puree" => Some(Self::Puree),
+            "waffle" => Some(Self::Waffle),
             "other" => Some(Self::Other),
             _ => None,
         }
@@ -90,17 +111,27 @@ impl FuelForm {
     /// label must state carbs per serving.
     #[must_use]
     pub const fn requires_carbs(self) -> bool {
-        matches!(self, Self::Gel | Self::DrinkMix | Self::Chew | Self::Bar)
+        matches!(
+            self,
+            Self::Gel | Self::DrinkMix | Self::Chew | Self::Bar | Self::Puree | Self::Waffle
+        )
     }
 
     /// The serving mass, in grams, a label of this form can state: capsules
     /// and tablets weigh a fraction of a gram to a few grams, everything else
-    /// from a few grams to a large bottle's worth of powder.
+    /// from a few grams to a large bottle's worth of powder. A puree is
+    /// bounded like the gel it is eaten as, a waffle like a bar.
     #[must_use]
     pub const fn serving_g_bounds(self) -> (f64, f64) {
         match self {
             Self::Capsule | Self::Tablet => (0.2, 5.0),
-            Self::Gel | Self::DrinkMix | Self::Bar | Self::Chew | Self::Other => (5.0, 200.0),
+            Self::Gel
+            | Self::Puree
+            | Self::DrinkMix
+            | Self::Bar
+            | Self::Waffle
+            | Self::Chew
+            | Self::Other => (5.0, 200.0),
         }
     }
 }
@@ -379,13 +410,43 @@ impl FuelRejectReason {
     }
 }
 
-/// The label image a proposal's facts were read from.
+/// The gate flag of a proposal whose label was read and no panel could be.
+///
+/// Filed so the next run's source-hash dedupe skips the same photos, and so
+/// a reviewer rejects it in one click. Not a plausibility code.
+pub const ILLEGIBLE_FLAG: &str = "illegible";
+
+/// One photo a proposal's label was read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposalSourceImage {
     /// Its media type ("image/jpeg").
     pub mime: String,
     /// Its bytes.
     pub bytes: Vec<u8>,
+}
+
+/// A stored photo of a proposal, without its bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FuelProposalImageMeta {
+    /// Its place in the order the photos were sent, from 0.
+    pub position: i64,
+    /// Its media type.
+    pub mime: String,
+    /// Its size, bytes.
+    pub byte_len: i64,
+    /// SHA-256 of its bytes, lowercase hex.
+    pub sha256: String,
+}
+
+/// What already holds a brand/name/variant natural key, so the ingestion job
+/// files nothing new under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum FuelKeyHolder {
+    /// A catalogue product.
+    Product(Uuid),
+    /// A proposal pending review or approved (an illegible filing excluded).
+    Proposal(Uuid),
 }
 
 /// A proposal to enter, or to change, a product's facts.
@@ -408,21 +469,30 @@ pub struct NewFuelProposal {
     pub source_kind: ProposalSource,
     /// The page it was read from.
     pub source_url: Option<String>,
-    /// The label image it was read from.
-    pub source_image: Option<ProposalSourceImage>,
+    /// Every photo its label was read from, in the order sent; empty for a
+    /// product an athlete typed.
+    pub images: Vec<ProposalSourceImage>,
     /// [`proposal_source_hash`] of the source, so one source is proposed once.
     pub source_hash: Option<String>,
     /// The proposed facts.
     pub facts: FuelFacts,
     /// Where each fact came from.
     pub provenance: FactProvenance,
-    /// The [`PlausibilityViolation::code`]s the facts tripped when proposed.
+    /// The [`PlausibilityViolation::code`]s the facts tripped when proposed,
+    /// or [`ILLEGIBLE_FLAG`] when no panel could be read.
     pub gate_flags: Vec<String>,
+    /// The label reader's notes to the reviewer, and the ingestion job's.
+    pub notes: Option<String>,
+    /// The ingredients list as printed.
+    pub ingredients_text: Option<String>,
+    /// Whether the pack claims a glucose + fructose blend; `None` when
+    /// nobody read the pack.
+    pub multiple_transportable_stated: Option<bool>,
     /// The user who proposed it, when one did.
     pub proposed_by_user_id: Option<Uuid>,
 }
 
-/// A stored proposal, without its image bytes.
+/// A stored proposal, without its photos (see [`FuelProposalImageMeta`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FuelProductProposal {
     /// Row id.
@@ -443,18 +513,23 @@ pub struct FuelProductProposal {
     pub source_kind: ProposalSource,
     /// The page it was read from.
     pub source_url: Option<String>,
-    /// Whether a label image is stored with it.
-    pub has_source_image: bool,
-    /// The stored image's media type.
-    pub source_image_mime: Option<String>,
+    /// How many photos are stored with it.
+    pub image_count: i64,
     /// The source's hash.
     pub source_hash: Option<String>,
     /// The proposed facts.
     pub facts: FuelFacts,
     /// Where each fact came from.
     pub provenance: FactProvenance,
-    /// The gate codes the facts tripped when proposed.
+    /// The gate codes the facts tripped when proposed, or [`ILLEGIBLE_FLAG`].
     pub gate_flags: Vec<String>,
+    /// The label reader's notes to the reviewer, and the ingestion job's.
+    pub notes: Option<String>,
+    /// The ingredients list as printed.
+    pub ingredients_text: Option<String>,
+    /// Whether the pack claims a glucose + fructose blend; `None` when
+    /// nobody read the pack.
+    pub multiple_transportable_stated: Option<bool>,
     /// Where it stands.
     pub status: ProposalStatus,
     /// Who proposed it.
@@ -471,15 +546,6 @@ pub struct FuelProductProposal {
     pub approved_version_id: Option<Uuid>,
     /// When it was proposed.
     pub created_at: DateTime<Utc>,
-}
-
-/// A proposal with its stored label image, as a reviewer opens it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FuelProposalDetail {
-    /// The proposal.
-    pub proposal: FuelProductProposal,
-    /// Its label image, when one is stored.
-    pub source_image: Option<ProposalSourceImage>,
 }
 
 /// What an approval did.
@@ -576,17 +642,10 @@ mod tests {
 
     #[test]
     fn stored_spellings_round_trip() {
-        for form in [
-            FuelForm::Gel,
-            FuelForm::DrinkMix,
-            FuelForm::Bar,
-            FuelForm::Chew,
-            FuelForm::Capsule,
-            FuelForm::Tablet,
-            FuelForm::Other,
-        ] {
+        for form in FuelForm::ALL {
             assert_eq!(FuelForm::parse(form.as_str()), Some(form));
         }
+        assert_eq!(FuelForm::parse("syrup"), None);
         for status in [
             ProposalStatus::Pending,
             ProposalStatus::Approved,

@@ -590,12 +590,48 @@ mod tests {
             FuelForm::DrinkMix,
             FuelForm::Chew,
             FuelForm::Bar,
+            FuelForm::Puree,
+            FuelForm::Waffle,
         ] {
             assert_eq!(codes(form, &none), vec!["carbs_missing"], "{form:?}");
         }
         for form in [FuelForm::Capsule, FuelForm::Tablet, FuelForm::Other] {
             assert_eq!(codes(form, &none), Vec::<&str>::new(), "{form:?}");
         }
+    }
+
+    #[test]
+    fn a_puree_is_bounded_like_a_gel_and_a_waffle_like_a_bar() {
+        assert_eq!(
+            FuelForm::Puree.serving_g_bounds(),
+            FuelForm::Gel.serving_g_bounds()
+        );
+        assert_eq!(
+            FuelForm::Waffle.serving_g_bounds(),
+            FuelForm::Bar.serving_g_bounds()
+        );
+        // A 100 g pouch and a 30 g waffle pass; a 2 g "waffle" is a misread.
+        let pouch = FuelFacts {
+            serving_g: Some(100.0),
+            carbs_g: Some(20.0),
+            ..FuelFacts::default()
+        };
+        assert_eq!(codes(FuelForm::Puree, &pouch), Vec::<&str>::new());
+        let waffle = FuelFacts {
+            serving_g: Some(30.0),
+            carbs_g: Some(21.0),
+            ..FuelFacts::default()
+        };
+        assert_eq!(codes(FuelForm::Waffle, &waffle), Vec::<&str>::new());
+        let crumb = FuelFacts {
+            serving_g: Some(2.0),
+            carbs_g: Some(1.0),
+            ..FuelFacts::default()
+        };
+        assert_eq!(
+            codes(FuelForm::Waffle, &crumb),
+            vec!["serving_mass_out_of_range"]
+        );
     }
 
     #[test]

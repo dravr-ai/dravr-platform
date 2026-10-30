@@ -74,28 +74,79 @@ pub(crate) const GET_PRODUCT_SQL: &str = concat!(catalogue_select!(), "WHERE p.i
 /// One product by GTIN `$1`.
 pub(crate) const GET_PRODUCT_BY_GTIN_SQL: &str = concat!(catalogue_select!(), "WHERE p.gtin = $1");
 
-/// A proposal's columns, its image reduced to whether one is stored.
+/// A proposal's columns, its photos reduced to how many are stored.
 macro_rules! proposal_columns {
     () => {
         r"
             id, product_id, brand, name, variant, form, gtin, source_kind, source_url,
-            (source_image IS NOT NULL) AS has_source_image, source_image_mime,
-            source_hash, facts_json, provenance_json, gate_flags_json, status,
+            (SELECT COUNT(*) FROM fuel_proposal_images img
+              WHERE img.proposal_id = fuel_product_proposals.id) AS image_count,
+            source_hash, facts_json, provenance_json, gate_flags_json, notes,
+            ingredients_text, multiple_transportable_stated, status,
             proposed_by_user_id, reviewed_by_user_id, reviewed_at, reject_reason,
             reject_note, approved_version_id, created_at
         "
     };
 }
 
-/// Queue a proposal: `$1` id .. `$16` created at, status pending.
+/// Queue a proposal, status pending: `$1` id, `$2` product, `$3` brand, `$4`
+/// name, `$5` variant, `$6` form, `$7` natural key, `$8` gtin, `$9` source
+/// kind, `$10` source URL, `$11` source hash, `$12` facts, `$13` provenance,
+/// `$14` gate flags, `$15` notes, `$16` ingredients, `$17` blend claim,
+/// `$18` proposer, `$19` created at.
 pub(crate) const INSERT_PROPOSAL_SQL: &str = r"
             INSERT INTO fuel_product_proposals (
-                id, product_id, brand, name, variant, form, gtin, source_kind,
-                source_url, source_image, source_image_mime, source_hash, facts_json,
-                provenance_json, gate_flags_json, proposed_by_user_id, status, created_at
+                id, product_id, brand, name, variant, form, natural_key, gtin,
+                source_kind, source_url, source_hash, facts_json, provenance_json,
+                gate_flags_json, notes, ingredients_text, multiple_transportable_stated,
+                proposed_by_user_id, status, created_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                    'pending', $17)
+                    $17, $18, 'pending', $19)
+            ";
+
+/// Store photo `$2` (its place in the order sent) of proposal `$1`: `$3`
+/// bytes, `$4` media type, `$5` SHA-256 hex.
+pub(crate) const INSERT_PROPOSAL_IMAGE_SQL: &str = r"
+            INSERT INTO fuel_proposal_images (proposal_id, position, bytes, mime, sha256)
+            VALUES ($1, $2, $3, $4, $5)
+            ";
+
+/// The photos of proposal `$1` without their bytes, in the order sent.
+pub(crate) const LIST_PROPOSAL_IMAGES_SQL: &str = r"
+            SELECT CAST(position AS BIGINT) AS position, mime,
+                   CAST(length(bytes) AS BIGINT) AS byte_len, sha256
+            FROM fuel_proposal_images
+            WHERE proposal_id = $1
+            ORDER BY position
+            ";
+
+/// Photo `$2` of proposal `$1`.
+pub(crate) const GET_PROPOSAL_IMAGE_SQL: &str = r"
+            SELECT bytes, mime FROM fuel_proposal_images
+            WHERE proposal_id = $1 AND position = $2
+            ";
+
+/// The oldest proposal pending or approved under natural key `$1` whose gate
+/// flags do not match `$2` (the illegible flag, quoted and `LIKE`-wrapped):
+/// an illegible filing is named by its listing, not its label, so it holds
+/// no key.
+pub(crate) const PROPOSAL_HOLDING_KEY_SQL: &str = r"
+            SELECT id FROM fuel_product_proposals
+            WHERE natural_key = $1 AND status IN ('pending', 'approved')
+              AND gate_flags_json NOT LIKE $2
+            ORDER BY created_at, id
+            LIMIT 1
+            ";
+
+/// Close proposal `$1`, just queued by the ingestion job, as a duplicate at
+/// `$2` with note `$3`. No reviewer: the job filed it already decided, so
+/// its source hash is on file and the next run skips it unread.
+pub(crate) const FILE_AS_DUPLICATE_SQL: &str = r"
+            UPDATE fuel_product_proposals
+            SET status = 'rejected', reviewed_at = $2, reject_reason = 'duplicate',
+                reject_note = $3
+            WHERE id = $1 AND status = 'pending'
             ";
 
 /// Proposals in status `$1`, oldest first, `$2` of them after `$3`.
@@ -110,11 +161,11 @@ pub(crate) const LIST_PROPOSALS_SQL: &str = concat!(
             "
 );
 
-/// One proposal by id `$1`, with its image.
+/// One proposal by id `$1`.
 pub(crate) const GET_PROPOSAL_SQL: &str = concat!(
     "SELECT ",
     proposal_columns!(),
-    ", source_image FROM fuel_product_proposals WHERE id = $1"
+    " FROM fuel_product_proposals WHERE id = $1"
 );
 
 /// How many proposals carry source hash `$1`.

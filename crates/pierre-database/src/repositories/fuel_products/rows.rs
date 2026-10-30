@@ -11,8 +11,9 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     normalize_gtin, CatalogueFuelProduct, FactProvenance, FactSource, FieldProvenance,
-    FuelFactOverrides, FuelFacts, FuelForm, FuelProduct, FuelProductProposal, FuelProductVersion,
-    FuelRejectReason, ProposalSource, ProposalStatus,
+    FuelFactOverrides, FuelFacts, FuelForm, FuelKeyHolder, FuelProduct, FuelProductProposal,
+    FuelProductVersion, FuelProposalImageMeta, FuelRejectReason, ProposalSource, ProposalStatus,
+    ILLEGIBLE_FLAG,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -207,7 +208,8 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<bool>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
@@ -234,14 +236,18 @@ where
             AppError::database(format!("Unknown fuel proposal source: {source_kind}"))
         })?,
         source_url: text_opt("source_url")?,
-        has_source_image: row
-            .try_get("has_source_image")
-            .map_err(|e| column("has_source_image", e))?,
-        source_image_mime: text_opt("source_image_mime")?,
+        image_count: row
+            .try_get("image_count")
+            .map_err(|e| column("image_count", e))?,
         source_hash: text_opt("source_hash")?,
         facts: from_json("facts", &text("facts_json")?)?,
         provenance: from_json("provenance", &text("provenance_json")?)?,
         gate_flags: from_json("gate flags", &text("gate_flags_json")?)?,
+        notes: text_opt("notes")?,
+        ingredients_text: text_opt("ingredients_text")?,
+        multiple_transportable_stated: row
+            .try_get("multiple_transportable_stated")
+            .map_err(|e| column("multiple_transportable_stated", e))?,
         status: parse_status(&text("status")?)?,
         proposed_by_user_id: ids.proposed_by,
         reviewed_by_user_id: ids.reviewed_by,
@@ -284,6 +290,42 @@ macro_rules! bind_fuel_facts {
     }};
 }
 pub(crate) use bind_fuel_facts;
+
+/// Read a row of `LIST_PROPOSAL_IMAGES_SQL`.
+pub(crate) fn image_meta_from_row<R>(row: &R) -> AppResult<FuelProposalImageMeta>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column = |col: &str, e: sqlx::Error| fuel_error(&format!("decode {col} of"), e);
+    Ok(FuelProposalImageMeta {
+        position: row.try_get("position").map_err(|e| column("position", e))?,
+        mime: row.try_get("mime").map_err(|e| column("mime", e))?,
+        byte_len: row.try_get("byte_len").map_err(|e| column("byte_len", e))?,
+        sha256: row.try_get("sha256").map_err(|e| column("sha256", e))?,
+    })
+}
+
+/// The `LIKE` pattern `PROPOSAL_HOLDING_KEY_SQL` excludes: the illegible flag
+/// as it appears, quoted, in a gate-flags JSON array.
+pub(crate) fn illegible_flag_pattern() -> String {
+    format!("%\"{ILLEGIBLE_FLAG}\"%")
+}
+
+/// The note a proposal filed as a duplicate carries: what already holds its
+/// brand, name and variant.
+pub(crate) fn duplicate_note(holder: FuelKeyHolder) -> String {
+    match holder {
+        FuelKeyHolder::Product(id) => {
+            format!("Filed by the ingestion job: catalogue product {id} already has this brand, name and variant")
+        }
+        FuelKeyHolder::Proposal(id) => {
+            format!("Filed by the ingestion job: proposal {id} already has this brand, name and variant")
+        }
+    }
+}
 
 /// How a product identity lookup is keyed.
 #[derive(Debug, Clone, Copy)]

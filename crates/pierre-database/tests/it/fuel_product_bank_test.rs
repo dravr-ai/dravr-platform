@@ -27,7 +27,7 @@ use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per call; the reviewer and item foreign keys need the row.
-async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
+pub(crate) async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
     let user = User::new(
         format!("fuel-{}@example.com", Uuid::new_v4()),
         "argon2-hash-placeholder".to_owned(),
@@ -37,7 +37,7 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 }
 
 /// A consistent gel label: 40 g serving, 25 g carbs, 1:0.8.
-fn gel_facts() -> FuelFacts {
+pub(crate) fn gel_facts() -> FuelFacts {
     FuelFacts {
         serving_label: Some("1 gel (40 g)".to_owned()),
         serving_g: Some(40.0),
@@ -53,10 +53,13 @@ fn gel_facts() -> FuelFacts {
     }
 }
 
+/// The photos `proposal` sends: a front and the label panel, in that order.
+pub(crate) const FRONT: &[u8] = b"\x89PNG front of pack";
+pub(crate) const PANEL: &[u8] = b"\x89PNG label panel";
+
 /// A proposal with a distinct name, so tests sharing a database never meet.
-fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
+pub(crate) fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
     let url = format!("https://shop.example/{}", Uuid::new_v4());
-    let image = b"\x89PNG label panel".to_vec();
     let mut provenance = BTreeMap::new();
     provenance.insert(
         "carbs_g".to_owned(),
@@ -74,15 +77,24 @@ fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
         form: FuelForm::Gel,
         gtin: None,
         source_kind: ProposalSource::ShopifyOcr,
-        source_hash: Some(proposal_source_hash(Some(&url), &image)),
+        source_hash: Some(proposal_source_hash(Some(&url), &[FRONT, PANEL])),
         source_url: Some(url),
-        source_image: Some(ProposalSourceImage {
-            mime: "image/png".to_owned(),
-            bytes: image,
-        }),
+        images: vec![
+            ProposalSourceImage {
+                mime: "image/jpeg".to_owned(),
+                bytes: FRONT.to_vec(),
+            },
+            ProposalSourceImage {
+                mime: "image/png".to_owned(),
+                bytes: PANEL.to_vec(),
+            },
+        ],
         facts,
         provenance,
         gate_flags: Vec::new(),
+        notes: Some("Energy read from the panel, not the front".to_owned()),
+        ingredients_text: Some("Maltodextrin, fructose, water".to_owned()),
+        multiple_transportable_stated: Some(true),
         proposed_by_user_id: None,
     }
 }
@@ -127,22 +139,11 @@ async fn an_approved_proposal_becomes_the_current_version() {
         .await
         .unwrap();
     let listed = queued.iter().find(|p| p.id == id).unwrap();
-    assert!(listed.has_source_image);
+    assert_eq!(listed.image_count, 2);
     assert_eq!(listed.facts, gel_facts());
-    let detail = repos
-        .fuel_catalogue
-        .get_fuel_proposal(id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        detail.source_image.as_ref().map(|i| i.mime.as_str()),
-        Some("image/png")
-    );
-    assert_eq!(
-        detail.source_image.map(|i| i.bytes),
-        Some(b"\x89PNG label panel".to_vec())
-    );
+    assert_eq!(listed.notes, new.notes);
+    assert_eq!(listed.ingredients_text, new.ingredients_text);
+    assert_eq!(listed.multiple_transportable_stated, Some(true));
 
     let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
     assert_eq!(product.product.brand, "Maurten");
@@ -159,8 +160,7 @@ async fn an_approved_proposal_becomes_the_current_version() {
         .get_fuel_proposal(id)
         .await
         .unwrap()
-        .unwrap()
-        .proposal;
+        .unwrap();
     assert_eq!(after.status, ProposalStatus::Approved);
     assert_eq!(after.approved_version_id, Some(product.current.id));
     assert_eq!(after.product_id, Some(product.product.id));
@@ -302,7 +302,6 @@ async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
         .await
         .unwrap()
         .unwrap()
-        .proposal
         .name;
     clash.name = other_name;
     let clash_id = repos
@@ -324,8 +323,7 @@ async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
         .get_fuel_proposal(clash_id)
         .await
         .unwrap()
-        .unwrap()
-        .proposal;
+        .unwrap();
     assert_eq!(still.status, ProposalStatus::Pending);
 
     // A barcode not in its GTIN-14 form never reaches the queue.
@@ -360,8 +358,7 @@ async fn a_rejected_proposal_reaches_no_catalogue() {
         .get_fuel_proposal(id)
         .await
         .unwrap()
-        .unwrap()
-        .proposal;
+        .unwrap();
     assert_eq!(rejected.status, ProposalStatus::Rejected);
     assert_eq!(rejected.reject_reason, Some(FuelRejectReason::Illegible));
     assert_eq!(rejected.reject_note.as_deref(), Some("blurred"));
@@ -421,8 +418,7 @@ async fn the_gate_refuses_implausible_merged_facts() {
         .get_fuel_proposal(id)
         .await
         .unwrap()
-        .unwrap()
-        .proposal;
+        .unwrap();
     assert_eq!(still.status, ProposalStatus::Pending);
     assert_eq!(still.approved_version_id, None);
 

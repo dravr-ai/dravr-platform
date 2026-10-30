@@ -1,4 +1,4 @@
-// ABOUTME: Fuel-product identity helpers: GTIN normalization, the brand/name/variant natural key and the proposal source hash
+// ABOUTME: Fuel-product identity helpers: GTIN normalization, the brand/name/variant natural key, the source and photo hashes
 // ABOUTME: Pure functions shared by the catalogue storage, the ingestion job and the review console (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -53,22 +53,38 @@ pub fn fuel_natural_key(brand: &str, name: &str, variant: &str) -> String {
     )
 }
 
-/// The dedupe hash of a proposal's source: SHA-256, lowercase hex, over the
-/// URL then the image bytes.
-#[must_use]
-pub fn proposal_source_hash(source_url: Option<&str>, image: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(source_url.unwrap_or_default().as_bytes());
-    hasher.update([0_u8]);
-    hasher.update(image);
-    hasher
-        .finalize()
+/// Lowercase hex of a SHA-256 digest.
+fn hex(digest: &[u8]) -> String {
+    digest
         .iter()
         .fold(String::with_capacity(64), |mut out, byte| {
             use std::fmt::Write as _;
             let _ = write!(out, "{byte:02x}");
             out
         })
+}
+
+/// SHA-256 of one photo's bytes, lowercase hex, as a proposal stores it.
+#[must_use]
+pub fn image_sha256(bytes: &[u8]) -> String {
+    hex(&Sha256::digest(bytes))
+}
+
+/// The dedupe hash of a proposal's source: SHA-256, lowercase hex.
+///
+/// Taken over the page URL, then every photo sent, in order, each prefixed
+/// with its length so two photo sets never collide by concatenation. The same
+/// photos in another order, or under another page, are another source.
+#[must_use]
+pub fn proposal_source_hash(source_url: Option<&str>, images: &[&[u8]]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(source_url.unwrap_or_default().as_bytes());
+    hasher.update([0_u8]);
+    for image in images {
+        hasher.update((image.len() as u64).to_le_bytes());
+        hasher.update(image);
+    }
+    hex(&hasher.finalize())
 }
 
 #[cfg(test)]
@@ -128,9 +144,36 @@ mod tests {
 
     #[test]
     fn source_hash_is_stable_hex_and_url_sensitive() {
-        let a = proposal_source_hash(Some("https://x/1"), b"img");
+        let a = proposal_source_hash(Some("https://x/1"), &[b"img"]);
         assert_eq!(a.len(), 64);
-        assert_eq!(a, proposal_source_hash(Some("https://x/1"), b"img"));
-        assert_ne!(a, proposal_source_hash(Some("https://x/2"), b"img"));
+        assert_eq!(a, proposal_source_hash(Some("https://x/1"), &[b"img"]));
+        assert_ne!(a, proposal_source_hash(Some("https://x/2"), &[b"img"]));
+    }
+
+    #[test]
+    fn source_hash_covers_every_photo_in_order() {
+        let url = Some("https://naak.com/products/gel");
+        let set: [&[u8]; 2] = [b"front", b"panel"];
+        assert_ne!(
+            proposal_source_hash(url, &set),
+            proposal_source_hash(url, &[b"panel", b"front"])
+        );
+        assert_ne!(
+            proposal_source_hash(url, &set),
+            proposal_source_hash(url, &[b"panel"])
+        );
+        // Length prefixes: moving a byte between photos is a different set.
+        assert_ne!(
+            proposal_source_hash(url, &[b"ab", b"c"]),
+            proposal_source_hash(url, &[b"a", b"bc"])
+        );
+    }
+
+    #[test]
+    fn image_sha256_is_the_plain_digest() {
+        assert_eq!(
+            image_sha256(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

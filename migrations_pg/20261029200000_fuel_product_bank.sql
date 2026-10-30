@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS fuel_products (
     brand TEXT NOT NULL,
     name TEXT NOT NULL,
     variant TEXT NOT NULL DEFAULT '',
-    form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'other')),
+    form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'puree', 'waffle', 'other')),
     natural_key TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL
 );
@@ -75,12 +75,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_product_versions_current
 -- catalogue until an operator approves it; global like the catalogue.
 --   product_id       set when the proposal updates an existing product, and
 --                    on approval to the product it landed on
---   source_image     the label panel the facts were read from, served by the
---                    backend to the reviewer
---   source_hash      sha256 hex of the image bytes and URL; one proposal per
---                    source
---   facts_json       the proposed facts, same field names as the versions
---   gate_flags_json  the plausibility-gate codes the proposal tripped
+--   natural_key      brand|name|variant normalized in Rust as on
+--                    fuel_products, so the ingestion job finds a product
+--                    already queued or catalogued under another listing
+--   source_hash      sha256 hex over the page URL and every photo sent, in
+--                    order; one proposal per source. Its photos are rows of
+--                    fuel_proposal_images
+--   facts_json       the proposed facts, same field names as the versions;
+--                    the stated glucose:fructose ratio is one of them
+--   gate_flags_json  the plausibility-gate codes the proposal tripped, plus
+--                    `illegible` for a label read that found no panel (filed
+--                    so the next run skips it and a reviewer rejects it)
+--   notes            the label reader's notes to the reviewer, and the
+--                    ingestion job's (photos not tied to one flavour)
+--   ingredients_text the ingredients list as printed
+--   multiple_transportable_stated  whether the pack claims a glucose +
+--                    fructose blend; NULL when nobody read the pack
 --   reject_reason    a code the admin console validates
 CREATE TABLE IF NOT EXISTS fuel_product_proposals (
     id UUID PRIMARY KEY,
@@ -88,16 +98,18 @@ CREATE TABLE IF NOT EXISTS fuel_product_proposals (
     brand TEXT NOT NULL,
     name TEXT NOT NULL,
     variant TEXT NOT NULL DEFAULT '',
-    form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'other')),
+    form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'puree', 'waffle', 'other')),
     gtin TEXT,
     source_kind TEXT NOT NULL CHECK (source_kind IN ('shopify_ocr', 'athlete', 'admin')),
+    natural_key TEXT NOT NULL,
     source_url TEXT,
-    source_image BYTEA,
-    source_image_mime TEXT,
     source_hash TEXT,
     facts_json TEXT NOT NULL,
     provenance_json TEXT NOT NULL,
     gate_flags_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    ingredients_text TEXT,
+    multiple_transportable_stated BOOLEAN,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     proposed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     reviewed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -113,6 +125,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_product_proposals_source_hash
 
 CREATE INDEX IF NOT EXISTS idx_fuel_product_proposals_queue
     ON fuel_product_proposals (status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_fuel_product_proposals_natural_key
+    ON fuel_product_proposals (natural_key);
+
+-- fuel_proposal_images: every photo a proposal's label was read from, in the
+-- order it was sent (position 0 first), served by the backend to the
+-- reviewer. A proposal an athlete typed has none.
+--   sha256           lowercase hex of the bytes
+CREATE TABLE IF NOT EXISTS fuel_proposal_images (
+    proposal_id UUID NOT NULL REFERENCES fuel_product_proposals(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    bytes BYTEA NOT NULL,
+    mime TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (proposal_id, position)
+);
 
 -- athlete_fuel_items: what an athlete carries, in one tenant. A catalogue
 -- product, or a pending proposal until it is approved, when the approval

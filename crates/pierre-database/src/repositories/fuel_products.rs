@@ -1,4 +1,4 @@
-// ABOUTME: Repository traits, statements and shared body for the fuel-product bank: the global catalogue and review queue, and what each athlete carries
+// ABOUTME: Statements and shared body for the fuel-product bank: the global catalogue and review queue, and what each athlete carries
 // ABOUTME: The catalogue is not tenant-scoped by design; athlete items are keyed by tenant_id and user_id. Emitted per backend by macro (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -28,192 +28,32 @@
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 //! Postgres, so one statement serves both backends. Ids bind through the
 //! backend's uuid codec (see [`super::uuid_columns`]); timestamps bind as
-//! `DateTime<Utc>`, facts as `Option<f64>`, the image as bytes, and each driver
+//! `DateTime<Utc>`, facts as `Option<f64>`, photos as bytes, and each driver
 //! encodes them for its own column type.
-
-use async_trait::async_trait;
-use pierre_core::errors::AppResult;
-use pierre_core::models::{
-    AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome,
-    FuelFactOverrides, FuelItemCarried, FuelProductProposal, FuelProposalDetail, FuelRejectReason,
-    NewFuelProposal, ProposalStatus, TenantId,
-};
-use uuid::Uuid;
 
 mod rows;
 mod sql;
+mod traits;
 
 pub(crate) use rows::{
-    bind_fuel_facts, catalogue_from_row, check_gtin, from_json, fuel_error, merge_for_approval,
-    parse_form, parse_status, proposal_from_row, search_patterns, to_json, CatalogueIds,
-    FuelIdentityKey, ProposalIds, MAX_FUEL_PAGE,
+    bind_fuel_facts, catalogue_from_row, check_gtin, duplicate_note, from_json, fuel_error,
+    illegible_flag_pattern, image_meta_from_row, merge_for_approval, parse_form, parse_status,
+    proposal_from_row, search_patterns, to_json, CatalogueIds, FuelIdentityKey, ProposalIds,
+    MAX_FUEL_PAGE,
 };
 pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL, COUNT_PROPOSALS_BY_HASH_SQL,
-    FIND_LIVE_PENDING_ITEM_SQL, FIND_LIVE_PRODUCT_ITEM_SQL, GET_PRODUCT_BY_GTIN_SQL,
-    GET_PRODUCT_SQL, GET_PROPOSAL_SQL, HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL,
-    INSERT_PRODUCT_SQL, INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_CATALOGUE_SQL,
-    LIST_ITEMS_SQL, LIST_PROPOSALS_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL, PRODUCT_IDENTITY_BY_ID_SQL,
-    PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_LINK_SQL, PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL,
-    REJECT_PROPOSAL_SQL, RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL,
-    RETIRE_DUPLICATE_PENDING_ITEMS_SQL, SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL,
-    SUPERSEDE_CURRENT_VERSION_SQL,
+    FILE_AS_DUPLICATE_SQL, FIND_LIVE_PENDING_ITEM_SQL, FIND_LIVE_PRODUCT_ITEM_SQL,
+    GET_PRODUCT_BY_GTIN_SQL, GET_PRODUCT_SQL, GET_PROPOSAL_IMAGE_SQL, GET_PROPOSAL_SQL,
+    HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL, INSERT_PRODUCT_SQL, INSERT_PROPOSAL_IMAGE_SQL,
+    INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_CATALOGUE_SQL, LIST_ITEMS_SQL,
+    LIST_PROPOSALS_SQL, LIST_PROPOSAL_IMAGES_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL,
+    PRODUCT_IDENTITY_BY_ID_SQL, PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_HOLDING_KEY_SQL,
+    PROPOSAL_LINK_SQL, PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL, REJECT_PROPOSAL_SQL,
+    RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL, RETIRE_DUPLICATE_PENDING_ITEMS_SQL,
+    SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL, SUPERSEDE_CURRENT_VERSION_SQL,
 };
-
-/// The global fuel-product catalogue and its review queue. Not tenant-scoped
-/// by design.
-#[async_trait]
-pub trait FuelCatalogueRepository: Send + Sync {
-    /// Catalogue products whose brand, name and variant contain every word of
-    /// `query` (case-folded), or whose GTIN is the barcode `query` names, with
-    /// their current facts, at most `limit` of them.
-    async fn search_fuel_products(
-        &self,
-        query: &str,
-        limit: i64,
-    ) -> AppResult<Vec<CatalogueFuelProduct>>;
-
-    /// One catalogue product with its current facts.
-    async fn get_fuel_product(&self, product_id: Uuid) -> AppResult<Option<CatalogueFuelProduct>>;
-
-    /// The product a GTIN-14 names, with its current facts.
-    async fn get_fuel_product_by_gtin(&self, gtin: &str)
-        -> AppResult<Option<CatalogueFuelProduct>>;
-
-    /// A page of the live catalogue — `limit` (clamped to 1..=100) products
-    /// from `offset`, in brand/name/variant order — each with its current
-    /// facts and how many versions it has had.
-    async fn list_fuel_catalogue(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> AppResult<Vec<CatalogueFuelListing>>;
-
-    /// The products `product_ids` name, with their current facts, in the
-    /// order asked; an id the catalogue does not hold is left out.
-    ///
-    /// # Errors
-    /// An invalid-input error for more than
-    /// [`pierre_core::models::MAX_FUEL_PRODUCT_LOOKUP`] ids.
-    async fn get_fuel_products_current(
-        &self,
-        product_ids: &[Uuid],
-    ) -> AppResult<Vec<CatalogueFuelProduct>>;
-
-    /// Queue a proposal for review and return its id.
-    ///
-    /// # Errors
-    /// An invalid-input error when its GTIN is not a normalized GTIN-14, or
-    /// a database error when its source hash is already queued.
-    async fn create_fuel_proposal(&self, proposal: &NewFuelProposal) -> AppResult<Uuid>;
-
-    /// Proposals in `status`, oldest first, without their images.
-    async fn list_fuel_proposals(
-        &self,
-        status: ProposalStatus,
-        limit: i64,
-        offset: i64,
-    ) -> AppResult<Vec<FuelProductProposal>>;
-
-    /// One proposal with its stored label image.
-    async fn get_fuel_proposal(&self, proposal_id: Uuid) -> AppResult<Option<FuelProposalDetail>>;
-
-    /// Whether a proposal with this source hash is already queued, in any
-    /// status.
-    async fn fuel_proposal_exists_by_hash(&self, source_hash: &str) -> AppResult<bool>;
-
-    /// Approve a pending proposal, with `overrides` applied to its facts: each
-    /// field an override sets to a new value or clears is recorded with
-    /// provenance `admin_edit`. The
-    /// merged facts must pass the plausibility gate. In one transaction the
-    /// proposal's product is found (its `product_id`, else its GTIN, else its
-    /// brand, name and variant) or created, the product's current version is
-    /// superseded, the new one written, the proposal marked approved, and every
-    /// athlete item that carried the proposal relinked to the product.
-    async fn approve_fuel_proposal(
-        &self,
-        proposal_id: Uuid,
-        reviewer_user_id: Uuid,
-        overrides: &FuelFactOverrides,
-    ) -> AppResult<FuelApprovalOutcome>;
-
-    /// Reject a pending proposal. Returns whether it was pending.
-    async fn reject_fuel_proposal(
-        &self,
-        proposal_id: Uuid,
-        reviewer_user_id: Uuid,
-        reason: FuelRejectReason,
-        note: Option<&str>,
-    ) -> AppResult<bool>;
-}
-
-/// What an athlete carries, in one tenant. Every statement filters on
-/// `tenant_id` and `user_id`.
-#[async_trait]
-pub trait AthleteFuelItemRepository: Send + Sync {
-    /// Carry a catalogue product. An athlete who already carries it gets
-    /// [`FuelItemCarried::AlreadyCarried`] with that item's id, including
-    /// when a concurrent add or an approval's relink wrote it first.
-    ///
-    /// # Errors
-    /// A not-found error when the catalogue holds no such product, or an
-    /// invalid-input error at [`pierre_core::models::MAX_FUEL_ITEMS_PER_ATHLETE`].
-    async fn add_fuel_product_item(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        product_id: Uuid,
-        note: Option<&str>,
-    ) -> AppResult<FuelItemCarried>;
-
-    /// Carry a proposal while it is under review. An approved proposal is
-    /// carried as its product; an athlete who already carries it gets
-    /// [`FuelItemCarried::AlreadyCarried`].
-    ///
-    /// # Errors
-    /// A not-found error for no such proposal, an invalid-input error for a
-    /// rejected one or at the item cap.
-    async fn add_pending_fuel_item(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        proposal_id: Uuid,
-        note: Option<&str>,
-    ) -> AppResult<FuelItemCarried>;
-
-    /// File a product the catalogue does not hold for review and carry it
-    /// pending, in one transaction under the athlete's item lock: at the
-    /// item cap nothing is written, so no proposal is left queued that no
-    /// athlete carries.
-    ///
-    /// # Errors
-    /// An invalid-input error for a GTIN that is not a normalized GTIN-14 or
-    /// at [`pierre_core::models::MAX_FUEL_ITEMS_PER_ATHLETE`], or a database
-    /// error when its source hash is already queued.
-    async fn file_and_carry_fuel_proposal(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        proposal: &NewFuelProposal,
-        note: Option<&str>,
-    ) -> AppResult<Uuid>;
-
-    /// The items the athlete carries, oldest first, each resolved to its
-    /// product's current facts or to its proposal.
-    async fn list_fuel_items(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> AppResult<Vec<AthleteFuelItem>>;
-
-    /// Stop carrying an item. Returns whether the athlete carried it.
-    async fn remove_fuel_item(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        item_id: Uuid,
-    ) -> AppResult<bool>;
-}
+pub use traits::{AthleteFuelItemRepository, FuelCatalogueRepository};
 
 /// Emit both fuel-product repository implementations for one backend type.
 /// `$row` is that backend's row type, `$ids` its uuid codec
@@ -544,14 +384,13 @@ macro_rules! impl_fuel_product_repositories {
                 }
             }
 
-            /// Queue `proposal` inside `tx` and return its id. Its GTIN is
-            /// checked by the caller.
+            /// Queue `proposal` inside `tx`, its photos in the order given,
+            /// and return its id. Its GTIN is checked by the caller.
             async fn insert_fuel_proposal(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 proposal: &NewFuelProposal,
             ) -> AppResult<Uuid> {
                 let id = Uuid::new_v4();
-                let image = proposal.source_image.as_ref();
                 sqlx::query(INSERT_PROPOSAL_SQL)
                     .bind($ids::bind(id))
                     .bind($ids::bind_opt(proposal.product_id))
@@ -559,20 +398,36 @@ macro_rules! impl_fuel_product_repositories {
                     .bind(proposal.name.as_str())
                     .bind(proposal.variant.as_str())
                     .bind(proposal.form.as_str())
+                    .bind(fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant))
                     .bind(proposal.gtin.as_deref())
                     .bind(proposal.source_kind.as_str())
                     .bind(proposal.source_url.as_deref())
-                    .bind(image.map(|i| i.bytes.clone()))
-                    .bind(image.map(|i| i.mime.clone()))
                     .bind(proposal.source_hash.as_deref())
                     .bind(to_json("facts", &proposal.facts)?)
                     .bind(to_json("provenance", &proposal.provenance)?)
                     .bind(to_json("gate flags", &proposal.gate_flags)?)
+                    .bind(proposal.notes.as_deref())
+                    .bind(proposal.ingredients_text.as_deref())
+                    .bind(proposal.multiple_transportable_stated)
                     .bind($ids::bind_opt(proposal.proposed_by_user_id))
                     .bind(Utc::now())
                     .execute(&mut **tx)
                     .await
                     .map_err(|e| fuel_error("queue a proposal in", e))?;
+                for (position, image) in proposal.images.iter().enumerate() {
+                    let position = i32::try_from(position).map_err(|_| {
+                        AppError::invalid_input("A fuel proposal carries too many photos")
+                    })?;
+                    sqlx::query(INSERT_PROPOSAL_IMAGE_SQL)
+                        .bind($ids::bind(id))
+                        .bind(position)
+                        .bind(image.bytes.as_slice())
+                        .bind(image.mime.as_str())
+                        .bind(image_sha256(&image.bytes))
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|e| fuel_error("store a proposal photo in", e))?;
+                }
                 Ok(id)
             }
 
@@ -699,6 +554,61 @@ macro_rules! impl_fuel_product_repositories {
                 Ok(id)
             }
 
+            async fn file_duplicate_fuel_proposal(
+                &self,
+                proposal: &NewFuelProposal,
+                holder: FuelKeyHolder,
+            ) -> AppResult<Uuid> {
+                check_gtin(proposal.gtin.as_deref())?;
+                let without_photos = NewFuelProposal {
+                    images: Vec::new(),
+                    ..proposal.clone()
+                };
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| fuel_error("begin a proposal in", e))?;
+                let id = Self::insert_fuel_proposal(&mut tx, &without_photos).await?;
+                sqlx::query(FILE_AS_DUPLICATE_SQL)
+                    .bind($ids::bind(id))
+                    .bind(Utc::now())
+                    .bind(duplicate_note(holder))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| fuel_error("close a duplicate proposal in", e))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| fuel_error("commit a proposal to", e))?;
+                Ok(id)
+            }
+
+            async fn fuel_key_holder(
+                &self,
+                brand: &str,
+                name: &str,
+                variant: &str,
+            ) -> AppResult<Option<FuelKeyHolder>> {
+                let key = fuel_natural_key(brand, name, variant);
+                let product = sqlx::query(PRODUCT_IDENTITY_BY_KEY_SQL)
+                    .bind(key.as_str())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("look up a product in", e))?;
+                if let Some(row) = product {
+                    return Ok(Some(FuelKeyHolder::Product($ids::read(&row, "id")?)));
+                }
+                let proposal = sqlx::query(PROPOSAL_HOLDING_KEY_SQL)
+                    .bind(key.as_str())
+                    .bind(illegible_flag_pattern())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("look up a proposal in", e))?;
+                proposal
+                    .map(|row| Ok(FuelKeyHolder::Proposal($ids::read(&row, "id")?)))
+                    .transpose()
+            }
+
             async fn list_fuel_proposals(
                 &self,
                 status: ProposalStatus,
@@ -718,32 +628,53 @@ macro_rules! impl_fuel_product_repositories {
             async fn get_fuel_proposal(
                 &self,
                 proposal_id: Uuid,
-            ) -> AppResult<Option<FuelProposalDetail>> {
-                use sqlx::Row as _;
+            ) -> AppResult<Option<FuelProductProposal>> {
                 let row = sqlx::query(GET_PROPOSAL_SQL)
                     .bind($ids::bind(proposal_id))
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| fuel_error("read a proposal in", e))?;
-                let Some(row) = row else {
+                row.map(|row| Self::fuel_proposal_row(&row)).transpose()
+            }
+
+            async fn list_fuel_proposal_images(
+                &self,
+                proposal_id: Uuid,
+            ) -> AppResult<Vec<FuelProposalImageMeta>> {
+                let rows = sqlx::query(LIST_PROPOSAL_IMAGES_SQL)
+                    .bind($ids::bind(proposal_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("list a proposal's photos in", e))?;
+                rows.iter().map(image_meta_from_row).collect()
+            }
+
+            async fn get_fuel_proposal_image(
+                &self,
+                proposal_id: Uuid,
+                position: i64,
+            ) -> AppResult<Option<ProposalSourceImage>> {
+                use sqlx::Row as _;
+                let Ok(position) = i32::try_from(position) else {
                     return Ok(None);
                 };
-                let proposal = Self::fuel_proposal_row(&row)?;
-                let bytes: Option<Vec<u8>> = row
-                    .try_get("source_image")
-                    .map_err(|e| fuel_error("decode source_image of", e))?;
-                let source_image = match (bytes, proposal.source_image_mime.clone()) {
-                    (Some(bytes), Some(mime)) => Some(ProposalSourceImage { mime, bytes }),
-                    (Some(bytes), None) => Some(ProposalSourceImage {
-                        mime: "application/octet-stream".to_owned(),
-                        bytes,
-                    }),
-                    (None, _) => None,
-                };
-                Ok(Some(FuelProposalDetail {
-                    proposal,
-                    source_image,
-                }))
+                let row = sqlx::query(GET_PROPOSAL_IMAGE_SQL)
+                    .bind($ids::bind(proposal_id))
+                    .bind(position)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("read a proposal photo in", e))?;
+                row.map(|row| {
+                    Ok(ProposalSourceImage {
+                        bytes: row
+                            .try_get("bytes")
+                            .map_err(|e| fuel_error("decode bytes of", e))?,
+                        mime: row
+                            .try_get("mime")
+                            .map_err(|e| fuel_error("decode mime of", e))?,
+                    })
+                })
+                .transpose()
             }
 
             async fn fuel_proposal_exists_by_hash(&self, source_hash: &str) -> AppResult<bool> {
@@ -761,10 +692,9 @@ macro_rules! impl_fuel_product_repositories {
                 reviewer_user_id: Uuid,
                 overrides: &pierre_core::models::FuelFactOverrides,
             ) -> AppResult<FuelApprovalOutcome> {
-                let Some(detail) = self.get_fuel_proposal(proposal_id).await? else {
+                let Some(proposal) = self.get_fuel_proposal(proposal_id).await? else {
                     return Ok(FuelApprovalOutcome::NotFound);
                 };
-                let proposal = detail.proposal;
                 if proposal.status != ProposalStatus::Pending {
                     return Ok(FuelApprovalOutcome::NotPending(proposal.status));
                 }
