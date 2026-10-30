@@ -917,16 +917,17 @@ async fn run_turn(
     // message id, so there is nothing to sign before the row exists.
     let scene_images = publish_scenes(hooks, profile, &input, &assistant_message);
 
-    // A surface without an activity panel has the list folded into its prose, and a raw
-    // 186-row history folded into a chat bubble is unreadable — so the list is shaped for the
-    // fold here. Both this and the block-or-fold decision below read `activity_list_card`: one
+    // Every surface gets the rows only: the header, `[Today]` anchor and `[Note]` lines are the
+    // agent's, in English. A surface without an activity panel has the list folded into its
+    // prose, and a raw 186-row history folded into a chat bubble is unreadable — so the list is
+    // shaped for the fold here. Both this and the block-or-fold decision below read `activity_list_card`: one
     // capability, two consequences.
     // Captured before the fold consumes the list: this is the honest "the model
     // asked for activities and got them" signal, which `tools_called` cannot be
     // because the platform injects the tool name when it prefetches.
     let activity_list_captured = result.activity_list.is_some();
     let activity_list = if profile.render.blocks.activity_list_card {
-        result.activity_list
+        stages::activity_fold::athlete_list(result.activity_list.as_deref())
     } else {
         stages::activity_fold::shape_for_fold(
             result.activity_list.as_deref(),
