@@ -235,7 +235,8 @@ jobs:
   #   feature-profiles     — the 2-profile server feature matrix: production clippy + no-default-features check (~5 min)
   #   backend-test-binaries, backend-tests
   #                        — SQLite shards, cron (or a dispatch asking for them): one build, four shards running its binaries
-  #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir and unit tests, plus pierre-server's unit tests, per push
+  #   leaf-crate-tests     — the tests/ dirs and unit tests of every non-pierre-server crate a push reaches
+  #                          (every one on main's anchor runs, schedule and dispatch), plus pierre-server's unit tests
   #   release-binary       — the fat-LTO server (~18 min); main, or a branch push that touches a
   #                          link input; main pushes upload the binaries the image ships
   #
@@ -259,17 +260,54 @@ jobs:
       rust: ${{ steps.changes.outputs.rust }}
       proven: ${{ steps.changes.outputs.proven }}
       release-worthy: ${{ steps.changes.outputs.release-worthy }}
+      scope-mode: ${{ steps.scope.outputs.mode }}
+      scope-tested: ${{ steps.scope.outputs.tested }}
+      scope-linked: ${{ steps.scope.outputs.linked }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          # The whole history without file contents: the scope step below
+          # finds main's fork point or a green ancestor and diffs trees, which
+          # needs commits and trees only.
+          fetch-depth: 0
+          filter: blob:none
 
       # The filters live in the action, which clippy runs too; a schedule or
       # dispatch run counts as everything changed.
       - name: Detect file changes
         id: changes
         uses: ./.github/actions/ci-backend-changes
+
+      # Which crates leaf-crate-tests runs (carnet#1282). A branch push tests
+      # the crates its diff from main's fork point reaches and every crate
+      # depending on them; a main push, those its diff from the newest
+      # ancestor whose leaf-crate job passed reaches (scripts/ci/scope-base.sh).
+      # A schedule or dispatch run, a lookup that fails, a CI definition or a
+      # workspace-wide input tests every crate (scripts/ci/affected-crates.py).
+      - name: Choose the crates this push can change
+        id: scope
+        if: steps.changes.outputs.rust == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
+        run: |
+          code=0
+          base="$(./scripts/ci/scope-base.sh ci-backend.yml 'Leaf-Crate Tests (every crate but pierre-server)')" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Scope base lookup failed::scope-base.sh exited ${code}; testing every crate"
+            base=""
+          fi
+          # Gated on its own exit status, never piped into tee: a crash must
+          # read as "every crate", not as an empty scope.
+          full="$(printf 'mode=full\nlinked=\ntested=')"
+          scope="$full"
+          if [ -n "$base" ] && ! scope="$(./scripts/ci/affected-crates.py scope --base "$base")"; then
+            echo "::warning title=Scope unknown::affected-crates.py failed; testing every crate"
+            scope="$full"
+          fi
+          printf '%s\n' "$scope" | tee -a "$GITHUB_OUTPUT"
 
   fast-gate:
     name: Fast Gate (fmt + architecture + secrets + surfaces)
@@ -438,7 +476,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -483,6 +521,8 @@ jobs:
           ./scripts/ci/resolve-push-base.test.sh
           ./scripts/ci/server-build-key.test.sh
           ./scripts/ci/proven-on-branch.test.sh
+          ./scripts/ci/affected-crates.test.sh
+          ./scripts/ci/scope-base.test.sh
           ./scripts/setup/config-edit.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
@@ -539,7 +579,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/carry-forward-frontend-assets.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/ci/server-build-key.sh scripts/ci/proven-on-branch.sh scripts/ci/first-party-sign-in-smoke.sh scripts/ci/check-keep-warm-traffic.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/config-edit.sh scripts/setup/config-edit.test.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/carry-forward-frontend-assets.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/ci/server-build-key.sh scripts/ci/proven-on-branch.sh scripts/ci/scope-base.sh scripts/ci/first-party-sign-in-smoke.sh scripts/ci/check-keep-warm-traffic.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/config-edit.sh scripts/setup/config-edit.test.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
@@ -854,9 +894,9 @@ jobs:
       #
       # A push that changes server code instead (a crate in pierre_mcp_server's
       # dependency closure, a migration, the lockfile) touches no test file, so
-      # this runs nothing for it; ci-postgres.yml's lane step reads
-      # `server-suites.sh changed-targets` and runs the full suite for such a
-      # push on every ref. The whole suite does not fit one runner's 45-minute
+      # this runs nothing for it; ci-postgres.yml's lane step judges it with
+      # `affected-crates.py scope` and runs the full suite for such a push on
+      # every ref. The whole suite does not fit one runner's 45-minute
       # step bound — the PostgreSQL lane packs it into four ~703s shards.
       - name: Detect changed test files
         id: changed
@@ -1272,11 +1312,14 @@ jobs:
     timeout-minutes: 80  # the 45-min test step, the 20-min mint-session step, plus build; the step bounds cannot catch a hang before them
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
-    # Skips on main when a full-lane branch passed it on this exact tree
-    # (proven in .github/actions/ci-backend-changes, carnet#1258).
+    # Skips on main when a full-lane branch tested every leaf crate green on
+    # this exact tree (proven in .github/actions/ci-backend-changes,
+    # carnet#1258). The proof is the "Every leaf crate is in scope" step, not
+    # the job: a branch run scoped to the crates its push reaches passes the
+    # job having tested only those (carnet#1282).
     if: >-
       needs.detect-changes.outputs.rust == 'true' &&
-      !contains(fromJSON(needs.detect-changes.outputs.proven || '[]'), 'Leaf-Crate Tests (every crate but pierre-server)')
+      !contains(fromJSON(needs.detect-changes.outputs.proven || '[]'), 'Leaf-Crate Tests (every crate but pierre-server) -> Every leaf crate is in scope')
 
     steps:
       - name: Checkout code
@@ -1290,7 +1333,18 @@ jobs:
         with:
           free-disk-space: 'true'
 
-      - name: Run every leaf crate's test targets
+      # The scope read the crate graph from Cargo.lock, which needs no
+      # toolchain; where one is installed, hold it to cargo's own answer.
+      - name: The crate graph the scope read matches cargo metadata
+        run: ./scripts/ci/affected-crates.py check-graph
+
+      # The marker main's skip reads (proven-on-branch.sh lists the steps that
+      # passed): it runs only when the step below tests every leaf crate.
+      - name: Every leaf crate is in scope
+        if: needs.detect-changes.outputs.scope-mode != 'scoped'
+        run: echo "Every leaf crate is tested on this run."
+
+      - name: Run the leaf crates' test targets
         run: |
           # Package names are read from each Cargo.toml, never derived from the
           # directory (crates/pierre-server is the standing counter-example:
@@ -1298,7 +1352,8 @@ jobs:
           # because its 300+ test binaries have their own lanes. Every other
           # crate is selected, with or without a tests/ directory: `--tests`
           # runs the lib target's in-module unit tests too, and a crate whose
-          # only tests live in src/ must not fall out of the lane.
+          # only tests live in src/ must not fall out of the lane. A scoped run
+          # keeps the crates its push reaches (carnet#1282).
           PKG_FLAGS=()
           COUNT=0
           for manifest in crates/*/Cargo.toml; do
@@ -1311,9 +1366,18 @@ jobs:
               echo "::error::Could not read the package name from $crate_dir/Cargo.toml"
               exit 1
             fi
+            if [ "$SCOPE_MODE" = scoped ] && ! grep -qxF "$pkg" < <(tr ' ' '\n' <<<"$SCOPE_TESTED"); then
+              continue
+            fi
             PKG_FLAGS+=("-p" "$pkg")
             COUNT=$((COUNT + 1))
           done
+          if [ "$COUNT" -eq 0 ] && [ "$SCOPE_MODE" = scoped ]; then
+            # Nothing a leaf crate builds from changed since a tree whose leaf
+            # crates passed: their verdict there stands.
+            echo "::notice title=No leaf crate in scope::this push reaches no leaf crate (scope: ${SCOPE_TESTED:-none})"
+            exit 0
+          fi
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Leaf-crate lane selected no packages — refusing to report green."
             exit 1
@@ -1348,6 +1412,8 @@ jobs:
           cargo test "${PKG_FLAGS[@]}" --all-features --tests -- --test-threads=4
         timeout-minutes: 45
         env:
+          SCOPE_MODE: ${{ needs.detect-changes.outputs.scope-mode }}
+          SCOPE_TESTED: ${{ needs.detect-changes.outputs.scope-tested }}
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -1367,6 +1433,7 @@ jobs:
       # The command writes to a file rather than into `$(...)` so that
       # check-workflow-test-targets.sh can read its --test and module filter.
       - name: Prove the shipped pierre-cli has no mint-session
+        if: needs.detect-changes.outputs.scope-mode != 'scoped' || contains(format(' {0} ', needs.detect-changes.outputs.scope-tested), ' pierre-cli ')
         run: |
           log="$RUNNER_TEMP/mint-session-absent.log"
           if ! cargo test -p pierre-cli --test it -- mint_session_absent_test:: > "$log" 2>&1; then
@@ -1386,6 +1453,7 @@ jobs:
       # server's lib test harness costs minutes, so the step runs only when
       # pierre-server/src actually carries a test module.
       - name: Run pierre-server unit tests
+        if: needs.detect-changes.outputs.scope-mode != 'scoped' || contains(format(' {0} ', needs.detect-changes.outputs.scope-linked), ' pierre_mcp_server ')
         run: |
           if ! grep -rqE '^#\[cfg\(test\)\]' crates/pierre-server/src; then
             echo "pierre-server/src has no #[cfg(test)] module — nothing to run."

@@ -45,8 +45,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
-
 ACTION = Path(".github/actions/ci-backend-changes/action.yml")
 WORKFLOW = Path(".github/workflows/ci-backend.yml")
 SKIP_DIRS = {"target", "node_modules", ".git"}
@@ -62,6 +60,10 @@ class CheckError(Exception):
 
 
 def rust_globs(root: Path) -> list[str]:
+    # Imported here, not at the top: affected-crates.py imports this module for
+    # reads_of() on runners that have no PyYAML.
+    import yaml
+
     try:
         doc = yaml.safe_load((root / ACTION).read_text(encoding="utf-8"))
         step = next(s for s in doc["runs"]["steps"] if s.get("id") == "filter")
@@ -76,6 +78,8 @@ def rust_globs(root: Path) -> list[str]:
 
 def trigger_paths(root: Path) -> dict[str, list[str]]:
     """ci-backend.yml's push and pull_request `paths`, by event."""
+    import yaml
+
     try:
         doc = yaml.safe_load((root / WORKFLOW).read_text(encoding="utf-8"))
         # PyYAML reads the bare key `on` as the boolean True.

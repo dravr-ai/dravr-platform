@@ -22,9 +22,11 @@
 #                                         none
 #   server-suites.sh changed-targets --edited-only
 #                                         only the targets whose test SOURCE the paths edit:
-#                                         `it` for tests/it/, tests/helpers/ or common.rs, a
+#                                         `it` for tests/it/, tests/helpers/ or common.rs (plus
+#                                         each top-level suite declaring the shared module), a
 #                                         top-level file's own name; every other path names
-#                                         none. The lint scope, not the run scope (below)
+#                                         none. The lint scope, and the PostgreSQL smoke's
+#                                         addition to its suites
 #   server-suites.sh it-args <module>...  the libtest arguments that run exactly those `it`
 #                                         modules: a `<module>::` filter each, plus a
 #                                         `--skip <other>::` for every other module whose
@@ -57,21 +59,23 @@
 # only "this push's tests" ran none of them for it. So changed-targets answers
 # with the full target set when a path is
 #   - inside a workspace crate that pierre_mcp_server reaches through path
-#     dependencies of any kind (computed from `cargo metadata --no-deps`, so a
-#     crate added or extracted tomorrow is classified without editing this
-#     file) — except that crate's top-level *.md and the .rs sources of its own
-#     tests/, benches/ and examples/ targets, which the leaf-crate lane runs;
+#     dependencies of any kind (read from Cargo.lock, so a crate added or
+#     extracted tomorrow is classified without editing this file) — except
+#     that crate's top-level *.md and the .rs sources of its own tests/,
+#     benches/ and examples/ targets, which the leaf-crate lane runs;
 #   - a non-.rs file under pierre-server's tests/ (a fixture some test reads);
-#   - a workspace manifest, the lockfile, the toolchain pin or cargo config;
-#   - a tree the server or its tests read from outside crates/: the migrations
-#     (both crates/pierre-database/migrations* are symlinks to them and the
-#     server embeds them), templates/, commands/, sdk/, test_data/,
-#     infra/environments/, packages/{i18n,shared-constants,mcp-types};
+#   - the root manifest, the lockfile, the toolchain pin or cargo config;
+#   - a file outside crates/ that a crate in the closure reads (the migrations
+#     through pierre-database's symlinks, a locale, a .tf the tests hold the
+#     code to), a file of another member a closure crate embeds, or anything
+#     under the trees the server builds from whole when no crate is found
+#     reading the path: migrations*/, templates/, commands/, sdk/, test_data/;
 #   - anything not classified at all. Unknown fails toward running more.
-# Docs, the clients, CI configuration and scripts name none. When cargo
-# metadata cannot answer, the closure is unknown and the answer is the full
-# set, with a warning on stderr: planning is an optimisation, so a planner
-# failure must restore the whole run, never shrink it.
+# Docs, the clients, CI configuration and scripts name none. The rules are
+# scripts/ci/affected-crates.py's (classify-server), the one classifier the
+# scoped CI lanes read as well. When it cannot read the crate graph the answer
+# is the full set: planning is an optimisation, so a planner failure must
+# restore the whole run, never shrink it.
 
 set -euo pipefail
 
@@ -125,10 +129,22 @@ targets() {
 
 # Name-based on purpose: a path the diff deleted still names the target it
 # was part of, and the caller decides whether that target still exists.
+# common.rs and helpers/ are compiled into `it` and into every top-level
+# suite declaring `mod common;` / `mod helpers;`, so an edit to either names
+# those suites too: the PostgreSQL smoke runs exactly these targets, and a
+# shared module edited under a suite that never runs is a green nobody earned.
 edited_targets() {
-    grep -E '^crates/pierre-server/tests/([^/]+|(it|helpers)/.+)\.rs$' \
-        | sed -E 's#^crates/pierre-server/tests/((it|helpers)/.*|common\.rs)$#it#; s#.*/##; s#\.rs$##' \
-        | LC_ALL=C sort -u || true
+    local edited shared
+    edited="$(grep -E '^crates/pierre-server/tests/([^/]+|(it|helpers)/.+)\.rs$' || true)"
+    [ -n "$edited" ] || return 0
+    {
+        sed -E 's#^crates/pierre-server/tests/((it|helpers)/.*|common\.rs)$#it#; s#.*/##; s#\.rs$##' <<< "$edited"
+        for shared in common helpers; do
+            grep -qE "^crates/pierre-server/tests/(${shared}\.rs|${shared}/.+)$" <<< "$edited" || continue
+            grep -lE "^ *(pub )?mod ${shared};" "$TESTS"/*.rs 2>/dev/null \
+                | grep -v '/common\.rs$' | sed 's#.*/##; s#\.rs$##' || true
+        done
+    } | LC_ALL=C sort -u
 }
 
 # Every target the suite list needs: `it` once, plus each top-level binary.
@@ -139,92 +155,11 @@ all_targets() {
     awk -F'\t' '{ if ($2 == "it") print "it"; else print $1 }' <<< "$listing" | LC_ALL=C sort -u
 }
 
-# Prints one line per path, "<full|tests|none>\t<path>\t<why>". $1 is a file
-# holding `cargo metadata --no-deps` JSON, or empty when metadata failed.
+# Prints one line per path, "<full|tests|none>\t<path>\t<why>". The rules
+# live in affected-crates.py, the one classifier the scoped CI lanes read too
+# (carnet#1282): a path is "full" when it reaches pierre_mcp_server's build.
 classify_paths() {
-    python3 -c '
-import json, os, re, sys
-
-meta_file = sys.argv[1]
-paths = [line.rstrip("\n") for line in sys.stdin if line.strip()]
-
-SERVER = "pierre_mcp_server"
-FULL_PREFIXES = (
-    "Cargo.toml", "Cargo.lock", "rust-toolchain", ".cargo/", "build.rs", "clippy.toml",
-    "migrations/", "migrations_pg/", "templates/", "commands/", "sdk/", "test_data/",
-    "infra/environments/", "packages/i18n/", "packages/shared-constants/",
-    "packages/mcp-types/",
-    # pierre-contremaitre reads it through CARGO_MANIFEST_DIR.
-    "scripts/ci/use-case-predicates.txt",
-)
-NONE_PREFIXES = (
-    "docs/", "frontend/", "frontend-mobile/", "packages/", ".github/", "scripts/",
-    "bin/", "load-tests/", "docker/", "infra/", "examples/", "benches/",
-    ".claude/", ".agents/", ".build", ".savoir/", ".pi/", ".vscode/",
-)
-NONE_FILES = {
-    "bun.lock", "package.json", ".gitignore", ".gitmodules", ".dockerignore",
-    ".trivyignore", ".env.postgres.example", ".envrc.example", ".mcp.json",
-    ".nvmrc", "deny.toml", "docker-compose.yml", "feature-phases.yaml",
-    "registre.toml", "satellites.toml", "validation-patterns.local.toml",
-}
-
-def emit(kind, path, why):
-    print(f"{kind}\t{path}\t{why}")
-
-crates = {}      # member dir relative to the workspace root -> package name
-closure = None   # the names pierre_mcp_server reaches, None when unknown
-if meta_file:
-    meta = json.load(open(meta_file))
-    ws_root = meta["workspace_root"]
-    by_name = {}
-    for pkg in meta["packages"]:
-        rel = os.path.relpath(os.path.dirname(pkg["manifest_path"]), ws_root)
-        crates[rel] = pkg["name"]
-        by_name[pkg["name"]] = pkg
-    if SERVER in by_name:
-        closure, todo = set(), [SERVER]
-        while todo:
-            name = todo.pop()
-            if name in closure:
-                continue
-            closure.add(name)
-            # Every kind: dev-dependencies build into the test binaries too.
-            todo += [d["name"] for d in by_name[name]["dependencies"]
-                     if d.get("path") and d["name"] in by_name]
-server_dir = next((d for d, n in crates.items() if n == SERVER), None)
-
-for path in paths:
-    if closure is None:
-        emit("full", path, "the dependency closure is unknown")
-        continue
-    owner = max((d for d in crates if path.startswith(d + "/")), key=len, default=None)
-    if owner is not None:
-        rest = path[len(owner) + 1:]
-        name = crates[owner]
-        if owner == server_dir and rest.startswith("tests/"):
-            if re.fullmatch(r"tests/([^/]+|(it|helpers)/.+)\.rs", rest):
-                emit("tests", path, "a server test source")
-            else:
-                emit("full", path, "a server test-tree file no target is named for")
-        elif name not in closure:
-            emit("none", path, f"{name} is outside the {SERVER} dependency closure")
-        elif "/" not in rest and rest.endswith(".md"):
-            emit("none", path, "crate documentation")
-        elif re.fullmatch(r"(tests|benches|examples)/.+\.rs", rest):
-            emit("none", path, f"a target of {name} itself")
-        else:
-            emit("full", path, f"{name} is in the {SERVER} dependency closure")
-    elif path.startswith("crates/"):
-        emit("full", path, "under crates/ but in no workspace member")
-    elif path.startswith(FULL_PREFIXES):
-        emit("full", path, "the server builds from it or its tests read it")
-    elif (path.startswith(NONE_PREFIXES) or path in NONE_FILES
-          or path.startswith("LICENSE") or ("/" not in path and path.endswith(".md"))):
-        emit("none", path, "docs, clients, scripts or CI configuration")
-    else:
-        emit("full", path, "unclassified")
-' "$1"
+    python3 "$SCRIPT_DIR/affected-crates.py" --root "$ROOT" classify-server
 }
 
 changed_targets() {
@@ -233,26 +168,15 @@ changed_targets() {
         return
     fi
     [ $# -eq 0 ] || die "changed-targets: unknown argument '$1'"
-    local paths meta_file="" classified full meta
+    local paths classified full
     paths="$(cat)"
     [ -n "$paths" ] || return 0
 
-    # Gated on its own exit status, never piped into its reader: a failed or
-    # empty metadata run must reach the warning, not parse as no members.
-    if meta="$(cd "$ROOT" && cargo metadata --format-version 1 --no-deps --offline 2>/dev/null)" \
-        && [ -n "$meta" ]; then
-        meta_file="$(mktemp)"
-        printf '%s\n' "$meta" >"$meta_file"
-    else
-        echo "server-suites.sh: WARNING: cargo metadata failed, so the dependency closure is unknown — answering with every target" >&2
-    fi
-    if ! classified="$(classify_paths "$meta_file" <<< "$paths")"; then
-        [ -z "$meta_file" ] || rm -f "$meta_file"
+    if ! classified="$(classify_paths <<< "$paths")"; then
         echo "server-suites.sh: WARNING: path classification failed — answering with every target" >&2
         all_targets
         return
     fi
-    [ -z "$meta_file" ] || rm -f "$meta_file"
     full="$(awk -F'\t' '$1 == "full"' <<< "$classified")"
     if [ -n "$full" ]; then
         # The first few reasons only: a crate change lists every file it touched.
@@ -369,7 +293,8 @@ report() { if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::$1"; else echo "
 
 command="${1:-}"
 [ $# -gt 0 ] && shift
-# Every command but changed-targets --edited-only reads the tree; that one maps names only.
+# Every command but changed-targets --edited-only needs the tree; that one maps names, reading
+# only the top-level suites a shared-module edit adds when they are there.
 if [ "$command" != changed-targets ] || [ "${1:-}" != --edited-only ]; then
     [ -d "$TESTS/it" ] || die "$TESTS/it is missing"
 fi

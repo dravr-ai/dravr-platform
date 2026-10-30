@@ -1,4 +1,4 @@
-# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*/claude/* and on any push reaching the server's crates; *_postgresql_test.rs smoke otherwise.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on schedule/dispatch and on any push whose diff from a proven base reaches the server's build; *_postgresql_test.rs smoke plus edited targets otherwise.
 # ABOUTME: One job builds every test binary; four shards download and run them. Runs when ANY crate or migration changes, so a newly-extracted crate can never silently skip the suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -32,6 +32,10 @@ on:
       - 'scripts/ci/test-binaries.sh'
       - 'scripts/ci/server-suites.sh'
       - 'scripts/ci/proven-on-branch.sh'
+      # The lane step judges the push's scope with these (carnet#1282).
+      - 'scripts/ci/scope-base.sh'
+      - 'scripts/ci/affected-crates.py'
+      - 'scripts/ci/check-rust-inputs.py'
   pull_request:
     branches: [ main ]
     paths:
@@ -53,6 +57,10 @@ on:
       - 'scripts/ci/test-binaries.sh'
       - 'scripts/ci/server-suites.sh'
       - 'scripts/ci/proven-on-branch.sh'
+      # The lane step judges the push's scope with these (carnet#1282).
+      - 'scripts/ci/scope-base.sh'
+      - 'scripts/ci/affected-crates.py'
+      - 'scripts/ci/check-rust-inputs.py'
   schedule:
     # Daily full PostgreSQL validation (2:30 AM UTC). Daily, not weekly, because
     # this run is the only one that saves the postgres-tests Rust cache
@@ -129,14 +137,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          # The lane step below diffs this push's range on a short-lived ref.
-          fetch-depth: 50
+          # The whole history without file contents: the lane step below finds
+          # main's fork point or a green ancestor and diffs trees, which needs
+          # commits and trees only.
+          fetch-depth: 0
+          filter: blob:none
 
       # A branch squashed onto an unchanged main lands the exact tree its
       # feature/, features/ or claude/ run already took through this whole lane,
       # green: 13 main commits on Oct 22-29, 734 runner-minutes (carnet#1258).
-      # Main then skips the lane. Only when that run passed the build and all
-      # four shards; anything less, or a lookup that fails, runs everything.
+      # Main then skips the lane. Only when that run chose the full suite and
+      # passed the build and all four shards: a branch run scoped to the smoke
+      # passes the same jobs having run a fraction of the suites
+      # (carnet#1282). Anything less, or a lookup that fails, runs the lane.
       - name: Skip the lane when a full-suite branch passed this exact tree
         id: proven
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -151,7 +164,8 @@ jobs:
             exit 0
           fi
           skip=true
-          for job in "Build Test Binaries (PostgreSQL)" \
+          for job in "Build Test Binaries (PostgreSQL) -> The lane is the full suite" \
+                     "Build Test Binaries (PostgreSQL)" \
                      "Database Tests (PostgreSQL 1/4)" "Database Tests (PostgreSQL 2/4)" \
                      "Database Tests (PostgreSQL 3/4)" "Database Tests (PostgreSQL 4/4)"; do
             grep -qxF "$job" <<<"$proven" || skip=false
@@ -191,64 +205,69 @@ jobs:
       - name: Choose the lane (full suite or PostgreSQL smoke)
         id: lane
         if: steps.proven.outputs.skip != 'true'
-        # The full-suite refs get the full suite. On a short-lived prefix the
-        # smoke used to be unconditional, so a fix/* push changing a crate the
-        # server links ran no server suite at all: ci-backend.yml's dev-tests runs
-        # only the test FILES a push touched, and a src change touches none.
-        # `server-suites.sh changed-targets` answers with every target when a
-        # changed path reaches pierre_mcp_server's dependency closure (or when
-        # it cannot tell — cargo metadata failing fails toward the full run), so
-        # the lane escalates to the full suite exactly then. A push touching
-        # only test files or crates outside the closure keeps the smoke.
+        # The server suite is all or nothing at crate level: every suite links
+        # pierre_mcp_server, so a push that reaches its build, through any of
+        # the 42 crates in its dependency closure, a file they read or a
+        # Cargo.lock entry they resolve, can change any suite and runs them
+        # all. A push that does not reaches no server code beyond its own test
+        # files: it runs the `*_postgresql_test.rs` smoke plus the targets of
+        # the server test files it edits (carnet#1282).
+        #
+        # What the push is judged against (scripts/ci/scope-base.sh): on a
+        # branch, its fork point from main; on main, the newest ancestor whose
+        # run passed this lane's build and four shards, so main tests what
+        # changed since the last tree it proved. A schedule or dispatch run, a
+        # pull request, a lookup that fails or a CI definition change runs the
+        # full suite (scripts/ci/affected-crates.py).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
         run: |
-          REF="${{ github.ref }}"
-          EVENT="${{ github.event_name }}"
-          if [ "$REF" = "refs/heads/main" ] || [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] \
-              || [[ "$REF" == refs/heads/feature/* ]] || [[ "$REF" == refs/heads/features/* ]] || [[ "$REF" == refs/heads/claude/* ]]; then
+          full() {
             echo "lane=full" >> "$GITHUB_OUTPUT"
-            echo "Full suite: $REF ($EVENT) is a full-suite ref."
+            echo "edited=" >> "$GITHUB_OUTPUT"
+            echo "Full suite: $1"
             exit 0
+          }
+          code=0
+          base="$(./scripts/ci/scope-base.sh ci-postgres.yml 'Build Test Binaries (PostgreSQL)' \
+                    'Database Tests (PostgreSQL 1/4)' 'Database Tests (PostgreSQL 2/4)' \
+                    'Database Tests (PostgreSQL 3/4)' 'Database Tests (PostgreSQL 4/4)')" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Scope base lookup failed::scope-base.sh exited ${code}; running the full suite"
+            full "no base to judge this push against"
           fi
-          BEFORE="${{ github.event.before }}"
-          if [ "$EVENT" = "pull_request" ]; then
-            # The checkout is the PR's merge commit; its first parent is the base tip.
-            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
-          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            BEFORE=""
-            if git fetch --no-tags --depth=200 origin main; then
-              BEFORE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || echo "")"
-            fi
+          [ -n "$base" ] || full "a ${EVENT_NAME} run on ${PUSHED_REF} with no base tests everything"
+          if ! scope="$(./scripts/ci/affected-crates.py scope --base "$base")"; then
+            echo "::warning title=Scope unknown::affected-crates.py failed; running the full suite"
+            full "the diff from ${base:0:12} could not be judged"
           fi
-          # A before-sha outside the 50-commit checkout (a force push, a long
-          # burst) or a fork point past it names no range. HEAD~1 would judge
-          # the tip commit alone and miss a src change earlier in the push, so
-          # an unknown range runs the full suite.
-          if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
-            echo "lane=full" >> "$GITHUB_OUTPUT"
-            echo "::warning::No base to diff this push against — running the full suite rather than guessing."
-            exit 0
+          mode="$(sed -n 's/^mode=//p' <<<"$scope")"
+          linked="$(sed -n 's/^linked=//p' <<<"$scope")"
+          [ "$mode" = scoped ] || full "the diff from ${base:0:12} reaches every crate"
+          if grep -qxF pierre_mcp_server < <(tr ' ' '\n' <<<"$linked"); then
+            full "the diff from ${base:0:12} reaches pierre_mcp_server's build"
           fi
-          if ! CHANGED="$(git diff --name-only "$BEFORE" HEAD)"; then
-            echo "lane=full" >> "$GITHUB_OUTPUT"
-            echo "::warning::git diff $BEFORE..HEAD failed — running the full suite rather than guessing."
-            exit 0
-          fi
-          if ! IMPACT="$(printf '%s\n' "$CHANGED" | scripts/ci/server-suites.sh changed-targets)"; then
-            echo "::error::server-suites.sh changed-targets failed — refusing to pick a lane."
+          # Each gated on its own exit status: a diff that failed into the
+          # pipe would read as a push editing no server test file.
+          if ! CHANGED="$(git diff --name-only --no-renames "$base" HEAD)"; then
+            echo "::error::git diff ${base:0:12}..HEAD failed — refusing to pick a lane."
             exit 1
           fi
-          if ! LISTING="$(scripts/ci/server-suites.sh list)" || [ -z "$LISTING" ]; then
-            echo "::error::server-suites.sh list named no suites — refusing to pick a lane."
+          if ! EDITED="$(scripts/ci/server-suites.sh changed-targets --edited-only <<<"$CHANGED")"; then
+            echo "::error::server-suites.sh changed-targets --edited-only failed — refusing to pick a lane."
             exit 1
           fi
-          ALL="$(awk -F'\t' '{ if ($2 == "it") print "it"; else print $1 }' <<< "$LISTING" | LC_ALL=C sort -u)"
-          if [ "$IMPACT" = "$ALL" ]; then
-            echo "lane=full" >> "$GITHUB_OUTPUT"
-            echo "Full suite: this push ($BEFORE..HEAD) reaches every server test target."
-          else
-            echo "lane=smoke" >> "$GITHUB_OUTPUT"
-            echo "PostgreSQL smoke: this push ($BEFORE..HEAD) reaches no server code beyond its own test files."
-          fi
+          echo "lane=smoke" >> "$GITHUB_OUTPUT"
+          echo "edited=$(tr '\n' ' ' <<<"$EDITED")" >> "$GITHUB_OUTPUT"
+          echo "PostgreSQL smoke: the diff from ${base:0:12} reaches no server code; edited server test targets: ${EDITED:-none}"
+
+      # The marker main's skip reads (proven-on-branch.sh lists the steps that
+      # passed): it runs only when this run packs the full suite.
+      - name: The lane is the full suite
+        if: steps.proven.outputs.skip != 'true' && steps.lane.outputs.lane == 'full'
+        run: echo "Every server suite runs on this run."
 
       - name: Assert disk headroom for the build
         if: steps.proven.outputs.skip != 'true'
@@ -265,18 +284,14 @@ jobs:
 
       - name: Select, pack and build the lane's test binaries
         if: steps.proven.outputs.skip != 'true'
-        # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
-        # dispatch and feature/*, features/* or claude/* refs run EVERY test
-        # file. claude/* is the prefix Claude Code sessions push on, and those
-        # branches carry whole slices of work that squash onto main, so they
-        # get the same full verdict a feature branch does. The short-lived
-        # prefixes (fix/*, debug/*, copilot/*) run the full suite when the
-        # push reaches the server's dependency closure (the lane step above),
-        # and otherwise the `*_postgresql_test.rs` smoke — the files whose
-        # failure shape is PostgreSQL-only. A smoke run on those refs therefore
-        # means the push changed no server code beyond its own test files, which
-        # ci-backend.yml's dev-tests runs: name the branch feature(s)/* or claude/*,
-        # or dispatch this workflow, for a full verdict on any ref. Files named
+        # Lane contract (carnet#154 of 2026-08-31, scoped by JF's carnet#1282
+        # directive of 2026-10-30): schedule and dispatch run EVERY test file;
+        # every push, to main or to any branch, runs the full suite when its
+        # diff from a proven base reaches the server's build (the lane step
+        # above), and otherwise the `*_postgresql_test.rs` smoke — the files
+        # whose failure shape is PostgreSQL-only — plus the targets of the
+        # server test files it edits. Dispatch this workflow for a full
+        # verdict on any ref. Files named
         # `*_sqlite_test.rs` test the SQLite backend itself and belong to the
         # daily SQLite shards in ci-backend.yml, not here. An empty selection
         # fails the job rather than reporting green over zero tests.
@@ -284,6 +299,10 @@ jobs:
         # This step decides which suite runs on which shard, once, and writes
         # the answer into the pack the shards download, so there is one
         # assignment rather than one computation per shard.
+        env:
+          # Names derived from the branch's file paths: through the
+          # environment, never interpolated into the script text.
+          LANE_EDITED: ${{ steps.lane.outputs.edited }}
         run: |
           SHARDS=4
           PACK="$RUNNER_TEMP/pg-pack"
@@ -298,8 +317,15 @@ jobs:
             LANE="full suite"
             mapfile -t ALL_TESTS < <(cut -f1 <<< "$LISTING" | grep -v '_sqlite_test$')
           elif [ "${{ steps.lane.outputs.lane }}" = "smoke" ]; then
+            # The PostgreSQL-only suites, plus every suite of a target whose
+            # test source the push edits (`it` for its modules and helpers, a
+            # top-level file's own binary).
             LANE="PostgreSQL-specific smoke"
-            mapfile -t ALL_TESTS < <(cut -f1 <<< "$LISTING" | grep '_postgresql_test$')
+            EDITED=" ${LANE_EDITED} "
+            mapfile -t ALL_TESTS < <(awk -F'\t' -v edited="$EDITED" '
+              $1 ~ /_sqlite_test$/ { next }
+              $1 ~ /_postgresql_test$/ || ($2 == "it" && index(edited, " it ")) || ($2 == "bin" && index(edited, " " $1 " ")) { print $1 }
+            ' <<< "$LISTING")
           else
             echo "::error::the lane step chose no lane ('${{ steps.lane.outputs.lane }}') — refusing to guess."
             exit 1

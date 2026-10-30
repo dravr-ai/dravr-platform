@@ -120,6 +120,14 @@ Clippy -> Detect
 Tests
 Tests -> Run"
 
+# carnet#1282: a branch run scoped to the crates its push reaches passes the
+# leaf job with its full-scope marker skipped. Main's skip reads the marker,
+# so the scoped run must not list it.
+runs "11:feature/x:$TREE"
+jobs 11 "Leaf=success|Every leaf crate is in scope=skipped|Run the leaf crates' test targets=success"
+expect "a scoped run's skipped full-scope marker is not proven" "$(run w.yml)" "Leaf
+Leaf -> Run the leaf crates' test targets"
+
 runs "11:claude/z:$TREE" "12:features/w:$TREE"
 jobs 11 "A=success"
 jobs 12 "B=success" "A=success"
