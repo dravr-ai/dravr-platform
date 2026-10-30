@@ -15,7 +15,7 @@
 //!   current label facts per serving; a product the athlete filed is listed
 //!   as pending review, and a rejected one as rejected, both without figures:
 //!   a fact no operator approved is never something the agent quotes.
-//! - **Bounded.** At most [`FUEL_PRODUCTS_PROMPT_LIMIT`] items, the rest
+//! - **Bounded.** At most `FUEL_PRODUCTS_PROMPT_LIMIT` items, the rest
 //!   pointed at `list_fuel_items`.
 //! - **Untrusted text, flattened.** Brand, name, variant and note were typed
 //!   by athletes or read off labels; each passes the plan block's
@@ -40,7 +40,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 /// The most fuel items the block lists.
-pub const FUEL_PRODUCTS_PROMPT_LIMIT: usize = 12;
+pub(crate) const FUEL_PRODUCTS_PROMPT_LIMIT: usize = 12;
 
 /// Longest product label or note the block prints.
 const MAX_FIELD_LEN: usize = 120;
@@ -85,7 +85,7 @@ pub async fn inject_fuel_products(
 
 /// The section for `items`, or `None` when there are none.
 #[must_use]
-pub fn render_fuel_products_block(
+pub(crate) fn render_fuel_products_block(
     items: &[AthleteFuelItem],
     reader: FuelBlockReader,
 ) -> Option<String> {
@@ -189,4 +189,83 @@ fn facts_clause(facts: &FuelFacts) -> String {
         parts.push(format!("glucose:fructose 1:{ratio}"));
     }
     parts.join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use pierre_core::models::{FuelForm, PendingFuelItem};
+
+    use super::*;
+
+    /// `count` pending chews, in memory: the bound and the overflow line
+    /// turn on how many items there are, never on what a store returned.
+    fn chews(count: usize) -> Vec<AthleteFuelItem> {
+        (0..count)
+            .map(|n| AthleteFuelItem {
+                id: Uuid::new_v4(),
+                note: None,
+                created_at: Utc::now(),
+                entry: FuelItemEntry::Pending(PendingFuelItem {
+                    proposal_id: Uuid::new_v4(),
+                    brand: "Filler".to_owned(),
+                    name: format!("Chew {n}"),
+                    variant: String::new(),
+                    form: FuelForm::Chew,
+                    facts: FuelFacts::default(),
+                    status: ProposalStatus::Pending,
+                }),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn nothing_carried_renders_no_section() {
+        assert_eq!(
+            render_fuel_products_block(&[], FuelBlockReader::Athlete),
+            None
+        );
+    }
+
+    /// Past the limit the athlete's turn points the rest at
+    /// `list_fuel_items`, which reads that same list.
+    #[test]
+    fn past_the_limit_the_athlete_is_pointed_at_list_fuel_items() {
+        let block = render_fuel_products_block(
+            &chews(FUEL_PRODUCTS_PROMPT_LIMIT + 2),
+            FuelBlockReader::Athlete,
+        )
+        .expect("the athlete carries items");
+        assert_eq!(
+            block.lines().filter(|line| line.starts_with("- ")).count(),
+            FUEL_PRODUCTS_PROMPT_LIMIT
+        );
+        assert!(
+            block.contains("(2 more — read them with `list_fuel_items`.)"),
+            "{block}"
+        );
+    }
+
+    /// In a coach's thread the fuel tools read the coach's own list, so the
+    /// overflow line never points the agent at them for the athlete's.
+    #[test]
+    fn past_the_limit_a_coach_thread_is_never_pointed_at_the_fuel_tools() {
+        let block = render_fuel_products_block(
+            &chews(FUEL_PRODUCTS_PROMPT_LIMIT + 2),
+            FuelBlockReader::CoachThread,
+        )
+        .expect("the athlete carries items");
+        assert_eq!(
+            block.lines().filter(|line| line.starts_with("- ")).count(),
+            FUEL_PRODUCTS_PROMPT_LIMIT
+        );
+        assert!(
+            block.contains("(2 more on the athlete's list, not shown here;"),
+            "{block}"
+        );
+        assert!(
+            !block.contains("read them with `list_fuel_items`"),
+            "{block}"
+        );
+    }
 }

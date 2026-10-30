@@ -566,10 +566,7 @@ async fn a_plan_day_names_only_products_the_athlete_carries() -> Result<()> {
 
 #[tokio::test]
 async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures() -> Result<()> {
-    use pierre_chat_pipeline::stages::fuel_products::{
-        inject_fuel_products, render_fuel_products_block, FuelBlockReader,
-        FUEL_PRODUCTS_PROMPT_LIMIT,
-    };
+    use pierre_chat_pipeline::stages::fuel_products::{inject_fuel_products, FuelBlockReader};
 
     let executor = create_executor().await?;
     let (athlete, tenant) = create_athlete(&executor).await?;
@@ -655,53 +652,6 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
     .await;
     assert_eq!(withheld, "BASE");
 
-    // Bounded: past the limit the rest is pointed at list_fuel_items.
-    for n in 0..FUEL_PRODUCTS_PROMPT_LIMIT {
-        call(
-            &executor,
-            "add_fuel_item",
-            json!({"brand": "Filler", "name": format!("Chew {n}"), "form": "chew", "facts": {"carbs_g": 20.0}}),
-            athlete,
-            &tenant,
-        )
-        .await?;
-    }
-    let bounded = inject_fuel_products(
-        repos,
-        (tenant_id, athlete),
-        FuelBlockReader::Athlete,
-        false,
-        "BASE".to_owned(),
-    )
-    .await;
-    assert_eq!(
-        bounded
-            .lines()
-            .filter(|line| line.starts_with("- "))
-            .count(),
-        FUEL_PRODUCTS_PROMPT_LIMIT
-    );
-    assert!(
-        bounded.contains("(2 more — read them with `list_fuel_items`.)"),
-        "{bounded}"
-    );
-
-    // In a coach's thread the fuel tools read the coach's own list, so the
-    // overflow line never points the agent at them for the athlete's.
-    let items = repos
-        .athlete_fuel_items
-        .list_fuel_items(tenant_id, athlete)
-        .await?;
-    let coach_view = render_fuel_products_block(&items, FuelBlockReader::CoachThread)
-        .expect("the athlete carries items");
-    assert!(
-        coach_view.contains("(2 more on the athlete's list, not shown here;"),
-        "{coach_view}"
-    );
-    assert!(
-        !coach_view.contains("read them with `list_fuel_items`"),
-        "{coach_view}"
-    );
     Ok(())
 }
 
