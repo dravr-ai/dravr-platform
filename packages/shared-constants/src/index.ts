@@ -238,6 +238,17 @@ export {
   verdictChipLabel,
 } from './verdicts';
 
+// The human coach's reply review: page size, text limits, flag reasons and the week line,
+// shared by the web Replies page and the phone's reply review
+export {
+  COACH_REPLIES_PAGE_SIZE,
+  MAX_FLAG_NOTE_CHARS,
+  MAX_CORRECTION_CHARS,
+  REPLY_FLAG_REASON_LABEL_KEY,
+  REPLY_FLAG_REASONS,
+  coachReviewWeekSummary,
+} from './coach-review';
+
 // Group health flags and the weekly report: the server sends evidence and
 // stats, and both clients phrase them through these keys with their own t()
 export {

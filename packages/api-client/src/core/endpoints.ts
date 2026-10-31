@@ -96,6 +96,18 @@ export const ENDPOINTS = {
     ATTENTION_RESTORE: '/api/coach/attention/restore',
   },
 
+  // ==================== COACH REPLIES ====================
+  COACH_REPLIES: {
+    /** One page of the agent's group replies the human coach reviews */
+    LIST: '/api/coach/replies',
+    /** The coach's flags and corrections per week */
+    WEEKLY: '/api/coach/replies/weekly',
+    /** Flag one reply */
+    FLAGS: (replyId: string) => `/api/coach/replies/${encodeURIComponent(replyId)}/flags`,
+    /** Post a correction on one reply */
+    CORRECTIONS: (replyId: string) => `/api/coach/replies/${encodeURIComponent(replyId)}/corrections`,
+  },
+
   // ==================== COACHES ====================
   COACHES: {
     /** List the caller's coaches */

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Where each of Coach Home's actions goes on the phone — the group's room, or the coach's plan thread on the athlete
-// ABOUTME: Only destinations the app has: a reply review does not exist on mobile, so its action is reported as unavailable, never faked
+// ABOUTME: Each action opens a screen the app has: the group's room, the coach's plan thread on the athlete, or the human coach's reply review
 
 import { useCallback } from 'react';
 import { Alert } from 'react-native';
@@ -12,28 +12,21 @@ import { useTranslation } from '@pierre/i18n';
 import { openThreadRefusalText } from '@pierre/ui-logic';
 import { useConversationRows } from '../conversations/useConversationList';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
-import { CHAT_LIST_ROUTE, threadHref } from '../../navigation/routes';
+import { CHAT_LIST_ROUTE, coachRepliesHref, threadHref } from '../../navigation/routes';
 
 /** The group an action about `athlete` acts in: the one the reason names, else the athlete's first. */
 export function actionGroupId(athlete: CoachRosterAthlete, reason: CoachAttentionReason | null): string | null {
   return reason?.target.group_id ?? athlete.groups[0]?.id ?? null;
 }
 
-/**
- * The actions a reason names that this app can carry out.
- *
- * LIMITATION(registre#1304): `actionAvailableOnPhone` refuses `correct_reply`: the human coach's reply review is web-only, so the phone offers the group's room instead.
- */
-export function actionAvailableOnPhone(action: CoachAttentionAction): boolean {
-  return action !== 'correct_reply';
-}
-
 /** What the actions do on the athlete they are about. */
 export interface CoachDestinations {
   /** Open the group's room. */
   writeToGroup: (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => void;
-  /** Run the reason's primary action; a no-op for one the phone does not have. */
+  /** Run the reason's primary action. */
   perform: (action: CoachAttentionAction, athlete: CoachRosterAthlete, reason: CoachAttentionReason) => void;
+  /** Open the human coach's reply review on the athlete. */
+  openReplies: (athlete: CoachRosterAthlete) => void;
   /** Open the coach's plan thread on the athlete. */
   openPlanThread: (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => void;
   /** The athlete whose plan thread is opening, while one is. */
@@ -75,6 +68,11 @@ export function useCoachDestinations(): CoachDestinations {
     [openThread, router, t],
   );
 
+  const openReplies = useCallback(
+    (athlete: CoachRosterAthlete) => router.push(coachRepliesHref(athlete.user_id)),
+    [router],
+  );
+
   const perform = useCallback(
     (action: CoachAttentionAction, athlete: CoachRosterAthlete, reason: CoachAttentionReason) => {
       switch (action) {
@@ -82,6 +80,7 @@ export function useCoachDestinations(): CoachDestinations {
           writeToGroup(athlete, reason);
           return;
         case 'correct_reply':
+          openReplies(athlete);
           return;
         case 'open_plan_thread':
         case 'review_draft':
@@ -90,8 +89,8 @@ export function useCoachDestinations(): CoachDestinations {
           return;
       }
     },
-    [openPlanThread, writeToGroup],
+    [openPlanThread, openReplies, writeToGroup],
   );
 
-  return { writeToGroup, perform, openPlanThread, pendingAthleteId };
+  return { writeToGroup, perform, openReplies, openPlanThread, pendingAthleteId };
 }

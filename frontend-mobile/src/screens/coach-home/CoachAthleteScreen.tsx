@@ -31,11 +31,11 @@ import {
   sourceChips,
   type QueueEntry,
 } from '@pierre/ui-logic';
-import { Button, EmptyState, Section, StatusDot } from '../../components/ui';
+import { Button, EmptyState, Row, Section, StatusDot } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
 import { AthleteAvatar, FormStrip, phaseFill, phaseInk } from './parts';
-import { actionAvailableOnPhone, useCoachDestinations, type CoachDestinations } from './useCoachDestinations';
+import { useCoachDestinations, type CoachDestinations } from './useCoachDestinations';
 import { useTreatment } from './useTreatment';
 
 /** One reason and the lines of evidence behind it. */
@@ -195,10 +195,10 @@ function SourcesBlock({ athlete }: { athlete: CoachRosterAthlete }) {
 
 /**
  * What the agent said in the coach's groups this week. The roster carries the
- * week's counts and how many figures no source backs; the text of the latest
- * reply is read through the reply review, which the phone does not have.
+ * week's counts and how many figures no source backs; the words of each reply
+ * are read in the reply review, which the block opens on this athlete.
  */
-function AgentBlock({ athlete }: { athlete: CoachRosterAthlete }) {
+function AgentBlock({ athlete, destinations }: { athlete: CoachRosterAthlete; destinations: CoachDestinations }) {
   const { t, language } = useTranslation();
   const replies = athlete.agent_replies;
   const has = replies !== undefined && replies.count > 0;
@@ -224,6 +224,15 @@ function AgentBlock({ athlete }: { athlete: CoachRosterAthlete }) {
           </>
         )}
       </View>
+      {has && (
+        <Row
+          title={t('coachReview.nav')}
+          compact
+          last
+          onPress={() => destinations.openReplies(athlete)}
+          testID="coach-agent-replies-link"
+        />
+      )}
     </Section>
   );
 }
@@ -241,7 +250,7 @@ interface ActionsProps {
 function Actions({ athlete, entry, treatedReason, destinations, onTreat, onUndo }: ActionsProps) {
   const { t } = useTranslation();
   const reason = entry?.reason ?? null;
-  const primary = reason !== null && actionAvailableOnPhone(reason.action) ? reason.action : null;
+  const primary = reason?.action ?? null;
   const showGroup = athlete.groups.length > 0 && primary !== 'write_to_athlete';
   const busy = destinations.pendingAthleteId === athlete.user_id;
   return (
@@ -370,7 +379,7 @@ export function CoachAthleteScreen() {
             <FormBlock athlete={athlete} />
             <PlanBlock athlete={athlete} today={today} />
             <SourcesBlock athlete={athlete} />
-            <AgentBlock athlete={athlete} />
+            <AgentBlock athlete={athlete} destinations={destinations} />
           </>
         )}
 

@@ -10,10 +10,10 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { COACH_SCOPE_KEYS, countKey } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { formatInstant, localToday } from '@pierre/ui-logic';
-import { BrandLockup, EmptyState, TextTabs } from '../../components/ui';
+import { BrandLockup, EmptyState, Row, TextTabs } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
-import { coachAthleteHref } from '../../navigation/routes';
+import { coachAthleteHref, coachRepliesHref } from '../../navigation/routes';
 import { CoachQueueView } from './CoachQueueView';
 import { CoachRosterList } from './CoachRosterList';
 import { CoachSeasonList } from './CoachSeasonList';
@@ -136,6 +136,8 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
             {scopeLine}
           </Text>
         )}
+        {/* The agent's replies are reviewed from here, as the web rail lists them for a human coach who runs a roster. */}
+        <Row title={t('coachReview.nav')} compact onPress={() => router.push(coachRepliesHref())} testID="coach-replies-link" />
         {body}
       </ScrollView>
     </View>

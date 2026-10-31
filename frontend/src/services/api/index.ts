@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: API service entry point - uses @pierre/api-client for shared modules
-// ABOUTME: Web-only modules (admin, admin usage, dashboard, a2a, messaging config, coach review) remain local
+// ABOUTME: Web-only modules (admin, admin usage, dashboard, a2a, messaging config) remain local
 
 import { pierreApi } from './client';
 
@@ -15,6 +15,8 @@ export const chatApi = pierreApi.chat;
 export const coachesApi = pierreApi.coaches;
 // The human coach's roster for Coach Home: athletes with their ranked reasons, and "Traité".
 export const coachRosterApi = pierreApi.coachRoster;
+// The human coach's review of the agent's group replies: the page, a flag, a correction, the weekly count.
+export const coachRepliesApi = pierreApi.coachReplies;
 export const apiKeysApi = pierreApi.apiKeys;
 export const oauthApi = pierreApi.oauth;
 export const storeApi = pierreApi.store;
@@ -61,7 +63,6 @@ export { coachAccessAdminApi } from './coachAccessAdmin';
 export { invitationsApi } from './invitations';
 // Confirming an address from its mailed link, which opens the web app only.
 export { emailConfirmationApi } from './emailConfirmation';
-export { coachRepliesApi } from './coachReplies';
 export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
 // The personal thread's topics, which the web History lists (carnet#840).

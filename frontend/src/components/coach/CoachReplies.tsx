@@ -10,30 +10,21 @@ import { AlertTriangle, Flag, PenLine } from 'lucide-react';
 import clsx from 'clsx';
 import type { ClaimVerdict, CoachReply, ReplyFlagReason } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
-import { countKey, VERDICT_STATUS_LABEL_KEY, WEEK_CORRECTED_KEYS, WEEK_FLAGGED_KEYS } from '@pierre/shared-constants';
+import {
+  COACH_REPLIES_PAGE_SIZE,
+  MAX_CORRECTION_CHARS,
+  MAX_FLAG_NOTE_CHARS,
+  REPLY_FLAG_REASON_LABEL_KEY as REASON_LABEL_KEY,
+  REPLY_FLAG_REASONS as REASONS,
+  VERDICT_STATUS_LABEL_KEY,
+  coachReviewWeekSummary,
+} from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { TabHeader } from '../ui/TabHeader';
 import { Button, Select, Textarea, useErrorToast, useSuccessToast } from '../ui';
-
-/** Replies one page reads. */
-const PAGE_SIZE = 20;
-
-/** Longest flag note the server keeps (`MAX_FLAG_NOTE_CHARS` in `pierre_services::coach_replies`). */
-const MAX_FLAG_NOTE_CHARS = 1000;
-
-/** Longest correction the server posts (`MAX_CORRECTION_CHARS` in `pierre_services::coach_replies`). */
-const MAX_CORRECTION_CHARS = 2000;
-
-/** The flag reasons, in the order the coach picks from, with their words. */
-const REASON_LABEL_KEY: Record<ReplyFlagReason, string> = {
-  wrong: 'coachReview.reasonWrong',
-  unsafe: 'coachReview.reasonUnsafe',
-  off_tone: 'coachReview.reasonOffTone',
-};
-const REASONS = Object.keys(REASON_LABEL_KEY) as ReplyFlagReason[];
 
 /** A verdict chip's tone: how alarming its status is. */
 function chipTone(status: ClaimVerdict['status']): string {
@@ -243,7 +234,7 @@ export default function CoachReplies({ initialAthleteId = null }: { initialAthle
       coachRepliesApi.list({
         athlete_id: athleteId ?? undefined,
         before: pageParam ?? undefined,
-        limit: PAGE_SIZE,
+        limit: COACH_REPLIES_PAGE_SIZE,
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_before,
@@ -256,19 +247,7 @@ export default function CoachReplies({ initialAthleteId = null }: { initialAthle
   const first = pages.data?.pages[0];
   const replies = useMemo(() => pages.data?.pages.flatMap((page) => page.replies) ?? [], [pages.data]);
   const thisWeek = weekly.data?.weeks.at(-1);
-  // Each count agrees with its own number: the summary sentence holds two
-  // counts, and no single plural form fits both, so each is its own phrase
-  // (carnet#1191). One and many are catalogue keys, and countKey picks
-  // between them per language — French reads « 0 signalée » — since the
-  // phone's engine has no plural rules to choose between them.
-  const description = thisWeek
-    ? t('coachReview.weekSummary', {
-        flagged: t(countKey(thisWeek.flags, i18n.language, WEEK_FLAGGED_KEYS), { count: thisWeek.flags }),
-        corrected: t(countKey(thisWeek.corrections, i18n.language, WEEK_CORRECTED_KEYS), {
-          count: thisWeek.corrections,
-        }),
-      })
-    : undefined;
+  const description = thisWeek ? coachReviewWeekSummary(t, thisWeek, i18n.language) : undefined;
 
   const filter = first && first.athletes.length > 0 && (
     <Select

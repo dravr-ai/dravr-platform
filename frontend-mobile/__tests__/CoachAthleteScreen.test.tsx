@@ -176,13 +176,25 @@ describe('actions', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('offers no "correct the reply" on the phone, which has no reply review, only the group', async () => {
+  it('opens the reply review on the athlete from "Correct the reply", beside the group\'s room', async () => {
     const screen = renderAthlete('felix');
-    await screen.findByTestId('coach-actions');
-    expect(screen.queryByTestId('coach-primary-action')).toBeNull();
+    fireEvent.press(await screen.findByTestId('coach-primary-action'));
+    expect(screen.getByText(/Correct the reply/i)).toBeTruthy();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(home)/replies', params: { athleteId: 'felix' } });
     fireEvent.press(screen.getByTestId('coach-write-group'));
-    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(chat)');
-    expect(screen.queryByText(/Correct the reply/i)).toBeNull();
+    expect(mockPush).toHaveBeenLastCalledWith('/(app)/(tabs)/(chat)');
+  });
+
+  it('opens the reply review on the athlete from the agent block', async () => {
+    const screen = renderAthlete('felix');
+    fireEvent.press(await screen.findByTestId('coach-agent-replies-link'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(home)/replies', params: { athleteId: 'felix' } });
+  });
+
+  it('offers no reply review link to an athlete the agent has not answered', async () => {
+    const screen = renderAthlete('camille');
+    await screen.findByTestId('coach-agent-block');
+    expect(screen.queryByTestId('coach-agent-replies-link')).toBeNull();
   });
 });
 

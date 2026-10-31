@@ -102,6 +102,24 @@ export function coachAthleteHref(athleteId: string): CoachAthleteHref {
 }
 
 /**
+ * The human coach's review of the agent's group replies — each reply with its
+ * claim verdicts, and the Flag and Correct actions — pushed in the Home stack
+ * so Back returns to the screen the human coach came from (carnet#1304).
+ */
+export const COACH_REPLIES_ROUTE = '/(app)/(tabs)/(home)/replies' as const;
+
+/** A navigation target for the reply review, as `router.push` takes it. */
+export interface CoachRepliesHref {
+  pathname: typeof COACH_REPLIES_ROUTE;
+  params: { athleteId?: string };
+}
+
+/** The target that opens the reply review, narrowed to one athlete when given. */
+export function coachRepliesHref(athleteId?: string): CoachRepliesHref {
+  return { pathname: COACH_REPLIES_ROUTE, params: athleteId === undefined ? {} : { athleteId } };
+}
+
+/**
  * The mobile route of a surface the shared registry declares this app serves.
  *
  * Throws at module load rather than returning null: the registry is static

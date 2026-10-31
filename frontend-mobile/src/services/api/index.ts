@@ -69,3 +69,5 @@ export const usageApi = api.usage;
 export const billingApi = api.billing;
 // The human coach's roster for Coach Home, and "Traité" on an attention reason.
 export const coachRosterApi = api.coachRoster;
+// The human coach's review of the agent's group replies: the page, a flag, a correction, the weekly count.
+export const coachRepliesApi = api.coachReplies;

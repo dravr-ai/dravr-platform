@@ -48,7 +48,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { CoachHomeScreen } from '../src/screens/coach-home/CoachHomeScreen';
-import { coachAthleteHref } from '../src/navigation/routes';
+import { coachAthleteHref, coachRepliesHref } from '../src/navigation/routes';
 
 function renderCoachHome() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
@@ -72,6 +72,14 @@ describe('the roster read', () => {
     await screen.findByTestId('coach-queue');
     expect(screen.getByTestId('coach-scope').props.children).toContain('8');
     expect(mockGetRoster).toHaveBeenCalledWith({ offset: 0, limit: 100 });
+  });
+
+  it('opens the reply review on every athlete from the Replies row', async () => {
+    const screen = renderCoachHome();
+    await screen.findByTestId('coach-queue');
+    fireEvent.press(screen.getByTestId('coach-replies-link'));
+    expect(mockPush).toHaveBeenCalledWith(coachRepliesHref());
+    expect(coachRepliesHref()).toEqual({ pathname: '/(app)/(tabs)/(home)/replies', params: {} });
   });
 
   it('says it could not load, and retries', async () => {
