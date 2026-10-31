@@ -510,6 +510,13 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
+    /// The card is connected through its provider's OAuth grant, whose
+    /// push-fed store has received no activity yet, and no live usr/pwd
+    /// session serves the card beside it (carnet#1302). Garmin's API pushes
+    /// only what the athlete records after connecting, so the history is
+    /// reached through the usr/pwd login: a client offers it from the card,
+    /// and opens it when a Garmin grant it just completed reads `true`.
+    pub oauth_awaiting_activities: bool,
     /// How the connection behind a connected card was made, as
     /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
     /// `"oauth"` for a provider authorization, `"manual"` for a pasted

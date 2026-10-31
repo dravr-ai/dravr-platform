@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
@@ -12,6 +12,7 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   providerGlyphInk,
@@ -28,6 +29,7 @@ import ImportOwnDataLink from './import/ImportOwnDataLink';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
+  historyLoginAfterGrant,
   refusalOpensCredentialLogin,
   startOAuthInThisTab,
 } from '../utils/oauthReturn';
@@ -131,6 +133,9 @@ export default function ProviderConnectionCards({
     tosConsent: boolean;
   } | null>(null);
   const queryClient = useQueryClient();
+  // The grant (by its result's timestamp) whose usr/pwd follow-up was already
+  // opened, so a later focus does not reopen it while the result stays fresh.
+  const chainedGrant = useRef<number | null>(null);
 
   // Fetch providers from server (includes OAuth and non-OAuth providers).
   //
@@ -175,7 +180,17 @@ export default function ProviderConnectionCards({
         // connect gate and reaches the coach proposal (carnet#1042).
         // The entry is left for the success handlers in useOAuthCompletion and UserSettings.
         if (fresh && result.success === true) {
-          void refetch();
+          // A Garmin grant with nothing pushed yet chains into the Garmin
+          // usr/pwd login, which reaches the history (carnet#1302).
+          void refetch().then(({ data }) => {
+            if (chainedGrant.current === result.timestamp) return;
+            const card = historyLoginAfterGrant(result, data?.providers ?? []);
+            const target = card ? historyLoginTarget(card) : null;
+            if (!card || !target) return;
+            chainedGrant.current = result.timestamp;
+            setSciotteConsentRequired(card.consent_required);
+            setSciotteModalTarget(target);
+          });
           void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           return;
         }
@@ -232,6 +247,16 @@ export default function ProviderConnectionCards({
     // syncing: it asks for the notice, and accepting it reconnects.
     if (syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required)) {
       setNoticeProvider(provider.provider);
+      return;
+    }
+
+    // A card connected through an OAuth grant that has received no activity
+    // yet (Garmin before its first push) offers the usr/pwd login, which
+    // reaches the history the grant does not carry.
+    const historyTarget = historyLoginTarget(provider);
+    if (historyTarget) {
+      setSciotteConsentRequired(provider.consent_required);
+      setSciotteModalTarget(historyTarget);
       return;
     }
 
@@ -320,18 +345,21 @@ export default function ProviderConnectionCards({
         const glyphInk = providerGlyphInk(provider.provider, scheme);
         const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
         const owesAuthorization = syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required);
-        const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
+        const offersHistory = historyLoginTarget(provider) !== null;
+        const isActionable = offersHistory || (!provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu'));
 
         return (
           <button
             key={provider.provider}
             type="button"
             onClick={() => handleConnect(provider)}
-            disabled={provider.connected && !owesAuthorization}
+            disabled={provider.connected && !owesAuthorization && !offersHistory}
             className={`${ROW_CLASS} disabled:cursor-default`}
             aria-label={
               owesAuthorization
                 ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
+                : offersHistory
+                ? t('providers.importHistoryAria', { provider: provider.display_name })
                 : provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
@@ -363,7 +391,7 @@ export default function ProviderConnectionCards({
             {provider.connected && !owesAuthorization && (
               <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
-                {t('providers.connected')}
+                {offersHistory ? t('providers.awaitingActivities') : t('providers.connected')}
               </span>
             )}
             {isNonOAuth && !provider.connected && (
@@ -371,7 +399,7 @@ export default function ProviderConnectionCards({
             )}
             {isActionable && (
               <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
-                {t('providers.connect')}
+                {offersHistory ? t('providers.importHistory') : t('providers.connect')}
               </span>
             )}
           </button>

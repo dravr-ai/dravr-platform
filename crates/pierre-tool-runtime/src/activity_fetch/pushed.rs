@@ -32,10 +32,13 @@ use crate::runtime::ToolRuntime;
 /// the user's reads of it resolve to.
 ///
 /// The resolution matters because a caller may name the user-facing
-/// provider: `garmin` resolves to the credential connection
-/// (`sciotte_garmin`) for an athlete who has one, and that connection is read
-/// on request exactly as before. The resolver is consulted only for a
-/// push-only slug, so no other provider's read pays for it.
+/// provider: `garmin` resolves to the Garmin API backend for an athlete who
+/// holds its grant, unless a live credential connection (`sciotte_garmin`)
+/// stands beside it — then the connection is read on request, whatever the
+/// grant holds, as it is for an athlete who holds no grant
+/// at all (carnet#1302, `backend_resolver::oauth_grant`). The resolver is
+/// consulted only for a push-only slug, so no other provider's read pays for
+/// it.
 pub(super) async fn reads_pushed_store(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -45,13 +48,7 @@ pub(super) async fn reads_pushed_store(
     if !runtime.provider_registry().is_push_only(provider_slug) {
         return false;
     }
-    backend_resolver::resolve_backend(
-        &runtime.repos().auth_repos(),
-        user_id,
-        tenant,
-        provider_slug,
-    )
-    .await
+    backend_resolver::resolve_backend(runtime.repos(), user_id, tenant, provider_slug).await
         == provider_slug
 }
 

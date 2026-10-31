@@ -271,9 +271,9 @@ async fn a_garmin_api_athlete_connects_is_pushed_to_and_reads_through_the_tools(
     let (user_id, tenant_id) = athlete(resources).await;
 
     let garmin_user = connect(resources, user_id, tenant_id).await;
-    let auth = resources.common.repos.auth_repos();
+    let auth = &resources.common.repos;
     assert_eq!(
-        backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), "garmin").await,
+        backend_resolver::resolve_backend(auth, user_id, Some(tenant_id), "garmin").await,
         "garmin",
         "the athlete's Garmin reads go to the API connection"
     );

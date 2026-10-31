@@ -40,6 +40,7 @@ import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
+  historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
@@ -110,13 +111,18 @@ export function OnboardingConnectScreen() {
   // button so the user is never stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
 
-  const loadStatus = useCallback(async () => {
+  // Returns the providers it read (none when the read failed), so a connect
+  // that just came back can judge the row it landed on.
+  const loadStatus = useCallback(async (): Promise<ExtendedProviderStatus[]> => {
     try {
       setIsLoading(true);
       const response = await oauthApi.getProvidersStatus();
-      setProviders(response.providers || []);
+      const served = response.providers || [];
+      setProviders(served);
+      return served;
     } catch (err) {
       console.error('Failed to load provider list on onboarding:', err);
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -133,8 +139,22 @@ export function OnboardingConnectScreen() {
   // refetch is what lets RootLayoutNav see the first connection.
   const finalizeConnection = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
-    await loadStatus();
+    return loadStatus();
   }, [queryClient, loadStatus]);
+
+  /**
+   * Open the usr/pwd login for `target` (Strava, Garmin): the way in a refused
+   * grant falls back to, and the one a Garmin grant with nothing pushed yet
+   * leads to for the history. The row's notice is asked for while owed.
+   */
+  const openCredentialLogin = useCallback(
+    (target: SciotteTarget, rows: readonly ExtendedProviderStatus[]) => {
+      const row = rows.find((p) => sciotteTargetForBackend(p.provider) === target);
+      setSciotteConsentRequired(row?.consent_required ?? false);
+      setSciotteTarget(target);
+    },
+    [],
+  );
   const anyConnected = providers.some((p) => p.connected);
 
   // Standard OAuth flow used by providers with a built-in client_id/secret on
@@ -177,14 +197,19 @@ export function OnboardingConnectScreen() {
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
-            await finalizeConnection();
+            // A Garmin grant with nothing pushed yet goes on to the Garmin
+            // usr/pwd login, which reaches the history (carnet#1302).
+            const served = await finalizeConnection();
+            const history = served.find((p) => historyLoginTarget(p) === providerId);
+            const historyTarget = history ? historyLoginTarget(history) : null;
+            if (historyTarget) openCredentialLogin(historyTarget, served);
           } else if (error) {
-            // Strava OAuth came back with an error (e.g. the shared-app athlete
-            // cap was actually exceeded in a seat-count race, or the provider
-            // rejected the grant). Don't strand the user — fall back to the
-            // Sciotte credential login, which serves the same Strava data.
-            if (providerId === 'strava') {
-              setSciotteTarget('strava');
+            // Strava or Garmin OAuth came back with an error (e.g. the
+            // shared-app athlete cap was actually exceeded in a seat-count
+            // race, or the provider rejected the grant). Don't strand the user
+            // — fall back to the credential login, which serves the same data.
+            if (providerId === 'strava' || providerId === 'garmin') {
+              openCredentialLogin(providerId, providers);
             } else {
               setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
@@ -199,11 +224,11 @@ export function OnboardingConnectScreen() {
         setAwaitingOAuthFor(null);
         const message = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
         console.error('Onboarding OAuth flow failed:', err);
-        // Couldn't even start the Strava OAuth flow (init/network error). Fall
-        // back to the Sciotte credential login rather than leaving the user
-        // stuck on an error toast.
-        if (providerId === 'strava') {
-          setSciotteTarget('strava');
+        // Couldn't even start the Strava or Garmin OAuth flow (init/network
+        // error). Fall back to the credential login rather than leaving the
+        // user stuck on an error toast.
+        if (providerId === 'strava' || providerId === 'garmin') {
+          openCredentialLogin(providerId, providers);
           return;
         }
         setConnectError(message);
@@ -211,7 +236,7 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection, language, t],
+    [finalizeConnection, language, openCredentialLogin, providers, t],
   );
   // The start-fresh action runs the connect again from inside the callback
   // that defined it, so it reads the current one through a ref.
@@ -287,6 +312,7 @@ export function OnboardingConnectScreen() {
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
+    const historyTarget = historyLoginTarget(provider);
 
     return (
       <View key={provider.provider} className="flex-row items-center px-4">
@@ -307,7 +333,22 @@ export function OnboardingConnectScreen() {
           {isConnected ? (
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
-              <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
+              <Text className="text-sm font-medium text-text-secondary">
+                {historyTarget ? t('providers.awaitingActivities') : t('app.connected')}
+              </Text>
+              {/* A Garmin grant with nothing pushed yet offers the usr/pwd
+                  login for the history (carnet#1302). */}
+              {historyTarget && (
+                <Text
+                  className="text-md font-medium text-primary"
+                  onPress={() => openCredentialLogin(historyTarget, [provider])}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('providers.importHistoryAria', { provider: provider.display_name })}
+                  testID={`provider-action-${provider.provider}`}
+                >
+                  {t('providers.importHistory')}
+                </Text>
+              )}
             </View>
           ) : isConnecting ? (
             <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />

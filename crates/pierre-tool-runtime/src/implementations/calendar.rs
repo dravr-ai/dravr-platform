@@ -141,15 +141,9 @@ pub(super) async fn calendar_target(
 ) -> AppResult<String> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
-        Some(name) => Some(
-            resolve_backend(
-                &context.resources.repos().auth_repos(),
-                user_id,
-                Some(tenant_id),
-                name,
-            )
-            .await,
-        ),
+        Some(name) => {
+            Some(resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await)
+        }
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;

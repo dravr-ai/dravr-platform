@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
+use crate::card_backend;
 use crate::card_seats::{require_garmin_seat, CardSeats};
 use crate::first_sync::spawn_on_demand_first_read;
 #[cfg(feature = "health-sync")]
@@ -32,7 +33,7 @@ use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
-use pierre_providers::backend_resolver;
+use pierre_providers::backend_resolver::{self, OAuthGrant};
 #[cfg(feature = "health-sync")]
 use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_providers::ProviderCapabilities;
@@ -641,12 +642,16 @@ pub(crate) async fn compute_providers_status(
             // Determine connection status from the provider_connections table,
             // coalescing the card's two possible backends (see `card_is_connected`).
             let connected = card_is_connected(provider_name, &connected_providers);
-            // Which backend's row is behind a connected card, in the order
-            // `resolve_backend` routes by — the Strava card may be served by
-            // the native OAuth grant or by the mirror session.
-            let connected_backend = backend_resolver::serving_backends(provider_name)
-                .into_iter()
-                .find(|backend| connected_providers.contains(backend.as_str()));
+            // The backend behind a connected card and its grant's state, by the
+            // rule reads route by (carnet#1302, `card_backend`).
+            let (connected_backend, grant) = card_backend::card_backend(
+                resources,
+                user_id,
+                tenant_id,
+                provider_name,
+                &connected_providers,
+            )
+            .await;
             // A connected provider whose session died (dead scrape / failed OAuth
             // refresh) is flagged so the UI prompts a reconnect instead of showing
             // a healthy "Connected". Only the backend that serves the card counts:
@@ -686,6 +691,7 @@ pub(crate) async fn compute_providers_status(
                 requires_oauth,
                 connected,
                 connected_backend,
+                oauth_awaiting_activities: grant == OAuthGrant::AwaitsActivities,
                 connection_type,
                 needs_reauth,
                 capabilities,

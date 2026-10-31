@@ -4,6 +4,8 @@
 // ABOUTME: A provider connect runs in the athlete's own tab and comes back to the page it started from
 // ABOUTME: Keeps the starting route across the provider round trip and settles the callback's result on return
 
+import { historyLoginTarget } from '@pierre/shared-constants';
+import type { ExtendedProviderStatus } from '@pierre/shared-types';
 import type { ImportTombstoneRefusal } from '@pierre/ui-logic';
 import { writeSessionRoute } from './sessionRoute';
 
@@ -103,6 +105,22 @@ export function returnToConnectStart(): void {
  */
 export function refusalOpensCredentialLogin(provider: string): provider is 'strava' | 'garmin' {
   return provider === 'strava' || provider === 'garmin';
+}
+
+/**
+ * The card whose usr/pwd login a completed grant leads to, or `null`: the
+ * granted provider's card, read after the grant, is connected through an
+ * OAuth grant that has received no activity yet (`historyLoginTarget`).
+ * Garmin's API pushes only what the athlete records after connecting, so a
+ * fresh Garmin grant chains into the Garmin usr/pwd login for the history —
+ * "oauth, no activities, sciotte".
+ */
+export function historyLoginAfterGrant(
+  result: Pick<OAuthResult, 'provider' | 'success'>,
+  providers: readonly ExtendedProviderStatus[],
+): ExtendedProviderStatus | null {
+  if (!result.success) return null;
+  return providers.find((card) => historyLoginTarget(card) === result.provider) ?? null;
 }
 
 /**

@@ -487,12 +487,11 @@ pub async fn resolve_compute_backends(
             })
             .collect()
     };
-    let auth = repos.auth_repos();
     let registry = global_registry();
     let mut backends: Vec<ComputeBackend> = Vec::with_capacity(requested.len());
     for (provider, requires_reauth) in requested {
         let slug =
-            backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), &provider).await;
+            backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), &provider).await;
         if !backends.iter().any(|seen| seen.slug == slug) {
             let capturable = !registry.is_push_only(&slug);
             backends.push(ComputeBackend {

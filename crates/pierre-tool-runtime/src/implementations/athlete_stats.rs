@@ -135,7 +135,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             // the stored "sciotte_garmin" connection must hit ONE profile key,
             // not two parallel ones that each miss and re-scrape.
             let provider_name = backend_resolver::resolve_backend(
-                &context.resources.repos().auth_repos(),
+                context.resources.repos(),
                 context.user_id,
                 context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,
@@ -324,7 +324,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             // single-key rule as get_activities/get_athlete (explicit "garmin"
             // vs stored "sciotte_garmin" must share one stats/profile key).
             let provider_name = backend_resolver::resolve_backend(
-                &context.resources.repos().auth_repos(),
+                context.resources.repos(),
                 context.user_id,
                 context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,

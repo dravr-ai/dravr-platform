@@ -15,6 +15,7 @@ import { openImportWindow } from './import/openImportWindow';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
+  historyLoginAfterGrant,
   refusalOpensCredentialLogin,
   startOAuthInThisTab,
   type OAuthResult,
@@ -51,6 +52,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   coachPlatformName,
   delegationRefusalKey,
+  historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   providerScopeLabelKey,
@@ -526,6 +528,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     localStorage.removeItem(OAUTH_RESULT_KEY);
     if (result.success) {
       setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
+      // A Garmin grant with nothing pushed yet chains into the Garmin usr/pwd
+      // login, which reaches the history (carnet#1302).
+      const historyCard = historyLoginAfterGrant(result, providersResponse?.providers ?? []);
+      const historyTarget = historyCard ? historyLoginTarget(historyCard) : null;
+      if (historyCard && historyTarget) {
+        setSciotteConsentRequired(historyCard.consent_required);
+        setSciotteModalTarget(historyTarget);
+      }
       return;
     }
     if (result.tombstoned) {
@@ -865,7 +875,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
-                                    {t('settingsUi.connected')}
+                                    {historyLoginTarget(provider) ? t('providers.awaitingActivities') : t('settingsUi.connected')}
                                   </span>
                                 )
                               )}
@@ -931,6 +941,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     data-testid={`provider-ai-consent-withdraw-${provider.provider}`}
                                   >
                                     {t(AI_CONSENT_KEYS.withdraw)}
+                                  </Button>
+                                )}
+                                {/* A card connected through an OAuth grant that has received no
+                                    activity yet (Garmin before its first push) offers the usr/pwd
+                                    login, which reaches the history (carnet#1302). */}
+                                {historyLoginTarget(provider) && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSciotteConsentRequired(provider.consent_required);
+                                      setSciotteModalTarget(historyLoginTarget(provider));
+                                    }}
+                                    data-testid={`provider-history-login-${provider.provider}`}
+                                    aria-label={t('providers.importHistoryAria', { provider: provider.display_name })}
+                                  >
+                                    {t('providers.importHistory')}
                                   </Button>
                                 )}
                                 {(provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (

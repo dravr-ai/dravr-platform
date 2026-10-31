@@ -176,6 +176,79 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
   });
 });
 
+describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (carnet#1302)', () => {
+  const garminRow = (overrides: Record<string, unknown> = {}) => ({
+    provider: 'sciotte_garmin',
+    display_name: 'Garmin',
+    description: 'Activities, sleep and recovery from Garmin',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'sleep'],
+    recommended_backend: 'oauth' as const,
+    seats_left: 999,
+    consent_required: false,
+    ...overrides,
+  });
+  const granted = (awaiting: boolean) =>
+    garminRow({ connected: true, connected_backend: 'garmin', oauth_awaiting_activities: awaiting });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    initMobileOAuth.mockResolvedValue({ authorization_url: 'https://connect.garmin.com/oauth2Confirm' });
+  });
+
+  it('goes on to the Garmin login when the grant comes back with no activities', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow()] })
+      .mockResolvedValue({ providers: [granted(true)] });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=true' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+  });
+
+  it('stays on the grant once it holds activities', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow()] })
+      .mockResolvedValue({ providers: [granted(false)] });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=true' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+  });
+
+  it('falls back to the Garmin login when the Garmin grant comes back refused', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminRow()] });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=denied' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'denied' } });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+  });
+
+  it('offers the Garmin login on a row still awaiting activities', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [granted(true)] });
+
+    renderScreen();
+    expect(await screen.findByText('Connected — waiting for activities')).toBeTruthy();
+    expect(screen.getByText('Import my history')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Import my Garmin history'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+});
+
 describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
   beforeEach(() => {
     jest.clearAllMocks();

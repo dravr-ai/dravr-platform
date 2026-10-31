@@ -72,6 +72,7 @@ use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
+mod card_backend;
 mod card_seats;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;

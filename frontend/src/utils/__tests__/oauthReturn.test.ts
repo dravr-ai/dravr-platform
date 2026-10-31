@@ -7,12 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OAUTH_RESULT_KEY,
+  historyLoginAfterGrant,
   returnToConnectStart,
   settleOAuthReturn,
   startOAuthInNewTab,
   startOAuthInThisTab,
   type OAuthCallbackParams,
 } from '../oauthReturn';
+import type { ExtendedProviderStatus } from '@pierre/shared-types';
 import { isSessionRouteState } from '../sessionRoute';
 
 const RETURN_ROUTE_KEY = 'pierre_oauth_return';
@@ -193,5 +195,27 @@ describe('returnToConnectStart', () => {
     expect(close).toHaveBeenCalledTimes(1);
     expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe('/');
     expect(isSessionRouteState(window.history.state)).toBe(false);
+  });
+});
+
+describe('historyLoginAfterGrant', () => {
+  // The Garmin card as the server serves it after a Garmin grant.
+  const garmin = (awaiting: boolean) =>
+    ({
+      provider: 'sciotte_garmin',
+      connected: true,
+      connected_backend: 'garmin',
+      oauth_awaiting_activities: awaiting,
+    }) as ExtendedProviderStatus;
+
+  it('leads a Garmin grant with nothing pushed yet to the Garmin card', () => {
+    const card = garmin(true);
+    expect(historyLoginAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
+  });
+
+  it('leads nowhere once the grant holds activities, on a refusal, or for another grant', () => {
+    expect(historyLoginAfterGrant({ provider: 'garmin', success: true }, [garmin(false)])).toBeNull();
+    expect(historyLoginAfterGrant({ provider: 'garmin', success: false }, [garmin(true)])).toBeNull();
+    expect(historyLoginAfterGrant({ provider: 'whoop', success: true }, [garmin(true)])).toBeNull();
   });
 });

@@ -156,7 +156,10 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // [{ provider, display_name, description, connected, awaits_activities, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // `awaits_activities`: connected through an OAuth grant that has
+                // received no activity yet (Garmin), so the card opens the
+                // credential form for the athlete's history.
                 // `notice` is shown before the credential form (credentials) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -274,8 +277,12 @@
                     label.appendChild(description);
                     btn.appendChild(label);
                     const tag = document.createElement('span');
-                    tag.className = 'pc-tag' + (p.connected ? ' connected' : '');
-                    tag.textContent = p.connected
+                    // A card awaiting its activities is connected, but its tag names
+                    // what picking it does: import the history.
+                    tag.className = 'pc-tag' + (p.connected && !p.awaits_activities ? ' connected' : '');
+                    tag.textContent = p.awaits_activities
+                        ? S.tagImportHistory
+                        : p.connected
                         ? S.tagConnected
                         : (p.kind === 'oauth'
                             ? S.tagAuthorize
@@ -283,7 +290,12 @@
                                 ? S.tagApiKey
                                 : identifierTag(p.login_identifier)));
                     btn.appendChild(tag);
-                    if (p.connected) {
+                    if (p.awaits_activities) {
+                        btn.addEventListener('click', () => {
+                            clearError();
+                            pickCredentials(p);
+                        });
+                    } else if (p.connected) {
                         btn.disabled = true;
                     } else {
                         btn.addEventListener('click', () => pickProvider(p));
@@ -336,7 +348,12 @@
                     startOAuth(p.provider, false);
                     return;
                 }
-                // Credential sign-in flow.
+                pickCredentials(p);
+            }
+
+            // Credential sign-in flow for a card's target, behind its notice
+            // when the account has not accepted it.
+            function pickCredentials(p) {
                 credTarget = p.target || 'strava';
                 credLabel = p.display_name;
                 document.getElementById('cred-title').textContent = fmt(S.accountTitle, credLabel);
@@ -551,7 +568,8 @@
 
             // Handle the return from a full-page OAuth attempt. The session-less
             // callback bounces us back here with ?provider&success[&error]. On
-            // success we go to the shared success page; on failure we open the
+            // success we go to the shared success page, unless the grant has no
+            // activities yet (Garmin), which opens its credential form; on failure we open the
             // credential sign-in fallback for Strava so a channel user is never
             // stranded on the SPA error page. Returns true when it took over the
             // initial view (so the default picker render is skipped).
@@ -566,6 +584,16 @@
                 ['provider', 'success', 'error'].forEach((k) => clean.searchParams.delete(k));
                 window.history.replaceState({}, document.title, clean.pathname + clean.search);
 
+                // A Garmin grant whose store has received no activity yet serves
+                // nothing: signing in with the Garmin username and password
+                // reaches the history (OAuth first, then the credential login).
+                const awaiting = ok
+                    ? CONFIG.providers.find((p) => p.target === provider && p.awaits_activities)
+                    : undefined;
+                if (awaiting) {
+                    pickCredentials(awaiting);
+                    return true;
+                }
                 if (ok) {
                     const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
                         + '&target=' + encodeURIComponent(provider)
@@ -573,9 +601,17 @@
                     window.location.assign('/providers/connect/success?' + qs);
                     return true;
                 }
-                // Strava is the only OAuth card with a credential-login fallback.
+                // A refused Strava or Garmin grant opens the username and
+                // password sign-in for the same data, as web and mobile do.
                 if (provider === 'strava' || provider === 'sciotte') {
                     openCredentialFallback('strava', 'Strava', S.stravaFallback);
+                    return true;
+                }
+                const garminCard = provider === 'garmin'
+                    ? CONFIG.providers.find((p) => p.target === 'garmin')
+                    : undefined;
+                if (garminCard) {
+                    pickCredentials(garminCard);
                     return true;
                 }
                 showPhase('picker');

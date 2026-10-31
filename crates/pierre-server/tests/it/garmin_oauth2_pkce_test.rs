@@ -263,12 +263,12 @@ async fn a_completed_garmin_connect_routes_reads_to_the_api_and_takes_a_seat() {
         .await
         .expect("the exchange succeeds against the mock token endpoint");
 
-    let auth = resources.common.repos.auth_repos();
+    let auth = &resources.common.repos;
     assert_eq!(
-        backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), "garmin").await,
+        backend_resolver::resolve_backend(auth, user_id, Some(tenant_id), "garmin").await,
         "garmin"
     );
-    let status = backend_resolver::coalesced_status(&auth, user_id, tenant_id, "garmin").await;
+    let status = backend_resolver::coalesced_status(auth, user_id, tenant_id, "garmin").await;
     assert!(status.connected);
     assert_eq!(status.backend_kind, BackendKind::Oauth);
 

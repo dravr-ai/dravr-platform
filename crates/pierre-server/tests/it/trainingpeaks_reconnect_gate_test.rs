@@ -87,7 +87,7 @@ async fn trainingpeaks_with_no_session_row_resolves_to_its_mirror() {
     let (user, tenant) = seed_user(&db).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &repos.auth_repos(),
+        &repos,
         user,
         Some(tenant),
         oauth_providers::TRAININGPEAKS,

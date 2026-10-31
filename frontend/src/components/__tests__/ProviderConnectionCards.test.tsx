@@ -395,6 +395,64 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.user.onboardingStatus() });
   });
 
+  describe('a Garmin grant with nothing pushed yet leads to the usr/pwd login (carnet#1302)', () => {
+    // The Garmin card connected through its OAuth grant, whose store has
+    // received no activity yet: what the server serves after a fresh grant.
+    function garminAwaiting(awaiting: boolean) {
+      return {
+        ...garminCard('oauth'),
+        connected: true,
+        connected_backend: 'garmin',
+        oauth_awaiting_activities: awaiting,
+      };
+    }
+    function grant(provider: string) {
+      return JSON.stringify({
+        type: 'oauth_completed',
+        provider,
+        success: true,
+        hasError: false,
+        tombstoned: false,
+        timestamp: Date.now(),
+      });
+    }
+
+    it('opens the Garmin login once a Garmin grant comes back with no activities', async () => {
+      localStorage.setItem('pierre_oauth_result', grant('garmin'));
+      getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
+      renderCards();
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      // The grant is left for the success handlers, as every grant is.
+      expect(localStorage.getItem('pierre_oauth_result')).not.toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('stays closed when the Garmin grant already holds activities', async () => {
+      localStorage.setItem('pierre_oauth_result', grant('garmin'));
+      getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(false)] });
+      renderCards();
+
+      expect(await screen.findByLabelText('Garmin is connected')).toBeDisabled();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('offers the Garmin login from the card of a grant still awaiting activities', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
+      const user = userEvent.setup();
+      renderCards();
+
+      // The row names its state and what it offers, never a bare "Connect".
+      expect(await screen.findByText('Connected — waiting for activities')).toBeInTheDocument();
+      expect(screen.getByText('Import my history')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Connect to Garmin')).not.toBeInTheDocument();
+      await user.click(screen.getByLabelText('Import my Garmin history'));
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the OAuth-callback poll is transient', () => {
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true });

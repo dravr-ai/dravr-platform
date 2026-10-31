@@ -315,6 +315,15 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
+   * The card is connected through its provider's OAuth grant, whose push-fed
+   * store has received no activity yet, and no live usr/pwd session serves
+   * the card beside it. Garmin's API pushes only what the athlete records
+   * after connecting, so the history is reached through the usr/pwd login:
+   * the card offers it, and a Garmin grant just completed opens it
+   * (`historyLoginTarget` in `@pierre/shared-constants`).
+   */
+  oauth_awaiting_activities: boolean;
+  /**
    * How the connection behind a connected card was made: `"oauth"` for a
    * provider authorization, `"manual"` for a pasted credential (an
    * Intervals.icu API key), `"delegated"` for a card read through a group

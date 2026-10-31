@@ -123,7 +123,7 @@ async fn job_from_row(
     row: ActivityBackfillJobRow,
 ) -> ActivityBackfillJob {
     let provider_name = backend_resolver::resolve_backend(
-        &resources.repos().auth_repos(),
+        resources.repos(),
         row.user_id,
         (!row.tenant_id.is_nil()).then_some(row.tenant_id),
         backend_resolver::user_facing_name(&row.provider),

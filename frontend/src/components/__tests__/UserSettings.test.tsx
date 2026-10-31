@@ -1164,6 +1164,71 @@ describe('UserSettings Component', () => {
       expect(screen.queryByText('garmin connected successfully!')).not.toBeInTheDocument();
     });
 
+    it('chains a Garmin grant with nothing pushed yet into the Garmin login (carnet#1302)', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...card('sciotte_garmin', 'Garmin'),
+            connected: true,
+            connected_backend: 'garmin',
+            oauth_awaiting_activities: true,
+          },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      leaveResult('garmin', { success: true, hasError: false });
+      await openProviders();
+
+      expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('leaves a Garmin grant that already holds activities alone', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...card('sciotte_garmin', 'Garmin'),
+            connected: true,
+            connected_backend: 'garmin',
+            oauth_awaiting_activities: false,
+          },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      leaveResult('garmin', { success: true, hasError: false });
+      await openProviders();
+
+      expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('provider-history-login-sciotte_garmin')).not.toBeInTheDocument();
+    });
+
+    it('offers the Garmin login on a Garmin grant still awaiting activities', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...card('sciotte_garmin', 'Garmin'),
+            connected: true,
+            connected_backend: 'garmin',
+            oauth_awaiting_activities: true,
+          },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      await openProviders();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+
+      const importHistory = await screen.findByTestId('provider-history-login-sciotte_garmin');
+      expect(importHistory).toHaveTextContent('Import my history');
+      expect(importHistory).toHaveAccessibleName('Import my Garmin history');
+      expect(screen.getByText('Connected — waiting for activities')).toBeInTheDocument();
+      await userEvent.setup().click(importHistory);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
     it('names a refused grant whose backend no card serves by its capitalised id', async () => {
       leaveResult('wahoo');
       await openProviders();

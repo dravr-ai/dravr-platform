@@ -474,13 +474,9 @@ impl CachedRead<'_> {
             return Ok(None);
         };
         let repos = executor.resources.repos();
-        let backend = backend_resolver::resolve_backend(
-            &repos.auth_repos(),
-            self.user_uuid,
-            Some(tenant),
-            self.provider,
-        )
-        .await;
+        let backend =
+            backend_resolver::resolve_backend(repos, self.user_uuid, Some(tenant), self.provider)
+                .await;
         let cache = &repos.activity_cache;
         let Ok(Some(activity)) = cache
             .get_cached_activity(self.user_uuid, &tenant, &backend, self.activity_id)

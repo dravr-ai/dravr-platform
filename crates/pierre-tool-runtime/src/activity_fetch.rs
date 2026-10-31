@@ -185,7 +185,7 @@ async fn fold_other_connections(
 
     for conn in &connections {
         let canonical = backend_resolver::resolve_backend(
-            &context.resources.repos().auth_repos(),
+            context.resources.repos(),
             context.user_id,
             tenant,
             &conn.provider,
@@ -271,7 +271,7 @@ pub async fn serve_without_primary(
             continue;
         }
         let canonical = backend_resolver::resolve_backend(
-            &context.resources.repos().auth_repos(),
+            context.resources.repos(),
             context.user_id,
             tenant,
             &conn.provider,

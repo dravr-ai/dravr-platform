@@ -30,10 +30,12 @@ use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::{
+    ActivityBuilder, Athlete, ConnectionType, SportType, TenantId, UserOAuthToken,
+};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
+use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus, OAuthGrant};
 use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
@@ -274,7 +276,7 @@ async fn resolve_backend_prefers_sciotte_when_row_present() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -292,7 +294,7 @@ async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -313,7 +315,7 @@ async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::STRAVA,
@@ -328,8 +330,9 @@ async fn resolve_backend_garmin_prefers_the_api_when_both_rows_exist() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Both rows: a live Garmin API token wins over the usr/pwd connection
-    // (carnet#1155), as Strava's OAuth token wins over its mirror.
+    // Both token rows, but no live usr/pwd connection behind the mirror's: a
+    // Garmin API token whose store holds a pushed activity serves
+    // (carnet#1155, carnet#1302).
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
     seed_token(
         &resources,
@@ -338,9 +341,10 @@ async fn resolve_backend_garmin_prefers_the_api_when_both_rows_exist() {
         oauth_providers::SCIOTTE_GARMIN,
     )
     .await;
+    push_garmin_activity(&resources, user_id, tenant_id).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::GARMIN,
@@ -361,7 +365,7 @@ async fn a_garmin_api_row_alone_routes_to_the_api_and_reads_as_connected() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
 
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::GARMIN,
@@ -394,7 +398,7 @@ async fn coalesced_status_reports_the_garmin_api_over_a_lingering_mirror() {
     .await;
 
     let status = backend_resolver::coalesced_status(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         tenant_id,
         oauth_providers::GARMIN,
@@ -428,7 +432,7 @@ async fn coalesced_status_keeps_a_usr_pwd_garmin_user_on_the_mirror() {
     .await;
 
     let status = backend_resolver::coalesced_status(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         tenant_id,
         oauth_providers::GARMIN,
@@ -450,7 +454,7 @@ async fn resolve_backend_garmin_stays_on_mirror_when_no_token() {
     // never connected it. A missing session then surfaces as a
     // reconnect-Garmin auth error downstream.
     let resolved = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::GARMIN,
@@ -490,14 +494,14 @@ async fn resolve_backend_collapses_garmin_aliases_to_one_cache_key() {
     .await;
 
     let from_llm_arg = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::GARMIN,
     )
     .await;
     let from_connection = backend_resolver::resolve_backend(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         Some(tenant_id),
         oauth_providers::SCIOTTE_GARMIN,
@@ -593,7 +597,7 @@ async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let status = backend_resolver::coalesced_status(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         tenant_id,
         oauth_providers::STRAVA,
@@ -1389,12 +1393,12 @@ async fn resolve_backend_keeps_trainingpeaks_on_its_mirror_with_or_without_a_row
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
-    let repos = resources.common.repos.auth_repos();
+    let repos = &resources.common.repos;
 
     // No row at all: the general mirror-only rule, not a Garmin special case,
     // is what keeps the request routable to a reconnect prompt.
     let no_row = backend_resolver::resolve_backend(
-        &repos,
+        repos,
         user_id,
         Some(tenant_id),
         oauth_providers::TRAININGPEAKS,
@@ -1410,14 +1414,14 @@ async fn resolve_backend_keeps_trainingpeaks_on_its_mirror_with_or_without_a_row
     )
     .await;
     let from_llm_arg = backend_resolver::resolve_backend(
-        &repos,
+        repos,
         user_id,
         Some(tenant_id),
         oauth_providers::TRAININGPEAKS,
     )
     .await;
     let from_connection = backend_resolver::resolve_backend(
-        &repos,
+        repos,
         user_id,
         Some(tenant_id),
         oauth_providers::SCIOTTE_TRAININGPEAKS,
@@ -1476,12 +1480,12 @@ async fn resolve_backend_keeps_coros_on_its_mirror_with_or_without_a_row() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
-    let repos = resources.common.repos.auth_repos();
+    let repos = &resources.common.repos;
 
     // No row: the mirror-only rule routes to a reconnect prompt, never to the
     // raw `coros` OAuth backend, which has no credentials.
     let no_row =
-        backend_resolver::resolve_backend(&repos, user_id, Some(tenant_id), oauth_providers::COROS)
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::COROS)
             .await;
     assert_eq!(no_row, oauth_providers::SCIOTTE_COROS);
 
@@ -1493,10 +1497,10 @@ async fn resolve_backend_keeps_coros_on_its_mirror_with_or_without_a_row() {
     )
     .await;
     let from_llm_arg =
-        backend_resolver::resolve_backend(&repos, user_id, Some(tenant_id), oauth_providers::COROS)
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::COROS)
             .await;
     let from_connection = backend_resolver::resolve_backend(
-        &repos,
+        repos,
         user_id,
         Some(tenant_id),
         oauth_providers::SCIOTTE_COROS,
@@ -1514,12 +1518,11 @@ async fn a_bare_coros_row_never_reads_as_connected_and_the_mirror_does() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
-    let repos = resources.common.repos.auth_repos();
+    let repos = &resources.common.repos;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::COROS).await;
     let status =
-        backend_resolver::coalesced_status(&repos, user_id, tenant_id, oauth_providers::COROS)
-            .await;
+        backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::COROS).await;
     assert_eq!(
         status,
         CoalescedStatus {
@@ -1539,8 +1542,7 @@ async fn a_bare_coros_row_never_reads_as_connected_and_the_mirror_does() {
     )
     .await;
     let status =
-        backend_resolver::coalesced_status(&repos, user_id, tenant_id, oauth_providers::COROS)
-            .await;
+        backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::COROS).await;
     assert!(
         status.connected,
         "the mirror session is what connects COROS"
@@ -1562,7 +1564,7 @@ async fn a_bare_trainingpeaks_row_never_reads_as_connected() {
     .await;
 
     let status = backend_resolver::coalesced_status(
-        &resources.common.repos.auth_repos(),
+        &resources.common.repos,
         user_id,
         tenant_id,
         oauth_providers::TRAININGPEAKS,
@@ -1957,5 +1959,272 @@ async fn reconciliation_deletes_an_orphaned_trainingpeaks_mirror_connection() {
             .iter()
             .any(|c| c.provider == oauth_providers::SCIOTTE_TRAININGPEAKS),
         "an orphaned TrainingPeaks mirror connection (no token) must be deleted"
+    );
+}
+
+/// Register `provider`'s connection row for the user, as a connect does.
+async fn register(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, provider, &ConnectionType::Manual, None)
+        .await
+        .expect("register connection");
+}
+
+/// Store one activity Garmin pushed for the user.
+async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
+    let pushed = ActivityBuilder::new(
+        "20111111111",
+        "Pushed Run",
+        SportType::Run,
+        Utc::now() - chrono::Duration::days(1),
+        1_800,
+        oauth_providers::GARMIN,
+    )
+    .source(oauth_providers::GARMIN)
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities_synced_at(
+            user_id,
+            &tenant_id,
+            oauth_providers::GARMIN,
+            &[pushed],
+            Utc::now(),
+        )
+        .await
+        .expect("store the pushed activity");
+}
+
+/// "oauth, no activities, sciotte" (carnet#1302): a Garmin grant whose store
+/// holds no activity, beside a live usr/pwd session, routes Garmin to the
+/// session, and status reports the mirror as the active backend.
+#[tokio::test]
+async fn an_empty_garmin_grant_beside_a_live_session_routes_to_the_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    register(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    let repos = &resources.common.repos;
+
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
+        OAuthGrant::DefersToMirror
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+            .await,
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: an empty Garmin grant must hand the reads to the live usr/pwd session"
+    );
+    let status =
+        backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::GARMIN)
+            .await;
+    assert_eq!(status.backend_kind, BackendKind::Mirror, "{status:?}");
+    assert!(status.connected, "{status:?}");
+}
+
+/// A push of wellness alone advances the Garmin freshness mark without
+/// storing an activity, so a grant with no session beside it still reads as
+/// awaiting its activities — what the card offers the usr/pwd login on.
+#[tokio::test]
+async fn a_wellness_only_push_leaves_the_garmin_grant_awaiting_activities() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    resources
+        .common
+        .repos
+        .activity_cache
+        .record_activity_fetch(user_id, &tenant_id, oauth_providers::GARMIN, Utc::now())
+        .await
+        .expect("record the push");
+
+    assert_eq!(
+        backend_resolver::oauth_grant(
+            &resources.common.repos,
+            user_id,
+            tenant_id,
+            oauth_providers::GARMIN
+        )
+        .await,
+        OAuthGrant::AwaitsActivities,
+        "a freshness mark is not an activity"
+    );
+}
+
+/// A live usr/pwd session keeps serving Garmin while it is live, whatever the
+/// grant's store holds: the first pushed activity does not move the reads
+/// (carnet#1302).
+#[tokio::test]
+async fn a_live_garmin_session_keeps_serving_after_the_grant_receives_a_push() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    register(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    push_garmin_activity(&resources, user_id, tenant_id).await;
+    let repos = &resources.common.repos;
+
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
+        OAuthGrant::DefersToMirror
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+            .await,
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: a live usr/pwd session must keep serving Garmin after the first push"
+    );
+    let status =
+        backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::GARMIN)
+            .await;
+    assert_eq!(status.backend_kind, BackendKind::Mirror, "{status:?}");
+
+    // Flagged for a reconnect, the session serves nothing: the grant, which
+    // now holds an activity, serves.
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            oauth_providers::SCIOTTE_GARMIN,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .expect("mark the session dead");
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
+        OAuthGrant::Serves
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+            .await,
+        oauth_providers::GARMIN,
+        "a dead session falls back to the grant"
+    );
+}
+
+/// With no live session beside it — none at all, or one flagged for a
+/// reconnect — an empty grant keeps serving and reads as awaiting its
+/// activities, which is what the cards offer the usr/pwd login on.
+#[tokio::test]
+async fn an_empty_garmin_grant_without_a_live_session_keeps_serving() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    let repos = &resources.common.repos;
+
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
+        OAuthGrant::AwaitsActivities
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+            .await,
+        oauth_providers::GARMIN
+    );
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    register(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            oauth_providers::SCIOTTE_GARMIN,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .expect("mark the session dead");
+
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
+        OAuthGrant::AwaitsActivities,
+        "a dead session serves nothing, so it never takes over from the grant"
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+            .await,
+        oauth_providers::GARMIN
+    );
+}
+
+/// Strava's API reads history on request: an empty cache never moves a Strava
+/// grant to its mirror.
+#[tokio::test]
+async fn an_empty_strava_grant_keeps_the_reads() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    register(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    let repos = &resources.common.repos;
+
+    assert_eq!(
+        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::STRAVA).await,
+        OAuthGrant::Serves
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::STRAVA)
+            .await,
+        oauth_providers::STRAVA
     );
 }

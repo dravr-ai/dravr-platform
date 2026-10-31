@@ -360,7 +360,7 @@ impl AuthService {
         // user's stated preference is to keep using the mirror.
         let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
         let effective_provider = backend_resolver::resolve_backend(
-            &self.resources.repos().auth_repos(),
+            self.resources.repos(),
             user_id,
             tenant_id_parsed,
             requested_provider,

@@ -32,14 +32,19 @@
 //! way since Dravr joined the Garmin Connect Developer Program (carnet#1155):
 //! a user holding a `garmin` token is served from what Garmin pushed, and every
 //! other Garmin athlete stays on the connection using usr/pwd from Dravr.
+//! Garmin pushes only what the athlete records after connecting, so a live
+//! usr/pwd session, which reads the whole history, serves Garmin whenever the
+//! athlete holds one, whatever the grant's store holds; the grant serves only
+//! an athlete with no live session (carnet#1302, [`oauth_grant`]).
 //! TrainingPeaks and COROS stay on the mirror: neither has an API Pierre can
 //! call.
 //!
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
 
+use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_database::AuthRepos;
+use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
 use crate::registry::ProviderRegistry;
@@ -261,7 +266,7 @@ pub fn is_mirror_backend(provider: &str) -> bool {
 /// intent to use that backend; callers use this to decide whether to
 /// prefer the mirror over OAuth.
 async fn has_token_row(
-    repos: &AuthRepos,
+    repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
@@ -275,14 +280,140 @@ async fn has_token_row(
     )
 }
 
+/// Whether the push-fed store behind `oauth_backend` holds no activity for
+/// the user in this tenant: the provider pushes only what the athlete records
+/// after connecting, so a fresh grant holds nothing, whatever the window.
+///
+/// `false` for a backend that is not push-fed (its API reads history on
+/// request) and when the store cannot be read: a failed read keeps the grant
+/// the user chose rather than moving them on a guess. Existence is read from
+/// the rows themselves, never from `latest_activity_sync`, which a push of
+/// wellness data alone also advances.
+async fn pushed_store_is_empty(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    oauth_backend: &str,
+) -> bool {
+    if pushed_backend_for(oauth_backend) != Some(oauth_backend) {
+        return false;
+    }
+    matches!(
+        repos
+            .activity_cache
+            .get_cached_activities(
+                user_id,
+                &tenant_id,
+                Some(oauth_backend),
+                DateTime::<Utc>::UNIX_EPOCH,
+                Utc::now(),
+                1,
+            )
+            .await,
+        Ok(rows) if rows.is_empty()
+    )
+}
+
+/// Whether the user holds a usable session for `mirror` in this tenant: a
+/// token row, and a connection that has not been flagged for a reconnect or
+/// revoked. A dead session serves nothing, so it never takes over from an
+/// OAuth grant.
+async fn mirror_session_is_live(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    mirror: &str,
+) -> bool {
+    if !has_token_row(repos, user_id, tenant_id, mirror).await {
+        return false;
+    }
+    repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .is_ok_and(|connections| {
+            connections
+                .iter()
+                .any(|conn| conn.provider == mirror && !conn.status.requires_reauth())
+        })
+}
+
+/// What the user's OAuth grant for a mirror-backed provider amounts to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthGrant {
+    /// The user holds no OAuth token row for the provider.
+    Absent,
+    /// The grant serves the provider's reads.
+    Serves,
+    /// A live mirror session serves the provider instead, whatever the
+    /// grant's push-fed store holds (carnet#1302).
+    DefersToMirror,
+    /// The grant's push-fed store holds no activity yet and no live mirror
+    /// session stands beside it: the grant serves, with nothing to read, so
+    /// the clients offer the mirror login for the athlete's history.
+    AwaitsActivities,
+}
+
+impl OAuthGrant {
+    /// Whether the OAuth backend serves the provider's reads.
+    #[must_use]
+    pub const fn serves(self) -> bool {
+        matches!(self, Self::Serves | Self::AwaitsActivities)
+    }
+}
+
+/// Classify the user's OAuth grant for `user_facing` in this tenant — the one
+/// rule [`resolve_backend`], [`coalesced_status`] and the connect cards read,
+/// so routing and every status surface agree (carnet#1302).
+///
+/// Strava's grant serves whenever its row exists: its API reads history on
+/// request. Garmin's API pushes only what the athlete records after
+/// connecting, so a live usr/pwd session beside the grant serves Garmin
+/// whatever the grant's store holds: the session reads the whole history,
+/// the pushes only what came after the grant. A session flagged for a
+/// reconnect or revoked serves nothing, and then the grant serves: reading
+/// [`OAuthGrant::AwaitsActivities`] while its store holds no activity at all
+/// (the clients then offer the usr/pwd login), [`OAuthGrant::Serves`] once it
+/// holds one. "No activity" is the whole store, never a requested window, so
+/// one user resolves to one backend — and one cache key — whatever they ask
+/// for.
+/// Providers whose OAuth backend never serves beside its mirror, and those
+/// with no mirror, read [`OAuthGrant::Absent`].
+pub async fn oauth_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    user_facing: &str,
+) -> OAuthGrant {
+    let Some(mirror) = mirror_backend_for(user_facing) else {
+        return OAuthGrant::Absent;
+    };
+    if !oauth_serves(user_facing) || !has_token_row(repos, user_id, tenant_id, user_facing).await {
+        return OAuthGrant::Absent;
+    }
+    if pushed_backend_for(user_facing) != Some(user_facing) {
+        return OAuthGrant::Serves;
+    }
+    if mirror_session_is_live(repos, user_id, tenant_id, mirror).await {
+        return OAuthGrant::DefersToMirror;
+    }
+    if pushed_store_is_empty(repos, user_id, tenant_id, user_facing).await {
+        OAuthGrant::AwaitsActivities
+    } else {
+        OAuthGrant::Serves
+    }
+}
+
 /// Resolve a user-facing provider name to the backend that should actually
 /// serve the request.
 ///
 /// Rules:
 /// - `strava` → `strava` when the user holds a Strava OAuth token row, else
 ///   `sciotte` when a sciotte token row exists, else `strava`
-/// - `garmin` → `garmin` when the user holds a Garmin API token row, else
-///   `sciotte_garmin`, with or without a session row (carnet#1155)
+/// - `garmin` → `sciotte_garmin` while the user holds a live `sciotte_garmin`
+///   session, whatever the Garmin API store holds; else `garmin` when the
+///   user holds a Garmin API token row; else `sciotte_garmin`, with or
+///   without a session row (carnet#1155, carnet#1302 — [`oauth_grant`])
 /// - `trainingpeaks` → `sciotte_trainingpeaks` always (no API to call)
 /// - `coros` → `sciotte_coros` always (its partner API is not approved)
 /// - any other name (including a mirror backend name passed through
@@ -300,7 +431,7 @@ async fn has_token_row(
 /// staying on the mirror makes a missing session surface as a clean reconnect
 /// auth error instead.
 pub async fn resolve_backend(
-    repos: &AuthRepos,
+    repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: Option<TenantId>,
     requested: &str,
@@ -313,10 +444,13 @@ pub async fn resolve_backend(
     };
     // Strava → OAuth-API migration, and the Garmin Developer Program API
     // (carnet#1155): the OAuth backend wins whenever the user holds a token
-    // row for it. Mirror-only users have no such row, so they keep the mirror
-    // until they authorize OAuth.
-    if oauth_serves(requested) && has_token_row(repos, user_id, tid, requested).await {
-        return requested.to_owned();
+    // row for it, except that a live Garmin usr/pwd session serves Garmin
+    // whatever the grant holds (carnet#1302). Mirror-only users have no such
+    // row, so they keep the mirror until they authorize OAuth.
+    match oauth_grant(repos, user_id, tid, requested).await {
+        grant if grant.serves() => return requested.to_owned(),
+        OAuthGrant::DefersToMirror => return mirror.to_owned(),
+        _ => {}
     }
     if has_token_row(repos, user_id, tid, mirror).await {
         return mirror.to_owned();
@@ -381,24 +515,28 @@ impl BackendKind {
 
 /// Probe connection status for a single user-facing provider.
 ///
-/// For Strava and Garmin an OAuth token wins over the sciotte mirror, matching
-/// `resolve_backend`. For every other mirror-backed provider (TrainingPeaks,
-/// COROS) the mirror wins when present — even if stale — because the user's
-/// stated preference is to keep using it. With
+/// For Strava and Garmin a serving OAuth grant ([`oauth_grant`]) wins over the
+/// sciotte mirror, matching `resolve_backend`. For every other mirror-backed
+/// provider (TrainingPeaks, COROS) the mirror wins when present — even if
+/// stale — because the user's stated preference is to keep using it. With
 /// no credential of the user's own, a confirmed link their group coach reads
 /// one of the provider's backends through ([`BackendKind::Delegated`])
 /// connects it, found the way the read path finds it, so the status and the
 /// read cannot disagree. A link that
 /// cannot be read counts as none, as an unreadable token row does.
 pub async fn coalesced_status(
-    repos: &AuthRepos,
+    repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
     user_facing: &'static str,
 ) -> CoalescedStatus {
     // Strava and Garmin prefer their OAuth backend: report it as the active
-    // backend when an OAuth token exists, even if a mirror row also lingers.
-    if oauth_serves(user_facing) && has_token_row(repos, user_id, tenant_id, user_facing).await {
+    // backend when its grant serves, even if a mirror row also lingers — by
+    // the same rule `resolve_backend` routes by ([`oauth_grant`]).
+    if oauth_grant(repos, user_id, tenant_id, user_facing)
+        .await
+        .serves()
+    {
         return CoalescedStatus {
             user_facing,
             connected: true,

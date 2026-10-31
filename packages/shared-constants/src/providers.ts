@@ -207,6 +207,21 @@ export function sciotteTargetForBackend(provider: string): SciotteTarget | null 
 }
 
 /**
+ * The credential-login target a connected card offers for the athlete's
+ * history, or `null` when it offers none: the card's OAuth grant has received
+ * no activity yet and no usr/pwd session serves it beside the grant
+ * (`oauth_awaiting_activities`). Garmin's API pushes only what the athlete
+ * records after connecting, so "oauth, no activities" leads to the usr/pwd
+ * login, from the card and straight after a Garmin grant completes.
+ */
+export function historyLoginTarget(
+  card: Pick<ExtendedProviderStatus, 'provider' | 'connected' | 'oauth_awaiting_activities'>,
+): SciotteTarget | null {
+  if (!card.connected || !card.oauth_awaiting_activities) return null;
+  return sciotteTargetForBackend(card.provider);
+}
+
+/**
  * Whether connecting `provider` must first show its notice: the card says the
  * account has not accepted it, and the client carries a notice to show.
  */

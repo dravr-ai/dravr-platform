@@ -260,7 +260,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // single-key pipeline. `display_provider` recovers the user-facing name
             // ("garmin") for any copy the user or LLM sees.
             let provider_name = backend_resolver::resolve_backend(
-                &context.resources.repos().auth_repos(),
+                context.resources.repos(),
                 context.user_id,
                 context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,

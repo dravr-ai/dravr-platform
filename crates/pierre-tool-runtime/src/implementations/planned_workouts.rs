@@ -858,13 +858,8 @@ async fn named_planned_backend(
     requested: &str,
 ) -> AppResult<String> {
     let registry = context.resources.provider_registry();
-    let backend = resolve_backend(
-        &context.resources.repos().auth_repos(),
-        user_id,
-        Some(tenant),
-        requested,
-    )
-    .await;
+    let backend =
+        resolve_backend(context.resources.repos(), user_id, Some(tenant), requested).await;
     if has_planned_calendar(registry, &backend) {
         Ok(backend)
     } else {

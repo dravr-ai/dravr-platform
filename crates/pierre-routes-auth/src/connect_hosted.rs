@@ -126,8 +126,14 @@ struct ConnectProviderCard {
     /// The line under the label, in the user's locale, as `/api/providers`
     /// serves it.
     description: String,
-    /// Already connected — the card is shown disabled.
+    /// Already connected — the card is shown disabled, unless it
+    /// `awaits_activities`.
     connected: bool,
+    /// Connected through the provider's OAuth grant, whose store has received
+    /// no activity yet, with no live usr/pwd session beside it (carnet#1302):
+    /// the card stays pickable and opens the credential form, and a grant the
+    /// page just came back from chains straight into it.
+    awaits_activities: bool,
     /// "oauth" (full-page redirect to consent), [`CREDENTIALS_KIND`] (the
     /// credential form: the athlete's own username and password) or
     /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
@@ -206,6 +212,7 @@ async fn build_connect_providers(
                     display_name: p.display_name,
                     description: p.description,
                     connected: p.connected,
+                    awaits_activities: p.oauth_awaiting_activities,
                     kind: if oauth_first {
                         "oauth"
                     } else {
@@ -236,6 +243,7 @@ async fn build_connect_providers(
                         display_name: p.display_name,
                         description: p.description,
                         connected: p.connected,
+                        awaits_activities: p.oauth_awaiting_activities,
                         kind: if oauth_first {
                             "oauth"
                         } else {
@@ -265,6 +273,7 @@ async fn build_connect_providers(
                 display_name: p.display_name,
                 description: p.description,
                 connected: p.connected,
+                awaits_activities: false,
                 target: INTERVALS_ICU.to_owned(),
                 consent_required: false,
                 notice: None,
@@ -280,6 +289,7 @@ async fn build_connect_providers(
                 display_name: p.display_name,
                 description: p.description,
                 connected: p.connected,
+                awaits_activities: false,
                 kind: "oauth",
                 target: String::new(),
                 consent_required: p.consent_required,

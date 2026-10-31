@@ -33,6 +33,7 @@ import {
   AI_CONSENT_KEYS,
   coachPlatformName,
   delegationRefusalKey,
+  historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
@@ -85,21 +86,37 @@ export function ConnectionsScreen() {
   // the web onboarding screen.
   const [justConnected, setJustConnected] = useState<string | null>(null);
 
-  const loadConnectionStatus = useCallback(async () => {
+  // Returns the providers it read (none when the read failed), so a connect
+  // that just came back can judge the row it landed on.
+  const loadConnectionStatus = useCallback(async (): Promise<ExtendedProviderStatus[]> => {
     try {
       setIsLoading(true);
       setError(null);
       const response = await oauthApi.getProvidersStatus();
-      setProviders(response.providers || []);
+      const served = response.providers || [];
+      setProviders(served);
+      return served;
     } catch (err) {
       const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadConnections' });
       setError(errorMessage);
       console.error('Failed to load connection status:', err);
       // Don't show alert on auth errors - screen will reload when auth is ready
+      return [];
     } finally {
       setIsLoading(false);
     }
   }, [t]);
+
+  /**
+   * Open the usr/pwd login for `target` (Strava, Garmin): the way in a refused
+   * grant falls back to, and the one a Garmin grant with nothing pushed yet
+   * leads to for the history. The row's notice is asked for while owed.
+   */
+  const openCredentialLogin = (target: SciotteTarget, rows: readonly ExtendedProviderStatus[]) => {
+    const row = rows.find((p) => sciotteTargetForBackend(p.provider) === target);
+    setSciotteConsentRequired(row?.consent_required ?? false);
+    setSciotteTarget(target);
+  };
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -170,16 +187,24 @@ export function ConnectionsScreen() {
           // OAuth completed successfully — refresh status and show the
           // post-connect spinner. Mirrors the web onboarding UX so the
           // moment of triumph isn't a modal alert the user has to dismiss.
-          await loadConnectionStatus();
-          setJustConnected(providerName);
+          // A Garmin grant with nothing pushed yet goes on to the Garmin
+          // usr/pwd login instead, which reaches the history (carnet#1302).
+          const served = await loadConnectionStatus();
+          const history = served.find((p) => historyLoginTarget(p) === providerId);
+          const historyTarget = history ? historyLoginTarget(history) : null;
+          if (historyTarget) {
+            openCredentialLogin(historyTarget, served);
+          } else {
+            setJustConnected(providerName);
+          }
         } else if (error) {
           console.error('OAuth error from server:', error);
-          // Strava OAuth failed (the shared-app athlete cap was actually
-          // exceeded in a seat-count race, or the provider rejected the grant).
-          // Fall back to the Sciotte credential login — same Strava data —
+          // Strava or Garmin OAuth failed (the shared-app athlete cap was
+          // actually exceeded in a seat-count race, or the provider rejected
+          // the grant). Fall back to the credential login — same data —
           // instead of leaving the user on an alert.
-          if (providerId === 'strava') {
-            setSciotteTarget('strava');
+          if (providerId === 'strava' || providerId === 'garmin') {
+            openCredentialLogin(providerId, providers);
           } else {
             Alert.alert(t('app.connectionFailed'), t('app.failedToConnectReason', { reason: error }));
           }
@@ -198,9 +223,9 @@ export function ConnectionsScreen() {
       // platform Strava app being unconfigured — fall back to the Sciotte
       // credential login rather than bouncing to the BYO-credentials sheet or
       // an error alert.
-      if (providerId === 'strava') {
-        console.error('Failed to start Strava OAuth flow; falling back to Sciotte:', err);
-        setSciotteTarget('strava');
+      if (providerId === 'strava' || providerId === 'garmin') {
+        console.error('Failed to start the OAuth flow; falling back to the credential login:', err);
+        openCredentialLogin(providerId, providers);
         return;
       }
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
@@ -402,11 +427,29 @@ export function ConnectionsScreen() {
         </>
       );
     } else if (isConnected) {
+      // A row connected through an OAuth grant that has received no activity
+      // yet (Garmin before its first push) offers the usr/pwd login for the
+      // history; disconnecting stays in the row's menu (carnet#1302).
+      const historyTarget = historyLoginTarget(provider);
       trailing = (
         <>
           <StatusDot tone="success" />
-          <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
-          {canConnect && action(t('app.disconnect'), disconnect)}
+          <Text className="text-sm font-medium text-text-secondary">
+            {historyTarget ? t('providers.awaitingActivities') : t('app.connected')}
+          </Text>
+          {historyTarget ? (
+            <Text
+              className="text-md font-medium text-primary"
+              onPress={() => openCredentialLogin(historyTarget, [provider])}
+              accessibilityRole="button"
+              accessibilityLabel={t('providers.importHistoryAria', { provider: provider.display_name })}
+              testID={`provider-action-${id}`}
+            >
+              {t('providers.importHistory')}
+            </Text>
+          ) : (
+            canConnect && action(t('app.disconnect'), disconnect)
+          )}
         </>
       );
     } else if (canConnect) {

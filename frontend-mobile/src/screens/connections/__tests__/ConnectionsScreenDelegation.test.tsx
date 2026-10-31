@@ -59,6 +59,7 @@ function trainingPeaks(overrides: Partial<ExtendedProviderStatus>): ExtendedProv
     requires_oauth: false,
     connected: false,
     needs_reauth: false,
+    oauth_awaiting_activities: false,
     capabilities: ['activities'],
     consent_required: false,
     own_app_required: false,

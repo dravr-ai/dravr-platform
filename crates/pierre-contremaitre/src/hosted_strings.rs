@@ -118,6 +118,8 @@ pub const KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD: &str = "hosted.picker.tagEmailPa
 /// Key: "Email or username / password" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD: &str =
     "hosted.picker.tagEmailOrUsernamePassword";
+/// Key: "Import my history" No format placeholders.
+pub const KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY: &str = "hosted.picker.tagImportHistory";
 /// Key: "Strava sign-in didn't complete — you can connect with your Strava email and password instead." No format placeholders.
 pub const KEY_HOSTED_PICKER_STRAVA_FALLBACK: &str = "hosted.picker.stravaFallback";
 /// Key: "That sign-in didn't complete. Please go back and try again." No format placeholders.

@@ -175,6 +175,7 @@ export {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   aiConsentCards,
+  historyLoginTarget,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,

@@ -723,19 +723,14 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     );
                 }
 
-                let auth_repos = ctx.resources.repos().auth_repos();
+                let repos = ctx.resources.repos();
                 let coalesced = match user_facing_canonical(
                     ctx.resources.provider_registry(),
                     specific_provider,
                 ) {
                     Some(canonical) => {
-                        backend_resolver::coalesced_status(
-                            &auth_repos,
-                            user_uuid,
-                            tenant_id,
-                            canonical,
-                        )
-                        .await
+                        backend_resolver::coalesced_status(repos, user_uuid, tenant_id, canonical)
+                            .await
                     }
                     None => CoalescedStatus {
                         user_facing: "",
@@ -767,10 +762,10 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                 let mut providers_status: BTreeMap<String, ProviderConnectionStatus> =
                     BTreeMap::new();
 
-                let auth_repos = ctx.resources.repos().auth_repos();
+                let repos = ctx.resources.repos();
                 for user_facing in user_facing_providers(ctx.resources.provider_registry()) {
                     let status = backend_resolver::coalesced_status(
-                        &auth_repos,
+                        repos,
                         user_uuid,
                         tenant_id,
                         user_facing,
