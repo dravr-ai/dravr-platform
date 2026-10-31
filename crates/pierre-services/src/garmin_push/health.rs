@@ -1,4 +1,4 @@
-// ABOUTME: Garmin health pushes into the wellness store — sleep, the day's recovery and body rows, intraday series
+// ABOUTME: Garmin health pushes into the wellness store — sleep, the day's recovery, body and activity rows, intraday series
 // ABOUTME: A day's row takes only what each summary carries, since several summary types feed it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -26,15 +26,15 @@ use pierre_core::errors::AppResult;
 use serde_json::Value;
 
 use super::mapping::{
-    body_row, calendar_date, measured, offset_points, recovery_row, sleep_session, BodyReadings,
-    RecoveryReadings,
+    body_row, calendar_date, daily_activity_row, measured, offset_points, recovery_row,
+    sleep_session, BodyReadings, RecoveryReadings,
 };
 use super::wire::{
     BodyCompRecord, DailyRecord, HrvRecord, SkinTempRecord, SleepRecord, StressDetailsRecord,
     UserMetricsRecord,
 };
 use super::{records_as, BatchOutcome, OwnerBatch};
-use crate::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
+use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, WellnessWriteMode};
 
 /// Write `readings` onto the owner's Garmin recovery row for `date`, filed
 /// under the API's data source: what the push carries replaces the stored
@@ -79,7 +79,7 @@ async fn land_body(
         .map(|_| ())
 }
 
-/// Store `points` as the `series` of the owner's Garmin data source.
+/// Store `points` as the intraday `series` of the owner's Garmin data source.
 async fn store_series(
     batch: &OwnerBatch<'_>,
     source_id: &str,
@@ -87,7 +87,7 @@ async fn store_series(
     points: Vec<DataPoint>,
 ) -> AppResult<()> {
     WellnessStore::new(batch.repos)
-        .store_series(source_id, series.id(), points)
+        .store_series(source_id, IntradaySeries::try_new(series, points)?)
         .await
 }
 
@@ -99,8 +99,9 @@ fn whole(value: Option<f64>) -> Option<u32> {
         .map(|v| v.round() as u32)
 }
 
-/// `dailies`: resting heart rate and stress on the day's recovery row, the
-/// day's heart-rate samples as a series.
+/// `dailies`: resting heart rate and stress on the day's recovery row, its
+/// steps, energy and intensity minutes on the day's activity row, the day's
+/// heart-rate samples as a series.
 pub(super) async fn write_dailies(
     batch: &OwnerBatch<'_>,
     records: Vec<Value>,
@@ -121,6 +122,19 @@ pub(super) async fn write_dailies(
         if !readings.is_empty() {
             land_recovery(batch, &source_id, date, readings).await?;
         }
+        if let Some(totals) =
+            daily_activity_row(daily, &batch.owner.user_id.to_string(), &source_id, date)
+        {
+            WellnessStore::new(batch.repos)
+                .writes("garmin push daily activity")
+                .daily_activity(
+                    batch.owner.tenant_id,
+                    &totals,
+                    WellnessWriteMode::PartialSummary,
+                    batch.received_at,
+                )
+                .await?;
+        }
         if let Some(start) = daily.start_time_in_seconds {
             let points = offset_points(start, &daily.time_offset_heart_rate_samples, measured);
             store_series(batch, &source_id, SeriesType::HeartRate, points).await?;
@@ -131,8 +145,8 @@ pub(super) async fn write_dailies(
 }
 
 /// `sleeps`: one session per sleep, replaced by each update of the same
-/// night. Its intraday `SpO2` and breathing-rate readings are not kept: no
-/// reader serves them.
+/// night, with the night's average pulse oximetry. Its minute-by-minute
+/// `SpO2` and breathing-rate readings are not kept: no reader serves them.
 pub(super) async fn write_sleeps(
     batch: &OwnerBatch<'_>,
     records: Vec<Value>,
@@ -191,8 +205,11 @@ pub(super) async fn write_hrv(
     Ok(outcome)
 }
 
-/// `userMetrics`: the `VO2max` estimate on the day's body row, the running
-/// estimate first and the cycling one when it is the only one.
+/// `userMetrics`: the running `VO2max` estimate on the day's body row.
+///
+/// A day has one `VO2max`, as dravr-barrage reads the export's: a cycling
+/// estimate is never filed in its place, since a profile with no `VO2max`
+/// cuts its running pace zones from the latest one stored.
 pub(super) async fn write_user_metrics(
     batch: &OwnerBatch<'_>,
     records: Vec<Value>,
@@ -205,10 +222,7 @@ pub(super) async fn write_user_metrics(
             outcome.unreadable += 1;
             continue;
         };
-        let vo2_max = metric
-            .vo2_max
-            .or(metric.vo2_max_cycling)
-            .filter(|v| v.is_finite() && *v > 0.0);
+        let vo2_max = metric.vo2_max.filter(|v| v.is_finite() && *v > 0.0);
         if vo2_max.is_none() {
             outcome.skipped += 1;
             continue;

@@ -49,7 +49,7 @@ pub struct ArchiveDescriptor {
 ///
 /// - A Strava export holds recorded activities, with their samples and laps.
 /// - A Garmin Connect export holds those too, and the athlete's wellness:
-///   sleep, the day's recovery readings and body readings.
+///   sleep, the day's recovery readings, body readings and activity totals.
 /// - An upload holds the recordings in the files the athlete uploaded.
 /// - A manual entry holds the readings the athlete typed in.
 #[must_use]

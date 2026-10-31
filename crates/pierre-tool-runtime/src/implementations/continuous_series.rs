@@ -10,7 +10,9 @@
 //! heart-rate or HRV sample a source recorded in a time range, or one value
 //! per window when `window_minutes` is given. The daily readings —
 //! resting heart rate, overnight HRV — stay with `get_recovery_metrics`;
-//! this tool is the intraday series under them.
+//! this tool is the intraday series under them. An imported Garmin export's
+//! overnight HRV is one of those daily readings: it is a day's
+//! `hrv_rmssd`, never a point here.
 //!
 //! A sample read is bounded twice: by span (`MAX_POINTS_RANGE_HOURS`) and
 //! by count (`MAX_POINTS`), since a source can sample once a second. A

@@ -37,7 +37,9 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
-use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocol::{
+    is_no_provider_refusal, UniversalRequest, UniversalToolExecutor,
+};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -474,6 +476,34 @@ async fn the_agent_reads_an_upload_with_no_provider_connected() {
 async fn an_athlete_with_neither_a_provider_nor_an_upload_is_still_told_to_connect() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "upload-none").await;
+    assert_told_to_connect(&resources, &athlete).await;
+}
+
+/// A reading the athlete typed in (a weight, a resting heart rate) is not a
+/// data source: it is filed under the `athlete` key, and the provider-backed
+/// tools still ask them to connect one.
+#[tokio::test]
+async fn a_reading_typed_by_hand_is_not_a_data_source() {
+    use pierre_services::effective_physiology::{record_manual_measurements, ManualMeasurements};
+
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "typed-reading").await;
+    record_manual_measurements(
+        &resources.common.repos,
+        athlete.tenant,
+        athlete.user_id,
+        ManualMeasurements {
+            resting_hr: None,
+            weight_kg: Some(72.0),
+        },
+    )
+    .await
+    .unwrap();
+    assert_told_to_connect(&resources, &athlete).await;
+}
+
+/// `get_activities` answers `athlete` with the prompt to connect a provider.
+async fn assert_told_to_connect(resources: &Arc<ServerContext>, athlete: &Athlete) {
     let response = UniversalToolExecutor::new(resources.clone())
         .with_scopes(OAuthScope::self_grant())
         .with_transport(Transport::WebApp)
@@ -487,15 +517,8 @@ async fn an_athlete_with_neither_a_provider_nor_an_upload_is_still_told_to_conne
         .await
         .expect("the tool dispatches");
     assert!(
-        response
-            .result
-            .as_ref()
-            .is_some_and(|result| { result.to_string().to_lowercase().contains("connect") })
-            || response
-                .error
-                .as_ref()
-                .is_some_and(|error| error.to_lowercase().contains("connect")),
-        "{response:?}"
+        is_no_provider_refusal(&response),
+        "bug: the onboarding refusal did not fire: {response:?}"
     );
 }
 

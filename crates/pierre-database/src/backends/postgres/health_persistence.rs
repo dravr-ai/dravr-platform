@@ -11,22 +11,25 @@ use dravr_riviere::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId,
 };
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::health_persistence::{
-    data_source_from_row, device_type_to_str, health_metrics_from_row,
+    daily_activity_from_row, data_source_from_row, device_type_to_str, health_metrics_from_row,
     impl_health_persistence_repositories, origin_from_row, recovery_metrics_from_row,
     sleep_session_from_row, tenant_from_row, CLEAR_PROVIDER_RECOVERY_SCORES_SQL,
     CLEAR_PROVIDER_SLEEP_SCORES_SQL, DELETE_HEALTH_SNAPSHOT_SQL, DELETE_RECOVERY_METRIC_SQL,
     DELETE_SLEEP_SESSION_SQL, FIND_HEALTH_SNAPSHOT_TENANT_SQL, FIND_RECOVERY_METRIC_TENANT_SQL,
-    FIND_SLEEP_SESSION_TENANT_SQL, GET_HEALTH_SNAPSHOTS_SQL, GET_RECOVERY_METRICS_SQL,
+    FIND_SLEEP_SESSION_TENANT_SQL, GET_DAILY_ACTIVITY_SQL, GET_HEALTH_SNAPSHOTS_SQL,
+    GET_LATEST_HEALTH_SNAPSHOTS_SQL, GET_LATEST_RECOVERY_METRICS_SQL, GET_RECOVERY_METRICS_SQL,
     GET_RECOVERY_ORIGINS_SQL, GET_SLEEP_ORIGINS_SQL, GET_SLEEP_SESSIONS_SQL, LIST_DATA_SOURCES_SQL,
-    MERGE_HEALTH_SNAPSHOT_SQL, MERGE_RECOVERY_METRICS_SQL, SOFT_DELETE_HEALTH_SNAPSHOT_SQL,
-    SOFT_DELETE_RECOVERY_METRIC_SQL, SOFT_DELETE_SLEEP_SESSION_SQL, UPSERT_DATA_SOURCE_SQL,
+    MERGE_DAILY_ACTIVITY_SQL, MERGE_HEALTH_SNAPSHOT_SQL, MERGE_RECOVERY_METRICS_SQL,
+    SOFT_DELETE_HEALTH_SNAPSHOT_SQL, SOFT_DELETE_RECOVERY_METRIC_SQL,
+    SOFT_DELETE_SLEEP_SESSION_SQL, UPSERT_DAILY_ACTIVITY_SQL, UPSERT_DATA_SOURCE_SQL,
     UPSERT_HEALTH_SNAPSHOT_SQL, UPSERT_RECOVERY_METRICS_SQL, UPSERT_SLEEP_SESSION_SQL,
 };
 use crate::repositories::sync_cursors::{
@@ -38,8 +41,9 @@ use crate::repositories::time_series::{
     TS_INSERT_POINT_SQL, TS_LATEST_SQL,
 };
 use crate::repositories::{
-    ConnectedUserRow, DataSourceRepository, HealthSnapshotRepository, RecoveryRepository,
-    SleepRepository, SyncCursorRepository, SyncCursorRow, WellnessRowOrigin, WellnessWriteMode,
+    ConnectedUserRow, DailyActivityRepository, DataSourceRepository, HealthSnapshotRepository,
+    RecoveryRepository, SleepRepository, SyncCursorRepository, SyncCursorRow, WellnessRowOrigin,
+    WellnessWriteMode,
 };
 
 impl_health_persistence_repositories!(PostgresDatabase);

@@ -8,7 +8,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
+use pierre_core::models::{
+    StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+};
 use pierre_core::models::{TenantId, UserId};
 use uuid::Uuid;
 
@@ -189,6 +191,16 @@ pub trait RecoveryRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
     ) -> AppResult<u64>;
+    /// Each origin's (provider and data source's) newest live recovery day
+    /// of a user holding a resting heart rate, newest first, however long
+    /// ago: the athlete's latest measurement of it from every source,
+    /// whatever window a reader asks about and whichever sources its terms
+    /// withhold.
+    async fn get_latest_recovery_metrics(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Vec<StoredRecoveryMetrics>>;
     /// Get recovery metrics for a user within a date range
     async fn get_recovery_metrics(
         &self,
@@ -246,6 +258,15 @@ pub trait HealthSnapshotRepository: Send + Sync {
         mode: WellnessWriteMode,
         synced_at: DateTime<Utc>,
     ) -> AppResult<String>;
+    /// Each origin's (provider and data source's) newest live body day of a
+    /// user holding a `VO2max` (when `vo2_max`) and its newest holding a
+    /// weight (when `weight`), newest first, however long ago.
+    async fn get_latest_health_snapshots(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        (vo2_max, weight): (bool, bool),
+    ) -> AppResult<Vec<StoredHealthMetrics>>;
     /// Get health snapshots for a user within a date range
     async fn get_health_snapshots(
         &self,
@@ -276,6 +297,33 @@ pub trait HealthSnapshotRepository: Send + Sync {
     /// See [`SleepRepository::find_sleep_session_tenant`] for the rationale.
     /// Takes the store-assigned surrogate id, not a provider id.
     async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>>;
+}
+
+/// A day's activity totals (steps, energy, intensity minutes): one row per
+/// user, tenant, provider and date, written and keyed like a body day.
+#[async_trait]
+pub trait DailyActivityRepository: Send + Sync {
+    /// Insert or update a day's totals, as `mode` says, received at
+    /// `synced_at`; the row keeps the later of its stored and new
+    /// `synced_at`. Returns the id actually stored: a store-assigned
+    /// surrogate on insert (`day.id` is ignored), the existing row's on
+    /// update.
+    async fn upsert_daily_activity(
+        &self,
+        tenant_id: &TenantId,
+        day: &StoredDailyActivity,
+        mode: WellnessWriteMode,
+        synced_at: DateTime<Utc>,
+    ) -> AppResult<String>;
+
+    /// Live days of a user inside an inclusive date window, newest first.
+    async fn get_daily_activity(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<StoredDailyActivity>>;
 }
 
 /// Sync cursor repository for CDC-based incremental sync tracking

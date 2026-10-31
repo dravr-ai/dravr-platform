@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.9.1"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.9.1#5d23fc7f6e20a4c3920d3de4b0e2aaf0051faf0c"
+version = "0.10.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.10.0#d0f19a482a15a6a9b1c718c831d7a5433070beff"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1340,7 +1340,6 @@ dependencies = [
  "csv",
  "dravr-cageux",
  "dravr-equilibre",
- "dravr-riviere",
  "fitparser",
  "flate2",
  "futures-util",
@@ -1444,8 +1443,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=1fb0efe2bc0
 
 [[package]]
 name = "dravr-enforme"
-version = "0.15.2"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.15.2#3ff8b738d304f3d6754b6ce7ce94062ff7971436"
+version = "0.16.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.16.0#3cf50b0ee1d577429849a5294cfb6da6715cbd30"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

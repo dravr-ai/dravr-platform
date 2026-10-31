@@ -29,14 +29,16 @@ use dravr_sciotte::models::SportType as GarminSportKey;
 use pierre_core::constants::oauth_providers::{garmin_service_attribution, GARMIN};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Lap, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
-    StoredSleepSession, StoredSleepStage, StoredSleepStageType, TimeSeriesData,
+    Activity, ActivityBuilder, Lap, SportType, StoredDailyActivity, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession, StoredSleepStage, StoredSleepStageType,
+    TimeSeriesData,
 };
 use pierre_providers::sciotte_provider::convert_sport_type;
 use serde_json::Value;
 
 use super::wire::{
-    ActivityLap, ActivitySample, ActivitySummary, LevelRange, OffsetSeries, SleepRecord,
+    ActivityLap, ActivitySample, ActivitySummary, DailyRecord, LevelRange, OffsetSeries,
+    SleepRecord,
 };
 
 /// Activities longer than this are left out of `activityDetails` by Garmin,
@@ -457,10 +459,66 @@ pub(crate) fn sleep_session(
             .overall_sleep_score
             .as_ref()
             .and_then(|score| whole(score.value)),
-        avg_spo2: None,
+        avg_spo2: average_spo2(&record.time_offset_sleep_spo2),
         stages,
         source_name: GARMIN.to_owned(),
     })
+}
+
+/// The night's average pulse oximetry, from its readings by offset; `None`
+/// with no reading in range (Garmin writes a negative code for a minute it
+/// could not read).
+fn average_spo2(readings: &OffsetSeries) -> Option<f64> {
+    let (sum, count) = readings
+        .values()
+        .copied()
+        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+        .fold((0.0, 0u32), |(sum, count), v| (sum + v, count + 1));
+    (count > 0).then(|| sum / f64::from(count))
+}
+
+/// A `dailies` record's activity totals as the owner's day, or `None` when
+/// it carries none.
+///
+/// Intensity minutes are counted as Garmin counts them, a vigorous minute
+/// twice; the day's total energy is its active and resting burn together,
+/// so it is left out when either is missing.
+#[must_use]
+pub(crate) fn daily_activity_row(
+    daily: &DailyRecord,
+    user_id: &str,
+    data_source_id: &str,
+    date: NaiveDate,
+) -> Option<StoredDailyActivity> {
+    let active = daily
+        .active_kilocalories
+        .filter(|v| v.is_finite() && *v >= 0.0);
+    let resting = daily.bmr_kilocalories.filter(|v| v.is_finite() && *v > 0.0);
+    let seconds = |value: Option<f64>| value.filter(|v| v.is_finite() && *v >= 0.0);
+    let moderate = seconds(daily.moderate_intensity_duration_in_seconds);
+    let vigorous = seconds(daily.vigorous_intensity_duration_in_seconds);
+    let intensity_minutes = (moderate.is_some() || vigorous.is_some())
+        .then(|| 2.0f64.mul_add(vigorous.unwrap_or(0.0), moderate.unwrap_or(0.0)) / 60.0);
+    let day = StoredDailyActivity {
+        id: String::new(),
+        user_id: user_id.to_owned(),
+        data_source_id: data_source_id.to_owned(),
+        date,
+        steps: whole(daily.steps),
+        active_kcal: active,
+        total_kcal: active.zip(resting).map(|(a, r)| a + r),
+        intensity_minutes: whole(intensity_minutes),
+        source_name: GARMIN.to_owned(),
+        recorded_at: daily
+            .start_time_in_seconds
+            .and_then(instant)
+            .unwrap_or_else(|| date.and_time(NaiveTime::MIN).and_utc()),
+    };
+    (day.steps.is_some()
+        || day.active_kcal.is_some()
+        || day.total_kcal.is_some()
+        || day.intensity_minutes.is_some())
+    .then_some(day)
 }
 
 /// The readings of an offset map, each at `start` plus its offset, ordered;

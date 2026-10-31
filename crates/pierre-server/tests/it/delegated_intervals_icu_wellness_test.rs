@@ -287,6 +287,7 @@ fn orchestrator_over(storage: &Arc<PierreSyncStorage>, base: &str) -> SyncOrches
         sleep: Arc::<PierreSyncStorage>::clone(storage),
         recovery: Arc::<PierreSyncStorage>::clone(storage),
         health: Arc::<PierreSyncStorage>::clone(storage),
+        daily_activity: Arc::<PierreSyncStorage>::clone(storage),
         time_series: Arc::<PierreSyncStorage>::clone(storage),
         data_sources: Arc::<PierreSyncStorage>::clone(storage),
         cursors: Arc::<PierreSyncStorage>::clone(storage),

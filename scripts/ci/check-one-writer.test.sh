@@ -27,6 +27,7 @@ const UPSERT_DATA_SOURCE_SQL: &str = "INSERT INTO data_sources (id) VALUES ($1)"
 const UPSERT_SLEEP_SESSION_SQL: &str = "INSERT INTO sleep_sessions (id) VALUES ($1)";
 const UPSERT_RECOVERY_METRICS_SQL: &str = "INSERT INTO recovery_metrics (id) VALUES ($1)";
 const UPSERT_HEALTH_SNAPSHOT_SQL: &str = "INSERT INTO health_snapshots (id) VALUES ($1)";
+const UPSERT_DAILY_ACTIVITY_SQL: &str = "INSERT INTO daily_activity (id) VALUES ($1)";
 const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
     "UPDATE recovery_metrics SET deleted_at = $1 WHERE id = $2";
 RS
@@ -92,6 +93,9 @@ expect_second_writer "an UPDATE of cached_activities in another file" \
     crates/pierre-database/src/repositories/pushed_data.rs \
     'const AMEND_PUSHED_ACTIVITY_SQL: &str = r"
     UPDATE cached_activities SET data_json = $1";'
+expect_second_writer "a daily activity write outside its repository file" \
+    crates/pierre-database/src/repositories/pushed_data.rs \
+    'const RAW: &str = "INSERT INTO daily_activity (id) VALUES ($1)";'
 expect_second_writer "a body write outside the repository layer" \
     crates/pierre-server/src/services/sink.rs \
     'const RAW: &str = "INSERT INTO health_snapshots (id) VALUES ($1)";'
@@ -156,6 +160,8 @@ expect_call_fires "a recovery upsert" \
     'async fn merge(r: &R) { r.recovery.upsert_recovery_metrics(&t, &row, mode, at).await; }'
 expect_call_fires "a UFCS body upsert" \
     'async fn merge(r: &R) { HealthSnapshotRepository::upsert_health_snapshot(&*r.h, &t, &row, mode, at).await; }'
+expect_call_fires "a daily activity upsert" \
+    'async fn land(r: &R) { r.daily_activity.upsert_daily_activity(&t, &day, mode, at).await; }'
 expect_call_fires "a data-source upsert" \
     'async fn source(r: &R) { r.data_sources.upsert_data_source(&t, &s).await; }'
 expect_call_fires "a score clear" \

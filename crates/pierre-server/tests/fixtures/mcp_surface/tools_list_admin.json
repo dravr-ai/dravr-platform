@@ -6822,7 +6822,7 @@
     },
     {
       "name": "estimate_vo2max",
-      "description": "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
+      "description": "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the athlete's stored data when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
       "inputSchema": {
         "properties": {
           "age": {
@@ -12553,7 +12553,7 @@
     },
     {
       "name": "get_health_snapshots",
-      "description": "Get stored health snapshots (body composition, vitals)",
+      "description": "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
       "inputSchema": {
         "properties": {
           "end": {
@@ -12625,6 +12625,13 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "daily_activity": {
+                "description": "Each day's steps, energy and intensity minutes, merged across\nsources.",
+                "items": {
+                  "$ref": "#/$defs/Merged2"
+                },
+                "type": "array"
+              },
               "last_synced_at": {
                 "additionalProperties": {
                   "type": [
@@ -12650,6 +12657,7 @@
             "required": [
               "count",
               "snapshots",
+              "daily_activity",
               "range",
               "last_synced_at"
             ],
@@ -12797,6 +12805,100 @@
               "diastolic_bp",
               "blood_glucose",
               "vo2_max",
+              "source_name",
+              "recorded_at",
+              "sources",
+              "filled"
+            ],
+            "type": "object"
+          },
+          "Merged2": {
+            "description": "One merged record and where its metrics came from.",
+            "properties": {
+              "active_kcal": {
+                "description": "Calories burned by activity over the day (kcal), resting burn excluded.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "data_source_id": {
+                "description": "Data source that produced these totals.",
+                "type": "string"
+              },
+              "date": {
+                "description": "The athlete's local calendar date the totals cover.",
+                "format": "date",
+                "type": "string"
+              },
+              "filled": {
+                "description": "Metrics the primary record lacked and took from another source.",
+                "items": {
+                  "$ref": "#/$defs/FilledMetric"
+                },
+                "type": "array"
+              },
+              "id": {
+                "description": "Unique identifier.",
+                "type": "string"
+              },
+              "intensity_minutes": {
+                "description": "Minutes at moderate or vigorous intensity over the day, as the\nprovider counts them.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "recorded_at": {
+                "description": "Timestamp when these totals were recorded.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "source_name": {
+                "description": "Provider-specific source name.",
+                "type": "string"
+              },
+              "sources": {
+                "description": "Every source that contributed a record, primary first.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "steps": {
+                "description": "Steps counted over the day.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_kcal": {
+                "description": "Calories burned over the day (kcal), resting burn included.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "user_id": {
+                "description": "User whose day this is.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "user_id",
+              "data_source_id",
+              "date",
+              "steps",
+              "active_kcal",
+              "total_kcal",
+              "intensity_minutes",
               "source_name",
               "recorded_at",
               "sources",

@@ -230,6 +230,21 @@ pub(crate) struct DailyRecord {
     /// Heart rate samples by offset from the start, bpm.
     #[serde(default)]
     pub(crate) time_offset_heart_rate_samples: OffsetSeries,
+    /// Steps counted over the day.
+    #[serde(default)]
+    pub(crate) steps: Option<f64>,
+    /// Calories burned by activity over the day, kcal.
+    #[serde(default)]
+    pub(crate) active_kilocalories: Option<f64>,
+    /// The day's resting (basal) burn, kcal.
+    #[serde(default)]
+    pub(crate) bmr_kilocalories: Option<f64>,
+    /// Time at moderate intensity, seconds.
+    #[serde(default)]
+    pub(crate) moderate_intensity_duration_in_seconds: Option<f64>,
+    /// Time at vigorous intensity, seconds.
+    #[serde(default)]
+    pub(crate) vigorous_intensity_duration_in_seconds: Option<f64>,
 }
 
 /// One time range of a sleep level.
@@ -280,6 +295,9 @@ pub(crate) struct SleepRecord {
     /// The overall sleep score.
     #[serde(default)]
     pub(crate) overall_sleep_score: Option<SleepScore>,
+    /// Pulse oximetry readings by offset from the start, percent.
+    #[serde(default)]
+    pub(crate) time_offset_sleep_spo2: OffsetSeries,
 }
 
 /// One `hrv` record: the night's heart-rate variability.
@@ -307,12 +325,11 @@ pub(crate) struct UserMetricsRecord {
     /// The day it is shown on, `yyyy-mm-dd`.
     #[serde(default)]
     pub(crate) calendar_date: Option<String>,
-    /// `VO2max` estimate, ml/kg/min.
+    /// Running `VO2max` estimate, ml/kg/min. The cycling estimate Garmin
+    /// sends beside it (`vo2MaxCycling`) is not read: a day has one
+    /// `VO2max`, the running one, as the export reads it too.
     #[serde(default)]
     pub(crate) vo2_max: Option<f64>,
-    /// Cycling `VO2max` estimate, ml/kg/min.
-    #[serde(default)]
-    pub(crate) vo2_max_cycling: Option<f64>,
 }
 
 /// One `bodyComps` record.

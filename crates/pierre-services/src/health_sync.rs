@@ -22,6 +22,7 @@ use dravr_enforme::providers::sciotte_reader::DailySummaryReader;
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
+use dravr_enforme::traits::daily_activity_store::DailyActivityStore;
 use dravr_enforme::traits::data_source_store::DataSourceStore;
 use dravr_enforme::traits::health_store::HealthStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
@@ -48,7 +49,7 @@ use crate::delegated_wellness::{
 };
 use crate::garmin_push;
 use crate::sciotte_health_reader::{SciotteServiceReader, SessionRows};
-use crate::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
+use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, WellnessWriteMode};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///
@@ -307,6 +308,7 @@ impl PierreSyncStorage {
             sleep: storage.clone(),
             recovery: storage.clone(),
             health: storage.clone(),
+            daily_activity: storage.clone(),
             time_series: storage.clone(),
             data_sources: storage.clone(),
             cursors: storage.clone(),
@@ -678,6 +680,35 @@ impl HealthStore for PierreSyncStorage {
 }
 
 #[async_trait]
+impl DailyActivityStore for PierreSyncStorage {
+    async fn store_daily_activity(
+        &self,
+        days: &[dravr_equilibre_sync::StoredDailyActivity],
+    ) -> EnformeResult<u64> {
+        let synced_at = Utc::now();
+        let mut writes = WellnessStore::new(&self.registry).writes("daily activity");
+        let mut count = 0u64;
+        for day in days {
+            // A link files only what the member's consent names: sleep,
+            // recovery and weight. A day's activity totals are none of them.
+            if delegated_private_of_row(&day.user_id).is_some() {
+                continue;
+            }
+            let tenant_id = self
+                .resolve_tenant_id(&day.user_id, &day.source_name)
+                .await?;
+            let landed = writes
+                .daily_activity(tenant_id, day, WellnessWriteMode::FullDay, synced_at)
+                .await
+                .map_err(wellness_error("upsert daily activity"))?;
+            count += u64::from(landed == WellnessLanded::Written);
+        }
+        writes.report();
+        Ok(count)
+    }
+}
+
+#[async_trait]
 impl DataSourceStore for PierreSyncStorage {
     async fn upsert_data_source(
         &self,
@@ -950,8 +981,10 @@ impl TimeSeriesPointStore for PierreSyncStorage {
                 .iter()
                 .map(|&(timestamp, value)| DataPoint::new(timestamp, value))
                 .collect();
+            let series = IntradaySeries::try_from_id(batch.series_type_id, points)
+                .map_err(wellness_error("insert continuous metrics"))?;
             store
-                .store_series(source_id, batch.series_type_id, points)
+                .store_series(source_id, series)
                 .await
                 .map_err(wellness_error("insert continuous metrics"))?;
             total += count;

@@ -31,14 +31,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::stored_health::{governed_by_sources, StoredHealth};
+use crate::wellness_store::INTRADAY_SERIES;
 
 /// The continuous series an athlete-facing read may ask for: intraday heart
-/// rate and the two HRV measures.
-pub const CONTINUOUS_METRICS: [SeriesType; 3] = [
-    SeriesType::HeartRate,
-    SeriesType::HrvRmssd,
-    SeriesType::HrvSdnn,
-];
+/// rate and the two HRV measures, every series the store takes.
+pub const CONTINUOUS_METRICS: [SeriesType; 3] = INTRADAY_SERIES;
 
 /// The series named `name` (riviere's `snake_case` name, `heart_rate`), when
 /// it is one of [`CONTINUOUS_METRICS`].

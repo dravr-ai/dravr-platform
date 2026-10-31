@@ -19,7 +19,11 @@
 #![allow(missing_docs)]
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User, UserStatus};
+use pierre_core::models::{
+    ActivityBuilder, DataSource, DeviceType, SportType, StoredDailyActivity, Tenant, TenantId,
+    User, UserStatus,
+};
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::provider_terms::STRAVA_CACHE_TTL;
 use pierre_services::provider_cache_sweeper::sweep_provider_caches;
@@ -83,6 +87,74 @@ async fn seed_run(
     id
 }
 
+/// One activity day under `provider`, last synced `age_days` before `now`,
+/// filed under a data source of that key.
+async fn seed_activity_day(
+    repos: &RepositoryRegistry,
+    (user_id, tenant): (Uuid, TenantId),
+    provider: &str,
+    age_days: i64,
+    now: DateTime<Utc>,
+) {
+    let synced_at = now - Duration::days(age_days);
+    let source_id = repos
+        .data_sources
+        .upsert_data_source(
+            &tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                provider: provider.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Unknown,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    repos
+        .daily_activity
+        .upsert_daily_activity(
+            &tenant,
+            &StoredDailyActivity {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                data_source_id: source_id,
+                date: synced_at.date_naive(),
+                steps: Some(9_000),
+                active_kcal: None,
+                total_kcal: None,
+                intensity_minutes: None,
+                source_name: provider.to_owned(),
+                recorded_at: synced_at,
+            },
+            WellnessWriteMode::PartialSummary,
+            synced_at,
+        )
+        .await
+        .unwrap();
+}
+
+/// The providers of the scope's activity days, sorted.
+async fn activity_day_keys(
+    repos: &RepositoryRegistry,
+    (user_id, tenant): (Uuid, TenantId),
+    now: DateTime<Utc>,
+) -> Vec<String> {
+    let mut keys: Vec<String> = repos
+        .daily_activity
+        .get_daily_activity(user_id, &tenant, now - Duration::days(60), now)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|day| day.source_name)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
 /// The ids cached under `provider` for the scope, sorted.
 async fn cached_ids(
     repos: &RepositoryRegistry,
@@ -123,6 +195,8 @@ async fn one_sweep_evicts_only_the_strava_copy_older_than_thirty_days() {
     // Strava's terms, whatever service they were exported from.
     let strava_export = seed_run(repos, athlete, "strava_archive", 31, now).await;
     let garmin_export = seed_run(repos, athlete, "garmin_archive", 31, now).await;
+    seed_activity_day(repos, athlete, "strava", 31, now).await;
+    seed_activity_day(repos, athlete, "garmin_archive", 31, now).await;
     let sciotte = cfg!(feature = "provider-sciotte");
     if sciotte {
         seed_run(repos, athlete, "sciotte", 31, now).await;
@@ -171,6 +245,11 @@ async fn one_sweep_evicts_only_the_strava_copy_older_than_thirty_days() {
     assert_eq!(
         cached_ids(repos, athlete, "garmin_archive", now).await,
         [garmin_export]
+    );
+    assert_eq!(
+        activity_day_keys(repos, athlete, now).await,
+        ["garmin_archive"],
+        "bug: the export's activity day outlives the Strava cap; Strava's own does not"
     );
     if sciotte {
         assert!(

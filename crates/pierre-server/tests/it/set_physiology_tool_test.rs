@@ -8,15 +8,26 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, Utc};
+use chrono_tz::Australia::Brisbane;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::zones::{HrZoneTier, HrZones, PowerZones, Vo2maxSource};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::{HrZoneModel, HrZoneSet, PowerZoneModel, PowerZoneSet};
-use pierre_core::models::{Activity, SportType, TenantId};
+use pierre_core::models::{
+    Activity, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
+    TenantId, UserPhysiologicalProfile,
+};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_fitness_compute::training_history_compute::{compute_training_history, AthleteInputs};
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_providers::ai_scope;
+use pierre_providers::precedence::{Ingress, Service, Source};
+use pierre_services::effective_physiology::effective_physiology;
+use pierre_services::stored_health::{self, Anchors, SourceFilter};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
@@ -188,7 +199,7 @@ async fn columns_the_athlete_never_supplied_read_back_as_unknown() -> Result<()>
     // reader that decodes a bare `f64` turns "never measured" into a measured
     // zero. A 0 kg weight or a 0 ml/kg/min VO2 max reaching the TSS engine is
     // worse than an absent one, because it looks like data.
-    assert_eq!(profile.ftp_watts, Some(285));
+    assert_eq!(profile.ftp_watts, Some(285), "bug: the stored FTP was lost");
     assert_eq!(
         profile.vo2_max, None,
         "an unmeasured VO2 max must not read as 0"
@@ -842,6 +853,529 @@ async fn update_user_configuration_merges_overrides_into_the_saved_ones() -> Res
     assert_eq!(
         saved["active_profile"], "elite",
         "no profile named keeps the saved one"
+    );
+    Ok(())
+}
+
+// ============================================================================
+// Anchors and measurements (Athlete Data Consolidation §5, S9; carnet#1306)
+// ============================================================================
+
+/// Every anchor the effective read covers.
+const fn every_anchor() -> Anchors {
+    Anchors {
+        resting_hr: true,
+        vo2_max: true,
+        weight: true,
+    }
+}
+
+/// A data source of `provider` for the athlete, as a sync records it.
+async fn source_of(
+    executor: &UniversalToolExecutor,
+    tenant: &TenantId,
+    user_id: Uuid,
+    provider: &str,
+) -> Result<String> {
+    Ok(executor
+        .resources
+        .repos()
+        .data_sources
+        .upsert_data_source(
+            tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                provider: provider.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Unknown,
+                original_source_name: None,
+            },
+        )
+        .await?)
+}
+
+/// A Garmin recovery day holding only a resting heart rate.
+fn garmin_morning(
+    user_id: Uuid,
+    source_id: &str,
+    date: NaiveDate,
+    rhr: u32,
+) -> StoredRecoveryMetrics {
+    StoredRecoveryMetrics {
+        id: String::new(),
+        user_id: user_id.to_string(),
+        data_source_id: source_id.to_owned(),
+        date,
+        recovery_score: None,
+        readiness_score: None,
+        hrv_ms: None,
+        hrv_rmssd: None,
+        resting_heart_rate: Some(rhr),
+        stress_score: None,
+        body_battery: None,
+        spo2: None,
+        respiratory_rate: None,
+        skin_temp_deviation: None,
+        daily_strain: None,
+        athlete_note: None,
+        source_name: "garmin".to_owned(),
+        recorded_at: Utc::now(),
+    }
+}
+
+/// A resting heart rate the athlete states is that day's measurement too:
+/// filed under `athlete` on their own calendar day, and standing over the
+/// watch's reading of the same morning.
+#[tokio::test]
+async fn a_stated_resting_hr_is_the_days_measurement_over_the_watchs() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let repos = executor.resources.repos();
+    repos
+        .users
+        .set_timezone(user_id, "Australia/Brisbane")
+        .await?;
+    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+    let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &tenant,
+            &garmin_morning(user_id, &garmin, today, 55),
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+
+    set_physiology(&executor, user_id, &tenant_id, json!({ "resting_hr": 48 })).await?;
+
+    let now = Utc::now();
+    let read = stored_health::merged_recovery(
+        repos,
+        executor.resources.provider_registry().as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(3), now + Duration::days(1)),
+        SourceFilter::All,
+    )
+    .await?;
+    assert_eq!(
+        read.records.len(),
+        1,
+        "one morning, merged: {:?}",
+        read.records
+    );
+    let morning = &read.records[0];
+    assert_eq!(
+        morning.record.date, today,
+        "bug: dated by the athlete's own day"
+    );
+    assert_eq!(
+        morning.record.resting_heart_rate,
+        Some(48),
+        "bug: the athlete's stated reading stands over the watch's"
+    );
+    assert_eq!(
+        morning.primary,
+        Source::new(Service::Athlete, Ingress::Manual),
+        "the manual entry is the day's primary"
+    );
+    assert!(
+        morning.sources.iter().any(|s| s == "garmin"),
+        "the watch's day is merged in: {:?}",
+        morning.sources
+    );
+    Ok(())
+}
+
+/// The profile's anchor stands over a newer measurement; an anchor the
+/// profile lacks is read from the latest one, however old.
+#[tokio::test]
+async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let repos = executor.resources.repos();
+    let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
+    // The athlete's own export: served over every transport, as the tool
+    // reads it here.
+    let export = source_of(&executor, &tenant, user_id, "garmin_archive").await?;
+    let long_ago = Utc::now().date_naive() - Duration::days(200);
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &tenant,
+            &garmin_morning(user_id, &garmin, long_ago, 55),
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+    repos
+        .health_snapshots
+        .upsert_health_snapshot(
+            &tenant,
+            &StoredHealthMetrics {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                data_source_id: export,
+                date: long_ago,
+                weight_kg: Some(71.8),
+                body_fat_pct: None,
+                muscle_mass_kg: None,
+                bmi: None,
+                bone_mass_kg: None,
+                water_pct: None,
+                systolic_bp: None,
+                diastolic_bp: None,
+                blood_glucose: None,
+                vo2_max: Some(52.0),
+                source_name: "garmin_archive".to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+    let terms = executor.resources.provider_registry();
+
+    let effective =
+        effective_physiology(repos, terms.as_ref(), tenant, user_id, every_anchor()).await?;
+    assert!(effective.profile.is_none(), "no profile is stored");
+    assert_eq!(
+        effective.resting_hr(),
+        Some(55),
+        "bug: with no anchor the latest measurement is read, 200 days back"
+    );
+    assert_eq!(effective.vo2_max(), Some(52.0), "the export's VO2max");
+    assert_eq!(effective.weight(), Some(71.8), "the latest weigh-in");
+
+    // The VO2max estimate takes the weigh-in when the profile has none.
+    let estimate = executor
+        .execute_tool(make_request(
+            "estimate_vo2max",
+            json!({ "method": "astrand_ryhming", "gender": "male",
+                    "heart_rate": 150, "power_watts": 200 }),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(estimate.success, "{:?}", estimate.error);
+    let estimate = estimate.result.expect("a payload");
+    assert!(
+        estimate["defaults_from_profile"]
+            .as_array()
+            .is_some_and(|d| d.iter().any(|v| v == "weight_kg")),
+        "bug: the weigh-in fills the estimate's weight: {estimate}"
+    );
+
+    // An anchor the athlete sets stands, however much newer a measurement is.
+    let mut profile = UserPhysiologicalProfile::new(user_id, SportType::Run);
+    profile.resting_hr = Some(48);
+    repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(tenant, user_id, &profile)
+        .await?;
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &tenant,
+            &garmin_morning(user_id, &garmin, Utc::now().date_naive(), 61),
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+    let effective =
+        effective_physiology(repos, terms.as_ref(), tenant, user_id, every_anchor()).await?;
+    assert_eq!(
+        effective.resting_hr(),
+        Some(48),
+        "bug: a newer watch reading replaced the athlete's anchor"
+    );
+    assert_eq!(
+        effective.measured.resting_hr, None,
+        "no measurement is read for an anchor the profile holds"
+    );
+    Ok(())
+}
+
+/// An executor serving the athlete's own web app.
+async fn own_app_executor() -> Result<UniversalToolExecutor> {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources().await?;
+    Ok(UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp))
+}
+
+/// The athlete's live recovery and body rows filed under `athlete`.
+async fn athlete_rows(
+    executor: &UniversalToolExecutor,
+    tenant: &TenantId,
+    user_id: Uuid,
+) -> Result<(Vec<StoredRecoveryMetrics>, Vec<StoredHealthMetrics>)> {
+    let repos = executor.resources.repos();
+    let (start, end) = (
+        Utc::now() - Duration::days(3),
+        Utc::now() + Duration::days(2),
+    );
+    let recovery = repos
+        .recovery
+        .get_recovery_metrics(user_id, tenant, start, end)
+        .await?
+        .into_iter()
+        .filter(|row| row.source_name == "athlete")
+        .collect();
+    let body = repos
+        .health_snapshots
+        .get_health_snapshots(user_id, tenant, start, end)
+        .await?
+        .into_iter()
+        .filter(|row| row.source_name == "athlete")
+        .collect();
+    Ok((recovery, body))
+}
+
+/// A number stated in a turn that read first-party-only data (the athlete
+/// reads WHOOP's resting heart rate and says "save that") is saved to the
+/// profile, stamped first-party-only, and filed as no wellness row: a row
+/// under `athlete` is served over every transport, so it would carry the
+/// number past the stamp (carnet#769).
+#[tokio::test]
+async fn a_reading_stated_in_a_first_party_only_turn_files_no_open_row() -> Result<()> {
+    let executor = own_app_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+
+    // The turn read first-party-only data before the athlete asked to save.
+    let tainted = ai_scope::Provenance::new();
+    tainted.mark();
+    // Built inside the turn, as the chat turn builds its tool surface.
+    let in_turn = ai_scope::tracking(tainted, async {
+        UniversalToolExecutor::new(Arc::clone(&executor.resources))
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp)
+    })
+    .await;
+    let response = in_turn
+        .execute_tool(make_request(
+            "set_physiology",
+            json!({ "resting_hr": 47, "weight": 70.5 }),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(response.success, "{:?}", response.error);
+    let profile = executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant, user_id)
+        .await?
+        .expect("the profile is saved");
+    assert_eq!(profile.resting_hr, Some(47), "the anchor is saved");
+    assert!(
+        profile.transport_policy.is_first_party_only(),
+        "and stamped first-party-only"
+    );
+    let (recovery, body) = athlete_rows(&executor, &tenant, user_id).await?;
+    assert!(
+        recovery.is_empty() && body.is_empty(),
+        "bug: a first-party-only number was filed as an open row: {recovery:?} {body:?}"
+    );
+
+    // A later save reads that stamped profile, so it is a first-party-only
+    // derivation too: still nothing filed.
+    set_physiology(&executor, user_id, &tenant_id, json!({ "resting_hr": 48 })).await?;
+    let (recovery, _) = athlete_rows(&executor, &tenant, user_id).await?;
+    assert!(recovery.is_empty(), "the stamp holds: {recovery:?}");
+
+    // The same statement from an athlete whose turn read nothing restricted
+    // is filed.
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    set_physiology(&executor, user_id, &tenant_id, json!({ "resting_hr": 48 })).await?;
+    let (recovery, _) = athlete_rows(&executor, &tenant, user_id).await?;
+    assert_eq!(
+        recovery
+            .iter()
+            .map(|r| r.resting_heart_rate)
+            .collect::<Vec<_>>(),
+        [Some(48)],
+        "an untainted statement is the day's measurement"
+    );
+    Ok(())
+}
+
+/// A `VO2max` the athlete saves is an anchor, never a measurement row: the
+/// number `set_physiology` is handed is as often an estimate (a Cooper test
+/// `estimate_vo2max` computed) as a lab value, and an estimate is never
+/// stored as a measurement (Athlete Data Consolidation §5). The watch's
+/// measurement of the day stands.
+#[tokio::test]
+async fn a_saved_vo2max_is_an_anchor_not_the_days_measurement() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let repos = executor.resources.repos();
+    repos
+        .users
+        .set_timezone(user_id, "Australia/Brisbane")
+        .await?;
+    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+    let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
+    repos
+        .health_snapshots
+        .upsert_health_snapshot(
+            &tenant,
+            &StoredHealthMetrics {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                data_source_id: garmin,
+                date: today,
+                weight_kg: None,
+                body_fat_pct: None,
+                muscle_mass_kg: None,
+                bmi: None,
+                bone_mass_kg: None,
+                water_pct: None,
+                systolic_bp: None,
+                diastolic_bp: None,
+                blood_glucose: None,
+                vo2_max: Some(54.0),
+                source_name: "garmin".to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+
+    let saved = set_physiology(&executor, user_id, &tenant_id, json!({ "vo2_max": 50.3 })).await?;
+    assert_eq!(
+        saved["profile"]["vo2_max"],
+        json!(50.3),
+        "the anchor is saved"
+    );
+
+    let now = Utc::now();
+    let days = stored_health::merged_body(
+        repos,
+        executor.resources.provider_registry().as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(3), now + Duration::days(1)),
+        SourceFilter::All,
+    )
+    .await?
+    .records;
+    assert_eq!(
+        days.iter().map(|d| d.record.vo2_max).collect::<Vec<_>>(),
+        [Some(54.0)],
+        "bug: the saved VO2max replaced the watch's measurement of the day"
+    );
+    let (_, body) = athlete_rows(&executor, &tenant, user_id).await?;
+    assert!(body.is_empty(), "no athlete body row: {body:?}");
+    Ok(())
+}
+
+/// Take `table` away, so every read or write of it fails.
+async fn drop_table(executor: &UniversalToolExecutor, table: &str) -> Result<()> {
+    let statement = format!("DROP TABLE {table}");
+    match executor.resources.database().backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(&statement).execute(sqlite.pool()).await?;
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(&format!("{statement} CASCADE"))
+                .execute(postgres.pool())
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// A measurement read that fails costs only the measurements: the stored
+/// profile still describes the athlete, and an estimate given its weight
+/// still runs.
+#[tokio::test]
+async fn a_failed_measurement_read_keeps_the_profile() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "ftp_watts": 285, "max_hr": 188 }),
+    )
+    .await?;
+    drop_table(&executor, "recovery_metrics").await?;
+    drop_table(&executor, "health_snapshots").await?;
+
+    let effective = effective_physiology(
+        executor.resources.repos(),
+        executor.resources.provider_registry().as_ref(),
+        tenant,
+        user_id,
+        every_anchor(),
+    )
+    .await?;
+    let profile = effective
+        .profile
+        .clone()
+        .expect("bug: the profile was dropped with the measurements");
+    assert_eq!(profile.ftp_watts, Some(285), "bug: the stored FTP was lost");
+    assert_eq!(profile.max_hr, Some(188), "bug: the stored max HR was lost");
+    assert_eq!(effective.resting_hr(), None, "no measurement was read");
+
+    let estimate = executor
+        .execute_tool(make_request(
+            "estimate_vo2max",
+            json!({ "method": "astrand_ryhming", "gender": "male",
+                    "heart_rate": 150, "power_watts": 200, "weight_kg": 72.0 }),
+            user_id,
+            &tenant_id,
+        ))
+        .await;
+    assert!(
+        estimate.as_ref().is_ok_and(|r| r.success),
+        "bug: an estimate given its weight failed on the measurement read: {estimate:?}"
+    );
+    Ok(())
+}
+
+/// A statement whose measurement row cannot be written saves nothing: the
+/// tool's error is the truth, and a retry writes both.
+#[tokio::test]
+async fn a_failed_measurement_write_saves_no_profile() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    drop_table(&executor, "recovery_metrics").await?;
+
+    let rejection = set_physiology_expecting_rejection(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "resting_hr": 48 }),
+    )
+    .await?;
+    assert!(!rejection.is_empty(), "the failure is reported");
+    let profile = executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant, user_id)
+        .await?;
+    assert!(
+        profile.is_none(),
+        "bug: the profile was saved although the tool reported a failure: {profile:?}"
     );
     Ok(())
 }

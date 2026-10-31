@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
-use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -27,6 +26,8 @@ use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::effective_physiology::{effective_physiology, EffectivePhysiology};
+use pierre_services::stored_health::Anchors;
 use pierre_tools_core::ToolResult;
 
 /// What `estimate_vo2max` answers with.
@@ -188,22 +189,23 @@ impl EstimateVo2maxTool {
             .ok_or_else(|| AppError::invalid_input(format!("{method} needs '{key}'")))
     }
 
-    /// Weight in kg from the call, else from the profile, recording the source.
+    /// Weight in kg from the call, else the athlete's effective weight (the
+    /// profile's, else their latest weigh-in), recording the source.
     fn weight_kg(
         args: &Value,
-        profile: Option<&UserPhysiologicalProfile>,
+        effective_weight: Option<f64>,
         defaults: &mut Vec<&'static str>,
         method: &str,
     ) -> AppResult<f64> {
         if let Some(w) = optional_number(args, "weight_kg")? {
             return Ok(w);
         }
-        if let Some(w) = profile.and_then(|p| p.weight) {
+        if let Some(w) = effective_weight {
             defaults.push("weight_kg");
             return Ok(w);
         }
         Err(AppError::invalid_input(format!(
-            "{method} needs 'weight_kg' — none was given and the profile has no weight; ask the athlete or save it with set_physiology"
+            "{method} needs 'weight_kg' — none was given and neither the profile nor a weigh-in holds a weight; ask the athlete or save it with set_physiology"
         )))
     }
 
@@ -247,12 +249,14 @@ impl EstimateVo2maxTool {
     }
 
     /// Build the estimator from the call, filling weight and age from the
-    /// profile where the athlete did not restate them.
+    /// athlete's physiology where they did not restate them.
     fn algorithm(
         args: &Value,
-        profile: Option<&UserPhysiologicalProfile>,
+        physiology: &EffectivePhysiology,
         defaults: &mut Vec<&'static str>,
     ) -> AppResult<(String, Vo2maxAlgorithm)> {
+        let profile = physiology.profile.as_ref();
+        let weight = physiology.weight();
         let method = args
             .get("method")
             .and_then(Value::as_str)
@@ -268,7 +272,7 @@ impl EstimateVo2maxTool {
                 distance_meters: Self::required_number(args, "distance_meters", &method)?,
             },
             "rockport_walk" => Vo2maxAlgorithm::RockportWalk {
-                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
+                weight_kg: Self::weight_kg(args, weight, defaults, &method)?,
                 age: Self::age(args, profile, defaults)?,
                 gender: Self::gender(args, &method)?,
                 time_seconds: Self::required_number(args, "time_seconds", &method)?,
@@ -278,7 +282,7 @@ impl EstimateVo2maxTool {
                 gender: Self::gender(args, &method)?,
                 heart_rate: Self::required_number(args, "heart_rate", &method)?,
                 power_watts: Self::required_number(args, "power_watts", &method)?,
-                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
+                weight_kg: Self::weight_kg(args, weight, defaults, &method)?,
             },
             "from_pace" => Vo2maxAlgorithm::FromPace {
                 max_speed_ms: Self::required_number(args, "max_speed_ms", &method)?,
@@ -326,7 +330,7 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         };
         answers_with::<EstimateVo2maxResult>(tool_definition(
             "estimate_vo2max",
-            "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
+            "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the athlete's stored data when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -354,19 +358,26 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let user_id = context.user_id;
 
-            let profile = context
-                .resources
-                .repos()
-                .user_physiological_profile
-                .get_user_physiological_profile(tenant_id, user_id)
-                .await?
-                // A profile written from first-party-only data is withheld from an
-                // external caller (carnet#769).
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+            // The stored profile (withheld from an external caller when it was
+            // written from first-party-only data, carnet#769) and the latest
+            // measurement of each anchor it lacks.
+            let physiology = effective_physiology(
+                context.resources.repos(),
+                context.resources.provider_registry().as_ref(),
+                tenant_id,
+                user_id,
+                // A weight the caller gives is never looked up.
+                Anchors {
+                    weight: args.get("weight_kg").is_none_or(Value::is_null),
+                    ..Anchors::default()
+                },
+            )
+            .await?;
+            let profile = physiology.profile.as_ref();
 
             let mut defaults_from_profile: Vec<&'static str> = Vec::new();
             let (method, algorithm) =
-                Self::algorithm(&args, profile.as_ref(), &mut defaults_from_profile)?;
+                Self::algorithm(&args, &physiology, &mut defaults_from_profile)?;
 
             // Every failure the estimator can raise is an input outside the
             // range the published equation was fitted on, so it is the
@@ -392,11 +403,10 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
                     vo2max_ml_kg_min: (vo2max * 10.0).round() / 10.0,
                     formula: algorithm.description(),
                     defaults_from_profile,
-                    stored_vo2_max: profile.as_ref().and_then(|p| p.vo2_max),
+                    stored_vo2_max: profile.and_then(|p| p.vo2_max),
                     implied_threshold_pace_sec_per_km: implied_threshold_pace(
                         vo2max,
                         profile
-                            .as_ref()
                             .and_then(|p| p.lactate_threshold_percentage)
                             .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
                         &context.resources.config().training_zones,

@@ -18,7 +18,7 @@ use crate::repositories::{
     ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository, AthleteGearRepository,
     ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
     CoachAccessRequestRepository, CoachAttentionDismissalRepository, CoachReplyReviewRepository,
-    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
+    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     FeatureFlagsRepository, FederatedIdentityRepository, FeedbackMessageRepository,
     FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
@@ -167,6 +167,8 @@ pub struct RepositoryRegistry {
     pub recovery: Arc<dyn RecoveryRepository>,
     /// Health snapshot persistence
     pub health_snapshots: Arc<dyn HealthSnapshotRepository>,
+    /// A day's activity totals persistence
+    pub daily_activity: Arc<dyn DailyActivityRepository>,
     /// Sync cursor tracking for CDC-based incremental sync
     pub sync_cursors: Arc<dyn SyncCursorRepository>,
     /// Coaching harness memory (compaction, facts, notes, followups, sessions)
@@ -348,6 +350,7 @@ impl RepositoryRegistry {
             sleep: db.clone(),
             recovery: db.clone(),
             health_snapshots: db.clone(),
+            daily_activity: db.clone(),
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),
@@ -453,6 +456,7 @@ impl RepositoryRegistry {
             sleep: db.clone(),
             recovery: db.clone(),
             health_snapshots: db.clone(),
+            daily_activity: db.clone(),
             sync_cursors: db.clone(),
             memory: db.clone(),
             claim_verdicts: db.clone(),

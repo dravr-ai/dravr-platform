@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use crate::repositories::{
     A2ARepository, AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository,
-    ClaimVerdictRepository, CoachingGroupRepository, DataSourceRepository,
+    ClaimVerdictRepository, CoachingGroupRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, FeatureFlagsRepository,
     FitnessConfigRepository, HarnessMemoryRepository, HealthSnapshotRepository,
     ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, MobilityRepository,
@@ -206,6 +206,8 @@ pub struct FitnessRepos {
     pub sleep: Arc<dyn SleepRepository>,
     /// Health snapshot persistence
     pub health_snapshots: Arc<dyn HealthSnapshotRepository>,
+    /// A day's activity totals persistence
+    pub daily_activity: Arc<dyn DailyActivityRepository>,
     /// Data source (device/provider) tracking
     pub data_sources: Arc<dyn DataSourceRepository>,
     /// Endurance daily training-state rollups (CTL/ATL/TSB/ACWR/monotony/
@@ -236,6 +238,7 @@ impl FitnessRepos {
             recovery: Arc::clone(&registry.recovery),
             sleep: Arc::clone(&registry.sleep),
             health_snapshots: Arc::clone(&registry.health_snapshots),
+            daily_activity: Arc::clone(&registry.daily_activity),
             data_sources: Arc::clone(&registry.data_sources),
             training_history: Arc::clone(&registry.training_history),
             user_physiological_profile: Arc::clone(&registry.user_physiological_profile),

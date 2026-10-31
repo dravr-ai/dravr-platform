@@ -1,4 +1,4 @@
-// ABOUTME: The one writer of athlete wellness rows: nights, a day's recovery and body readings, data sources, intraday series
+// ABOUTME: The one writer of athlete wellness rows: nights, a day's recovery, body and activity rows, data sources, intraday series
 // ABOUTME: Provider syncs, Garmin pushes and archive imports all write through it; WHOOP's terms are applied here, once
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -43,10 +43,11 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use dravr_riviere::DataPoint;
+use dravr_riviere::{DataPoint, SeriesType};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId,
 };
 pub use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::RepositoryRegistry;
@@ -54,6 +55,56 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::whoop_terms;
+
+/// The series kinds that are intraday samples.
+///
+/// Heart rate and the two HRV measures, the series the continuous-series
+/// read serves. Every other riviere kind is a day's reading (resting heart
+/// rate, steps, weight, ...) and belongs on a day's row.
+pub const INTRADAY_SERIES: [SeriesType; 3] = [
+    SeriesType::HeartRate,
+    SeriesType::HrvRmssd,
+    SeriesType::HrvSdnn,
+];
+
+/// A run of intraday samples of one series: the only shape the series store
+/// takes.
+///
+/// Built only by [`IntradaySeries::try_new`], which refuses a daily kind, so a
+/// day's reading cannot reach a store no daily reader looks at.
+#[derive(Debug, Clone)]
+pub struct IntradaySeries {
+    series: SeriesType,
+    points: Vec<DataPoint>,
+}
+
+impl IntradaySeries {
+    /// `points` of `series`, when `series` is one of [`INTRADAY_SERIES`].
+    ///
+    /// # Errors
+    /// Returns an invalid-input error naming a daily kind.
+    pub fn try_new(series: SeriesType, points: Vec<DataPoint>) -> AppResult<Self> {
+        if INTRADAY_SERIES.contains(&series) {
+            Ok(Self { series, points })
+        } else {
+            Err(AppError::invalid_input(format!(
+                "{} is a day's reading, stored on a day's row, never as a series",
+                series.as_str()
+            )))
+        }
+    }
+
+    /// The series by riviere's id, when it is intraday.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for an unknown id or a daily kind.
+    pub fn try_from_id(series_type_id: u32, points: Vec<DataPoint>) -> AppResult<Self> {
+        let series = SeriesType::from_id(series_type_id).ok_or_else(|| {
+            AppError::invalid_input(format!("no series has the id {series_type_id}"))
+        })?;
+        Self::try_new(series, points)
+    }
+}
 
 /// What became of one record handed to the store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,25 +161,20 @@ impl<'repos> WellnessStore<'repos> {
             .await
     }
 
-    /// Store `points` as the series `series_type` of the data source
-    /// `source_id`.
+    /// Store `series` under the data source `source_id`.
     ///
     /// # Errors
     /// Returns a database error when the series store refuses the batch.
-    pub async fn store_series(
-        &self,
-        source_id: &str,
-        series_type: u32,
-        points: Vec<DataPoint>,
-    ) -> AppResult<()> {
+    pub async fn store_series(&self, source_id: &str, series: IntradaySeries) -> AppResult<()> {
+        let IntradaySeries { series, points } = series;
         if points.is_empty() {
             return Ok(());
         }
         self.repos
             .time_series_points
-            .insert_batch(source_id, series_type, points)
+            .insert_batch(source_id, series.id(), points)
             .await
-            .map_err(|e| AppError::database(format!("store series {series_type}: {e}")))
+            .map_err(|e| AppError::database(format!("store series {}: {e}", series.as_str())))
     }
 
     /// Delete the night stored under `id`, softly (stamped, read as gone)
@@ -301,6 +347,31 @@ impl WellnessWrites<'_> {
         Ok(WellnessLanded::Written)
     }
 
+    /// Write a day's activity totals received at `synced_at`, as `mode`
+    /// says.
+    ///
+    /// # Errors
+    /// Returns the repository's error when a read or write fails.
+    pub async fn daily_activity(
+        &mut self,
+        tenant_id: TenantId,
+        day: &StoredDailyActivity,
+        mode: WellnessWriteMode,
+        synced_at: DateTime<Utc>,
+    ) -> AppResult<WellnessLanded> {
+        if self
+            .withholds(tenant_id, &day.user_id, &day.source_name)
+            .await?
+        {
+            return Ok(WellnessLanded::Withheld);
+        }
+        self.repos
+            .daily_activity
+            .upsert_daily_activity(&tenant_id, day, mode, synced_at)
+            .await?;
+        Ok(WellnessLanded::Written)
+    }
+
     /// Log what this run withheld, per account it withheld for.
     pub fn report(&self) {
         if self.withheld == 0 {
@@ -386,4 +457,53 @@ fn user_uuid(user_id: &str) -> AppResult<Uuid> {
     user_id
         .parse::<Uuid>()
         .map_err(|e| AppError::invalid_input(format!("Invalid user_id UUID '{user_id}': {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use dravr_riviere::{DataPoint, SeriesType, ALL_SERIES_TYPES};
+
+    use super::{IntradaySeries, INTRADAY_SERIES};
+
+    /// Guard G2: only intraday samples reach the series store. Every other
+    /// riviere kind is a day's reading, which belongs on a day's row.
+    #[test]
+    fn every_daily_kind_is_refused_as_a_series() {
+        for series in ALL_SERIES_TYPES {
+            let built =
+                IntradaySeries::try_new(*series, vec![DataPoint::new(chrono::Utc::now(), 1.0)]);
+            assert_eq!(
+                built.is_ok(),
+                INTRADAY_SERIES.contains(series),
+                "bug: {} must be {} as a series",
+                series.as_str(),
+                if INTRADAY_SERIES.contains(series) {
+                    "accepted"
+                } else {
+                    "refused"
+                }
+            );
+        }
+        for daily in [
+            SeriesType::RestingHeartRate,
+            SeriesType::Steps,
+            SeriesType::Weight,
+            SeriesType::Vo2Max,
+            SeriesType::BodyBattery,
+        ] {
+            assert!(
+                IntradaySeries::try_from_id(daily.id(), Vec::new()).is_err(),
+                "bug: the daily kind {} went to the series store by its id",
+                daily.as_str()
+            );
+        }
+        assert!(
+            IntradaySeries::try_from_id(u32::MAX, Vec::new()).is_err(),
+            "an unknown series id is refused"
+        );
+        assert!(
+            IntradaySeries::try_from_id(SeriesType::HeartRate.id(), Vec::new()).is_ok(),
+            "bug: intraday heart rate is a series, by its id too"
+        );
+    }
 }

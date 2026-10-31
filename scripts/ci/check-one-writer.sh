@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard G1 — each athlete-data table is written from one repository file, its wellness writes called from one store
-# ABOUTME: INSERT/UPDATE of sleep, recovery, body, sources, series, streams, cached_activities outside the owner fails
+# ABOUTME: INSERT/UPDATE of sleep, recovery, body, daily activity, sources, series, streams, cached_activities outside the owner fails
 #
 # A day's wellness was written by two sets of statements on the same keys —
 # the health sync replacing whole rows, the Garmin push merging reading by
@@ -19,14 +19,14 @@
 #      named and wherever it lives: `UPDATE <table> SET deleted_at = <bind>
 #      WHERE`, with deleted_at the only column it sets.
 #   2. The repository wellness write methods (upsert_sleep_session,
-#      upsert_recovery_metrics, upsert_health_snapshot, upsert_data_source,
+#      upsert_recovery_metrics, upsert_health_snapshot, upsert_daily_activity,
+#      upsert_data_source,
 #      clear_provider_recovery_scores, clear_provider_sleep_scores, and the
 #      series repository's insert / insert_batch) are called, in method or
 #      UFCS spelling, only from crates/pierre-services/src/wellness_store.rs
 #      (and, delegating to themselves, from their own repository file).
 #
-# daily_activity joins the table list with its first writer (design S6);
-# a table with no writer cannot have exactly one. synthetic_activities is
+# synthetic_activities is
 # fixture-only data read by the dev fixture, not athlete data, and is not
 # listed. A file's trailing #[cfg(test)] module is not production code
 # (ADR-027) and is not scanned, through prod-src-scan.sh.
@@ -46,6 +46,7 @@ OWNERS=(
     "sleep_sessions $HEALTH"
     "recovery_metrics $HEALTH"
     "health_snapshots $HEALTH"
+    "daily_activity $HEALTH"
     "data_sources $HEALTH"
     "cached_activities crates/pierre-database/src/repositories/activity_cache/sql.rs"
     "data_point_series crates/pierre-database/src/repositories/time_series.rs"
@@ -118,7 +119,7 @@ for entry in "${OWNERS[@]}"; do
     fi
 done
 
-CALLS='(\.|::)\s*(upsert_sleep_session|upsert_recovery_metrics|upsert_health_snapshot|upsert_data_source|clear_provider_recovery_scores|clear_provider_sleep_scores|insert_batch)\s*\(|time_series_points\s*\.\s*insert\s*\('
+CALLS='(\.|::)\s*(upsert_sleep_session|upsert_recovery_metrics|upsert_health_snapshot|upsert_daily_activity|upsert_data_source|clear_provider_recovery_scores|clear_provider_sleep_scores|insert_batch)\s*\(|time_series_points\s*\.\s*insert\s*\('
 calls="$(bash "$SCAN" "$CALLS" -U --vimgrep "${SRC_DIRS[@]}")"
 # A repository delegating to its own write (time_series.rs's insert calling
 # its insert_batch) is the owner writing, not a second caller.

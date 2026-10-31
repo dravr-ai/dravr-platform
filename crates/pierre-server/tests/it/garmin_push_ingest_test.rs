@@ -561,6 +561,7 @@ async fn a_tentative_sleep_is_replaced_by_its_final_record() {
             "awakeDurationInSeconds": 600,
             "validation": validation,
             "overallSleepScore": { "value": score },
+            "timeOffsetSleepSpo2": { "0": 94, "60": 96, "120": -1 },
         })
     };
 
@@ -596,6 +597,11 @@ async fn a_tentative_sleep_is_replaced_by_its_final_record() {
     );
     assert_eq!(sessions[0].total_sleep_seconds, Some(25_200));
     assert_eq!(sessions[0].sleep_score, Some(84));
+    assert_eq!(
+        sessions[0].avg_spo2,
+        Some(95.0),
+        "bug: the night keeps its average pulse oximetry, Garmin's no-reading code left out"
+    );
 }
 
 #[tokio::test]
@@ -679,6 +685,449 @@ async fn dailies_hrv_and_body_pushes_merge_on_their_days_rows() {
     assert_eq!(body.len(), 1, "one body row for the day");
     assert_eq!(body[0].weight_kg, Some(70.8));
     assert_eq!(body[0].vo2_max, Some(56.0), "VO2max joins the weighed row");
+}
+
+/// A `dailies` push brings the day's steps, energy and intensity minutes
+/// to the day's activity row, which the push used to drop.
+#[tokio::test]
+async fn a_dailies_push_lands_the_days_activity_totals() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
+    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    push(
+        &resources,
+        "dailies",
+        json!([{
+            "userId": GARMIN_USER,
+            "calendarDate": date.format("%Y-%m-%d").to_string(),
+            "startTimeInSeconds": day_start,
+            "steps": 11_284,
+            "activeKilocalories": 520,
+            "bmrKilocalories": 1890,
+            "moderateIntensityDurationInSeconds": 1320,
+            "vigorousIntensityDurationInSeconds": 2460,
+        }]),
+    )
+    .await;
+
+    let days = resources
+        .common
+        .repos
+        .daily_activity
+        .get_daily_activity(
+            user_id,
+            &tenant_id,
+            Utc::now() - ChronoDuration::days(30),
+            Utc::now() + ChronoDuration::days(1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        days.len(),
+        1,
+        "bug: the dailies push lands one activity day"
+    );
+    assert_eq!(days[0].date, date, "the day Garmin dated");
+    assert_eq!(days[0].steps, Some(11_284), "the steps");
+    assert_eq!(days[0].active_kcal, Some(520.0), "the active energy");
+    assert_eq!(
+        days[0].total_kcal,
+        Some(2_410.0),
+        "the day's energy is its active and resting burn"
+    );
+    assert_eq!(
+        days[0].intensity_minutes,
+        Some(104),
+        "22 moderate minutes and 41 vigorous ones, each vigorous counted twice"
+    );
+    assert_eq!(days[0].source_name, "garmin", "filed under Garmin's key");
+}
+
+/// T2: the same Garmin day arriving by the API's push and by the athlete's
+/// export is one merged record. The push is primary (Garmin's API outranks
+/// its export), the export fills what the push lacks, and retracting the
+/// export removes only the export's rows.
+#[tokio::test]
+async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
+    use dravr_barrage::{ProjectionSink, Scope, SourceKey, WellnessRecords};
+    use pierre_core::models::StoredDailyActivity;
+    use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
+    use pierre_providers::precedence::{Ingress, Service, Source};
+    use pierre_services::stored_health::{self, SourceFilter};
+
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
+    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    push(
+        &resources,
+        "dailies",
+        json!([{
+            "userId": GARMIN_USER,
+            "calendarDate": date.format("%Y-%m-%d").to_string(),
+            "startTimeInSeconds": day_start,
+            "restingHeartRateInBeatsPerMinute": 47,
+            "averageStressLevel": 28,
+            "steps": 11_284,
+        }]),
+    )
+    .await;
+
+    let user = user_id.to_string();
+    let exported = WellnessRecords {
+        recovery: vec![StoredRecoveryMetrics {
+            id: String::new(),
+            user_id: user.clone(),
+            data_source_id: String::new(),
+            date,
+            recovery_score: None,
+            readiness_score: None,
+            hrv_ms: None,
+            hrv_rmssd: None,
+            resting_heart_rate: Some(52),
+            stress_score: None,
+            body_battery: None,
+            spo2: Some(96.0),
+            respiratory_rate: None,
+            skin_temp_deviation: None,
+            daily_strain: None,
+            athlete_note: None,
+            source_name: "garmin_archive".to_owned(),
+            recorded_at: Utc::now(),
+        }],
+        daily_activity: vec![StoredDailyActivity {
+            id: String::new(),
+            user_id: user,
+            data_source_id: String::new(),
+            date,
+            steps: Some(9_000),
+            active_kcal: None,
+            total_kcal: Some(2_410.0),
+            intensity_minutes: None,
+            source_name: "garmin_archive".to_owned(),
+            recorded_at: Utc::now(),
+        }],
+        ..WellnessRecords::default()
+    };
+    let sink = CachedActivitiesSink::new(Arc::clone(&resources));
+    let scope = Scope::new(tenant_id.as_uuid(), user_id);
+    sink.project_wellness(&scope, SourceKey::GarminArchive, &exported)
+        .await
+        .unwrap();
+
+    let repos = &resources.common.repos;
+    let context = resources.data();
+    let terms = context.provider_registry();
+    let window = (
+        Utc::now() - ChronoDuration::days(7),
+        Utc::now() + ChronoDuration::days(1),
+    );
+    let read = stored_health::merged_recovery(
+        repos,
+        terms.as_ref(),
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        read.records.len(),
+        1,
+        "bug: one merged recovery day, not two"
+    );
+    let day = &read.records[0];
+    assert_eq!(
+        day.primary,
+        Source::new(Service::Garmin, Ingress::Api),
+        "Garmin's API copy is primary over its export"
+    );
+    assert_eq!(
+        day.record.resting_heart_rate,
+        Some(47),
+        "the push's reading stands"
+    );
+    assert_eq!(
+        day.record.spo2,
+        Some(96.0),
+        "bug: the export fills the push's gap"
+    );
+    let activity = stored_health::merged_daily_activity(
+        repos,
+        terms.as_ref(),
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
+    )
+    .await
+    .unwrap();
+    assert_eq!(activity.records.len(), 1, "one merged activity day");
+    assert_eq!(
+        activity.records[0].record.steps,
+        Some(11_284),
+        "the push's steps"
+    );
+    assert_eq!(
+        activity.records[0].record.total_kcal,
+        Some(2_410.0),
+        "the export's energy fills"
+    );
+
+    sink.retract(&scope, SourceKey::GarminArchive, None)
+        .await
+        .unwrap();
+    let rows = garmin_recovery(&resources, user_id, &tenant_id).await;
+    assert_eq!(
+        rows.iter()
+            .map(|r| r.source_name.as_str())
+            .collect::<Vec<_>>(),
+        ["garmin"],
+        "bug: retracting the export removes only its rows"
+    );
+    let left = repos
+        .daily_activity
+        .get_daily_activity(user_id, &tenant_id, window.0, window.1)
+        .await
+        .unwrap();
+    assert_eq!(
+        left.iter()
+            .map(|r| r.source_name.as_str())
+            .collect::<Vec<_>>(),
+        ["garmin"],
+        "the push's activity day stays"
+    );
+}
+
+/// T2, capture-only: the same Garmin day captured by sciotte (filed under
+/// `garmin`, as the push is, §3.6) and brought in by the athlete's export
+/// is one merged record. The capture is Garmin's API key, so it is primary
+/// over the export; the export fills what the capture lacks.
+#[tokio::test]
+async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
+    use dravr_barrage::{ProjectionSink, Scope, SourceKey, WellnessRecords};
+    use pierre_core::models::{DataSource, DeviceType, StoredDailyActivity};
+    use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
+    use pierre_providers::precedence::{Ingress, Service, Source};
+    use pierre_services::stored_health::{self, SourceFilter};
+    use pierre_services::wellness_store::WellnessStore;
+
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
+    let user = user_id.to_string();
+    let repos = &resources.common.repos;
+
+    // The capture's day, as the sciotte sync files it: a whole day under
+    // Garmin's key.
+    let store = WellnessStore::new(repos);
+    let capture = store
+        .record_data_source(
+            &tenant_id,
+            &DataSource {
+                id: String::new(),
+                user_id: user.clone(),
+                provider: "garmin".to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Unknown,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let mut writes = store.writes("capture");
+    writes
+        .recovery(
+            tenant_id,
+            &StoredRecoveryMetrics {
+                id: String::new(),
+                user_id: user.clone(),
+                data_source_id: capture.clone(),
+                date,
+                recovery_score: None,
+                readiness_score: None,
+                hrv_ms: None,
+                hrv_rmssd: None,
+                resting_heart_rate: Some(49),
+                stress_score: Some(31),
+                body_battery: None,
+                spo2: None,
+                respiratory_rate: None,
+                skin_temp_deviation: None,
+                daily_strain: None,
+                athlete_note: None,
+                source_name: "garmin".to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    writes
+        .daily_activity(
+            tenant_id,
+            &StoredDailyActivity {
+                id: String::new(),
+                user_id: user.clone(),
+                data_source_id: capture,
+                date,
+                steps: Some(8_000),
+                active_kcal: None,
+                total_kcal: None,
+                intensity_minutes: Some(30),
+                source_name: "garmin".to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let exported = WellnessRecords {
+        recovery: vec![StoredRecoveryMetrics {
+            id: String::new(),
+            user_id: user.clone(),
+            data_source_id: String::new(),
+            date,
+            recovery_score: None,
+            readiness_score: None,
+            hrv_ms: None,
+            hrv_rmssd: None,
+            resting_heart_rate: Some(52),
+            stress_score: None,
+            body_battery: None,
+            spo2: Some(96.0),
+            respiratory_rate: None,
+            skin_temp_deviation: None,
+            daily_strain: None,
+            athlete_note: None,
+            source_name: "garmin_archive".to_owned(),
+            recorded_at: Utc::now(),
+        }],
+        daily_activity: vec![StoredDailyActivity {
+            id: String::new(),
+            user_id: user,
+            data_source_id: String::new(),
+            date,
+            steps: Some(9_000),
+            active_kcal: None,
+            total_kcal: Some(2_410.0),
+            intensity_minutes: None,
+            source_name: "garmin_archive".to_owned(),
+            recorded_at: Utc::now(),
+        }],
+        ..WellnessRecords::default()
+    };
+    let sink = CachedActivitiesSink::new(Arc::clone(&resources));
+    let scope = Scope::new(tenant_id.as_uuid(), user_id);
+    sink.project_wellness(&scope, SourceKey::GarminArchive, &exported)
+        .await
+        .unwrap();
+
+    let context = resources.data();
+    let terms = context.provider_registry();
+    let window = (
+        Utc::now() - ChronoDuration::days(7),
+        Utc::now() + ChronoDuration::days(1),
+    );
+    let read = stored_health::merged_recovery(
+        repos,
+        terms.as_ref(),
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
+    )
+    .await
+    .unwrap();
+    assert_eq!(read.records.len(), 1, "one merged recovery day, not two");
+    let day = &read.records[0];
+    assert_eq!(
+        day.primary,
+        Source::new(Service::Garmin, Ingress::Api),
+        "the capture, under Garmin's key, is primary over the export"
+    );
+    assert_eq!(
+        day.record.resting_heart_rate,
+        Some(49),
+        "the capture's reading stands"
+    );
+    assert_eq!(day.record.spo2, Some(96.0), "the export fills the gap");
+    let activity = stored_health::merged_daily_activity(
+        repos,
+        terms.as_ref(),
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
+    )
+    .await
+    .unwrap();
+    assert_eq!(activity.records.len(), 1, "one merged activity day");
+    assert_eq!(
+        activity.records[0].record.steps,
+        Some(8_000),
+        "the capture's steps stand"
+    );
+    assert_eq!(
+        activity.records[0].record.total_kcal,
+        Some(2_410.0),
+        "the export's energy fills"
+    );
+
+    sink.retract(&scope, SourceKey::GarminArchive, None)
+        .await
+        .unwrap();
+    let rows = garmin_recovery(&resources, user_id, &tenant_id).await;
+    assert_eq!(
+        rows.iter()
+            .map(|r| r.source_name.as_str())
+            .collect::<Vec<_>>(),
+        ["garmin"],
+        "retracting the export leaves the capture's day"
+    );
+}
+
+/// A day has one `VO2max`, the running one, as the export reads it: a
+/// cycling estimate pushed alone is not filed as the day's `VO2max`, which
+/// the running pace zones are cut from when the profile holds none.
+#[tokio::test]
+async fn a_cycling_vo2max_alone_is_not_the_days_vo2max() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let calendar = (Utc::now() - ChronoDuration::days(1))
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
+    push(
+        &resources,
+        "userMetrics",
+        json!([{ "userId": GARMIN_USER, "calendarDate": calendar, "vo2MaxCycling": 58.0 }]),
+    )
+    .await;
+
+    let body = resources
+        .common
+        .repos
+        .health_snapshots
+        .get_health_snapshots(
+            user_id,
+            &tenant_id,
+            Utc::now() - ChronoDuration::days(30),
+            Utc::now() + ChronoDuration::days(1),
+        )
+        .await
+        .unwrap();
+    assert!(
+        body.iter().all(|row| row.vo2_max.is_none()),
+        "bug: a cycling VO2max was filed as the day's VO2max: {body:?}"
+    );
 }
 
 #[tokio::test]

@@ -18,7 +18,8 @@ use anyhow::Result;
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Australia::Brisbane;
 use pierre_core::models::{
-    ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    ConnectionType, DataSource, DeviceType, StoredDailyActivity, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -529,6 +530,120 @@ async fn an_exported_garmin_day_survives_a_model_read_under_its_own_terms() -> R
     assert_eq!(
         days[0].primary,
         Source::new(Service::Garmin, Ingress::Export)
+    );
+
+    // The export's activity totals reach the model the same way.
+    repos
+        .daily_activity
+        .upsert_daily_activity(
+            &tenant,
+            &StoredDailyActivity {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                data_source_id: export.clone(),
+                date: morning,
+                steps: Some(11_284),
+                active_kcal: None,
+                total_kcal: None,
+                intensity_minutes: None,
+                source_name: "garmin_archive".to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::PartialSummary,
+            Utc::now(),
+        )
+        .await?;
+    let (read, _) = ai_scope::ai_read(stored_health::merged_daily_activity(
+        repos,
+        registry.as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(7), now),
+        stored_health::SourceFilter::All,
+    ))
+    .await;
+    let totals = read?.records;
+    assert_eq!(
+        totals.len(),
+        1,
+        "bug: the export's activity day reaches the model"
+    );
+    assert_eq!(totals[0].record.steps, Some(11_284), "its steps");
+    Ok(())
+}
+
+/// The latest measurement of an anchor is the latest one the reader may see,
+/// however many newer rows a withheld provider holds. An athlete who moved
+/// from a Garmin watch (whose history they imported from its export) to a
+/// WHOOP strap has months of WHOOP mornings on top of the export's; over an
+/// external transport WHOOP's are withheld, and the latest resting heart
+/// rate is the export's last, not none.
+#[tokio::test]
+async fn the_latest_anchor_reads_past_a_withheld_providers_newer_rows() -> Result<()> {
+    let executor = executor().await?;
+    let athlete = brisbane_athlete(&executor).await?;
+    let (user_id, tenant) = athlete;
+    let export = data_source(&executor, athlete, "garmin_archive").await?;
+    let whoop = data_source(&executor, athlete, "whoop").await?;
+    let repos = executor.resources.repos();
+    let registry = executor.resources.provider_registry();
+    let today = Utc::now().date_naive();
+    let mut garmin_day = morning_recovery(
+        user_id,
+        "garmin_archive",
+        &export,
+        today - Duration::days(91),
+        60.0,
+    );
+    garmin_day.resting_heart_rate = Some(52);
+    repos
+        .recovery
+        .upsert_recovery_metrics(&tenant, &garmin_day, WellnessWriteMode::FullDay, Utc::now())
+        .await?;
+    for days_ago in 0..90 {
+        let mut whoop_day = morning_recovery(
+            user_id,
+            "whoop",
+            &whoop,
+            today - Duration::days(days_ago),
+            70.0,
+        );
+        whoop_day.resting_heart_rate = Some(47);
+        repos
+            .recovery
+            .upsert_recovery_metrics(&tenant, &whoop_day, WellnessWriteMode::FullDay, Utc::now())
+            .await?;
+    }
+    let resting_hr = stored_health::Anchors {
+        resting_hr: true,
+        ..stored_health::Anchors::default()
+    };
+
+    let read = || {
+        stored_health::latest_anchor_measurements(
+            repos,
+            registry.as_ref(),
+            user_id,
+            &tenant,
+            resting_hr,
+        )
+    };
+
+    // Shown to the athlete in their own app, WHOOP's latest morning stands.
+    let shown = ai_scope::serve_over(Transport::WebApp, read()).await?;
+    assert_eq!(
+        shown.resting_hr.map(|m| (m.value, m.source)),
+        Some((47, "whoop".to_owned())),
+        "the athlete's own app reads WHOOP's latest morning"
+    );
+
+    // Served over an external transport, WHOOP's first-party-only mornings
+    // are withheld: the export's last stands.
+    let external = ai_scope::serve_over(Transport::McpHttp, read()).await?;
+    assert_eq!(
+        external.resting_hr.map(|m| (m.value, m.source)),
+        Some((52, "garmin_archive".to_owned())),
+        "bug: WHOOP's newer mornings hid the export's admissible reading"
     );
     Ok(())
 }

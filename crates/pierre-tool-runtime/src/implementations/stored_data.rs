@@ -8,7 +8,8 @@
 //!
 //! - `GetSleepSessionsTool` — query stored sleep sessions
 //! - `GetRecoveryMetricsTool` — query stored recovery and readiness metrics
-//! - `GetHealthSnapshotsTool` — query stored health snapshots (body composition, vitals)
+//! - `GetHealthSnapshotsTool` — query stored health snapshots (body composition, vitals) and
+//!   each day's activity totals (steps, energy, intensity minutes)
 //! - `ListDataSourcesTool` — list connected data sources (devices and providers)
 //!
 //! These read rows the sync pipeline already persisted, so each executes its
@@ -17,7 +18,7 @@
 //! [`date_range_properties`] and parsed by [`parse_date_range`] /
 //! [`apply_format`].
 //!
-//! The sleep, recovery and snapshot rows are read through
+//! The sleep, recovery, snapshot and activity rows are read through
 //! `pierre_services::stored_health`, which applies each row's provider terms
 //! (carnet#771) and then merges them per night or per day (carnet#1281).
 
@@ -28,7 +29,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{
-    DataSource, Merged, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, Merged, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId,
 };
 use pierre_core::untrusted::fence_athlete_text;
 use serde::Serialize;
@@ -231,6 +233,9 @@ pub struct HealthSnapshotsResult {
     pub count: usize,
     /// One snapshot per day, merged across sources.
     pub snapshots: Vec<Merged<StoredHealthMetrics>>,
+    /// Each day's steps, energy and intensity minutes, merged across
+    /// sources.
+    pub daily_activity: Vec<Merged<StoredDailyActivity>>,
     /// The attribution these readings must be shown and quoted with: the
     /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
     /// wellness is among them and the athlete's intervals.icu activities were
@@ -454,7 +459,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
 
         answers_with::<Formatted<HealthSnapshotsResult>>(tool_definition(
             "get_health_snapshots",
-            "Get stored health snapshots (body composition, vitals)",
+            "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -476,23 +481,38 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match stored_health::merged_body(
-                context.resources.repos(),
-                context.resources.provider_registry().as_ref(),
-                context.user_id,
-                &tenant_id,
-                (start, end),
-                SourceFilter::All,
-            )
-            .await
-            {
-                Ok(read) => {
-                    let snapshots = read.records;
+            let repos = context.resources.repos();
+            let terms = context.resources.provider_registry();
+            let read = async {
+                let body = stored_health::merged_body(
+                    repos,
+                    terms.as_ref(),
+                    context.user_id,
+                    &tenant_id,
+                    (start, end),
+                    SourceFilter::All,
+                )
+                .await?;
+                let activity = stored_health::merged_daily_activity(
+                    repos,
+                    terms.as_ref(),
+                    context.user_id,
+                    &tenant_id,
+                    (start, end),
+                    SourceFilter::All,
+                )
+                .await?;
+                AppResult::Ok((body, activity))
+            };
+            match read.await {
+                Ok((body, activity)) => {
+                    let snapshots = body.records;
                     let last_synced_at = last_synced(&context, &tenant_id, "health").await;
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),
                         snapshots,
-                        attribution: read.attribution,
+                        daily_activity: activity.records,
+                        attribution: body.attribution.or(activity.attribution),
                         last_synced_at,
                         range: DateRange {
                             start: start.to_rfc3339(),

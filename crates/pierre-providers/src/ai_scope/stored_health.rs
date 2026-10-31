@@ -1,4 +1,4 @@
-// ABOUTME: Provider-terms filtering of stored health records — sleep, recovery and body metrics as persisted
+// ABOUTME: Provider-terms filtering of stored health records — sleep, recovery, body and daily activity as persisted
 // ABOUTME: Each record is governed by its data source's provider and upstream source, before any cross-source merge
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
 use pierre_database::repositories::WellnessRowOrigin;
 use serde::de::DeserializeOwned;
@@ -25,7 +25,7 @@ use serde::Serialize;
 use super::filter_typed;
 
 /// A stored health record — a night's sleep, a day's recovery, a day's body
-/// metrics — as the sync pipeline persisted it.
+/// metrics, a day's activity totals — as the sync pipeline persisted it.
 ///
 /// The record names the data source that synced it, never a provider: the
 /// provider and upstream source live on the [`DataSource`] row.
@@ -57,6 +57,16 @@ impl StoredHealthRecord for StoredRecoveryMetrics {
 }
 
 impl StoredHealthRecord for StoredHealthMetrics {
+    fn data_source_id(&self) -> &str {
+        &self.data_source_id
+    }
+
+    fn source_name(&self) -> &str {
+        &self.source_name
+    }
+}
+
+impl StoredHealthRecord for StoredDailyActivity {
     fn data_source_id(&self) -> &str {
         &self.data_source_id
     }

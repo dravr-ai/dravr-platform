@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard G3 — the wellness merge and the repository wellness reads are called in one file only
-# ABOUTME: merge_sleep_sessions / merge_recovery_metrics / merge_health_metrics and the get_* reads live in stored_health.rs
+# ABOUTME: equilibre's merge_* (sleep, recovery, body, daily activity) and the get_* reads live in stored_health.rs
 #
 # Every sleep, recovery and body reader once merged rows itself: six call
 # sites, each with its own nap filter, source narrowing and night dating,
@@ -46,9 +46,9 @@ if [ ! -f "$CHOKEPOINT" ]; then
     exit 2
 fi
 
-PATTERN='\bmerge_(sleep_sessions|recovery_metrics|health_metrics|daily_activity)\b|(\.|::)get_(sleep_sessions|recovery_metrics|health_snapshots)\(|(\.|::)(sleep|recovery)_origins\(|end_datetime\.date_naive\(\)|hrv_(rmssd|ms)\.or\('
+PATTERN='\bmerge_(sleep_sessions|recovery_metrics|health_metrics|daily_activity)\b|(\.|::)get_(latest_)?(sleep_sessions|recovery_metrics|health_snapshots|daily_activity)\(|(\.|::)(sleep|recovery)_origins\(|end_datetime\.date_naive\(\)|hrv_(rmssd|ms)\.or\('
 # The repository layer owns the SQL; anywhere else a wellness table is read raw.
-SQL_PATTERN='\bFROM (sleep_sessions|recovery_metrics|health_snapshots)\b'
+SQL_PATTERN='\bFROM (sleep_sessions|recovery_metrics|health_snapshots|daily_activity)\b'
 REPOSITORY_LAYER="crates/pierre-database/src/"
 
 # prod-src-scan.sh exits 2 on a crash; set -e propagates it, never an empty list.
@@ -70,7 +70,8 @@ fi
 if [ -n "$outside" ]; then
     echo -e "${RED}❌ Wellness rows merged or read outside $CHOKEPOINT:${NC}"
     printf '%s\n' "$outside" | sed 's/^/    /'
-    echo "   Read them through stored_health::merged_sleep / merged_recovery / merged_body"
+    echo "   Read them through stored_health::merged_sleep / merged_recovery / merged_body /"
+    echo "   merged_daily_activity"
     echo "   with a SourceFilter instead of merging or reading the repository yourself."
     exit 1
 fi

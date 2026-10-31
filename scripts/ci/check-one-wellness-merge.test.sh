@@ -98,6 +98,14 @@ expect_fires "night dating by the UTC date of the end" \
     'fn night(s: &S) -> NaiveDate { s.end_datetime.date_naive() }'
 expect_fires "a daily-activity merge" \
     'fn raw(rows: Vec<R>) { dravr_equilibre::merge_daily_activity(rows); }'
+expect_fires "a daily-activity repository read" \
+    'fn raw(r: &R) { r.daily_activity.get_daily_activity(1, 2, 3, 4); }'
+expect_fires "a latest recovery read" \
+    'fn raw(r: &R) { r.recovery.get_latest_recovery_metrics(1, 2, 64); }'
+expect_fires "a latest body read" \
+    'fn raw(r: &R) { HealthSnapshotRepository::get_latest_health_snapshots(&*r.h, 1, 2, 64); }'
+expect_fires "raw SQL on the daily activity table" \
+    'const RAW: &str = "SELECT steps FROM daily_activity WHERE user_id = $1";'
 expect_fires "an HRV spelling of its own" \
     'fn hrv(m: &M) -> Option<f64> { m.hrv_rmssd.or(m.hrv_ms) }'
 

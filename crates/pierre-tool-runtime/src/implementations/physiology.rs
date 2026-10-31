@@ -70,6 +70,7 @@ use pierre_core::models::{
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::effective_physiology::{record_manual_measurements, ManualMeasurements};
 use pierre_tools_core::ToolResult;
 
 /// Lightest body weight accepted, in kilograms. Below this the value is a
@@ -1083,6 +1084,21 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             profile.user_id = user_id;
             update.apply_to(&mut profile);
             validate_merged(&profile)?;
+            // A resting heart rate or weight the athlete states is also that
+            // day's measurement, which trends and merged reads see. Filed
+            // before the profile: no transaction spans the two, and a row
+            // rewritten on retry is harmless where a profile saved under a
+            // reported failure is not.
+            record_manual_measurements(
+                context.resources.repos(),
+                tenant_id,
+                user_id,
+                ManualMeasurements {
+                    resting_hr: update.resting_hr,
+                    weight_kg: update.weight,
+                },
+            )
+            .await?;
             let (stored, training_history) =
                 store_profile(&context, tenant_id, profile, &load_inputs_before).await?;
 

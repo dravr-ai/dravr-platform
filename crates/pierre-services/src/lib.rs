@@ -325,6 +325,8 @@ pub mod oauth_redirects;
 
 /// Stored continuous heart-rate and HRV series, read under each source's provider terms.
 pub mod continuous_series;
+/// The athlete's effective training anchors: the profile's, else the latest measurement.
+pub mod effective_physiology;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;

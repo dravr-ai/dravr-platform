@@ -97,16 +97,15 @@ repo = "dravr-stripe"
 source = "git-tag"
 
 # The athlete's activity history and archive importer, compiled into the
-# platform (carnet#1218). Its own manifest pins dravr-cageux and dravr-riviere,
-# the platform pins both too, and libsqlite's `links` key plus the duplicate gate
-# allow one copy of each: the three move in one commit, at the tags barrage's
-# manifest names. barrage also pins dravr-equilibre, whose diamond is owned by
+# platform (carnet#1218). Its own manifest pins dravr-cageux, the platform pins
+# it too, and the duplicate gate allows one copy: the two move in one commit, at
+# the tag barrage's manifest names. barrage also pins dravr-equilibre, whose diamond is owned by
 # dravr-enforme below; a barrage release has to pin the same equilibre tag as the
 # enforme the platform pins, or the duplicate gate refuses the bump.
 [dravr-barrage]
 repo       = "dravr-barrage"
 source     = "git-tag"
-companions = "dravr-cageux:from-manifest dravr-riviere:from-manifest"
+companions = "dravr-cageux:from-manifest"
 
 # ---------------------------------------------------------------------------
 # Diamond pins — owned by dravr-barrage's manifest, never moved alone
@@ -120,12 +119,16 @@ repo     = "dravr-cageux"
 source   = "git-tag"
 upstream = "dravr-barrage"
 
-# pierre-database implements riviere's TimeSeriesStore and barrage hands its
-# wellness series over in riviere's types, so the two pins are one.
+# ---------------------------------------------------------------------------
+# Standalone pins
+# ---------------------------------------------------------------------------
+
+# pierre-database implements riviere's TimeSeriesStore for the intraday series;
+# nothing else pins it. barrage hands an export's wellness over as equilibre
+# records since v0.10.0, so riviere is no longer one of its companions.
 [dravr-riviere]
 repo     = "dravr-riviere"
 source   = "git-tag"
-upstream = "dravr-barrage"
 
 # ---------------------------------------------------------------------------
 # Diamond pins — owned by dravr-enforme's manifest, never moved alone

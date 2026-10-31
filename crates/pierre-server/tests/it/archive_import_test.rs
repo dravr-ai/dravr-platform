@@ -1,4 +1,4 @@
-// ABOUTME: Importing an athlete's own Strava export end to end: link, steps, projection, reads, delete, account erasure
+// ABOUTME: Importing an athlete's own Strava or Garmin export end to end: link, steps, projection, reads, delete, erasure
 // ABOUTME: barrage on memory stores with a fixture fetcher; the routes, the in-process runner and the sink are the real ones
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -25,10 +25,10 @@ use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
-use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
-use dravr_barrage::{BarrageError, Scope, SourceKey};
+use dravr_barrage::store::{BarrageStores, JobStatus, NewImportJob, PageReq, RecordQuery};
+use dravr_barrage::{BarrageError, Importer, Scope, SourceKey, StepOutcome};
 use futures_util::stream::{self, BoxStream, StreamExt};
-use pierre_core::constants::oauth_providers::{STRAVA, STRAVA_ARCHIVE};
+use pierre_core::constants::oauth_providers::{GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -39,8 +39,10 @@ use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 use pierre_mcp_server::services::archive_import::fetch::{ExportFetcher, LinkCheck, LinkRefusal};
 use pierre_mcp_server::services::archive_import::link::{link_digest, open, seal};
 use pierre_mcp_server::services::archive_import::runner::ImportRunner;
+use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
 use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
 use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
+use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
 use pierre_test_support::fit::FitWorkout;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -355,6 +357,194 @@ pub(crate) async fn agent_activities(
         .expect("the tool dispatches");
     assert!(response.success, "get_activities ran: {:?}", response.error);
     response.result.expect("the tool returned a payload")
+}
+
+/// A tool as the agent calls it, in the athlete's tenant.
+async fn agent_tool(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    tool: &str,
+    parameters: Value,
+) -> Value {
+    let response = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+        .execute_tool(UniversalRequest {
+            tool_name: tool.to_owned(),
+            parameters,
+            user_id: athlete.user_id.to_string(),
+            protocol: "mcp".to_owned(),
+            tenant_id: Some(athlete.tenant.to_string()),
+        })
+        .await
+        .expect("the tool dispatches");
+    assert!(response.success, "{tool} ran: {:?}", response.error);
+    response.result.expect("the tool returned a payload")
+}
+
+/// A Garmin Connect export holding wellness alone, for the athlete in
+/// Toronto (five hours west), dated `days_ago` days before today: a day's
+/// summary, its overnight HRV, a weigh-in, a `VO2max` estimate and the
+/// night before it.
+fn garmin_wellness_export(days_ago: i64) -> Vec<u8> {
+    let day = (Utc::now() - Duration::days(days_ago)).date_naive();
+    let date = day.format("%Y-%m-%d").to_string();
+    let uds = json!([{
+        "calendarDate": date, "totalSteps": 11_284,
+        "activeKilocalories": 520.0, "totalKilocalories": 2410.0,
+        "moderateIntensityMinutes": 22, "vigorousIntensityMinutes": 41,
+        "restingHeartRate": 49, "averageSpo2Value": 96.0,
+        "allDayStress": { "aggregatorList": [{ "type": "TOTAL", "averageStressLevel": 28 }] },
+        "bodyBattery": { "bodyBatteryStatList": [
+            { "bodyBatteryStatType": "HIGHEST", "statsValue": 88 }
+        ]},
+        "wellnessStartTimeGmt": format!("{date}T05:00:00.0"),
+        "wellnessStartTimeLocal": format!("{date}T00:00:00.0")
+    }]);
+    let hrv = json!([{ "calendarDate": date, "metrics": [{ "type": "HRV", "value": 58.0 }] }]);
+    let bio = json!([{ "metaData": { "calendarDate": format!("{date}T00:00:00.0") },
+                       "weight": { "weight": 71_800.0,
+                                   "timestampGMT": format!("{date}T12:00:00.0") } }]);
+    let max_met = json!([{ "calendarDate": date, "vo2MaxValue": 52.0, "sport": "RUNNING" }]);
+    let sleep = json!([{
+        "calendarDate": date,
+        "sleepStartTimestampGMT": format!("{date}T04:05:00.0"),
+        "sleepEndTimestampGMT": format!("{date}T11:02:00.0"),
+        "deepSleepSeconds": 5400, "lightSleepSeconds": 13200,
+        "remSleepSeconds": 5100, "awakeSleepSeconds": 1320,
+        "sleepScores": { "overallScore": 82 }
+    }]);
+    let docs = [uds, hrv, bio, max_met, sleep].map(|doc| doc.to_string());
+    zip_of(&[
+        (
+            "DI_CONNECT/DI-Connect-Aggregator/UDSFile_2026-01-01_2026-12-31.json",
+            docs[0].as_bytes(),
+        ),
+        (
+            "DI_CONNECT/DI-Connect-Wellness/2026-01-01_2026-12-31_100001_healthStatusData.json",
+            docs[1].as_bytes(),
+        ),
+        (
+            "DI_CONNECT/DI-Connect-Wellness/100001_userBioMetrics.json",
+            docs[2].as_bytes(),
+        ),
+        (
+            "DI_CONNECT/DI-Connect-Metrics/MetricsMaxMetData_20260101_20261231_100001.json",
+            docs[3].as_bytes(),
+        ),
+        (
+            "DI_CONNECT/DI-Connect-Wellness/2026-01-01_2026-12-31_100001_sleepData.json",
+            docs[4].as_bytes(),
+        ),
+    ])
+}
+
+/// T1 (JF's trigger, carnet#1306): an athlete whose only data is their own
+/// Garmin export gets their resting heart rate, HRV, `SpO2`, stress, Body
+/// Battery, weight, `VO2max`, steps and sleep back from the tools, and
+/// counts as holding recovery data. The export's wellness used to land only
+/// as series no daily reader reads.
+#[tokio::test]
+async fn an_export_only_athlete_reads_their_wellness_back_from_the_tools() {
+    let (imports, stores) = imports_serving(Vec::new());
+    let resources = common::create_test_server_resources_with_archive_imports(imports)
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "garmin-export-wellness").await;
+
+    // The Garmin import is not offered on the routes yet, so barrage's own
+    // importer runs it, projecting through the platform's production sink.
+    let importer = Importer::new(
+        stores,
+        Arc::new(CachedActivitiesSink::new(Arc::clone(&resources))),
+    );
+    let scope = athlete.scope();
+    let job = importer
+        .create(
+            &scope,
+            NewImportJob {
+                source: SourceKey::GarminArchive,
+                status: JobStatus::Queued,
+                url_sha256: None,
+                url_ciphertext: Some(b"sealed link".to_vec()),
+                expires_at: None,
+            },
+        )
+        .await
+        .expect("the job is created");
+    let export = garmin_wellness_export(3);
+    let body = stream::iter(vec![Ok(Bytes::from(export))]).boxed();
+    let mut outcome = importer
+        .download(&scope, job.id, body)
+        .await
+        .expect("the export spools");
+    while let StepOutcome::Next { expect_cursor } = outcome {
+        outcome = importer
+            .step(&scope, job.id, expect_cursor)
+            .await
+            .expect("a step runs");
+    }
+    assert_eq!(
+        outcome,
+        StepOutcome::Finished(JobStatus::Completed),
+        "the export imports"
+    );
+
+    let recovery = agent_tool(&resources, &athlete, "get_recovery_metrics", json!({})).await;
+    let day = &recovery["metrics"][0];
+    assert_eq!(recovery["count"], 1, "one recovery day: {recovery}");
+    assert_eq!(day["resting_heart_rate"], 49, "resting heart rate: {day}");
+    assert_eq!(
+        day["hrv_rmssd"], 58.0,
+        "the overnight HRV joins the day: {day}"
+    );
+    assert_eq!(day["spo2"], 96.0, "SpO2: {day}");
+    assert_eq!(day["stress_score"], 28, "stress: {day}");
+    assert_eq!(day["body_battery"], 88, "Body Battery: {day}");
+    assert_eq!(
+        day["source_name"], GARMIN_ARCHIVE,
+        "the export's key: {day}"
+    );
+
+    let body = agent_tool(&resources, &athlete, "get_health_snapshots", json!({})).await;
+    let snapshot = &body["snapshots"][0];
+    assert_eq!(body["count"], 1, "one body day: {body}");
+    assert_eq!(snapshot["weight_kg"], 71.8, "the weigh-in: {snapshot}");
+    assert_eq!(
+        snapshot["vo2_max"], 52.0,
+        "VO2max joins the day: {snapshot}"
+    );
+    let activity = &body["daily_activity"][0];
+    assert_eq!(activity["steps"], 11_284, "the day's steps: {body}");
+    assert_eq!(
+        activity["total_kcal"], 2410.0,
+        "the day's energy: {activity}"
+    );
+    assert_eq!(
+        activity["intensity_minutes"], 104,
+        "intensity minutes as Garmin counts them: {activity}"
+    );
+
+    let sleep = agent_tool(&resources, &athlete, "get_sleep_sessions", json!({})).await;
+    let night = &sleep["sessions"][0];
+    assert_eq!(sleep["count"], 1, "one night (carnet#1272): {sleep}");
+    assert_eq!(
+        night["total_sleep_seconds"], 23_700,
+        "the night's sleep: {night}"
+    );
+    assert_eq!(night["sleep_score"], 82, "the night's score: {night}");
+
+    let now = Utc::now();
+    let holds = stored_health::holds_recovery_rows(
+        &resources.common.repos,
+        resources.data().provider_registry().as_ref(),
+        athlete.user_id,
+        &athlete.tenant,
+        (now - Duration::days(14), now),
+    )
+    .await
+    .expect("the origins read");
+    assert!(holds, "bug: an export-only athlete holds recovery data");
 }
 
 fn activity_ids(payload: &Value) -> Vec<String> {

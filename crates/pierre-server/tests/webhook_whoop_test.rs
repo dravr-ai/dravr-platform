@@ -316,6 +316,7 @@ async fn context_with_mock_whoop() -> (Arc<ServerContext>, Arc<MockWhoop>) {
         sleep: Arc::<PierreSyncStorage>::clone(&storage),
         recovery: Arc::<PierreSyncStorage>::clone(&storage),
         health: Arc::<PierreSyncStorage>::clone(&storage),
+        daily_activity: Arc::<PierreSyncStorage>::clone(&storage),
         time_series: Arc::<PierreSyncStorage>::clone(&storage),
         data_sources: Arc::<PierreSyncStorage>::clone(&storage),
         cursors: Arc::<PierreSyncStorage>::clone(&storage),

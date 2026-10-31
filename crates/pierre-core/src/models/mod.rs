@@ -130,7 +130,8 @@ pub use refresh::{
 
 // Stored health models for persistence (from dravr-equilibre)
 pub use dravr_equilibre::{
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, SyncResult, SyncStatus,
+    StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    SyncResult, SyncStatus,
 };
 
 // One record per night or date across providers, primary source first and

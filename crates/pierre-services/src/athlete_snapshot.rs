@@ -53,7 +53,8 @@ use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
 
-use crate::stored_health::{self, SourceFilter};
+use crate::effective_physiology::{effective_physiology, EffectivePhysiology};
+use crate::stored_health::{self, Anchors, SourceFilter};
 
 /// Lookback window for the activity read backing `data_days` and the form compute.
 const ACTIVITY_LOOKBACK_DAYS: i64 = 180;
@@ -104,24 +105,46 @@ pub async fn build_athlete_metrics(
 ) -> AthleteMetrics {
     let mut metrics = AthleteMetrics::default();
 
-    let profile = match repos
-        .user_physiological_profile
-        .get_user_physiological_profile(tenant_id, user_id)
-        .await
-    {
-        // A profile written from first-party-only data is withheld from an
-        // external turn (carnet#769).
-        Ok(p) => p.filter(|profile| ai_scope::admit_derived(profile.transport_policy)),
+    // The profile's anchors, and the latest measurement of each it lacks: a
+    // VO2max the athlete's watch measured describes them when the profile
+    // holds none (Athlete Data Consolidation §5).
+    let vo2_max = Anchors {
+        vo2_max: true,
+        ..Anchors::default()
+    };
+    let effective = match effective_physiology(repos, policies, tenant_id, user_id, vo2_max).await {
+        Ok(effective) => effective,
         Err(e) => {
-            tracing::warn!(error = %e, "personalized verification: physiology profile load failed");
-            None
+            tracing::warn!(error = %e, "personalized verification: physiology load failed");
+            EffectivePhysiology::default()
         }
     };
+    let profile = effective.profile.clone();
+
+    // cageux treats VDOT as the VO2max-equivalent feeding the Daniels tables.
+    metrics.vo2max = effective.vo2_max();
+    metrics.vdot = effective.vo2_max();
+    if let Some(vo2) = effective.vo2_max() {
+        // Pace zones read only VO2max and the lactate threshold (cageux's
+        // pace-zone default when the profile omits it); the calculator's
+        // heart-rate fields are not read by them.
+        let calculator = VO2MaxCalculator::new(
+            vo2,
+            0,
+            0,
+            profile
+                .as_ref()
+                .and_then(|p| p.lactate_threshold_percentage)
+                .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
+        );
+        let paces = calculator.calculate_pace_zones(training_zones);
+        metrics.easy_pace_range = Some(paces.easy_pace_range);
+        metrics.marathon_pace_range = Some(paces.marathon_pace_range);
+        metrics.threshold_pace_range = Some(paces.threshold_pace_range);
+        metrics.interval_pace_range = Some(paces.vo2max_pace_range);
+    }
 
     if let Some(p) = &profile {
-        // cageux treats VDOT as the VO2max-equivalent feeding the Daniels tables.
-        metrics.vo2max = p.vo2_max;
-        metrics.vdot = p.vo2_max;
         metrics.ftp_watts = p.ftp_watts.map(f64::from);
         metrics.max_hr = p.max_hr.map(f64::from);
         metrics.critical_power_watts = p
@@ -137,24 +160,6 @@ pub async fn build_athlete_metrics(
             .as_ref()
             .map(|v| stored_metric(v, v.value));
         metrics.d_prime_meters = p.d_prime_meters.as_ref().map(|v| stored_metric(v, v.value));
-
-        if let Some(vo2) = p.vo2_max {
-            // Pace zones read only VO2max and the lactate threshold (cageux's
-            // pace-zone default when the profile omits it); the calculator's
-            // heart-rate fields are not read by them.
-            let calculator = VO2MaxCalculator::new(
-                vo2,
-                0,
-                0,
-                p.lactate_threshold_percentage
-                    .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
-            );
-            let paces = calculator.calculate_pace_zones(training_zones);
-            metrics.easy_pace_range = Some(paces.easy_pace_range);
-            metrics.marathon_pace_range = Some(paces.marathon_pace_range);
-            metrics.threshold_pace_range = Some(paces.threshold_pace_range);
-            metrics.interval_pace_range = Some(paces.vo2max_pace_range);
-        }
     }
 
     // The athlete's own zone: every calendar-day boundary below is theirs, not

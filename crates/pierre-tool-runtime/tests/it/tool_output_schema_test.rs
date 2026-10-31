@@ -25,9 +25,11 @@ use dravr_meteo::{
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
+    MeasurementKind, Merged, MetricProvenance, ProvenancedValue, SportType, StoredDailyActivity,
+    ThresholdProvenance,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
+use pierre_providers::precedence::wellness_source;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
@@ -1203,9 +1205,27 @@ fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
 
 #[test]
 fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
+    let day = StoredDailyActivity {
+        id: "day-1".to_owned(),
+        user_id: "user-1".to_owned(),
+        data_source_id: "ds-1".to_owned(),
+        date: NaiveDate::from_ymd_opt(2026, 9, 5).unwrap_or_default(),
+        steps: Some(11_284),
+        active_kcal: Some(520.0),
+        total_kcal: None,
+        intensity_minutes: Some(104),
+        source_name: "garmin_archive".to_owned(),
+        recorded_at: chrono::DateTime::UNIX_EPOCH,
+    };
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
         snapshots: vec![],
+        daily_activity: vec![Merged {
+            primary: wellness_source(&day.source_name, None),
+            record: day,
+            sources: vec!["garmin_archive".to_owned()],
+            filled: vec![],
+        }],
         attribution: None,
         // One source synced, one never: both shapes the schema must accept.
         last_synced_at: BTreeMap::from([

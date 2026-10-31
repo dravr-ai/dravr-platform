@@ -1,4 +1,4 @@
-// ABOUTME: Whether an athlete has any fitness data behind them: a connection, a provider token, or an uploaded file
+// ABOUTME: Whether an athlete has any fitness data behind them: a connection, a provider token, their own files or wellness
 // ABOUTME: The evidence the dispatch chokepoint reads before refusing a provider-backed tool; it fails open
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,6 +7,7 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use pierre_core::constants::oauth_providers::is_user_provided;
 use pierre_core::models::TenantId;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use tracing::warn;
@@ -35,11 +36,18 @@ fn proceed_after(tool_name: &str, lookup: &str, error: &dyn Display) {
 /// closed would turn a transient database error into a refusal on a
 /// connected athlete.
 ///
-/// Three kinds of evidence, any one sufficient: a connection row, a provider
-/// token (the two are written by different paths and are known to drift), and
-/// an activity the athlete brought in themselves in `tenant` — an uploaded
-/// `.fit` file (carnet#818) or an imported archive (carnet#1218) — since an
-/// athlete who never connected a provider still has those to answer from.
+/// Four kinds of evidence, any one sufficient: a connection row, a provider
+/// token (the two are written by different paths and are known to drift),
+/// wellness the athlete brought in themselves in `tenant` (an export's days
+/// and nights), and an activity the athlete brought in themselves in
+/// `tenant` — an uploaded `.fit` file (carnet#818) or an imported archive
+/// (carnet#1218) — since an athlete who never connected a provider still has
+/// those to answer from.
+///
+/// A reading the athlete typed in (a weight, a resting heart rate filed
+/// under `athlete` by `set_physiology`) is not one: it answers no
+/// provider-backed tool, so an athlete holding only that is still asked to
+/// connect a source.
 pub(super) async fn athlete_has_data_source(
     resources: &Arc<dyn ToolRuntime>,
     tool_name: &str,
@@ -68,7 +76,7 @@ pub(super) async fn athlete_has_data_source(
     let Some(tenant) = tenant.map(TenantId::from_uuid) else {
         return false;
     };
-    repos
+    let held = repos
         .activity_cache
         .held_user_provided(user_uuid, &tenant)
         .await
@@ -78,5 +86,25 @@ pub(super) async fn athlete_has_data_source(
                 true
             },
             |held| !held.is_empty(),
+        );
+    if held {
+        return true;
+    }
+    // Wellness the athlete brought in without a single activity — an export
+    // of their days and nights — is filed under a data source of its own key.
+    repos
+        .data_sources
+        .list_data_sources(user_uuid, &tenant)
+        .await
+        .map_or_else(
+            |e| {
+                proceed_after(tool_name, "data_sources", &e);
+                true
+            },
+            |sources| {
+                sources
+                    .iter()
+                    .any(|source| is_user_provided(&source.provider))
+            },
         )
 }

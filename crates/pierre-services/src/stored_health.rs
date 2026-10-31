@@ -1,4 +1,4 @@
-// ABOUTME: Stored sleep, recovery and health-snapshot reads under the provider terms of each row's data source
+// ABOUTME: Stored sleep, recovery, body and daily activity reads under the provider terms of each row's data source
 // ABOUTME: Filters rows by their data source's provider before any per-metric merge across sources
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -22,8 +22,9 @@
 //!
 //! # The one merge (carnet#1281)
 //!
-//! [`merged_sleep`], [`merged_recovery`] and [`merged_body`] are the only
-//! callers of dravr-equilibre's per-night and per-day merge: a reader gets
+//! [`merged_sleep`], [`merged_recovery`], [`merged_body`] and
+//! [`merged_daily_activity`] are the only callers of dravr-equilibre's
+//! per-night and per-day merge: a reader gets
 //! one record per night or per date, gated, merged and attributed, and
 //! never merges rows itself, so two tools can no longer answer the same
 //! night two ways. A [`SourceFilter`] says which rows take part.
@@ -50,32 +51,32 @@
 //! sources a gate already lists; outside any gate, from the provider the row
 //! was stored under.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use dravr_equilibre_sync::{
-    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged, Source, Sourced,
+    merge_daily_activity, merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions,
+    Merged, Source, Sourced,
 };
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::constants::oauth_providers::{
-    activity_attribution, garmin_device, garmin_service_attribution, source_attribution, GARMIN,
-    GARMIN_ATTRIBUTION, INTERVALS_ICU,
-};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope::{self, StoredHealthRecord};
 use pierre_providers::precedence::{needs_data_source, wellness_source};
 
+use self::attribution::{attribution_of, garmin_rows_attribution, serves_intervals};
 use crate::athlete_clock::athlete_zone;
 use uuid::Uuid;
 
-/// How far back the athlete's intervals.icu activities are searched for the
-/// device that names their wellness recorder.
-const DEVICE_LOOKBACK_DAYS: i64 = 365;
+/// The shapes of the latest anchor measurements.
+mod anchors;
+/// The Garmin attribution the served rows owe.
+mod attribution;
 
-/// How many of those activities, newest first, are searched.
-const DEVICE_LOOKBACK_ACTIVITIES: i64 = 50;
+use self::anchors::newest;
+pub use self::anchors::{AnchorMeasurements, Anchors, Measured};
 
 /// Stored health records as a reader may see them, with the attribution
 /// they owe.
@@ -90,106 +91,6 @@ pub struct StoredHealth<T> {
     /// athlete's most recent intervals.icu recording was Garmin's, that
     /// device; `None` otherwise.
     pub attribution: Option<String>,
-}
-
-/// The attribution the athlete's intervals.icu wellness owes.
-///
-/// Read from the most recent intervals.icu activity that names its recorder:
-/// its Garmin device (or `Garmin`, for a Garmin Connect relay naming no
-/// device); `None` when that recorder is not Garmin's or no activity names
-/// one.
-///
-/// # Errors
-///
-/// Returns an error when the activity cache cannot be read.
-async fn intervals_wellness_attribution(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant: &TenantId,
-) -> AppResult<Option<String>> {
-    let end = Utc::now();
-    let activities = repos
-        .activity_cache
-        .get_cached_activities(
-            user_id,
-            tenant,
-            Some(INTERVALS_ICU),
-            end - Duration::days(DEVICE_LOOKBACK_DAYS),
-            end,
-            DEVICE_LOOKBACK_ACTIVITIES,
-        )
-        .await?;
-    let latest = activities
-        .iter()
-        .find(|a| a.device_name().is_some() || source_attribution(a.source()).is_some());
-    Ok(latest.and_then(|activity| match activity.device_name() {
-        Some(device) if garmin_device(Some(device)) => activity_attribution(None, Some(device)),
-        Some(_) => None,
-        None => activity_attribution(activity.source(), None),
-    }))
-}
-
-/// Whether an intervals.icu row is among `records`.
-fn serves_intervals<T: StoredHealthRecord>(records: &[T]) -> bool {
-    records
-        .iter()
-        .any(|record| record.source_name().eq_ignore_ascii_case(INTERVALS_ICU))
-}
-
-/// The attribution a Garmin data source's rows owe, by the device the source
-/// names: as Garmin's own API names it for the Garmin provider, as a relay's
-/// activity is attributed otherwise; `None` for a source that is not Garmin's.
-fn garmin_source_attribution(source: &DataSource) -> Option<String> {
-    let device = source.device_model.as_deref();
-    if source.provider.eq_ignore_ascii_case(GARMIN) {
-        return Some(garmin_service_attribution(device));
-    }
-    let relays_garmin = source_attribution(source.source.as_deref()).is_some();
-    (relays_garmin || garmin_device(device))
-        .then(|| activity_attribution(source.source.as_deref(), device))
-        .flatten()
-}
-
-/// The attribution of the first of `records` a Garmin data source synced:
-/// by its data source among `sources`, or by the provider it was stored
-/// under when no gate listed them.
-fn garmin_rows_attribution<T: StoredHealthRecord>(
-    records: &[T],
-    sources: &[DataSource],
-) -> Option<String> {
-    records.iter().find_map(|record| {
-        sources
-            .iter()
-            .find(|source| source.id == record.data_source_id())
-            .map_or_else(
-                || source_attribution(Some(record.source_name())).map(str::to_owned),
-                garmin_source_attribution,
-            )
-    })
-}
-
-/// The attribution served rows owe, noted on the running derivation for the
-/// reply derived from them.
-///
-/// That of their Garmin data sources (`garmin`, read off the rows before
-/// this awaits anything), else that of the athlete's intervals.icu wellness
-/// when such a row is among them.
-async fn attribution_of(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant: &TenantId,
-    garmin: Option<String>,
-    serves_intervals: bool,
-) -> AppResult<Option<String>> {
-    let attribution = match garmin {
-        Some(attribution) => Some(attribution),
-        None if serves_intervals => intervals_wellness_attribution(repos, user_id, tenant).await?,
-        None => None,
-    };
-    if attribution.is_some() {
-        ai_scope::note_attribution(Some(GARMIN_ATTRIBUTION));
-    }
-    Ok(attribution)
 }
 
 /// The rows a reader may see of `records`, by each row's data source among
@@ -402,6 +303,101 @@ pub async fn merged_body(
     .await
 }
 
+/// The athlete's activity days inside the window — steps, energy, intensity
+/// minutes — one per date across the sources `filter` admits, ordered by
+/// date.
+///
+/// # Errors
+///
+/// Returns an error when the days, or under a gate the athlete's data
+/// sources, cannot be read.
+pub async fn merged_daily_activity(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    user_id: Uuid,
+    tenant: &TenantId,
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    filter: SourceFilter<'_>,
+) -> AppResult<StoredHealth<Merged<StoredDailyActivity>>> {
+    let rows = repos
+        .daily_activity
+        .get_daily_activity(user_id, tenant, start, end)
+        .await?;
+    merged(
+        repos,
+        terms,
+        (user_id, tenant),
+        rows,
+        filter,
+        merge_daily_activity,
+    )
+    .await
+}
+
+/// The athlete's latest measurement of each training anchor, however long
+/// ago it was taken, for the anchors `wanted` names (no row is read for
+/// one it does not).
+///
+/// Each source's latest day holding one, gated and merged under the one
+/// precedence rule like every other read: a reading the athlete entered by
+/// hand stands over a device's for the same day, and a source the reader's
+/// terms withhold costs only its own rows, however many newer days it holds.
+/// One row per source and anchor, so years of history cost one small read.
+///
+/// # Errors
+///
+/// Returns an error when the rows, or under a gate the athlete's data
+/// sources, cannot be read.
+pub async fn latest_anchor_measurements(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    user_id: Uuid,
+    tenant: &TenantId,
+    wanted: Anchors,
+) -> AppResult<AnchorMeasurements> {
+    let mut measured = AnchorMeasurements::default();
+    if wanted.resting_hr {
+        let recovery = repos
+            .recovery
+            .get_latest_recovery_metrics(user_id, tenant)
+            .await?;
+        let mornings = merged(
+            repos,
+            terms,
+            (user_id, tenant),
+            recovery,
+            SourceFilter::All,
+            merge_recovery_metrics,
+        )
+        .await?
+        .records;
+        measured.resting_hr = newest(&mornings, |m| m.resting_heart_rate, |m| m.date);
+    }
+    if wanted.vo2_max || wanted.weight {
+        let body = repos
+            .health_snapshots
+            .get_latest_health_snapshots(user_id, tenant, (wanted.vo2_max, wanted.weight))
+            .await?;
+        let days = merged(
+            repos,
+            terms,
+            (user_id, tenant),
+            body,
+            SourceFilter::All,
+            merge_health_metrics,
+        )
+        .await?
+        .records;
+        if wanted.vo2_max {
+            measured.vo2_max = newest(&days, |b| b.vo2_max, |b| b.date);
+        }
+        if wanted.weight {
+            measured.weight_kg = newest(&days, |b| b.weight_kg, |b| b.date);
+        }
+    }
+    Ok(measured)
+}
+
 /// The key of the source standing for the athlete's latest stored night in
 /// `[start, end]` — the merged night's primary under the one precedence
 /// rule, naps left out — or `None` when no night is stored.
@@ -474,6 +470,8 @@ pub async fn holds_recovery_rows(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+
+    use pierre_core::constants::oauth_providers::{GARMIN_ATTRIBUTION, INTERVALS_ICU};
 
     use super::*;
     use crate::wellness_store::{WellnessStore, WellnessWriteMode};
