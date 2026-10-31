@@ -540,6 +540,39 @@ pub enum HistoryRefresh {
     },
 }
 
+/// [`recompute_stored_history`], with the error kept typed: `None` when no
+/// daily row is stored, the computed window otherwise.
+///
+/// A caller that must tell the athlete's own state (no connection left, one
+/// to reconnect) from a failure reads the error's code here.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when a read, the compute or a write fails.
+pub async fn try_recompute_stored_history(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<TrainingHistoryComputed>> {
+    let (_, to) = default_window(resources, user_id).await?;
+    let stored = resources
+        .repos()
+        .training_history
+        .get_training_history(
+            tenant_id,
+            user_id,
+            to - Duration::days(MAX_BACKFILL_DAYS),
+            to,
+        )
+        .await?;
+    let Some(oldest) = stored.first() else {
+        return Ok(None);
+    };
+    compute_and_persist_history(resources, tenant_id, user_id, oldest.date, to)
+        .await
+        .map(Some)
+}
+
 /// Recompute every stored daily row of the athlete, from the oldest one a
 /// read can reach to their civil today, against the thresholds now saved.
 ///
@@ -553,27 +586,7 @@ pub async fn recompute_stored_history(
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> HistoryRefresh {
-    let outcome = async {
-        let (_, to) = default_window(resources, user_id).await?;
-        let stored = resources
-            .repos()
-            .training_history
-            .get_training_history(
-                tenant_id,
-                user_id,
-                to - Duration::days(MAX_BACKFILL_DAYS),
-                to,
-            )
-            .await?;
-        let Some(oldest) = stored.first() else {
-            return Ok(None);
-        };
-        compute_and_persist_history(resources, tenant_id, user_id, oldest.date, to)
-            .await
-            .map(Some)
-    }
-    .await;
-    match outcome {
+    match try_recompute_stored_history(resources, tenant_id, user_id).await {
         Ok(None) => HistoryRefresh::NothingStored,
         Ok(Some(computed)) => HistoryRefresh::Recomputed {
             from: computed.from.format("%Y-%m-%d").to_string(),

@@ -24,9 +24,10 @@
 //! athlete holding one (`recompute_stored_history`) and then records this
 //! build's generation, so later passes read one setting and stop. An athlete
 //! whose recompute fails leaves the generation unrecorded, and the next pass
-//! tries every athlete again: a recompute is idempotent. An athlete with no
-//! source left to recompute from (every connection gone, nothing uploaded or
-//! imported) is skipped and never holds the generation back.
+//! tries every athlete again: a recompute is idempotent. An athlete with
+//! nothing to recompute from (every connection gone and nothing uploaded or
+//! imported, or every connection to reconnect with no workout cached) is
+//! skipped and never holds the generation back.
 //!
 //! Rolling the rule back is a forward change that bumps the generation again,
 //! never a `git revert` of the change: a revert deletes this worker with it,
@@ -38,12 +39,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::factory::Database;
 use pierre_services::periodic::spawn_periodic;
-use pierre_services::training_history_read::resolve_compute_backends;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::training_history_compute::{recompute_stored_history, HistoryRefresh};
+use pierre_tool_runtime::training_history_compute::try_recompute_stored_history;
 use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
@@ -73,10 +73,11 @@ pub struct PrecedenceRecomputeReport {
     pub recomputed: usize,
     /// Athletes holding nothing a read can reach any more.
     pub nothing_stored: usize,
-    /// Athletes holding stored days but no source to recompute them from:
-    /// every connection gone and nothing of their own brought in. Their days
-    /// stand until a connection's capture recomputes them; they never hold
-    /// the generation back.
+    /// Athletes holding stored days but nothing to recompute them from:
+    /// every connection gone and nothing of their own brought in, or every
+    /// connection to reconnect with no workout cached. Their days stand until
+    /// a connection's capture recomputes them; they never hold the
+    /// generation back.
     pub no_source: usize,
     /// Athletes whose recompute failed; the next pass tries again.
     pub failed: usize,
@@ -116,6 +117,18 @@ pub fn start_precedence_recompute(resources: &Arc<ServerContext>) {
     });
 }
 
+/// Whether a recompute refused for the athlete's own state rather than
+/// failed: no source is left to compute from, or every connection needs
+/// reconnecting with no workout cached. Nothing the rule could re-rank is
+/// there, the next pass would refuse the same way, and the athlete's
+/// reconnect brings a capture that recomputes their window.
+fn owes_no_recompute(error: &AppError) -> bool {
+    matches!(
+        error.code,
+        ErrorCode::NoProviderConnected | ErrorCode::ProviderAuthRequired
+    )
+}
+
 /// Recompute every athlete's stored training history when the stored
 /// generation is not [`PRECEDENCE_GENERATION`], then record it.
 ///
@@ -141,36 +154,17 @@ pub async fn run_precedence_recompute_pass(
         .training_history_holders()
         .await?;
     for (tenant_id, user_id) in holders {
-        match resolve_compute_backends(runtime.repos(), tenant_id, user_id).await {
-            Ok(backends) if backends.is_empty() => {
-                report.no_source += 1;
-                continue;
-            }
-            Ok(_) => {}
+        match try_recompute_stored_history(runtime, tenant_id, user_id).await {
+            Ok(Some(_)) => report.recomputed += 1,
+            Ok(None) => report.nothing_stored += 1,
+            Err(e) if owes_no_recompute(&e) => report.no_source += 1,
             Err(e) => {
                 report.failed += 1;
                 warn!(
                     worker = WORKER_NAME,
                     user_id = %user_id,
                     tenant_id = %tenant_id,
-                    error = %e,
-                    "training history not recomputed: the athlete's sources could not be read"
-                );
-                continue;
-            }
-        }
-        match recompute_stored_history(runtime, tenant_id, user_id).await {
-            HistoryRefresh::Recomputed { .. } => report.recomputed += 1,
-            HistoryRefresh::NothingStored | HistoryRefresh::Unaffected => {
-                report.nothing_stored += 1;
-            }
-            HistoryRefresh::Failed { reason } => {
-                report.failed += 1;
-                warn!(
-                    worker = WORKER_NAME,
-                    user_id = %user_id,
-                    tenant_id = %tenant_id,
-                    reason = %reason,
+                    reason = %e.sanitized_message(),
                     "training history not recomputed under the current precedence"
                 );
             }

@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use pierre_core::constants::oauth_providers::UPLOAD;
-use pierre_core::models::{ActivityBuilder, DailyTrainingState, SportType};
+use pierre_core::constants::oauth_providers::{STRAVA, UPLOAD};
+use pierre_core::models::{ActivityBuilder, ConnectionType, DailyTrainingState, SportType};
 use pierre_mcp_server::services::precedence_recompute::{
     run_precedence_recompute_pass, PrecedenceRecomputeReport, GENERATION_SETTING_KEY,
     PRECEDENCE_GENERATION,
@@ -148,5 +148,54 @@ async fn an_athlete_with_nothing_to_recompute_from_lets_the_generation_record() 
             .unwrap()
             .map(|setting| setting.value),
         Some(PRECEDENCE_GENERATION.to_string())
+    );
+}
+
+/// An athlete whose only connection needs reconnecting and whose cache holds
+/// no workout has nothing the rule could re-rank: their recompute fails on
+/// the reconnect prompt, and that must not keep the generation unrecorded
+/// (seen on dev after group B deployed: the pass recomputed every athlete
+/// again each half hour).
+#[tokio::test]
+async fn an_athlete_whose_connection_needs_reconnecting_lets_the_generation_record() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("precedence-lapsed-{}@example.com", uuid::Uuid::new_v4());
+    let (user_id, _user, tenant) =
+        common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    let repos = &resources.common.repos;
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, STRAVA, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .mark_needs_reauth(user_id, tenant, STRAVA, None, Utc::now())
+        .await
+        .unwrap();
+    let today = Utc::now().date_naive();
+    let mut kept = DailyTrainingState::zero(today - Duration::days(3));
+    kept.daily_load = 120.0;
+    repos
+        .training_history
+        .upsert_training_history_batch(tenant, user_id, &[kept])
+        .await
+        .unwrap();
+    let database = Arc::clone(&resources.agent.database);
+    let runtime = into_runtime(&resources);
+
+    let report = run_precedence_recompute_pass(&database, &runtime)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        report.failed, 0,
+        "bug: a lapsed connection counted as a failed recompute: {report:?}"
+    );
+    assert!(
+        report.recorded,
+        "bug: the generation was held back: {report:?}"
     );
 }
