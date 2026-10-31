@@ -111,11 +111,12 @@ jobs:
       # database. The canary is the queue (carnet#1269): 1% of traffic starts
       # ONE new pod while the old revision keeps 99%; once that pod has logged
       # reading its key from the database the rest moves in steps (33%, 66%,
-      # 100%), each next step only once Cloud SQL shows free slots (a single
-      # jump to 100% started 3-4 pods at once, 2026-10-30 18:59); idle pods give
-      # their connections back after 10 s (SQLX_IDLE_TIMEOUT_SECS), so a step
-      # finds them free; any failure or
-      # cancel sends the new revision's share back. On 2026-10-29, rolled with
+      # 100%), each next step only once Cloud SQL shows 6 free slots (a single
+      # jump to 100% started 3-4 pods at once, 2026-10-30 18:59). An idle pod
+      # closes all but its pool's 2 minimum connections after 10 s
+      # (SQLX_IDLE_TIMEOUT_SECS), so the slots the old revision's pods held are
+      # free again by the next step. Any failure or cancel sends the new
+      # revision's share back. On 2026-10-29, rolled with
       # traffic, three new pods booted beside three old ones holding 18 of
       # Cloud SQL's 22 slots, and two waited out their boot window and restarted.
       # `exec`: a cancel signals the step's own process only, and the script's

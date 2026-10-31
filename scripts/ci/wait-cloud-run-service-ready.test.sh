@@ -778,8 +778,8 @@ done
 # reaches it, and by a `--to-latest` traffic move on the same service that runs
 # on a failed or cancelled deploy and never after a successful one;
 # that move is the second half of the same roll, so no quiesce sits between
-# them (carnet#1269), and the API's canary ramps on Cloud SQL headroom
-# (--ramp-db-prefix); and checkout runs before auth
+# them (carnet#1269); the API's canary passes --ramp-db-prefix so its traffic
+# moves in steps on Cloud SQL headroom; and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
