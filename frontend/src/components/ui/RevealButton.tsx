@@ -12,6 +12,13 @@ export interface RevealButtonProps {
   onToggle: () => void;
   /** Announced label for the current state. Callers pass their own translated pair. */
   label: string;
+  /**
+   * Set when the button sits beside a raw `<input>` inside a `relative`
+   * wrapper: it pins the button to the field's right edge, vertically centred.
+   * `Input`'s `rightIcon` slot positions its child already, so callers going
+   * through it leave this off.
+   */
+  inField?: boolean;
   className?: string;
 }
 
@@ -27,11 +34,21 @@ export interface RevealButtonProps {
  *
  * `-mr-2` pulls the enlarged box back over the input's own right padding, so
  * the icon stays optically where it was and no caller has to re-space a form.
+ *
+ * Positioning belongs to the component, not the caller: a raw-`<input>`
+ * caller that has to hand-write `absolute` can drop it, and the eye then
+ * falls onto its own row under the field (carnet#1298). `inField` carries
+ * the placement instead.
  */
+// `right-2` less the `-mr-2` above lands the 44px box flush with the field's
+// right edge, the 20px icon about 12px in, clear of an input padded `pr-10`.
+const IN_FIELD_PLACEMENT = 'absolute right-2 top-1/2 -translate-y-1/2';
+
 export const RevealButton: React.FC<RevealButtonProps> = ({
   revealed,
   onToggle,
   label,
+  inField = false,
   className = '',
 }) => (
   <button
@@ -39,7 +56,7 @@ export const RevealButton: React.FC<RevealButtonProps> = ({
     aria-label={label}
     aria-pressed={revealed}
     onClick={onToggle}
-    className={`-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${className}`}
+    className={`-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${inField ? IN_FIELD_PLACEMENT : ''} ${className}`}
   >
     {revealed ? (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

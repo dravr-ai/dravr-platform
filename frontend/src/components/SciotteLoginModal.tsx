@@ -8,7 +8,6 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { startOAuthInThisTab } from '../utils/oauthReturn';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
-import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
 import { describeApiError, refusalReason } from '@pierre/ui-logic';
@@ -67,7 +66,7 @@ export default function SciotteLoginModal({
   target = 'strava',
   consentRequired = false,
 }: SciotteLoginModalProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { scheme } = useTheme();
   const online = useOnlineStatus();
   // Credentials and a 2FA code, in an overlay that had no dialog semantics at
@@ -102,10 +101,6 @@ export default function SciotteLoginModal({
   // and closes this whole stack via `onConnected`. Only meaningful when
   // `target === 'strava'` — Garmin and others don't expose an OAuth backend.
   const [showOAuthSetup, setShowOAuthSetup] = useState(false);
-  // Server-configured login budget (DRAVR_SCIOTTE_LOGIN_TIMEOUT), fetched on
-  // open. Null until loaded / on fetch failure — the progress copy degrades
-  // to "a few minutes" rather than showing a hardcoded number.
-  const [loginTimeoutSecs, setLoginTimeoutSecs] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -120,10 +115,6 @@ export default function SciotteLoginModal({
       setOtpCode('');
       setCodeRejected(false);
       setIsLoading(false);
-      oauthApi
-        .sciotteConfig()
-        .then((cfg) => setLoginTimeoutSecs(cfg.login_timeout_secs))
-        .catch(() => setLoginTimeoutSecs(null));
     }
   }, [isOpen, target]);
 
@@ -390,7 +381,11 @@ export default function SciotteLoginModal({
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
-              {progressLabel && <p className="text-xs text-on-surface/50">{progressLabel}</p>}
+              {/* The logging-in and verifying bodies already print this line
+                  under their spinner; repeating it here would print it twice (carnet#1299). */}
+              {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && (
+                <p className="text-xs text-on-surface/50">{progressLabel}</p>
+              )}
             </div>
           </div>
           <button
@@ -524,10 +519,11 @@ export default function SciotteLoginModal({
                       name="password"
                     />
                     <RevealButton
-  revealed={showPassword}
-  onToggle={() => setShowPassword(!showPassword)}
-  label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-/>
+                      revealed={showPassword}
+                      onToggle={() => setShowPassword(!showPassword)}
+                      label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+                      inField
+                    />
                   </div>
                 </div>
                 <Button
@@ -550,12 +546,9 @@ export default function SciotteLoginModal({
                 <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px]" />
                 <p className="text-on-surface/80 text-sm font-medium">{progressLabel}</p>
                 <p className="text-on-surface/40 text-xs mt-2">
-                  {(() => {
-                    const budget = formatTimeout(loginTimeoutSecs, t, i18n.language);
-                    return elapsedSecs > 0
-                      ? t('app.elapsedMayTake', { elapsed: elapsedSecs, budget })
-                      : t('frag.mayTakeUpTo', { budget });
-                  })()}
+                  {elapsedSecs > 0
+                    ? t('app.elapsedMayTake', { elapsed: elapsedSecs })
+                    : t('app.connectingMoment')}
                 </p>
               </div>
             </div>

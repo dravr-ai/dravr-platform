@@ -658,9 +658,6 @@ test.describe('Settings Page - User Mode', () => {
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
     const logins: Array<Record<string, unknown>> = [];
-    await page.route('**/api/providers/sciotte/config', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ login_timeout_secs: 240 }) })
-    );
     await page.route('**/api/providers/sciotte/login', async (route) => {
       logins.push(route.request().postDataJSON());
       await route.fulfill({
@@ -719,9 +716,6 @@ test.describe('Settings Page - User Mode', () => {
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
     const logins: Array<Record<string, unknown>> = [];
-    await page.route('**/api/providers/sciotte/config', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ login_timeout_secs: 240 }) })
-    );
     await page.route('**/api/providers/sciotte/login', async (route) => {
       logins.push(route.request().postDataJSON());
       await route.fulfill({

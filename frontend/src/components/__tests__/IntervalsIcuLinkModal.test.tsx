@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for IntervalsIcuLinkModal — the authorization when offered, athlete id + API key entry and link submission
-// ABOUTME: Covers closed render, the authorize-first choice and the coach's key path, successful link, and error display
+// ABOUTME: Covers closed render, the eye inside the key field, the authorize-first choice and the coach's key path, successful link, and error display
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -32,6 +32,16 @@ function renderModal(isOpen = true) {
 describe('IntervalsIcuLinkModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps the show-key eye inside the API key field', () => {
+    renderModal();
+    // Taken out of flow and pinned to the field wrapper; without it the eye
+    // wrapped onto its own row under the field (carnet#1298).
+    const eye = screen.getByRole('button', { name: 'Show API key' });
+    expect(eye.parentElement).toHaveClass('relative');
+    expect(eye.parentElement).toContainElement(screen.getByLabelText('API Key'));
+    expect(eye).toHaveClass('absolute', 'right-2', 'top-1/2', '-translate-y-1/2');
   });
 
   it('renders nothing when closed', () => {

@@ -70,10 +70,17 @@ then
     exit 1
 fi
 
+# A package whose tests all live inline (`#[cfg(test)] mod tests`, ADR-027)
+# declares no [[test]] target, so no required-features gate can skip one of
+# its tests: there is nothing here to compare, and the lane's own
+# `cargo test --tests` runs its unit tests. Refusing one would red every
+# branch whose scoped set is only such a crate (pierre-routes-auth is one).
+# The fail-closed case this guards — asked to verify nothing — is the empty
+# package list, refused above.
 DECLARED_COUNT=$(grep -c . < "$WORK/declared.txt")
 if [ "$DECLARED_COUNT" -eq 0 ]; then
-    echo "::error::The selected packages declare no test targets at all — refusing to report green."
-    exit 1
+    echo "No [[test]] target declared by: ${PKGS[*]} — no required-features gate can skip a test there."
+    exit 0
 fi
 
 # ---- side 2: what a --all-features build PRODUCES ----------------------------

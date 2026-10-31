@@ -72,7 +72,33 @@ else
     printf '%s\n' "$OUT" | sed 's/^/       /'
 fi
 
-# 3. Fail closed: asked to verify nothing, it refuses rather than reporting green.
+# 3. A package with only inline unit tests declares no [[test]] target: nothing
+#    can be skipped, so it passes without a build (pierre-routes-auth's shape).
+rm -rf "$WORK/probe"
+mkdir -p "$WORK/probe/src"
+cat > "$WORK/probe/Cargo.toml" <<'EOF'
+[package]
+name = "leaftestprobe"
+version = "0.1.0"
+edition = "2021"
+EOF
+cat > "$WORK/probe/src/lib.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn inline() { assert_eq!(1 + 1, 2); }
+}
+EOF
+OUT="$(cd "$WORK/probe" && "$CHECK" -p leaftestprobe 2>&1)"
+STATUS=$?
+if [ "$STATUS" -eq 0 ] && printf '%s' "$OUT" | grep -q "No \[\[test\]\] target declared"; then
+    pass "a package with only inline unit tests passes and says why"
+else
+    fail "a package with no [[test]] target should pass (exit $STATUS)"
+    printf '%s\n' "$OUT" | sed 's/^/       /'
+fi
+
+# 4. Fail closed: asked to verify nothing, it refuses rather than reporting green.
 OUT="$("$CHECK" 2>&1)"
 STATUS=$?
 if [ "$STATUS" -ne 0 ] && printf '%s' "$OUT" | grep -q "refusing to report green"; then

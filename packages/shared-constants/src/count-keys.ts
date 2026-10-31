@@ -174,15 +174,3 @@ export const IMPORT_DELETE_CONFIRM_ACTION_KEYS: CountKeys = {
   one: 'providers.import.strava.deleteConfirmActionOne',
   many: 'providers.import.strava.deleteConfirmActionN',
 };
-
-/** A login budget in whole minutes: « 1 minute », « 3 minutes ». */
-export const BUDGET_MINUTES_KEYS: CountKeys = {
-  one: 'frag.budgetMinutesOne',
-  many: 'frag.budgetMinutesN',
-};
-
-/** A login budget under 90 seconds: « 1 seconde », « 45 secondes ». */
-export const BUDGET_SECONDS_KEYS: CountKeys = {
-  one: 'frag.budgetSecondsOne',
-  many: 'frag.budgetSecondsN',
-};

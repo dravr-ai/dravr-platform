@@ -12,7 +12,6 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
@@ -651,30 +650,6 @@ fn try_verify_link_token_from_headers(
     let header_value = headers.get("authorization").and_then(|h| h.to_str().ok());
     let token = extract_bearer_link_token(header_value)?;
     verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
-}
-
-/// Client-facing sciotte login configuration. Lets the login UI size its
-/// "this may take up to N" progress copy from the server's real timeout
-/// budget instead of a hardcoded constant, so the displayed wait always
-/// matches the deployed `DRAVR_SCIOTTE_LOGIN_TIMEOUT` (set per-environment
-/// in Cloud Run).
-#[derive(Serialize)]
-pub(crate) struct SciotteConfigResponse {
-    /// Overall credential-login budget in seconds — the longest the UI
-    /// should tell the user to wait before the server gives up.
-    pub login_timeout_secs: u64,
-}
-
-/// Return the sciotte login timeout budget for the login UI.
-///
-/// Reads the same `ScraperConfig::default()` the scraper itself uses, so the
-/// value reflects `DRAVR_SCIOTTE_LOGIN_TIMEOUT` from the environment (Cloud
-/// Run) with the crate default as the single fallback — no duplicated magic
-/// number on the client.
-pub(crate) async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
-    Json(SciotteConfigResponse {
-        login_timeout_secs: ScraperConfig::default().login_timeout_secs,
-    })
 }
 
 /// Log + alert a sciotte login *system* failure and build the user-facing error.

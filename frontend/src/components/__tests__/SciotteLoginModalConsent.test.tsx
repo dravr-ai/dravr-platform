@@ -16,7 +16,6 @@ const sciotteLogin = vi.fn();
 vi.mock('../../services/api', () => ({
   oauthApi: {
     sciotteLogin: (...args: unknown[]) => sciotteLogin(...args),
-    sciotteConfig: vi.fn().mockResolvedValue({ login_timeout_secs: 240 }),
     sciotteSelect2FA: vi.fn(),
     sciotteSubmitOTP: vi.fn(),
     authorizeUrl: vi.fn(),

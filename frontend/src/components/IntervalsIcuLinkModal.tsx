@@ -239,10 +239,11 @@ export default function IntervalsIcuLinkModal({
                     name="api_key"
                   />
                   <RevealButton
-  revealed={showKey}
-  onToggle={() => setShowKey(!showKey)}
-  label={showKey ? t('shell.intervalsHideApiKey') : t('shell.intervalsShowApiKey')}
-/>
+                    revealed={showKey}
+                    onToggle={() => setShowKey(!showKey)}
+                    label={showKey ? t('shell.intervalsHideApiKey') : t('shell.intervalsShowApiKey')}
+                    inField
+                  />
                 </div>
               </div>
 

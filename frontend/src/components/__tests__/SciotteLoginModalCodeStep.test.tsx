@@ -17,7 +17,6 @@ const sciotteSelect2FA = vi.fn();
 vi.mock('../../services/api', () => ({
   oauthApi: {
     sciotteLogin: (...args: unknown[]) => sciotteLogin(...args),
-    sciotteConfig: vi.fn().mockResolvedValue({ login_timeout_secs: 240 }),
     sciotteSelect2FA: (...args: unknown[]) => sciotteSelect2FA(...args),
     sciotteSubmitOTP: (...args: unknown[]) => sciotteSubmitOTP(...args),
     authorizeUrl: vi.fn(),
@@ -105,7 +104,8 @@ describe('SciotteLoginModal — the code step', () => {
     sciotteSubmitOTP.mockReturnValueOnce(new Promise(() => {}));
     await submitCode(user, '246810');
 
-    expect(await screen.findAllByText('Verifying code...')).not.toHaveLength(0);
+    // Once, under the spinner: the header no longer repeats it (carnet#1299).
+    expect(await screen.findAllByText('Verifying code...')).toHaveLength(1);
     expect(screen.queryByText(/Submitting your credentials/)).not.toBeInTheDocument();
     expect(screen.queryByText(/may take up to/i)).not.toBeInTheDocument();
   });
