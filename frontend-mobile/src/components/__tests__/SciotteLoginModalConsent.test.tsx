@@ -76,7 +76,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
       method: 'email',
       target: 'trainingpeaks',
       tos_consent: true,
-    });
+    }, { signal: expect.any(AbortSignal) });
   });
 
   it('goes straight to the credentials once the account has accepted the notice', async () => {
@@ -92,7 +92,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
         password: 'not-a-real-password',
         method: 'email',
         target: 'trainingpeaks',
-      }),
+      }, { signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -110,7 +110,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
         password: 'not-a-real-password',
         method: 'email',
         target: 'garmin',
-      }),
+      }, { signal: expect.any(AbortSignal) }),
     );
   });
 });

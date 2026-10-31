@@ -122,7 +122,7 @@ describe('SciotteLoginModal (mobile) — the code step', () => {
 
     expect(await screen.findByText('COROS is ready to sync')).toBeTruthy();
     expect(onConnected).toHaveBeenCalledTimes(1);
-    expect(sciotteSubmitOTP.mock.calls).toEqual([['000000'], ['246810']]);
+    expect(sciotteSubmitOTP.mock.calls.map(([code]) => code)).toEqual(['000000', '246810']);
   });
 
   it('asks to start again when the sign-in lapsed', async () => {

@@ -10,7 +10,7 @@ import { startOAuthInThisTab } from '../utils/oauthReturn';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
-import { describeApiError, refusalReason } from '@pierre/ui-logic';
+import { describeApiError, refusalReason, useAbortOnClose } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
@@ -75,6 +75,8 @@ export default function SciotteLoginModal({
   const titleId = useId();
   const otpErrorId = useId();
   const { containerRef } = useDialog({ open: isOpen, onClose });
+  // Closing the window ends the sign-in it started, on the server too.
+  const beginRequest = useAbortOnClose(isOpen);
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
@@ -153,6 +155,7 @@ export default function SciotteLoginModal({
       setPhase('logging-in');
       setStatus(t('app.connectingToProvider', { provider: t(SCIOTTE_LOGIN_PRESETS[target].labelKey) }));
 
+      const signal = beginRequest();
       try {
         const data = await oauthApi.sciotteLogin({
           email,
@@ -160,7 +163,7 @@ export default function SciotteLoginModal({
           method,
           target,
           ...(notice ? { tos_consent: consentAccepted } : {}),
-        });
+        }, { signal });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -193,13 +196,15 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } catch (err) {
+        // The window was closed: nothing is left to tell.
+        if (signal.aborted) return;
         setError(refusalMessage(err, 'auth.loginFailed'));
         setPhase('error');
       } finally {
-        setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, onClose, onConnected, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, onClose, onConnected, refusalMessage, t]
   );
 
   // What a refused continuation tells the user.
@@ -217,8 +222,9 @@ export default function SciotteLoginModal({
       else if (optionId !== 'poll') setPhase('verifying');
       setStatus(optionId === 'app' ? t('shell.sciotteCheckPhoneTapYes') : t('shell.sciotteLoadingStatus'));
 
+      const signal = beginRequest();
       try {
-        const data = await oauthApi.sciotteSelect2FA(optionId);
+        const data = await oauthApi.sciotteSelect2FA(optionId, { signal });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -249,13 +255,14 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } catch (err) {
+        if (signal.aborted) return;
         setError(continuationError(err));
         setPhase('error');
       } finally {
-        setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       }
     },
-    [continuationError, onClose, onConnected, t]
+    [beginRequest, continuationError, onClose, onConnected, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -314,8 +321,9 @@ export default function SciotteLoginModal({
       setPhase('verifying');
       setStatus(t('app.verifyingCode'));
 
+      const signal = beginRequest();
       try {
-        const data = await oauthApi.sciotteSubmitOTP(otpCode);
+        const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -334,13 +342,14 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } catch (err) {
+        if (signal.aborted) return;
         setError(continuationError(err));
         setPhase('error');
       } finally {
-        setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, continuationError, onClose, onConnected, t]
+    [otpCode, beginRequest, continuationError, onClose, onConnected, t]
   );
 
 

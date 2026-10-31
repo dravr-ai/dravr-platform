@@ -35,8 +35,32 @@ interface SciotteBusyErrorShape {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** What a sciotte sign-in step carries beyond its body. */
+export interface SciotteRequestOptions {
+  /**
+   * Aborts the step: the window that started it was closed. The connection
+   * drops, and the server drops the login it was running.
+   */
+  signal?: AbortSignal;
+}
+
+/** Waits `ms`, or rejects at once when `signal` fires first. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -73,7 +97,8 @@ async function postWithSciotteBackpressureRetry<TResponse, TBody>(
       const jitterMs = Math.random() * SCIOTTE_RETRY_JITTER_MS;
       const delayMs = Math.max(retryAfterSecs * 1000, exponentialMs) + jitterMs;
       attempt += 1;
-      await sleep(delayMs);
+      // A closed window ends the wait too, not only the request.
+      await sleep(delayMs, config.signal as AbortSignal | undefined);
     }
   }
 }
@@ -232,18 +257,21 @@ export function createOAuthApi(axios: AxiosInstance) {
       target: SciotteTarget;
       /** The user ticked the provider's exposure notice on this attempt (TrainingPeaks, COROS). */
       tos_consent?: boolean;
-    }): Promise<SciotteLoginResponse> {
+    }, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
         typeof params
-      >(axios, '/api/providers/sciotte/login', params, { timeout: 1_200_000 });
+      >(axios, '/api/providers/sciotte/login', params, {
+        timeout: 1_200_000,
+        signal: options.signal,
+      });
       return response.data;
     },
 
     /**
      * Select a 2FA option during Sciotte login.
      */
-    async sciotteSelect2FA(optionId: string): Promise<SciotteLoginResponse> {
+    async sciotteSelect2FA(optionId: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
         { option_id: string }
@@ -251,7 +279,7 @@ export function createOAuthApi(axios: AxiosInstance) {
         axios,
         '/api/providers/sciotte/select-2fa',
         { option_id: optionId },
-        { timeout: 1_200_000 },
+        { timeout: 1_200_000, signal: options.signal },
       );
       return response.data;
     },
@@ -259,7 +287,7 @@ export function createOAuthApi(axios: AxiosInstance) {
     /**
      * Submit OTP code during Sciotte login.
      */
-    async sciotteSubmitOTP(code: string): Promise<SciotteLoginResponse> {
+    async sciotteSubmitOTP(code: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
         { code: string }
@@ -267,7 +295,7 @@ export function createOAuthApi(axios: AxiosInstance) {
         axios,
         '/api/providers/sciotte/submit-otp',
         { code },
-        { timeout: 1_200_000 },
+        { timeout: 1_200_000, signal: options.signal },
       );
       return response.data;
     },

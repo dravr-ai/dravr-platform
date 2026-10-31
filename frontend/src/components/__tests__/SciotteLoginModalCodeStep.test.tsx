@@ -95,7 +95,7 @@ describe('SciotteLoginModal — the code step', () => {
     expect(await screen.findByText('Your COROS data is now available')).toBeInTheDocument();
     expect(onConnected).toHaveBeenCalledTimes(1);
     expect(sciotteLogin).toHaveBeenCalledTimes(1);
-    expect(sciotteSubmitOTP.mock.calls).toEqual([['000000'], ['246810']]);
+    expect(sciotteSubmitOTP.mock.calls.map(([code]) => code)).toEqual(['000000', '246810']);
   });
 
   it('says it is verifying the code while the code is checked', async () => {

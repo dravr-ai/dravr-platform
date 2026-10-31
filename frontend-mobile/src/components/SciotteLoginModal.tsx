@@ -38,7 +38,7 @@ import {
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
-import { describeApiError, refusalReason } from '@pierre/ui-logic';
+import { describeApiError, refusalReason, useAbortOnClose } from '@pierre/ui-logic';
 
 // `logging-in` is the credential login, shown with its connecting copy;
 // `verifying` is a code or a 2FA pick being checked, shown with its status only.
@@ -206,6 +206,8 @@ export function SciotteLoginModal({
   consentRequired = false,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
+  // Closing the window ends the sign-in it started, on the server too.
+  const beginRequest = useAbortOnClose(visible);
   const colors = useThemeColors();
   const cardStyle = useCardStyle();
   // The sheet's content scrolls within most of the screen, never less than
@@ -330,6 +332,7 @@ export function SciotteLoginModal({
     setPhase('logging-in');
     setStatus(t('app.signingInTo', { provider: platformName }));
 
+    const signal = beginRequest();
     try {
       const data = await oauthApi.sciotteLogin({
         email,
@@ -337,7 +340,7 @@ export function SciotteLoginModal({
         method,
         target,
         ...(notice ? { tos_consent: consentAccepted } : {}),
-      });
+      }, { signal });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -362,12 +365,14 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
+      // The window was closed: nothing is left to tell.
+      if (signal.aborted) return;
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, onClose, onConnected, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, onClose, onConnected, refusalMessage, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -381,8 +386,9 @@ export function SciotteLoginModal({
     else if (optionId !== 'poll') setPhase('verifying');
     setStatus(optionId === 'app' ? t('app.approveOnDevice') : t('app.verifying'));
 
+    const signal = beginRequest();
     try {
-      const data = await oauthApi.sciotteSelect2FA(optionId);
+      const data = await oauthApi.sciotteSelect2FA(optionId, { signal });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -405,12 +411,13 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
+      if (signal.aborted) return;
       setError(continuationError(err));
       setPhase('error');
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) setIsLoading(false);
     }
-  }, [continuationError, onClose, onConnected, t]);
+  }, [beginRequest, continuationError, onClose, onConnected, t]);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -431,8 +438,9 @@ export function SciotteLoginModal({
     setPhase('verifying');
     setStatus(t('app.verifyingCode'));
 
+    const signal = beginRequest();
     try {
-      const data = await oauthApi.sciotteSubmitOTP(otpCode);
+      const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -451,12 +459,13 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
+      if (signal.aborted) return;
       setError(continuationError(err));
       setPhase('error');
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) setIsLoading(false);
     }
-  }, [otpCode, continuationError, onClose, onConnected, t]);
+  }, [otpCode, beginRequest, continuationError, onClose, onConnected, t]);
 
   // A provider that signs in with its own credentials draws the form's mark on
   // its own colour, not the email row's Strava orange.

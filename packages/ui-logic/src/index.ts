@@ -62,6 +62,7 @@ export {
   type UseConfirmDialogReturn,
   useConfirmDialog,
 } from './useModal';
+export { useAbortOnClose } from './useAbortOnClose';
 
 // API error classification — one classifier for web and mobile, so a failed
 // request is named by its transport state and status, never by matching on
