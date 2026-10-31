@@ -98,7 +98,7 @@ fn reader(resources: &Arc<ServerContext>, athlete: &Athlete) -> UserProvidedProv
     let repos = &resources.common.repos;
     UserProvidedProvider::upload(
         OwnerStores::from_repos(repos, athlete.user_id, athlete.tenant),
-        Arc::clone(&repos.uploaded_activity_files),
+        Arc::clone(&resources.common.originals),
     )
 }
 
@@ -215,9 +215,8 @@ async fn seed_gap_filled_row(
 async fn drop_file(resources: &Arc<ServerContext>, athlete: &Athlete, file: &[u8]) {
     let dropped = resources
         .common
-        .repos
-        .uploaded_activity_files
-        .delete_uploaded_file(&athlete.tenant, athlete.user_id, &file_sha256(file))
+        .originals
+        .delete_upload(&athlete.tenant, athlete.user_id, &file_sha256(file))
         .await
         .unwrap();
     assert!(dropped, "test setup: the uploaded file was kept");
@@ -327,9 +326,10 @@ async fn the_backfill_stores_an_earlier_uploads_samples_once() {
     // An upload made before the store held uploads: its file, no row.
     drop_row(&resources, &athlete, &id).await;
 
-    let first = run_upload_streams_backfill_pass(&resources.common.repos)
-        .await
-        .unwrap();
+    let first =
+        run_upload_streams_backfill_pass(&resources.common.repos, &resources.common.originals)
+            .await
+            .unwrap();
 
     assert_eq!(
         first,
@@ -354,9 +354,10 @@ async fn the_backfill_stores_an_earlier_uploads_samples_once() {
         ),
         "the backfilled row says it came from an upload and names the file"
     );
-    let second = run_upload_streams_backfill_pass(&resources.common.repos)
-        .await
-        .unwrap();
+    let second =
+        run_upload_streams_backfill_pass(&resources.common.repos, &resources.common.originals)
+            .await
+            .unwrap();
     assert_eq!(
         second,
         UploadStreamsBackfillReport::default(),
@@ -373,9 +374,10 @@ async fn the_backfill_passes_over_an_upload_whose_file_is_gone() {
     drop_row(&resources, &athlete, &id).await;
     drop_file(&resources, &athlete, &file).await;
 
-    let report = run_upload_streams_backfill_pass(&resources.common.repos)
-        .await
-        .unwrap();
+    let report =
+        run_upload_streams_backfill_pass(&resources.common.repos, &resources.common.originals)
+            .await
+            .unwrap();
 
     assert_eq!(
         report,
@@ -446,9 +448,10 @@ async fn a_gap_filled_upload_row_is_replayed_from_its_file() {
         "a gap-filled row is never read: the file is decoded again"
     );
 
-    let report = run_upload_streams_backfill_pass(&resources.common.repos)
-        .await
-        .unwrap();
+    let report =
+        run_upload_streams_backfill_pass(&resources.common.repos, &resources.common.originals)
+            .await
+            .unwrap();
     assert_eq!(
         report,
         UploadStreamsBackfillReport {
@@ -469,7 +472,7 @@ async fn a_gap_filled_upload_row_is_replayed_from_its_file() {
         "the replayed row is the file's decoded series"
     );
     assert_eq!(
-        run_upload_streams_backfill_pass(&resources.common.repos)
+        run_upload_streams_backfill_pass(&resources.common.repos, &resources.common.originals)
             .await
             .unwrap(),
         UploadStreamsBackfillReport::default(),

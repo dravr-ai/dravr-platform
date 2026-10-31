@@ -9,11 +9,14 @@
 //! This module provides conversion functions from Terra's standardized data models
 //! to Pierre's unified fitness data models.
 
+use crate::constants::oauth_providers::TERRA;
 use crate::models::{
-    Activity, ActivityBuilder, FoodItem, HealthMetrics, MealEntry, MealType, NutritionLog,
-    RecoveryMetrics, SleepSession, SleepStage, SleepStageType, SportType,
+    Activity, ActivityBuilder, SportType, StoredDailyActivity, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession,
 };
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
+use dravr_equilibre::{SleepStage, SleepStageType};
+use uuid::Uuid;
 
 use super::constants::{
     TERRA_ACTIVITY_ALPINE_SKI, TERRA_ACTIVITY_BASKETBALL, TERRA_ACTIVITY_CROSSFIT,
@@ -30,7 +33,8 @@ use super::constants::{
     TERRA_SLEEP_STAGE_REM,
 };
 use super::models::{
-    TerraActivity, TerraBody, TerraDaily, TerraNutrition, TerraSleep, TerraSleepStage, TerraUser,
+    TerraActivity, TerraBody, TerraDaily, TerraSleep, TerraSleepDurations, TerraSleepStage,
+    TerraUser,
 };
 
 /// Converter utilities for Terra to Pierre models
@@ -117,21 +121,25 @@ impl TerraConverters {
         }
     }
 
-    /// Convert Terra activity to Pierre `Activity`
+    /// Convert Terra activity to Pierre `Activity`.
+    ///
+    /// `None` without a start time or a summary id: a workout is never dated
+    /// by the time it happened to arrive, and one with no id of Terra's own
+    /// would be stored again on every redelivery of the event.
     #[must_use]
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn activity_from_terra(terra: &TerraActivity, terra_user: &TerraUser) -> Activity {
-        let metadata = terra.metadata.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
-
-        let start_date = metadata.and_then(|m| m.start_time).unwrap_or_else(Utc::now);
-        let end_time = metadata.and_then(|m| m.end_time);
+    pub fn activity_from_terra(terra: &TerraActivity, terra_user: &TerraUser) -> Option<Activity> {
+        let metadata = terra.metadata.as_ref()?;
+        let start_date = metadata.start_time?.with_timezone(&Utc);
+        let summary_id = metadata.summary_id.clone()?;
+        let end_time = metadata.end_time;
 
         let duration_seconds = end_time
-            .map(|end| (end - start_date).num_seconds().unsigned_abs())
+            .map(|end| {
+                (end.with_timezone(&Utc) - start_date)
+                    .num_seconds()
+                    .unsigned_abs()
+            })
             .or_else(|| {
                 terra
                     .active_durations_data
@@ -142,21 +150,20 @@ impl TerraConverters {
             .unwrap_or(0);
 
         let metrics = Self::extract_activity_metrics(terra);
-        let sport_type =
-            Self::map_terra_activity_type(metadata.and_then(|m| m.activity_type).unwrap_or(0));
+        let sport_type = Self::map_terra_activity_type(metadata.activity_type.unwrap_or(0));
 
-        ActivityBuilder::new(
+        let activity = ActivityBuilder::new(
+            summary_id,
             metadata
-                .and_then(|m| m.summary_id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-            metadata
-                .and_then(|m| m.name.clone())
+                .name
+                .clone()
                 .unwrap_or_else(|| sport_type.display_name().to_owned()),
             sport_type,
             start_date,
             duration_seconds,
-            provider_name,
+            TERRA,
         )
+        .source_opt(terra_user.provider.as_ref().map(|p| p.to_lowercase()))
         .distance_meters_opt(metrics.distance_meters)
         .elevation_gain_opt(metrics.elevation_gain)
         .average_heart_rate_opt(metrics.average_heart_rate)
@@ -179,125 +186,79 @@ impl TerraConverters {
         .suffer_score_opt(metrics.suffer_score)
         .start_latitude_opt(metrics.start_latitude)
         .start_longitude_opt(metrics.start_longitude)
-        .city_opt(metadata.and_then(|m| m.city.clone()))
-        .country_opt(metadata.and_then(|m| m.country.clone()))
-        .sport_type_detail_opt(metadata.and_then(|m| m.name.clone()))
-        .build()
+        .city_opt(metadata.city.clone())
+        .country_opt(metadata.country.clone())
+        .sport_type_detail_opt(metadata.name.clone())
+        .build();
+        Some(activity)
     }
 
-    /// Convert Terra sleep data to Pierre `SleepSession`
+    /// The night a Terra sleep summary describes, as the wellness store
+    /// keeps nights: unstamped (no user or data source yet, the writer files
+    /// it), named `terra`.
     ///
-    /// Casts are validated by physiological constraints (sleep times in minutes, etc.)
+    /// `None` without both a start and an end: a night is never dated by the
+    /// time it happened to arrive.
     #[must_use]
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    pub fn sleep_from_terra(terra: &TerraSleep, terra_user: &TerraUser) -> SleepSession {
-        let metadata = terra.metadata.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
-
-        let start_time = metadata.and_then(|m| m.start_time).unwrap_or_else(Utc::now);
-        let end_time = metadata.and_then(|m| m.end_time).unwrap_or_else(Utc::now);
-
+    pub fn night_from_terra(terra: &TerraSleep) -> Option<StoredSleepSession> {
+        let metadata = terra.metadata.as_ref()?;
+        let start = metadata.start_time?.with_timezone(&Utc);
+        let end = metadata.end_time?.with_timezone(&Utc);
         let durations = terra.sleep_durations_data.as_ref();
-
-        // Calculate times in minutes
-        let in_bed_seconds = durations
-            .and_then(|d| d.in_bed_seconds)
-            .unwrap_or_else(|| (end_time - start_time).num_seconds() as f64);
-        let time_in_bed = (in_bed_seconds / 60.0) as u32;
-
-        let asleep_seconds = durations.and_then(|d| d.asleep_seconds).unwrap_or(0.0);
-        let total_sleep_time = (asleep_seconds / 60.0) as u32;
-
-        // Calculate efficiency
-        let sleep_efficiency = if time_in_bed > 0 {
-            (total_sleep_time as f32 / time_in_bed as f32) * 100.0
-        } else {
-            durations
-                .and_then(|d| d.sleep_efficiency)
-                .map_or(0.0, |e| e as f32)
+        let seconds = |field: fn(&TerraSleepDurations) -> Option<f64>| {
+            durations.and_then(field).and_then(whole_seconds)
         };
-
-        // Convert sleep stages
-        let stages = durations
-            .and_then(|d| d.sleep_stages.as_ref())
-            .map(|stages| {
-                stages
-                    .iter()
-                    .filter_map(Self::convert_sleep_stage)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Extract HR/HRV during sleep
-        let hr_data = terra.heart_rate_data.as_ref();
-        let hrv_during_sleep = hr_data.and_then(|h| h.avg_hrv_rmssd);
-
-        // Extract respiratory rate
-        let respiratory_rate = terra
-            .respiration_data
-            .as_ref()
-            .and_then(|r| r.avg_breaths_per_minute)
-            .map(|r| r as f32);
-
-        // Extract temperature variation
-        let temperature_variation = terra
-            .temperature_data
-            .as_ref()
-            .and_then(|t| t.delta_temperature_celsius)
-            .map(|t| t as f32);
-
-        // Extract readiness as sleep score
-        let sleep_score = terra
-            .readiness_data
-            .as_ref()
-            .and_then(|r| r.recovery_score.or(r.readiness_score))
-            .map(|s| s as f32);
-
-        SleepSession {
-            id: metadata
-                .and_then(|m| m.summary_id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-            start_time,
-            end_time,
-            time_in_bed,
-            total_sleep_time,
+        let hr = terra.heart_rate_data.as_ref();
+        let total_sleep_seconds = seconds(|d| d.asleep_seconds);
+        let sleep_efficiency = durations.and_then(|d| d.sleep_efficiency).or_else(|| {
+            let in_bed = durations.and_then(|d| d.in_bed_seconds)?;
+            let asleep = durations.and_then(|d| d.asleep_seconds)?;
+            (in_bed > 0.0).then(|| asleep / in_bed * 100.0)
+        });
+        Some(StoredSleepSession {
+            id: Uuid::new_v4().to_string(),
+            user_id: String::new(),
+            data_source_id: String::new(),
+            is_nap: false,
+            start_datetime: start,
+            end_datetime: end,
+            total_sleep_seconds,
+            deep_sleep_seconds: seconds(|d| d.deep_sleep_seconds),
+            light_sleep_seconds: seconds(|d| d.light_sleep_seconds),
+            rem_sleep_seconds: seconds(|d| d.rem_sleep_seconds),
+            awake_seconds: seconds(|d| d.awake_seconds),
             sleep_efficiency,
-            sleep_score,
-            stages,
-            hrv_during_sleep,
-            respiratory_rate,
-            temperature_variation,
-            wake_count: durations.and_then(|d| d.num_awakenings).map(|n| n as u32),
-            sleep_onset_latency: durations
-                .and_then(|d| d.sleep_latency_seconds)
-                .map(|s| (s / 60.0) as u32),
-            provider: provider_name,
-        }
-    }
-
-    /// Convert Terra sleep stage to Pierre `SleepStage`
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn convert_sleep_stage(terra_stage: &TerraSleepStage) -> Option<SleepStage> {
-        let start_time = terra_stage.start_time?;
-        let end_time = terra_stage.end_time?;
-        let stage_type = Self::map_terra_sleep_stage(terra_stage.stage.unwrap_or(0));
-        let duration_minutes = ((end_time - start_time).num_seconds() / 60) as u32;
-
-        Some(SleepStage {
-            stage_type,
-            start_time,
-            duration_minutes,
+            avg_heart_rate: hr.and_then(|h| h.avg_hr_bpm),
+            min_heart_rate: hr.and_then(|h| h.min_hr_bpm).and_then(score),
+            avg_hrv: hr.and_then(|h| h.avg_hrv_rmssd),
+            sleep_score: None,
+            avg_spo2: None,
+            stages: durations
+                .and_then(|d| d.sleep_stages.as_ref())
+                .map(|stages| {
+                    stages
+                        .iter()
+                        .filter_map(Self::convert_sleep_stage)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            source_name: TERRA.to_owned(),
         })
     }
 
-    /// Map Terra sleep stage code to Pierre `SleepStageType`
+    /// Convert a Terra sleep stage to a stored night's stage.
+    fn convert_sleep_stage(terra_stage: &TerraSleepStage) -> Option<SleepStage> {
+        let start = terra_stage.start_time?;
+        let end = terra_stage.end_time?;
+        Some(SleepStage {
+            stage_type: Self::map_terra_sleep_stage(terra_stage.stage.unwrap_or(0)),
+            start,
+            end,
+            duration_seconds: u32::try_from((end - start).num_seconds()).ok()?,
+        })
+    }
+
+    /// Map Terra sleep stage code to a stored stage type
     ///
     /// Terra sleep stage codes:
     /// - 1: Awake
@@ -314,213 +275,142 @@ impl TerraConverters {
         }
     }
 
-    /// Convert Terra body data to Pierre `HealthMetrics`
+    /// The recovery readings a Terra sleep summary carries, on the local date
+    /// the night ended: resting heart rate, HRV, respiration, the skin
+    /// temperature deviation, and the readiness and recovery scores the
+    /// relayed service computed.
     ///
-    /// Casts are validated by physiological constraints
+    /// `None` without an end time, or when the summary carries none of them.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn health_from_terra(terra: &TerraBody, terra_user: &TerraUser) -> HealthMetrics {
-        let metadata = terra.metadata.as_ref();
-        let measurements = terra.measurements_data.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
-
-        let date = metadata.and_then(|m| m.start_time).unwrap_or_else(Utc::now);
-
-        HealthMetrics {
-            date,
-            weight: measurements.and_then(|m| m.weight_kg),
-            body_fat_percentage: measurements
-                .and_then(|m| m.body_fat_percentage)
-                .map(|f| f as f32),
-            muscle_mass: measurements.and_then(|m| m.muscle_mass_kg),
-            bone_mass: measurements.and_then(|m| m.bone_mass_kg),
-            body_water_percentage: measurements
-                .and_then(|m| m.body_water_percentage)
-                .map(|w| w as f32),
-            bmr: measurements.and_then(|m| m.bmr).map(|b| b as u32),
-            blood_pressure: measurements.and_then(|m| {
-                match (m.blood_pressure_systolic, m.blood_pressure_diastolic) {
-                    (Some(sys), Some(dia)) => Some((sys as u32, dia as u32)),
-                    _ => None,
-                }
-            }),
-            blood_glucose: measurements
-                .and_then(|m| m.blood_glucose_mg_per_dl)
-                .map(|g| g as f32),
-            vo2_max: None,
-            provider: provider_name,
-        }
-    }
-
-    /// Convert Terra daily data to Pierre `RecoveryMetrics`
-    ///
-    /// Casts are validated by score ranges (0-100)
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn recovery_from_terra_daily(
-        terra: &TerraDaily,
-        terra_user: &TerraUser,
-    ) -> RecoveryMetrics {
-        let metadata = terra.metadata.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
-
-        let date = metadata.and_then(|m| m.start_time).unwrap_or_else(Utc::now);
-
-        let scores = terra.scores.as_ref();
-        let stress = terra.stress_data.as_ref();
-        let hr_data = terra.heart_rate_data.as_ref();
-
-        RecoveryMetrics {
-            date,
-            recovery_score: scores.and_then(|s| s.recovery_score).map(|r| r as f32),
-            readiness_score: scores.and_then(|s| s.activity_score).map(|a| a as f32),
-            hrv_status: None,
-            sleep_score: scores.and_then(|s| s.sleep_score).map(|s| s as f32),
-            stress_level: stress.and_then(|s| s.avg_stress_level).map(|l| l as f32),
-            training_load: None,
-            resting_heart_rate: hr_data.and_then(|h| h.resting_hr_bpm).map(|r| r as u32),
-            body_temperature: None,
-            resting_respiratory_rate: None,
-            provider: provider_name,
-        }
-    }
-
-    /// Convert Terra sleep readiness to Pierre `RecoveryMetrics`
-    ///
-    /// Casts are validated by score ranges and physiological constraints
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn recovery_from_terra_sleep(
-        terra: &TerraSleep,
-        terra_user: &TerraUser,
-    ) -> RecoveryMetrics {
-        let metadata = terra.metadata.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
-
-        let date = metadata.and_then(|m| m.end_time).unwrap_or_else(Utc::now);
+    pub fn night_recovery_from_terra(terra: &TerraSleep) -> Option<StoredRecoveryMetrics> {
+        let end = terra.metadata.as_ref()?.end_time?;
+        let hr = terra.heart_rate_data.as_ref();
         let readiness = terra.readiness_data.as_ref();
-        let hr_data = terra.heart_rate_data.as_ref();
-        let temp = terra.temperature_data.as_ref();
-
-        RecoveryMetrics {
-            date,
-            recovery_score: readiness.and_then(|r| r.recovery_score).map(|s| s as f32),
-            readiness_score: readiness.and_then(|r| r.readiness_score).map(|s| s as f32),
-            hrv_status: readiness.and_then(|r| r.hrv_balance).map(|h| {
-                if h > 0.0 {
-                    "above_baseline".to_owned()
-                } else if h < 0.0 {
-                    "below_baseline".to_owned()
-                } else {
-                    "normal".to_owned()
-                }
-            }),
-            sleep_score: readiness.and_then(|r| r.sleep_balance).map(|s| s as f32),
-            stress_level: None,
-            training_load: readiness.and_then(|r| r.activity_balance).map(|a| a as f32),
-            resting_heart_rate: hr_data.and_then(|h| h.resting_hr_bpm).map(|r| r as u32),
-            body_temperature: temp
-                .and_then(|t| t.delta_temperature_celsius)
-                .map(|d| d as f32),
-            resting_respiratory_rate: terra
+        let day = StoredRecoveryMetrics {
+            recovery_score: readiness.and_then(|r| r.recovery_score).and_then(score),
+            readiness_score: readiness.and_then(|r| r.readiness_score).and_then(score),
+            hrv_rmssd: hr.and_then(|h| h.avg_hrv_rmssd),
+            resting_heart_rate: hr.and_then(|h| h.resting_hr_bpm).and_then(score),
+            respiratory_rate: terra
                 .respiration_data
                 .as_ref()
-                .and_then(|r| r.avg_breaths_per_minute)
-                .map(|r| r as f32),
-            provider: provider_name,
-        }
+                .and_then(|r| r.avg_breaths_per_minute),
+            skin_temp_deviation: terra
+                .temperature_data
+                .as_ref()
+                .and_then(|t| t.delta_temperature_celsius),
+            ..empty_recovery(end)
+        };
+        has_recovery_reading(&day).then_some(day)
     }
 
-    /// Convert Terra nutrition data to Pierre `NutritionLog`
+    /// The recovery readings a Terra daily summary carries, on its local
+    /// date: resting heart rate, HRV, stress and the recovery score.
+    ///
+    /// `None` without a start time, or when the summary carries none of them.
     #[must_use]
-    pub fn nutrition_from_terra(terra: &TerraNutrition, terra_user: &TerraUser) -> NutritionLog {
-        let metadata = terra.metadata.as_ref();
-        let summary = terra.summary.as_ref();
-        let provider_name = terra_user.provider.as_ref().map_or_else(
-            || "terra".to_owned(),
-            |p| format!("terra:{}", p.to_lowercase()),
-        );
+    pub fn day_recovery_from_terra(terra: &TerraDaily) -> Option<StoredRecoveryMetrics> {
+        let start = terra.metadata.as_ref()?.start_time?;
+        let hr = terra.heart_rate_data.as_ref();
+        let day = StoredRecoveryMetrics {
+            recovery_score: terra
+                .scores
+                .as_ref()
+                .and_then(|s| s.recovery_score)
+                .and_then(score),
+            hrv_rmssd: hr.and_then(|h| h.avg_hrv_rmssd),
+            resting_heart_rate: hr.and_then(|h| h.resting_hr_bpm).and_then(score),
+            stress_score: terra
+                .stress_data
+                .as_ref()
+                .and_then(|s| s.avg_stress_level)
+                .and_then(score),
+            ..empty_recovery(start)
+        };
+        has_recovery_reading(&day).then_some(day)
+    }
 
-        let date = metadata.and_then(|m| m.start_time).unwrap_or_else(Utc::now);
+    /// A Terra daily summary's activity totals, on its local date: steps,
+    /// active and total calories, and the minutes at moderate or vigorous
+    /// intensity.
+    ///
+    /// `None` without a start time, or when the summary carries none of them.
+    #[must_use]
+    pub fn day_activity_from_terra(terra: &TerraDaily) -> Option<StoredDailyActivity> {
+        let start = terra.metadata.as_ref()?.start_time?;
+        let calories = terra.calories_data.as_ref();
+        let durations = terra.active_durations_data.as_ref();
+        let intensity_minutes = durations.and_then(|d| {
+            let moderate = d.moderate_intensity_seconds;
+            let vigorous = d.vigorous_intensity_seconds;
+            if moderate.is_none() && vigorous.is_none() {
+                return None;
+            }
+            whole_seconds((moderate.unwrap_or(0.0) + vigorous.unwrap_or(0.0)) / 60.0)
+        });
+        let day = StoredDailyActivity {
+            id: Uuid::new_v4().to_string(),
+            user_id: String::new(),
+            data_source_id: String::new(),
+            date: start.date_naive(),
+            steps: terra
+                .distance_data
+                .as_ref()
+                .and_then(|d| d.steps)
+                .and_then(|s| u32::try_from(s).ok()),
+            active_kcal: calories.and_then(|c| c.activity_burned_calories),
+            total_kcal: calories.and_then(|c| c.total_burned_calories),
+            intensity_minutes,
+            source_name: TERRA.to_owned(),
+            recorded_at: start.with_timezone(&Utc),
+        };
+        (day.steps.is_some()
+            || day.active_kcal.is_some()
+            || day.total_kcal.is_some()
+            || day.intensity_minutes.is_some())
+        .then_some(day)
+    }
 
-        // Convert meals
-        let meals = terra
-            .meals
-            .as_ref()
-            .map(|meals| {
-                meals
-                    .iter()
-                    .map(|m| {
-                        let macros = m.macros.as_ref();
-                        MealEntry {
-                            meal_type: m
-                                .name
-                                .as_ref()
-                                .map_or(MealType::Other, |n| MealType::from_str_lossy(n)),
-                            timestamp: m.timestamp,
-                            name: m.name.clone(),
-                            calories: macros.and_then(|ma| ma.calories),
-                            protein_g: macros.and_then(|ma| ma.protein_g),
-                            carbohydrates_g: macros.and_then(|ma| ma.carbohydrates_g),
-                            fat_g: macros.and_then(|ma| ma.fat_g),
-                            food_items: m
-                                .food_items
-                                .as_ref()
-                                .map(|items| {
-                                    items
-                                        .iter()
-                                        .filter_map(|item| {
-                                            item.name.as_ref().map(|name| {
-                                                let item_macros = item.macros.as_ref();
-                                                FoodItem {
-                                                    name: name.clone(),
-                                                    brand: item.brand.clone(),
-                                                    serving_size: item.serving_size,
-                                                    serving_unit: item.serving_unit.clone(),
-                                                    servings: item.servings,
-                                                    calories: item.calories,
-                                                    protein_g: item_macros
-                                                        .and_then(|m| m.protein_g),
-                                                    carbohydrates_g: item_macros
-                                                        .and_then(|m| m.carbohydrates_g),
-                                                    fat_g: item_macros.and_then(|m| m.fat_g),
-                                                }
-                                            })
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default(),
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        NutritionLog {
-            id: metadata
-                .and_then(|m| m.summary_id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-            date,
-            total_calories: summary.and_then(|s| s.calories),
-            protein_g: summary.and_then(|s| s.protein_g),
-            carbohydrates_g: summary.and_then(|s| s.carbohydrates_g),
-            fat_g: summary.and_then(|s| s.fat_g),
-            fiber_g: summary.and_then(|s| s.fiber_g),
-            sugar_g: summary.and_then(|s| s.sugar_g),
-            sodium_mg: summary.and_then(|s| s.sodium_mg),
-            water_ml: summary.and_then(|s| s.water_ml),
-            meals,
-            provider: provider_name,
-        }
+    /// A Terra body summary's measurements, on the local date it was taken:
+    /// weight, composition, BMI, blood pressure and glucose.
+    ///
+    /// `None` without a start time, or when the summary carries none of them.
+    #[must_use]
+    pub fn body_from_terra(terra: &TerraBody) -> Option<StoredHealthMetrics> {
+        let start = terra.metadata.as_ref()?.start_time?;
+        let m = terra.measurements_data.as_ref()?;
+        let (systolic_bp, diastolic_bp) =
+            match (m.blood_pressure_systolic, m.blood_pressure_diastolic) {
+                (Some(sys), Some(dia)) => (score(sys), score(dia)),
+                _ => (None, None),
+            };
+        let body = StoredHealthMetrics {
+            id: Uuid::new_v4().to_string(),
+            user_id: String::new(),
+            data_source_id: String::new(),
+            date: start.date_naive(),
+            weight_kg: m.weight_kg,
+            body_fat_pct: m.body_fat_percentage,
+            muscle_mass_kg: m.muscle_mass_kg,
+            bmi: m.bmi,
+            bone_mass_kg: m.bone_mass_kg,
+            water_pct: m.body_water_percentage,
+            systolic_bp,
+            diastolic_bp,
+            blood_glucose: m.blood_glucose_mg_per_dl,
+            vo2_max: None,
+            source_name: TERRA.to_owned(),
+            recorded_at: start.with_timezone(&Utc),
+        };
+        (body.weight_kg.is_some()
+            || body.body_fat_pct.is_some()
+            || body.muscle_mass_kg.is_some()
+            || body.bmi.is_some()
+            || body.bone_mass_kg.is_some()
+            || body.water_pct.is_some()
+            || body.systolic_bp.is_some()
+            || body.blood_glucose.is_some())
+        .then_some(body)
     }
 
     /// Map Terra activity type code to Pierre `SportType`
@@ -584,4 +474,54 @@ impl TerraConverters {
             _ => SportType::Workout,
         }
     }
+}
+
+/// A non-negative duration or count as a whole number, rounded; `None` when
+/// it is negative, not finite, or past `u32`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn whole_seconds(value: f64) -> Option<u32> {
+    let rounded = value.round();
+    (rounded.is_finite() && (0.0..=f64::from(u32::MAX)).contains(&rounded))
+        .then_some(rounded as u32)
+}
+
+/// A score, a heart rate or a pressure as the whole number the stores keep.
+fn score(value: f64) -> Option<u32> {
+    whole_seconds(value)
+}
+
+/// A recovery day on `at`'s local date, holding no reading yet: unstamped,
+/// named `terra`.
+fn empty_recovery(at: DateTime<FixedOffset>) -> StoredRecoveryMetrics {
+    StoredRecoveryMetrics {
+        id: Uuid::new_v4().to_string(),
+        user_id: String::new(),
+        data_source_id: String::new(),
+        date: at.date_naive(),
+        recovery_score: None,
+        readiness_score: None,
+        hrv_ms: None,
+        hrv_rmssd: None,
+        resting_heart_rate: None,
+        stress_score: None,
+        body_battery: None,
+        spo2: None,
+        respiratory_rate: None,
+        skin_temp_deviation: None,
+        daily_strain: None,
+        athlete_note: None,
+        source_name: TERRA.to_owned(),
+        recorded_at: at.with_timezone(&Utc),
+    }
+}
+
+/// Whether a recovery day holds any reading.
+const fn has_recovery_reading(day: &StoredRecoveryMetrics) -> bool {
+    day.recovery_score.is_some()
+        || day.readiness_score.is_some()
+        || day.hrv_rmssd.is_some()
+        || day.resting_heart_rate.is_some()
+        || day.stress_score.is_some()
+        || day.respiratory_rate.is_some()
+        || day.skin_temp_deviation.is_some()
 }

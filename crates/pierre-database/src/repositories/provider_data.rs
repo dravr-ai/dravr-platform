@@ -14,9 +14,8 @@
 //! statements inside one transaction, so a failure part-way deletes nothing:
 //!
 //! - the provider's measurements: `sleep_sessions`, `recovery_metrics`,
-//!   `health_snapshots`, `daily_activity`, the `data_point_series` points and
-//!   their daily `data_point_series_archive` rollups, and the `data_sources`
-//!   rows naming the provider's devices;
+//!   `health_snapshots`, `daily_activity`, the `data_point_series` points,
+//!   and the `data_sources` rows naming the provider's devices;
 //! - its activities: `cached_activities`, the route each one drew in
 //!   `activity_route_tracks`, the samples a provider pushed for each in
 //!   `activity_streams` (its `origin = 'push'` rows only: uploaded and

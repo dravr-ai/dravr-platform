@@ -344,7 +344,7 @@ impl AuthService {
         Ok(Box::new(UserProvidedProvider::for_key(
             key,
             OwnerStores::from_repos(repos, user_id, tenant),
-            Arc::clone(&repos.uploaded_activity_files),
+            Arc::clone(self.resources.originals()),
         )))
     }
 

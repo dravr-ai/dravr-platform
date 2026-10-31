@@ -1,28 +1,29 @@
 // ABOUTME: Integration tests for Terra provider (150+ wearables unified API)
-// ABOUTME: Tests cover converters, cache, webhook handling, and provider functionality
-//
+// ABOUTME: Converters, webhook parsing into records, the store sink, reads from the activity cache, signatures
+
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Terra Provider Integration Tests
 //!
-//! Tests for the Terra provider module including:
-//! - Model converters (Terra JSON to Pierre models)
-//! - Data cache operations
-//! - Webhook signature validation and processing
-//! - Provider trait implementation
+//! - Model converters (Terra JSON to the activity and wellness records)
+//! - Webhook parsing into records, and the sink that stores them
+//! - The provider's reads, answered from the activity cache
+//! - Webhook signature validation
 
 #![cfg(feature = "provider-terra")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
-use pierre_core::models::{
-    Activity, ActivityBuilder, HealthMetrics, MealType, RecoveryMetrics, SleepSession, SportType,
-};
-use pierre_core::pagination::{PaginationDirection, PaginationParams};
-use pierre_providers::core::FitnessProvider;
+use std::sync::Arc;
+
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, TimeZone, Utc};
+use pierre_core::models::{MealType, SportType, TenantId};
+use pierre_core::pagination::PaginationParams;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::services::terra_ingest::{store_terra_records, TerraStored};
+use pierre_providers::core::{FitnessProvider, OwnerStores};
 use pierre_providers::spi::ProviderDescriptor;
 use pierre_providers::terra::models::{
     TerraActivity, TerraCaloriesData, TerraDistanceData, TerraMetadata, TerraUser,
@@ -31,12 +32,14 @@ use pierre_providers::terra::webhook::{
     SignatureValidation, WebhookResult, WebhookSignatureValidator,
 };
 use pierre_providers::terra::{
-    TerraApiClient, TerraApiConfig, TerraConverters, TerraDataCache, TerraDescriptor,
-    TerraProvider, TerraWebhookHandler,
+    TerraApiClient, TerraApiConfig, TerraConverters, TerraDescriptor, TerraProvider, TerraRecords,
+    TerraWebhookHandler,
 };
 use ring::hmac;
 use secrecy::SecretString;
-use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::common;
 
 // ============================================================================
 // Helper Functions
@@ -51,16 +54,83 @@ fn make_test_user() -> TerraUser {
     }
 }
 
-fn make_test_activity(id: &str, hours_ago: i64) -> Activity {
-    ActivityBuilder::new(
-        id,
-        format!("Test Activity {id}"),
-        SportType::Run,
-        Utc::now() - Duration::hours(hours_ago),
-        3600,
-        "terra:garmin",
-    )
-    .build()
+/// `text`, an RFC 3339 time with its offset, as Terra sends one.
+fn at(text: &str) -> DateTime<FixedOffset> {
+    DateTime::parse_from_rfc3339(text).unwrap()
+}
+
+/// A server context and an athlete with a tenant.
+async fn athlete() -> (Arc<ServerContext>, (TenantId, Uuid)) {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("terra_{}@example.com", Uuid::new_v4());
+    let (user_id, _) = common::create_test_user_with_email(&resources.agent.database, &email)
+        .await
+        .unwrap();
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .get_all()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.owner_user_id == user_id)
+        .expect("the athlete owns a tenant")
+        .id;
+    let tenant = TenantId::parse_str(&tenant.to_string()).unwrap();
+    (resources, (tenant, user_id))
+}
+
+/// A Terra provider bound to the athlete's stores, as the auth layer binds it.
+fn bound_provider(resources: &ServerContext, (tenant, user_id): (TenantId, Uuid)) -> TerraProvider {
+    let repos = &resources.common.repos;
+    let provider = TerraProvider::new();
+    provider.bind_owner_stores(OwnerStores {
+        activity_cache: Arc::clone(&repos.activity_cache),
+        activity_streams: Arc::clone(&repos.activity_streams),
+        user_id,
+        tenant_id: tenant,
+    });
+    provider
+}
+
+/// The records a webhook `payload` parses into.
+fn records_of(payload: &serde_json::Value) -> (Option<String>, TerraRecords) {
+    match TerraWebhookHandler::new().process(payload.to_string().as_bytes()) {
+        WebhookResult::Success {
+            relayed_from,
+            records,
+            ..
+        } => (relayed_from, *records),
+        other => panic!("bug: a data event must parse into records, got {other:?}"),
+    }
+}
+
+/// A Terra activity event of `count` runs, one a day, the newest on
+/// 2024-01-15, each starting at 08:00 in Montreal (UTC-5).
+fn activity_event(count: u32) -> serde_json::Value {
+    let data: Vec<serde_json::Value> = (0..count)
+        .map(|i| {
+            let day = 15 - i;
+            serde_json::json!({
+                "metadata": {
+                    "summary_id": format!("act_{day:03}"),
+                    "name": format!("Run {day}"),
+                    "start_time": format!("2024-01-{day:02}T08:00:00-05:00"),
+                    "end_time": format!("2024-01-{day:02}T09:00:00-05:00"),
+                    "type": 1
+                },
+                "distance_data": { "distance_meters": 5000.0 },
+                "calories_data": { "total_burned_calories": 400.0 }
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "type": "activity",
+        "user": { "user_id": "test_user_123", "provider": "GARMIN" },
+        "data": data
+    })
 }
 
 // ============================================================================
@@ -71,8 +141,8 @@ fn make_test_activity(id: &str, hours_ago: i64) -> Activity {
 fn test_activity_conversion() {
     let terra_activity = TerraActivity {
         metadata: Some(TerraMetadata {
-            start_time: Some(Utc::now()),
-            end_time: Some(Utc::now() + Duration::hours(1)),
+            start_time: Some(at("2024-01-15T08:00:00-05:00")),
+            end_time: Some(at("2024-01-15T09:00:00-05:00")),
             activity_type: Some(1), // Running
             name: Some("Morning Run".to_owned()),
             summary_id: Some("act_123".to_owned()),
@@ -94,7 +164,8 @@ fn test_activity_conversion() {
     };
 
     let user = make_test_user();
-    let activity = TerraConverters::activity_from_terra(&terra_activity, &user);
+    let activity = TerraConverters::activity_from_terra(&terra_activity, &user)
+        .expect("a timed activity with a summary id converts");
 
     assert_eq!(activity.id(), "act_123");
     assert_eq!(activity.name(), "Morning Run");
@@ -104,7 +175,26 @@ fn test_activity_conversion() {
     assert_eq!(activity.calories(), Some(400));
     assert_eq!(activity.steps(), Some(5500));
     assert_eq!(activity.city(), Some("Montreal"));
-    assert_eq!(activity.provider(), "terra:garmin");
+    assert_eq!(
+        activity.duration_seconds(),
+        3600,
+        "bug: one hour, offset kept"
+    );
+    assert_eq!(
+        activity.start_date(),
+        Utc.with_ymd_and_hms(2024, 1, 15, 13, 0, 0).unwrap(),
+        "bug: 08:00 at UTC-5 is 13:00 UTC"
+    );
+    assert_eq!(
+        activity.provider(),
+        "terra",
+        "bug: a Terra copy is cached under the provider key it is read by"
+    );
+    assert_eq!(
+        activity.source(),
+        Some("garmin"),
+        "bug: the copy names the service Terra relayed it from"
+    );
 }
 
 #[test]
@@ -129,9 +219,6 @@ fn test_sport_type_mapping() {
     );
 }
 
-// Sleep stage mapping is tested implicitly through sleep_from_terra tests
-// (map_terra_sleep_stage is private)
-
 #[test]
 fn test_meal_type_parsing() {
     assert_eq!(MealType::from_str_lossy("breakfast"), MealType::Breakfast);
@@ -141,89 +228,391 @@ fn test_meal_type_parsing() {
     assert_eq!(MealType::from_str_lossy("unknown"), MealType::Other);
 }
 
-// ============================================================================
-// Cache Tests
-// ============================================================================
+/// A night at UTC+10 ending at 07:00 there is that morning's, and a daily
+/// summary is its own local date: Terra's offsets date the records, never
+/// the UTC date and never the time they arrived.
+#[test]
+fn terra_records_take_their_local_dates() {
+    let (relayed_from, sleep) = records_of(&serde_json::json!({
+        "type": "sleep",
+        "user": { "user_id": "terra_u", "provider": "OURA" },
+        "data": [{
+            "metadata": {
+                "start_time": "2024-03-10T23:00:00+10:00",
+                "end_time": "2024-03-11T07:00:00+10:00"
+            },
+            "sleep_durations_data": {
+                "asleep_seconds": 25200.0,
+                "deep_sleep_seconds": 5400.0,
+                "rem_sleep_seconds": 6300.0,
+                "light_sleep_seconds": 13500.0,
+                "in_bed_seconds": 28800.0
+            },
+            "heart_rate_data": { "resting_hr_bpm": 48.0, "avg_hrv_rmssd": 72.5 },
+            "readiness_data": { "readiness_score": 81.0 }
+        }]
+    }));
+    assert_eq!(
+        relayed_from.as_deref(),
+        Some("OURA"),
+        "bug: the relayed service is named"
+    );
+    let [night] = sleep.nights.as_slice() else {
+        panic!("bug: one night, got {:?}", sleep.nights);
+    };
+    assert_eq!(night.total_sleep_seconds, Some(25_200), "bug: asleep time");
+    assert_eq!(night.deep_sleep_seconds, Some(5_400), "bug: deep sleep");
+    assert_eq!(
+        night.sleep_efficiency,
+        Some(87.5),
+        "bug: 7 h asleep in 8 h in bed"
+    );
+    assert_eq!(
+        night.start_datetime,
+        Utc.with_ymd_and_hms(2024, 3, 10, 13, 0, 0).unwrap(),
+        "bug: 23:00 at UTC+10 is 13:00 UTC"
+    );
+    let [recovery] = sleep.recovery.as_slice() else {
+        panic!("bug: one recovery day, got {:?}", sleep.recovery);
+    };
+    assert_eq!(
+        recovery.date,
+        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        "bug: the night's readings are the local morning's, not the UTC date (10th)"
+    );
+    assert_eq!(recovery.resting_heart_rate, Some(48), "bug: resting HR");
+    assert_eq!(
+        recovery.hrv_rmssd,
+        Some(72.5),
+        "bug: HRV is the rMSSD reading"
+    );
+    assert_eq!(recovery.readiness_score, Some(81), "bug: readiness");
 
-#[tokio::test]
-async fn test_store_and_retrieve_activities() {
-    let cache = TerraDataCache::new_in_memory();
-    let user_id = "test_user_123";
-
-    let activity1 = make_test_activity("act1", 2);
-    let activity2 = make_test_activity("act2", 1);
-
-    cache.store_activity(user_id, activity1).await;
-    cache.store_activity(user_id, activity2).await;
-
-    let activities = cache.get_activities(user_id, None, None).await;
-    assert_eq!(activities.len(), 2);
-    // Should be sorted by start_date descending (newest first)
-    assert_eq!(activities[0].id(), "act2");
-    assert_eq!(activities[1].id(), "act1");
+    let (_, daily) = records_of(&serde_json::json!({
+        "type": "daily",
+        "user": { "user_id": "terra_u", "provider": "GARMIN" },
+        "data": [{
+            "metadata": {
+                "start_time": "2024-03-11T00:00:00+10:00",
+                "end_time": "2024-03-12T00:00:00+10:00"
+            },
+            "distance_data": { "steps": 11234 },
+            "calories_data": { "total_burned_calories": 2650.0, "activity_burned_calories": 820.0 },
+            "active_durations_data": {
+                "moderate_intensity_seconds": 1800.0,
+                "vigorous_intensity_seconds": 1200.0
+            },
+            "heart_rate_data": { "resting_hr_bpm": 50.0 },
+            "stress_data": { "avg_stress_level": 31.0 }
+        }]
+    }));
+    let [day] = daily.daily_activity.as_slice() else {
+        panic!("bug: one day of totals, got {:?}", daily.daily_activity);
+    };
+    assert_eq!(
+        day.date,
+        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        "bug: a day starting at local midnight is its own date, not the UTC date (10th)"
+    );
+    assert_eq!(day.steps, Some(11_234), "bug: steps");
+    assert_eq!(day.active_kcal, Some(820.0), "bug: active energy");
+    assert_eq!(day.total_kcal, Some(2_650.0), "bug: total energy");
+    assert_eq!(
+        day.intensity_minutes,
+        Some(50),
+        "bug: 30 moderate + 20 vigorous minutes"
+    );
+    let [day_recovery] = daily.recovery.as_slice() else {
+        panic!(
+            "bug: one recovery day from the daily summary, got {:?}",
+            daily.recovery
+        );
+    };
+    assert_eq!(day_recovery.stress_score, Some(31), "bug: stress");
+    assert_eq!(day_recovery.resting_heart_rate, Some(50), "bug: resting HR");
 }
 
-#[tokio::test]
-async fn test_activity_pagination() {
-    let cache = TerraDataCache::new_in_memory();
-    let user_id = "test_user";
+/// A summary with no time is dropped, never dated by its arrival; one with
+/// no reading files nothing; nutrition, which Dravr keeps no store for, is
+/// answered as unhandled.
+#[test]
+fn terra_summaries_without_a_time_or_a_reading_file_nothing() {
+    let (_, untimed) = records_of(&serde_json::json!({
+        "type": "sleep",
+        "user": { "user_id": "terra_u" },
+        "data": [{ "sleep_durations_data": { "asleep_seconds": 25200.0 } }]
+    }));
+    assert!(
+        untimed.is_empty(),
+        "bug: an untimed night was dated: {untimed:?}"
+    );
 
-    for i in 0..10 {
-        cache
-            .store_activity(user_id, make_test_activity(&format!("act{i}"), i))
-            .await;
+    let (_, empty) = records_of(&serde_json::json!({
+        "type": "body",
+        "user": { "user_id": "terra_u" },
+        "data": [{ "metadata": { "start_time": "2024-03-11T07:00:00+10:00" } }]
+    }));
+    assert!(
+        empty.is_empty(),
+        "bug: a body summary with no measurement filed a day: {empty:?}"
+    );
+
+    let result = TerraWebhookHandler::new().process(
+        serde_json::json!({
+            "type": "nutrition",
+            "user": { "user_id": "terra_u" },
+            "data": [{ "metadata": { "start_time": "2024-03-11T07:00:00+10:00" } }]
+        })
+        .to_string()
+        .as_bytes(),
+    );
+    assert!(
+        matches!(&result, WebhookResult::Unhandled { event_type } if event_type == "nutrition"),
+        "bug: nutrition has no store and is not parsed into records, got {result:?}"
+    );
+}
+
+/// A Terra workout with no start time is never dated by its arrival, and
+/// one with no summary id of Terra's is never given a fresh id that every
+/// redelivery would store again: both file nothing.
+#[test]
+fn terra_activities_without_a_start_or_an_id_file_nothing() {
+    for (what, metadata) in [
+        (
+            "no start time",
+            serde_json::json!({ "summary_id": "act_1", "end_time": "2024-01-15T09:00:00-05:00" }),
+        ),
+        (
+            "no summary id",
+            serde_json::json!({
+                "start_time": "2024-01-15T08:00:00-05:00",
+                "end_time": "2024-01-15T09:00:00-05:00"
+            }),
+        ),
+    ] {
+        let (_, records) = records_of(&serde_json::json!({
+            "type": "activity",
+            "user": { "user_id": "terra_u", "provider": "GARMIN" },
+            "data": [{ "metadata": metadata, "distance_data": { "distance_meters": 5000.0 } }]
+        }));
+        assert!(
+            records.activities.is_empty(),
+            "bug: an activity with {what} was filed: {records:?}"
+        );
+    }
+}
+
+// ============================================================================
+// Store sink
+// ============================================================================
+
+/// What a Terra event carries lands where every ingress writes: the runs in
+/// `cached_activities` under `terra`, which the bound provider reads back,
+/// and the night, recovery and daily totals as rows the wellness store
+/// filed under a data source naming the relayed service.
+#[tokio::test]
+async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
+    let (resources, owner) = athlete().await;
+    let (tenant, user_id) = owner;
+    let repos = &resources.common.repos;
+    let received = Utc.with_ymd_and_hms(2024, 3, 12, 6, 0, 0).unwrap();
+
+    let (relayed_from, runs) = records_of(&activity_event(2));
+    let stored = store_terra_records(repos, owner, relayed_from.as_deref(), &runs, received)
+        .await
+        .unwrap();
+    assert_eq!(
+        stored,
+        TerraStored {
+            activities: 2,
+            ..TerraStored::default()
+        },
+        "bug: two runs, no wellness"
+    );
+
+    let (relayed_from, mut wellness) = records_of(&serde_json::json!({
+        "type": "sleep",
+        "user": { "user_id": "terra_u", "provider": "GARMIN" },
+        "data": [{
+            "metadata": {
+                "start_time": "2024-03-10T23:00:00-05:00",
+                "end_time": "2024-03-11T07:00:00-05:00"
+            },
+            "sleep_durations_data": { "asleep_seconds": 25200.0 },
+            "heart_rate_data": { "resting_hr_bpm": 48.0, "avg_hrv_rmssd": 72.5 }
+        }]
+    }));
+    let (_, daily) = records_of(&serde_json::json!({
+        "type": "daily",
+        "user": { "user_id": "terra_u", "provider": "GARMIN" },
+        "data": [{
+            "metadata": { "start_time": "2024-03-11T00:00:00-05:00" },
+            "distance_data": { "steps": 9000 },
+            "stress_data": { "avg_stress_level": 31.0 }
+        }]
+    }));
+    wellness.recovery.extend(daily.recovery);
+    wellness.daily_activity.extend(daily.daily_activity);
+    let stored = store_terra_records(repos, owner, relayed_from.as_deref(), &wellness, received)
+        .await
+        .unwrap();
+    assert_eq!(
+        stored,
+        TerraStored {
+            activities: 0,
+            nights: 1,
+            recovery: 2,
+            body: 0,
+            daily_activity: 1,
+        },
+        "bug: one night, two partial recovery summaries, one day of totals"
+    );
+
+    let cached = repos
+        .activity_cache
+        .get_cached_activities(
+            user_id,
+            &tenant,
+            Some("terra"),
+            DateTime::UNIX_EPOCH,
+            Utc::now(),
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(cached.len(), 2, "bug: both runs are cached under `terra`");
+
+    let window = (
+        Utc.with_ymd_and_hms(2024, 3, 9, 0, 0, 0).unwrap(),
+        Utc.with_ymd_and_hms(2024, 3, 13, 0, 0, 0).unwrap(),
+    );
+    let nights = repos
+        .sleep
+        .get_sleep_sessions(user_id, &tenant, window.0, window.1)
+        .await
+        .unwrap();
+    let [night] = nights.as_slice() else {
+        panic!("bug: one night stored, got {nights:?}");
+    };
+    assert_eq!(night.source_name, "terra", "bug: filed under the Terra key");
+    let recovery = repos
+        .recovery
+        .get_recovery_metrics(user_id, &tenant, window.0, window.1)
+        .await
+        .unwrap();
+    let [day] = recovery.as_slice() else {
+        panic!("bug: the sleep and daily summaries share one recovery day, got {recovery:?}");
+    };
+    assert_eq!(
+        day.date,
+        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        "bug: the local date"
+    );
+    assert_eq!(
+        day.resting_heart_rate,
+        Some(48),
+        "bug: the sleep summary's resting HR stays"
+    );
+    assert_eq!(
+        day.stress_score,
+        Some(31),
+        "bug: the daily summary's stress joins it"
+    );
+    assert_eq!(
+        day.data_source_id, night.data_source_id,
+        "bug: one data source for the connection's rows"
+    );
+    let sources = repos
+        .data_sources
+        .list_data_sources(user_id, &tenant)
+        .await
+        .unwrap();
+    let source = sources
+        .iter()
+        .find(|ds| ds.id == day.data_source_id)
+        .expect("the data source is recorded");
+    assert_eq!(
+        source.original_source_name.as_deref(),
+        Some("garmin"),
+        "bug: the data source names the service Terra relayed from"
+    );
+    let days = repos
+        .daily_activity
+        .get_daily_activity(user_id, &tenant, window.0, window.1)
+        .await
+        .unwrap();
+    assert_eq!(
+        days.iter().map(|d| d.steps).collect::<Vec<_>>(),
+        [Some(9_000)],
+        "bug: the day's totals are stored"
+    );
+}
+
+/// Each service Terra relays from keeps its own data source: a WHOOP night
+/// stays WHOOP's after a Garmin event for the same athlete, rather than
+/// taking the last relay's name.
+#[tokio::test]
+async fn each_relayed_service_keeps_its_own_data_source() {
+    let (resources, owner) = athlete().await;
+    let (tenant, user_id) = owner;
+    let repos = &resources.common.repos;
+    let received = Utc.with_ymd_and_hms(2024, 3, 12, 6, 0, 0).unwrap();
+    let night_from = |provider: &str, day: u32| {
+        serde_json::json!({
+            "type": "sleep",
+            "user": { "user_id": "terra_u", "provider": provider },
+            "data": [{
+                "metadata": {
+                    "start_time": format!("2024-03-{:02}T23:00:00-05:00", day - 1),
+                    "end_time": format!("2024-03-{day:02}T07:00:00-05:00")
+                },
+                "sleep_durations_data": { "asleep_seconds": 25200.0 }
+            }]
+        })
+    };
+    for (provider, day) in [("WHOOP", 10), ("GARMIN", 11)] {
+        let (relayed_from, records) = records_of(&night_from(provider, day));
+        store_terra_records(repos, owner, relayed_from.as_deref(), &records, received)
+            .await
+            .unwrap();
     }
 
-    let page1 = cache.get_activities(user_id, Some(3), Some(0)).await;
-    assert_eq!(page1.len(), 3);
-
-    let page2 = cache.get_activities(user_id, Some(3), Some(3)).await;
-    assert_eq!(page2.len(), 3);
-}
-
-#[tokio::test]
-async fn test_duplicate_prevention() {
-    let cache = TerraDataCache::new_in_memory();
-    let user_id = "test_user";
-
-    let activity = make_test_activity("act1", 1);
-    cache.store_activity(user_id, activity.clone()).await;
-    cache.store_activity(user_id, activity).await;
-
-    let activities = cache.get_activities(user_id, None, None).await;
-    assert_eq!(activities.len(), 1);
-}
-
-#[tokio::test]
-async fn test_user_mapping() {
-    let cache = TerraDataCache::new_in_memory();
-
-    cache.register_user_mapping("ref123", "terra_abc").await;
-
-    let terra_id = cache.get_terra_user_id("ref123").await;
-    assert_eq!(terra_id, Some("terra_abc".to_owned()));
-
-    let missing = cache.get_terra_user_id("unknown").await;
-    assert!(missing.is_none());
-}
-
-#[tokio::test]
-async fn test_cache_stats() {
-    let cache = TerraDataCache::new_in_memory();
-
-    cache
-        .store_activity("user1", make_test_activity("a1", 1))
-        .await;
-    cache
-        .store_activity("user1", make_test_activity("a2", 2))
-        .await;
-    cache
-        .store_activity("user2", make_test_activity("a3", 3))
-        .await;
-
-    let stats = cache.get_stats().await;
-    assert_eq!(stats.user_count, 2);
-    assert_eq!(stats.total_activities, 3);
+    let nights = repos
+        .sleep
+        .get_sleep_sessions(
+            user_id,
+            &tenant,
+            Utc.with_ymd_and_hms(2024, 3, 8, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2024, 3, 13, 0, 0, 0).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(nights.len(), 2, "bug: two nights stored, got {nights:?}");
+    let sources = repos
+        .data_sources
+        .list_data_sources(user_id, &tenant)
+        .await
+        .unwrap();
+    let relay_of = |night_end_day: u32| {
+        let night = nights
+            .iter()
+            .find(|n| n.end_datetime.day() == night_end_day)
+            .expect("the night is stored");
+        sources
+            .iter()
+            .find(|ds| ds.id == night.data_source_id)
+            .and_then(|ds| ds.original_source_name.clone())
+    };
+    assert_eq!(
+        relay_of(10).as_deref(),
+        Some("whoop"),
+        "bug: the WHOOP night took the later relay's name"
+    );
+    assert_eq!(
+        relay_of(11).as_deref(),
+        Some("garmin"),
+        "bug: the Garmin night names the service it was relayed from"
+    );
 }
 
 // ============================================================================
@@ -232,15 +621,13 @@ async fn test_cache_stats() {
 
 #[tokio::test]
 async fn test_provider_name() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(cache);
+    let provider = TerraProvider::new();
     assert_eq!(provider.name(), "terra");
 }
 
 #[tokio::test]
 async fn test_authentication_flow() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(cache);
+    let provider = TerraProvider::new();
 
     assert!(!provider.is_authenticated().await);
 
@@ -253,276 +640,108 @@ async fn test_descriptor() {
     let descriptor = TerraDescriptor;
     assert_eq!(descriptor.name(), "terra");
     assert_eq!(descriptor.display_name(), "Terra");
-    // Sleep and recovery come from synced rows; Terra has no sync adapter
-    // (registre#513), so it advertises activities only.
+    // Sleep and recovery are not advertised (registre#513).
     assert!(!descriptor.capabilities().supports_sleep());
     assert!(!descriptor.capabilities().supports_recovery());
     assert!(!descriptor.capabilities().supports_health());
     assert!(descriptor.capabilities().supports_activities());
+    assert!(
+        descriptor.capabilities().is_push_only(),
+        "bug: Terra pushes; its reads answer from the stored rows"
+    );
+}
+
+/// A read before the connection's stores are bound is refused: Terra has
+/// no read to fall back on, and nothing is held in memory.
+#[tokio::test]
+async fn an_unbound_terra_provider_refuses_to_read() {
+    let provider = TerraProvider::new();
+    provider.set_terra_user_id("test_user").await;
+    assert!(
+        provider.get_activities(None, None).await.is_err(),
+        "bug: an unbound provider answered a read"
+    );
 }
 
 #[tokio::test]
 async fn test_get_activities_empty() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(cache);
-    provider.set_terra_user_id("test_user").await;
+    let (resources, owner) = athlete().await;
+    let provider = bound_provider(&resources, owner);
 
-    let activities = provider
-        .get_activities(None, None)
-        .await
-        .unwrap_or_default();
-    assert!(activities.is_empty());
+    let activities = provider.get_activities(None, None).await.unwrap();
+    assert!(activities.is_empty(), "bug: nothing was pushed");
 }
 
+/// The provider's list, single, cursor and stats reads all answer from the
+/// rows a Terra event stored.
 #[tokio::test]
-async fn test_stats_calculation() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    provider.set_terra_user_id("test_user").await;
-
-    // Add test activities to cache
-    let activity = ActivityBuilder::new(
-        "act1",
-        "Test Run",
-        SportType::Run,
+async fn the_terra_provider_reads_what_terra_pushed() {
+    let (resources, owner) = athlete().await;
+    let (_, runs) = records_of(&activity_event(5));
+    store_terra_records(
+        &resources.common.repos,
+        owner,
+        Some("GARMIN"),
+        &runs,
         Utc::now(),
-        3600,
-        "terra:garmin",
     )
-    .distance_meters(5000.0)
-    .elevation_gain(100.0)
-    .build();
-    cache.store_activity("test_user", activity).await;
+    .await
+    .unwrap();
+    let provider = bound_provider(&resources, owner);
 
-    let stats = provider.get_stats().await;
-    assert!(stats.is_ok(), "get_stats should succeed");
-    // Safe: Test assertion - expect stats to be available
-    let stats = stats.unwrap();
-    assert_eq!(stats.total_activities, 1);
-    assert!((stats.total_distance - 5000.0).abs() < 0.01);
-}
+    let listed = provider.get_activities(Some(10), None).await.unwrap();
+    assert_eq!(
+        listed.iter().map(|a| a.id().to_owned()).collect::<Vec<_>>(),
+        ["act_015", "act_014", "act_013", "act_012", "act_011"],
+        "bug: newest first"
+    );
+    assert_eq!(
+        provider.get_activity("act_013").await.unwrap().name(),
+        "Run 13",
+        "bug: one activity by id"
+    );
+    assert!(
+        provider.get_activity("act_999").await.is_err(),
+        "bug: an activity never pushed is not found"
+    );
 
-// ============================================================================
-// Webhook cache reads and FitnessProvider integration tests
-// ============================================================================
+    let first = provider
+        .get_activities_cursor(&PaginationParams::forward(None, 2))
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 2, "bug: a page of two");
+    assert!(first.has_more, "bug: three more");
+    let second = provider
+        .get_activities_cursor(&PaginationParams::forward(first.next_cursor, 2))
+        .await
+        .unwrap();
+    assert_eq!(
+        second
+            .items
+            .iter()
+            .map(|a| a.id().to_owned())
+            .collect::<Vec<_>>(),
+        ["act_013", "act_012"],
+        "bug: the next page follows the first"
+    );
 
-#[tokio::test]
-async fn test_get_sleep_sessions() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    let user_id = "test_user";
-    provider.set_terra_user_id(user_id).await;
-
-    // Create test sleep session
-    let sleep_session = SleepSession {
-        id: "sleep_001".to_owned(),
-        start_time: Utc::now() - Duration::hours(8),
-        end_time: Utc::now(),
-        time_in_bed: 480,
-        total_sleep_time: 450,
-        sleep_efficiency: 93.75,
-        sleep_score: Some(85.0),
-        stages: vec![],
-        hrv_during_sleep: Some(45.0),
-        respiratory_rate: Some(14.0),
-        temperature_variation: None,
-        wake_count: Some(2),
-        sleep_onset_latency: Some(10),
-        provider: "terra:garmin".to_owned(),
-    };
-    cache.store_sleep_session(user_id, sleep_session).await;
-
-    // The webhook cache serves the window it holds for the user
-    let start = Utc::now() - Duration::days(1);
-    let end = Utc::now() + Duration::hours(1);
-    let sessions = cache.get_sleep_sessions(user_id, start, end).await;
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].id, "sleep_001");
-    assert_eq!(sessions[0].total_sleep_time, 450);
-}
-
-#[tokio::test]
-async fn test_get_recovery_metrics() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    let user_id = "test_user";
-    provider.set_terra_user_id(user_id).await;
-
-    // Create test recovery metrics
-    let recovery = RecoveryMetrics {
-        date: Utc::now(),
-        recovery_score: Some(78.0),
-        readiness_score: Some(82.0),
-        hrv_status: Some("normal".to_owned()),
-        sleep_score: Some(85.0),
-        stress_level: Some(25.0),
-        training_load: Some(150.0),
-        resting_heart_rate: Some(52),
-        body_temperature: None,
-        resting_respiratory_rate: Some(14.0),
-        provider: "terra:garmin".to_owned(),
-    };
-    cache.store_recovery_metrics(user_id, recovery).await;
-
-    // The webhook cache serves the window it holds for the user
-    let start = Utc::now() - Duration::days(1);
-    let end = Utc::now() + Duration::hours(1);
-    let metrics = cache.get_recovery_metrics(user_id, start, end).await;
-    assert_eq!(metrics.len(), 1);
-    assert_eq!(metrics[0].recovery_score, Some(78.0));
-    assert_eq!(metrics[0].resting_heart_rate, Some(52));
-}
-
-#[tokio::test]
-async fn test_get_health_metrics() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    let user_id = "test_user";
-    provider.set_terra_user_id(user_id).await;
-
-    // Create test health metrics
-    let health = HealthMetrics {
-        date: Utc::now(),
-        weight: Some(75.5),
-        body_fat_percentage: Some(15.2),
-        muscle_mass: Some(60.0),
-        bone_mass: Some(3.2),
-        body_water_percentage: Some(55.0),
-        bmr: Some(1750),
-        blood_pressure: Some((120, 80)),
-        blood_glucose: None,
-        vo2_max: Some(48.0),
-        provider: "terra:garmin".to_owned(),
-    };
-    cache.store_health_metrics(user_id, health).await;
-
-    // The webhook cache serves the window it holds for the user
-    let start = Utc::now() - Duration::days(1);
-    let end = Utc::now() + Duration::hours(1);
-    let metrics = cache.get_health_metrics(user_id, start, end).await;
-    assert_eq!(metrics.len(), 1);
-    assert_eq!(metrics[0].weight, Some(75.5));
-    assert_eq!(metrics[0].body_fat_percentage, Some(15.2));
-}
-
-#[tokio::test]
-async fn test_get_activities_cursor_pagination() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    let user_id = "test_user";
-    provider.set_terra_user_id(user_id).await;
-
-    // Add 10 activities with different timestamps
-    for i in 0..10 {
-        let activity = ActivityBuilder::new(
-            format!("act_{i:02}"),
-            format!("Activity {i}"),
-            SportType::Run,
-            Utc::now() - Duration::hours(i),
-            3600,
-            "terra:garmin",
-        )
-        .distance_meters((i as f64).mul_add(100.0, 5000.0))
-        .build();
-        cache.store_activity(user_id, activity).await;
-    }
-
-    // Test first page (no cursor)
-    let params = PaginationParams {
-        limit: 3,
-        cursor: None,
-        direction: PaginationDirection::Forward,
-    };
-    let page1 = provider.get_activities_cursor(&params).await;
-    assert!(page1.is_ok(), "get_activities_cursor should succeed");
-    // Safe: Test assertion - expect page1 to be available
-    let page1 = page1.unwrap();
-    assert_eq!(page1.items.len(), 3);
-    assert!(page1.has_more);
-    assert!(page1.next_cursor.is_some());
-    // Should be sorted newest first
-    assert_eq!(page1.items[0].id(), "act_00");
-    assert_eq!(page1.items[1].id(), "act_01");
-    assert_eq!(page1.items[2].id(), "act_02");
-
-    // Test second page (with cursor)
-    let params2 = PaginationParams {
-        limit: 3,
-        cursor: page1.next_cursor,
-        direction: PaginationDirection::Forward,
-    };
-    let page2 = provider.get_activities_cursor(&params2).await;
-    assert!(page2.is_ok(), "get_activities_cursor page2 should succeed");
-    // Safe: Test assertion - expect page2 to be available
-    let page2 = page2.unwrap();
-    assert_eq!(page2.items.len(), 3);
-    assert!(page2.has_more);
-    assert_eq!(page2.items[0].id(), "act_03");
-    assert_eq!(page2.items[1].id(), "act_04");
-    assert_eq!(page2.items[2].id(), "act_05");
-}
-
-#[tokio::test]
-async fn test_get_latest_sleep_session() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let provider = TerraProvider::new(Arc::clone(&cache));
-    let user_id = "test_user";
-    provider.set_terra_user_id(user_id).await;
-
-    // Create two sleep sessions at different times
-    let older_sleep = SleepSession {
-        id: "sleep_old".to_owned(),
-        start_time: Utc::now() - Duration::hours(32),
-        end_time: Utc::now() - Duration::hours(24),
-        time_in_bed: 480,
-        total_sleep_time: 420,
-        sleep_efficiency: 87.5,
-        sleep_score: Some(75.0),
-        stages: vec![],
-        hrv_during_sleep: None,
-        respiratory_rate: None,
-        temperature_variation: None,
-        wake_count: None,
-        sleep_onset_latency: None,
-        provider: "terra:garmin".to_owned(),
-    };
-
-    let newer_sleep = SleepSession {
-        id: "sleep_new".to_owned(),
-        start_time: Utc::now() - Duration::hours(8),
-        end_time: Utc::now(),
-        time_in_bed: 480,
-        total_sleep_time: 460,
-        sleep_efficiency: 95.8,
-        sleep_score: Some(92.0),
-        stages: vec![],
-        hrv_during_sleep: Some(50.0),
-        respiratory_rate: Some(13.0),
-        temperature_variation: None,
-        wake_count: Some(1),
-        sleep_onset_latency: Some(5),
-        provider: "terra:garmin".to_owned(),
-    };
-
-    cache.store_sleep_session(user_id, older_sleep).await;
-    cache.store_sleep_session(user_id, newer_sleep).await;
-
-    // The webhook cache returns the newest session it holds
-    let latest = cache.get_latest_sleep_session(user_id).await;
-    // Safe: Test assertion - expect latest to be available
-    let latest = latest.unwrap();
-    assert_eq!(latest.id, "sleep_new");
-    assert_eq!(latest.sleep_score, Some(92.0));
+    let stats = provider.get_stats().await.unwrap();
+    assert_eq!(stats.total_activities, 5, "bug: five runs");
+    assert!(
+        (stats.total_distance - 25_000.0).abs() < f64::EPSILON,
+        "bug: 5 x 5 km, got {}",
+        stats.total_distance
+    );
+    assert_eq!(stats.total_duration, 5 * 3600, "bug: five hours");
 }
 
 // ============================================================================
 // Webhook Tests
 // ============================================================================
 
-#[tokio::test]
-async fn test_webhook_handler_auth_event() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let handler = TerraWebhookHandler::new(cache);
+#[test]
+fn test_webhook_handler_auth_event() {
+    let handler = TerraWebhookHandler::new();
 
     let payload = serde_json::json!({
         "type": "auth",
@@ -534,7 +753,7 @@ async fn test_webhook_handler_auth_event() {
         }
     });
 
-    let result = handler.process(payload.to_string().as_bytes()).await;
+    let result = handler.process(payload.to_string().as_bytes());
 
     assert!(
         matches!(
@@ -553,60 +772,33 @@ async fn test_webhook_handler_auth_event() {
     );
 }
 
-#[tokio::test]
-async fn test_webhook_handler_activity_event() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let handler = TerraWebhookHandler::new(Arc::clone(&cache));
+#[test]
+fn test_webhook_handler_activity_event() {
+    let result = TerraWebhookHandler::new().process(activity_event(1).to_string().as_bytes());
 
-    let payload = serde_json::json!({
-        "type": "activity",
-        "user": {
-            "user_id": "test_user_123",
-            "provider": "GARMIN"
-        },
-        "data": [{
-            "metadata": {
-                "summary_id": "act_001",
-                "name": "Morning Run",
-                "start_time": "2024-01-15T08:00:00Z",
-                "end_time": "2024-01-15T09:00:00Z",
-                "type": 1
-            },
-            "distance_data": {
-                "distance_meters": 5000.0
-            },
-            "calories_data": {
-                "total_burned_calories": 400.0
-            }
-        }]
-    });
-
-    let result = handler.process(payload.to_string().as_bytes()).await;
-
-    assert!(
-        matches!(
-            &result,
-            WebhookResult::Success {
-                event_type,
-                items_processed,
-                user_id,
-            } if event_type == "activity"
-                && *items_processed == 1
-                && user_id == "test_user_123"
-        ),
-        "Expected Success result with correct values, got: {result:?}"
+    let WebhookResult::Success {
+        event_type,
+        user_id,
+        relayed_from,
+        records,
+    } = result
+    else {
+        panic!("bug: an activity event parses, got {result:?}");
+    };
+    assert_eq!(event_type, "activity", "bug: the event type");
+    assert_eq!(user_id, "test_user_123", "bug: the Terra user");
+    assert_eq!(
+        relayed_from.as_deref(),
+        Some("GARMIN"),
+        "bug: the relayed service"
     );
-
-    // Verify activity was cached
-    let activities = cache.get_activities("test_user_123", None, None).await;
-    assert_eq!(activities.len(), 1);
-    assert_eq!(activities[0].name(), "Morning Run");
+    assert_eq!(records.len(), 1, "bug: one record");
+    assert_eq!(records.activities[0].name(), "Run 15", "bug: the run");
 }
 
-#[tokio::test]
-async fn test_webhook_handler_unhandled_event() {
-    let cache = Arc::new(TerraDataCache::new_in_memory());
-    let handler = TerraWebhookHandler::new(cache);
+#[test]
+fn test_webhook_handler_unhandled_event() {
+    let handler = TerraWebhookHandler::new();
 
     let payload = serde_json::json!({
         "type": "unknown_event",
@@ -615,7 +807,7 @@ async fn test_webhook_handler_unhandled_event() {
         }
     });
 
-    let result = handler.process(payload.to_string().as_bytes()).await;
+    let result = handler.process(payload.to_string().as_bytes());
 
     assert!(
         matches!(

@@ -1,5 +1,5 @@
 // ABOUTME: Terra provider implementing FitnessProvider trait
-// ABOUTME: Reads from webhook-populated cache to serve activities, sleep, recovery, and health data
+// ABOUTME: Serves the activities Terra pushed from the activity cache, bound per connection
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,44 +10,52 @@
 //! Pierre's unified provider interface to work with Terra's webhook-based
 //! data delivery model.
 //!
-//! The provider reads from a local cache populated by the webhook handler,
-//! effectively bridging Terra's push model to Pierre's pull model.
+//! Terra delivers by pushing: the descriptor declares
+//! [`PUSH_ONLY`](crate::spi::ProviderCapabilities::PUSH_ONLY), and every
+//! activity read is answered from the rows the activity cache holds under the
+//! provider key `terra`, through the stores bound per connection
+//! ([`FitnessProvider::bind_owner_stores`]), as for Garmin. A read before
+//! the stores are bound is refused, never answered from memory.
 
 use async_trait::async_trait;
 use secrecy::ExposeSecret;
-use std::cmp::Reverse;
-use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
+use crate::cached_activity_reads::CachedActivities;
+use crate::constants::oauth_providers::TERRA;
 use crate::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
+    ProviderFactory,
 };
 use crate::errors::provider::ProviderError;
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats};
-use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
 
 use super::api_client::TerraApiClient;
-use super::cache::TerraDataCache;
 use super::constants::{
     TERRA_API_BASE_URL, TERRA_DEAUTH_URL, TERRA_TOKEN_URL, TERRA_WIDGET_SESSION_URL,
 };
 
+/// What one activity read names when it asks for an activity.
+const ACTIVITY: &str = "activity";
+
 /// Terra provider for accessing fitness data from 150+ wearables
 ///
-/// Unlike direct providers (Strava, Garmin), Terra uses a webhook-based model.
-/// This provider reads from a local cache populated by webhook events.
+/// Terra uses a webhook-based model: this provider serves what Terra pushed,
+/// from the activity cache rows bound per connection.
 #[derive(Debug)]
 pub struct TerraProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
-    cache: Arc<TerraDataCache>,
+    stores: OnceLock<OwnerStores>,
     api_client: Option<TerraApiClient>,
     /// Terra user ID for this provider instance
     terra_user_id: RwLock<Option<String>>,
@@ -56,7 +64,7 @@ pub struct TerraProvider {
 impl TerraProvider {
     /// Create a new Terra provider with default configuration
     #[must_use]
-    pub fn new(cache: Arc<TerraDataCache>) -> Self {
+    pub fn new() -> Self {
         Self {
             config: ProviderConfig {
                 name: "terra".to_owned(),
@@ -73,7 +81,7 @@ impl TerraProvider {
                 ],
             },
             credentials: RwLock::new(None),
-            cache,
+            stores: OnceLock::new(),
             api_client: None,
             terra_user_id: RwLock::new(None),
         }
@@ -81,14 +89,36 @@ impl TerraProvider {
 
     /// Create a Terra provider with custom configuration
     #[must_use]
-    pub fn with_config(config: ProviderConfig, cache: Arc<TerraDataCache>) -> Self {
+    pub fn with_config(config: ProviderConfig) -> Self {
         Self {
             config,
             credentials: RwLock::new(None),
-            cache,
+            stores: OnceLock::new(),
             api_client: None,
             terra_user_id: RwLock::new(None),
         }
+    }
+
+    /// The bound stores, or the refusal a read without them gets: Terra
+    /// serves no read to fall back on.
+    fn stores(&self) -> AppResult<&OwnerStores> {
+        self.stores.get().ok_or_else(|| {
+            AppError::invalid_input(
+                "Terra data is read from what Terra pushed to Dravr, within the tenant \
+                 the connection lives in",
+            )
+        })
+    }
+
+    /// The connection's cached Terra activities.
+    fn cached(&self) -> AppResult<CachedActivities<'_>> {
+        let stores = self.stores()?;
+        Ok(CachedActivities {
+            cache: stores.activity_cache.as_ref(),
+            user_id: stores.user_id,
+            tenant_id: &stores.tenant_id,
+            provider: TERRA,
+        })
     }
 
     /// Set the Terra user ID for this provider instance
@@ -139,6 +169,12 @@ impl FitnessProvider for TerraProvider {
         Ok(())
     }
 
+    fn bind_owner_stores(&self, stores: OwnerStores) {
+        if self.stores.set(stores).is_err() {
+            debug!("Terra owner stores already bound; keeping the first");
+        }
+    }
+
     #[instrument(skip(self), fields(provider = "terra", api_call = "get_athlete"))]
     async fn get_athlete(&self) -> AppResult<Athlete> {
         let user_id = self.get_user_id().await?;
@@ -187,67 +223,14 @@ impl FitnessProvider for TerraProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let user_id = self.get_user_id().await?;
-        let mut activities = self
-            .cache
-            .get_activities(&user_id, params.limit, params.offset)
-            .await;
-
-        // Apply time filtering if before/after specified
-        if let Some(after_ts) = params.after {
-            if let Some(after_dt) = chrono::DateTime::from_timestamp(after_ts, 0) {
-                activities.retain(|a| a.start_date() >= after_dt);
-            }
-        }
-        if let Some(before_ts) = params.before {
-            if let Some(before_dt) = chrono::DateTime::from_timestamp(before_ts, 0) {
-                activities.retain(|a| a.start_date() < before_dt);
-            }
-        }
-
-        Ok(activities)
+        self.cached()?.window(params).await
     }
 
     async fn get_activities_cursor(
         &self,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
-        let user_id = self.get_user_id().await?;
-
-        // Get all activities and sort by start_date descending
-        let mut activities = self.cache.get_activities(&user_id, None, None).await;
-        activities.sort_by_key(|b| Reverse(b.start_date()));
-
-        // Find starting position based on cursor
-        let start_index = params.cursor.as_ref().map_or(0, |cursor| {
-            cursor.decode().map_or(0, |(_timestamp, id)| {
-                activities
-                    .iter()
-                    .position(|a| a.id() == id)
-                    .map_or(0, |pos| pos + 1)
-            })
-        });
-
-        let limit = params.limit.min(100);
-        let items: Vec<Activity> = activities
-            .iter()
-            .skip(start_index)
-            .take(limit)
-            .cloned()
-            .collect();
-
-        let activities_len = activities.len();
-        let has_more = start_index + items.len() < activities_len;
-
-        // Create next cursor using the last item's timestamp and ID
-        let next_cursor = if has_more && !items.is_empty() {
-            let last_item = &items[items.len() - 1];
-            Some(Cursor::new(last_item.start_date(), last_item.id()))
-        } else {
-            None
-        };
-
-        Ok(CursorPage::new(items, next_cursor, None, has_more))
+        self.cached()?.cursor_page(params).await
     }
 
     #[instrument(
@@ -255,42 +238,31 @@ impl FitnessProvider for TerraProvider {
         fields(provider = "terra", api_call = "get_activity", activity_id = %id)
     )]
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let user_id = self.get_user_id().await?;
-
-        self.cache.get_activity(&user_id, id).await.ok_or_else(|| {
-            ProviderError::NotFound {
-                provider: "terra".to_owned(),
-                resource_type: "activity".to_owned(),
-                resource_id: id.to_owned(),
-            }
-            .into()
-        })
+        self.cached()?.one(id, ACTIVITY).await
     }
 
+    /// Totals over the pushed activities Dravr holds. Terra pushes from the
+    /// connection onward, so these cover what was pushed, never a lifetime.
     #[instrument(skip(self), fields(provider = "terra", api_call = "get_stats"))]
     async fn get_stats(&self) -> AppResult<Stats> {
-        let user_id = self.get_user_id().await?;
-
-        // Calculate stats from cached activities
-        let activities = self.cache.get_activities(&user_id, None, None).await;
-
-        let total_activities = activities.len() as u64;
-        let total_distance: f64 = activities
-            .iter()
-            .filter_map(Activity::distance_meters)
-            .sum();
-        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
-        let total_elevation_gain: f64 =
-            activities.iter().filter_map(Activity::elevation_gain).sum();
-
+        let activities = self.cached()?.all().await?;
         Ok(Stats {
-            total_activities,
-            total_distance,
-            total_duration,
-            total_elevation_gain,
+            total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
+            total_distance: activities
+                .iter()
+                .filter_map(Activity::distance_meters)
+                .sum(),
+            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
+            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
             coverage: StatsCoverage::recent(&activities),
             year_to_date: None,
         })
+    }
+}
+
+impl Default for TerraProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -309,13 +281,22 @@ impl ProviderDescriptor for TerraDescriptor {
 
     fn capabilities(&self) -> ProviderCapabilities {
         // LIMITATION(registre#513): `TerraDescriptor::capabilities` advertises activities
-        // only: sleep and recovery are read from dravr-enforme's synced rows, and Terra has
-        // no enforme adapter yet.
+        // only. The webhook files Terra's nights, recovery and body days into the wellness
+        // store (`services::terra_ingest`), where the readers find them like any provider's
+        // rows, but the webhook route is not mounted (registre#886): no Terra wellness row
+        // reaches a deployment, and advertising sleep or recovery would promise data that
+        // never arrives.
         //
         // No `RECORDED_ACTIVITIES`: Terra relays whichever wearable the athlete
         // linked through it, heart-rate-detected workouts included, so it cannot
         // vouch that an activity is a recording.
-        ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
+        //
+        // `PUSH_ONLY`: Terra pushes every activity to Dravr and serves no list
+        // read, so the reads answer from the rows the push stored, and no
+        // write-through restamps them as fresh.
+        ProviderCapabilities::OAUTH
+            .union(ProviderCapabilities::ACTIVITIES)
+            .union(ProviderCapabilities::PUSH_ONLY)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -350,25 +331,12 @@ impl ProviderDescriptor for TerraDescriptor {
 }
 
 /// Factory for creating Terra provider instances
-#[derive(Debug)]
-pub struct TerraProviderFactory {
-    cache: Arc<TerraDataCache>,
-}
-
-impl TerraProviderFactory {
-    /// Create a new factory with a shared cache
-    #[must_use]
-    pub const fn new(cache: Arc<TerraDataCache>) -> Self {
-        Self { cache }
-    }
-}
+#[derive(Debug, Default)]
+pub struct TerraProviderFactory;
 
 impl ProviderFactory for TerraProviderFactory {
     fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(TerraProvider::with_config(
-            config,
-            Arc::clone(&self.cache),
-        )))
+        Ok(Box::new(TerraProvider::with_config(config)))
     }
 
     fn supported_providers(&self) -> &'static [&'static str] {

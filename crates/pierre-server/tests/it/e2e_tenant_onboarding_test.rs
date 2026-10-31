@@ -202,6 +202,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                blobs: None,
             },
         )
         .await

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard G1 — each athlete-data table is written from one repository file, its wellness writes called from one store
-# ABOUTME: INSERT/UPDATE of sleep, recovery, body, daily activity, sources, series, streams, cached_activities outside the owner fails
+# ABOUTME: Athlete-data INSERT/UPDATE outside its owner fails; uploaded files are written and keyed only by the originals store
 #
 # A day's wellness was written by two sets of statements on the same keys —
 # the health sync replacing whole rows, the Garmin push merging reading by
@@ -25,6 +25,14 @@
 #      series repository's insert / insert_batch) are called, in method or
 #      UFCS spelling, only from crates/pierre-services/src/wellness_store.rs
 #      (and, delegating to themselves, from their own repository file).
+#   3. Uploaded files have one store (S12): the upload table's repository
+#      writes and drain (record_uploaded_file, record_uploaded_file_bytes,
+#      delete_uploaded_file, pending_upload_bytes, clear_drained_bytes) are
+#      called only from crates/pierre-providers/src/originals.rs (and,
+#      delegating to themselves, from the upload table's own repository
+#      file, no other owner's), and the blob key of an
+#      upload (`BlobKey::upload(`) is built only there, so no other code
+#      reads, writes or erases an uploaded file around the store's checks.
 #
 # synthetic_activities is
 # fixture-only data read by the dev fixture, not athlete data, and is not
@@ -39,6 +47,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${1:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 SCAN="${PROD_SRC_SCAN:-$SCRIPT_DIR/prod-src-scan.sh}"
 STORE="crates/pierre-services/src/wellness_store.rs"
+ORIGINALS="crates/pierre-providers/src/originals.rs"
+# The upload table's repository file: the one owner file exempt from rule 3,
+# since its methods are the ones the rule guards.
+UPLOAD_OWNER="crates/pierre-database/src/repositories/uploaded_activity_files.rs"
 HEALTH="crates/pierre-database/src/repositories/health_persistence.rs"
 
 # table owning-file
@@ -51,6 +63,7 @@ OWNERS=(
     "cached_activities crates/pierre-database/src/repositories/activity_cache/sql.rs"
     "data_point_series crates/pierre-database/src/repositories/time_series.rs"
     "activity_streams crates/pierre-database/src/repositories/activity_streams.rs"
+    "uploaded_activity_files crates/pierre-database/src/repositories/uploaded_activity_files.rs"
 )
 
 RED='\033[0;31m'
@@ -69,6 +82,10 @@ if [ "${#SRC_DIRS[@]}" -eq 0 ]; then
 fi
 if [ ! -f "$STORE" ]; then
     echo -e "${RED}❌ $STORE is missing: the one wellness writer moved without this gate${NC}" >&2
+    exit 2
+fi
+if [ ! -f "$ORIGINALS" ]; then
+    echo -e "${RED}❌ $ORIGINALS is missing: the one store of uploaded files moved without this gate${NC}" >&2
     exit 2
 fi
 
@@ -138,7 +155,26 @@ if [ -n "$outside" ]; then
     failed=1
 fi
 
+# 3. Uploaded files: the table's writes and drain, and the upload blob key,
+# only in the originals store (and, delegating to themselves, their own
+# repository file).
+UPLOAD_CALLS='(\.|::)\s*(record_uploaded_file|record_uploaded_file_bytes|delete_uploaded_file|pending_upload_bytes|clear_drained_bytes)\s*\(|BlobKey\s*::\s*upload\s*\('
+upload_calls="$(bash "$SCAN" "$UPLOAD_CALLS" -U --vimgrep "${SRC_DIRS[@]}")"
+upload_inside="$(printf '%s\n' "$upload_calls" | grep -c "^$ORIGINALS:" || true)"
+if [ "$upload_inside" -eq 0 ]; then
+    echo -e "${RED}❌ $ORIGINALS keys and writes no uploaded file: the store the gate guards is gone${NC}" >&2
+    exit 2
+fi
+upload_outside="$(printf '%s\n' "$upload_calls" | sed '/^$/d' | grep -v "^$ORIGINALS:" \
+    | grep -v "^$UPLOAD_OWNER:" || true)"
+if [ -n "$upload_outside" ]; then
+    echo -e "${RED}❌ Uploaded files written, drained or keyed outside $ORIGINALS:${NC}"
+    printf '%s\n' "$upload_outside" | sed 's/^/    /'
+    echo "   Keep and read uploaded files through pierre_providers::originals::OriginalsStore."
+    failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo -e "${GREEN}✅ ${#OWNERS[@]} athlete-data tables each written from one file; wellness writes called only from $STORE ($inside site(s))${NC}"
+echo -e "${GREEN}✅ ${#OWNERS[@]} athlete-data tables each written from one file; wellness writes called only from $STORE ($inside site(s)); uploaded files only through $ORIGINALS ($upload_inside site(s))${NC}"

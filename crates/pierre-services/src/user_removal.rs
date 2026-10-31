@@ -666,6 +666,9 @@ fn copies_not_deleted(
     copies.push(
         "posthog_person: no PostHog person-deletion call is wired; events already captured under the account's hashed id stay in PostHog".to_owned(),
     );
+    copies.push(
+        "kept_originals: where this deployment keeps a blob store, the files the account uploaded and the recordings its imports kept live in it, which this transaction cannot reach; the account is queued for their erasure there and they are deleted after the commit, retried until the store confirms, which the receipt cannot attest. Uploaded files still held in the database go with the account's rows in this transaction".to_owned(),
+    );
     // The coach's thread about the account, their flags and corrections, the
     // account's room transcript, and the rows of a coach's own group chat that
     // name the account go with it (`SQLITE_USER_PURGE`); the rows naming no

@@ -426,6 +426,7 @@ async fn create_test_executor_with(
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                blobs: None,
             },
         )
         .await
@@ -465,6 +466,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                blobs: None,
             },
         )
         .await

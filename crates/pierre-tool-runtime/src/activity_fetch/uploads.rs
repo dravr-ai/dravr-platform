@@ -75,7 +75,7 @@ pub async fn user_provided_window(
         let reader = UserProvidedProvider::for_key(
             key,
             OwnerStores::from_repos(repos, context.user_id, tenant),
-            Arc::clone(&repos.uploaded_activity_files),
+            Arc::clone(context.resources.originals()),
         );
         match reader.get_activities_with_params(params).await {
             Ok(rows) => activities.extend(rows),

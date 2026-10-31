@@ -28,8 +28,9 @@
 //!
 //! Imports are disabled, with the reason logged once at boot and answered to
 //! every request, where the stores cannot be placed: a Postgres deployment
-//! with no blob bucket configured (`BARRAGE_GCS_BUCKET`), or one whose
-//! `barrage` schema could not be migrated.
+//! with no blob bucket configured (`BARRAGE_GCS_BUCKET`, see
+//! [`crate::services::originals`]), or one whose `barrage` schema could not
+//! be migrated.
 
 /// Fetching an export through tronc's `archive_fetch` guard.
 pub mod fetch;
@@ -46,40 +47,24 @@ pub mod sweeps;
 
 use std::env;
 use std::fmt;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use dravr_barrage::blob::fs::FsBlobStore;
-use dravr_barrage::blob::gcs::{AccessTokenSource, GcsBlobStore};
-use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
 use dravr_barrage::store::sql::sqlite::{self, SqliteJobStore, SqliteRecordStore};
-use dravr_barrage::{BarrageError, BarrageStores};
+use dravr_barrage::BarrageStores;
 use pierre_config::database::DatabaseUrl;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
 use pierre_database::backends::factory::Database;
 use tracing::{info, warn};
 
 use self::fetch::{ExportFetcher, GuardedExportFetcher};
 use self::runner::ImportRunner;
 
-/// The GCS bucket a deployment keeps barrage's blobs in. Set, it selects the
-/// GCS blob store; unset on a Postgres deployment, imports are disabled.
-pub const ENV_GCS_BUCKET: &str = "BARRAGE_GCS_BUCKET";
-
-/// The directory a local run keeps barrage's blobs in.
-pub const ENV_BLOB_DIR: &str = "BARRAGE_BLOB_DIR";
-
 /// The SQLite database a local run keeps barrage's records and jobs in: a
 /// file of its own, never the platform's (the platform's migrator refuses a
 /// history holding versions it does not know).
 pub const ENV_SQLITE_URL: &str = "BARRAGE_SQLITE_URL";
-
-/// Where a local run keeps blobs when [`ENV_BLOB_DIR`] is unset.
-const DEFAULT_BLOB_DIR: &str = "./data/barrage-blobs";
 
 /// Where a local run keeps records and jobs when [`ENV_SQLITE_URL`] is unset.
 const DEFAULT_SQLITE_URL: &str = "sqlite:./data/barrage.db";
@@ -145,12 +130,19 @@ impl ArchiveImports {
     }
 
     /// The imports this deployment can run, chosen from its database and the
-    /// environment, and the `barrage` schema migrated when on Postgres.
+    /// environment, on the deployment's blob store `blobs`
+    /// ([`crate::services::originals::blob_store_from_env`], which the
+    /// originals store shares), and the `barrage` schema migrated when on
+    /// Postgres.
     ///
     /// Never fails the boot: a deployment that cannot place the stores runs
     /// with imports disabled, and says why once here.
-    pub async fn from_env(database: &Database, url: &DatabaseUrl) -> Self {
-        let imports = match build(PlatformPool::of(database), url.clone()).await {
+    pub async fn from_env(
+        database: &Database,
+        url: &DatabaseUrl,
+        blobs: Result<Arc<dyn BlobStore>, String>,
+    ) -> Self {
+        let imports = match build(PlatformPool::of(database), url.clone(), blobs).await {
             Ok(wiring) => Self::new(wiring),
             Err(reason) => Self::disabled(reason),
         };
@@ -184,8 +176,12 @@ impl PlatformPool {
 /// Awaited by the binary before the server context is built, never inside
 /// a future that must be `Send`: sqlx's migrator holds a connection across
 /// awaits, which the compiler cannot prove `Send` for every lifetime.
-async fn build(pool: PlatformPool, url: DatabaseUrl) -> Result<ImportWiring, String> {
-    let stores = stores_for(pool, &url).await?;
+async fn build(
+    pool: PlatformPool,
+    url: DatabaseUrl,
+    blobs: Result<Arc<dyn BlobStore>, String>,
+) -> Result<ImportWiring, String> {
+    let stores = stores_for(pool, &url, blobs?).await?;
     let fetcher: Arc<dyn ExportFetcher> = Arc::new(
         GuardedExportFetcher::try_from_env().map_err(|e| format!("export fetch client: {e}"))?,
     );
@@ -197,9 +193,12 @@ async fn build(pool: PlatformPool, url: DatabaseUrl) -> Result<ImportWiring, Str
     })
 }
 
-/// The stores the deployment's database selects.
-async fn stores_for(pool: PlatformPool, url: &DatabaseUrl) -> Result<BarrageStores, String> {
-    let blobs = blob_store_for(url).await?;
+/// The stores the deployment's database selects, over its blob store.
+async fn stores_for(
+    pool: PlatformPool,
+    url: &DatabaseUrl,
+    blobs: Arc<dyn BlobStore>,
+) -> Result<BarrageStores, String> {
     if url.is_memory() {
         return Ok(BarrageStores {
             blobs,
@@ -258,48 +257,4 @@ async fn postgres_stores(
     _blobs: Arc<dyn BlobStore>,
 ) -> Result<BarrageStores, String> {
     Err("this build has no Postgres support".to_owned())
-}
-
-/// The blob store: GCS when a bucket is configured, memory for an in-memory
-/// database, a local directory for a SQLite run, and none for a Postgres
-/// deployment without a bucket (its instances share no disk).
-async fn blob_store_for(url: &DatabaseUrl) -> Result<Arc<dyn BlobStore>, String> {
-    if let Some(bucket) = env::var(ENV_GCS_BUCKET)
-        .ok()
-        .filter(|b| !b.trim().is_empty())
-    {
-        let tokens: Arc<dyn AccessTokenSource> =
-            Arc::new(PlatformTokens(Arc::new(MetadataTokenProvider::default())));
-        let store = GcsBlobStore::try_new(bucket.trim(), tokens)
-            .map_err(|e| format!("GCS blob store: {e}"))?;
-        return Ok(Arc::new(store));
-    }
-    if url.is_memory() {
-        return Ok(Arc::new(MemoryBlobStore::new()));
-    }
-    if url.is_postgresql() {
-        return Err(format!(
-            "{ENV_GCS_BUCKET} is unset, and a Postgres deployment keeps blobs only in GCS"
-        ));
-    }
-    let dir =
-        env::var(ENV_BLOB_DIR).map_or_else(|_| PathBuf::from(DEFAULT_BLOB_DIR), PathBuf::from);
-    let store = FsBlobStore::open(dir)
-        .await
-        .map_err(|e| format!("blob directory: {e}"))?;
-    Ok(Arc::new(store))
-}
-
-/// The platform's metadata-server tokens, as barrage's GCS store asks for
-/// them: the provider caches each token until a minute before it expires.
-struct PlatformTokens(Arc<dyn TokenProvider>);
-
-#[async_trait]
-impl AccessTokenSource for PlatformTokens {
-    async fn access_token(&self) -> Result<String, BarrageError> {
-        self.0
-            .access_token()
-            .await
-            .map_err(|e| BarrageError::Blob(format!("access token: {e}")))
-    }
 }

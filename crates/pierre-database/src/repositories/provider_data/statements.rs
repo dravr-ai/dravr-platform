@@ -70,22 +70,15 @@ macro_rules! provider_sources {
 
 /// A user's wellness rows for one provider, in order: `(table, statement)`,
 /// each binding `$1` user id, `$2` tenant id and `$3` provider. They are
-/// everything the health sync writes: the time-series points and their daily
-/// rollups, the sleep, recovery and health rows, then the data sources all of
+/// everything the health sync writes: the time-series points, the sleep,
+/// recovery, health and daily activity rows, then the data sources all of
 /// them reference. A user's purge runs them first, then
 /// [`USER_ACTIVITY_ROWS_SQL`]; a wellness purge runs them alone, with the
 /// sync's cursors ([`USER_SYNC_CURSORS_SQL`]).
-pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 7] = [
+pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
-    ),
-    (
-        "data_point_series_archive",
-        concat!(
-            "DELETE FROM data_point_series_archive WHERE ",
-            user_sources!()
-        ),
     ),
     (
         "sleep_sessions",
@@ -128,18 +121,11 @@ macro_rules! user_marked_sources {
 /// provider key (the Garmin API and the connection using usr/pwd from Dravr
 /// both under `garmin`). The rows the other connection filed under its own
 /// data source, and the health sync's cursors over them, stay.
-pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 7] = [
+pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     (
         "data_point_series",
         concat!(
             "DELETE FROM data_point_series WHERE ",
-            user_marked_sources!()
-        ),
-    ),
-    (
-        "data_point_series_archive",
-        concat!(
-            "DELETE FROM data_point_series_archive WHERE ",
             user_marked_sources!()
         ),
     ),
@@ -306,8 +292,7 @@ pub(crate) const USER_ACTIVITY_SYNC_STATE_SQL: [(&str, &str); 4] = [
 /// which its upsert refreshes the same way. A point stored before
 /// `data_point_series` had a sync time cannot show its age and counts as
 /// expired. Rows computed from the provider's data rather than copied from
-/// it (the daily `data_point_series_archive` rollups, personal bests, the
-/// record of which runs were measured) are derived content, not cached copies,
+/// it (personal bests, the record of which runs were measured) are derived content, not cached copies,
 /// and stay: a disconnect deletes them, and their provenance is carnet#769's.
 pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 8] = [
     (
@@ -424,17 +409,10 @@ pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, 
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 21] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
-    ),
-    (
-        "data_point_series_archive",
-        concat!(
-            "DELETE FROM data_point_series_archive WHERE ",
-            provider_sources!()
-        ),
     ),
     (
         "sleep_sessions",

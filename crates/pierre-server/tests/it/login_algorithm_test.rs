@@ -90,6 +90,7 @@ impl LoginAlgorithmTestSetup {
                     billing_provider: None,
                     turn_runner: None,
                     archive_imports: None,
+                    blobs: None,
                 },
             )
             .await

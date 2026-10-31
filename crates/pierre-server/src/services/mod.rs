@@ -45,11 +45,18 @@ pub mod activity_route;
 /// A completed workout's `.fit` file uploaded by the athlete: decoded, deduplicated, kept
 pub mod activity_upload;
 
+/// The deployment's blob store, which keeps every original file, and the drain of uploads into it
+pub mod originals;
+
 /// The periodic backfill that stores the samples of activities uploaded before the sample store held uploads
 pub mod upload_streams_backfill;
 
 /// The one-time recompute of every athlete's training history after the workout precedence rule changed
 pub mod precedence_recompute;
+
+/// What one Terra webhook event carried, stored through the activity cache and the wellness store
+#[cfg(feature = "provider-terra")]
+pub mod terra_ingest;
 
 /// The athlete's training status for Home: form and its band, the form trend, load against baseline
 pub mod training_status;

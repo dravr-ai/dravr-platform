@@ -90,13 +90,12 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 17] = [
+const ONE_ROW_TABLES: [&str; 16] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "daily_activity",
     "data_sources",
-    "data_point_series_archive",
     "cached_activities",
     "activity_route_tracks",
     "activity_streams",
@@ -549,47 +548,14 @@ async fn seed_provider_rows(
     ds
 }
 
-/// The rows no repository writes, in SQL: a daily rollup and a day of
-/// steps and energy.
+/// The rows the fixture writes in SQL: a day of steps and energy.
 async fn seed_sql_only_rows(
     db: &Database,
     scope: (Uuid, TenantId),
     provider: &str,
     data_source_id: &str,
 ) {
-    seed_archive_row(db, data_source_id).await;
     seed_daily_activity_row(db, scope, provider, data_source_id).await;
-}
-
-/// One daily rollup in `data_point_series_archive`, which no repository
-/// writes: the table is SQL-only, so the fixture writes it in SQL too.
-async fn seed_archive_row(db: &Database, data_source_id: &str) {
-    const SQL: &str = "INSERT INTO data_point_series_archive \
-         (id, data_source_id, series_type_id, bucket_start_at, aggregation_type, value, sample_count) \
-         VALUES ($1, $2, $3, $4, 'avg', 50.5, 2)";
-    match db.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            sqlx::query(SQL)
-                .bind(Uuid::new_v4().to_string())
-                .bind(data_source_id)
-                .bind(i64::from(HEART_RATE_SERIES))
-                .bind(night_start())
-                .execute(sqlite.pool())
-                .await
-                .unwrap();
-        }
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(postgres) => {
-            sqlx::query(SQL)
-                .bind(Uuid::new_v4().to_string())
-                .bind(data_source_id)
-                .bind(i64::from(HEART_RATE_SERIES))
-                .bind(night_start())
-                .execute(postgres.pool())
-                .await
-                .unwrap();
-        }
-    }
 }
 
 /// One day of steps and energy in `daily_activity`, which no repository
@@ -787,20 +753,18 @@ async fn a_users_provider_purge_takes_exactly_their_rows_in_that_tenant() {
 /// The tables of [`ONE_ROW_TABLES`] the health sync writes for a scope; a
 /// wellness purge takes these, with the scope's `data_point_series` points,
 /// and nothing else.
-const WELLNESS_TABLES: [&str; 7] = [
+const WELLNESS_TABLES: [&str; 6] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "daily_activity",
     "data_sources",
-    "data_point_series_archive",
     "sync_state",
 ];
 
 /// A member who withdraws a coach link's wellness consent keeps the link and
 /// the workouts it reads: the wellness purge deletes everything the health
-/// sync wrote for the provider in that one scope (the points and their
-/// rollups, the sleep, recovery and health rows, the data source they
+/// sync wrote for the provider in that one scope (the points, the sleep, recovery and health rows, the data source they
 /// reference and the sync's cursor) and records it; every activity row and
 /// the sync state describing it, every other provider's rows and every other
 /// scope's rows stay.
@@ -1349,7 +1313,7 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         .is_none());
 
     // What the expiry leaves is derived or descriptive, not a copy: the
-    // device row, the daily rollup, the activity thread link and the
+    // device row, the activity thread link and the
     // personal-best rows. A disconnect still takes them.
     let rest = repos
         .provider_data
@@ -1364,14 +1328,17 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         [
             "activity_conversations",
             "best_effort_scans",
-            "data_point_series_archive",
             "data_sources",
             "personal_best_efforts",
             "personal_best_seeds",
         ],
         "{rest:?}"
     );
-    assert_eq!(rest.total(), 6);
+    assert_eq!(
+        rest.total(),
+        5,
+        "bug: the five shared rows are all that stay: {rest:?}"
+    );
 
     let recorded = repos
         .provider_data

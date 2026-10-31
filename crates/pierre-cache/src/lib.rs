@@ -42,7 +42,7 @@ pub use cache::Cache;
 
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
-    TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS, TTL_TRAINING_HISTORY_SECS,
+    TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS,
 };
 use errors::AppResult;
 use models::TenantId;
@@ -328,16 +328,6 @@ pub enum CacheResource {
         /// Athlete ID
         athlete_id: u64,
     },
-    /// Endurance daily training-history rollup result (`get_training_history`).
-    /// Per-(tenant,user) and per-date-range; invalidated whenever the
-    /// underlying `training_history` rows are upserted by
-    /// `training_history_compute`.
-    TrainingHistory {
-        /// Inclusive ISO date (YYYY-MM-DD) of the start of the requested range.
-        from: String,
-        /// Inclusive ISO date (YYYY-MM-DD) of the end of the requested range.
-        to: String,
-    },
     /// The athletes a coach account coaches on the provider, as the provider's
     /// roster reports them (10 min TTL). Keyed by the coach's own tenant and
     /// user, so one coach's roster never answers for another's. The key
@@ -383,7 +373,6 @@ impl CacheResource {
             Self::AthleteProfile => Duration::from_secs(TTL_PROFILE_SECS),
             Self::ActivityList { .. } => Duration::from_secs(TTL_ACTIVITY_LIST_SECS),
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
-            Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             Self::DiscoveredRoute { .. } => Duration::from_secs(TTL_DISCOVERED_ROUTE_SECS),
             Self::LastKnownAthleteProfile | Self::LastKnownStats => {
@@ -416,9 +405,6 @@ impl fmt::Display for CacheResource {
                 )
             }
             Self::Stats { athlete_id } => write!(f, "stats:{athlete_id}"),
-            Self::TrainingHistory { from, to } => {
-                write!(f, "training_history:{from}:{to}")
-            }
             Self::ProviderRoster => write!(f, "provider_roster_v2"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),

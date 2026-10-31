@@ -41,6 +41,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
+use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
@@ -148,6 +149,9 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Shared cache layer.
     fn cache(&self) -> &Arc<Cache>;
+
+    /// The files athletes uploaded, kept in the deployment's blob store.
+    fn originals(&self) -> &Arc<OriginalsStore>;
 
     /// Server configuration (immutable runtime settings).
     fn config(&self) -> &Arc<ServerConfig>;

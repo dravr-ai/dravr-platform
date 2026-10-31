@@ -444,6 +444,16 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             .any(|copy| copy.starts_with("posthog_person:")),
         "{not_deleted:?}"
     );
+    // Uploaded files and an import's recordings live in the blob store, out
+    // of the transaction's reach: the receipt names them as queued for
+    // erasure, never as deleted (Athlete Data Consolidation, S12).
+    assert!(
+        not_deleted
+            .iter()
+            .any(|copy| copy.starts_with("kept_originals:")
+                && copy.contains("queued for their erasure")),
+        "bug: the receipt must name the blob store's copies as queued: {not_deleted:?}"
+    );
     // The rows of a coach's own group chat that name the account go with it
     // (carnet#1174); the copies there that name no single member are named,
     // each of them, not claimed deleted (carnet#1255).

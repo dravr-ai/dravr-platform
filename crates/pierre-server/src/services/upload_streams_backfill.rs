@@ -41,6 +41,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::ActivityWithoutStreams;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::fit_decode::decode_bounded;
+use pierre_providers::originals::OriginalsStore;
 use pierre_providers::upload_provider::{
     parse_upload_activity_id, store_upload_series, upload_session_series,
 };
@@ -86,10 +87,12 @@ pub fn start_upload_streams_backfill(resources: &Arc<ServerContext>) {
     }
     let ledger = Arc::clone(&resources.common.repos.worker_runs);
     let repos = Arc::clone(&resources.common.repos);
+    let originals = Arc::clone(&resources.common.originals);
     spawn_periodic(WORKER_NAME, TICK_INTERVAL, ledger, move || {
         let repos = Arc::clone(&repos);
+        let originals = Arc::clone(&originals);
         async move {
-            let report = run_upload_streams_backfill_pass(&repos).await?;
+            let report = run_upload_streams_backfill_pass(&repos, &originals).await?;
             if report != UploadStreamsBackfillReport::default() {
                 info!(
                     worker = WORKER_NAME,
@@ -112,6 +115,7 @@ pub fn start_upload_streams_backfill(resources: &Arc<ServerContext>) {
 /// file's failure is logged and the pass goes on.
 pub async fn run_upload_streams_backfill_pass(
     repos: &RepositoryRegistry,
+    originals: &OriginalsStore,
 ) -> AppResult<UploadStreamsBackfillReport> {
     let owed = repos
         .activity_streams
@@ -120,7 +124,7 @@ pub async fn run_upload_streams_backfill_pass(
     let mut report = UploadStreamsBackfillReport::default();
     for ((tenant, user, sha), indices) in by_file(owed, &mut report) {
         let owed_here = indices.len();
-        match backfill_file(repos, &tenant, &user, &sha, indices).await {
+        match backfill_file(repos, originals, &tenant, &user, &sha, indices).await {
             Ok(stored) => {
                 report.files += 1;
                 report.activities += stored;
@@ -166,6 +170,7 @@ fn by_file(
 /// returns how many were stored.
 async fn backfill_file(
     repos: &RepositoryRegistry,
+    originals: &OriginalsStore,
     tenant: &str,
     user: &str,
     sha: &str,
@@ -175,9 +180,8 @@ async fn backfill_file(
         .map_err(|e| AppError::invalid_input(format!("cached tenant id {tenant}: {e}")))?;
     let user_id = Uuid::parse_str(user)
         .map_err(|e| AppError::invalid_input(format!("cached user id {user}: {e}")))?;
-    let bytes = repos
-        .uploaded_activity_files
-        .get_uploaded_file(&tenant_id, user_id, sha)
+    let bytes = originals
+        .get_upload(&tenant_id, user_id, sha)
         .await?
         .ok_or_else(|| AppError::not_found(format!("uploaded file {sha}")))?;
     let series = decode_bounded(move || {

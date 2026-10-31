@@ -24,6 +24,8 @@ use axum::http::{Request, StatusCode};
 use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
+use dravr_barrage::blob::BlobKey;
+use dravr_barrage::digest::Sha256;
 use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
 use dravr_barrage::store::{BarrageStores, JobStatus, NewImportJob, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Importer, Scope, SourceKey, StepOutcome};
@@ -42,6 +44,7 @@ use pierre_mcp_server::services::archive_import::runner::ImportRunner;
 use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
 use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
 use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
+use pierre_providers::upload_provider::file_sha256;
 use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
 use pierre_test_support::fit::FitWorkout;
@@ -815,6 +818,32 @@ async fn a_deleted_account_is_erased_from_barrage() {
         .expect("a server context");
     let athlete = seed_athlete(&resources, "archive-erasure").await;
     import_export(&resources, &athlete).await;
+    let upload = FitWorkout::ride(ten_days_ago(), 600).encode();
+    let upload_sha = file_sha256(&upload);
+    resources
+        .common
+        .originals
+        .put_upload(
+            &athlete.tenant,
+            athlete.user_id,
+            &upload_sha,
+            Bytes::from(upload),
+        )
+        .await
+        .expect("the upload is kept");
+    let upload_key = BlobKey::upload(
+        athlete.scope(),
+        Sha256::parse_hex(&upload_sha).expect("a hash"),
+    );
+    assert!(
+        stores
+            .blobs
+            .get(&upload_key)
+            .await
+            .expect("blobs read")
+            .is_some(),
+        "test setup: the upload lives in the deployment's one blob store"
+    );
 
     let removal = remove_user(
         &resources.common.repos,
@@ -841,10 +870,66 @@ async fn a_deleted_account_is_erased_from_barrage() {
         records.items.is_empty(),
         "no record of the deleted account is left"
     );
+    assert!(
+        stores
+            .blobs
+            .get(&upload_key)
+            .await
+            .expect("blobs read")
+            .is_none(),
+        "bug: the file the deleted account uploaded is left in the blob store"
+    );
     let again = erase_deleted_accounts(&resources)
         .await
         .expect("the sweep runs");
     assert_eq!(again, 0, "an erased account leaves the outbox");
+}
+
+/// A deployment where imports do not run still keeps uploaded files, so a
+/// deleted account's erasure runs there too: the sweep works through the
+/// queue on the originals store alone rather than refusing for want of
+/// imports.
+#[tokio::test]
+async fn a_deleted_account_is_erased_where_imports_do_not_run() {
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("a server context");
+    assert!(
+        !resources.common.archive_imports.is_enabled(),
+        "test setup: imports do not run here"
+    );
+    let athlete = seed_athlete(&resources, "upload-erasure").await;
+    let upload = FitWorkout::ride(ten_days_ago(), 600).encode();
+    let sha = file_sha256(&upload);
+    resources
+        .common
+        .originals
+        .put_upload(&athlete.tenant, athlete.user_id, &sha, Bytes::from(upload))
+        .await
+        .expect("the upload is kept");
+
+    let removal = remove_user(
+        &resources.common.repos,
+        None,
+        None,
+        None,
+        athlete.user_id,
+        DeletionActor::Athlete,
+    )
+    .await
+    .expect("the removal runs");
+    assert!(matches!(removal, UserRemoval::Removed(_)), "{removal:?}");
+    let erased = erase_deleted_accounts(&resources)
+        .await
+        .expect("bug: the erasure must run where uploads are kept, imports or not");
+    assert_eq!(erased, 1, "the account queued by its delete is erased");
+    assert_eq!(
+        erase_deleted_accounts(&resources)
+            .await
+            .expect("the sweep runs"),
+        0,
+        "an erased account leaves the outbox"
+    );
 }
 
 #[tokio::test]

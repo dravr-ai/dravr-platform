@@ -23,6 +23,7 @@
 //! across integration tests.
 
 use anyhow::Result;
+use dravr_barrage::blob::BlobStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
@@ -57,6 +58,7 @@ use rand::Rng;
 use secrecy::SecretString;
 use std::future::Future;
 use std::pin::Pin;
+use std::result::Result as StdResult;
 use std::{
     env,
     net::TcpListener,
@@ -1043,6 +1045,33 @@ pub(crate) async fn create_test_server_resources_with_archive_imports_and_config
     .await
 }
 
+/// Where a test context keeps uploaded files: a blob store, or none (why).
+type BlobChoice = StdResult<Arc<dyn BlobStore>, String>;
+
+/// A test context whose uploaded files are kept over `blobs`: a test's blob
+/// store, or none (the reason), as a Postgres deployment with no bucket.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_blobs(
+    blobs: BlobChoice,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            blobs: Some(blobs),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]
@@ -1053,6 +1082,8 @@ struct ContextParts {
     billing_provider: Option<Arc<dyn BillingProvider>>,
     /// The archive imports the context runs.
     archive_imports: Option<ArchiveImports>,
+    /// Where uploaded files are kept, in place of the imports' blob store.
+    blobs: Option<BlobChoice>,
 }
 
 async fn create_test_server_resources_over(
@@ -1067,7 +1098,16 @@ async fn create_test_server_resources_over(
         turn_runner,
         billing_provider,
         archive_imports,
+        blobs,
     } = parts;
+    // As deployed, uploaded files share the imports' blob store; without
+    // imports the context keeps them in a memory store of its own.
+    let blobs = blobs.or_else(|| {
+        archive_imports
+            .as_ref()
+            .and_then(|imports| imports.wiring().ok())
+            .map(|wiring| Ok(Arc::clone(&wiring.stores.blobs)))
+    });
     init_test_logging();
     init_test_http_clients();
     init_server_config();
@@ -1106,6 +1146,7 @@ async fn create_test_server_resources_over(
                 billing_provider,
                 turn_runner,
                 archive_imports,
+                blobs,
             },
         )
         .await

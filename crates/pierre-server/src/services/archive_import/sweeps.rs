@@ -1,4 +1,4 @@
-// ABOUTME: The archive import sweeps: imports never given their link expire, deleted accounts' imported history is erased
+// ABOUTME: The archive import sweeps: links never pasted expire; a deleted account's imports and uploaded files are erased
 // ABOUTME: Each runs on the worker ledger, once across instances; an erasure that fails is retried with backoff
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,8 +13,10 @@
 //! - **Deleted accounts.** The account delete queues every deleted account in
 //!   `archive_erasures` inside its own transaction; this sweep erases what
 //!   barrage holds for each, in every tenant — records, jobs and their
-//!   issues, originals and spools — and removes the row once barrage
-//!   confirms. A failure is kept with its error and tried again later, each
+//!   issues, originals and spools — and every file the account uploaded,
+//!   which the originals store keeps in the same blob store, and removes the
+//!   row once both confirm. It runs wherever a blob store is placed, imports
+//!   or not. A failure is kept with its error and tried again later, each
 //!   wait twice the last, up to [`MAX_BACKOFF`].
 
 use std::sync::Arc;
@@ -24,6 +26,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::{Importer, UserId};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ArchiveErasureRepository, PendingArchiveErasure};
+use pierre_providers::originals::OriginalsStore;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -52,23 +55,26 @@ const FIRST_BACKOFF: Duration = Duration::from_mins(5);
 /// The longest wait between two attempts at one erasure.
 const MAX_BACKOFF: Duration = Duration::from_hours(6);
 
-/// Start both sweeps when imports run here; nothing otherwise, since nothing
-/// was imported.
+/// Start the sweeps: the link expiry where imports run, and the erasure of
+/// deleted accounts' imported history and uploaded files everywhere.
 pub fn start_archive_import_sweeps(resources: &Arc<ServerContext>) {
-    if !resources.common.archive_imports.is_enabled() {
-        return;
-    }
+    let imports = resources.common.archive_imports.is_enabled();
     let ledger = Arc::clone(&resources.common.repos.worker_runs);
-    let expiring = Arc::clone(resources);
-    spawn_periodic(
-        EXPIRY_WORKER,
-        EXPIRY_INTERVAL,
-        Arc::clone(&ledger),
-        move || {
-            let resources = Arc::clone(&expiring);
-            async move { expire_awaiting_links(&resources).await.map(|_| ()) }
-        },
-    );
+    if imports {
+        let expiring = Arc::clone(resources);
+        spawn_periodic(
+            EXPIRY_WORKER,
+            EXPIRY_INTERVAL,
+            Arc::clone(&ledger),
+            move || {
+                let resources = Arc::clone(&expiring);
+                async move { expire_awaiting_links(&resources).await.map(|_| ()) }
+            },
+        );
+    }
+    // The erasure queue is written by every account deletion, so it is
+    // drained everywhere: where no blob store is placed, an entry completes
+    // with nothing to erase (the uploads' bytes went with the rows).
     let erasing = Arc::clone(resources);
     spawn_periodic(ERASURE_WORKER, ERASURE_INTERVAL, ledger, move || {
         let resources = Arc::clone(&erasing);
@@ -95,21 +101,27 @@ pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<
     Ok(expired)
 }
 
-/// Erase what barrage holds for each deleted account due; how many were
-/// erased. One account's failure is recorded and the pass goes on.
+/// Erase what barrage and the originals store hold for each deleted account
+/// due; how many were erased. One account's failure is recorded and the pass
+/// goes on.
 ///
 /// # Errors
 ///
-/// When imports are not available here, or the outbox cannot be read.
+/// When the outbox cannot be read.
 pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult<usize> {
-    let wiring = resources.common.archive_imports.wiring()?;
+    let importer = resources
+        .common
+        .archive_imports
+        .wiring()
+        .ok()
+        .map(|wiring| ops::importer(resources, wiring));
+    let originals = resources.common.originals.as_ref();
     let outbox = resources.common.repos.archive_erasures.as_ref();
-    let importer = ops::importer(resources, wiring);
     let now = Utc::now();
     let mut erased = 0;
     let due = outbox.due(now, ERASURES_PER_PASS).await?;
     for pending in due {
-        if erase_one(&importer, outbox, &pending, now).await? {
+        if erase_one(importer.as_ref(), originals, outbox, &pending, now).await? {
             erased += 1;
         }
     }
@@ -119,7 +131,8 @@ pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult
 /// Erase one deleted account; whether it was erased. A failure is recorded
 /// with the time of the next attempt.
 async fn erase_one(
-    importer: &Importer,
+    importer: Option<&Importer>,
+    originals: &OriginalsStore,
     outbox: &dyn ArchiveErasureRepository,
     pending: &PendingArchiveErasure,
     now: DateTime<Utc>,
@@ -129,22 +142,46 @@ async fn erase_one(
         outbox.complete(&pending.erased_account_id).await?;
         return Ok(false);
     };
-    match importer.delete_user(UserId(account)).await {
-        Ok(deleted) => {
+    match erase_account(importer, originals, account).await {
+        Ok((records, jobs, blobs)) => {
             outbox.complete(&pending.erased_account_id).await?;
             info!(
-                records = deleted.records,
-                jobs = deleted.jobs,
-                blobs = deleted.blobs,
-                "a deleted account's imported history was erased"
+                records,
+                jobs, blobs, "a deleted account's imported history and uploaded files were erased"
             );
             Ok(true)
         }
         Err(e) => {
-            record_failure(outbox, pending, &e.to_string(), now).await?;
+            record_failure(outbox, pending, &e, now).await?;
             Ok(false)
         }
     }
+}
+
+/// Erase what barrage holds for `account` (when imports run here), then
+/// every blob left under the account (its uploaded files): the records,
+/// jobs and blobs removed. Both are idempotent, so a retry after a failure
+/// part-way finishes the job.
+async fn erase_account(
+    importer: Option<&Importer>,
+    originals: &OriginalsStore,
+    account: Uuid,
+) -> Result<(u64, u64, u64), String> {
+    let (records, jobs, mut blobs) = match importer {
+        Some(importer) => {
+            let deleted = importer
+                .delete_user(UserId(account))
+                .await
+                .map_err(|e| e.to_string())?;
+            (deleted.records, deleted.jobs, deleted.blobs)
+        }
+        None => (0, 0, 0),
+    };
+    blobs += originals
+        .erase_user(account)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((records, jobs, blobs))
 }
 
 /// Keep a failed erasure's `error` and hold it until its next attempt.

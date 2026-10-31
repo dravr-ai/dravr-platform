@@ -65,7 +65,7 @@ use crate::terra::constants::{
     TERRA_API_BASE_URL, TERRA_DEAUTH_URL, TERRA_TOKEN_URL, TERRA_WIDGET_SESSION_URL,
 };
 #[cfg(feature = "provider-terra")]
-use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
+use crate::terra::{TerraDescriptor, TerraProviderFactory};
 #[cfg(feature = "provider-wahoo")]
 use crate::wahoo_descriptor::WahooDescriptor;
 #[cfg(feature = "provider-wahoo")]
@@ -209,11 +209,7 @@ impl ProviderRegistry {
     /// Register the Terra provider with its default endpoints
     #[cfg(feature = "provider-terra")]
     fn register_terra(registry: &mut Self) {
-        let terra_cache = global_terra_cache();
-        registry.register_factory(
-            oauth_providers::TERRA,
-            Box::new(TerraProviderFactory::new(terra_cache)),
-        );
+        registry.register_factory(oauth_providers::TERRA, Box::new(TerraProviderFactory));
         registry.register_descriptor(oauth_providers::TERRA, Box::new(TerraDescriptor));
         registry.set_default_config(
             oauth_providers::TERRA,
@@ -962,30 +958,6 @@ pub fn create_registry_with_external_providers(bundles: Vec<ProviderBundle>) -> 
         registry.register_provider_bundle(bundle);
     }
     registry
-}
-
-// ============================================================================
-// Terra Global Cache (conditionally compiled)
-// ============================================================================
-
-/// Global Terra data cache instance
-///
-/// Terra uses a webhook-based model where data is pushed to your endpoint.
-/// This global cache stores webhook data and makes it available to `TerraProvider`
-/// instances for the `FitnessProvider` trait implementation.
-#[cfg(feature = "provider-terra")]
-static TERRA_CACHE: OnceLock<Arc<TerraDataCache>> = OnceLock::new();
-
-/// Get the global Terra data cache
-///
-/// Returns a shared reference to the Terra webhook data cache.
-/// Use this cache with `TerraWebhookHandler` to store incoming webhook data.
-#[cfg(feature = "provider-terra")]
-#[must_use]
-pub fn global_terra_cache() -> Arc<TerraDataCache> {
-    TERRA_CACHE
-        .get_or_init(|| Arc::new(TerraDataCache::new_in_memory()))
-        .clone() // Safe: Arc clone for shared cache access
 }
 
 #[cfg(test)]

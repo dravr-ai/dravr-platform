@@ -19,6 +19,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
@@ -44,6 +45,10 @@ impl ToolRuntime for ServerContext {
 
     fn cache(&self) -> &Arc<Cache> {
         &self.common.cache
+    }
+
+    fn originals(&self) -> &Arc<OriginalsStore> {
+        &self.common.originals
     }
 
     fn config(&self) -> &Arc<ServerConfig> {

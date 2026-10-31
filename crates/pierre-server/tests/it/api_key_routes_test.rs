@@ -231,6 +231,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                blobs: None,
             },
         )
         .await

@@ -9,7 +9,7 @@
 //! These structures represent the JSON payloads received from Terra webhooks.
 //! Terra normalizes data from 150+ providers into consistent schemas.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Terra webhook payload wrapper
@@ -24,8 +24,11 @@ pub struct TerraWebhookPayload {
     /// Terra user object containing provider and user identification
     pub user: Option<TerraUser>,
 
-    /// Activity data (when type = "activity")
-    pub data: Option<Vec<TerraDataWrapper>>,
+    /// The event's summaries, each in the shape its `type` names: an
+    /// activity, a sleep, a body, a daily or a nutrition summary. Kept as
+    /// JSON until the type is known, since every summary's fields are
+    /// optional and any of them would read as any other.
+    pub data: Option<Vec<serde_json::Value>>,
 
     /// Status for auth events
     pub status: Option<String>,
@@ -57,22 +60,6 @@ pub struct TerraUser {
 
     /// Reference ID for your system's user mapping
     pub reference_id: Option<String>,
-}
-
-/// Wrapper for different data types in webhook payloads
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum TerraDataWrapper {
-    /// Activity data
-    Activity(Box<TerraActivity>),
-    /// Sleep data
-    Sleep(Box<TerraSleep>),
-    /// Body metrics
-    Body(Box<TerraBody>),
-    /// Daily summary
-    Daily(Box<TerraDaily>),
-    /// Nutrition data
-    Nutrition(Box<TerraNutrition>),
 }
 
 /// Terra activity/workout data
@@ -124,11 +111,12 @@ pub struct TerraActivity {
 /// Common metadata for all Terra data types
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerraMetadata {
-    /// Start time of the activity/session
-    pub start_time: Option<DateTime<Utc>>,
+    /// Start time of the activity/session, with the offset Terra sent it in:
+    /// the athlete's local offset, which dates a day or a night.
+    pub start_time: Option<DateTime<FixedOffset>>,
 
-    /// End time of the activity/session
-    pub end_time: Option<DateTime<Utc>>,
+    /// End time of the activity/session, with the offset Terra sent it in.
+    pub end_time: Option<DateTime<FixedOffset>>,
 
     /// Activity type (e.g., "RUNNING", "CYCLING", "SWIMMING")
     #[serde(rename = "type")]

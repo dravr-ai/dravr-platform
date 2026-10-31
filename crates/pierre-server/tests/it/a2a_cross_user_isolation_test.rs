@@ -88,6 +88,7 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                blobs: None,
             },
         )
         .await

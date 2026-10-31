@@ -44,6 +44,9 @@ pub mod fit_decode;
 pub mod http_client;
 /// The provider-side owner id behind an access token, for providers whose token response leaves it out
 pub mod owner_id;
+
+/// The files athletes uploaded: bytes in the blob store, a row naming each, every write verified
+pub mod originals;
 /// Which precedence source a stored row is
 pub mod precedence;
 /// What each provider's terms allow for its data: AI and transport policies
@@ -174,11 +177,9 @@ pub use wahoo_descriptor::WahooDescriptor;
 
 #[cfg(feature = "provider-terra")]
 pub use terra::{
-    TerraDataCache, TerraDescriptor, TerraProvider, TerraProviderFactory, TerraWebhookHandler,
+    TerraDescriptor, TerraProvider, TerraProviderFactory, TerraRecords, TerraWebhookHandler,
 };
 
-#[cfg(feature = "provider-terra")]
-pub use registry::global_terra_cache;
 pub use registry::{
     create_provider, create_registry_with_external_providers, create_tenant_provider,
     get_supported_providers, global_registry, is_provider_supported, ProviderRegistry,

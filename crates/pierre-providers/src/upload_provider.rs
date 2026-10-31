@@ -33,9 +33,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dravr_barrage::parse::fit::{FitActivityFile, Position};
-use pierre_database::repositories::{
-    ActivityStreamRepository, ActivityStreamsWrite, StreamOrigin, UploadedActivityFileRepository,
-};
+use pierre_database::repositories::{ActivityStreamRepository, ActivityStreamsWrite, StreamOrigin};
 use ring::digest::{digest, SHA256};
 use uuid::Uuid;
 
@@ -48,6 +46,7 @@ use crate::errors::{AppError, AppResult};
 use crate::fit_decode::decode_bounded;
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
+use crate::originals::OriginalsStore;
 use crate::pagination::{CursorPage, PaginationParams};
 
 /// What a not-found error calls an uploaded activity.
@@ -146,7 +145,7 @@ pub struct UserProvidedProvider {
     key: &'static str,
     config: ProviderConfig,
     stores: OwnerStores,
-    files: Option<Arc<dyn UploadedActivityFileRepository>>,
+    files: Option<Arc<OriginalsStore>>,
 }
 
 impl fmt::Debug for UserProvidedProvider {
@@ -163,7 +162,7 @@ impl UserProvidedProvider {
     /// The reader of the uploads of the owner `stores` are bound to, in
     /// their tenant.
     #[must_use]
-    pub fn upload(stores: OwnerStores, files: Arc<dyn UploadedActivityFileRepository>) -> Self {
+    pub fn upload(stores: OwnerStores, files: Arc<OriginalsStore>) -> Self {
         Self::with(UPLOAD, stores, Some(files))
     }
 
@@ -177,11 +176,7 @@ impl UserProvidedProvider {
     /// The reader of the user-provided `key`: the uploads' with their kept
     /// files, any other key's without.
     #[must_use]
-    pub fn for_key(
-        key: &'static str,
-        stores: OwnerStores,
-        files: Arc<dyn UploadedActivityFileRepository>,
-    ) -> Self {
+    pub fn for_key(key: &'static str, stores: OwnerStores, files: Arc<OriginalsStore>) -> Self {
         if key == UPLOAD {
             Self::upload(stores, files)
         } else {
@@ -189,11 +184,7 @@ impl UserProvidedProvider {
         }
     }
 
-    fn with(
-        key: &'static str,
-        stores: OwnerStores,
-        files: Option<Arc<dyn UploadedActivityFileRepository>>,
-    ) -> Self {
+    fn with(key: &'static str, stores: OwnerStores, files: Option<Arc<OriginalsStore>>) -> Self {
         Self {
             key,
             // Nothing is fetched: there is no endpoint, scope or token.
@@ -231,7 +222,7 @@ impl UserProvidedProvider {
         let not_found = || AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}"));
         let (sha, index) = parse_upload_activity_id(id).ok_or_else(not_found)?;
         let bytes = files
-            .get_uploaded_file(&self.stores.tenant_id, self.stores.user_id, sha)
+            .get_upload(&self.stores.tenant_id, self.stores.user_id, sha)
             .await?
             .ok_or_else(not_found)?;
         // The decode is CPU-bound and memory-heavy: it runs on the blocking

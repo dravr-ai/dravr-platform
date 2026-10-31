@@ -1,5 +1,5 @@
 // ABOUTME: Terra webhook handler for receiving push data from 150+ wearables
-// ABOUTME: Validates signatures, parses payloads, and stores data in cache for provider access
+// ABOUTME: Validates signatures, parses payloads into activities and wellness records for the platform to store
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,6 +8,13 @@
 //!
 //! This module handles incoming webhook events from Terra. When users sync their
 //! wearables, Terra pushes data to your configured webhook endpoint.
+//!
+//! The handler parses a payload into [`TerraRecords`]: the activities and the
+//! wellness records (nights, recovery days, body measurements, daily activity
+//! totals) it carries, in the shapes Dravr's stores keep. It stores nothing:
+//! the platform writes the records through the one activity-cache writer and
+//! the wellness store, for the athlete the Terra connection belongs to.
+//! Nutrition has no store, so a nutrition event is parsed and dropped.
 //!
 //! ## Security
 //!
@@ -28,13 +35,17 @@
 
 use pierre_core::constant_time::{is_unset_secret, matches_configured_secret};
 use ring::hmac;
+use serde::de::DeserializeOwned;
 use std::fmt;
-use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-use super::cache::TerraDataCache;
 use super::converters::TerraConverters;
-use super::models::{TerraDataWrapper, TerraUser, TerraWebhookPayload};
+use super::models::{
+    TerraActivity, TerraBody, TerraDaily, TerraSleep, TerraUser, TerraWebhookPayload,
+};
+use crate::models::{
+    Activity, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+};
 
 /// Webhook signature validation result
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,17 +173,57 @@ impl<'a> SignatureHeader<'a> {
     }
 }
 
+/// What one data event carried, in the shapes Dravr's stores keep.
+///
+/// The wellness records are unstamped: they name no user or data source
+/// until the platform files them for the connection's owner.
+#[derive(Debug, Clone, Default)]
+pub struct TerraRecords {
+    /// Workouts, as the activity cache keeps them (provider `terra`, each
+    /// naming the service that recorded it as its source).
+    pub activities: Vec<Activity>,
+    /// Nights.
+    pub nights: Vec<StoredSleepSession>,
+    /// Recovery readings per local date, from sleep and daily summaries.
+    pub recovery: Vec<StoredRecoveryMetrics>,
+    /// Body measurements per local date.
+    pub body: Vec<StoredHealthMetrics>,
+    /// Activity totals per local date.
+    pub daily_activity: Vec<StoredDailyActivity>,
+}
+
+impl TerraRecords {
+    /// How many records the event carried.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.activities.len()
+            + self.nights.len()
+            + self.recovery.len()
+            + self.body.len()
+            + self.daily_activity.len()
+    }
+
+    /// Whether the event carried no record.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// Result of processing a webhook event
 #[derive(Debug, Clone)]
 pub enum WebhookResult {
-    /// Successfully processed data
+    /// A data event, parsed into the records it carried
     Success {
         /// Event type that was processed
         event_type: String,
-        /// Number of items processed
-        items_processed: usize,
         /// Terra user ID
         user_id: String,
+        /// The service Terra relayed the data from (`GARMIN`, `OURA`, ...),
+        /// when the payload names it
+        relayed_from: Option<String>,
+        /// What the event carried
+        records: Box<TerraRecords>,
     },
     /// Authentication event (user connected/disconnected)
     AuthEvent {
@@ -185,7 +236,8 @@ pub enum WebhookResult {
         /// Reference ID (if available)
         reference_id: Option<String>,
     },
-    /// Unknown or unhandled event type
+    /// Unknown or unhandled event type, or one Dravr keeps nothing of
+    /// (nutrition)
     Unhandled {
         /// Event type
         event_type: String,
@@ -197,30 +249,39 @@ pub enum WebhookResult {
     },
 }
 
+/// The summaries of `items` in the shape `T` their event type names; a
+/// summary that does not parse is skipped with a warning.
+fn summaries<T: DeserializeOwned>(items: &[serde_json::Value], event_type: &str) -> Vec<T> {
+    items
+        .iter()
+        .filter_map(|item| {
+            T::deserialize(item)
+                .map_err(|e| warn!("A Terra {event_type} summary did not parse: {e}"))
+                .ok()
+        })
+        .collect()
+}
+
 /// Terra webhook handler
 ///
-/// Processes incoming webhook events from Terra and stores data in the cache.
-#[derive(Debug)]
+/// Validates and parses incoming webhook events from Terra into the records
+/// they carry; storing them is the platform's.
+#[derive(Debug, Default)]
 pub struct TerraWebhookHandler {
-    cache: Arc<TerraDataCache>,
     validator: Option<WebhookSignatureValidator>,
 }
 
 impl TerraWebhookHandler {
     /// Create a new webhook handler
     #[must_use]
-    pub const fn new(cache: Arc<TerraDataCache>) -> Self {
-        Self {
-            cache,
-            validator: None,
-        }
+    pub const fn new() -> Self {
+        Self { validator: None }
     }
 
     /// Create a webhook handler with signature validation
     #[must_use]
-    pub const fn with_validation(cache: Arc<TerraDataCache>, signing_secret: String) -> Self {
+    pub const fn with_validation(signing_secret: String) -> Self {
         Self {
-            cache,
             validator: Some(WebhookSignatureValidator::new(signing_secret)),
         }
     }
@@ -267,26 +328,58 @@ impl TerraWebhookHandler {
         })
     }
 
-    /// Dispatch to appropriate event processor
-    async fn dispatch_event(
-        &self,
+    /// The records a data event of `event_type` carries, or the result that
+    /// answers an event Dravr keeps nothing of.
+    fn records_of(
         payload: &TerraWebhookPayload,
         user: &TerraUser,
         event_type: &str,
-    ) -> Result<usize, WebhookResult> {
+    ) -> Result<TerraRecords, WebhookResult> {
+        let items = payload.data.as_deref().unwrap_or_default();
+        let mut records = TerraRecords::default();
         match event_type {
-            "activity" => Ok(self.process_activities(payload, user).await),
-            "sleep" => Ok(self.process_sleep(payload, user).await),
-            "body" => Ok(self.process_body(payload, user).await),
-            "daily" => Ok(self.process_daily(payload, user).await),
-            "nutrition" => Ok(self.process_nutrition(payload, user).await),
+            "activity" => {
+                for terra in summaries::<TerraActivity>(items, event_type) {
+                    records
+                        .activities
+                        .extend(TerraConverters::activity_from_terra(&terra, user));
+                }
+            }
+            "sleep" => {
+                for terra in summaries::<TerraSleep>(items, event_type) {
+                    records
+                        .nights
+                        .extend(TerraConverters::night_from_terra(&terra));
+                    records
+                        .recovery
+                        .extend(TerraConverters::night_recovery_from_terra(&terra));
+                }
+            }
+            "body" => {
+                for terra in summaries::<TerraBody>(items, event_type) {
+                    records
+                        .body
+                        .extend(TerraConverters::body_from_terra(&terra));
+                }
+            }
+            "daily" => {
+                for terra in summaries::<TerraDaily>(items, event_type) {
+                    records
+                        .recovery
+                        .extend(TerraConverters::day_recovery_from_terra(&terra));
+                    records
+                        .daily_activity
+                        .extend(TerraConverters::day_activity_from_terra(&terra));
+                }
+            }
             _ => {
                 info!("Unhandled Terra webhook event type: {}", event_type);
-                Err(WebhookResult::Unhandled {
+                return Err(WebhookResult::Unhandled {
                     event_type: event_type.to_owned(),
-                })
+                });
             }
         }
+        Ok(records)
     }
 
     /// Process a webhook payload
@@ -295,8 +388,9 @@ impl TerraWebhookHandler {
     /// * `body` - Raw JSON body of the webhook request
     ///
     /// # Returns
-    /// `WebhookResult` indicating the outcome of processing
-    pub async fn process(&self, body: &[u8]) -> WebhookResult {
+    /// `WebhookResult` indicating the outcome of processing, with the records
+    /// a data event carried
+    pub fn process(&self, body: &[u8]) -> WebhookResult {
         let payload = match Self::parse_payload(body) {
             Ok(p) => p,
             Err(e) => return e,
@@ -314,26 +408,23 @@ impl TerraWebhookHandler {
             Err(e) => return e,
         };
 
-        let user_id = user.user_id.clone();
-
-        if let Some(ref ref_id) = user.reference_id {
-            self.cache.register_user_mapping(ref_id, &user_id).await;
-        }
-
-        let items_processed = match self.dispatch_event(&payload, user, &event_type).await {
-            Ok(count) => count,
+        let records = match Self::records_of(&payload, user, &event_type) {
+            Ok(records) => records,
             Err(result) => return result,
         };
 
         info!(
-            "Processed {} {} items for Terra user {}",
-            items_processed, event_type, user_id
+            "Parsed {} {} records for Terra user {}",
+            records.len(),
+            event_type,
+            user.user_id
         );
 
         WebhookResult::Success {
             event_type,
-            items_processed,
-            user_id,
+            user_id: user.user_id.clone(),
+            relayed_from: user.provider.clone(),
+            records: Box::new(records),
         }
     }
 
@@ -359,106 +450,5 @@ impl TerraWebhookHandler {
             user_id,
             reference_id,
         }
-    }
-
-    /// Process activity data
-    async fn process_activities(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
-        let Some(data) = payload.data.as_ref() else {
-            return 0;
-        };
-
-        let mut count = 0;
-        for item in data {
-            if let TerraDataWrapper::Activity(terra_activity) = item {
-                let activity = TerraConverters::activity_from_terra(terra_activity, user);
-                self.cache.store_activity(&user.user_id, activity).await;
-                count += 1;
-            }
-        }
-        count
-    }
-
-    /// Process sleep data
-    ///
-    /// LIMITATION(registre#513): `process_sleep`, `process_body` and `process_daily` cache
-    /// Terra's sleep, recovery and body payloads that no tool reads: sleep and recovery
-    /// are read from the rows dravr-enforme syncs, and Terra has no enforme adapter yet.
-    async fn process_sleep(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
-        let Some(data) = payload.data.as_ref() else {
-            return 0;
-        };
-
-        let mut count = 0;
-        for item in data {
-            if let TerraDataWrapper::Sleep(terra_sleep) = item {
-                // Store sleep session
-                let sleep = TerraConverters::sleep_from_terra(terra_sleep, user);
-                self.cache.store_sleep_session(&user.user_id, sleep).await;
-
-                // Also extract recovery metrics from readiness data
-                let recovery = TerraConverters::recovery_from_terra_sleep(terra_sleep, user);
-                self.cache
-                    .store_recovery_metrics(&user.user_id, recovery)
-                    .await;
-
-                count += 1;
-            }
-        }
-        count
-    }
-
-    /// Process body metrics data
-    async fn process_body(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
-        let Some(data) = payload.data.as_ref() else {
-            return 0;
-        };
-
-        let mut count = 0;
-        for item in data {
-            if let TerraDataWrapper::Body(terra_body) = item {
-                let health = TerraConverters::health_from_terra(terra_body, user);
-                self.cache.store_health_metrics(&user.user_id, health).await;
-                count += 1;
-            }
-        }
-        count
-    }
-
-    /// Process daily summary data
-    async fn process_daily(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
-        let Some(data) = payload.data.as_ref() else {
-            return 0;
-        };
-
-        let mut count = 0;
-        for item in data {
-            if let TerraDataWrapper::Daily(terra_daily) = item {
-                let recovery = TerraConverters::recovery_from_terra_daily(terra_daily, user);
-                self.cache
-                    .store_recovery_metrics(&user.user_id, recovery)
-                    .await;
-                count += 1;
-            }
-        }
-        count
-    }
-
-    /// Process nutrition data
-    async fn process_nutrition(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
-        let Some(data) = payload.data.as_ref() else {
-            return 0;
-        };
-
-        let mut count = 0;
-        for item in data {
-            if let TerraDataWrapper::Nutrition(terra_nutrition) = item {
-                let nutrition = TerraConverters::nutrition_from_terra(terra_nutrition, user);
-                self.cache
-                    .store_nutrition_log(&user.user_id, nutrition)
-                    .await;
-                count += 1;
-            }
-        }
-        count
     }
 }

@@ -18,6 +18,7 @@ use crate::services::archive_import::ArchiveImports;
 use crate::services::backfill_notifier::ServerBackfillNotifier;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use crate::services::group_chat_poster::ServerGroupChatPoster;
+use crate::services::originals::blob_store_when_unset;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
@@ -73,6 +74,7 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_providers::originals::OriginalsStore;
 
 /// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
 #[cfg(feature = "client-messaging")]
@@ -225,6 +227,16 @@ impl ServerContext {
         });
         let database_arc = Arc::new(database);
         let repos = Arc::clone(database_arc.repositories());
+        // The binary passes the deployment's blob store; a context built
+        // without one keeps blobs in memory over an in-memory database and
+        // keeps uploads in the table over any other.
+        let blobs = options
+            .blobs
+            .unwrap_or_else(|| blob_store_when_unset(&config.database.url));
+        let originals = Arc::new(OriginalsStore::new(
+            blobs,
+            Arc::clone(&repos.uploaded_activity_files),
+        ));
 
         let auth_manager_arc = Arc::new(auth_manager);
 
@@ -583,6 +595,7 @@ impl ServerContext {
                 .turn_runner
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             archive_imports,
+            originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,

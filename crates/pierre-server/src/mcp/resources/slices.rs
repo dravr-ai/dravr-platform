@@ -97,6 +97,7 @@ use pierre_middleware::redaction::RedactionConfig;
 use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use pierre_services::group_chat_poster::GroupChatPoster;
@@ -150,6 +151,10 @@ pub struct CommonSlice {
     /// stores, the guarded fetcher and the step runner, or the reason imports
     /// are not available on this deployment. Chosen once at boot.
     pub archive_imports: ArchiveImports,
+    /// The files athletes uploaded, kept in the deployment's blob store
+    /// (the one archive imports keep their originals in), or the reason no
+    /// blob store is placed here. Chosen once at boot.
+    pub originals: Arc<OriginalsStore>,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the
@@ -204,6 +209,7 @@ impl fmt::Debug for CommonSlice {
         d.field("turns", &self.turns)
             .field("turn_runner", &self.turn_runner)
             .field("archive_imports", &self.archive_imports)
+            .field("originals", &self.originals)
             .field("photograveur", &self.photograveur)
             .field("config", &self.config)
             .field("redaction_config", &self.redaction_config)

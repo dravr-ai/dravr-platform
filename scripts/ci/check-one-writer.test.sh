@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-one-writer.sh (guard G1) — makes it fire, pass and fail closed
-# ABOUTME: A second INSERT or UPDATE file, or a wellness write called outside the store, fails; soft deletes and tests do not
+# ABOUTME: A second INSERT/UPDATE file, a wellness write or an uploaded file handled outside its store fails; soft deletes and tests do not
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -41,6 +41,15 @@ RS
         > "$db/time_series.rs"
     printf 'const UPSERT_SQL: &str = "INSERT INTO activity_streams (id) VALUES ($1)";\n' \
         > "$db/activity_streams.rs"
+    printf 'const RECORD_SQL: &str = "INSERT INTO uploaded_activity_files (tenant_id) VALUES ($1)";\n' \
+        > "$db/uploaded_activity_files.rs"
+    mkdir -p "$WORK/root/crates/pierre-providers/src"
+    cat > "$WORK/root/crates/pierre-providers/src/originals.rs" <<'RS'
+pub async fn put(store: &Store) {
+    let key = BlobKey::upload(scope, digest);
+    store.files.record_uploaded_file(&tenant, user, &sha, size, "upload").await;
+}
+RS
     cat > "$WORK/root/crates/pierre-services/src/wellness_store.rs" <<'RS'
 pub async fn sleep(repos: &Repos) {
     repos.sleep.upsert_sleep_session(&tenant, &session, now).await;
@@ -212,6 +221,81 @@ if [ "$code" -eq 0 ]; then
     pass "a write inside a trailing test module is not production code"
 else
     fail "a test-module write should pass (exit $code)"; sed 's/^/       /' "$WORK/out"
+fi
+
+# An uploaded file handled outside the originals store: name, path, snippet.
+expect_upload_bypass() {
+    local what="$1" path="$2" snippet="$3"
+    scaffold
+    mkdir -p "$(dirname "$WORK/root/$path")"
+    printf '%s\n' "$snippet" > "$WORK/root/$path"
+    local code
+    code="$(run)"
+    if [ "$code" -eq 1 ] && grep -q "$(basename "$path"):" "$WORK/out"; then
+        pass "$what outside the originals store fails and is named"
+    else
+        fail "$what outside the originals store should fail (exit $code)"; sed 's/^/       /' "$WORK/out"
+    fi
+}
+expect_upload_bypass "an uploaded file's row written" \
+    crates/pierre-server/src/services/activity_upload.rs \
+    'async fn keep(r: &R) { r.uploaded_activity_files.record_uploaded_file(&t, u, &sha, n, "upload").await; }'
+expect_upload_bypass "an uploaded file's row deleted" \
+    crates/pierre-server/src/services/activity_upload.rs \
+    'async fn drop(r: &R) { r.uploaded_activity_files.delete_uploaded_file(&t, u, &sha).await; }'
+expect_upload_bypass "table-held upload bytes read" \
+    crates/pierre-server/src/services/upload_streams_backfill.rs \
+    'async fn read(r: &R) { UploadedActivityFileRepository::pending_upload_bytes(&*r.files, None, 10).await; }'
+expect_upload_bypass "table-held upload bytes cleared" \
+    crates/pierre-server/src/services/upload_streams_backfill.rs \
+    'async fn clear(r: &R) { r.files.clear_drained_bytes(&t, u, &sha).await; }'
+expect_upload_bypass "an upload blob key built" \
+    crates/pierre-server/src/services/archive_import/sweeps.rs \
+    'fn key() -> BlobKey { BlobKey :: upload(scope, digest) }'
+expect_upload_bypass "upload bytes written into the table" \
+    crates/pierre-server/src/services/activity_upload.rs \
+    'async fn keep(r: &R) { r.uploaded_activity_files.record_uploaded_file_bytes(&t, u, &sha, &b, "upload").await; }'
+# The same, appended to a file that owns another table, which must stay its
+# table's one writer.
+expect_upload_bypass_in_owner() {
+    local what="$1" path="$2" snippet="$3"
+    scaffold
+    printf '%s\n' "$snippet" >> "$WORK/root/$path"
+    local code
+    code="$(run)"
+    if [ "$code" -eq 1 ] && grep -q "Uploaded files written" "$WORK/out" \
+        && grep -q "$(basename "$path"):" "$WORK/out"; then
+        pass "$what outside the originals store fails and is named"
+    else
+        fail "$what outside the originals store should fail (exit $code)"; sed 's/^/       /' "$WORK/out"
+    fi
+}
+expect_upload_bypass_in_owner "an uploaded file's row deleted from another table's owner file" \
+    crates/pierre-database/src/repositories/activity_cache/sql.rs \
+    'async fn drop(r: &R) { r.uploaded_activity_files.delete_uploaded_file(&t, u, &sha).await; }'
+expect_upload_bypass_in_owner "an upload blob key built in another table's owner file" \
+    crates/pierre-database/src/repositories/health_persistence.rs \
+    'fn key() -> BlobKey { BlobKey::upload(scope, digest) }'
+expect_second_writer "an uploaded file inserted outside its repository file" \
+    crates/pierre-server/src/services/activity_upload.rs \
+    'const RAW: &str = "INSERT INTO uploaded_activity_files (tenant_id) VALUES ($1)";'
+
+scaffold
+rm "$WORK/root/crates/pierre-providers/src/originals.rs"
+code="$(run)"
+if [ "$code" -eq 2 ]; then
+    pass "a missing originals store fails closed"
+else
+    fail "a missing originals store should exit 2 (exit $code)"; sed 's/^/       /' "$WORK/out"
+fi
+
+scaffold
+printf 'pub fn nothing() {}\n' > "$WORK/root/crates/pierre-providers/src/originals.rs"
+code="$(run)"
+if [ "$code" -eq 2 ]; then
+    pass "an originals store that no longer keys or writes fails closed"
+else
+    fail "an empty originals store should exit 2 (exit $code)"; sed 's/^/       /' "$WORK/out"
 fi
 
 scaffold

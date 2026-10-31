@@ -14,8 +14,10 @@
 //! written to the one per-activity sample store (`activity_streams`,
 //! `origin = 'upload'`, the file's SHA-256 as `source_ref`, carnet#1219), which
 //! the series and route reads answer from
-//! (`pierre_providers::upload_provider`). The file is kept
-//! (`uploaded_activity_files`) as the source both were decoded from: an
+//! (`pierre_providers::upload_provider`). The file is kept in the originals
+//! store (`pierre_providers::originals`: the deployment's blob store, with a
+//! row in `uploaded_activity_files` naming it) as the source both were
+//! decoded from, and an upload is refused where no blob store is placed: an
 //! activity uploaded before the store held uploads is read from it until the
 //! backfill ([`crate::services::upload_streams_backfill`]) writes its row.
 //!
@@ -161,9 +163,9 @@ pub async fn upload_activity_file(
         .collect();
     let repos = runtime.repos();
     let synced_at = Utc::now();
-    repos
-        .uploaded_activity_files
-        .store_uploaded_file(&tenant_id, user_id, &sha, &bytes)
+    runtime
+        .originals()
+        .put_upload(&tenant_id, user_id, &sha, bytes.clone())
         .await?;
     store_upload_series(
         repos.activity_streams.as_ref(),
@@ -205,7 +207,8 @@ pub async fn upload_activity_file(
 /// # Errors
 ///
 /// - [`AppError::not_found`] when the athlete holds no uploaded activity with
-///   that id in this tenant;
+///   that id in this tenant (a retry of a delete that removed the activity
+///   but failed to delete its file finishes that delete instead);
 /// - a database error when a read or a delete fails.
 pub async fn delete_uploaded_activity(
     runtime: &Arc<dyn ToolRuntime>,
@@ -222,24 +225,19 @@ pub async fn delete_uploaded_activity(
         .delete_cached_activity(user_id, &tenant_id, UPLOAD, activity_id)
         .await?;
     if removed == 0 {
+        // A delete that failed part-way removed the activity and left its
+        // file: the retry finishes deleting the file, then answers done.
+        if finish_file_delete(runtime, &tenant_id, user_id, sha).await? {
+            info!(%user_id, tenant_id = %tenant_id, activity_id, "uploaded file left by an interrupted delete was deleted");
+            return Ok(());
+        }
         return Err(not_found());
     }
     repos
         .activity_streams
         .delete_activity_streams(&tenant_id, user_id, UPLOAD, activity_id)
         .await?;
-    let file_deleted = if repos
-        .uploaded_activity_files
-        .file_backs_cached_activity(&tenant_id, user_id, sha)
-        .await?
-    {
-        false
-    } else {
-        repos
-            .uploaded_activity_files
-            .delete_uploaded_file(&tenant_id, user_id, sha)
-            .await?
-    };
+    let file_deleted = finish_file_delete(runtime, &tenant_id, user_id, sha).await?;
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(
         %user_id,
@@ -249,6 +247,28 @@ pub async fn delete_uploaded_activity(
         "uploaded activity deleted"
     );
     Ok(())
+}
+
+/// Delete the file `sha` once no activity it became is cached any more;
+/// whether it was deleted.
+async fn finish_file_delete(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    sha: &str,
+) -> AppResult<bool> {
+    if runtime
+        .repos()
+        .uploaded_activity_files
+        .file_backs_cached_activity(tenant_id, user_id, sha)
+        .await?
+    {
+        return Ok(false);
+    }
+    runtime
+        .originals()
+        .delete_upload(tenant_id, user_id, sha)
+        .await
 }
 
 /// The copy of `session` the athlete already holds in this tenant, if any:

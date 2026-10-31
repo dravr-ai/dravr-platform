@@ -17,11 +17,13 @@
 //! secure token storage, and database management.
 
 use clap::{error::ErrorKind, Parser};
+use dravr_barrage::blob::BlobStore;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
+use pierre_config::database::DatabaseUrl;
 use pierre_config::environment::{ServerConfig, TokioRuntimeConfig};
 #[cfg(feature = "client-messaging")]
 use pierre_config::timeouts::ServerTimeouts;
@@ -57,13 +59,14 @@ use pierre_services::server_lifecycle;
 use secrecy::ExposeSecret;
 
 type Result<T> = AppResult<T>;
-use std::{env, sync::Arc};
+use std::{env, result, sync::Arc};
 
 use pierre_mcp_server::services::archive_import::ArchiveImports;
+use pierre_mcp_server::services::originals::blob_store_from_env;
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
 use tokio::runtime::{Builder, Runtime};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[path = "pierre-mcp-server/env_validation.rs"]
 mod env_validation;
@@ -511,7 +514,7 @@ async fn create_server(
 
     // After the platform's own migrations (the database is open) and before
     // any request: on Postgres the barrage schema migrates here.
-    let archive_imports = ArchiveImports::from_env(&database, &config.database.url).await;
+    let (blobs, archive_imports) = select_original_stores(&database, &config.database.url).await;
 
     let resources_instance = ServerContext::new(
         database,
@@ -530,6 +533,7 @@ async fn create_server(
             billing_provider,
             turn_runner,
             archive_imports: Some(archive_imports),
+            blobs: Some(blobs),
         },
     )
     .await?;
@@ -562,6 +566,20 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
 }
 
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
+/// The deployment's blob store, which keeps every original file (an import's
+/// recordings and the files athletes upload), and the archive imports on it.
+async fn select_original_stores(
+    database: &Database,
+    url: &DatabaseUrl,
+) -> (result::Result<Arc<dyn BlobStore>, String>, ArchiveImports) {
+    let blobs = blob_store_from_env(url).await;
+    if let Err(reason) = &blobs {
+        warn!(reason = %reason, "No blob store: uploads and archive imports are not available");
+    }
+    let archive_imports = ArchiveImports::from_env(database, url, blobs.clone()).await;
+    (blobs, archive_imports)
+}
+
 fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
@@ -749,11 +767,21 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     }
 
     // Start the archive import sweeps (carnet#1218): imports never given their
-    // link expire, and a deleted account's imported history is erased from
-    // dravr-barrage. Nothing starts where imports do not run.
+    // link expire, and a deleted account's imported history and uploaded
+    // files are erased from the blob store, where one is placed (elsewhere
+    // the queue drains with nothing to erase).
     {
         use pierre_mcp_server::start_archive_import_sweeps;
         start_archive_import_sweeps(&resources);
+    }
+
+    // Start the originals drain (Athlete Data Consolidation, S12): files
+    // uploaded before the blob store kept them move out of the table into
+    // it, each verified against its hash, once the rollout has settled.
+    // Nothing starts without a blob store: uploads stay in the table there.
+    {
+        use pierre_mcp_server::services::originals::start_originals_drain;
+        start_originals_drain(&resources);
     }
 
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
