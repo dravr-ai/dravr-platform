@@ -45,7 +45,7 @@ dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.15.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.15.1", default-features = false }
+dravr-enforme = { version = "0.15.2", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.15.2", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.9.0" }
