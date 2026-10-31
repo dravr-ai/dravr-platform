@@ -502,6 +502,7 @@ jobs:
           ./scripts/ci/check-moved-symbols.test.sh
           ./scripts/ci/check-one-wellness-merge.test.sh
           ./scripts/ci/check-one-precedence.test.sh
+          ./scripts/ci/check-one-writer.test.sh
           ./scripts/ci/check-inline-paths.test.sh
           ./scripts/ci/check-phantom-surfaces.test.sh
           ./scripts/ci/check-contremaitre-sync.test.sh

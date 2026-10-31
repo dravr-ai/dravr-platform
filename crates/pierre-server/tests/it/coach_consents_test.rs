@@ -46,6 +46,7 @@ use pierre_core::models::{
     DelegatedConnection, DelegationStatus, DeviceType, SportType, StoredHealthMetrics,
     StoredRecoveryMetrics, StoredSleepSession, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::request_transport::declare_request_transport;
 use pierre_routes_groups::DelegatedConnectionRoutes;
@@ -508,6 +509,7 @@ impl World {
                     stages: Vec::new(),
                     source_name: INTERVALS_ICU.to_owned(),
                 },
+                Utc::now(),
             )
             .await
             .unwrap();
@@ -535,6 +537,8 @@ impl World {
                     source_name: INTERVALS_ICU.to_owned(),
                     recorded_at: Utc::now(),
                 },
+                WellnessWriteMode::FullDay,
+                Utc::now(),
             )
             .await
             .unwrap();
@@ -560,6 +564,8 @@ impl World {
                     source_name: INTERVALS_ICU.to_owned(),
                     recorded_at: Utc::now(),
                 },
+                WellnessWriteMode::FullDay,
+                Utc::now(),
             )
             .await
             .unwrap();

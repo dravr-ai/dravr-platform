@@ -39,6 +39,7 @@ use pierre_core::models::{
     UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::repositories::{GarminPushInboxRow, InboxClaim, JobLease, INBOX_PENDING};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
@@ -1170,7 +1171,7 @@ async fn seed_usr_pwd_wellness(
     };
     repos
         .recovery
-        .upsert_recovery_metrics(tenant_id, &row)
+        .upsert_recovery_metrics(tenant_id, &row, WellnessWriteMode::FullDay, Utc::now())
         .await
         .unwrap();
 }
@@ -1642,10 +1643,16 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
     ] {
         assert!(!latest(series).await, "bug: {series:?} has no reader");
     }
+    let day = &garmin_recovery(&resources, user_id, &tenant_id).await[0];
     assert_eq!(
-        garmin_recovery(&resources, user_id, &tenant_id).await[0].readiness_score,
+        day.body_battery,
         Some(64),
         "the day's Body Battery still lands"
+    );
+    assert_eq!(
+        (day.recovery_score, day.readiness_score),
+        (None, None),
+        "Body Battery is stored as itself, never as a recovery or readiness score"
     );
 
     let pulseox = json!({ "pulseox": [{

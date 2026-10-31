@@ -342,6 +342,12 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     assert_eq!(mornings.len(), 1);
     assert_eq!(mornings[0].hrv_rmssd, Some(62.0));
     assert_eq!(mornings[0].resting_heart_rate, Some(47));
+    assert_eq!(mornings[0].body_battery, Some(71), "Body Battery is kept");
+    assert_eq!(
+        (mornings[0].recovery_score, mornings[0].readiness_score),
+        (None, None),
+        "Body Battery fills no recovery or readiness score (DECISION 2, enforme 0.15.2)"
+    );
 
     let body = repos
         .health_snapshots

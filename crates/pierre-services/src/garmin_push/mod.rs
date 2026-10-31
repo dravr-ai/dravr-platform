@@ -43,8 +43,9 @@
 //! Dravr does not ingest, so neither should be subscribed in the portal.
 //!
 //! A day's recovery and body rows are fed by several summary types, so each
-//! push merges only what it carries into the day's row, in one statement, and
-//! two pushes for one day may run at once. Health summaries are refused for an
+//! push writes only what it carries onto the day's row, in one statement (the
+//! wellness store's partial-summary mode), and two pushes for one day may run
+//! at once. Health summaries are refused for an
 //! owner whose last recorded grants leave out `HEALTH_EXPORT`, activity
 //! summaries without `ACTIVITY_EXPORT`.
 //!
@@ -52,7 +53,8 @@
 //! batch processed twice, or a record Garmin re-sends as an update, lands
 //! the same rows again with the latest values. A batch retried after a later
 //! push for the same activity, night or samples landed leaves that later
-//! push's row as it is (`PushedDataRepository`).
+//! push's row as it is: the one writers of `cached_activities`, the nights
+//! and the samples each keep the latest receipt.
 //!
 //! Wellness is filed under the owner's Garmin API data source, marked
 //! `API_SOURCE_MARKER`, apart from the source the usr/pwd connection's
@@ -88,6 +90,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::webhook_owner::{resolve_webhook_owner, WebhookTarget};
+use crate::wellness_store::WellnessStore;
 
 use consent::{GRANT_ACTIVITY_EXPORT, GRANT_HEALTH_EXPORT};
 
@@ -355,9 +358,8 @@ impl OwnerBatch<'_> {
             device_type: DeviceType::Watch,
             original_source_name: Some("Garmin Connect".to_owned()),
         };
-        self.repos
-            .data_sources
-            .upsert_data_source(&self.owner.tenant_id, &source)
+        WellnessStore::new(self.repos)
+            .record_data_source(&self.owner.tenant_id, &source)
             .await
     }
 }

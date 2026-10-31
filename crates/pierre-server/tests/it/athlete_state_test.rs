@@ -16,6 +16,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
@@ -133,6 +134,8 @@ async fn recovery_day(
                 source_name: provider.to_owned(),
                 recorded_at: at,
             },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await
         .unwrap();

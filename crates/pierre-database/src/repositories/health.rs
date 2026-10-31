@@ -83,15 +83,47 @@ pub struct WellnessRowOrigin {
     pub data_source_id: String,
 }
 
+/// How a day's recovery or body write lands on the row its key already
+/// names (Athlete Data Consolidation design §4.2).
+///
+/// Whichever mode, a write onto a soft-deleted row brings it back with only
+/// the readings the write carries: nothing stored before the delete returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WellnessWriteMode {
+    /// The whole day as its source holds it now (a sync of the day): every
+    /// reading replaces the stored one, so a reading the source no longer
+    /// holds is cleared. The row is filed under the write's data source.
+    FullDay,
+    /// One of the summaries a day arrives in (a push's dailies, its HRV, its
+    /// body composition): a reading the summary carries replaces the stored
+    /// one, a reading it leaves `None` is not part of the summary and stays.
+    /// The ingresses that write this way never retract a reading.
+    PartialSummary,
+}
+
 /// Sleep session persistence repository
 #[async_trait]
 pub trait SleepRepository: Send + Sync {
-    /// Insert or update a sleep session
+    /// Write a night's sleep received at `synced_at`, whole, filed under the
+    /// session's data source — unless the stored night was received later,
+    /// in which case it stands and `None` is returned. Returns the stored
+    /// row's id otherwise (the existing row's on the update path).
     async fn upsert_sleep_session(
         &self,
         tenant_id: &TenantId,
         session: &StoredSleepSession,
-    ) -> AppResult<String>;
+        synced_at: DateTime<Utc>,
+    ) -> AppResult<Option<String>>;
+
+    /// Clear the provider-scored figure (`sleep_score`) from every night
+    /// `user_id` holds under `provider`: the terms of that provider forbid
+    /// keeping it. Returns how many nights held one.
+    async fn clear_provider_sleep_scores(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64>;
     /// Get sleep sessions for a user within a date range
     async fn get_sleep_sessions(
         &self,
@@ -136,12 +168,27 @@ pub trait SleepRepository: Send + Sync {
 /// Recovery metrics persistence repository
 #[async_trait]
 pub trait RecoveryRepository: Send + Sync {
-    /// Insert or update recovery metrics for a date
+    /// Write a day's recovery readings received at `synced_at`, as `mode`
+    /// says, filed under `metrics.data_source_id`. The row keeps the later
+    /// of its stored and new `synced_at`. Returns the stored row's id.
     async fn upsert_recovery_metrics(
         &self,
         tenant_id: &TenantId,
         metrics: &StoredRecoveryMetrics,
+        mode: WellnessWriteMode,
+        synced_at: DateTime<Utc>,
     ) -> AppResult<String>;
+
+    /// Clear every provider-scored composite (recovery and readiness score,
+    /// stress, Body Battery, day strain) from every day `user_id` holds under
+    /// `provider`: the terms of that provider forbid keeping them. Returns how
+    /// many days held one.
+    async fn clear_provider_recovery_scores(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64>;
     /// Get recovery metrics for a user within a date range
     async fn get_recovery_metrics(
         &self,
@@ -189,10 +236,15 @@ pub trait HealthSnapshotRepository: Send + Sync {
     /// for every date), and reusing one collides with the primary key on the
     /// insert path before the conflict arbiter is consulted. On the update path
     /// the pre-existing row's id is returned unchanged.
+    ///
+    /// The write lands as `mode` says, received at `synced_at`; the row keeps
+    /// the later of its stored and new `synced_at`.
     async fn upsert_health_snapshot(
         &self,
         tenant_id: &TenantId,
         snapshot: &StoredHealthMetrics,
+        mode: WellnessWriteMode,
+        synced_at: DateTime<Utc>,
     ) -> AppResult<String>;
     /// Get health snapshots for a user within a date range
     async fn get_health_snapshots(

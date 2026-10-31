@@ -249,6 +249,9 @@ pub trait ActivityCacheRepository: Send + Sync {
     /// length — a provider feed that repeats an `activity_id` within one batch
     /// upserts the same row, so the input length would overstate the rows
     /// actually stored. This honest count feeds the backfill completion notice.
+    ///
+    /// This is the one writer of `cached_activities`: every ingress lands its
+    /// rows here.
     async fn upsert_activities(
         &self,
         user_id: Uuid,
@@ -269,6 +272,10 @@ pub trait ActivityCacheRepository: Send + Sync {
     /// the head — a closed historical window, a later page — writes the
     /// head's own last sync instead, and so lands its rows without making
     /// the head look current.
+    ///
+    /// A copy whose stored row was synced later is not written and is not
+    /// counted: a pushed activity retried after a later push of it leaves the
+    /// later one standing.
     async fn upsert_activities_synced_at(
         &self,
         user_id: Uuid,
@@ -335,6 +342,22 @@ pub trait ActivityCacheRepository: Send + Sync {
         activity_id: &str,
         detail: &ActivityDetail,
         recheck_at: Option<DateTime<Utc>>,
+    ) -> AppResult<bool>;
+
+    /// Rewrite the content of `activity`'s cached row under `provider`,
+    /// leaving the row's receipt (`synced_at`) and stored detail as they
+    /// stand. A figure derived from data stored after the row's own write —
+    /// a pushed ride's power, from its samples — belongs on whichever summary
+    /// stands, including one received after the data it was derived from,
+    /// which [`Self::upsert_activities_synced_at`] would refuse to overwrite.
+    /// The row's samples and laps stand beside it, so the content written
+    /// carries neither. Returns whether a row was there.
+    async fn amend_activity(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity: &Activity,
     ) -> AppResult<bool>;
 
     /// Delete one cached activity the athlete deleted on its provider.
@@ -639,7 +662,7 @@ macro_rules! impl_activity_cache_repository {
                     let sport = sport_type_string(activity);
                     let data_json = stored_activity_json(activity)?;
 
-                    sqlx::query(UPSERT_CACHED_ACTIVITY_SQL)
+                    let written = sqlx::query(UPSERT_CACHED_ACTIVITY_SQL)
                         .bind(&id)
                         .bind(&user_id_str)
                         .bind(&tenant_str)
@@ -651,11 +674,12 @@ macro_rules! impl_activity_cache_repository {
                         .bind(&data_json)
                         .execute(self.pool())
                         .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to upsert activity: {e}"))
-                        })?;
+                        .map_err(|e| AppError::database(format!("Failed to upsert activity: {e}")))?
+                        .rows_affected();
 
-                    distinct_ids.insert(activity.id().to_owned());
+                    if written > 0 {
+                        distinct_ids.insert(activity.id().to_owned());
+                    }
                 }
 
                 Ok(u64::try_from(distinct_ids.len()).unwrap_or(u64::MAX))
@@ -893,6 +917,27 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!("Failed to store activity detail: {e}"))
                     })?;
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn amend_activity(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity: &Activity,
+            ) -> AppResult<bool> {
+                let data_json = amended_activity_json(activity)?;
+                let amended = sqlx::query(AMEND_CACHED_ACTIVITY_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(activity.id())
+                    .bind(&data_json)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to amend activity: {e}")))?
+                    .rows_affected();
+                Ok(amended > 0)
             }
 
             async fn delete_cached_activity(

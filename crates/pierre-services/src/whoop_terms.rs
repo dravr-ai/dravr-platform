@@ -15,9 +15,10 @@
 //! before anything is written; what nothing stores, no prompt and no tool
 //! reply can quote.
 //!
-//! Every WHOOP record health sync writes passes through
-//! [`crate::health_sync::PierreSyncStorage`], which applies these functions to
-//! each record before its upsert. The measurements the record carries (sleep
+//! Every WHOOP record reaches storage through the one wellness writer,
+//! [`crate::wellness_store`], which applies these functions to each record
+//! before its upsert and then clears whatever WHOOP score the account's
+//! stored rows still hold. The measurements the record carries (sleep
 //! and stage durations, awake time, resting heart rate, HRV, SpO2, skin
 //! temperature, weight) pass through unchanged. Records from other providers
 //! pass through untouched.
@@ -52,6 +53,14 @@ use crate::provider_notice::outstanding_notice;
 #[must_use]
 pub fn is_whoop(source_name: &str) -> bool {
     source_name.eq_ignore_ascii_case(oauth_providers::WHOOP)
+}
+
+/// Whether `source_name`'s terms forbid keeping its own scores, so every
+/// one its stored rows hold is cleared outright after a write
+/// ([`crate::wellness_store`]). Only WHOOP's do.
+#[must_use]
+pub(crate) fn scores_withheld(source_name: &str) -> bool {
+    is_whoop(source_name)
 }
 
 /// Sleep efficiency as Dravr computes it, in percent: the share of the time

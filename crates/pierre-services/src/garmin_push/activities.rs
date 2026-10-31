@@ -34,6 +34,8 @@
 //! guard that would refuse them, so a ride never keeps its samples and loses
 //! its power.
 
+use std::slice;
+
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
 
@@ -76,17 +78,18 @@ async fn record_push(batch: &OwnerBatch<'_>) -> AppResult<()> {
 /// Upsert `activity` as the owner's Garmin row, synced at the receipt,
 /// unless a later push of it already landed. Returns whether it was written.
 async fn upsert(batch: &OwnerBatch<'_>, activity: &Activity) -> AppResult<bool> {
-    batch
+    let written = batch
         .repos
-        .pushed_data
-        .upsert_activity(
+        .activity_cache
+        .upsert_activities_synced_at(
             batch.owner.user_id,
             &batch.owner.tenant_id,
             GARMIN,
-            activity,
+            slice::from_ref(activity),
             batch.received_at,
         )
-        .await
+        .await?;
+    Ok(written > 0)
 }
 
 /// Store an activity's samples in the one sample store, as pushed, received
@@ -454,7 +457,7 @@ async fn amend_power(
     let amended = with_power(activity, streams)?;
     batch
         .repos
-        .pushed_data
+        .activity_cache
         .amend_activity(
             batch.owner.user_id,
             &batch.owner.tenant_id,

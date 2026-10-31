@@ -1736,6 +1736,16 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: guard G1 — each athlete-data table is written from one repository
+# file, and the repository wellness writes are called only from the wellness
+# store (Athlete Data Consolidation S4/S5, carnet#1305).
+if [ -f "$SCRIPT_DIR/check-one-writer.sh" ]; then
+    bash "$SCRIPT_DIR/check-one-writer.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-one-writer.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true

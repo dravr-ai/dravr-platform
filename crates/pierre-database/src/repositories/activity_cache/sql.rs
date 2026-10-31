@@ -17,6 +17,13 @@
 /// read replaces `data_json` whole and carries no splits or laps, so the
 /// detail a detail read stored ([`STORE_CACHED_ACTIVITY_DETAIL_SQL`])
 /// survives every later list sync of the same activity.
+///
+/// The one statement every writer of the table runs — a provider read, a
+/// push, an upload, an archive import. A copy lands only when it was synced
+/// no earlier than the stored one (`$8`): a push batch retried after a later
+/// push of the same activity leaves the later one standing. A read stamps
+/// `now`, or, for a read short of the list head, the head's own last sync,
+/// which is never older than a row the head wrote.
 pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
     INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -24,7 +31,14 @@ pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
         sport_type = EXCLUDED.sport_type,
         start_date = EXCLUDED.start_date,
         synced_at = EXCLUDED.synced_at,
-        data_json = EXCLUDED.data_json";
+        data_json = EXCLUDED.data_json
+    WHERE cached_activities.synced_at <= EXCLUDED.synced_at";
+
+/// Rewrite one cached activity's content (`$5`) by the table's uniqueness
+/// key, leaving its receipt (`synced_at`) and its detail as they stand.
+pub(crate) const AMEND_CACHED_ACTIVITY_SQL: &str = r"
+    UPDATE cached_activities SET data_json = $5
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
 
 /// Store what a detail read of one cached activity found, on the row its
 /// list read wrote, by the table's uniqueness key, with the instant it is

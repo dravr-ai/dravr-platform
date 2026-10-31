@@ -45,6 +45,7 @@ use pierre_core::models::{
     StoredSleepSession, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::whoop_provider::WhoopProvider;
@@ -419,6 +420,108 @@ async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain
     assert_eq!(garmin.stress_score, Some(25));
 }
 
+/// T3 (Athlete Data Consolidation, the S4 pre-squash gate): a WHOOP write
+/// clears every WHOOP score the account's stored rows still hold — on days
+/// and nights the write does not touch, not only on the row it writes —
+/// while WHOOP's measurements and another provider's scores stay. The strip
+/// before a write governs only what that write binds; the clear is what
+/// keeps a retained score, from any earlier write or mode, out of storage.
+#[tokio::test]
+async fn t3_a_whoop_write_clears_every_whoop_score_the_account_still_holds() {
+    let db = create_test_db().await;
+    let repos = Arc::clone(db.repositories());
+    let (user_id, tenant) = seed_user(&db).await;
+    connect(&repos, user_id, tenant, "whoop").await;
+    let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
+    let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    authorize_whoop(&repos, user_id).await;
+
+    // Rows stored before the terms applied, written straight to the
+    // repositories as an older build wrote them: WHOOP's scores kept.
+    let earlier = morning() - Duration::days(2);
+    let retained_day = StoredRecoveryMetrics {
+        date: earlier,
+        recovery_score: Some(77),
+        readiness_score: Some(70),
+        stress_score: Some(30),
+        body_battery: Some(50),
+        daily_strain: Some(12.0),
+        ..whoop_day(user_id, &whoop_ds)
+    };
+    let garmin_earlier = StoredRecoveryMetrics {
+        date: earlier,
+        ..garmin_day(user_id, &garmin_ds)
+    };
+    let retained_night = whoop_night(user_id, &whoop_ds, night_start() - Duration::days(2));
+    for day in [&retained_day, &garmin_earlier] {
+        repos
+            .recovery
+            .upsert_recovery_metrics(&tenant, day, WellnessWriteMode::FullDay, Utc::now())
+            .await
+            .unwrap();
+    }
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &retained_night, Utc::now())
+        .await
+        .unwrap();
+
+    let storage = PierreSyncStorage::new(&repos);
+    let stored = storage
+        .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
+        .await
+        .unwrap();
+    assert_eq!(stored, 1, "the synced WHOOP morning is written");
+
+    let read = days(&repos, user_id, tenant).await;
+    let whoop_earlier = read
+        .iter()
+        .find(|d| d.source_name == "whoop" && d.date == earlier)
+        .expect("the earlier WHOOP day is still stored");
+    assert_eq!(
+        (
+            whoop_earlier.recovery_score,
+            whoop_earlier.readiness_score,
+            whoop_earlier.stress_score,
+            whoop_earlier.body_battery,
+            whoop_earlier.daily_strain,
+        ),
+        (None, None, None, None, None),
+        "every WHOOP score on a day the write did not touch is cleared"
+    );
+    assert_eq!(
+        whoop_earlier.hrv_rmssd,
+        Some(61.5),
+        "WHOOP's measurements on that day stay"
+    );
+    let garmin = read
+        .iter()
+        .find(|d| d.source_name == "garmin" && d.date == earlier)
+        .expect("the Garmin day is still stored");
+    assert_eq!(
+        (
+            garmin.recovery_score,
+            garmin.body_battery,
+            garmin.stress_score
+        ),
+        (Some(40), Some(60), Some(25)),
+        "another provider's scores are not WHOOP's to clear"
+    );
+    let whoop_night_read = from(&nights(&repos, user_id, tenant).await, "whoop", |n| {
+        n.source_name.as_str()
+    })
+    .clone();
+    assert_eq!(
+        whoop_night_read.sleep_score, None,
+        "WHOOP's sleep performance on a stored night is cleared too"
+    );
+    assert_eq!(
+        whoop_night_read.total_sleep_seconds,
+        Some(25_200),
+        "the night's measurements stay"
+    );
+}
+
 /// A sync still in flight when the athlete disconnects WHOOP hands over
 /// records after the disconnect has deleted the grant and purged the rows.
 /// Resolving the tenant from any other token the athlete holds would write
@@ -710,7 +813,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     for night in [&recent, &legacy, &garmin_night(user_id, &garmin_ds)] {
         repos
             .sleep
-            .upsert_sleep_session(&tenant, night)
+            .upsert_sleep_session(&tenant, night, Utc::now())
             .await
             .unwrap();
     }
@@ -720,7 +823,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     ] {
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &day)
+            .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
             .await
             .unwrap();
     }

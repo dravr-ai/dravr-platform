@@ -200,6 +200,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 stages: Vec::new(),
                 source_name: "strava".to_owned(),
             },
+            Utc::now(),
         )
         .await
         .unwrap();

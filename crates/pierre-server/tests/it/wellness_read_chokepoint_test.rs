@@ -31,6 +31,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use pierre_database::repositories::WellnessWriteMode;
 
 /// An executor serving the athlete's own web app.
 async fn executor() -> Result<Arc<UniversalToolExecutor>> {
@@ -181,7 +182,10 @@ async fn a_night_at_utc_plus_ten_meets_its_own_mornings_recovery() -> Result<()>
         morning,
         "the fixture's night must end on another UTC date than its local one"
     );
-    repos.sleep.upsert_sleep_session(&tenant, &night).await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &night, Utc::now())
+        .await?;
     // The UTC date of the night's end carries a decoy morning: a reader that
     // dated the night by UTC would pick it up instead.
     for (date, hrv) in [(morning, 63.0), (night.end_datetime.date_naive(), 31.0)] {
@@ -190,6 +194,8 @@ async fn a_night_at_utc_plus_ten_meets_its_own_mornings_recovery() -> Result<()>
             .upsert_recovery_metrics(
                 &tenant,
                 &morning_recovery(user_id, "garmin", &garmin, date, hrv),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
             )
             .await?;
     }
@@ -229,11 +235,11 @@ async fn a_named_sleep_source_narrows_the_merged_night() -> Result<()> {
     whoop_night.total_sleep_seconds = Some(6 * 3600);
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &garmin_night)
+        .upsert_sleep_session(&tenant, &garmin_night, Utc::now())
         .await?;
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &whoop_night)
+        .upsert_sleep_session(&tenant, &whoop_night, Utc::now())
         .await?;
 
     let tenant_id = tenant.to_string();
@@ -280,13 +286,19 @@ async fn a_named_sleep_source_takes_no_other_sources_recovery() -> Result<()> {
     let morning = brisbane_morning();
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &night(user_id, "garmin", &garmin, morning))
+        .upsert_sleep_session(
+            &tenant,
+            &night(user_id, "garmin", &garmin, morning),
+            Utc::now(),
+        )
         .await?;
     repos
         .recovery
         .upsert_recovery_metrics(
             &tenant,
             &morning_recovery(user_id, "whoop", &whoop, morning, 70.0),
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await?;
 
@@ -325,13 +337,18 @@ async fn a_day_summary_night_west_of_utc_meets_its_own_date() -> Result<()> {
     let mut summary = night(user_id, "garmin", &garmin, date);
     summary.start_datetime = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
     summary.end_datetime = summary.start_datetime + Duration::hours(6);
-    repos.sleep.upsert_sleep_session(&tenant, &summary).await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &summary, Utc::now())
+        .await?;
     for (day, hrv) in [(date, 58.0), (date - Duration::days(1), 39.0)] {
         repos
             .recovery
             .upsert_recovery_metrics(
                 &tenant,
                 &morning_recovery(user_id, "garmin", &garmin, day, hrv),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
             )
             .await?;
     }
@@ -371,11 +388,11 @@ async fn a_whoop_and_a_garmin_night_stand_as_whoops_everywhere() -> Result<()> {
     whoop_night.total_sleep_seconds = Some(6 * 3600 + 1_800);
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &garmin_night)
+        .upsert_sleep_session(&tenant, &garmin_night, Utc::now())
         .await?;
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &whoop_night)
+        .upsert_sleep_session(&tenant, &whoop_night, Utc::now())
         .await?;
 
     let tenant_id = tenant.to_string();
@@ -440,8 +457,14 @@ async fn a_capture_and_an_export_of_one_night_far_from_utc_are_one_night() -> Re
         exported.end_datetime <= capture.start_datetime,
         "the fixture's two copies must not overlap"
     );
-    repos.sleep.upsert_sleep_session(&tenant, &capture).await?;
-    repos.sleep.upsert_sleep_session(&tenant, &exported).await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &capture, Utc::now())
+        .await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &exported, Utc::now())
+        .await?;
 
     let tenant_id = tenant.to_string();
     let nights = stored_sleep_nights(&executor, user_id, Some(&tenant_id), None, 7)
@@ -481,6 +504,8 @@ async fn an_exported_garmin_day_survives_a_model_read_under_its_own_terms() -> R
         .upsert_recovery_metrics(
             &tenant,
             &morning_recovery(user_id, "garmin_archive", &export, morning, 57.0),
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await?;
 

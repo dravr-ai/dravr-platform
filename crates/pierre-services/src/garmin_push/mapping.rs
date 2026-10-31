@@ -520,61 +520,40 @@ impl RecoveryReadings {
     }
 }
 
-/// The day's recovery row once `readings` land on `existing`.
+/// The day's recovery row as one push carries it: each reading the push
+/// brings, every other `None`, so the partial-summary write leaves what
+/// other summaries stored in place.
 ///
-/// `existing` is the row already stored for that day under `garmin`, if any:
-/// every reading the push carries replaces the stored one, every other stored
-/// reading stays.
-///
-/// Body Battery fills the recovery and readiness scores as the usr/pwd
-/// connection's rows do, so a tool reads both connections' rows alike.
+/// Body Battery is stored as Body Battery only. It never fills the recovery
+/// or readiness score: one reading has one column (Athlete Data
+/// Consolidation, DECISION 2).
 #[must_use]
-pub(crate) fn merged_recovery(
-    existing: Option<StoredRecoveryMetrics>,
+pub(crate) fn recovery_row(
     readings: RecoveryReadings,
     user_id: &str,
     data_source_id: &str,
     date: NaiveDate,
 ) -> StoredRecoveryMetrics {
-    let mut row = existing.unwrap_or_else(|| StoredRecoveryMetrics {
+    StoredRecoveryMetrics {
         id: String::new(),
         user_id: user_id.to_owned(),
         data_source_id: data_source_id.to_owned(),
         date,
         recovery_score: None,
         readiness_score: None,
-        hrv_ms: None,
-        hrv_rmssd: None,
-        resting_heart_rate: None,
-        stress_score: None,
-        body_battery: None,
+        hrv_ms: readings.hrv_rmssd,
+        hrv_rmssd: readings.hrv_rmssd,
+        resting_heart_rate: readings.resting_heart_rate,
+        stress_score: readings.stress,
+        body_battery: readings.body_battery,
         spo2: None,
         respiratory_rate: None,
-        skin_temp_deviation: None,
+        skin_temp_deviation: readings.skin_temp_deviation,
         daily_strain: None,
         athlete_note: None,
         source_name: GARMIN.to_owned(),
         recorded_at: date.and_time(NaiveTime::MIN).and_utc(),
-    });
-    if readings.resting_heart_rate.is_some() {
-        row.resting_heart_rate = readings.resting_heart_rate;
     }
-    if readings.stress.is_some() {
-        row.stress_score = readings.stress;
-    }
-    if readings.body_battery.is_some() {
-        row.body_battery = readings.body_battery;
-        row.recovery_score = readings.body_battery;
-        row.readiness_score = readings.body_battery;
-    }
-    if readings.hrv_rmssd.is_some() {
-        row.hrv_ms = readings.hrv_rmssd;
-        row.hrv_rmssd = readings.hrv_rmssd;
-    }
-    if readings.skin_temp_deviation.is_some() {
-        row.skin_temp_deviation = readings.skin_temp_deviation;
-    }
-    row
 }
 
 /// The measurements one push brings to a day's body row.
@@ -604,47 +583,33 @@ impl BodyReadings {
     }
 }
 
-/// The day's body row once `readings` land on `existing`, as
-/// [`merged_recovery`] merges a recovery row.
+/// The day's body row as one push carries it, as [`recovery_row`] builds a
+/// recovery row.
 #[must_use]
-pub(crate) fn merged_body(
-    existing: Option<StoredHealthMetrics>,
+pub(crate) fn body_row(
     readings: BodyReadings,
     user_id: &str,
     data_source_id: &str,
     date: NaiveDate,
 ) -> StoredHealthMetrics {
-    let mut row = existing.unwrap_or_else(|| StoredHealthMetrics {
+    StoredHealthMetrics {
         id: String::new(),
         user_id: user_id.to_owned(),
         data_source_id: data_source_id.to_owned(),
         date,
-        weight_kg: None,
-        body_fat_pct: None,
-        muscle_mass_kg: None,
-        bmi: None,
-        bone_mass_kg: None,
-        water_pct: None,
+        weight_kg: readings.weight_kg,
+        body_fat_pct: readings.body_fat_pct,
+        muscle_mass_kg: readings.muscle_mass_kg,
+        bmi: readings.bmi,
+        bone_mass_kg: readings.bone_mass_kg,
+        water_pct: readings.water_pct,
         systolic_bp: None,
         diastolic_bp: None,
         blood_glucose: None,
-        vo2_max: None,
+        vo2_max: readings.vo2_max,
         source_name: GARMIN.to_owned(),
         recorded_at: date.and_time(NaiveTime::MIN).and_utc(),
-    });
-    let fill = |slot: &mut Option<f64>, value: Option<f64>| {
-        if value.is_some() {
-            *slot = value;
-        }
-    };
-    fill(&mut row.weight_kg, readings.weight_kg);
-    fill(&mut row.body_fat_pct, readings.body_fat_pct);
-    fill(&mut row.bmi, readings.bmi);
-    fill(&mut row.muscle_mass_kg, readings.muscle_mass_kg);
-    fill(&mut row.bone_mass_kg, readings.bone_mass_kg);
-    fill(&mut row.water_pct, readings.water_pct);
-    fill(&mut row.vo2_max, readings.vo2_max);
-    row
+    }
 }
 
 #[cfg(test)]
@@ -942,21 +907,9 @@ mod tests {
     }
 
     #[test]
-    fn a_recovery_push_keeps_what_an_earlier_push_stored() {
+    fn a_push_row_carries_only_its_summarys_readings() {
         let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
-        let after_dailies = merged_recovery(
-            None,
-            RecoveryReadings {
-                resting_heart_rate: Some(48),
-                stress: Some(22),
-                ..RecoveryReadings::default()
-            },
-            "user",
-            "source",
-            date,
-        );
-        let after_hrv = merged_recovery(
-            Some(after_dailies),
+        let hrv = recovery_row(
             RecoveryReadings {
                 hrv_rmssd: Some(61.0),
                 ..RecoveryReadings::default()
@@ -965,39 +918,14 @@ mod tests {
             "source",
             date,
         );
+        assert_eq!(hrv.hrv_rmssd, Some(61.0), "the hrv push lands its rMSSD");
+        assert_eq!(hrv.hrv_ms, Some(61.0), "hrv_ms mirrors rMSSD");
         assert_eq!(
-            after_hrv.resting_heart_rate,
-            Some(48),
-            "the dailies reading stays after an hrv push"
+            (hrv.resting_heart_rate, hrv.stress_score, hrv.body_battery),
+            (None, None, None),
+            "what the hrv summary does not carry is left for the partial write to keep"
         );
-        assert_eq!(
-            after_hrv.stress_score,
-            Some(22),
-            "the dailies stress stays after an hrv push"
-        );
-        assert_eq!(
-            after_hrv.hrv_rmssd,
-            Some(61.0),
-            "the hrv push lands its rMSSD"
-        );
-        assert_eq!(after_hrv.hrv_ms, Some(61.0), "hrv_ms mirrors rMSSD");
-    }
-
-    #[test]
-    fn a_body_push_keeps_what_an_earlier_push_stored() {
-        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
-        let weighed = merged_body(
-            None,
-            BodyReadings {
-                weight_kg: Some(71.4),
-                ..BodyReadings::default()
-            },
-            "user",
-            "source",
-            date,
-        );
-        let both = merged_body(
-            Some(weighed),
+        let vo2 = body_row(
             BodyReadings {
                 vo2_max: Some(55.0),
                 ..BodyReadings::default()
@@ -1006,8 +934,31 @@ mod tests {
             "source",
             date,
         );
-        assert_eq!(both.weight_kg, Some(71.4), "the earlier weight stays");
-        assert_eq!(both.vo2_max, Some(55.0), "the later VO2max lands");
+        assert_eq!(vo2.vo2_max, Some(55.0), "the userMetrics push lands VO2max");
+        assert_eq!(vo2.weight_kg, None, "no weight is invented for it");
+    }
+
+    #[test]
+    fn body_battery_fills_no_score() {
+        let row = recovery_row(
+            RecoveryReadings {
+                body_battery: Some(84),
+                ..RecoveryReadings::default()
+            },
+            "user",
+            "source",
+            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+        );
+        assert_eq!(
+            row.body_battery,
+            Some(84),
+            "Body Battery is stored as itself"
+        );
+        assert_eq!(
+            (row.recovery_score, row.readiness_score),
+            (None, None),
+            "one reading, one column: Body Battery is not a recovery or readiness score"
+        );
     }
 
     #[test]

@@ -79,6 +79,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::common::create_test_server_resources;
+use pierre_database::repositories::WellnessWriteMode;
 
 /// The time-series type the seeded points belong to.
 const HEART_RATE_SERIES: u32 = 1;
@@ -325,6 +326,7 @@ async fn seed_provider_rows(
                 stages: Vec::new(),
                 source_name: provider.to_owned(),
             },
+            Utc::now(),
         )
         .await
         .unwrap();
@@ -352,6 +354,8 @@ async fn seed_provider_rows(
                 source_name: provider.to_owned(),
                 recorded_at: now,
             },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await
         .unwrap();
@@ -377,6 +381,8 @@ async fn seed_provider_rows(
                 source_name: provider.to_owned(),
                 recorded_at: now,
             },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await
         .unwrap();
@@ -1416,6 +1422,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
                 stages: Vec::new(),
                 source_name: "whoop".to_owned(),
             },
+            Utc::now(),
         )
         .await
         .unwrap();

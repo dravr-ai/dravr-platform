@@ -24,6 +24,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
@@ -302,6 +303,7 @@ async fn seed_whoop_week(
             .upsert_sleep_session(
                 &tenant_id,
                 &whoop_night(user_id, &data_source_id, day, hours),
+                Utc::now(),
             )
             .await?;
         repos
@@ -309,6 +311,8 @@ async fn seed_whoop_week(
             .upsert_recovery_metrics(
                 &tenant_id,
                 &whoop_morning(user_id, &data_source_id, day, hrv),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
             )
             .await?;
     }

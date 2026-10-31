@@ -688,6 +688,7 @@ async fn record_and_mark(
 
 #[cfg(test)]
 mod tests {
+    use pierre_database::repositories::WellnessWriteMode;
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -941,7 +942,12 @@ mod tests {
             self.db
                 .repositories()
                 .recovery
-                .upsert_recovery_metrics(&self.tenant, &reading)
+                .upsert_recovery_metrics(
+                    &self.tenant,
+                    &reading,
+                    WellnessWriteMode::FullDay,
+                    Utc::now(),
+                )
                 .await
                 .unwrap();
         }

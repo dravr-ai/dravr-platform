@@ -434,6 +434,7 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
                 stages: Vec::new(),
                 source_name: PROVIDER.to_owned(),
             },
+            Utc::now(),
         )
         .await
         .unwrap();

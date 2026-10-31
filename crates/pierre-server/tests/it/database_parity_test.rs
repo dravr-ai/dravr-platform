@@ -23,6 +23,7 @@ use pierre_core::models::{
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::{
     backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
     repository_registry::RepositoryRegistry,
@@ -871,7 +872,7 @@ async fn test_parity_data_source_upsert_stable_id() {
         };
         repos
             .sleep
-            .upsert_sleep_session(&tenant_id, &session)
+            .upsert_sleep_session(&tenant_id, &session, Utc::now())
             .await
             .expect("sleep upsert with the returned data_source_id must satisfy the FK");
     }
@@ -912,7 +913,7 @@ async fn test_parity_recovery_metrics_roundtrip() {
         };
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant_id, &metrics)
+            .upsert_recovery_metrics(&tenant_id, &metrics, WellnessWriteMode::FullDay, Utc::now())
             .await
             .unwrap_or_else(|e| panic!("{backend}: recovery upsert must succeed: {e}"));
 
@@ -1003,7 +1004,12 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
 
         let first = repos
             .health_snapshots
-            .upsert_health_snapshot(&tenant_id, &make(yesterday, 70.0))
+            .upsert_health_snapshot(
+                &tenant_id,
+                &make(yesterday, 70.0),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
             .await
             .unwrap_or_else(|e| panic!("{backend}: first upsert must succeed: {e}"));
 
@@ -1011,7 +1017,12 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
         // provider id must land, not violate health_snapshots_pkey.
         let second = repos
             .health_snapshots
-            .upsert_health_snapshot(&tenant_id, &make(today, 71.0))
+            .upsert_health_snapshot(
+                &tenant_id,
+                &make(today, 71.0),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
             .await
             .unwrap_or_else(|e| {
                 panic!("{backend}: a constant provider id on a new date must not collide: {e}")
@@ -1026,7 +1037,12 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
         // this is what lets legacy rows heal without a backfill.
         let resynced = repos
             .health_snapshots
-            .upsert_health_snapshot(&tenant_id, &make(today, 72.0))
+            .upsert_health_snapshot(
+                &tenant_id,
+                &make(today, 72.0),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
             .await
             .unwrap_or_else(|e| panic!("{backend}: same-date re-sync must succeed: {e}"));
         assert_eq!(
@@ -1086,7 +1102,12 @@ async fn test_parity_health_snapshot_roundtrip() {
         };
         repos
             .health_snapshots
-            .upsert_health_snapshot(&tenant_id, &snapshot)
+            .upsert_health_snapshot(
+                &tenant_id,
+                &snapshot,
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
             .await
             .unwrap_or_else(|e| panic!("{backend}: snapshot upsert must succeed: {e}"));
 

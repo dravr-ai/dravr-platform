@@ -56,6 +56,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use helpers::notify_capture::{capture_notify, named, only};
+use pierre_database::repositories::WellnessWriteMode;
 
 /// The instruction every post here answers. Never stored.
 const INSTRUCTION: &str = "Tell the athlete what their recovery says about this week.";
@@ -245,7 +246,7 @@ async fn seed_whoop_morning(resources: &ServerContext, user_id: Uuid, tenant_id:
     };
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant_id, &morning)
+        .upsert_recovery_metrics(&tenant_id, &morning, WellnessWriteMode::FullDay, Utc::now())
         .await
         .unwrap();
 }

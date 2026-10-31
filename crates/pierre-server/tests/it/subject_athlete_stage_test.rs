@@ -49,6 +49,7 @@ use pierre_core::models::{
     Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::repositories::{InsertAgentNoteParams, InsertCompactionBlockParams};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
@@ -1203,6 +1204,7 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 stages: Vec::new(),
                 source_name: INTERVALS_ICU.to_owned(),
             },
+            Utc::now(),
         )
         .await
         .unwrap();
@@ -1231,6 +1233,8 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 source_name: INTERVALS_ICU.to_owned(),
                 recorded_at: Utc::now(),
             },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await
         .unwrap();
@@ -1256,6 +1260,8 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 source_name: INTERVALS_ICU.to_owned(),
                 recorded_at: Utc::now(),
             },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
         )
         .await
         .unwrap();

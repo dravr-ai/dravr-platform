@@ -1,12 +1,12 @@
 // ABOUTME: Adapter bridging dravr-enforme's store traits to Pierre's RepositoryRegistry
-// ABOUTME: Implements enforme's 8 granular store traits by delegating to pierre-database repos
+// ABOUTME: Its wellness writes go through the one wellness store as whole days; cursors and credentials stay here
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use secrecy::ExposeSecret;
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -31,14 +31,14 @@ use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
 use dravr_sciotte::client::SciotteClient;
-use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
 use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::{pushed_backend_for, sync_backend};
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::coach_consents::link_consents;
@@ -48,7 +48,7 @@ use crate::delegated_wellness::{
 };
 use crate::garmin_push;
 use crate::sciotte_health_reader::{SciotteServiceReader, SessionRows};
-use crate::whoop_terms;
+use crate::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///
@@ -76,14 +76,14 @@ use crate::whoop_terms;
 /// resolve to the API, whose pushes already write their days, so pulling them
 /// through the session too would write each day twice.
 ///
-/// Every WHOOP sleep and recovery record passes through
-/// [`whoop_terms`] before it is written, so WHOOP's own scores
-/// (recovery %, strain, sleep performance, WHOOP's sleep efficiency) are
-/// never stored; a disconnect deletes the rest through the chokepoint's
-/// provider data purge. No WHOOP sleep, recovery or health record is written
-/// at all for an account that owes WHOOP's owner authorization
-/// ([`whoop_terms::owner_authorization_outstanding`]); each store call logs
-/// how many it withheld. WHOOP exposes no continuous series, so the
+/// Every sleep, recovery, body, data-source and series record it is handed
+/// is written through the one wellness writer, [`WellnessStore`], a day as
+/// [`WellnessWriteMode::FullDay`]: a sync reads the day whole, so a reading
+/// the provider no longer holds is cleared. The store applies WHOOP's terms:
+/// WHOOP's own scores are never kept, and no WHOOP record is kept for an
+/// account that owes WHOOP's owner authorization; each store call logs how
+/// many it withheld. A disconnect deletes the rest through the chokepoint's
+/// provider data purge. WHOOP exposes no continuous series, so the
 /// time-series store receives none of its data.
 ///
 /// Every row it writes carries its sync time, refreshed on each re-sync, so
@@ -120,81 +120,6 @@ pub struct PierreSyncStorage {
     /// delegated wellness pass's links and worker ledger. Shared with the
     /// server's own handle to the same pools.
     registry: Arc<RepositoryRegistry>,
-}
-
-/// Which users' WHOOP records one store call withholds, decided once per
-/// user, and how many it withheld.
-struct OwnerAuthorizationGate<'a> {
-    registry: &'a RepositoryRegistry,
-    decided: HashMap<(TenantId, String), bool>,
-    withheld: u64,
-}
-
-impl<'a> OwnerAuthorizationGate<'a> {
-    fn new(registry: &'a RepositoryRegistry) -> Self {
-        Self {
-            registry,
-            decided: HashMap::new(),
-            withheld: 0,
-        }
-    }
-
-    /// Whether a record from `source_name` for `user_id` must not be kept.
-    ///
-    /// True when it is WHOOP's and the account owes the owner authorization
-    /// in `tenant_id`, the tenant it would be written under. Counts what it
-    /// withholds.
-    async fn withholds(
-        &mut self,
-        tenant_id: TenantId,
-        user_id: &str,
-        source_name: &str,
-    ) -> EnformeResult<bool> {
-        if !whoop_terms::is_whoop(source_name) {
-            return Ok(false);
-        }
-        let key = (tenant_id, user_id.to_owned());
-        let outstanding = if let Some(decided) = self.decided.get(&key) {
-            *decided
-        } else {
-            let user_uuid = user_id
-                .parse::<Uuid>()
-                .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
-            let outstanding = whoop_terms::owner_authorization_outstanding(
-                self.registry,
-                tenant_id.as_uuid(),
-                user_uuid,
-            )
-            .await
-            .map_err(|e| {
-                EnformeError::store(format!("Failed to read the WHOOP owner authorization: {e}"))
-            })?;
-            self.decided.insert(key, outstanding);
-            outstanding
-        };
-        if outstanding {
-            self.withheld += 1;
-        }
-        Ok(outstanding)
-    }
-
-    /// Log what this call withheld, per user it withheld for.
-    fn report(&self, data_type: &str) {
-        if self.withheld == 0 {
-            return;
-        }
-        for ((tenant_id, user_id), outstanding) in &self.decided {
-            if *outstanding {
-                info!(
-                    %tenant_id,
-                    user_id = %user_id,
-                    data_type,
-                    withheld_in_call = self.withheld,
-                    "WHOOP records not persisted: the account has not accepted the current WHOOP owner-authorization notice"
-                );
-            }
-        }
-    }
 }
 
 /// Bridge to the platform's OAuth token-refresh infrastructure.
@@ -603,8 +528,13 @@ impl fmt::Debug for PierreSyncStorage {
 }
 
 // ============================================================================
-// SleepStore
+// SleepStore, RecoveryStore, HealthStore, DataSourceStore: the wellness store
 // ============================================================================
+
+/// A wellness store failure as enforme's store error, naming what failed.
+fn wellness_error(what: &'static str) -> impl Fn(AppError) -> EnformeError {
+    move |e| EnformeError::store(format!("Failed to {what}: {e}"))
+}
 
 #[async_trait]
 impl SleepStore for PierreSyncStorage {
@@ -612,18 +542,13 @@ impl SleepStore for PierreSyncStorage {
         &self,
         sessions: &[dravr_equilibre_sync::StoredSleepSession],
     ) -> EnformeResult<u64> {
+        let synced_at = Utc::now();
+        let mut writes = WellnessStore::new(&self.registry).writes("sleep");
         let mut count = 0u64;
-        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for session in sessions {
             let tenant_id = self
                 .resolve_tenant_id(&session.user_id, &session.source_name)
                 .await?;
-            if gate
-                .withholds(tenant_id, &session.user_id, &session.source_name)
-                .await?
-            {
-                continue;
-            }
             // A link files only what the member's consent names, less what
             // the athlete keeps private.
             let session = match delegated_private_of_row(&session.user_id) {
@@ -633,48 +558,31 @@ impl SleepStore for PierreSyncStorage {
                 },
                 None => Cow::Borrowed(session),
             };
-            let session = whoop_terms::sleep_session_to_store(&session);
-            self.fitness
-                .sleep
-                .upsert_sleep_session(&tenant_id, &session)
+            let landed = writes
+                .sleep(tenant_id, &session, synced_at)
                 .await
-                .map_err(|e| EnformeError::store(format!("Failed to upsert sleep session: {e}")))?;
-            count += 1;
+                .map_err(wellness_error("upsert sleep session"))?;
+            count += u64::from(landed == WellnessLanded::Written);
         }
-        gate.report("sleep");
+        writes.report();
         Ok(count)
     }
 
     async fn delete_sleep_session(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        // dravr-enforme's contract gives us the id only. Resolve the owning
-        // tenant first (discovery query selects only tenant_id), then delete
-        // through the tenant-scoped repository call so the data-access query
-        // honors multi-tenant isolation.
-        let tenant_id = self
-            .fitness
-            .sleep
-            .find_sleep_session_tenant(id)
+        // enforme names the row by id alone; the store resolves its tenant
+        // and deletes under it, so the delete stays tenant-scoped.
+        let deleted = WellnessStore::new(&self.registry)
+            .delete_sleep_session(id, policy.is_soft_delete())
             .await
-            .map_err(|e| {
-                EnformeError::store(format!("Failed to look up sleep session tenant: {e}"))
-            })?
-            .ok_or_else(|| {
-                EnformeError::store(format!("Sleep session {id} not found for delete"))
-            })?;
-
-        self.fitness
-            .sleep
-            .delete_sleep_session_by_id(&tenant_id, id, policy.is_soft_delete())
-            .await
-            .map_err(|e| EnformeError::store(format!("Failed to delete sleep session: {e}")))?;
-
+            .map_err(wellness_error("delete sleep session"))?;
+        if !deleted {
+            return Err(EnformeError::store(format!(
+                "Sleep session {id} not found for delete"
+            )));
+        }
         Ok(())
     }
 }
-
-// ============================================================================
-// RecoveryStore
-// ============================================================================
 
 #[async_trait]
 impl RecoveryStore for PierreSyncStorage {
@@ -682,18 +590,13 @@ impl RecoveryStore for PierreSyncStorage {
         &self,
         metrics: &[dravr_equilibre_sync::StoredRecoveryMetrics],
     ) -> EnformeResult<u64> {
+        let synced_at = Utc::now();
+        let mut writes = WellnessStore::new(&self.registry).writes("recovery");
         let mut count = 0u64;
-        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for metric in metrics {
             let tenant_id = self
                 .resolve_tenant_id(&metric.user_id, &metric.source_name)
                 .await?;
-            if gate
-                .withholds(tenant_id, &metric.user_id, &metric.source_name)
-                .await?
-            {
-                continue;
-            }
             // A link files only what the member's consent names, less what
             // the athlete keeps private.
             let metric = match delegated_private_of_row(&metric.user_id) {
@@ -703,48 +606,30 @@ impl RecoveryStore for PierreSyncStorage {
                 },
                 None => Cow::Borrowed(metric),
             };
-            let metric = whoop_terms::recovery_metrics_to_store(&metric);
-            self.fitness
-                .recovery
-                .upsert_recovery_metrics(&tenant_id, &metric)
+            // A sync reads the whole day as the provider holds it now.
+            let landed = writes
+                .recovery(tenant_id, &metric, WellnessWriteMode::FullDay, synced_at)
                 .await
-                .map_err(|e| {
-                    EnformeError::store(format!("Failed to upsert recovery metrics: {e}"))
-                })?;
-            count += 1;
+                .map_err(wellness_error("upsert recovery metrics"))?;
+            count += u64::from(landed == WellnessLanded::Written);
         }
-        gate.report("recovery");
+        writes.report();
         Ok(count)
     }
 
     async fn delete_recovery_metric(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        // Resolve tenant first (discovery query) then delete through the
-        // tenant-scoped repository call.
-        let tenant_id = self
-            .fitness
-            .recovery
-            .find_recovery_metric_tenant(id)
+        let deleted = WellnessStore::new(&self.registry)
+            .delete_recovery_metric(id, policy.is_soft_delete())
             .await
-            .map_err(|e| {
-                EnformeError::store(format!("Failed to look up recovery metric tenant: {e}"))
-            })?
-            .ok_or_else(|| {
-                EnformeError::store(format!("Recovery metric {id} not found for delete"))
-            })?;
-
-        self.fitness
-            .recovery
-            .delete_recovery_metric_by_id(&tenant_id, id, policy.is_soft_delete())
-            .await
-            .map_err(|e| EnformeError::store(format!("Failed to delete recovery metric: {e}")))?;
-
+            .map_err(wellness_error("delete recovery metric"))?;
+        if !deleted {
+            return Err(EnformeError::store(format!(
+                "Recovery metric {id} not found for delete"
+            )));
+        }
         Ok(())
     }
 }
-
-// ============================================================================
-// HealthStore
-// ============================================================================
 
 #[async_trait]
 impl HealthStore for PierreSyncStorage {
@@ -752,18 +637,13 @@ impl HealthStore for PierreSyncStorage {
         &self,
         snapshots: &[dravr_equilibre_sync::StoredHealthMetrics],
     ) -> EnformeResult<u64> {
+        let synced_at = Utc::now();
+        let mut writes = WellnessStore::new(&self.registry).writes("health");
         let mut count = 0u64;
-        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for snapshot in snapshots {
             let tenant_id = self
                 .resolve_tenant_id(&snapshot.user_id, &snapshot.source_name)
                 .await?;
-            if gate
-                .withholds(tenant_id, &snapshot.user_id, &snapshot.source_name)
-                .await?
-            {
-                continue;
-            }
             // A link files only what the member's consent names, less what
             // the athlete keeps private.
             let snapshot = match delegated_private_of_row(&snapshot.user_id) {
@@ -773,47 +653,29 @@ impl HealthStore for PierreSyncStorage {
                 },
                 None => Cow::Borrowed(snapshot),
             };
-            self.fitness
-                .health_snapshots
-                .upsert_health_snapshot(&tenant_id, &snapshot)
+            let landed = writes
+                .body(tenant_id, &snapshot, WellnessWriteMode::FullDay, synced_at)
                 .await
-                .map_err(|e| {
-                    EnformeError::store(format!("Failed to upsert health snapshot: {e}"))
-                })?;
-            count += 1;
+                .map_err(wellness_error("upsert health snapshot"))?;
+            count += u64::from(landed == WellnessLanded::Written);
         }
-        gate.report("health");
+        writes.report();
         Ok(count)
     }
 
     async fn delete_health_snapshot(&self, id: &str, policy: &DeletionPolicy) -> EnformeResult<()> {
-        // Resolve tenant first (discovery query) then delete through the
-        // tenant-scoped repository call.
-        let tenant_id = self
-            .fitness
-            .health_snapshots
-            .find_health_snapshot_tenant(id)
+        let deleted = WellnessStore::new(&self.registry)
+            .delete_health_snapshot(id, policy.is_soft_delete())
             .await
-            .map_err(|e| {
-                EnformeError::store(format!("Failed to look up health snapshot tenant: {e}"))
-            })?
-            .ok_or_else(|| {
-                EnformeError::store(format!("Health snapshot {id} not found for delete"))
-            })?;
-
-        self.fitness
-            .health_snapshots
-            .delete_health_snapshot_by_id(&tenant_id, id, policy.is_soft_delete())
-            .await
-            .map_err(|e| EnformeError::store(format!("Failed to delete health snapshot: {e}")))?;
-
+            .map_err(wellness_error("delete health snapshot"))?;
+        if !deleted {
+            return Err(EnformeError::store(format!(
+                "Health snapshot {id} not found for delete"
+            )));
+        }
         Ok(())
     }
 }
-
-// ============================================================================
-// DataSourceStore
-// ============================================================================
 
 #[async_trait]
 impl DataSourceStore for PierreSyncStorage {
@@ -824,11 +686,10 @@ impl DataSourceStore for PierreSyncStorage {
         let tenant_id = self
             .resolve_tenant_id(&source.user_id, &source.provider)
             .await?;
-        self.fitness
-            .data_sources
-            .upsert_data_source(&tenant_id, source)
+        WellnessStore::new(&self.registry)
+            .record_data_source(&tenant_id, source)
             .await
-            .map_err(|e| EnformeError::store(format!("Failed to upsert data source: {e}")))
+            .map_err(wellness_error("upsert data source"))
     }
 }
 
@@ -1078,6 +939,7 @@ impl TimeSeriesPointStore for PierreSyncStorage {
         source_id: &str,
         batches: &[dravr_equilibre_sync::ContinuousMetricBatch],
     ) -> EnformeResult<u64> {
+        let store = WellnessStore::new(&self.registry);
         let mut total: u64 = 0;
         for batch in batches {
             // riviere's TimeSeriesStore::insert_batch reports success, not a row
@@ -1088,13 +950,10 @@ impl TimeSeriesPointStore for PierreSyncStorage {
                 .iter()
                 .map(|&(timestamp, value)| DataPoint::new(timestamp, value))
                 .collect();
-            self.fitness
-                .time_series_points
-                .insert_batch(source_id, batch.series_type_id, points)
+            store
+                .store_series(source_id, batch.series_type_id, points)
                 .await
-                .map_err(|e| {
-                    EnformeError::store(format!("Failed to insert continuous metrics: {e}"))
-                })?;
+                .map_err(wellness_error("insert continuous metrics"))?;
             total += count;
         }
         Ok(total)

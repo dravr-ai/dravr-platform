@@ -107,11 +107,21 @@ pub(crate) const LIST_DATA_SOURCES_SQL: &str = concat!(
 // sleep_sessions
 // ============================================================================
 
-/// Insert or refresh a sleep session; the arbiter is the session's start.
+/// Write a night whole; the arbiter is the session's start.
+///
+/// A night is always written whole, by a sync and by a push alike, so there
+/// is one statement. It lands only when it was received no earlier than the
+/// stored night (`$6`): a push retried after a later push of the same night
+/// leaves the later one standing, and `RETURNING` then yields no row. It
+/// takes the row over for the write's data source, and a soft-deleted night
+/// comes back with only what this write carries.
 pub(crate) const UPSERT_SLEEP_SESSION_SQL: &str = r"
-            INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at, deep_sleep_seconds, light_sleep_seconds, rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at, deep_sleep_seconds, light_sleep_seconds, rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate, avg_spo2)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             ON CONFLICT(user_id, tenant_id, provider, start_time) DO UPDATE SET
+                data_source_id = EXCLUDED.data_source_id,
+                deleted_at = NULL,
+                avg_spo2 = EXCLUDED.avg_spo2,
                 synced_at = EXCLUDED.synced_at,
                 end_time = EXCLUDED.end_time,
                 time_in_bed = EXCLUDED.time_in_bed,
@@ -127,6 +137,15 @@ pub(crate) const UPSERT_SLEEP_SESSION_SQL: &str = r"
                 awake_seconds = EXCLUDED.awake_seconds,
                 avg_heart_rate = EXCLUDED.avg_heart_rate,
                 min_heart_rate = EXCLUDED.min_heart_rate
+            WHERE sleep_sessions.synced_at IS NULL OR sleep_sessions.synced_at <= EXCLUDED.synced_at
+            RETURNING id
+            ";
+
+/// Clear the provider-scored figure from every night a user holds under one
+/// provider, whose terms forbid keeping it.
+pub(crate) const CLEAR_PROVIDER_SLEEP_SCORES_SQL: &str = r"
+            UPDATE sleep_sessions SET sleep_score = NULL
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND sleep_score IS NOT NULL
             ";
 
 /// The columns every sleep read decodes, in the order
@@ -179,29 +198,133 @@ pub(crate) const FIND_SLEEP_SESSION_TENANT_SQL: &str =
 // recovery_metrics
 // ============================================================================
 
-/// Insert or refresh one day's recovery metrics.
+/// `$col = ` the stored reading unless the write carries one, for a
+/// [`WellnessWriteMode::PartialSummary`] write — except on a soft-deleted
+/// row, which comes back with only what the write carries.
 ///
-/// `training_load` (WHOOP's day strain) keeps its stored value when the
-/// refreshed row carries none: enforme reads strain from a separate request
-/// that a spent request budget or a failed call leaves unread, and a strain
-/// that was not read is not a strain of nothing (carnet#996).
-pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
-            INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_ms, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at, hrv_rmssd, body_battery, spo2, athlete_note, training_load)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+/// [`WellnessWriteMode::PartialSummary`]: super::health::WellnessWriteMode::PartialSummary
+macro_rules! kept_unless_carried {
+    ($table:literal, $col:literal) => {
+        concat!(
+            $col,
+            " = CASE WHEN ",
+            $table,
+            ".deleted_at IS NULL THEN COALESCE(EXCLUDED.",
+            $col,
+            ", ",
+            $table,
+            ".",
+            $col,
+            ") ELSE EXCLUDED.",
+            $col,
+            " END"
+        )
+    };
+    ($table:literal; $first:literal $(, $col:literal)*) => {
+        concat!(
+            kept_unless_carried!($table, $first)
+            $(, ",\n                ", kept_unless_carried!($table, $col))*
+        )
+    };
+}
+
+/// The head every day-row write shares: the conflict on the day's key, the
+/// row filed under the write's data source, its `synced_at` the later of the
+/// stored and new receipts, and a soft-deleted row brought back.
+macro_rules! day_row_conflict {
+    ($table:literal) => {
+        concat!(
+            "
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
-                synced_at = EXCLUDED.synced_at,
-                recovery_score = EXCLUDED.recovery_score,
+                data_source_id = EXCLUDED.data_source_id,
+                synced_at = CASE
+                    WHEN ",
+            $table,
+            ".synced_at IS NULL OR ",
+            $table,
+            ".synced_at < EXCLUDED.synced_at
+                    THEN EXCLUDED.synced_at ELSE ",
+            $table,
+            ".synced_at END,
+                deleted_at = NULL,
+                "
+        )
+    };
+}
+
+/// The insert head of a recovery write: columns, binds and the conflict.
+macro_rules! recovery_insert {
+    () => {
+        concat!(
+            "
+            INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_ms, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at, hrv_rmssd, body_battery, spo2, athlete_note, training_load)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
+            day_row_conflict!("recovery_metrics")
+        )
+    };
+}
+
+/// A whole day's recovery readings: each replaces the stored one.
+///
+/// `training_load` (a provider's day strain) is the exception and keeps its
+/// stored value when the write carries none: enforme reads strain from a
+/// separate request that a spent request budget or a failed call leaves
+/// unread, and a strain that was not read is not a strain of nothing
+/// (carnet#996). A provider whose terms forbid keeping its strain has it
+/// cleared outright ([`CLEAR_PROVIDER_RECOVERY_SCORES_SQL`]).
+pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = concat!(
+    recovery_insert!(),
+    "recovery_score = EXCLUDED.recovery_score,
                 readiness_score = EXCLUDED.readiness_score,
                 hrv_ms = EXCLUDED.hrv_ms,
                 hrv_rmssd = EXCLUDED.hrv_rmssd,
                 body_battery = EXCLUDED.body_battery,
                 spo2 = EXCLUDED.spo2,
                 athlete_note = EXCLUDED.athlete_note,
-                training_load = COALESCE(EXCLUDED.training_load, recovery_metrics.training_load),
+                ",
+    kept_unless_carried!("recovery_metrics", "training_load"),
+    ",
                 stress_level = EXCLUDED.stress_level,
                 resting_heart_rate = EXCLUDED.resting_heart_rate,
                 body_temperature = EXCLUDED.body_temperature,
                 resting_respiratory_rate = EXCLUDED.resting_respiratory_rate
+            RETURNING id
+            "
+);
+
+/// One summary of a day's recovery readings: each reading it carries
+/// replaces the stored one, each it leaves NULL stays.
+pub(crate) const MERGE_RECOVERY_METRICS_SQL: &str = concat!(
+    recovery_insert!(),
+    kept_unless_carried!(
+        "recovery_metrics";
+        "recovery_score",
+        "readiness_score",
+        "hrv_ms",
+        "hrv_rmssd",
+        "body_battery",
+        "spo2",
+        "athlete_note",
+        "training_load",
+        "stress_level",
+        "resting_heart_rate",
+        "body_temperature",
+        "resting_respiratory_rate"
+    ),
+    "
+            RETURNING id
+            "
+);
+
+/// Clear every provider-scored composite from every day a user holds under
+/// one provider, whose terms forbid keeping them.
+pub(crate) const CLEAR_PROVIDER_RECOVERY_SCORES_SQL: &str = r"
+            UPDATE recovery_metrics SET recovery_score = NULL, readiness_score = NULL,
+                stress_level = NULL, body_battery = NULL, training_load = NULL
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+              AND (recovery_score IS NOT NULL OR readiness_score IS NOT NULL
+                   OR stress_level IS NOT NULL OR body_battery IS NOT NULL
+                   OR training_load IS NOT NULL)
             ";
 
 /// The columns every recovery read decodes, in the order
@@ -253,14 +376,46 @@ pub(crate) const FIND_RECOVERY_METRIC_TENANT_SQL: &str =
 // health_snapshots
 // ============================================================================
 
-/// Insert or refresh one day's body metrics. `RETURNING id` reports the id
-/// actually stored, which on the update path is the pre-existing row's.
-pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
+/// The insert head of a body write: columns, binds and the conflict.
+macro_rules! health_snapshot_insert {
+    () => {
+        concat!(
+            "
             INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at, bmi, vo2_max)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-            ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
-                synced_at = EXCLUDED.synced_at,
-                weight = EXCLUDED.weight,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+            day_row_conflict!("health_snapshots")
+        )
+    };
+}
+
+/// One summary of a day's body measurements, as
+/// [`MERGE_RECOVERY_METRICS_SQL`] merges a recovery summary.
+pub(crate) const MERGE_HEALTH_SNAPSHOT_SQL: &str = concat!(
+    health_snapshot_insert!(),
+    kept_unless_carried!(
+        "health_snapshots";
+        "weight",
+        "bmi",
+        "body_fat_percentage",
+        "muscle_mass",
+        "bone_mass",
+        "body_water_percentage",
+        "bp_systolic",
+        "bp_diastolic",
+        "blood_glucose",
+        "vo2_max"
+    ),
+    "
+            RETURNING id
+            "
+);
+
+/// A whole day's body measurements: each replaces the stored one.
+/// `RETURNING id` reports the id actually stored, which on the update path
+/// is the pre-existing row's.
+pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = concat!(
+    health_snapshot_insert!(),
+    "weight = EXCLUDED.weight,
                 bmi = EXCLUDED.bmi,
                 body_fat_percentage = EXCLUDED.body_fat_percentage,
                 muscle_mass = EXCLUDED.muscle_mass,
@@ -271,7 +426,8 @@ pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
                 blood_glucose = EXCLUDED.blood_glucose,
                 vo2_max = EXCLUDED.vo2_max
             RETURNING id
-            ";
+            "
+);
 
 /// The columns every snapshot read decodes, in the order
 /// [`health_metrics_from_row`] reads them.
@@ -603,7 +759,8 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 tenant_id: &TenantId,
                 session: &StoredSleepSession,
-            ) -> AppResult<String> {
+                synced_at: DateTime<Utc>,
+            ) -> AppResult<Option<String>> {
                 let id = if session.id.is_empty() {
                     Uuid::new_v4().to_string()
                 } else {
@@ -621,13 +778,13 @@ macro_rules! impl_health_persistence_repositories {
                 let sleep_score = session.sleep_score.map(f64::from);
                 let is_nap: i32 = i32::from(session.is_nap);
 
-                sqlx::query(UPSERT_SLEEP_SESSION_SQL)
+                let row = sqlx::query(UPSERT_SLEEP_SESSION_SQL)
                     .bind(&id)
                     .bind(&session.user_id)
                     .bind(tenant_id.to_string())
                     .bind(&session.source_name)
                     .bind(&session.data_source_id)
-                    .bind(now)
+                    .bind(synced_at)
                     .bind(session.start_datetime)
                     .bind(session.end_datetime)
                     .bind(time_in_bed)
@@ -644,13 +801,36 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(session.awake_seconds.map(i64::from))
                     .bind(session.avg_heart_rate)
                     .bind(session.min_heart_rate.map(i64::from))
-                    .execute(self.pool())
+                    .bind(session.avg_spo2)
+                    .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to upsert sleep session: {e}"))
                     })?;
 
-                Ok(id)
+                row.map(|row| {
+                    row.try_get("id")
+                        .map_err(|e| AppError::database(format!("health column id: {e}")))
+                })
+                .transpose()
+            }
+
+            async fn clear_provider_sleep_scores(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<u64> {
+                sqlx::query(CLEAR_PROVIDER_SLEEP_SCORES_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await
+                    .map(|done| done.rows_affected())
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to clear provider sleep scores: {e}"))
+                    })
             }
 
             async fn get_sleep_sessions(
@@ -739,6 +919,8 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 tenant_id: &TenantId,
                 metrics: &StoredRecoveryMetrics,
+                mode: WellnessWriteMode,
+                synced_at: DateTime<Utc>,
             ) -> AppResult<String> {
                 let id = if metrics.id.is_empty() {
                     Uuid::new_v4().to_string()
@@ -750,14 +932,18 @@ macro_rules! impl_health_persistence_repositories {
                 let readiness_score = metrics.readiness_score.map(f64::from);
                 let stress_level = metrics.stress_score.map(f64::from);
                 let resting_heart_rate = metrics.resting_heart_rate.map(i64::from);
+                let statement = match mode {
+                    WellnessWriteMode::FullDay => UPSERT_RECOVERY_METRICS_SQL,
+                    WellnessWriteMode::PartialSummary => MERGE_RECOVERY_METRICS_SQL,
+                };
 
-                sqlx::query(UPSERT_RECOVERY_METRICS_SQL)
+                let row = sqlx::query(statement)
                     .bind(&id)
                     .bind(&metrics.user_id)
                     .bind(tenant_id.to_string())
                     .bind(&metrics.source_name)
                     .bind(&metrics.data_source_id)
-                    .bind(now)
+                    .bind(synced_at)
                     .bind(metrics.date)
                     .bind(recovery_score)
                     .bind(readiness_score)
@@ -772,13 +958,32 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(metrics.spo2)
                     .bind(metrics.athlete_note.as_deref())
                     .bind(metrics.daily_strain)
-                    .execute(self.pool())
+                    .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to upsert recovery metrics: {e}"))
                     })?;
 
-                Ok(id)
+                row.try_get("id")
+                    .map_err(|e| AppError::database(format!("health column id: {e}")))
+            }
+
+            async fn clear_provider_recovery_scores(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<u64> {
+                sqlx::query(CLEAR_PROVIDER_RECOVERY_SCORES_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await
+                    .map(|done| done.rows_affected())
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to clear provider recovery scores: {e}"))
+                    })
             }
 
             async fn get_recovery_metrics(
@@ -869,6 +1074,8 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 tenant_id: &TenantId,
                 snapshot: &StoredHealthMetrics,
+                mode: WellnessWriteMode,
+                synced_at: DateTime<Utc>,
             ) -> AppResult<String> {
                 // Surrogate id, deliberately ignoring `snapshot.id`. A row's identity is the
                 // natural key (user, tenant, provider, date) carried by the ON CONFLICT
@@ -888,14 +1095,18 @@ macro_rules! impl_health_persistence_repositories {
                 let now = Utc::now();
                 let bp_systolic = snapshot.systolic_bp.map(i64::from);
                 let bp_diastolic = snapshot.diastolic_bp.map(i64::from);
+                let statement = match mode {
+                    WellnessWriteMode::FullDay => UPSERT_HEALTH_SNAPSHOT_SQL,
+                    WellnessWriteMode::PartialSummary => MERGE_HEALTH_SNAPSHOT_SQL,
+                };
 
-                let row = sqlx::query(UPSERT_HEALTH_SNAPSHOT_SQL)
+                let row = sqlx::query(statement)
                     .bind(&id)
                     .bind(&snapshot.user_id)
                     .bind(tenant_id.to_string())
                     .bind(&snapshot.source_name)
                     .bind(&snapshot.data_source_id)
-                    .bind(now)
+                    .bind(synced_at)
                     .bind(snapshot.date)
                     .bind(snapshot.weight_kg)
                     .bind(snapshot.body_fat_pct)

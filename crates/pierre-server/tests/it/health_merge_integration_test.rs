@@ -48,6 +48,7 @@ use crate::common;
 use crate::helpers;
 
 use helpers::notify_capture::{capture_notify, only};
+use pierre_database::repositories::WellnessWriteMode;
 
 /// An executor serving the athlete's own web app.
 async fn executor() -> Result<Arc<UniversalToolExecutor>> {
@@ -201,7 +202,7 @@ async fn a_refresh_without_strain_keeps_the_stored_strain() -> Result<()> {
         day.daily_strain = strain;
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &day)
+            .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
             .await?;
         let read = repos
             .recovery
@@ -230,7 +231,7 @@ async fn every_stored_recovery_and_sleep_metric_survives_the_database() -> Resul
     day.athlete_note = Some("legs heavy".to_owned());
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant, &day)
+        .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
         .await?;
 
     let mut night = sleep(user_id, "whoop", &ds, 10, 8);
@@ -240,7 +241,10 @@ async fn every_stored_recovery_and_sleep_metric_survives_the_database() -> Resul
     night.awake_seconds = Some(1_200);
     night.min_heart_rate = Some(44);
     night.avg_heart_rate = Some(51.5);
-    repos.sleep.upsert_sleep_session(&tenant, &night).await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &night, Utc::now())
+        .await?;
 
     let window = (
         Utc::now() - Duration::days(2),
@@ -309,11 +313,11 @@ async fn whoop_and_other_night_and_morning(
     other_night.deep_sleep_seconds = Some(5_400);
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &whoop_night)
+        .upsert_sleep_session(&tenant, &whoop_night, Utc::now())
         .await?;
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &other_night)
+        .upsert_sleep_session(&tenant, &other_night, Utc::now())
         .await?;
 
     let morning = whoop_night.end_datetime.date_naive();
@@ -325,11 +329,11 @@ async fn whoop_and_other_night_and_morning(
     other_day.body_battery = Some(40);
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant, &whoop_day)
+        .upsert_recovery_metrics(&tenant, &whoop_day, WellnessWriteMode::FullDay, Utc::now())
         .await?;
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant, &other_day)
+        .upsert_recovery_metrics(&tenant, &other_day, WellnessWriteMode::FullDay, Utc::now())
         .await?;
     Ok((user_id, tenant))
 }
@@ -466,7 +470,7 @@ async fn a_named_sleep_provider_narrows_the_scoring_tools_to_that_source() -> Re
         .resources
         .repos()
         .sleep
-        .upsert_sleep_session(&tenant, &garmin_night)
+        .upsert_sleep_session(&tenant, &garmin_night, Utc::now())
         .await?;
 
     let whoop_only = executor
@@ -511,7 +515,7 @@ async fn the_athlete_note_reaches_the_tool_fenced_as_untrusted_text() -> Result<
         .resources
         .repos()
         .recovery
-        .upsert_recovery_metrics(&tenant, &day)
+        .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
         .await?;
 
     let metrics = executor
@@ -544,7 +548,10 @@ async fn intervals_wellness_is_quoted_with_the_athletes_garmin_device() -> Resul
         let ds = data_source(&executor, user_id, &tenant, "intervals_icu").await?;
         let repos = executor.resources.repos();
         let night = sleep(user_id, "intervals_icu", &ds, 10, 8);
-        repos.sleep.upsert_sleep_session(&tenant, &night).await?;
+        repos
+            .sleep
+            .upsert_sleep_session(&tenant, &night, Utc::now())
+            .await?;
         let mut day = recovery(
             user_id,
             "intervals_icu",
@@ -554,7 +561,7 @@ async fn intervals_wellness_is_quoted_with_the_athletes_garmin_device() -> Resul
         day.hrv_rmssd = Some(58.0);
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &day)
+            .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
             .await?;
         let ride = ActivityBuilder::new(
             "ride",
@@ -620,11 +627,14 @@ async fn garmin_wellness_is_quoted_with_the_garmin_device_that_synced_it() -> Re
         )
         .await?;
     let night = sleep(user_id, "garmin", &ds, 10, 8);
-    repos.sleep.upsert_sleep_session(&tenant, &night).await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &night, Utc::now())
+        .await?;
     let day = recovery(user_id, "garmin", &ds, night.end_datetime.date_naive());
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant, &day)
+        .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
         .await?;
 
     for (tool, rows) in [

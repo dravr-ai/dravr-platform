@@ -43,6 +43,7 @@ use dravr_barrage::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, StreamOrigin};
+use pierre_services::wellness_store::WellnessStore;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
@@ -180,20 +181,16 @@ impl ProjectionSink for CachedActivitiesSink {
             device_type: DeviceType::Unknown,
             original_source_name: None,
         };
-        let source_id = repos
-            .data_sources
-            .upsert_data_source(&tenant_id, &data_source)
+        let store = WellnessStore::new(repos);
+        let source_id = store
+            .record_data_source(&tenant_id, &data_source)
             .await
             .map_err(|e| projection(&e))?;
         for batch in batches {
-            if batch.points.is_empty() {
-                continue;
-            }
-            repos
-                .time_series_points
-                .insert_batch(&source_id, batch.series.id(), batch.points.clone())
+            store
+                .store_series(&source_id, batch.series.id(), batch.points.clone())
                 .await
-                .map_err(|e| BarrageError::Projection(e.to_string()))?;
+                .map_err(|e| projection(&e))?;
         }
         Ok(())
     }

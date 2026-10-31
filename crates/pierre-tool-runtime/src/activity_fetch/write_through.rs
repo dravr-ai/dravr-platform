@@ -90,7 +90,7 @@ pub(crate) async fn write_through_activity_cache(
         write.read,
         activities,
     )
-    .await;
+    .await?;
     let persisted = match cache
         .upsert_activities_synced_at(user_id, &tenant_id, provider, activities, stamp.synced_at)
         .await
@@ -130,14 +130,12 @@ struct HeadSyncStamp {
 }
 
 /// Decide what a write of `activities`, read for `read`, says about the
-/// provider's freshness.
+/// provider's freshness; `None` when it cannot be decided and nothing may be
+/// written (see [`stamp_after_head_lookup`]).
 ///
 /// A read of the list head is a sync: its rows are stamped now. Any other
 /// read writes its rows at the head's own last sync, which leaves
-/// [`ActivityCacheRepository::latest_activity_sync`] where it was. A
-/// provider never synced before has no such time; its rows then carry the
-/// newest instant the read vouches for — the window's closing `before`, else
-/// its newest activity — which is in the past, so the head still reads stale.
+/// [`ActivityCacheRepository::latest_activity_sync`] where it was.
 async fn head_sync_stamp(
     cache: &dyn ActivityCacheRepository,
     user_id: Uuid,
@@ -145,26 +143,54 @@ async fn head_sync_stamp(
     provider: &str,
     read: &ActivityQueryParams,
     activities: &[Activity],
-) -> HeadSyncStamp {
+) -> Option<HeadSyncStamp> {
     let now = Utc::now();
     if covers_list_head(read, now.timestamp()) {
-        return HeadSyncStamp {
+        return Some(HeadSyncStamp {
             synced_at: now,
             is_sync: true,
-        };
+        });
     }
     let head = cache
         .latest_activity_sync(user_id, &tenant_id, provider)
-        .await
-        .unwrap_or(None);
+        .await;
+    if let Err(e) = &head {
+        warn!(
+            user_id = %user_id,
+            provider = %provider,
+            error = %e,
+            "Activity cache: head sync time unreadable, a non-head read writes nothing"
+        );
+    }
+    stamp_after_head_lookup(head, read, activities, now)
+}
+
+/// The stamp of a read that stopped short of the list head, given what the
+/// lookup of the head's last sync returned.
+///
+/// A provider never synced before (`Ok(None)`) has no such time; its rows
+/// then carry the newest instant the read vouches for — the window's closing
+/// `before`, else its newest activity — which is in the past, so the head
+/// still reads stale. A lookup that failed (`Err`) gives `None`: the stored
+/// rows may carry a later receipt than anything the read vouches for, and
+/// the cache refuses a row whose stamp is older than the stored one, so a
+/// guessed stamp would drop the read's rows without a word; stamping now
+/// would instead make the stale head read as current.
+fn stamp_after_head_lookup<E>(
+    head: Result<Option<DateTime<Utc>>, E>,
+    read: &ActivityQueryParams,
+    activities: &[Activity],
+    now: DateTime<Utc>,
+) -> Option<HeadSyncStamp> {
+    let head = head.ok()?;
     let vouched = read
         .before
         .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
         .or_else(|| activities.iter().map(Activity::start_date).max());
-    HeadSyncStamp {
+    Some(HeadSyncStamp {
         synced_at: head.or(vouched).unwrap_or(now).min(now),
         is_sync: false,
-    }
+    })
 }
 
 /// Prune `provider`'s rows below `cutoff`, then raise any coverage floor the
@@ -290,7 +316,7 @@ pub async fn write_through_served_window(
     activities: &[Activity],
 ) {
     let cache = &runtime.repos().activity_cache;
-    let stamp = head_sync_stamp(
+    let Some(stamp) = head_sync_stamp(
         cache.as_ref(),
         user_id,
         *tenant_id,
@@ -298,7 +324,10 @@ pub async fn write_through_served_window(
         read,
         activities,
     )
-    .await;
+    .await
+    else {
+        return;
+    };
     if activities.is_empty() {
         if stamp.is_sync {
             stamp_fetch_freshness(cache.as_ref(), user_id, *tenant_id, provider_slug).await;
@@ -329,5 +358,62 @@ pub async fn write_through_served_window(
     #[cfg(feature = "client-notifications")]
     if landed && upserted.is_ok() {
         deliver_session_digest(runtime, user_id, *tenant_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+    use pierre_providers::core::ActivityQueryParams;
+
+    use super::stamp_after_head_lookup;
+
+    /// A backfill page closing on 2026-03-01.
+    fn backfill_page() -> ActivityQueryParams {
+        ActivityQueryParams {
+            limit: Some(50),
+            offset: None,
+            before: Some(
+                Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0)
+                    .unwrap()
+                    .timestamp(),
+            ),
+            after: None,
+        }
+    }
+
+    #[test]
+    fn an_unreadable_head_sync_time_writes_nothing() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
+        let stamp = stamp_after_head_lookup(Err("pool timed out"), &backfill_page(), &[], now);
+        assert!(
+            stamp.is_none(),
+            "a guessed stamp older than the stored rows would drop them silently"
+        );
+    }
+
+    #[test]
+    fn a_page_lands_at_the_head_last_sync() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
+        let head = Utc.with_ymd_and_hms(2026, 10, 31, 5, 0, 0).unwrap();
+        let stamp = stamp_after_head_lookup(Ok::<_, &str>(Some(head)), &backfill_page(), &[], now)
+            .expect("a readable head gives a stamp");
+        assert_eq!(
+            stamp.synced_at, head,
+            "a page behind the head keeps the head's own sync time"
+        );
+        assert!(!stamp.is_sync, "a page behind the head is not a sync");
+    }
+
+    #[test]
+    fn a_never_synced_provider_lands_at_the_window_close() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
+        let stamp = stamp_after_head_lookup(Ok::<_, &str>(None), &backfill_page(), &[], now)
+            .expect("a provider never synced still gets a stamp");
+        assert_eq!(
+            stamp.synced_at,
+            Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+            "a provider never synced lands at the window's close, still stale"
+        );
     }
 }

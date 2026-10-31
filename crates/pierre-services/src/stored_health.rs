@@ -476,6 +476,25 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::wellness_store::{WellnessStore, WellnessWriteMode};
+
+    /// Store `night`, when given, and `morning` as a sync writes them.
+    async fn store(
+        repos: &RepositoryRegistry,
+        tenant: TenantId,
+        night: Option<StoredSleepSession>,
+        morning: StoredRecoveryMetrics,
+    ) {
+        let mut writes = WellnessStore::new(repos).writes("test");
+        if let Some(night) = night {
+            writes.sleep(tenant, &night, Utc::now()).await.unwrap();
+        }
+        let full = WellnessWriteMode::FullDay;
+        writes
+            .recovery(tenant, &morning, full, Utc::now())
+            .await
+            .unwrap();
+    }
     use chrono::{Duration, NaiveDate, TimeZone};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
@@ -693,22 +712,9 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            repos
-                .sleep
-                .upsert_sleep_session(
-                    &tenant,
-                    &night_of(user_id, &data_source_id, provider, night),
-                )
-                .await
-                .unwrap();
-            repos
-                .recovery
-                .upsert_recovery_metrics(
-                    &tenant,
-                    &morning_of(user_id, &data_source_id, provider, night),
-                )
-                .await
-                .unwrap();
+            let sleep = night_of(user_id, &data_source_id, provider, night);
+            let morning = morning_of(user_id, &data_source_id, provider, night);
+            store(&repos, tenant, Some(sleep), morning).await;
         }
         Athlete {
             repos,
@@ -829,14 +835,8 @@ mod tests {
             )
             .await
             .unwrap();
-        repos
-            .recovery
-            .upsert_recovery_metrics(
-                &tenant,
-                &morning_of(user_id, &data_source_id, INTERVALS_ICU, night),
-            )
-            .await
-            .unwrap();
+        let morning = morning_of(user_id, &data_source_id, INTERVALS_ICU, night);
+        store(&repos, tenant, None, morning).await;
         // An older ride on another device: only the most recent recorder counts.
         let older = ActivityBuilder::new(
             "older",
@@ -1163,19 +1163,9 @@ mod tests {
             )
             .await
             .unwrap();
-        repos
-            .sleep
-            .upsert_sleep_session(&tenant, &night_of(user_id, &data_source_id, "zepp", night))
-            .await
-            .unwrap();
-        repos
-            .recovery
-            .upsert_recovery_metrics(
-                &tenant,
-                &morning_of(user_id, &data_source_id, "zepp", night),
-            )
-            .await
-            .unwrap();
+        let sleep = night_of(user_id, &data_source_id, "zepp", night);
+        let morning = morning_of(user_id, &data_source_id, "zepp", night);
+        store(&repos, tenant, Some(sleep), morning).await;
         let window = (night - Duration::days(1), night + Duration::days(1));
 
         let own = holds_recovery_rows(&repos, &Terms, user_id, &tenant, window)

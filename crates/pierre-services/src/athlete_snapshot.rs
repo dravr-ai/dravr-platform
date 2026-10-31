@@ -389,6 +389,7 @@ fn form_today(
 
 #[cfg(test)]
 mod tests {
+    use pierre_database::repositories::WellnessWriteMode;
     use std::sync::Arc;
 
     use super::*;
@@ -638,7 +639,7 @@ mod tests {
                 session.data_source_id.clone_from(&data_source_id);
                 repos
                     .sleep
-                    .upsert_sleep_session(&tenant, &session)
+                    .upsert_sleep_session(&tenant, &session, Utc::now())
                     .await
                     .unwrap();
                 let mut reading = morning(provider, day, hrv, 48);
@@ -646,7 +647,12 @@ mod tests {
                 reading.data_source_id.clone_from(&data_source_id);
                 repos
                     .recovery
-                    .upsert_recovery_metrics(&tenant, &reading)
+                    .upsert_recovery_metrics(
+                        &tenant,
+                        &reading,
+                        WellnessWriteMode::FullDay,
+                        Utc::now(),
+                    )
                     .await
                     .unwrap();
             }

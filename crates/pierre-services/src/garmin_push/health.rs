@@ -1,5 +1,5 @@
-// ABOUTME: Garmin health pushes into the health stores — sleep, the day's recovery and body rows, intraday series
-// ABOUTME: A day's row is merged in one statement, only what the push carries replaced, since several types feed it
+// ABOUTME: Garmin health pushes into the wellness store — sleep, the day's recovery and body rows, intraday series
+// ABOUTME: A day's row takes only what each summary carries, since several summary types feed it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,70 +10,73 @@
 //! connection's health sync stores Garmin rows under too, so every tool reads
 //! them as it reads that connection's; they are filed under the API's own
 //! data source, so a purge of the API's wellness leaves that connection's.
-//! A night replaced whole keeps the latest push's values even when an older
-//! push is retried after it; a day's row is merged reading by reading. Series points go to
-//! `data_point_series` under the owner's Garmin data source, keyed by the
-//! riviere series type, which is where the continuous-series read finds
-//! intraday heart rate and rMSSD.
+//! Everything is written through the one wellness writer,
+//! [`crate::wellness_store::WellnessStore`]. A night is written whole and
+//! keeps the latest push's values even when an older push is retried after
+//! it; a day's row is written as a
+//! [`WellnessWriteMode::PartialSummary`], reading by reading, since dailies,
+//! HRV, stress, skin temperature and body composition each arrive alone.
+//! Series points go to `data_point_series` under the owner's Garmin data
+//! source, keyed by the riviere series type, which is where the
+//! continuous-series read finds intraday heart rate and rMSSD.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_riviere::{DataPoint, SeriesType};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use serde_json::Value;
 
 use super::mapping::{
-    calendar_date, measured, merged_body, merged_recovery, offset_points, sleep_session,
-    BodyReadings, RecoveryReadings,
+    body_row, calendar_date, measured, offset_points, recovery_row, sleep_session, BodyReadings,
+    RecoveryReadings,
 };
 use super::wire::{
     BodyCompRecord, DailyRecord, HrvRecord, SkinTempRecord, SleepRecord, StressDetailsRecord,
     UserMetricsRecord,
 };
 use super::{records_as, BatchOutcome, OwnerBatch};
+use crate::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
 
-/// Merge `readings` into the owner's Garmin recovery row for `date`, filed
+/// Write `readings` onto the owner's Garmin recovery row for `date`, filed
 /// under the API's data source: what the push carries replaces the stored
-/// reading, everything else stays, in one statement.
+/// reading, everything else stays.
 async fn land_recovery(
     batch: &OwnerBatch<'_>,
     source_id: &str,
     date: NaiveDate,
     readings: RecoveryReadings,
 ) -> AppResult<()> {
-    let row = merged_recovery(
-        None,
-        readings,
-        &batch.owner.user_id.to_string(),
-        source_id,
-        date,
-    );
-    batch
-        .repos
-        .pushed_data
-        .merge_recovery(&batch.owner.tenant_id, &row, batch.received_at)
+    let row = recovery_row(readings, &batch.owner.user_id.to_string(), source_id, date);
+    WellnessStore::new(batch.repos)
+        .writes("garmin push recovery")
+        .recovery(
+            batch.owner.tenant_id,
+            &row,
+            WellnessWriteMode::PartialSummary,
+            batch.received_at,
+        )
         .await
+        .map(|_| ())
 }
 
-/// Merge `readings` into the owner's Garmin body row for `date`, as
-/// [`land_recovery`] merges a recovery row.
+/// Write `readings` onto the owner's Garmin body row for `date`, as
+/// [`land_recovery`] writes a recovery row.
 async fn land_body(
     batch: &OwnerBatch<'_>,
     source_id: &str,
     date: NaiveDate,
     readings: BodyReadings,
 ) -> AppResult<()> {
-    let row = merged_body(
-        None,
-        readings,
-        &batch.owner.user_id.to_string(),
-        source_id,
-        date,
-    );
-    batch
-        .repos
-        .pushed_data
-        .merge_body(&batch.owner.tenant_id, &row, batch.received_at)
+    let row = body_row(readings, &batch.owner.user_id.to_string(), source_id, date);
+    WellnessStore::new(batch.repos)
+        .writes("garmin push body")
+        .body(
+            batch.owner.tenant_id,
+            &row,
+            WellnessWriteMode::PartialSummary,
+            batch.received_at,
+        )
         .await
+        .map(|_| ())
 }
 
 /// Store `points` as the `series` of the owner's Garmin data source.
@@ -83,15 +86,9 @@ async fn store_series(
     series: SeriesType,
     points: Vec<DataPoint>,
 ) -> AppResult<()> {
-    if points.is_empty() {
-        return Ok(());
-    }
-    batch
-        .repos
-        .time_series_points
-        .insert_batch(source_id, series.id(), points)
+    WellnessStore::new(batch.repos)
+        .store_series(source_id, series.id(), points)
         .await
-        .map_err(|e| AppError::database(format!("store Garmin {} series: {e}", series.as_str())))
 }
 
 /// A reading as a whole non-negative number.
@@ -149,12 +146,11 @@ pub(super) async fn write_sleeps(
             outcome.unreadable += 1;
             continue;
         };
-        let landed = batch
-            .repos
-            .pushed_data
-            .upsert_sleep(&batch.owner.tenant_id, &session, batch.received_at)
+        let landed = WellnessStore::new(batch.repos)
+            .writes("garmin push sleep")
+            .sleep(batch.owner.tenant_id, &session, batch.received_at)
             .await?;
-        if !landed {
+        if landed != WellnessLanded::Written {
             // A later push of the same night already landed; its readings stand.
             outcome.skipped += 1;
             continue;

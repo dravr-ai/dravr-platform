@@ -183,8 +183,9 @@ pub mod garmin_push;
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
 
-/// What health sync may keep of a WHOOP record: measurements, never WHOOP's own scores
-#[cfg(feature = "health-sync")]
+/// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
+pub mod wellness_store;
+/// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores
 pub mod whoop_terms;
 
 /// Health sync's daily-summary reads, made on the dedicated sciotte scraper service

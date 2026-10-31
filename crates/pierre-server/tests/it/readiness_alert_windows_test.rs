@@ -31,6 +31,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use pierre_database::repositories::WellnessWriteMode;
 
 /// Seconds in an hour.
 const HOUR: i64 = 3600;
@@ -244,7 +245,11 @@ async fn seed_nights(
             .resources
             .repos()
             .sleep
-            .upsert_sleep_session(&tenant, &night(user_id, data_source, days_ago, hours))
+            .upsert_sleep_session(
+                &tenant,
+                &night(user_id, data_source, days_ago, hours),
+                Utc::now(),
+            )
             .await?;
     }
     Ok(())
@@ -305,7 +310,7 @@ async fn hrv_trending_down_reads_the_trailing_week() -> Result<()> {
         let reading = morning(user_id, &data_source, i64::from(days_ago), rmssd);
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &reading)
+            .upsert_recovery_metrics(&tenant, &reading, WellnessWriteMode::FullDay, Utc::now())
             .await?;
     }
 

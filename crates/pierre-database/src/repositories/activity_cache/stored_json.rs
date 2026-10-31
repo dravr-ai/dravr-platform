@@ -37,6 +37,25 @@ pub(crate) fn stored_activity_json(activity: &Activity) -> AppResult<String> {
         .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))
 }
 
+/// The `Activity` key that holds the laps a read fills in from beside the row.
+const LAPS_KEY: &str = "laps";
+
+/// The `data_json` an amend of a cached row writes: [`stored_activity_json`]
+/// without the laps a read filled in from beside the row, which stand where
+/// they are stored and are not the summary's to carry.
+///
+/// # Errors
+/// As [`stored_activity_json`].
+pub(crate) fn amended_activity_json(activity: &Activity) -> AppResult<String> {
+    let mut value: Value = serde_json::from_str(&stored_activity_json(activity)?)
+        .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))?;
+    if let Value::Object(object) = &mut value {
+        object.remove(LAPS_KEY);
+    }
+    serde_json::to_string(&value)
+        .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
