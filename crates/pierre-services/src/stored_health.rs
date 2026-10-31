@@ -16,7 +16,9 @@
 //!
 //! Every tool, prompt and rail that reads these rows reads them through this
 //! module. Outside any gate (the athlete's own surfaces, sync sweeps) the rows
-//! come back as stored and the athlete's data sources are not read at all.
+//! come back as stored, and the athlete's data sources are read only when a
+//! row's source needs its data source to name its recorder (a relay's, an
+//! upload's).
 //!
 //! # The one merge (carnet#1281)
 //!
@@ -25,6 +27,10 @@
 //! one record per night or per date, gated, merged and attributed, and
 //! never merges rows itself, so two tools can no longer answer the same
 //! night two ways. A [`SourceFilter`] says which rows take part.
+//!
+//! Each row is merged as the precedence source its key and data source
+//! classify to (`pierre_providers::precedence`), the one input
+//! dravr-equilibre's rank reads (Athlete Data Consolidation S2, carnet#1303).
 //!
 //! # Garmin attribution of intervals.icu wellness (carnet#521)
 //!
@@ -46,7 +52,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use dravr_equilibre_sync::{
-    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged,
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged, Source, Sourced,
 };
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::constants::oauth_providers::{
@@ -59,6 +65,9 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope::{self, StoredHealthRecord};
+use pierre_providers::precedence::{needs_data_source, wellness_source};
+
+use crate::athlete_clock::athlete_zone;
 use uuid::Uuid;
 
 /// How far back the athlete's intervals.icu activities are searched for the
@@ -183,32 +192,12 @@ async fn attribution_of(
     Ok(attribution)
 }
 
-/// The rows a reader may see of `records`, by each row's data source, with
-/// the attribution the served rows owe.
+/// The rows a reader may see of `records`, by each row's data source among
+/// the athlete's data `sources`, with the attribution the served rows owe.
 ///
-/// The athlete's data sources are read once for the whole set, and only when
-/// a gate applies and there is a row to govern.
-async fn governed<T: StoredHealthRecord>(
-    repos: &RepositoryRegistry,
-    terms: &dyn ProviderTerms,
-    user_id: Uuid,
-    tenant: &TenantId,
-    records: Vec<T>,
-) -> AppResult<StoredHealth<T>> {
-    let sources = if records.is_empty() || !ai_scope::policies_apply() {
-        Vec::new()
-    } else {
-        repos
-            .data_sources
-            .list_data_sources(user_id, tenant)
-            .await?
-    };
-    governed_by_sources(repos, terms, user_id, tenant, records, &sources).await
-}
-
-/// [`governed`] for a reader that already holds the athlete's data
-/// `sources`, as the continuous-series read does: it lists them to know which
-/// series to read.
+/// The caller lists the sources: the merged reads when a gate applies or a
+/// row's source needs its data source, the continuous-series read to know
+/// which series to read.
 pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
@@ -257,25 +246,52 @@ impl SourceFilter<'_> {
 
 /// Narrow, gate and merge stored rows: the shared body of the `merged_*`
 /// reads. A [`SourceFilter::Link`] read returns each kept row on its own.
+///
+/// Each row is merged as the [`Source`] its key and data source classify to
+/// ([`wellness_source`]), the one input dravr-equilibre's rank reads. The
+/// athlete's data sources are listed once, when a gate applies or when a
+/// row's key needs its data source to name its recorder (a relay, an
+/// upload); otherwise the classification reads the key alone.
 async fn merged<T: StoredHealthRecord>(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     (user_id, tenant): (Uuid, &TenantId),
     rows: Vec<T>,
     filter: SourceFilter<'_>,
-    merge: impl FnOnce(Vec<T>) -> Vec<Merged<T>>,
+    merge: impl FnOnce(Vec<Sourced<T>>) -> Vec<Merged<T>>,
 ) -> AppResult<StoredHealth<Merged<T>>> {
     let rows: Vec<T> = rows
         .into_iter()
         .filter(|row| filter.admits(row.source_name()))
         .collect();
+    let classify_by_source = matches!(filter, SourceFilter::All | SourceFilter::Service(_))
+        && rows.iter().any(|row| needs_data_source(row.source_name()));
+    let sources = if !rows.is_empty() && (ai_scope::policies_apply() || classify_by_source) {
+        repos
+            .data_sources
+            .list_data_sources(user_id, tenant)
+            .await?
+    } else {
+        Vec::new()
+    };
     let StoredHealth {
         records,
         attribution,
-    } = governed(repos, terms, user_id, tenant, rows).await?;
+    } = governed_by_sources(repos, terms, user_id, tenant, rows, &sources).await?;
     let records = match filter {
-        SourceFilter::Link(_) => records.into_iter().map(unmerged).collect(),
-        SourceFilter::All | SourceFilter::Service(_) => merge(records),
+        SourceFilter::Link(_) => records
+            .into_iter()
+            .map(|row| unmerged(row, &sources))
+            .collect(),
+        SourceFilter::All | SourceFilter::Service(_) => merge(
+            records
+                .into_iter()
+                .map(|row| {
+                    let source = source_of(&row, &sources);
+                    Sourced::new(row, source)
+                })
+                .collect(),
+        ),
     };
     Ok(StoredHealth {
         records,
@@ -283,11 +299,19 @@ async fn merged<T: StoredHealthRecord>(
     })
 }
 
+/// The precedence source of a stored row, by its key and, among `sources`,
+/// its data source.
+fn source_of<T: StoredHealthRecord>(row: &T, sources: &[DataSource]) -> Source {
+    let data_source = sources.iter().find(|ds| ds.id == row.data_source_id());
+    wellness_source(row.source_name(), data_source)
+}
+
 /// One stored row as a merged record of its own source alone.
-fn unmerged<T: StoredHealthRecord>(record: T) -> Merged<T> {
+fn unmerged<T: StoredHealthRecord>(record: T, sources: &[DataSource]) -> Merged<T> {
     Merged {
         sources: vec![record.source_name().to_owned()],
         filled: Vec::new(),
+        primary: source_of(&record, sources),
         record,
     }
 }
@@ -311,14 +335,10 @@ pub async fn merged_sleep(
         .sleep
         .get_sleep_sessions(user_id, tenant, start, end)
         .await?;
-    merged(
-        repos,
-        terms,
-        (user_id, tenant),
-        rows,
-        filter,
-        merge_sleep_sessions,
-    )
+    let zone = athlete_zone(repos, user_id).await;
+    merged(repos, terms, (user_id, tenant), rows, filter, |nights| {
+        merge_sleep_sessions(nights, &zone)
+    })
     .await
 }
 
@@ -382,6 +402,33 @@ pub async fn merged_body(
     .await
 }
 
+/// The key of the source standing for the athlete's latest stored night in
+/// `[start, end]` — the merged night's primary under the one precedence
+/// rule, naps left out — or `None` when no night is stored.
+///
+/// What names the athlete's sleep source wherever it is shown: the agent
+/// proposal's sleep pick names the same source the sleep tools merge from.
+///
+/// # Errors
+///
+/// Returns an error when the sessions, or under a gate the athlete's data
+/// sources, cannot be read.
+pub async fn latest_night_source(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    user_id: Uuid,
+    tenant: &TenantId,
+    window: (DateTime<Utc>, DateTime<Utc>),
+) -> AppResult<Option<String>> {
+    let nights = merged_sleep(repos, terms, user_id, tenant, window, SourceFilter::All).await?;
+    Ok(nights
+        .records
+        .into_iter()
+        .rev()
+        .find(|night| !night.record.is_nap)
+        .map(|night| night.record.source_name))
+}
+
 /// Whether the athlete holds a stored night or recovery day the gates in
 /// force let the reader see, in `[start, end]`.
 ///
@@ -436,6 +483,39 @@ mod tests {
     use pierre_providers::ai_scope::{ai_read, serve_over, tracking, Provenance};
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
+
+    /// Each row paired with the source its key classifies to.
+    fn sourced<T: StoredHealthRecord>(rows: Vec<T>) -> Vec<Sourced<T>> {
+        rows.into_iter()
+            .map(|row| {
+                let source = wellness_source(row.source_name(), None);
+                Sourced::new(row, source)
+            })
+            .collect()
+    }
+
+    /// The rows a reader may see of `records`, by each row's data source, with
+    /// the attribution the served rows owe.
+    ///
+    /// The athlete's data sources are read once for the whole set, and only when
+    /// a gate applies and there is a row to govern.
+    async fn governed<T: StoredHealthRecord>(
+        repos: &RepositoryRegistry,
+        terms: &dyn ProviderTerms,
+        user_id: Uuid,
+        tenant: &TenantId,
+        records: Vec<T>,
+    ) -> AppResult<StoredHealth<T>> {
+        let sources = if records.is_empty() || !ai_scope::policies_apply() {
+            Vec::new()
+        } else {
+            repos
+                .data_sources
+                .list_data_sources(user_id, tenant)
+                .await?
+        };
+        governed_by_sources(repos, terms, user_id, tenant, records, &sources).await
+    }
 
     /// Sleep sessions starting inside the window, as the gates in force let the
     /// reader see them; not yet merged.
@@ -553,6 +633,7 @@ mod tests {
             min_heart_rate: Some(resting_hr(provider)),
             avg_hrv: None,
             sleep_score: None,
+            avg_spo2: None,
             stages: Vec::new(),
             source_name: provider.to_owned(),
         }
@@ -687,10 +768,10 @@ mod tests {
         assert!(mornings.iter().all(|m| m.source_name != "coros"));
         assert_eq!(withheld.off_interface, 2, "COROS's night and morning");
 
-        let night = merge_sleep_sessions(nights);
+        let night = merge_sleep_sessions(sourced(nights), &Utc);
         assert_eq!(night.len(), 1);
         assert_eq!(sorted(&night[0].sources), vec!["garmin"]);
-        let morning = merge_recovery_metrics(mornings);
+        let morning = merge_recovery_metrics(sourced(mornings));
         assert_eq!(morning.len(), 1);
         assert_eq!(sorted(&morning[0].sources), vec!["garmin"]);
         assert_eq!(
@@ -709,14 +790,14 @@ mod tests {
         )
         .await;
 
-        let night = merge_sleep_sessions(nights);
+        let night = merge_sleep_sessions(sourced(nights), &Utc);
         assert_eq!(night.len(), 1, "the permitted sources merge into one night");
         assert_eq!(
             sorted(&night[0].sources),
             vec!["coros", "garmin"],
             "first-party only is served first-party; Zepp never reaches the model"
         );
-        let morning = merge_recovery_metrics(mornings);
+        let morning = merge_recovery_metrics(sourced(mornings));
         assert_eq!(sorted(&morning[0].sources), vec!["coros", "garmin"]);
         assert_eq!(withheld.dropped, 2, "Zepp's night and morning");
         assert_eq!(withheld.off_interface, 0);

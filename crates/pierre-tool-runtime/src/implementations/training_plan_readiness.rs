@@ -576,6 +576,7 @@ pub(super) fn week_is_actionable(week: &PlanWeek, today: NaiveDate) -> bool {
 mod tests {
     use super::*;
     use chrono::FixedOffset;
+    use pierre_providers::precedence::wellness_source;
 
     fn merged_night(start: DateTime<Utc>, hours: u32) -> Merged<StoredSleepSession> {
         Merged {
@@ -596,11 +597,13 @@ mod tests {
                 min_heart_rate: None,
                 avg_hrv: None,
                 sleep_score: None,
+                avg_spo2: None,
                 stages: Vec::new(),
                 source_name: "garmin".to_owned(),
             },
             sources: vec!["garmin".to_owned()],
             filled: Vec::new(),
+            primary: wellness_source("garmin", None),
         }
     }
 

@@ -385,6 +385,7 @@ pub(crate) fn sleep_the_link_files(
         min_heart_rate: unless(private.sleeping_heart_rate, session.min_heart_rate),
         avg_hrv: unless(private.hrv, session.avg_hrv),
         sleep_score: None,
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: session.source_name.clone(),
     })
@@ -531,6 +532,7 @@ mod tests {
             min_heart_rate: Some(44),
             avg_hrv: Some(70.0),
             sleep_score: None,
+            avg_spo2: None,
             stages: Vec::new(),
             source_name: INTERVALS_ICU.to_owned(),
         }

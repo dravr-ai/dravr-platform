@@ -430,6 +430,7 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
                 min_heart_rate: None,
                 avg_hrv: None,
                 sleep_score: None,
+                avg_spo2: None,
                 stages: Vec::new(),
                 source_name: PROVIDER.to_owned(),
             },

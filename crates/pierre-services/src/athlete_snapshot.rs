@@ -393,13 +393,25 @@ mod tests {
 
     use super::*;
     use chrono::TimeZone;
-    use dravr_equilibre_sync::{merge_recovery_metrics, merge_sleep_sessions};
+    use dravr_equilibre_sync::{merge_recovery_metrics, merge_sleep_sessions, Sourced};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{DataSource, DeviceType};
     use pierre_core::transport::TransportPolicy;
     use pierre_providers::ai_scope::ai_read;
+    use pierre_providers::ai_scope::StoredHealthRecord;
+    use pierre_providers::precedence::wellness_source;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
+
+    /// Each row paired with the source its key classifies to.
+    fn sourced<T: StoredHealthRecord>(rows: Vec<T>) -> Vec<Sourced<T>> {
+        rows.into_iter()
+            .map(|row| {
+                let source = wellness_source(row.source_name(), None);
+                Sourced::new(row, source)
+            })
+            .collect()
+    }
 
     use crate::training_history_read::tests::athlete;
 
@@ -426,6 +438,7 @@ mod tests {
             min_heart_rate: Some(45),
             avg_hrv: hrv,
             sleep_score: None,
+            avg_spo2: None,
             stages: Vec::new(),
             source_name: source.to_owned(),
         }
@@ -486,8 +499,8 @@ mod tests {
         ];
 
         let readings = recovery_readings(
-            merge_sleep_sessions(nights),
-            merge_recovery_metrics(mornings),
+            merge_sleep_sessions(sourced(nights), &Utc),
+            merge_recovery_metrics(sourced(mornings)),
             Tz::UTC,
             today,
         );
@@ -539,7 +552,7 @@ mod tests {
             ]
         };
         let toronto = recovery_readings(
-            merge_sleep_sessions(nights()),
+            merge_sleep_sessions(sourced(nights()), &Utc),
             Vec::new(),
             Tz::America__Toronto,
             today,
@@ -550,7 +563,12 @@ mod tests {
             "two nights, two days"
         );
         // Bucketed on UTC days both land on the 9th, as one 13-hour day.
-        let utc = recovery_readings(merge_sleep_sessions(nights()), Vec::new(), Tz::UTC, today);
+        let utc = recovery_readings(
+            merge_sleep_sessions(sourced(nights()), &Utc),
+            Vec::new(),
+            Tz::UTC,
+            today,
+        );
         assert_eq!(utc.sleep_hours.unwrap().last, Some(13.0));
     }
 

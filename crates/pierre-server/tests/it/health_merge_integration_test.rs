@@ -148,6 +148,7 @@ fn sleep(
         min_heart_rate: None,
         avg_hrv: None,
         sleep_score: None,
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: source.to_owned(),
     }

@@ -641,8 +641,8 @@ async fn a_merged_workout_with_a_garmin_sourced_copy_carries_the_garmin_attribut
         "the row draws the copy a device sensed: {body}"
     );
     assert_eq!(
-        rows[0]["duration_seconds"], 3_660,
-        "the merged numbers are the Strava copy's: {body}"
+        rows[0]["duration_seconds"], 3_600,
+        "the Garmin recording stands over the COROS one under the one rank: {body}"
     );
     assert_eq!(
         rows[0]["attribution"], "Garmin",
@@ -655,8 +655,10 @@ async fn a_merged_workout_with_a_garmin_sourced_copy_carries_the_garmin_attribut
 // ---------------------------------------------------------------------------
 
 /// One ride a watch recorded and synced to Strava, Garmin and COROS, as each
-/// connection caches it: `(cache key, copy)`. Starts sit seconds apart,
-/// durations and distances within a percent. The Garmin copy is the longest,
+/// connection caches it: `(cache key, copy)`. Strava's copy holds the
+/// recording's window (one starting or ending more than 5 s off it would
+/// read as edited on Strava, carnet#1274); COROS's starts seconds later;
+/// distances sit within a percent. The Garmin copy is the recording's own,
 /// so it is the one the session merger keeps; it alone carries the route
 /// overview and lacks the elevation the Strava copy recorded.
 fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 3] {
@@ -668,8 +670,8 @@ fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 
                 format!("s-{tag}"),
                 format!("Sortie {tag}"),
                 SportType::Ride,
-                started + Duration::seconds(30),
-                5_400,
+                started,
+                5_458,
                 oauth_providers::STRAVA,
             )
             .distance_meters(41_800.0)
@@ -686,6 +688,8 @@ fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 
                 5_460,
                 oauth_providers::SCIOTTE,
             )
+            // A capture names the service it signed in to, as sciotte stamps it.
+            .source(oauth_providers::GARMIN)
             .distance_meters(42_000.0)
             .summary_polyline(overview)
             .build(),
@@ -700,6 +704,7 @@ fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 
                 5_430,
                 oauth_providers::SCIOTTE,
             )
+            .source(oauth_providers::COROS)
             .distance_meters(42_150.0)
             .build(),
         ),

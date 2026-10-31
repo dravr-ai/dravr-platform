@@ -22,6 +22,9 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_providers::ai_scope;
+use pierre_providers::precedence::{Ingress, Service, Source};
+use pierre_services::stored_health;
 use pierre_tool_runtime::protocol::sleep_helpers::{latest_sleep_data, stored_sleep_nights};
 use pierre_tool_runtime::protocols::UniversalToolExecutor;
 use std::sync::Arc;
@@ -125,6 +128,7 @@ fn night(user_id: Uuid, source: &str, ds: &str, morning: NaiveDate) -> StoredSle
         min_heart_rate: None,
         avg_hrv: None,
         sleep_score: None,
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: source.to_owned(),
     }
@@ -340,6 +344,166 @@ async fn a_day_summary_night_west_of_utc_meets_its_own_date() -> Result<()> {
         latest.hrv_rmssd_ms,
         Some(58.0),
         "the summary's own morning, not the day before"
+    );
+    Ok(())
+}
+
+// ============================================================================
+// One precedence (Athlete Data Consolidation S2, carnet#1303)
+// ============================================================================
+
+/// T7: a WHOOP band and a Garmin watch recorded the same night. WHOOP stands
+/// for it under the one rank, and the athlete's sleep source — what the
+/// agent proposal names — is WHOOP, the merged night's primary, not the
+/// alphabetically first connection.
+#[tokio::test]
+async fn a_whoop_and_a_garmin_night_stand_as_whoops_everywhere() -> Result<()> {
+    let executor = executor().await?;
+    let athlete = brisbane_athlete(&executor).await?;
+    let (user_id, tenant) = athlete;
+    let garmin = data_source(&executor, athlete, "garmin").await?;
+    let whoop = data_source(&executor, athlete, "whoop").await?;
+    let repos = executor.resources.repos();
+    let morning = brisbane_morning();
+    let mut garmin_night = night(user_id, "garmin", &garmin, morning);
+    garmin_night.deep_sleep_seconds = Some(5_400);
+    let mut whoop_night = night(user_id, "whoop", &whoop, morning);
+    whoop_night.total_sleep_seconds = Some(6 * 3600 + 1_800);
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &garmin_night)
+        .await?;
+    repos
+        .sleep
+        .upsert_sleep_session(&tenant, &whoop_night)
+        .await?;
+
+    let tenant_id = tenant.to_string();
+    let nights = stored_sleep_nights(&executor, user_id, Some(&tenant_id), None, 7)
+        .await
+        .map_err(|e| anyhow::anyhow!("{:?}", e.error))?;
+    assert_eq!(
+        nights.len(),
+        1,
+        "bug: the two sources' nights did not merge into one"
+    );
+    assert_eq!(nights[0].record.source_name, "whoop");
+    assert_eq!(
+        nights[0].primary.service,
+        Service::Whoop,
+        "bug: the night's primary is not the best-ranked source"
+    );
+    assert_eq!(
+        nights[0].record.total_sleep_seconds,
+        Some(6 * 3600 + 1_800),
+        "bug: the night's sleep is not its primary's"
+    );
+    assert_eq!(
+        nights[0].record.deep_sleep_seconds,
+        Some(5_400),
+        "Garmin fills"
+    );
+
+    let now = Utc::now();
+    let source = stored_health::latest_night_source(
+        repos,
+        executor.resources.provider_registry().as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(14), now),
+    )
+    .await?;
+    assert_eq!(source.as_deref(), Some("whoop"));
+    Ok(())
+}
+
+/// T4b: the same night reaches Dravr as a Garmin capture, anchored at
+/// midnight UTC of its date, and as the athlete's Garmin export with the real
+/// bedtime (23:00-07:00 in Brisbane, ending 21:00 UTC the evening before).
+/// The two windows never overlap, and they are one night: Garmin's own copy
+/// first, the export filling what it lacks.
+#[tokio::test]
+async fn a_capture_and_an_export_of_one_night_far_from_utc_are_one_night() -> Result<()> {
+    let executor = executor().await?;
+    let athlete = brisbane_athlete(&executor).await?;
+    let (user_id, tenant) = athlete;
+    let garmin = data_source(&executor, athlete, "garmin").await?;
+    let export = data_source(&executor, athlete, "garmin_archive").await?;
+    let repos = executor.resources.repos();
+    let morning = brisbane_morning();
+    let mut capture = night(user_id, "garmin", &garmin, morning);
+    capture.start_datetime = morning.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    capture.end_datetime = capture.start_datetime + Duration::hours(8);
+    let mut exported = night(user_id, "garmin_archive", &export, morning);
+    exported.deep_sleep_seconds = Some(4_800);
+    assert!(
+        exported.end_datetime <= capture.start_datetime,
+        "the fixture's two copies must not overlap"
+    );
+    repos.sleep.upsert_sleep_session(&tenant, &capture).await?;
+    repos.sleep.upsert_sleep_session(&tenant, &exported).await?;
+
+    let tenant_id = tenant.to_string();
+    let nights = stored_sleep_nights(&executor, user_id, Some(&tenant_id), None, 7)
+        .await
+        .map_err(|e| anyhow::anyhow!("{:?}", e.error))?;
+    assert_eq!(nights.len(), 1, "{nights:?}");
+    assert_eq!(
+        nights[0].record.source_name, "garmin",
+        "the service's own copy"
+    );
+    assert_eq!(
+        nights[0].record.deep_sleep_seconds,
+        Some(4_800),
+        "the export fills"
+    );
+    Ok(())
+}
+
+/// T11 (terms): a Garmin export's day reaches a model like the athlete's
+/// other data, under the terms its own key declares, never by the absence of
+/// any rule — and it ranks as Garmin's own day under the service's API copy.
+#[tokio::test]
+async fn an_exported_garmin_day_survives_a_model_read_under_its_own_terms() -> Result<()> {
+    let executor = executor().await?;
+    let athlete = brisbane_athlete(&executor).await?;
+    let (user_id, tenant) = athlete;
+    let export = data_source(&executor, athlete, "garmin_archive").await?;
+    let repos = executor.resources.repos();
+    let registry = executor.resources.provider_registry();
+    assert!(
+        registry.get_descriptor("garmin_archive").is_some(),
+        "the export's key declares its terms"
+    );
+    let morning = brisbane_morning();
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &tenant,
+            &morning_recovery(user_id, "garmin_archive", &export, morning, 57.0),
+        )
+        .await?;
+
+    let now = Utc::now();
+    let (read, _) = ai_scope::ai_read(stored_health::merged_recovery(
+        repos,
+        registry.as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(7), now),
+        stored_health::SourceFilter::All,
+    ))
+    .await;
+    let days = read?.records;
+    assert_eq!(days.len(), 1, "the export's day reaches the model");
+    assert_eq!(
+        days[0].record.daily_hrv(),
+        Some(57.0),
+        "bug: the day's HRV is not its primary's"
+    );
+    assert_eq!(
+        days[0].primary,
+        Source::new(Service::Garmin, Ingress::Export)
     );
     Ok(())
 }

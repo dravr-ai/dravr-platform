@@ -107,6 +107,7 @@ fn sleep_session(user_id: Uuid, source_name: &str, data_source_id: &str) -> Stor
         min_heart_rate: Some(50),
         avg_hrv: Some(60.0),
         sleep_score: Some(85),
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: source_name.to_owned(),
     }

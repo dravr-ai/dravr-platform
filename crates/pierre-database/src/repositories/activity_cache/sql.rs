@@ -104,7 +104,7 @@ pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
 pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive')
+    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive')
     ORDER BY synced_at DESC
     LIMIT 1";
 
@@ -123,7 +123,7 @@ pub(crate) const LATEST_ACTIVITY_START_SQL: &str = r"
 pub(crate) const HELD_USER_PROVIDED_SQL: &str = r"
     SELECT DISTINCT provider
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive')";
+    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive')";
 
 /// Delete one cached activity, by the table's uniqueness key.
 pub(crate) const DELETE_CACHED_ACTIVITY_SQL: &str = r"
@@ -156,7 +156,7 @@ pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
 pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider = $4
-      AND provider NOT IN ('upload', 'strava_archive')";
+      AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive')";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///
@@ -349,9 +349,8 @@ mod tests {
     }
 
     /// Every statement that names the user-provided keys names exactly
-    /// `USER_PROVIDED_PROVIDERS`: a key added there (the Garmin archive's
-    /// next) cannot be missed by one statement and pruned or counted as a
-    /// sync by it.
+    /// `USER_PROVIDED_PROVIDERS`: a key added there cannot be missed by one
+    /// statement and pruned or counted as a sync by it.
     #[test]
     fn every_statement_naming_user_provided_keys_lists_exactly_the_set() {
         for (name, sql) in [

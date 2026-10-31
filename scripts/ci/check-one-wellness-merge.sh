@@ -46,7 +46,7 @@ if [ ! -f "$CHOKEPOINT" ]; then
     exit 2
 fi
 
-PATTERN='\bmerge_(sleep_sessions|recovery_metrics|health_metrics)\b|(\.|::)get_(sleep_sessions|recovery_metrics|health_snapshots)\(|(\.|::)(sleep|recovery)_origins\(|end_datetime\.date_naive\(\)|hrv_(rmssd|ms)\.or\('
+PATTERN='\bmerge_(sleep_sessions|recovery_metrics|health_metrics|daily_activity)\b|(\.|::)get_(sleep_sessions|recovery_metrics|health_snapshots)\(|(\.|::)(sleep|recovery)_origins\(|end_datetime\.date_naive\(\)|hrv_(rmssd|ms)\.or\('
 # The repository layer owns the SQL; anywhere else a wellness table is read raw.
 SQL_PATTERN='\bFROM (sleep_sessions|recovery_metrics|health_snapshots)\b'
 REPOSITORY_LAYER="crates/pierre-database/src/"

@@ -26,7 +26,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::activity_cache_retention_days;
-use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
+use crate::group_fitness::fetch_and_merge_all_providers;
 use crate::protocol::AuthService;
 use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
@@ -128,7 +128,7 @@ pub(crate) async fn fetch_member_activities(
     // Dedup on read. Write-through persists each provider's activities under its
     // own cache key, so a workout synced from two providers (e.g. Strava +
     // sciotte/Garmin) is cached twice. The live-fetch path dedups before
-    // returning (see `AllProvidersMerge::fetch_and_merge`); the warm-cache path
+    // returning (see `fetch_and_merge_all_providers`); the warm-cache path
     // must do the same or cross-provider duplicates double-count in the snapshot.
     //
     // Filtered for a model first, when this read is for one: the dedup fills a
@@ -199,7 +199,7 @@ async fn refresh_stale_cache(
 }
 
 /// Fetch activities live from all connected providers and persist them
-/// (write-through happens inside [`AllProvidersMerge::fetch_and_merge`]).
+/// (write-through happens inside [`fetch_and_merge_all_providers`]).
 ///
 /// Used on a cold cache and by the revalidation task.
 async fn fetch_and_persist_live(
@@ -209,10 +209,14 @@ async fn fetch_and_persist_live(
     tenant_id: TenantId,
 ) -> Vec<Activity> {
     let auth_service = AuthService::new(Arc::clone(runtime));
-    let strategy = AllProvidersMerge::new(runtime.config().activity_fetch_limit);
-    strategy
-        .fetch_and_merge(&auth_service, providers, user_id, tenant_id)
-        .await
+    fetch_and_merge_all_providers(
+        &auth_service,
+        providers,
+        user_id,
+        tenant_id,
+        runtime.config().activity_fetch_limit,
+    )
+    .await
 }
 
 /// True when any connected provider's cached activities are missing or older

@@ -121,6 +121,7 @@ pub use crate::services::archive_import::sweeps::start_archive_import_sweeps;
 pub use crate::services::coaching_workers::start_coaching_workers;
 #[cfg(feature = "health-sync")]
 pub use crate::services::personal_best_seed::start_personal_best_seed;
+pub use crate::services::precedence_recompute::start_precedence_recompute;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
 pub use crate::services::upload_streams_backfill::start_upload_streams_backfill;
 pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;

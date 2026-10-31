@@ -28,6 +28,8 @@ use pierre_core::models::{SportProfile, TenantId};
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
+use pierre_providers::backend_resolver;
+use pierre_providers::precedence::{rank, wellness_source, Kind};
 use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_services::activity_sports::MessagingStringsRegistry;
@@ -35,6 +37,7 @@ use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents as agents_service;
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::stored_health;
 use pierre_services::team_rules::{self, pick_members, TeamPick, TeamRule, TeamSignals};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -435,9 +438,12 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // be given. They are resolved from the eligible list, so the same
     // coach-facing and prerequisite gates apply.
     let sleep_source = sleep_source_name(
+        ctx,
         ToolRuntime::provider_registry(ctx.as_ref()),
         &user_providers,
-    );
+        (user_id, tenant_id),
+    )
+    .await;
     let signals = TeamSignals::read(sport_profile.as_ref(), dossier.as_ref(), sleep_source);
     let picks = resolve_team_picks(
         ctx,
@@ -517,18 +523,52 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     })
 }
 
-/// Display name of the first connected provider (by name, for a stable
-/// answer) that sends sleep or recovery data.
-fn sleep_source_name(
+/// How far back the athlete's nights are read to name their sleep source.
+const SLEEP_SOURCE_LOOKBACK_DAYS: i64 = 14;
+
+/// Display name of the athlete's sleep source: the source standing for their
+/// latest stored night under the one precedence rule (the merged night's
+/// primary), else — before a night is stored — the connected provider that
+/// sends sleep or recovery data and ranks first for sleep
+/// (`dravr_equilibre::precedence::rank`). `None` when neither exists.
+///
+/// The athlete's own proposal, so the night is read outside any model gate.
+/// A failed read is logged and falls back to the connections.
+async fn sleep_source_name<C: MiddlewareCtx>(
+    ctx: &Arc<C>,
     registry: &ProviderRegistry,
     user_providers: &HashSet<String>,
+    (user_id, tenant_id): (Uuid, TenantId),
 ) -> Option<&'static str> {
-    let mut providers: Vec<&String> = user_providers.iter().collect();
-    providers.sort();
-    providers
-        .into_iter()
-        .find(|name| registry.supports_sleep(name) || registry.supports_recovery(name))
-        .and_then(|name| registry.get_display_name(name))
+    let now = Utc::now();
+    let window = (now - ChronoDuration::days(SLEEP_SOURCE_LOOKBACK_DAYS), now);
+    match stored_health::latest_night_source(
+        MiddlewareCtx::repos(ctx.as_ref()),
+        registry,
+        user_id,
+        &tenant_id,
+        window,
+    )
+    .await
+    {
+        Ok(Some(key)) => return backend_resolver::brand_name(registry, &key),
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, "agent proposal: sleep source read failed; naming a connection");
+        }
+    }
+    user_providers
+        .iter()
+        .filter(|name| registry.supports_sleep(name) || registry.supports_recovery(name))
+        .min_by(|a, b| {
+            rank(
+                Kind::Sleep,
+                &wellness_source(a, None),
+                &wellness_source(b, None),
+            )
+            .then_with(|| a.cmp(b))
+        })
+        .and_then(|name| backend_resolver::brand_name(registry, name))
 }
 
 /// The rule table's picks as agents the athlete may be given: the published

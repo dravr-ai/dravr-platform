@@ -19,6 +19,15 @@
 //! the athlete's own choice is recorded on the copy they chose it on and
 //! clears every other copy's, so a pair never counts one workout twice.
 //!
+//! **A workout's distance follows its merged session.** An attribution
+//! records the distance the workout added when it was attributed, so the pair
+//! keeps it after the cache lets the activity go. While the workout is still
+//! cached, reading the ledger moves that distance to the merged session's
+//! when the two differ — which copy stands for a workout follows the one
+//! precedence rule, and a change to that rule (Athlete Data Consolidation
+//! S3), or its rollback, moves the figure — so the ledger rebuilds itself on
+//! its next read.
+//!
 //! **Defaults are given when the ledger is read.** Reading the ledger, or one
 //! activity's pair, first gives every unattributed workout since the oldest
 //! pair in use its sport's default ([`default_pair`]), oldest workout first,
@@ -40,7 +49,7 @@
 //! name — declared for it when the ledger holds none — unless its workout
 //! already holds an attribution ([`attribute_imported_gear`]).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -71,6 +80,11 @@ const LEDGER_ROW_LIMIT: i64 = 2_000;
 /// of each other; a day either side holds every copy of any workout a person
 /// records, and every attribution recorded on one of them.
 const WORKOUT_WINDOW_HOURS: i64 = 24;
+
+/// How far a workout's merged distance may sit from the distance its
+/// attribution recorded before the attribution follows it, in metres: the
+/// rounding of a stored `REAL`, never a real change.
+const DISTANCE_MOVED_METERS: f64 = 0.5;
 
 /// Most cached rows read around one activity: far more than the copies of
 /// every workout one athlete records in two days.
@@ -187,30 +201,38 @@ pub async fn read_ledger(
     if since >= now {
         return Ok(ledger);
     }
-    let rows = served_rows(
-        resources,
-        repos
-            .activity_cache
-            .get_cached_activity_rows(user_id, tenant_id, since, now, LEDGER_ROW_LIMIT)
-            .await?,
-    );
+    let stored = repos
+        .activity_cache
+        .get_cached_activity_rows(user_id, tenant_id, since, now, LEDGER_ROW_LIMIT)
+        .await?;
+    let stored_count = stored.len();
+    let rows = served_rows(resources, stored);
     if rows.is_empty() {
         return Ok(ledger);
     }
     let margin = Duration::hours(WORKOUT_WINDOW_HOURS);
-    let attributed: HashSet<ActivityGearKey> = repos
+    let attributions: HashMap<ActivityGearKey, f64> = repos
         .athlete_gear
         .list_gear_attributions(user_id, since - margin, now + margin)
         .await?
         .into_iter()
-        .map(|attribution| attribution.key)
+        .map(|attribution| (attribution.key, attribution.distance_meters))
         .collect();
 
     let mut workouts = ledger_workouts(&rows);
     workouts.sort_by_key(|workout| workout.session.start_date());
     let mut defaults = Vec::new();
+    let mut moved = Vec::new();
     for workout in workouts {
-        if workout.copies.iter().any(|key| attributed.contains(key)) {
+        if let Some(key) = workout
+            .copies
+            .iter()
+            .find(|key| attributions.contains_key(*key))
+        {
+            let merged = workout_distance(&workout.session);
+            if (attributions[key] - merged).abs() > DISTANCE_MOVED_METERS {
+                moved.push((key.clone(), merged));
+            }
             continue;
         }
         let start = workout.session.start_date();
@@ -232,7 +254,18 @@ pub async fn read_ledger(
             distance_meters: workout_distance(&workout.session),
         });
     }
-    if defaults.is_empty() {
+    // A distance is refreshed only from every stored copy: a read that had to
+    // leave a copy out over this transport merges without it, and must not
+    // record that partial figure for the athlete's own ledger.
+    let refreshed = if stored_count == rows.len() {
+        repos
+            .athlete_gear
+            .refresh_attribution_distances(user_id, &moved)
+            .await?
+    } else {
+        0
+    };
+    if defaults.is_empty() && refreshed == 0 {
         return Ok(ledger);
     }
     repos

@@ -356,12 +356,20 @@ fn provider_activity(
 #[test]
 fn same_ride_from_two_providers_counts_once() {
     // The "Phil ride": 3.2 h / 84.8 km synced from both Strava and a Garmin
-    // mirror. Same sport, starts 2 min apart, distance within tolerance.
+    // mirror. Same sport, distance within tolerance; Strava's copy of the
+    // recording starts with it (one starting more than 5 s off would read
+    // as cropped on Strava, carnet#1274).
     let t = base_time();
     let activities = vec![
-        provider_activity("strava-1", "strava", SportType::Ride, t, 11_520)
-            .distance_meters(84_800.0)
-            .build(),
+        provider_activity(
+            "strava-1",
+            "strava",
+            SportType::Ride,
+            t + Duration::minutes(2),
+            11_520,
+        )
+        .distance_meters(84_800.0)
+        .build(),
         provider_activity(
             "garmin-1",
             "garmin",
@@ -373,8 +381,10 @@ fn same_ride_from_two_providers_counts_once() {
         .build(),
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
-    assert_eq!(ids(&merged), vec!["strava-1"]);
-    assert_eq!(report.groups[0].providers, vec!["strava", "garmin"]);
+    // The one precedence rule puts the recording device's service ahead of
+    // Strava's own copy (Athlete Data Consolidation §3.3).
+    assert_eq!(ids(&merged), vec!["garmin-1"]);
+    assert_eq!(report.groups[0].providers, vec!["garmin", "strava"]);
 }
 
 #[test]
@@ -614,12 +624,14 @@ fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
     )
     .distance_meters(60_400.0)
     .build();
+    // Strava's copy of the bike computer's recording: its window, so no
+    // edit on Strava (carnet#1274).
     let upload = provider_activity(
         "upload",
         "strava",
         SportType::Ride,
-        t + Duration::seconds(45),
-        7_250,
+        t + Duration::seconds(40),
+        7_258,
     )
     .distance_meters(60_380.0)
     .suffer_score(88)
@@ -809,9 +821,16 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
     // `fragment_dedup` name the service, never the backend.
     let t = base_time();
     let activities = vec![
-        provider_activity("strava-1", "strava", SportType::Ride, t, 11_520)
-            .distance_meters(84_800.0)
-            .build(),
+        provider_activity(
+            "strava-1",
+            "strava",
+            SportType::Ride,
+            t + Duration::minutes(2),
+            11_520,
+        )
+        .distance_meters(84_800.0)
+        .calories(2_100)
+        .build(),
         provider_activity(
             "garmin-1",
             "sciotte",
@@ -826,12 +845,13 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
     ];
     let (_, report) = merge_duplicates(activities, &DedupConfig::default());
     let group = &report.groups[0];
-    assert_eq!(group.providers, vec!["strava", "garmin"]);
+    // The Garmin recording stands; Strava's copy fills what it lacks.
+    assert_eq!(group.providers, vec!["garmin", "strava"]);
     assert!(
         !group.filled_fields.is_empty(),
-        "the scraped row donates its heart rate"
+        "the Strava row donates its calories"
     );
-    assert!(group.filled_fields.iter().all(|f| f.provider == "garmin"));
+    assert!(group.filled_fields.iter().all(|f| f.provider == "strava"));
     let said = serde_json::to_string(&report).unwrap();
     assert!(!said.to_lowercase().contains("sciotte"), "{said}");
 }
@@ -1287,18 +1307,31 @@ fn split_ride_and_its_whole_recording(strava_gps: bool) -> Vec<Activity> {
 }
 
 #[test]
-fn a_whole_session_recording_stands_over_the_pieces_it_covers() {
-    // Strava's recording carries the route, so it stands for the session:
-    // both Garmin pieces overlap it and add nothing.
+fn the_recording_services_pieces_stand_over_stravas_whole_recording() {
+    // Strava's copy carries the route, but the Garmin watch recorded the
+    // ride: its pieces stand for the session under the one precedence rule
+    // and sum to it, and Strava's recording of the whole lends the route it
+    // lacks, adding no volume.
     let (merged, report) = merge_duplicates(
         split_ride_and_its_whole_recording(true),
         &DedupConfig::default(),
     );
 
-    assert_eq!(ids(&merged), vec!["strava-whole"]);
-    assert_eq!(merged[0].distance_meters(), Some(100_300.0));
-    assert_eq!(merged[0].duration_seconds(), 10_790);
-    assert_eq!(merged[0].moving_time_seconds(), Some(10_500));
+    assert_eq!(ids(&merged), vec!["garmin-1"]);
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(100_000.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+    assert_eq!(
+        merged[0].duration_seconds(),
+        10_802,
+        "bug: the session's duration seconds is not the standing copy's"
+    );
+    assert!(
+        merged[0].summary_polyline().is_some(),
+        "the route fills from Strava"
+    );
     assert_eq!(report.groups[0].fragment_ids.len(), 3);
 }
 
@@ -1364,10 +1397,15 @@ fn a_date_only_row_never_adds_volume() {
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
 
-    // The farther row stands for the session; the other adds nothing.
+    // Strava's API copy stands over its usr/pwd capture; the capture adds
+    // nothing.
     assert_eq!(report.session_count, 1);
-    assert_eq!(ids(&merged), vec!["scraped"]);
-    assert_eq!(merged[0].distance_meters(), Some(10_050.0));
+    assert_eq!(ids(&merged), vec!["timed"]);
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(10_000.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
     assert_eq!(merged[0].duration_seconds(), 3_600);
 }
 
@@ -1497,4 +1535,463 @@ fn a_split_session_spends_the_training_stress_and_calories_of_both_pieces() {
     assert_eq!(merged[0].distance_meters(), Some(100_000.0));
     assert_eq!(merged[0].training_stress_score(), Some(180.0));
     assert_eq!(merged[0].calories(), Some(2_600));
+}
+
+// ============================================================================
+// One precedence over a workout's copies: the recording's own service, unless
+// edited on Strava (carnet#1274, Athlete Data Consolidation S3)
+// ============================================================================
+
+/// Strava's copy of a fenix ride, as its detail names the device: Strava
+/// re-derives distance and speed from the samples.
+fn strava_detail_of_fenix_ride(start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        "16000000001",
+        "Sunday loop",
+        SportType::Ride,
+        start,
+        7_202,
+        "strava",
+    )
+    .device_name("Garmin fenix 7")
+    .description("Easy spin with Bob".to_owned())
+    .moving_time_seconds(6_900)
+    .distance_meters(61_800.0)
+    .average_speed(8.96)
+    .average_heart_rate(140)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build()
+}
+
+/// Garmin's copy of the same fenix ride, as the Garmin API pushed it.
+fn garmin_push_of_fenix_ride(start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        "21000000001",
+        "Montreal Cycling",
+        SportType::Ride,
+        start,
+        7_200,
+        "garmin",
+    )
+    .source("garmin")
+    .device_name("Garmin fenix 7")
+    .distance_meters(62_400.0)
+    .average_speed(8.67)
+    .average_heart_rate(141)
+    .calories(1_450)
+    .start_latitude(45.5)
+    .start_longitude(-73.6)
+    .build()
+}
+
+/// T5: a Garmin-recorded ride seen through the Garmin push and the Strava
+/// API stands as Garmin's copy, with Garmin's totals; Strava's copy fills
+/// what Garmin's lacks — the athlete's description, the moving time, the
+/// route.
+#[test]
+fn a_garmin_recorded_ride_in_garmin_and_strava_stands_as_garmins_copy() {
+    let t = base_time();
+    let (merged, report) = merge_duplicates(
+        vec![strava_detail_of_fenix_ride(t), garmin_push_of_fenix_ride(t)],
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    let session = &merged[0];
+    assert_eq!(session.provider(), "garmin");
+    assert_eq!(report.groups[0].canonical_id, "21000000001");
+    assert_eq!(
+        session.distance_meters(),
+        Some(62_400.0),
+        "the fenix's distance"
+    );
+    assert_eq!(
+        session.average_speed(),
+        Some(8.67),
+        "bug: the session's average speed is not the standing copy's"
+    );
+    assert_eq!(
+        session.average_heart_rate(),
+        Some(141),
+        "bug: the session's average heart rate is not the standing copy's"
+    );
+    assert_eq!(
+        session.calories(),
+        Some(1_450),
+        "bug: the session's calories is not the standing copy's"
+    );
+    assert_eq!(
+        session.duration_seconds(),
+        7_200,
+        "bug: the session's duration seconds is not the standing copy's"
+    );
+    assert_eq!(
+        session.moving_time_seconds(),
+        Some(6_900),
+        "Garmin lacks one"
+    );
+    assert_eq!(session.description(), Some("Easy spin with Bob"));
+    assert!(
+        session.summary_polyline().is_some(),
+        "the route fills from Strava"
+    );
+}
+
+/// A Strava list row names no device, yet Garmin's own copy of the ride still
+/// stands over Strava's: a recording device ranks over Strava for a workout.
+#[test]
+fn a_strava_list_row_naming_no_device_still_yields_to_garmins_copy() {
+    let t = base_time();
+    let list_row = ActivityBuilder::new(
+        "16000000001",
+        "Sunday loop",
+        SportType::Ride,
+        t,
+        7_202,
+        "strava",
+    )
+    .distance_meters(61_800.0)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![list_row, garmin_push_of_fenix_ride(t)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged[0].provider(), "garmin");
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(62_400.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+}
+
+/// T6: the athlete cropped the ride on Strava (its window 5 % shorter and
+/// starting later): Strava's copy stands, its distance and elapsed time with
+/// it.
+#[test]
+fn a_ride_cropped_on_strava_stands_as_stravas_copy() {
+    let t = base_time();
+    let cropped = ActivityBuilder::new(
+        "16000000002",
+        "Tempo",
+        SportType::Ride,
+        t + Duration::seconds(360),
+        6_840,
+        "strava",
+    )
+    .device_name("Garmin fenix 7")
+    .distance_meters(59_280.0)
+    .average_heart_rate(144)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build();
+    let (merged, report) = merge_duplicates(
+        vec![garmin_push_of_fenix_ride(t), cropped],
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    let session = &merged[0];
+    assert_eq!(session.provider(), "strava", "the cropped copy stands");
+    assert_eq!(report.groups[0].canonical_id, "16000000002");
+    assert_eq!(
+        session.distance_meters(),
+        Some(59_280.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+    assert_eq!(
+        session.duration_seconds(),
+        6_840,
+        "bug: the session's duration seconds is not the standing copy's"
+    );
+    assert_eq!(
+        session.average_heart_rate(),
+        Some(144),
+        "bug: the session's average heart rate is not the standing copy's"
+    );
+    // What the edited copy lacks still fills from the recording.
+    assert_eq!(
+        session.calories(),
+        Some(1_450),
+        "bug: the session's calories is not the standing copy's"
+    );
+}
+
+/// A distance the athlete corrected on Strava (more than a fifth off the
+/// device's) is an edit too: Strava's copy stands.
+#[test]
+fn a_distance_corrected_on_strava_stands_as_stravas_copy() {
+    let t = base_time();
+    let corrected = ActivityBuilder::new(
+        "16000000001",
+        "Sunday loop",
+        SportType::Ride,
+        t,
+        7_202,
+        "strava",
+    )
+    .device_name("Garmin fenix 7")
+    .distance_meters(80_000.0)
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![garmin_push_of_fenix_ride(t), corrected],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged[0].provider(), "strava");
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(80_000.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+}
+
+/// Strava's processing (the same window, a distance a few percent off) is no
+/// edit: Garmin's copy stands.
+#[test]
+fn stravas_own_processing_is_no_edit() {
+    let t = base_time();
+    let (merged, _) = merge_duplicates(
+        vec![
+            garmin_push_of_fenix_ride(t),
+            strava_detail_of_fenix_ride(t + Duration::seconds(3)),
+        ],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged[0].provider(), "garmin");
+}
+
+/// A run Strava's own app recorded stands as Strava's, over a wrist
+/// tracker's auto-detected copy.
+#[test]
+fn a_strava_app_run_stands_over_a_wrist_trackers_copy() {
+    let t = base_time();
+    let strava = ActivityBuilder::new(
+        "16000000003",
+        "Lunch run",
+        SportType::Run,
+        t,
+        2_400,
+        "strava",
+    )
+    .device_name("Strava iPhone App")
+    .distance_meters(6_000.0)
+    .build();
+    let whoop = ActivityBuilder::new(
+        "w-1",
+        "Running",
+        SportType::Run,
+        t + Duration::seconds(30),
+        2_350,
+        "whoop",
+    )
+    .average_heart_rate(152)
+    .build();
+    let (merged, _) = merge_duplicates(vec![whoop, strava], &DedupConfig::default());
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "strava");
+    assert_eq!(
+        merged[0].average_heart_rate(),
+        Some(152),
+        "WHOOP fills the heart rate"
+    );
+}
+
+/// The order never depends on arrival: every permutation of one workout's
+/// copies merges to the same session.
+#[test]
+fn the_standing_copy_does_not_depend_on_arrival_order() {
+    let t = base_time();
+    let copies = [
+        garmin_push_of_fenix_ride(t),
+        strava_detail_of_fenix_ride(t),
+        ActivityBuilder::new(
+            "21000000001",
+            "Montreal Cycling",
+            SportType::Ride,
+            t,
+            7_200,
+            "sciotte",
+        )
+        .source("garmin")
+        .distance_meters(62_350.0)
+        .build(),
+    ];
+    let orders: [[usize; 3]; 6] = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    for order in orders {
+        let input: Vec<Activity> = order.iter().map(|&i| copies[i].clone()).collect();
+        let (merged, report) = merge_duplicates(input, &DedupConfig::default());
+        assert_eq!(merged.len(), 1, "{order:?}");
+        assert_eq!(report.groups[0].canonical_id, "21000000001", "{order:?}");
+        assert_eq!(
+            merged[0].provider(),
+            "garmin",
+            "{order:?}: the API row over its capture"
+        );
+    }
+}
+
+/// A Strava list row names no device (only the detail does), yet it is
+/// Strava's copy of the recording it merges with: cropped on Strava, it
+/// stands for the session as the detail would (review of carnet#1303).
+#[test]
+fn a_strava_list_row_cropped_on_strava_stands_as_stravas_copy() {
+    let t = base_time();
+    let cropped_list_row = ActivityBuilder::new(
+        "16000000002",
+        "Tempo",
+        SportType::Ride,
+        t + Duration::seconds(360),
+        6_840,
+        "strava",
+    )
+    .distance_meters(59_280.0)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build();
+    let (merged, report) = merge_duplicates(
+        vec![garmin_push_of_fenix_ride(t), cropped_list_row],
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "strava", "the cropped copy stands");
+    assert_eq!(report.groups[0].canonical_id, "16000000002");
+    assert_eq!(
+        merged[0].duration_seconds(),
+        6_840,
+        "bug: the session's duration seconds is not the standing copy's"
+    );
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(59_280.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+}
+
+/// A Strava copy naming another recorder (Strava's own app) is a second
+/// recording, never Strava's copy of the Garmin one: nothing is lifted.
+#[test]
+fn a_strava_app_recording_beside_a_garmin_one_is_no_edit_of_it() {
+    let t = base_time();
+    let phone = ActivityBuilder::new(
+        "16000000003",
+        "Phone ride",
+        SportType::Ride,
+        t + Duration::seconds(40),
+        7_100,
+        "strava",
+    )
+    .device_name("Strava iPhone App")
+    .distance_meters(61_000.0)
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![phone, garmin_push_of_fenix_ride(t)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "garmin");
+}
+
+/// Garmin's capture reports a paused ride's timer, never its elapsed time:
+/// Strava's elapsed time over it is the pauses, not a crop, so Garmin's
+/// copy stands (review of carnet#1303; dev held six such rides).
+#[test]
+fn a_paused_garmin_recording_and_stravas_unedited_copy_stand_as_garmins() {
+    let t = base_time();
+    let paused_capture = ActivityBuilder::new(
+        "21000000004",
+        "Montreal Cycling",
+        SportType::Ride,
+        t,
+        6_900,
+        "sciotte_garmin",
+    )
+    .source("garmin")
+    .distance_meters(62_400.0)
+    .average_heart_rate(141)
+    .build();
+    let strava_copy = ActivityBuilder::new(
+        "16000000004",
+        "Sunday loop",
+        SportType::Ride,
+        t,
+        7_200,
+        "strava",
+    )
+    .distance_meters(61_800.0)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build();
+    let (merged, _) = merge_duplicates(vec![strava_copy, paused_capture], &DedupConfig::default());
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "sciotte_garmin");
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(62_400.0),
+        "bug: the session's distance meters is not the standing copy's"
+    );
+}
+
+/// Twins of one Strava activity rank by the one rule alone: the export's
+/// file names the Garmin watch that recorded it, the API's list row names
+/// nothing, and both are Garmin's recording relayed by Strava, so the API
+/// row stands for its own activity (API over export), not the export.
+#[test]
+fn a_strava_api_list_row_stands_over_its_export_naming_the_device() {
+    let t = base_time();
+    let archive = ActivityBuilder::new(
+        "16000000005",
+        "Archived Ride",
+        SportType::Ride,
+        t,
+        3_600,
+        "strava_archive",
+    )
+    .device_name("Garmin Edge 840")
+    .distance_meters(40_000.0)
+    .average_heart_rate(138)
+    .build();
+    for copies in [
+        vec![archive.clone(), strava_api_row("16000000005", t, 3_600)],
+        vec![strava_api_row("16000000005", t, 3_600), archive],
+    ] {
+        let (merged, _) = merge_duplicates(copies, &DedupConfig::default());
+        assert_eq!(merged.len(), 1, "{merged:?}");
+        assert_eq!(merged[0].provider(), "strava");
+        assert_eq!(
+            merged[0].average_heart_rate(),
+            Some(138),
+            "bug: the session's average heart rate is not the standing copy's"
+        );
+    }
+}
+
+/// The athlete's Garmin export keys each activity by Garmin's own id, so its
+/// row and the Garmin push of the same activity are one workout whatever
+/// their clocks say (an export's local-time stamp), and the push stands.
+#[test]
+fn a_garmin_export_row_and_the_push_of_its_id_are_one_workout() {
+    let t = base_time();
+    let exported = ActivityBuilder::new(
+        "19876543299",
+        "Exported Ride",
+        SportType::Ride,
+        t + Duration::hours(4),
+        3_600,
+        "garmin_archive",
+    )
+    .distance_meters(40_000.0)
+    .average_heart_rate(139)
+    .build();
+    let (merged, report) = merge_duplicates(
+        vec![exported, garmin_api_row("19876543299", t, 3_600)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "garmin");
+    assert_eq!(report.groups[0].canonical_id, "19876543299");
 }

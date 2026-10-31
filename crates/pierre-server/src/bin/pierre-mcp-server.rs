@@ -739,6 +739,15 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_upload_streams_backfill(&resources);
     }
 
+    // Recompute every athlete's training history once after the rule their
+    // workouts merge by changed (Athlete Data Consolidation S3): the rollup is
+    // scored when computed, so days computed under the previous rule keep its
+    // copy's load until recomputed.
+    {
+        use pierre_mcp_server::start_precedence_recompute;
+        start_precedence_recompute(&resources);
+    }
+
     // Start the archive import sweeps (carnet#1218): imports never given their
     // link expire, and a deleted account's imported history is erased from
     // dravr-barrage. Nothing starts where imports do not run.

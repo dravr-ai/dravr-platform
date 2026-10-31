@@ -62,4 +62,9 @@ pub trait TrainingHistoryRepository: Send + Sync {
         from: chrono::NaiveDate,
         to: chrono::NaiveDate,
     ) -> AppResult<u64>;
+
+    /// Every `(tenant, user)` holding at least one stored day, in tenant then
+    /// user order: whose rollups a recompute of every athlete's history
+    /// visits.
+    async fn training_history_holders(&self) -> AppResult<Vec<(TenantId, Uuid)>>;
 }

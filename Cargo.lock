@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.8.2"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.8.2#0f5bdc5c40d36da36990a9db40781c8359399fdb"
+version = "0.9.1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.9.1#5d23fc7f6e20a4c3920d3de4b0e2aaf0051faf0c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1444,8 +1444,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=1fb0efe2bc0
 
 [[package]]
 name = "dravr-enforme"
-version = "0.14.6"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.14.6#19b46aa618756fecd51bddec6f921e7c83aa865c"
+version = "0.15.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.15.1#155666afba6d7b1009ee251d9edff355469d3365"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1465,8 +1465,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.8.2"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.8.2#3012f05050660b009ae9e23515ac9794570e15a3"
+version = "0.9.0"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.9.0#f6ace98bed707d5dd8612e557b13eafe1318cb00"
 dependencies = [
  "chrono",
  "schemars 1.2.3",
@@ -1508,8 +1508,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "1.0.3"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.0.3#406f8d598c6a6590f0a00bf90f60d9e6e80afcdd"
+version = "1.0.4"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.0.4#0d0c3afabad20218cf24ce8a10fd3df3973eebd8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4999,7 +4999,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5037,7 +5037,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]

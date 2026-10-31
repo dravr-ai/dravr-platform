@@ -96,6 +96,8 @@ expect_fires "raw SQL on a wellness table" \
     'const RAW: &str = "SELECT * FROM recovery_metrics WHERE user_id = $1";'
 expect_fires "night dating by the UTC date of the end" \
     'fn night(s: &S) -> NaiveDate { s.end_datetime.date_naive() }'
+expect_fires "a daily-activity merge" \
+    'fn raw(rows: Vec<R>) { dravr_equilibre::merge_daily_activity(rows); }'
 expect_fires "an HRV spelling of its own" \
     'fn hrv(m: &M) -> Option<f64> { m.hrv_rmssd.or(m.hrv_ms) }'
 

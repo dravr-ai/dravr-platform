@@ -623,7 +623,7 @@ pub(crate) fn test_server_config() -> ServerConfig {
         usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
         // ServerConfig::default() leaves this at 0 (the derived usize default);
         // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
-        // every activity-fetch path (group snapshots, AllProvidersMerge) read
+        // every activity-fetch path (group snapshots, the all-provider fetch) read
         // LIMIT 0 and return nothing, so give tests a realistic value.
         activity_fetch_limit: 100,
         ..ServerConfig::default()

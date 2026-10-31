@@ -284,11 +284,13 @@ async fn one_ride_synced_to_two_providers_counts_once() {
         &resources,
         &athlete,
         oauth_providers::STRAVA,
+        // Strava's copy of the watch's recording: its window, so no edit on
+        // Strava (carnet#1274).
         &[activity(
             "s-1",
             SportType::Ride,
-            started + Duration::seconds(30),
-            5_400,
+            started,
+            5_458,
             oauth_providers::STRAVA,
         )
         .distance_meters(41_800.0)
@@ -307,6 +309,8 @@ async fn one_ride_synced_to_two_providers_counts_once() {
             5_460,
             oauth_providers::SCIOTTE,
         )
+        // A capture names the service it signed in to, as sciotte stamps it.
+        .source(oauth_providers::GARMIN)
         .distance_meters(42_000.0)
         .build()],
     )
@@ -321,7 +325,8 @@ async fn one_ride_synced_to_two_providers_counts_once() {
         ride["activities"], 1,
         "two copies of one ride are one workout: {body}"
     );
-    // The merger keeps the longer copy and fills the climbing it lacked.
+    // The Garmin recording stands for the ride under the one precedence rule
+    // and takes the climbing it lacked from Strava's copy.
     assert_eq!(ride["duration_seconds"], 5_460);
     assert_eq!(ride["distance_meters"], 42_000.0);
     assert_eq!(ride["elevation_gain_meters"], 380.0);

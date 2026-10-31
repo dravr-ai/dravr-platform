@@ -455,13 +455,28 @@ pub const UPLOAD: &str = "upload";
 /// and the cache's retention prune and sync freshness leave it out.
 pub const STRAVA_ARCHIVE: &str = "strava_archive";
 
+/// The source key of a Garmin history the athlete imported from their own
+/// Garmin Connect export, held by dravr-barrage.
+///
+/// Its activities are served from the activity cache, its wellness from the
+/// wellness stores.
+///
+/// Its own key, never `garmin`'s, for the reasons [`STRAVA_ARCHIVE`] is
+/// Strava's: the athlete's own copy, under its own terms, kept when Garmin is
+/// disconnected, and never pruned for age.
+pub const GARMIN_ARCHIVE: &str = "garmin_archive";
+
+/// The key a reading the athlete entered by hand is stored under: it ranks
+/// above every device's copy of the same reading for the fields it sets.
+pub const ATHLETE: &str = "athlete";
+
 /// Every key whose cached activities the athlete brought in themselves, rather
 /// than a connection fetched: each is read locally, never pruned by a provider
 /// sync, and survives every provider disconnect.
 ///
 /// Every SQL statement that names user-provided keys lists exactly these, a
 /// rule `activity_cache::sql`'s tests hold the literals to.
-pub const USER_PROVIDED_PROVIDERS: &[&str] = &[UPLOAD, STRAVA_ARCHIVE];
+pub const USER_PROVIDED_PROVIDERS: &[&str] = &[UPLOAD, STRAVA_ARCHIVE, GARMIN_ARCHIVE];
 
 /// Whether `provider` is a key the athlete brought data in under
 /// ([`USER_PROVIDED_PROVIDERS`]).
@@ -471,11 +486,13 @@ pub fn is_user_provided(provider: &str) -> bool {
 }
 
 /// The keys an athlete's own copies of `provider`'s activities are held under:
-/// asking for `strava` also reads the Strava history they imported.
+/// asking for `strava` also reads the Strava history they imported, `garmin`
+/// the Garmin one.
 #[must_use]
 pub fn companion_keys(provider: &str) -> &'static [&'static str] {
     match provider {
         STRAVA => &[STRAVA_ARCHIVE],
+        GARMIN => &[GARMIN_ARCHIVE],
         _ => &[],
     }
 }

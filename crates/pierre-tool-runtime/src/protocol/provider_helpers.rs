@@ -13,7 +13,7 @@ use crate::protocol::types::{
 use crate::runtime::ToolRuntime;
 use pierre_config::environment::default_provider;
 use pierre_core::constants::oauth_providers::{
-    is_user_provided, STRAVA, STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS,
+    companion_keys, is_user_provided, USER_PROVIDED_PROVIDERS,
 };
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
@@ -21,8 +21,11 @@ use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::backend_resolver::serving_backends;
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::precedence::{key_source, rank, Kind};
+use pierre_providers::registry::global_registry;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value as JsonValue};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -351,12 +354,16 @@ pub async fn by_id_reader(
 /// copy stands, or no copy is cached (an activity older than the cache still
 /// reaches the provider) — the read goes to `elected`, as before.
 ///
-/// The cache alone cannot rank the export against the Strava API: the API's
-/// rows are pruned past the cache's retention while the export's never are,
-/// so an old ride can find the export as its only cached copy. When the
-/// athlete holds a Strava API token and `elected` is served by it, the API
-/// stands for its own activity whatever the cache still holds — the export
-/// outranks only the usr/pwd capture.
+/// The merge ranks the copies it holds by the one precedence rule, and the
+/// API's copy of a service's activity outranks the athlete's export of it
+/// (Api > Export within one service). The cache alone cannot see that copy
+/// once pruned: the API's rows go past the cache's retention while the
+/// export's never do, so an old ride can find the export as its only cached
+/// copy. When the export standing is a companion of `elected`'s service
+/// (`strava_archive` for `strava`), that service's API reads by id on request
+/// (not a push-only one such as Garmin's), the athlete holds its API token,
+/// and the rule ranks its API over the export, the read goes to the API — its
+/// copy of the same activity id — whatever the cache still holds.
 ///
 /// A failed cache or token read is logged and leaves the read with `elected`.
 pub async fn by_id_provider(
@@ -399,10 +406,7 @@ pub async fn by_id_provider(
         .map(Activity::provider)
         .collect();
     match standing.as_slice() {
-        [key]
-            if *key == STRAVA_ARCHIVE
-                && holds_strava_api(resources, user_id, &tenant, elected).await =>
-        {
+        [key] if api_outranks_export(resources, user_id, &tenant, elected, key).await => {
             elected.to_owned()
         }
         [key] if is_user_provided(key) => (*key).to_owned(),
@@ -410,30 +414,51 @@ pub async fn by_id_provider(
     }
 }
 
-/// Whether `elected` is served by the Strava API for this athlete: it names a
-/// provider the Strava API serves, and the athlete holds a Strava token row
-/// (the row whose presence routes `strava` to the API, valid or stale).
-async fn holds_strava_api(
+/// Whether the API of `elected`'s service holds the copy that stands over
+/// `export`, the athlete's export of that service standing in the cache: the
+/// export is a companion of a service `elected` is served by, that service's
+/// API reads an activity by its id on request, the one precedence rule ranks
+/// that API over the export, and the athlete holds that API's token row (the
+/// row whose presence routes the service to its API, valid or stale).
+///
+/// A push-only API (Garmin's) is never one: its by-id read answers from the
+/// rows it pushed, and an activity the cache holds only in the export is one
+/// it never pushed, so the export is the copy there is.
+async fn api_outranks_export(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant: &TenantId,
     elected: &str,
+    export: &str,
 ) -> bool {
-    if !serving_backends(elected).iter().any(|key| key == STRAVA) {
+    let Some(service) = serving_backends(elected)
+        .into_iter()
+        .find(|backend| companion_keys(backend).contains(&export))
+    else {
+        return false;
+    };
+    if global_registry().is_push_only(&service) {
+        return false;
+    }
+    let (Some(api), Some(copy)) = (key_source(&service), key_source(export)) else {
+        return false;
+    };
+    if rank(Kind::Activity, &api, &copy) != Ordering::Less {
         return false;
     }
     match resources
         .repos()
         .oauth_tokens
-        .get_token(user_id, *tenant, STRAVA)
+        .get_token(user_id, *tenant, &service)
         .await
     {
         Ok(token) => token.is_some(),
         Err(e) => {
             warn!(
                 user_id = %user_id,
+                provider = %service,
                 error = %e,
-                "by-id read: Strava token lookup failed; reading the elected provider"
+                "by-id read: API token lookup failed; reading the elected provider"
             );
             true
         }

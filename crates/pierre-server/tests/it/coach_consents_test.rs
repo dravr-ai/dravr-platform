@@ -504,6 +504,7 @@ impl World {
                     min_heart_rate: None,
                     avg_hrv: Some(68.0),
                     sleep_score: None,
+                    avg_spo2: None,
                     stages: Vec::new(),
                     source_name: INTERVALS_ICU.to_owned(),
                 },

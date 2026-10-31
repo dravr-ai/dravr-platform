@@ -83,6 +83,18 @@ pub(crate) const DELETE_TRAINING_HISTORY_RANGE_SQL: &str = r"
               AND date BETWEEN $3 AND $4
             ";
 
+/// Every `(tenant, user)` holding a stored day, both read as text.
+///
+/// ISOLATION EXEMPTION: this read spans every tenant on purpose. It serves a
+/// system worker that recomputes each athlete's own rollup after the rule
+/// their sessions are merged by changed; it returns only ids, and every
+/// recompute it leads to is scoped to one user in one tenant.
+pub(crate) const TRAINING_HISTORY_HOLDERS_SQL: &str = r"
+            SELECT DISTINCT CAST(tenant_id AS TEXT) AS tenant_id, CAST(user_id AS TEXT) AS user_id
+            FROM training_history
+            ORDER BY 1, 2
+            ";
+
 /// Decode one history row. The three `NOT NULL DEFAULT 0.0` metrics fall
 /// back to zero on a decode surprise, matching the column default; `form_ctl`
 /// and the nullable derived metrics are decoded strictly so a corrupt value
@@ -212,6 +224,28 @@ macro_rules! impl_training_history_repository {
                     })?;
 
                 Ok(result.rows_affected())
+            }
+
+            async fn training_history_holders(&self) -> AppResult<Vec<(TenantId, Uuid)>> {
+                let rows = sqlx::query(TRAINING_HISTORY_HOLDERS_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("training_history_holders: {e}")))?;
+                rows.iter()
+                    .map(|row| {
+                        let tenant: String = row
+                            .try_get("tenant_id")
+                            .map_err(|e| AppError::database(format!("read tenant_id: {e}")))?;
+                        let user: String = row
+                            .try_get("user_id")
+                            .map_err(|e| AppError::database(format!("read user_id: {e}")))?;
+                        let tenant = TenantId::parse_str(&tenant)
+                            .map_err(|e| AppError::database(format!("tenant_id {tenant}: {e}")))?;
+                        let user = Uuid::parse_str(&user)
+                            .map_err(|e| AppError::database(format!("user_id {user}: {e}")))?;
+                        Ok((tenant, user))
+                    })
+                    .collect()
             }
         }
     };

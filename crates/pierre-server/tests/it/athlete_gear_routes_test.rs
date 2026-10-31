@@ -783,3 +783,38 @@ async fn every_providers_recording_device_reaches_the_home_row() {
     assert_eq!(rows[0]["attribution"], "COROS PACE 3", "{body}");
     assert_eq!(rows[1]["attribution"], "Garmin Forerunner 965", "{body}");
 }
+
+/// A workout's attributed distance follows its merged session: a run first
+/// attributed on its Strava copy takes the Garmin watch's distance once
+/// Garmin's own copy arrives and stands for it under the one precedence rule
+/// (Athlete Data Consolidation S3) — counted once, never twice.
+#[tokio::test]
+async fn an_attributed_distance_follows_the_copy_standing_for_the_workout() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gear-precedence").await;
+    let id = declare(&resources, &athlete, "Daily", 0.0, 500_000.0, 10).await;
+    let start = days_ago(2);
+    cache(
+        &resources,
+        &athlete,
+        "strava",
+        &[run("s1", "strava", start, 10_000.0)],
+    )
+    .await;
+    let daily = pair(&resources, &athlete, id).await;
+    assert!((meters(&daily) - 10_000.0).abs() < 1e-6, "{daily}");
+
+    cache(
+        &resources,
+        &athlete,
+        "garmin",
+        &[run("g1", "garmin", start + Duration::seconds(2), 10_150.0)],
+    )
+    .await;
+    let daily = pair(&resources, &athlete, id).await;
+    assert!(
+        (meters(&daily) - 10_150.0).abs() < 1e-6,
+        "the Garmin copy's distance stands now: {daily}"
+    );
+    assert_eq!(daily["activity_count"], 1, "one workout: {daily}");
+}

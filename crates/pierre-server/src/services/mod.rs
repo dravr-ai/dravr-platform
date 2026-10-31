@@ -48,6 +48,9 @@ pub mod activity_upload;
 /// The periodic backfill that stores the samples of activities uploaded before the sample store held uploads
 pub mod upload_streams_backfill;
 
+/// The one-time recompute of every athlete's training history after the workout precedence rule changed
+pub mod precedence_recompute;
+
 /// The athlete's training status for Home: form and its band, the form trend, load against baseline
 pub mod training_status;
 

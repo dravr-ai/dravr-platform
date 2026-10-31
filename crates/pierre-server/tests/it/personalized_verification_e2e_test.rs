@@ -235,6 +235,7 @@ fn whoop_night(
         min_heart_rate: None,
         avg_hrv: None,
         sleep_score: Some(40),
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: "whoop".to_owned(),
     }

@@ -191,6 +191,7 @@ impl SyncProvider for MockWhoop {
                 min_heart_rate: Some(46),
                 avg_hrv: Some(71.0),
                 sleep_score: Some(88),
+                avg_spo2: None,
                 stages: Vec::new(),
                 source_name: "whoop".to_owned(),
             }],

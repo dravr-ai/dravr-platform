@@ -198,6 +198,7 @@ fn night(user_id: Uuid, data_source: &str, days_ago: i64, hours: i64) -> StoredS
         min_heart_rate: None,
         avg_hrv: None,
         sleep_score: None,
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: "whoop".to_owned(),
     }

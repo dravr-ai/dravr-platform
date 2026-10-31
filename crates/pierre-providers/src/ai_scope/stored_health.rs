@@ -115,15 +115,26 @@ mod tests {
     use super::*;
     use crate::ai_scope::tests::first_party;
     use crate::ai_scope::{ai_read, serve_over, unfiltered, with_ai_consent};
+    use crate::precedence::wellness_source;
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP, WHOOP_TRANSPORT};
     #[cfg(feature = "provider-whoop")]
     use crate::registry::ProviderRegistry;
     use chrono::{Duration, NaiveDate, TimeZone, Utc};
-    use dravr_equilibre::{merge_recovery_metrics, merge_sleep_sessions};
+    use dravr_equilibre::{merge_recovery_metrics, merge_sleep_sessions, Sourced};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::DeviceType;
     use pierre_core::transport::{Transport, TransportPolicy};
     use std::collections::BTreeSet;
+
+    /// Each row paired with the source its key classifies to.
+    fn sourced<T: StoredHealthRecord>(rows: Vec<T>) -> Vec<Sourced<T>> {
+        rows.into_iter()
+            .map(|row| {
+                let source = wellness_source(row.source_name(), None);
+                Sourced::new(row, source)
+            })
+            .collect()
+    }
 
     /// Nolio first-party only with its connector rules, WHOOP first-party
     /// only with its scores kept from models, Garmin unrestricted.
@@ -194,6 +205,7 @@ mod tests {
             min_heart_rate: from("garmin").then_some(48),
             avg_hrv: from("whoop").then_some(71.0),
             sleep_score: from("whoop").then_some(88),
+            avg_spo2: None,
             stages: Vec::new(),
             source_name: source_name.to_owned(),
         }
@@ -255,7 +267,7 @@ mod tests {
             "the WHOOP row and both Nolio rows stay first-party"
         );
 
-        let merged = merge_sleep_sessions(kept);
+        let merged = merge_sleep_sessions(sourced(kept), &Utc);
         assert_eq!(merged.len(), 1, "the permitted source is one night");
         let night = &merged[0];
         assert_eq!(night.sources, vec!["garmin".to_owned()]);
@@ -287,7 +299,7 @@ mod tests {
         };
 
         let (own, own_withheld) = read(Transport::WebApp).await;
-        let own = merge_sleep_sessions(own);
+        let own = merge_sleep_sessions(sourced(own), &Utc);
         assert_eq!(own.len(), 1);
         assert_eq!(own[0].sources.len(), 2, "{:?}", own[0].sources);
         assert_eq!(own[0].record.min_heart_rate, Some(48));
@@ -296,7 +308,7 @@ mod tests {
 
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
             let (external, withheld) = read(transport).await;
-            let external = merge_sleep_sessions(external);
+            let external = merge_sleep_sessions(sourced(external), &Utc);
             assert_eq!(external.len(), 1, "{transport:?}");
             assert_eq!(external[0].sources, vec!["garmin".to_owned()]);
             assert_eq!(external[0].record.min_heart_rate, Some(48));
@@ -357,7 +369,7 @@ mod tests {
         assert_eq!((withheld.dropped, withheld.reduced), (1, 1));
         assert_eq!(withheld.off_interface, 0);
 
-        let merged = merge_recovery_metrics(kept);
+        let merged = merge_recovery_metrics(sourced(kept));
         assert_eq!(merged.len(), 1);
         assert_eq!(
             merged[0].record.resting_heart_rate,

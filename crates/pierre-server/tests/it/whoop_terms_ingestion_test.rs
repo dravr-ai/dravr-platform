@@ -172,6 +172,7 @@ fn whoop_night(user_id: Uuid, data_source_id: &str, start: DateTime<Utc>) -> Sto
         min_heart_rate: Some(46),
         avg_hrv: Some(71.0),
         sleep_score: Some(WHOOP_SLEEP_PERFORMANCE),
+        avg_spo2: None,
         stages: Vec::new(),
         source_name: "whoop".to_owned(),
     }

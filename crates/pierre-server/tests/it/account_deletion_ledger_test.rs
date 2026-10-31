@@ -196,6 +196,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 min_heart_rate: None,
                 avg_hrv: None,
                 sleep_score: None,
+                avg_spo2: None,
                 stages: Vec::new(),
                 source_name: "strava".to_owned(),
             },

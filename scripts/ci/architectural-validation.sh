@@ -1726,6 +1726,16 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: guard G4 — one precedence: no retired provider-priority table,
+# and the activity merge's canonical_order only behind rank_activity_copy
+# (Athlete Data Consolidation S2/S3, carnet#1303).
+if [ -f "$SCRIPT_DIR/check-one-precedence.sh" ]; then
+    bash "$SCRIPT_DIR/check-one-precedence.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-one-precedence.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true

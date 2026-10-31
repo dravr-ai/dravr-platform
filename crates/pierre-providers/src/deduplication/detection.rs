@@ -21,8 +21,11 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
 
+use dravr_barrage::strava_edit::{edited_on_strava, StravaFigures};
+
 use super::config::DedupConfig;
 use crate::backend_resolver;
+use crate::precedence::{activity_source, rank, Ingress, Kind, Service, Source};
 
 /// Minimum fraction of the shorter activity's duration that must overlap
 /// with the longer one for records of DIFFERENT sports to be one workout.
@@ -160,12 +163,30 @@ impl FragmentReport {
 /// and the usr/pwd capture of the same Garmin activity (carnet#1155); the
 /// Strava API's row, the usr/pwd capture and the athlete's imported export of
 /// the same Strava activity (carnet#1242); likewise for TrainingPeaks and
-/// COROS, the other services read both ways. The API row stands for it, then the
-/// export, then the capture, whatever the ranking below says, and it takes
-/// the fields it lacks from the others.
+/// COROS, the other services read both ways; the athlete's Garmin export,
+/// keyed by Garmin's id, is a twin of the Garmin rows. Twins share their
+/// recorder: a twin naming none (Strava's list row) stands as the one another
+/// twin names ([`copy_sources`]).
 ///
-/// The canonical row is the one carrying a GPS trace ([`carries_gps_trace`]),
-/// then a distance, then the longest, then the farthest, then the lowest id.
+/// The canonical row is the copy the one precedence rule puts first
+/// ([`rank_activity_copy`], Athlete Data Consolidation §3.4): the recording
+/// service's own copy (a Garmin watch's run: Garmin's row) over a relay of it
+/// (Strava's, intervals.icu's), a recording device over Strava's app and a
+/// wrist tracker's guess, a service's API over its export over its capture;
+/// then — when the sources tie — the API row over a service's export over its
+/// capture, then the copy carrying a GPS trace ([`carries_gps_trace`]), then
+/// a distance, then the longest, then the farthest, then the lowest id.
+///
+/// Except when the athlete edited the activity on Strava (carnet#1274, JF
+/// 2026-10-30: "the original source, unless edited on Strava"): when
+/// Strava's copy of the recording the canonical row stands for (one naming
+/// that recording's device, or naming none: [`strava_copy_of`]) starts more
+/// than 5 s off it or ends more than 5 s short of it, or its distance was
+/// corrected (`dravr_barrage::strava_edit`, the rule the export import
+/// applies), the
+/// Strava copy stands for the session instead, its window and totals with
+/// it ([`lift_edited_strava_copy`]). A session summed from pieces keeps its
+/// sum: no single copy holds its totals.
 ///
 /// Every other member is then either a piece of the session or a recording of
 /// it. A **piece** recorded time no row already counted recorded: it has the
@@ -200,9 +221,12 @@ pub fn merge_duplicates(
 ) -> (Vec<Activity>, FragmentReport) {
     let raw_count = activities.len();
     let mut member_sets = group_members(&activities, config);
+    let sources = copy_sources(&activities);
     for members in &mut member_sets {
-        members.sort_by(|&a, &b| canonical_order(&activities[a], &activities[b]));
-        lift_native_twins(&activities, members);
+        members.sort_by(|&a, &b| {
+            rank_activity_copy((&activities[a], &sources[a]), (&activities[b], &sources[b]))
+        });
+        lift_edited_strava_copy(&activities, &sources, members);
     }
 
     let mut slots: Vec<Option<Activity>> = activities.into_iter().map(Some).collect();
@@ -367,14 +391,16 @@ fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
             .saturating_mul(FULL_RECORDING_MIN_PERCENT)
 }
 
-/// How a row of a service's own activity came in, best first: the order in
-/// which twins of one activity stand for it.
+/// How a row of a service's own activity came in, best first: the
+/// tie-break between twins of one activity whose sources tie under the one
+/// rule ([`path_rank`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum TwinPath {
     /// The service's API (`garmin`, `strava`, ...).
     Api,
-    /// The athlete's export of the service (`strava_archive`): the original
-    /// recording and its real start, but not the edits made since.
+    /// The athlete's export of the service (`strava_archive`,
+    /// `garmin_archive`): the original recording and its real start, but not
+    /// the edits made since.
     Archive,
     /// The connection using usr/pwd from Dravr (`sciotte`), whose list read
     /// can carry only the day.
@@ -389,14 +415,18 @@ enum TwinPath {
 /// TrainingPeaks, COROS) keys both rows by its own activity id: the API's row
 /// under the service's name, the capture under the mirror backend with the
 /// service as its source. Garmin's API row and capture share Garmin's
-/// `activityId` (carnet#1155); Strava's API row, capture and the athlete's
-/// imported export (`strava_archive`, keyed by its `Activity ID`) share
-/// Strava's activity id (carnet#1242). Within one service the same id is the
-/// same workout. `None` for every other row, whose ids name nothing in common.
+/// `activityId` (carnet#1155), and the athlete's Garmin export
+/// (`garmin_archive`) keys each activity by it too; Strava's API row, capture
+/// and the athlete's imported export (`strava_archive`, keyed by its
+/// `Activity ID`) share Strava's activity id (carnet#1242). Within one
+/// service the same id is the same workout. `None` for every other row,
+/// whose ids name nothing in common.
 fn native_activity_id(activity: &Activity) -> Option<(&str, &str, TwinPath)> {
     let provider = activity.provider();
     let (service, path) = if provider == oauth_providers::STRAVA_ARCHIVE {
         (oauth_providers::STRAVA, TwinPath::Archive)
+    } else if provider == oauth_providers::GARMIN_ARCHIVE {
+        (oauth_providers::GARMIN, TwinPath::Archive)
     } else if backend_resolver::is_mirror_backend(provider) {
         (
             backend_resolver::activity_origin(provider, activity.source()),
@@ -410,38 +440,142 @@ fn native_activity_id(activity: &Activity) -> Option<(&str, &str, TwinPath)> {
     Some((service, activity.id(), path))
 }
 
-/// Move each row of a ranked group ahead of every twin (same service, same
-/// activity id) that came in by a worse [`TwinPath`], keeping every other
-/// position: the API row wins its own activity, then the export, then the
-/// usr/pwd capture, while the group's ranking still decides between
-/// different activities' rows.
+/// The source each row stands as under the one rule: its own
+/// ([`activity_source`]), except that a row naming no recorder takes the one
+/// a native twin of it names.
 ///
-/// Done after the sort rather than inside [`canonical_order`]: a rule that
-/// compares only twins would not be a total order across the group. Each row
-/// lands before the first earlier twin that ranks below it, so the twins of
-/// one activity end up in path order whatever order they arrived in.
-fn lift_native_twins(activities: &[Activity], members: &mut Vec<usize>) {
-    for position in 0..members.len() {
-        let Some((service, id, path)) = native_activity_id(&activities[members[position]]) else {
+/// Twins are one activity, so they share its recorder; only some of them say
+/// which it is. Strava's list row names no device while its detail and the
+/// athlete's export name the Garmin watch, so without this the list row would
+/// rank as Strava's own recording and the export, as Garmin's relayed, would
+/// stand over the API's copy of its own activity. When twins name different
+/// recorders the best-ranked one is taken, so the result never depends on
+/// arrival order.
+fn copy_sources(activities: &[Activity]) -> Vec<Source> {
+    let mut sources: Vec<Source> = activities.iter().map(activity_source).collect();
+    let mut recorders: HashMap<(&str, &str), Source> = HashMap::new();
+    for (activity, &source) in activities.iter().zip(&sources) {
+        let Some((service, id, _)) = native_activity_id(activity) else {
             continue;
         };
-        let worse_twin = members[..position].iter().position(|&earlier| {
-            native_activity_id(&activities[earlier]).is_some_and(
-                |(other_service, other_id, other_path)| {
-                    other_service == service && other_id == id && other_path > path
-                },
-            )
-        });
-        if let Some(twin_position) = worse_twin {
-            let row = members.remove(position);
-            members.insert(twin_position, row);
+        if source.ingress != Ingress::Relay {
+            continue;
         }
+        recorders
+            .entry((service, id))
+            .and_modify(|best| {
+                if rank(Kind::Activity, &source, best) == Ordering::Less {
+                    *best = source;
+                }
+            })
+            .or_insert(source);
+    }
+    for (activity, source) in activities.iter().zip(sources.iter_mut()) {
+        if activity.device_name().is_some() || source.ingress == Ingress::Relay {
+            continue;
+        }
+        if let Some(recorder) =
+            native_activity_id(activity).and_then(|(service, id, _)| recorders.get(&(service, id)))
+        {
+            *source = *recorder;
+        }
+    }
+    sources
+}
+
+/// Where a row's path puts it among copies whose sources tie: an API row
+/// (or any row no service keys by its own id) first, then an export, then a
+/// usr/pwd capture. A rank per row, so ordering by it stays a total order.
+fn path_rank(activity: &Activity) -> u8 {
+    match native_activity_id(activity).map(|(_, _, path)| path) {
+        None | Some(TwinPath::Api) => 0,
+        Some(TwinPath::Archive) => 1,
+        Some(TwinPath::Credentials) => 2,
     }
 }
 
-/// Canonical ranking: carries a GPS trace, then a distance, then longest, then
-/// farthest, then lowest id. A total order, so the pick is deterministic for
-/// any input.
+/// The order the copies of one workout stand in, best first: the one
+/// precedence rule over each copy's source (`dravr_equilibre::precedence::rank`
+/// for [`Kind::Activity`], each source as [`copy_sources`] reads it), then
+/// the path the copy came in by ([`path_rank`]: a service's API over its
+/// export over its capture, for twins whose sources tie), then
+/// [`canonical_order`].
+///
+/// Each step is a total order over its rows, so this is one too: the pick is
+/// deterministic whatever order the copies arrived in.
+fn rank_activity_copy(
+    (a, a_source): (&Activity, &Source),
+    (b, b_source): (&Activity, &Source),
+) -> Ordering {
+    rank(Kind::Activity, a_source, b_source)
+        .then_with(|| path_rank(a).cmp(&path_rank(b)))
+        .then_with(|| canonical_order(a, b))
+}
+
+/// Move the copy Strava holds of the canonical row's recording ahead of it
+/// when the athlete edited it there, as [`merge_duplicates`] documents.
+///
+/// Strava's copy is the best-ranked member Strava holds (its API's row, the
+/// athlete's export, the usr/pwd capture) with a real start that can be its
+/// copy of the canonical row's recording ([`strava_copy_of`]).
+fn lift_edited_strava_copy(activities: &[Activity], sources: &[Source], members: &mut Vec<usize>) {
+    let Some(&canonical) = members.first() else {
+        return;
+    };
+    let origin = &activities[canonical];
+    if is_strava_copy(origin) || !has_known_time(origin) || holds_pieces(activities, members) {
+        return;
+    }
+    let origin_service = sources[canonical].service;
+    let edited = members.iter().position(|&index| {
+        let copy = &activities[index];
+        is_strava_copy(copy)
+            && has_known_time(copy)
+            && strava_copy_of(copy, sources[index], origin_service)
+    });
+    if let Some(position) =
+        edited.filter(|&p| edited_on_strava(&StravaFigures::of(&activities[members[p]]), origin))
+    {
+        let row = members.remove(position);
+        members.insert(0, row);
+    }
+}
+
+/// Whether Strava's `copy`, standing as `source`, can be its copy of a
+/// recording `origin` made: it names that service's device (relayed), or it
+/// names no recorder at all.
+///
+/// Strava's list rows name no device, only its detail does, so a copy naming
+/// nothing is tied to the recording by its merge group: it is the same
+/// workout. A copy naming another recorder (Strava's own app, another
+/// brand's device) is a second recording, never an edit of this one.
+fn strava_copy_of(copy: &Activity, source: Source, origin: Service) -> bool {
+    (source.service == origin && source.ingress == Ingress::Relay)
+        || (source.service == Service::Strava && copy.device_name().is_none())
+}
+
+/// Whether a group holds pieces of one session (two members of one sport
+/// recording different stretches of time): its canonical row will carry
+/// their sum, which no single copy holds.
+fn holds_pieces(activities: &[Activity], members: &[usize]) -> bool {
+    members.iter().enumerate().any(|(position, &a)| {
+        members[position + 1..].iter().any(|&b| {
+            sport_key(activities[a].sport_type()) == sport_key(activities[b].sport_type())
+                && is_other_piece(&activities[a], &activities[b])
+        })
+    })
+}
+
+/// Whether `activity` is one of Strava's copies of an activity: the API's
+/// row, the athlete's export or the usr/pwd capture.
+fn is_strava_copy(activity: &Activity) -> bool {
+    native_activity_id(activity).is_some_and(|(service, _, _)| service == oauth_providers::STRAVA)
+}
+
+/// Canonical ranking between copies whose sources tie: carries a GPS trace,
+/// then a distance, then longest, then farthest, then lowest id. A total
+/// order, so the pick is deterministic for any input. Reached only through
+/// [`rank_activity_copy`].
 ///
 /// GPS comes first because a wrist tracker's copy can carry a distance of its
 /// own (WHOOP reports one) while it names the sport by guess; the recording

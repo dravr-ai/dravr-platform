@@ -865,6 +865,7 @@ async fn test_parity_data_source_upsert_stable_id() {
             min_heart_rate: Some(45),
             avg_hrv: Some(65.0),
             sleep_score: Some(88),
+            avg_spo2: None,
             stages: Vec::new(),
             source_name: "whoop".to_owned(),
         };

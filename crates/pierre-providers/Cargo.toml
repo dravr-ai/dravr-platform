@@ -57,6 +57,8 @@ dravr-cageux = { workspace = true, optional = true }
 # The one activity FIT decoder (an athlete's uploaded workout, the samples Wahoo
 # serves only as a FIT file, a Garmin push file), lib only: no store backends.
 dravr-barrage = { workspace = true }
+# The one precedence rank, whose sources `precedence` classifies stored rows into.
+dravr-equilibre = { workspace = true }
 # The intervals.icu auth rule and the credential kind it keys on, owned by
 # dravr-enforme so its wellness path and this provider's activity path share
 # one rule (carnet#997).
@@ -73,8 +75,6 @@ pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Only `IamError`: the sciotte error mapping's unit test builds the client's
 # identity-token failure, whose cause the sciotte client does not re-export.
 dravr-tronc = { workspace = true, features = ["google-iam"] }
-# The per-night merge, for the tests proving a terms filter runs before it.
-dravr-equilibre = { workspace = true }
 
 [lints]
 workspace = true

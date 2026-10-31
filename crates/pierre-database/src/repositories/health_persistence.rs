@@ -136,7 +136,8 @@ macro_rules! sleep_session_columns {
         "id, user_id, provider, data_source_id, start_time, end_time,
                    total_sleep_time, sleep_efficiency, sleep_score, stages_json,
                    hrv_during_sleep, is_nap, deep_sleep_seconds, light_sleep_seconds,
-                   rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate"
+                   rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate,
+                   avg_spo2"
     };
 }
 
@@ -401,6 +402,7 @@ where
         min_heart_rate: seconds("min_heart_rate")?,
         avg_hrv: column(row, "hrv_during_sleep")?,
         sleep_score: sleep_score.map(|v| v as u32),
+        avg_spo2: column(row, "avg_spo2")?,
         stages,
         source_name: column(row, "provider")?,
     })

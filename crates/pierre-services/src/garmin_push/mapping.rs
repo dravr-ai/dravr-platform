@@ -457,6 +457,7 @@ pub(crate) fn sleep_session(
             .overall_sleep_score
             .as_ref()
             .and_then(|score| whole(score.value)),
+        avg_spo2: None,
         stages,
         source_name: GARMIN.to_owned(),
     })

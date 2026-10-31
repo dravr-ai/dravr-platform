@@ -42,8 +42,9 @@
 //! granted ([`wellness_read_skipped`]): the link then syncs none of their
 //! wellness, and both apps say so beside the consent.
 
+use std::cmp::Ordering;
+
 use chrono::Utc;
-use pierre_core::constants::oauth_providers::{GARMIN, WHOOP};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -52,7 +53,8 @@ use pierre_database::repositories::{CoachingGroupRepository, PurgeReason};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
-use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::precedence::{rank, wellness_source, Kind};
+use pierre_providers::registry::{global_registry, ProviderRegistry};
 #[cfg(doc)]
 use pierre_providers::spi::ProviderCapabilities;
 use serde_json::json;
@@ -178,8 +180,9 @@ pub enum WellnessReadSkip {
     /// The member holds a credential of their own for the link's platform,
     /// in any tenant, which wins over every link.
     OwnConnection,
-    /// The member holds their own Garmin or WHOOP connection: it stays the
-    /// source of record for what it measures.
+    /// The member holds a wellness connection of their own whose service
+    /// ranks above the link's (a Garmin, a WHOOP...): it stays the source of
+    /// record for what it measures.
     OwnWellnessSource,
 }
 
@@ -198,8 +201,9 @@ impl WellnessReadSkip {
 /// granted it, read from the member's own logins alone; `None` when nothing
 /// of theirs keeps it from syncing.
 ///
-/// A confirmed link checks the member's own Garmin or WHOOP connection in
-/// the tenant it files under; a proposal, which names no tenant yet, checks
+/// A confirmed link checks the member's own wellness connections that rank
+/// above the link's platform for recovery under the one precedence rule
+/// ([`own_wellness_backends`]) in the tenant it files under; a proposal, which names no tenant yet, checks
 /// every tenant of theirs. A WHOOP record read back through another platform
 /// would also pass by WHOOP's own terms gate, which keys on WHOOP as the
 /// record's source.
@@ -216,7 +220,7 @@ pub async fn wellness_read_skipped(
     if holds_own_session(logins.tokens, member, None, &[&link.provider]).await? {
         return Ok(Some(WellnessReadSkip::OwnConnection));
     }
-    let backends = own_wellness_backends();
+    let backends = own_wellness_backends(&global_registry(), &link.provider);
     let backends: Vec<&str> = backends.iter().map(String::as_str).collect();
     if holds_own_connection(logins, member, link.member_tenant_id, &backends).await? {
         return Ok(Some(WellnessReadSkip::OwnWellnessSource));
@@ -224,12 +228,26 @@ pub async fn wellness_read_skipped(
     Ok(None)
 }
 
-/// Every backend a member's own Garmin or WHOOP connection is stored under.
-fn own_wellness_backends() -> Vec<String> {
-    [GARMIN, WHOOP]
+/// Every backend a member's own wellness connection that outranks `link`'s
+/// platform is stored under: each connection the registry knows to sync
+/// sleep or recovery whose source [`rank`] puts above the link's for
+/// recovery, with its usr/pwd mirror.
+///
+/// A link's wellness is then not stored at all (a write-side skip): the
+/// member's own service is the source of record for what it measures, and a
+/// lower-ranked relay of it would only be a second copy.
+fn own_wellness_backends(registry: &ProviderRegistry, link: &str) -> Vec<String> {
+    let link = wellness_source(link, None);
+    let mut keys: Vec<&str> = registry
+        .supported_providers()
         .into_iter()
-        .flat_map(backend_pair_for)
-        .collect()
+        .filter(|key| registry.supports_sleep(key) || registry.supports_recovery(key))
+        .filter(|key| rank(Kind::Recovery, &wellness_source(key, None), &link) == Ordering::Less)
+        .collect();
+    keys.sort_unstable();
+    let mut backends: Vec<String> = keys.into_iter().flat_map(backend_pair_for).collect();
+    backends.dedup();
+    backends
 }
 
 /// The member's change to their coach consents: `Some` grants or revokes
@@ -388,7 +406,9 @@ pub(crate) fn require_app_for_grant(grants: bool) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
+    use pierre_core::constants::oauth_providers::{
+        GARMIN, INTERVALS_ICU, SCIOTTE_GARMIN, TRAININGPEAKS, WHOOP,
+    };
 
     use super::*;
 
@@ -397,10 +417,30 @@ mod tests {
     /// alone would miss nearly every Garmin athlete.
     #[test]
     fn an_own_garmin_source_counts_under_its_scraped_mirror_too() {
-        let backends = own_wellness_backends();
-        for slug in [GARMIN, SCIOTTE_GARMIN, WHOOP] {
-            assert!(backends.iter().any(|b| b == slug), "{slug}: {backends:?}");
+        let registry = ProviderRegistry::new();
+        for link in [INTERVALS_ICU, TRAININGPEAKS] {
+            let backends = own_wellness_backends(&registry, link);
+            for slug in [GARMIN, SCIOTTE_GARMIN, WHOOP] {
+                assert!(
+                    backends.iter().any(|b| b == slug),
+                    "{link} {slug}: {backends:?}"
+                );
+            }
+            assert!(
+                !backends.iter().any(|b| b == link),
+                "a link never outranks itself: {backends:?}"
+            );
         }
+    }
+
+    /// The skip follows the one precedence rule, not a list: a source that
+    /// ranks below the link's platform for recovery keeps nothing from it.
+    #[test]
+    fn only_a_source_ranking_above_the_link_keeps_its_wellness_from_syncing() {
+        let registry = ProviderRegistry::new();
+        let backends = own_wellness_backends(&registry, GARMIN);
+        assert!(backends.iter().any(|b| b == WHOOP), "{backends:?}");
+        assert!(!backends.iter().any(|b| b == INTERVALS_ICU), "{backends:?}");
     }
 
     #[test]

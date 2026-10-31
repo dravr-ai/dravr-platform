@@ -119,6 +119,16 @@ pub trait AthleteGearRepository: Send + Sync {
         replaces: &[ActivityGearKey],
     ) -> AppResult<()>;
 
+    /// Set the distance each attributed copy adds to its pair, in one
+    /// transaction, leaving each copy's pair and how it was chosen as they
+    /// are: the workout's merged distance moved (a different copy of it now
+    /// stands for the session). Returns how many attributions changed.
+    async fn refresh_attribution_distances(
+        &self,
+        user_id: Uuid,
+        distances: &[(ActivityGearKey, f64)],
+    ) -> AppResult<u64>;
+
     /// Let go of what the copy `released` is attributed to, before that copy
     /// is deleted: `successor` — another copy of the same workout — takes the
     /// attribution over unless it holds one of its own, and `released` holds
@@ -260,6 +270,13 @@ pub(crate) const UPSERT_DECLARED_ATTRIBUTION_SQL: &str = r"
 /// Clear `$1`'s attribution of copy `$3` from provider `$2`.
 pub(crate) const DELETE_ATTRIBUTION_SQL: &str = r"
             DELETE FROM activity_gear
+            WHERE user_id = $1 AND provider = $2 AND activity_id = $3
+            ";
+
+/// Set the distance `$1`'s attribution of copy `$3` from provider `$2` adds
+/// to its pair to `$4`, leaving the pair and how it was chosen as they are.
+pub(crate) const UPDATE_ATTRIBUTION_DISTANCE_SQL: &str = r"
+            UPDATE activity_gear SET distance_meters = $4
             WHERE user_id = $1 AND provider = $2 AND activity_id = $3
             ";
 
@@ -650,6 +667,37 @@ macro_rules! impl_athlete_gear_repository {
                     .await
                     .map_err(|e| gear_error("commit a write to", e))?;
                 Ok(())
+            }
+
+            async fn refresh_attribution_distances(
+                &self,
+                user_id: Uuid,
+                distances: &[(ActivityGearKey, f64)],
+            ) -> AppResult<u64> {
+                if distances.is_empty() {
+                    return Ok(0);
+                }
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| gear_error("begin a write to", e))?;
+                let mut refreshed = 0;
+                for (key, meters) in distances {
+                    refreshed += sqlx::query(UPDATE_ATTRIBUTION_DISTANCE_SQL)
+                        .bind($ids::bind(user_id))
+                        .bind(key.provider.as_str())
+                        .bind(key.activity_id.as_str())
+                        .bind(*meters)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| gear_error("refresh a distance in", e))?
+                        .rows_affected();
+                }
+                tx.commit()
+                    .await
+                    .map_err(|e| gear_error("commit a write to", e))?;
+                Ok(refreshed)
             }
 
             async fn release_gear_attribution(

@@ -15350,6 +15350,15 @@
                   "null"
                 ]
               },
+              "avg_spo2": {
+                "default": null,
+                "description": "Average blood oxygen saturation during sleep (`SpO2`, percent).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "awake_seconds": {
                 "description": "Time spent awake during the session (seconds).",
                 "format": "uint32",
@@ -15490,6 +15499,7 @@
               "min_heart_rate",
               "avg_hrv",
               "sleep_score",
+              "avg_spo2",
               "stages",
               "source_name",
               "sources",
@@ -21647,7 +21657,7 @@
             "type": "object"
           },
           "DeviceType": {
-            "description": "Classification of wearable device form factors.\n\nUsed by [`DevicePriority`](crate::priority::DevicePriority) to determine\nwhich data source takes precedence during deduplication.",
+            "description": "Classification of wearable device form factors.",
             "oneOf": [
               {
                 "const": "Watch",

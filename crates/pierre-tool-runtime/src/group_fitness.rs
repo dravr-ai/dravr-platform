@@ -14,7 +14,6 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use chrono::{DateTime, Days, Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
@@ -62,154 +61,140 @@ const RECENT_ACTIVITIES_LIMIT: usize = 12;
 const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
 // ══════════════════════════════════════════════════════════════
-// Activity Merge Strategy
+// Activity fetch across every provider
 // ══════════════════════════════════════════════════════════════
 
-/// Pluggable strategy for fetching and merging activities across providers.
+/// Fetch a member's recent activities from every connected provider in
+/// parallel, write each provider's answer through to the cache, and merge
+/// every recording of one workout into one session ([`merge_duplicates`],
+/// the one duplicate-workout merge): every provider's activities contribute
+/// to the training load, giving a complete picture of the athlete's
+/// workload.
 ///
-/// Implementations control whether to use one provider, all providers,
-/// or a subset, and how to combine the results.
-#[async_trait]
-pub(crate) trait ActivityMergeStrategy: Send + Sync {
-    /// Fetch and merge activities from multiple providers for a single user.
-    async fn fetch_and_merge(
-        &self,
-        auth_service: &AuthService,
-        providers: &[String],
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> Vec<Activity>;
-}
-
-/// Fetches from ALL connected providers in parallel, merges, and deduplicates.
-///
-/// This is the default strategy: every provider's activities contribute to the
-/// training load calculation, giving a complete picture of the athlete's workload.
-pub(crate) struct AllProvidersMerge {
-    dedup: DedupConfig,
+/// `activity_limit` caps each provider's read — the caller passes
+/// `ServerConfig::activity_fetch_limit`, so one env variable
+/// (`ACTIVITY_FETCH_LIMIT`) governs every activity-fetching path.
+pub(crate) async fn fetch_and_merge_all_providers(
+    auth_service: &AuthService,
+    providers: &[String],
+    user_id: Uuid,
+    tenant_id: TenantId,
     activity_limit: usize,
-}
+) -> Vec<Activity> {
+    let tenant_id_str = tenant_id.to_string();
+    let now = Utc::now();
+    let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
+    let params = ActivityQueryParams {
+        limit: Some(activity_limit),
+        offset: None,
+        before: None,
+        after: Some(lookback_start),
+    };
 
-impl AllProvidersMerge {
-    /// Create with the env-configured session-merge thresholds and a
-    /// caller-supplied per-provider activity limit — typically sourced from
-    /// `ServerConfig::activity_fetch_limit` so that a single env variable
-    /// (`ACTIVITY_FETCH_LIMIT`) governs every activity-fetching path.
-    pub(crate) fn new(activity_limit: usize) -> Self {
-        Self {
-            dedup: DedupConfig::from_env(),
-            activity_limit,
+    // Fetch from all providers in parallel
+    let futures: Vec<_> = providers
+        .iter()
+        .map(|provider_name| {
+            let tid = tenant_id_str.clone();
+            let p = params.clone();
+            let pname = provider_name.clone();
+            async move {
+                let result = try_fetch_from_provider(auth_service, &pname, user_id, &tid, &p).await;
+                (pname, result)
+            }
+        })
+        .collect();
+
+    // Fetched and written through on the providers' full answers — the
+    // cache is the athlete's. Each provider's rows are then filtered for a
+    // model BEFORE the merge: a merge fills one recording's gaps from
+    // another's, so filtering after it would let a withheld recording's
+    // values ride in on a permitted one (carnet#723).
+    let results = ai_scope::unfiltered(join_all(futures)).await;
+    let policies = auth_service.runtime().provider_registry();
+
+    // Merge all successful results
+    let mut all_activities = Vec::new();
+    let mut provider_count = 0u32;
+    for (provider_name, maybe_fetched) in results {
+        if let Some(fetched) = maybe_fetched {
+            info!(
+                user_id = %user_id,
+                provider = %provider_name,
+                count = fetched.activities.len(),
+                head_complete = fetched.head_complete,
+                "Snapshot: fetched from provider"
+            );
+            persist_fetched(
+                auth_service,
+                (user_id, tenant_id),
+                &provider_name,
+                &fetched,
+                &params,
+            )
+            .await;
+            all_activities.extend(ai_scope::filter_activities(
+                policies.as_ref(),
+                fetched.activities,
+            ));
+            provider_count += 1;
         }
     }
+
+    if all_activities.is_empty() {
+        return Vec::new();
+    }
+
+    // Merge every recording of one workout into one session
+    let before_dedup = all_activities.len();
+    let (merged, _) = merge_duplicates(all_activities, &DedupConfig::from_env());
+
+    info!(
+        user_id = %user_id,
+        providers_used = provider_count,
+        before_dedup,
+        after_dedup = merged.len(),
+        "Snapshot: merged activities from all providers"
+    );
+
+    merged
 }
 
-#[async_trait]
-impl ActivityMergeStrategy for AllProvidersMerge {
-    async fn fetch_and_merge(
-        &self,
-        auth_service: &AuthService,
-        providers: &[String],
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> Vec<Activity> {
-        let tenant_id_str = tenant_id.to_string();
-        let now = Utc::now();
-        let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
-        let params = ActivityQueryParams {
-            limit: Some(self.activity_limit),
-            offset: None,
-            before: None,
-            after: Some(lookback_start),
-        };
-
-        // Fetch from all providers in parallel
-        let futures: Vec<_> = providers
-            .iter()
-            .map(|provider_name| {
-                let tid = tenant_id_str.clone();
-                let p = params.clone();
-                let pname = provider_name.clone();
-                async move {
-                    let result =
-                        try_fetch_from_provider(auth_service, &pname, user_id, &tid, &p).await;
-                    (pname, result)
-                }
-            })
-            .collect();
-
-        // Fetched and written through on the providers' full answers — the
-        // cache is the athlete's. Each provider's rows are then filtered for a
-        // model BEFORE the merge: a merge fills one recording's gaps from
-        // another's, so filtering after it would let a withheld recording's
-        // values ride in on a permitted one (carnet#723).
-        let results = ai_scope::unfiltered(join_all(futures)).await;
-        let policies = auth_service.runtime().provider_registry();
-
-        // Merge all successful results
-        let mut all_activities = Vec::new();
-        let mut provider_count = 0u32;
-        for (provider_name, maybe_fetched) in results {
-            if let Some(fetched) = maybe_fetched {
-                info!(
-                    user_id = %user_id,
-                    provider = %provider_name,
-                    count = fetched.activities.len(),
-                    head_complete = fetched.head_complete,
-                    "Snapshot: fetched from provider"
-                );
-                // Write-through: persist the freshly fetched activities keyed by
-                // the connection provider name so subsequent chat turns serve
-                // them from cache instead of re-fetching (stale-while-revalidate).
-                // A capture missing its head is served but never persisted: the
-                // upsert and the fetch mark would stamp it fresh, and the days
-                // it lacks would read as a quiet week — the same gate
-                // `fetch_provider_head` applies (carnet#149, carnet#151).
-                if fetched.head_complete {
-                    write_through_activity_cache(
-                        auth_service,
-                        user_id,
-                        tenant_id,
-                        &provider_name,
-                        &fetched.activities,
-                        WriteThrough {
-                            retention_days: activity_cache_retention_days(),
-                            read: &params,
-                        },
-                    )
-                    .await;
-                } else {
-                    warn!(
-                        user_id = %user_id,
-                        provider = %provider_name,
-                        count = fetched.activities.len(),
-                        "Snapshot: capture is missing the list head; served without write-through"
-                    );
-                }
-                all_activities.extend(ai_scope::filter_activities(
-                    policies.as_ref(),
-                    fetched.activities,
-                ));
-                provider_count += 1;
-            }
-        }
-
-        if all_activities.is_empty() {
-            return Vec::new();
-        }
-
-        // Merge every recording of one workout into one session
-        let before_dedup = all_activities.len();
-        let (merged, _) = merge_duplicates(all_activities, &self.dedup);
-
-        info!(
+/// Write one provider's fetched activities through to the cache, keyed by
+/// the connection's provider name, so later chat turns serve them from the
+/// cache instead of re-fetching (stale-while-revalidate).
+///
+/// A capture missing its head is served but never persisted: the upsert and
+/// the fetch mark would stamp it fresh, and the days it lacks would read as a
+/// quiet week — the same gate `fetch_provider_head` applies (carnet#149,
+/// carnet#151).
+async fn persist_fetched(
+    auth_service: &AuthService,
+    (user_id, tenant_id): (Uuid, TenantId),
+    provider_name: &str,
+    fetched: &FetchedActivities,
+    params: &ActivityQueryParams,
+) {
+    if fetched.head_complete {
+        write_through_activity_cache(
+            auth_service,
+            user_id,
+            tenant_id,
+            provider_name,
+            &fetched.activities,
+            WriteThrough {
+                retention_days: activity_cache_retention_days(),
+                read: params,
+            },
+        )
+        .await;
+    } else {
+        warn!(
             user_id = %user_id,
-            providers_used = provider_count,
-            before_dedup,
-            after_dedup = merged.len(),
-            "Snapshot: merged activities from all providers"
+            provider = %provider_name,
+            count = fetched.activities.len(),
+            "Snapshot: capture is missing the list head; served without write-through"
         );
-
-        merged
     }
 }
 

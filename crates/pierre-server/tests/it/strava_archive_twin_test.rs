@@ -30,7 +30,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::constants::oauth_providers::{
-    GARMIN, SCIOTTE, SCIOTTE_GARMIN, STRAVA, STRAVA_ARCHIVE, UPLOAD,
+    GARMIN, GARMIN_ARCHIVE, SCIOTTE, SCIOTTE_GARMIN, STRAVA, STRAVA_ARCHIVE, UPLOAD,
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, DailyTrainingState, SportType, ThresholdProvenance,
@@ -597,6 +597,63 @@ async fn an_old_ride_the_export_holds_alone_still_reads_from_the_strava_api() {
             .unwrap()
             .is_none(),
         "the read stays with the elected connection"
+    );
+}
+
+#[tokio::test]
+async fn an_activity_only_the_garmin_export_holds_reads_from_the_export() {
+    // Garmin's API is push-only: its by-id read answers from the rows Garmin
+    // pushed, so a ride older than the connection, held only in the
+    // athlete's Garmin export, has no API copy to redirect to. The export
+    // stands for it though the athlete holds a Garmin token.
+    let resources = create_test_server_resources_with_archive_imports(
+        imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "garmin-export-by-id").await;
+    let garmin_id = "19876543211";
+    let exported = ActivityBuilder::new(
+        garmin_id.to_owned(),
+        "Exported Ride".to_owned(),
+        SportType::Ride,
+        evening_start(),
+        u64::from(RIDE_SECONDS),
+        GARMIN_ARCHIVE.to_owned(),
+    )
+    .distance_meters(21_600.0)
+    .build();
+    hold_with_samples(
+        &resources,
+        &athlete,
+        GARMIN_ARCHIVE,
+        exported,
+        StreamOrigin::Archive,
+    )
+    .await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = athlete.tenant.to_string();
+    let token = UserOAuthToken::new(
+        athlete.user_id,
+        tenant.clone(),
+        GARMIN.to_owned(),
+        "acc".to_owned(),
+        Some("ref".to_owned()),
+        Some(Utc::now() + Duration::hours(6)),
+        Some("read".to_owned()),
+    );
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&token)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        by_id_provider(&runtime, athlete.user_id, GARMIN, Some(&tenant), garmin_id).await,
+        GARMIN_ARCHIVE,
+        "a push-only API holds no copy of what it never pushed"
     );
 }
 

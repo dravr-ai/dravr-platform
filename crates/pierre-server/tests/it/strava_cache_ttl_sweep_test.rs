@@ -119,6 +119,10 @@ async fn one_sweep_evicts_only_the_strava_copy_older_than_thirty_days() {
     seed_run(repos, athlete, "strava", 31, now).await;
     let young_strava = seed_run(repos, athlete, "strava", 29, now).await;
     let old_garmin = seed_run(repos, athlete, "garmin", 31, now).await;
+    // T11: the athlete's own exports are never a Strava copy held under
+    // Strava's terms, whatever service they were exported from.
+    let strava_export = seed_run(repos, athlete, "strava_archive", 31, now).await;
+    let garmin_export = seed_run(repos, athlete, "garmin_archive", 31, now).await;
     let sciotte = cfg!(feature = "provider-sciotte");
     if sciotte {
         seed_run(repos, athlete, "sciotte", 31, now).await;
@@ -158,6 +162,15 @@ async fn one_sweep_evicts_only_the_strava_copy_older_than_thirty_days() {
     assert_eq!(
         cached_ids(repos, athlete, "garmin", now).await,
         [old_garmin]
+    );
+    assert_eq!(
+        cached_ids(repos, athlete, "strava_archive", now).await,
+        [strava_export],
+        "the athlete's Strava export outlives the Strava cap"
+    );
+    assert_eq!(
+        cached_ids(repos, athlete, "garmin_archive", now).await,
+        [garmin_export]
     );
     if sciotte {
         assert!(
