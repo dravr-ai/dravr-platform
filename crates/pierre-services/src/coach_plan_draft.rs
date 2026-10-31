@@ -286,11 +286,32 @@ pub async fn draft_state(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
 ) -> AppResult<Option<DraftState>> {
+    Ok(draft_outline(repos, target).await?.map(|(state, _)| state))
+}
+
+/// Where the coach's open draft stands and the draft's outline, or `None`
+/// when the coach holds none — one read for a caller that shows both, as
+/// the coach's roster does for its season view.
+///
+/// The outline is `None` when it was derived from first-party-only data and
+/// the caller is external (carnet#769); its standing is still reported.
+///
+/// # Errors
+///
+/// Returns the repository error from the draft or season read.
+pub async fn draft_outline(
+    repos: &RepositoryRegistry,
+    target: &CoachDraftTarget,
+) -> AppResult<Option<(DraftState, Option<TrainingPlan>)>> {
     Ok(repos
         .training_plans
         .preview_draft_publish(target.owner())
         .await?
-        .map(|preview| DraftState::of(&preview)))
+        .map(|preview| {
+            let state = DraftState::of(&preview);
+            let plan = preview.draft.plan;
+            (state, admit(&plan).is_ok().then_some(plan))
+        }))
 }
 
 /// A draft that is now the athlete's live plan.

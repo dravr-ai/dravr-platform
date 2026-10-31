@@ -33,6 +33,8 @@ pub mod cache;
 pub mod catalog;
 /// How a chat turn sends its tool catalogue, captured at startup
 pub mod chat_tools;
+/// When Coach Home's attention queue raises a reason (product thresholds)
+pub mod coach_home;
 /// Application constants and runtime server config holder (`SERVER_CONFIG` `OnceLock`)
 pub mod constants;
 /// Database configuration (`DatabaseUrl`, pools, backups, `SQLx`)

@@ -152,6 +152,7 @@ mod tests {
             status: ConnectionStatus::Active,
             metadata: None,
             account_role: None,
+            status_changed_at: None,
         }
     }
 

@@ -426,19 +426,25 @@
     border-top-color: rgb(var(--color-primary));
   }
 
-  .focus-ring {
+  /* `.focus-ring-visible` is the same ring for keyboard focus only: a control
+     a pointer clicks (a view tab, a switch) must not keep the ring once the
+     click has moved on. */
+  .focus-ring,
+  .focus-ring-visible {
     @apply focus:outline-none;
   }
 
   /* Two-layer focus ring — opaque primary outer + white inset — reads on
      any surface tone (light card, dark card, photographic background). */
-  .focus-ring:focus {
+  .focus-ring:focus,
+  .focus-ring-visible:focus-visible {
     box-shadow:
       0 0 0 2px rgb(var(--color-primary)),
       0 0 0 4px rgba(255, 255, 255, 0.95);
   }
 
-  html.dark .focus-ring:focus {
+  html.dark .focus-ring:focus,
+  html.dark .focus-ring-visible:focus-visible {
     box-shadow:
       0 0 0 2px rgb(var(--color-primary)),
       0 0 0 4px rgba(0, 0, 0, 0.85);

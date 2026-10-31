@@ -373,3 +373,19 @@ export {
 // which providers the coach can see, or that none are connected.
 export { providerStatusLine } from './provider-status';
 export type { ProviderStatusRow } from './provider-status';
+
+// Coach Home: what the roster endpoint's actions, sources, season states and phases are called, and its counts
+export {
+  COACH_ACTION_LABEL_KEY,
+  COACH_AGENT_ALL_VERIFIED_KEYS,
+  COACH_AGENT_COUNT_KEYS,
+  COACH_DAY_UNIT_KEYS,
+  COACH_EVIDENCE_SOURCE_LABEL_KEY,
+  COACH_MORNING_UNIT_KEYS,
+  COACH_OPTIONAL_DAYS_KEYS,
+  COACH_PHASE_LABEL_KEY,
+  COACH_PLURAL_LINE_PARAM,
+  COACH_SCOPE_KEYS,
+  COACH_SEASON_STATE_KEY,
+  COACH_UNVERIFIED_KEYS,
+} from './coach-home';

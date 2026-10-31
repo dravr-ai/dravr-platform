@@ -172,6 +172,18 @@ pub trait SeederRepository: Send + Sync {
     /// Update the `tenant_id` column on a user row
     async fn seed_update_user_tenant(&self, user_id: Uuid, tenant_id: Uuid) -> AppResult<()>;
 
+    /// Date a live membership back to `joined_at`, its consents decided with
+    /// it as a join decides them:
+    /// a membership is written at the instant of the join, so a seeded
+    /// roster whose athletes joined weeks apart dates them afterwards.
+    async fn seed_backdate_membership(
+        &self,
+        tenant_id: &str,
+        group_id: Uuid,
+        user_id: Uuid,
+        joined_at: DateTime<Utc>,
+    ) -> AppResult<()>;
+
     /// Check if an API key exists by name, returning its ID if found
     async fn seed_check_api_key_by_name(&self, name: &str) -> AppResult<Option<Uuid>>;
 
@@ -567,6 +579,11 @@ pub(crate) const INSERT_TENANT_USER_SQL: &str = "INSERT INTO tenant_users \
 
 /// Point a user at a tenant; `users.tenant_id` is text on both.
 pub(crate) const UPDATE_USER_TENANT_SQL: &str = "UPDATE users SET tenant_id = $1 WHERE id = $2";
+
+/// Date one live membership back (`seed_backdate_membership`).
+pub(crate) const BACKDATE_MEMBERSHIP_SQL: &str = "UPDATE coaching_group_members \
+     SET joined_at = $1, consent_given_at = $1, coach_sharing_consent_at = $1 \
+     WHERE tenant_id = $2 AND group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// An API key's id by name; `api_keys.id` is text on both.
 pub(crate) const API_KEY_ID_BY_NAME_SQL: &str = "SELECT id FROM api_keys WHERE name = $1";

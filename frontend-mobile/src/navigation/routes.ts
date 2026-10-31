@@ -84,6 +84,24 @@ export function activityHref(provider: string, activityId: string): ActivityHref
 export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[agentId]' as const;
 
 /**
+ * One athlete on a coach's roster — why they are on À traiter, their form
+ * band, plan, sources and what the agent said — pushed in the Home stack so
+ * Back returns to the list the coach came from.
+ */
+export const COACH_ATHLETE_ROUTE = '/(app)/(tabs)/(home)/athlete/[athleteId]' as const;
+
+/** A navigation target for one roster athlete's detail, as `router.push` takes it. */
+export interface CoachAthleteHref {
+  pathname: typeof COACH_ATHLETE_ROUTE;
+  params: { athleteId: string };
+}
+
+/** The target that opens the detail of the athlete `athleteId` on the coach's roster. */
+export function coachAthleteHref(athleteId: string): CoachAthleteHref {
+  return { pathname: COACH_ATHLETE_ROUTE, params: { athleteId } };
+}
+
+/**
  * The mobile route of a surface the shared registry declares this app serves.
  *
  * Throws at module load rather than returning null: the registry is static

@@ -85,6 +85,9 @@ pub mod oauth_grants;
 pub mod check_in;
 /// A coach's own coach-access request (carnet#738)
 pub mod coach_access;
+/// Coach Home's attention reasons on the roster, and the coach's dismissals (carnet#1252)
+#[cfg(feature = "tools-groups")]
+pub mod coach_attention;
 /// A coach's after-the-fact review of the agent's group replies (carnet#847)
 pub mod coach_replies;
 /// The human coach's roster read for Coach Home (carnet#1251)

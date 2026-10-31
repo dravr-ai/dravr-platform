@@ -121,6 +121,8 @@ const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
 // A coach's review of what Dravr sent their athletes (carnet#847).
 const CoachReplies = lazy(() => import('./coach/CoachReplies'));
+// A coach's Home: À traiter, the team table and the season, behind the switch to their own training.
+const CoachHome = lazy(() => import('./coach-home/CoachHome'));
 import { BILLING_ENABLED } from '../constants/features';
 import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
 import { useTranslation } from '@pierre/i18n';
@@ -143,9 +145,22 @@ import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
 import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRoute';
 import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
 import { homeConversationRoute, parseHomeConversation } from './home/homeRoute';
+import { CoachHomeSwitch } from './coach-home/CoachHomeSwitch';
+import { parseCoachHomeRoute, type CoachHomeRoute } from './coach-home/coachHomeRoute';
 import { parseChatSubview } from './chat/chatRoute';
 import { FEEDBACK_TAB, feedbackReplyRoute, parseFeedbackAbout } from './feedback/feedbackRoute';
 import type { FeedbackAbout } from '@pierre/shared-types';
+
+/** A hash segment decoded, or `null` when it is empty or a malformed escape. */
+function decodeSegment(segment: string): string | null {
+  if (segment === '') return null;
+  try {
+    return decodeURIComponent(segment);
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
+}
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
 function parseSettingsTab(segment: string): SettingsTab | null {
@@ -294,6 +309,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [homeConversation, setHomeConversation] = useState<string | null>(
     initialTabSeg === 'home' ? parseHomeConversation(initialSubSeg) : null,
   );
+  // The raw subview of `#home/…`, which a coach's Home reads its view from
+  // (`team`, `season`, `me`, `athlete/<id>`); the personal Home's own
+  // subviews (a conversation, an activity) are parsed above and never match.
+  const [homeSub, setHomeSub] = useState<string>(initialTabSeg === 'home' ? initialSubSeg : '');
+  // The athlete whose replies a `#coach-replies/<athleteId>` link opens on.
+  const [coachRepliesAthlete, setCoachRepliesAthlete] = useState<string | null>(
+    initialTabSeg === 'coach-replies' ? decodeSegment(initialSubSeg) : null,
+  );
   const personalThread = usePersonalConversation(!isAdminUser);
   const linkedScope = useConversationScope(linkedChatConversation, !isAdminUser);
   useEffect(() => {
@@ -354,6 +377,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
     if (activeTab === 'home' && openActivity) return activityViewRoute(openActivity.provider, openActivity.id);
     if (activeTab === 'home' && homeConversation) return homeConversationRoute(homeConversation);
+    if (activeTab === 'coach-replies' && coachRepliesAthlete) return `coach-replies/${encodeURIComponent(coachRepliesAthlete)}`;
+    if (activeTab === 'home' && managesRoster && homeSub !== '' && parseCoachHomeRoute(homeSub) !== null) {
+      return `home/${homeSub}`;
+    }
     if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
     if (activeTab === FEEDBACK_TAB && feedbackAbout) {
       return feedbackReplyRoute(feedbackAbout.conversation_id, feedbackAbout.message_id);
@@ -420,6 +447,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setLinkedChatConversation(chatConversation);
     setChatInfoRequest(chat?.openInfo ? chat.conversationId : null);
     setHomeConversation(tab === 'home' ? parseHomeConversation(sub) : null);
+    setHomeSub(tab === 'home' ? sub : '');
+    setCoachRepliesAthlete(tab === 'coach-replies' ? decodeSegment(sub) : null);
     const activity = tab === 'home' ? parseActivitySubview(sub) : null;
     // A fresh object per route would reset the view's thread on every hash
     // event; the same activity keeps its state.
@@ -671,6 +700,22 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       </Suspense>
     ),
   }), [applyRoute]);
+
+  // The coach's Home view `#home/…` names — null for an athlete, and for the
+  // subviews of the personal Home (a conversation, an activity), which a
+  // coach reaches under "Mon entraînement".
+  const coachHomeView: CoachHomeRoute | null =
+    managesRoster && openActivity === null && homeConversation === null ? parseCoachHomeRoute(homeSub) : null;
+
+  const personalHome = (
+    <PersonalChat
+      selectedConversation={homeConversation ?? personalThread.id}
+      onSelectConversation={setHomeConversation}
+      onNavigate={applyRoute}
+      resolving={homeConversation === null && personalThread.isLoading}
+      today={personalToday}
+    />
+  );
   // For regular users, pin Home / Groups / Discover to the bottom bar and
   // route the rest through the drawer; each of the three carries the bell.
   // For admin users we use the first three tabs (Users / Agents / Agent Store) as the primary slots.
@@ -1155,22 +1200,30 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <CoachStoreManagement />
           </Suspense>
         )}
-        {activeTab === 'home' && (
+        {activeTab === 'home' && coachHomeView !== null && coachHomeView.view !== 'me' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <CoachHome route={coachHomeView} onNavigate={applyRoute} />
+          </Suspense>
+        )}
+        {activeTab === 'home' && (coachHomeView === null || coachHomeView.view === 'me') && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             {openActivity ? (
               <ActivityView
                 activity={openActivity}
-                onBack={() => applyRoute('home')}
+                onBack={() => applyRoute(managesRoster ? 'home/me' : 'home')}
                 onNavigate={applyRoute}
               />
+            ) : managesRoster ? (
+              // A coach who also trains: the same Home an athlete has, under
+              // the switch that returns to their athletes (carnet#1253, D2).
+              <div className="flex h-full min-h-0 flex-col" data-testid="coach-home-personal">
+                <div className="flex min-h-[52px] shrink-0 items-center border-b ghost-border px-4 py-2">
+                  <CoachHomeSwitch scope="me" onChange={() => applyRoute('home')} stretch={isMobile} />
+                </div>
+                <div className="min-h-0 flex-1">{personalHome}</div>
+              </div>
             ) : (
-              <PersonalChat
-                selectedConversation={homeConversation ?? personalThread.id}
-                onSelectConversation={setHomeConversation}
-                onNavigate={applyRoute}
-                resolving={homeConversation === null && personalThread.isLoading}
-                today={personalToday}
-              />
+              personalHome
             )}
           </Suspense>
         )}
@@ -1234,7 +1287,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {activeTab === 'coach-replies' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachReplies />
+            <CoachReplies key={coachRepliesAthlete ?? 'all'} initialAthleteId={coachRepliesAthlete} />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (

@@ -205,6 +205,7 @@ mod inject_tests {
             needs_reauth_providers: vec![],
             served_stale: false,
             timezone: None,
+            deep_fatigue_mornings: Vec::new(),
             computed_at: Utc::now(),
         }
     }

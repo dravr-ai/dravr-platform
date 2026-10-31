@@ -564,6 +564,26 @@ macro_rules! impl_seeder_repository {
                 Ok(())
             }
 
+            async fn seed_backdate_membership(
+                &self,
+                tenant_id: &str,
+                group_id: Uuid,
+                user_id: Uuid,
+                joined_at: DateTime<Utc>,
+            ) -> AppResult<()> {
+                sqlx::query(BACKDATE_MEMBERSHIP_SQL)
+                    .bind(joined_at)
+                    .bind(tenant_id)
+                    .bind($ids::bind(group_id))
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to backdate membership: {e}"))
+                    })?;
+                Ok(())
+            }
+
             async fn seed_check_api_key_by_name(&self, name: &str) -> AppResult<Option<Uuid>> {
                 let row = sqlx::query(API_KEY_ID_BY_NAME_SQL)
                     .bind(name)

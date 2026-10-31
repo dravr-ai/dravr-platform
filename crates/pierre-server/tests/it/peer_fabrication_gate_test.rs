@@ -54,6 +54,7 @@ fn member(name: &str) -> MemberFitnessSnapshot {
         needs_reauth_providers: Vec::new(),
         served_stale: false,
         timezone: None,
+        deep_fatigue_mornings: Vec::new(),
         computed_at: Utc::now(),
     }
 }

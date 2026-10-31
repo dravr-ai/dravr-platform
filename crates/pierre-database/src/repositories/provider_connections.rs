@@ -87,7 +87,7 @@ macro_rules! connection_select_sql {
     ($filter:literal, $order:literal) => {
         concat!(
             "SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
-                    account_role
+                    account_role, status_changed_at
              FROM provider_connections
              WHERE user_id = $1",
             $filter,
@@ -258,7 +258,7 @@ pub(crate) const CLAIM_REAUTH_RETRY_SQL: &str = r"
 /// at most `$2` of them — across users and tenants, for the operator sweep.
 pub(crate) const LIST_REAUTH_RETRY_DUE_SQL: &str = r"
             SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
-                   account_role
+                   account_role, status_changed_at
               FROM provider_connections
              WHERE status = 'needs_reauth'
                AND (status_changed_at IS NULL OR status_changed_at <= $1)
@@ -388,6 +388,9 @@ where
             .try_get("metadata")
             .map_err(|e| column_error("metadata", e))?,
         account_role,
+        status_changed_at: row
+            .try_get("status_changed_at")
+            .map_err(|e| column_error("status_changed_at", e))?,
     })
 }
 

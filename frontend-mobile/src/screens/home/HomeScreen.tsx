@@ -30,8 +30,13 @@ import { HomeStatus } from './HomeStatus';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
 
+interface HomeScreenProps {
+  /** The coach's "Mes athlètes / Mon entraînement" switch, drawn first on the page; an athlete's Home has none. */
+  scopeSwitch?: React.ReactNode;
+}
+
 // LIMITATION(registre#1102): `HomeScreen` has no Getting started, Your team or team empty state on the native app.
-export function HomeScreen() {
+export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
@@ -148,6 +153,7 @@ export function HomeScreen() {
         }
         testID="home-scroll"
       >
+        {scopeSwitch !== undefined && <View className="px-4">{scopeSwitch}</View>}
         <HomePlan
           response={plan.data ?? null}
           isError={plan.isError}

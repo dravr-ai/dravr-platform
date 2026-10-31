@@ -159,6 +159,18 @@ pub struct RosterMember {
     /// is `NoCoachConsent` and only when one is recorded. `None` otherwise,
     /// including for a revoke from before the instant was recorded.
     pub sharing_stopped_at: Option<DateTime<Utc>>,
+    /// Their first live membership among the coach's groups: when they joined
+    /// the coach, and through which group.
+    pub joined: RosterJoin,
+}
+
+/// When an athlete joined one of the coach's groups.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RosterJoin {
+    /// When they joined.
+    pub at: DateTime<Utc>,
+    /// The group they joined.
+    pub group: RosterGroupRef,
 }
 
 /// The roster before any training is read.
@@ -242,7 +254,7 @@ pub async fn gather_members(
             athlete_count += 1;
             let status = RosterAthleteStatus::of_member(member);
             let stopped_at = (status == RosterAthleteStatus::NoCoachConsent)
-                .then_some(member.coach_sharing_consent_at)
+                .then(|| revoked_at(member))
                 .flatten();
             if let Some(&at) = index.get(&member.user_id) {
                 // Shared through any one group is shared: the consent is per
@@ -266,6 +278,12 @@ pub async fn gather_members(
                 } else {
                     None
                 };
+                if member.joined_at < entry.joined.at {
+                    entry.joined = RosterJoin {
+                        at: member.joined_at,
+                        group: group_ref.clone(),
+                    };
+                }
             } else {
                 index.insert(member.user_id, members.len());
                 members.push(RosterMember {
@@ -277,6 +295,10 @@ pub async fn gather_members(
                     member_display_name: member.display_name.clone(),
                     source_tenants: Vec::new(),
                     sharing_stopped_at: stopped_at,
+                    joined: RosterJoin {
+                        at: member.joined_at,
+                        group: group_ref.clone(),
+                    },
                 });
             }
         }
@@ -291,6 +313,20 @@ pub async fn gather_members(
         groups: summaries,
         members,
     })
+}
+
+/// When the member stopped sharing with the coach: the instant of their last
+/// coach-sharing decision, but only when it came after they joined.
+///
+/// A join writes that instant together with `joined_at`, whatever was
+/// decided, so a member who joined without sharing carries their join instant
+/// there. That is when they declined, not when they stopped; reporting it as a
+/// stop told the coach "sharing cut on <join day>" for someone who never
+/// shared.
+fn revoked_at(member: &GroupMember) -> Option<DateTime<Utc>> {
+    member
+        .coach_sharing_consent_at
+        .filter(|at| *at > member.joined_at)
 }
 
 /// Mark each sharer with no connected source `no_source`, and record where
@@ -499,6 +535,13 @@ mod tests {
                 member_display_name: None,
                 source_tenants: Vec::new(),
                 sharing_stopped_at: None,
+                joined: RosterJoin {
+                    at: DateTime::UNIX_EPOCH,
+                    group: RosterGroupRef {
+                        id: String::new(),
+                        name: String::new(),
+                    },
+                },
             },
             name: name.to_owned(),
             last_cached_activity: last.map(|secs| DateTime::from_timestamp(secs, 0).unwrap()),
@@ -520,6 +563,38 @@ mod tests {
             names,
             ["Never", "Quiet", "Recent", "Alice", "Zoé"],
             "sharers lead, never-active first then the quietest; the rest follow by name"
+        );
+    }
+
+    #[test]
+    fn a_decline_at_join_is_no_stop_and_a_later_revoke_is() {
+        let member = |consent_at: &str| {
+            serde_json::from_value::<GroupMember>(serde_json::json!({
+                "id": Uuid::nil(),
+                "group_id": Uuid::nil(),
+                "user_id": Uuid::nil(),
+                "tenant_id": "t",
+                "role": "member",
+                "peer_sharing_consent": false,
+                "coach_sharing_consent": false,
+                "coach_sharing_consent_at": consent_at,
+                "consent_given_at": "2026-10-05T00:00:00Z",
+                "joined_at": "2026-10-05T00:00:00Z",
+                "left_at": null
+            }))
+            .expect("member")
+        };
+        assert_eq!(
+            revoked_at(&member("2026-10-05T00:00:00Z")),
+            None,
+            "declined when joining: never shared"
+        );
+        assert_eq!(
+            revoked_at(&member("2026-10-27T21:48:00Z")),
+            DateTime::parse_from_rfc3339("2026-10-27T21:48:00Z")
+                .ok()
+                .map(|at| at.with_timezone(&Utc)),
+            "a decision after the join is a stop"
         );
     }
 

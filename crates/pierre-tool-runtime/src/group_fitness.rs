@@ -15,13 +15,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Days, Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use futures_util::future::join_all;
-use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
-use pierre_core::models::FormBand;
+use pierre_core::models::groups::{
+    FormMorning, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
+};
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
+use pierre_core::models::{FormBand, FormReading};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::core::ActivityQueryParams;
@@ -263,14 +265,74 @@ fn compute_training_metrics(
 
     let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), as_of);
     log_per_activity_tss(&calculator, &sorted, athlete);
+    load_as_of(&calculator, &sorted, athlete)
+}
 
-    match athlete.training_load(&calculator, &sorted) {
+/// The training load `calculator` reports for `sorted` (oldest first), or
+/// `None` when the calculation fails.
+fn load_as_of(
+    calculator: &TrainingLoadCalculator,
+    sorted: &[Activity],
+    athlete: &AthleteInputs,
+) -> Option<TrainingLoad> {
+    match athlete.training_load(calculator, sorted) {
         Ok(load) => Some(load),
         Err(e) => {
             debug!(error = ?e, "Training load calculation failed");
             None
         }
     }
+}
+
+/// Mornings, today included, the deep-fatigue run is counted back over at
+/// most. A compute bound, not a threshold: each morning is one more load
+/// calculation, and only while the run lasts.
+const DEEP_FATIGUE_SCAN_MORNINGS: u32 = 21;
+
+/// The consecutive mornings ending `as_of` whose form fell in
+/// [`FormBand::DeepFatigue`], `as_of` first; empty when `today` is not in it.
+///
+/// `today` is the load already computed for `as_of`; each earlier morning is
+/// the same calculation on the same sessions one day earlier (a session after
+/// the calculator's day is not counted), so the run and the snapshot's own
+/// band never disagree about today. Counting is all this does: the band is
+/// cageux's.
+fn deep_fatigue_mornings(
+    activities: &[Activity],
+    athlete: &AthleteInputs,
+    algorithm_config: &AlgorithmConfig,
+    as_of: NaiveDate,
+    today: Option<&TrainingLoad>,
+) -> Vec<FormMorning> {
+    let deep = |load: &TrainingLoad| {
+        let reading = FormReading::from_training_load(load);
+        (reading.band == FormBand::DeepFatigue)
+            .then_some(reading.form_pct)
+            .flatten()
+    };
+    let Some(form_pct) = today.and_then(deep) else {
+        return Vec::new();
+    };
+    let mut run = vec![FormMorning {
+        days_ago: 0,
+        form_pct,
+    }];
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+    for days_ago in 1..DEEP_FATIGUE_SCAN_MORNINGS {
+        let Some(day) = as_of.checked_sub_days(Days::new(u64::from(days_ago))) else {
+            break;
+        };
+        let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), day);
+        match load_as_of(&calculator, &sorted, athlete)
+            .as_ref()
+            .and_then(deep)
+        {
+            Some(form_pct) => run.push(FormMorning { days_ago, form_pct }),
+            None => break,
+        }
+    }
+    run
 }
 
 /// Emit one log line per activity showing its computed TSS plus an
@@ -641,6 +703,15 @@ fn build_snapshot_from_activities(
     let load = athlete.and_then(|athlete| {
         compute_training_metrics(activities, athlete, algorithm_config, now.date_naive())
     });
+    let deep_fatigue_mornings = athlete.map_or_else(Vec::new, |athlete| {
+        deep_fatigue_mornings(
+            activities,
+            athlete,
+            algorithm_config,
+            now.date_naive(),
+            load.as_ref(),
+        )
+    });
     let weekly = compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(load.as_ref());
@@ -671,6 +742,7 @@ fn build_snapshot_from_activities(
         // activities were fetched, which this pure computation never sees.
         served_stale: false,
         timezone,
+        deep_fatigue_mornings,
         computed_at: now,
     }
 }
@@ -767,6 +839,7 @@ fn empty_snapshot(
         needs_reauth_providers: Vec::new(),
         served_stale: false,
         timezone,
+        deep_fatigue_mornings: Vec::new(),
         computed_at,
     }
 }

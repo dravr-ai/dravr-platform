@@ -85,6 +85,8 @@ export interface InitialsAvatarProps {
   size?: number;
   /** A circle for a person or an agent, a square for a room. */
   shape?: AvatarShape;
+  /** The quiet look of someone whose data is not shown (a coach's athlete who does not share). */
+  muted?: boolean;
   testID?: string;
 }
 
@@ -94,10 +96,12 @@ export interface InitialsAvatarProps {
  * Shape reaches no screen reader, so it only ever reinforces what the row says
  * in words — the kind glyph and the accessible label carry the fact.
  */
-export function InitialsAvatar({ initials, slot, size = 40, shape = 'circle', testID }: InitialsAvatarProps) {
+export function InitialsAvatar({ initials, slot, size = 40, shape = 'circle', muted = false, testID }: InitialsAvatarProps) {
   const colors = useThemeColors();
   const palette = avatarSlotPairs(colors);
-  const { fill, ink } = palette[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
+  const slotPair = palette[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
+  const backgroundColor = muted ? colors.tokens.surfaceContainerHigh : `${slotPair.fill}${TINT_ALPHA}`;
+  const ink = muted ? colors.text.secondary : slotPair.ink;
 
   return (
     <View
@@ -108,7 +112,7 @@ export function InitialsAvatar({ initials, slot, size = 40, shape = 'circle', te
         width: size,
         height: size,
         borderRadius: shape === 'square' ? ROOM_AVATAR_RADIUS : size / 2,
-        backgroundColor: `${fill}${TINT_ALPHA}`,
+        backgroundColor,
         alignItems: 'center',
         justifyContent: 'center',
       }}

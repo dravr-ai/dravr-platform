@@ -638,12 +638,40 @@ notification setting or a privacy choice lives under Settings, reached from
 the gear and the avatar; the rail lists only the places an athlete goes to
 *do* something.
 
+### Coach Home — the human coach's Home (carnet#1250, #1252, #1253)
+
+A coach who holds athletes lands on **Mes athlètes** and finds today's athlete
+Home under **Mon entraînement**, behind a two-button switch (`aria-pressed`,
+36px on a phone) that is the first control of the page. Three views share one
+roster read: **À traiter** (a 340–420px queue beside the athlete's pane; Aujourd'hui
+then Cette semaine, the calm as one line of names, the treated below with an
+undo), **Tableau d'équipe** (a nine-column table in its own horizontal scroller,
+a two-line list on a phone) and **La saison** (phases on a month axis with a
+today line and the A race as a diamond; a countdown list on a phone).
+
+- **Form is a six-step strip lit on the server's band** (fatigue profonde to très
+  frais), `insufficient_history` lights none and says so. No number is printed
+  beside it and no strip is ever compared with another athlete's; CTL is the one
+  absolute figure: its own table column, and the note under the athlete's own
+  strip in À traiter.
+- **Status is an 8px dot beside a word** (`success`, `warning`, `error`, `outline`):
+  never a red or green verdict, never colour alone.
+- **A non-sharer is status only**: avatar on the quiet tint, one sentence, "Lui
+  écrire". No strip, no plan, no figure, in any view.
+- **Phase bands are tokens**: base/prep `surface-container-high`, build `info/15`,
+  specialty `primary/20`, peak and taper `warning/20`, transition and recovery a
+  dashed `outline`, a draft a dashed `primary` (`phaseStyle.ts`).
+- The page owns its scrolling (a bleed surface): the table and the season never
+  gain a second vertical scroller, and the page never scrolls sideways at 390.
+
 ### Focus rings
 
 Two-layer ring: 2px solid `primary` + 2px inset white (`rgba(255,255,255,.95)`
 in light, `rgba(0,0,0,.85)` in dark). Visible on any surface — light card,
 dark card, photographic background. Class: `.focus-ring`. Applied via `:focus`
-pseudo-class so it never renders unless focused.
+pseudo-class so it never renders unless focused. `.focus-ring-visible` is the
+same ring on `:focus-visible` only, for a control a pointer clicks and leaves
+(a view switch, a pressed-state toggle), so the ring does not stay after a click.
 
 ---
 

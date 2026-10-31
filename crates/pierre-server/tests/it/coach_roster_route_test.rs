@@ -15,318 +15,31 @@
 
 #[cfg(feature = "tools-groups")]
 mod coach_roster_route_tests {
-    use crate::common::{
-        create_test_server_resources, create_test_user_with_plan, generate_test_token,
+    use crate::common::create_test_server_resources;
+    use crate::helpers::coach_roster_fixtures::{
+        agent_reply, coach, coached_group, get, group_agent, join, person, router, row, seed_ride,
+        ymd,
     };
-    use crate::helpers::axum_test::AxumTestRequest;
 
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use axum::Router;
     use chrono::{Datelike, Duration, NaiveDate, Utc};
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-    use pierre_core::models::groups::{
-        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-        NewGroupTranscriptEntry, TranscriptSpeaker,
-    };
     use pierre_core::models::periodization::PhaseKind;
-    use pierre_core::models::{
-        Activity, ActivityBuilder, AddMessageParams, AgentCategory, ConnectionType,
-        CreateAgentRequest, SportType, TenantId,
-    };
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::training_plans::{
         DraftOwner, PlanAuthor, PublishDraftParams, SaveDraftParams,
     };
-    use pierre_database::repositories::{
-        InsertClaimVerdictParams, PlanOutlineInput, PlanWeekInput, SavePlanBundleParams,
-    };
+    use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::routes::coach_roster::CoachRosterRoutes;
-    use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+    use pierre_memory::claims::ClaimStatus;
     use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
     use uuid::Uuid;
-
-    struct Person {
-        id: Uuid,
-        tenant: TenantId,
-        auth: String,
-    }
-
-    async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
-        let (id, user, tenant) =
-            create_test_user_with_plan(&res.agent.database, email, "professional")
-                .await
-                .unwrap();
-        res.common
-            .repos
-            .users
-            .update_display_name(id, name)
-            .await
-            .unwrap();
-        let auth = format!("Bearer {}", generate_test_token(res, &user).await);
-        Person { id, tenant, auth }
-    }
-
-    /// A coach holds `manages_roster`, as attaching them to a group requires.
-    async fn coach(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
-        let coach = person(res, email, name).await;
-        res.common
-            .repos
-            .users
-            .set_manages_roster(coach.id, true)
-            .await
-            .unwrap();
-        coach
-    }
-
-    async fn group_agent(res: &Arc<ServerContext>, owner: &Person) -> String {
-        res.common
-            .repos
-            .agents
-            .create(
-                owner.id,
-                owner.tenant,
-                &CreateAgentRequest {
-                    title: "Group Agent".to_owned(),
-                    description: None,
-                    system_prompt: "You are helpful".to_owned(),
-                    category: AgentCategory::Custom,
-                    tags: vec![],
-                    sample_prompts: vec![],
-                    startup_query: None,
-                    data_requirements: None,
-                    purpose: None,
-                    when_to_use: None,
-                    instructions: None,
-                    example_inputs: None,
-                    example_outputs: None,
-                    success_criteria: None,
-                    max_tool_iterations: None,
-                },
-            )
-            .await
-            .unwrap()
-            .id
-            .to_string()
-    }
-
-    /// A group in `tenant` whose human coach is `coach`.
-    async fn coached_group(
-        res: &Arc<ServerContext>,
-        tenant: TenantId,
-        coach: Uuid,
-        agent_id: &str,
-        name: &str,
-    ) -> Uuid {
-        let now = Utc::now();
-        res.common
-            .repos
-            .groups
-            .create_group(
-                tenant,
-                &CoachingGroup {
-                    id: Uuid::new_v4(),
-                    tenant_id: tenant.to_string(),
-                    name: name.to_owned(),
-                    description: None,
-                    agent_id: agent_id.to_owned(),
-                    owner_id: coach,
-                    coach_user_id: Some(coach),
-                    peer_data_sharing: false,
-                    respond_mode: GroupRespondMode::default(),
-                    digest_mode: GroupDigestMode::Off,
-                    max_members: 100,
-                    is_active: true,
-                    channel_type: None,
-                    channel_chat_id: None,
-                    created_at: now,
-                    updated_at: now,
-                },
-            )
-            .await
-            .unwrap()
-            .id
-    }
-
-    async fn join(
-        res: &Arc<ServerContext>,
-        group: Uuid,
-        user: Uuid,
-        tenant: TenantId,
-        shares: bool,
-    ) {
-        let now = Utc::now();
-        res.common
-            .repos
-            .groups
-            .add_member(&GroupMember {
-                id: Uuid::new_v4(),
-                group_id: group,
-                user_id: user,
-                tenant_id: tenant.to_string(),
-                role: GroupRole::Member,
-                peer_sharing_consent: false,
-                coach_sharing_consent: shares,
-                coach_sharing_consent_at: None,
-                coach_consents: CoachConsents::default(),
-                consent_given_at: now,
-                joined_at: now,
-                left_at: None,
-                display_name: None,
-            })
-            .await
-            .unwrap();
-    }
-
-    fn ride(id: &str, days_ago: i64) -> Activity {
-        ActivityBuilder::new(
-            id.to_owned(),
-            format!("ride {id}"),
-            SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
-            7_200,
-            "strava".to_owned(),
-        )
-        .distance_meters(60_000.0)
-        .build()
-    }
-
-    /// A Strava connection and a warm cache of one ride `days_ago`: the
-    /// snapshot is served from the cache, never a provider.
-    async fn seed_ride(res: &Arc<ServerContext>, athlete: &Person, days_ago: i64) {
-        let repos = &res.common.repos;
-        repos
-            .provider_connections
-            .register_connection(
-                athlete.id,
-                athlete.tenant,
-                "strava",
-                &ConnectionType::OAuth,
-                None,
-            )
-            .await
-            .unwrap();
-        repos
-            .activity_cache
-            .upsert_activities(
-                athlete.id,
-                &athlete.tenant,
-                "strava",
-                &[ride("ride-1", days_ago)],
-            )
-            .await
-            .unwrap();
-    }
-
-    /// One agent reply to `athlete` in `group`, with the checker's verdicts.
-    async fn agent_reply(
-        res: &Arc<ServerContext>,
-        group: Uuid,
-        athlete: &Person,
-        content: &str,
-        verdicts: &[(&str, ClaimStatus)],
-    ) {
-        let repos = &res.common.repos;
-        let user = athlete.id.to_string();
-        let conversation = repos
-            .chat
-            .create_conversation(
-                &user,
-                athlete.tenant,
-                "Group",
-                "model",
-                None,
-                Some(&group.to_string()),
-            )
-            .await
-            .unwrap();
-        let message = repos
-            .chat
-            .add_message(&AddMessageParams {
-                tenant_id: athlete.tenant,
-                conversation_id: &conversation.id,
-                user_id: &user,
-                role: "assistant",
-                content,
-                token_count: None,
-                finish_reason: None,
-                prompt_tokens: None,
-                model: None,
-                content_blocks: None,
-                transport_policy: TransportPolicy::AnyTransport,
-                channel_type: None,
-                about_user_id: None,
-            })
-            .await
-            .unwrap();
-        repos
-            .groups
-            .append_transcript_entry(&NewGroupTranscriptEntry {
-                group_id: &group.to_string(),
-                tenant_id: &athlete.tenant.to_string(),
-                author_user_id: athlete.id,
-                speaker: TranscriptSpeaker::Coach,
-                content,
-                source_conversation_id: Some(&conversation.id),
-                source_message_id: Some(&message.id),
-                transport_policy: TransportPolicy::AnyTransport,
-            })
-            .await
-            .unwrap();
-        for (claim, status) in verdicts {
-            repos
-                .claim_verdicts
-                .insert_claim_verdict(&InsertClaimVerdictParams {
-                    tenant_id: athlete.tenant,
-                    user_id: &user,
-                    agent_id: None,
-                    conversation_id: None,
-                    message_id: Some(&message.id),
-                    claim_text: claim,
-                    category: ClaimCategory::AthleteData,
-                    status: *status,
-                    evidence_strength: EvidenceStrength::None,
-                    confidence: 0.0,
-                    layer_fired: VerdictLayer::AthleteData,
-                    explanation: None,
-                    evidence_refs: None,
-                    transport_policy: TransportPolicy::AnyTransport,
-                })
-                .await
-                .unwrap();
-        }
-    }
-
-    fn router(res: &Arc<ServerContext>) -> Router {
-        CoachRosterRoutes::routes(Arc::clone(res))
-    }
-
-    async fn get(router: &Router, uri: &str, auth: &str) -> (u16, Value) {
-        let response = AxumTestRequest::get(uri)
-            .header("authorization", auth)
-            .send(router.clone())
-            .await;
-        let status = response.status();
-        let body = response.body_text();
-        (
-            status,
-            serde_json::from_str(&body).unwrap_or(Value::String(body)),
-        )
-    }
-
-    fn row(page: &Value, id: Uuid) -> Option<&Value> {
-        page["athletes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|a| a["user_id"] == id.to_string())
-    }
 
     /// The training-bearing fields a non-sharing row must never carry.
     fn assert_status_only(row: &Value, status: &str) {
@@ -409,7 +122,7 @@ mod coach_roster_route_tests {
         );
         assert_eq!(
             alex_row["plan_thread"],
-            json!({"draft_updated_at": null, "draft_has_conflicts": false, "published_at": null}),
+            json!({"draft_updated_at": null, "draft_has_conflicts": false, "published_at": null, "draft_phases": []}),
             "a coach who never drafted holds no draft and published nothing"
         );
 
@@ -609,10 +322,6 @@ mod coach_roster_route_tests {
         assert_eq!(seen, ids, "every athlete once, across the pages");
     }
 
-    fn ymd(date: NaiveDate) -> String {
-        date.format("%Y-%m-%d").to_string()
-    }
-
     fn easy_day(date: NaiveDate, workout: &str) -> PlannedDay {
         PlannedDay {
             date: ymd(date),
@@ -745,7 +454,7 @@ mod coach_roster_route_tests {
         );
         assert_eq!(
             plan["goal_race"],
-            json!({"name": "Harricana", "date": goal.date}),
+            json!({"name": "Harricana", "date": goal.date, "priority": "A"}),
             "the goal race is the season's A race"
         );
         assert!(

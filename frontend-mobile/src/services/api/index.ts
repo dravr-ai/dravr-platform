@@ -67,3 +67,5 @@ export const i18nApi = api.i18n;
 export const usageApi = api.usage;
 // Subscription, invoices, plans, the quota snapshot, hosted checkout and portal.
 export const billingApi = api.billing;
+// The human coach's roster for Coach Home, and "Traité" on an attention reason.
+export const coachRosterApi = api.coachRoster;

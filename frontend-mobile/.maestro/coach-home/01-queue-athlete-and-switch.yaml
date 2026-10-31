@@ -1,0 +1,129 @@
+# ABOUTME: A coach lands on Mes athlètes, opens an athlete from À traiter, marks a reason handled and undoes it, walks the list and the season, and switches to Mon entraînement
+# ABOUTME: Real backend; needs the coach seeded: `pierre-cli seed coach-home` then `seed synthetic-activities --email coachhome@pierre.dev --provider strava`
+
+# The phone half of frontend/e2e/coach-home.spec.ts (carnet#1253, D5). The coach
+# is seeded with 45 athletes in three groups covering every attention reason
+# and season state (crates/pierre-seeders/src/coach_home.rs), so each view has
+# rows to assert whoever runs it; the flow asserts structure by test id and
+# never a seeded name or count. bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
+# seeds this coach locally, and both mobile e2e lanes seed it the same way and
+# list this flow in their critical batch.
+#
+# Every assertion is unconditional: a step that is wrapped in `optional` or a
+# `when` cannot fail, and a flow made of those guards nothing.
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/sign-in-seeded.yaml
+    env:
+      EMAIL: "coachhome@pierre.dev"
+
+# A coach lands on their athletes, not on their own Home.
+- extendedWaitUntil:
+    visible:
+      id: "coach-home"
+    timeout: 60000
+- assertVisible:
+    id: "coach-home-switch-athletes"
+- assertNotVisible:
+    id: "home-screen"
+- extendedWaitUntil:
+    visible:
+      id: "coach-queue-today"
+    timeout: 30000
+- assertVisible:
+    id: "coach-scope"
+
+# An athlete from today's list opens their detail: why now, with its evidence.
+- tapOn:
+    id: "coach-queue-row-.*"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: "coach-athlete"
+    timeout: 15000
+- assertVisible:
+    id: "coach-why"
+- assertVisible:
+    id: "coach-evidence"
+
+# "Traité" shows at once as treated, and its undo brings the reason back.
+- tapOn:
+    id: "coach-treat"
+- extendedWaitUntil:
+    visible:
+      id: "coach-undo"
+    timeout: 10000
+- assertNotVisible:
+    id: "coach-treat"
+- tapOn:
+    id: "coach-undo"
+- extendedWaitUntil:
+    visible:
+      id: "coach-treat"
+    timeout: 10000
+- assertNotVisible:
+    id: "coach-undo"
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "coach-queue"
+    timeout: 10000
+
+# The team list: sorted by days without activity, the non-sharers apart.
+- tapOn:
+    id: "coach-views-roster"
+- extendedWaitUntil:
+    visible:
+      id: "coach-roster-list"
+    timeout: 10000
+- assertVisible:
+    id: "coach-roster-sort"
+- scrollUntilVisible:
+    element:
+      id: "coach-roster-non-sharers"
+    direction: DOWN
+    timeout: 20000
+
+# The season: A races ahead as a countdown, then those without one.
+- tapOn:
+    id: "coach-views-season"
+- extendedWaitUntil:
+    visible:
+      id: "coach-season-ahead"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "coach-season-without"
+    direction: DOWN
+    timeout: 20000
+
+# Mon entraînement is the Home an athlete has, with the switch on top; back to the athletes.
+- scrollUntilVisible:
+    element:
+      id: "coach-home-switch-me"
+    direction: UP
+    timeout: 20000
+- tapOn:
+    id: "coach-home-switch-me"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 15000
+- assertNotVisible:
+    id: "coach-home"
+- assertVisible:
+    id: "coach-home-switch-athletes"
+- tapOn:
+    id: "coach-home-switch-athletes"
+- extendedWaitUntil:
+    visible:
+      id: "coach-queue"
+    timeout: 15000
+- assertNotVisible:
+    id: "home-screen"

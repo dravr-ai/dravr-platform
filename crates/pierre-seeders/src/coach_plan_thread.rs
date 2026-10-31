@@ -94,6 +94,7 @@ const GROUP: GroupSpec<'static> = GroupSpec {
     description: "A runner and the coach who plans their season",
     agent_description: "The agent of the seeded coach plan group",
     agent_prompt: "You coach a runner whose human coach plans their season with you.",
+    max_members: 10,
 };
 
 /// CLI arguments for the coach plan thread seeder.

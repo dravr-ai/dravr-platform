@@ -60,6 +60,7 @@ const GROUP: GroupSpec<'static> = GroupSpec {
     description: "Planned on TrainingPeaks by the group's coach",
     agent_description: "The agent of the seeded TrainingPeaks coaching group",
     agent_prompt: "You coach an endurance group whose human coach plans on TrainingPeaks.",
+    max_members: 10,
 };
 
 /// The roster athlete the coach proposed.

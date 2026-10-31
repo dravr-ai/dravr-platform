@@ -14,6 +14,9 @@ const mockGetStats = jest.fn();
 const mockGetUnreadCount = jest.fn();
 const mockGetMyFeatures = jest.fn();
 const mockListCommands = jest.fn();
+const mockGetCoachRoster = jest.fn();
+const mockDismissAttention = jest.fn();
+const mockRestoreAttention = jest.fn();
 let mockRouteParams: { conversationId?: string } = {};
 
 jest.mock('expo-router', () => ({
@@ -28,12 +31,18 @@ jest.mock('../src/services/api', () => ({
   notificationsApi: { getUnreadCount: () => mockGetUnreadCount() },
   featureFlagsApi: { getMyFeatures: () => mockGetMyFeatures() },
   chatApi: { listCommands: (id?: string) => mockListCommands(id) },
+  coachRosterApi: {
+    getRoster: (query?: unknown) => mockGetCoachRoster(query),
+    dismissAttention: (request: unknown) => mockDismissAttention(request),
+    restoreAttention: (request: unknown) => mockRestoreAttention(request),
+  },
 }));
 
 import { useGroup, useGroupMembers, useGroupStats } from '../src/hooks/useGroups';
 import { useUnreadCount } from '../src/hooks/useNotifications';
 import { useFeatureFlags, FEATURE_KEYS } from '../src/hooks/useFeatureFlags';
 import { useCommandPalette } from '../src/hooks/useCommandPalette';
+import { useCoachRoster } from '../src/hooks/useCoachRoster';
 
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -109,5 +118,29 @@ describe('mobile bindings of the shared hooks', () => {
 
     await waitFor(() => expect(mockListCommands).toHaveBeenCalledTimes(1));
     expect(mockListCommands).toHaveBeenCalledWith(undefined);
+  });
+
+  it('reads the coach roster through the mobile roster API, a page of 100 at a time, kept a minute', async () => {
+    mockGetCoachRoster.mockResolvedValue({
+      scope: { visible_members: 0, roster_members: 0 },
+      groups: [],
+      athletes: [],
+      next_offset: null,
+    });
+    const { wrapper, optionsOf } = setup();
+
+    const { result } = renderHook(() => useCoachRoster(true), { wrapper });
+
+    await waitFor(() => expect(result.current.roster).toBeDefined());
+    expect(mockGetCoachRoster).toHaveBeenCalledWith({ offset: 0, limit: 100 });
+    expect(optionsOf(['coach-roster', 'list'])?.staleTime).toBe(60_000);
+  });
+
+  it('does not read the roster for an athlete', () => {
+    const { wrapper } = setup();
+
+    renderHook(() => useCoachRoster(false), { wrapper });
+
+    expect(mockGetCoachRoster).not.toHaveBeenCalled();
   });
 });

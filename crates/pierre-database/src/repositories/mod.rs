@@ -67,6 +67,8 @@ pub mod claim_verdict_grading;
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).
 pub mod coach_access_requests;
+/// Repository trait and shared body for a coach's "Traité" on Coach Home attention reasons (carnet#1252).
+pub mod coach_attention_dismissals;
 /// Repository trait and shared body for a coach's review of the agent's group replies (carnet#847).
 pub mod coach_reply_reviews;
 /// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
@@ -275,6 +277,9 @@ pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
+pub use coach_attention_dismissals::{
+    AttentionDismissal, AttentionDismissalKey, CoachAttentionDismissalRepository,
+};
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
 pub use data_source::*;

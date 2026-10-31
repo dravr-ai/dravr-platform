@@ -86,6 +86,16 @@ export const ENDPOINTS = {
    */
   COMMANDS: '/api/commands',
 
+  // ==================== COACH ROSTER ====================
+  COACH_ROSTER: {
+    /** The human coach's athletes, one page, with their attention reasons */
+    ROSTER: '/api/coach/roster',
+    /** Mark one attention reason handled ("Traité") */
+    ATTENTION_DISMISS: '/api/coach/attention/dismiss',
+    /** Undo a dismissal */
+    ATTENTION_RESTORE: '/api/coach/attention/restore',
+  },
+
   // ==================== COACHES ====================
   COACHES: {
     /** List the caller's coaches */

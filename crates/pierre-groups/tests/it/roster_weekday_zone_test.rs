@@ -69,6 +69,7 @@ fn snapshot_in(timezone: Option<&str>) -> MemberFitnessSnapshot {
         needs_reauth_providers: Vec::new(),
         served_stale: false,
         timezone: timezone.map(str::to_owned),
+        deep_fatigue_mornings: Vec::new(),
         computed_at: Utc::now(),
     }
 }

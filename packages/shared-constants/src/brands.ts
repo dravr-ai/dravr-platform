@@ -30,6 +30,35 @@ export const CHANNEL_BRAND = {
 export type ChannelBrandId = keyof typeof CHANNEL_BRAND;
 
 /**
+ * How each data source and coaching platform writes its own name, keyed by the
+ * provider id the server sends. The server already names a mirrored backend
+ * as the athlete knows it (`sciotte_garmin` arrives as `garmin`), so this
+ * table holds brands only. Trademarks, so data rather than copy.
+ */
+export const PROVIDER_BRAND = {
+  garmin: 'Garmin',
+  strava: 'Strava',
+  wahoo: 'Wahoo',
+  whoop: 'Whoop',
+  polar: 'Polar',
+  coros: 'COROS',
+  fitbit: 'Fitbit',
+  suunto: 'Suunto',
+  intervals_icu: 'Intervals.icu',
+  trainingpeaks: 'TrainingPeaks',
+} as const;
+
+/** A provider id {@link PROVIDER_BRAND} names. */
+export type ProviderBrandId = keyof typeof PROVIDER_BRAND;
+
+/** The brand of `provider`, or `null` for an id the table does not know. */
+export function providerBrand(provider: string): string | null {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_BRAND, provider)
+    ? PROVIDER_BRAND[provider as ProviderBrandId]
+    : null;
+}
+
+/**
  * How Dravr writes its own name.
  *
  * A proper noun, so it is data rather than copy: the wordmark is identical in

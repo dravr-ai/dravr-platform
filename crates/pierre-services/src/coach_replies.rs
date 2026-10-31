@@ -118,6 +118,11 @@ pub struct CoachReplyView {
     /// (`unmatched_figures`) — the coach-only signal; the athlete sees no
     /// banner for them
     pub unmatched_figures: usize,
+    /// The words of those claims, in the checker's order: what Coach Home's
+    /// queue quotes back to the coach. Not on this review's wire, which
+    /// carries the verdicts themselves.
+    #[serde(skip)]
+    pub unmatched_figure_claims: Vec<String>,
     /// The caller's flags on it, oldest first
     pub flags: Vec<CoachReplyFlag>,
     /// The caller's corrections on it, oldest first
@@ -168,7 +173,7 @@ pub struct CorrectionOutcome {
     pub correction: CoachReplyCorrection,
 }
 
-/// How many of a reply's claims about the athlete state a figure the checker
+/// The claims of a reply about the athlete that state a figure the checker
 /// could neither match to their records nor check against them.
 ///
 /// The athlete-data layer reads such a claim as `unverifiable`: a figure
@@ -179,7 +184,7 @@ pub struct CorrectionOutcome {
 /// that states no figure at all ("makes no specific claim") is not counted:
 /// there was nothing to match.
 #[must_use]
-fn unmatched_figures(verdicts: &[ClaimVerdict]) -> usize {
+fn unmatched_figures(verdicts: &[ClaimVerdict]) -> Vec<String> {
     verdicts
         .iter()
         .filter(|v| {
@@ -187,7 +192,8 @@ fn unmatched_figures(verdicts: &[ClaimVerdict]) -> usize {
                 && v.status == ClaimStatus::Unverifiable
                 && v.claim_text.chars().any(|c| c.is_ascii_digit())
         })
-        .count()
+        .map(|v| v.claim_text.clone())
+        .collect()
 }
 
 /// The page of replies the caller reviews.
@@ -515,6 +521,7 @@ async fn reply_view(
         }
         _ => Vec::new(),
     };
+    let unmatched = unmatched_figures(&verdicts);
     Ok(CoachReplyView {
         id: reply.entry_id.to_string(),
         group_id: reply.group_id.to_string(),
@@ -524,7 +531,8 @@ async fn reply_view(
         content: admitted.then_some(reply.content),
         withheld: !admitted,
         created_at: reply.created_at.to_rfc3339(),
-        unmatched_figures: unmatched_figures(&verdicts),
+        unmatched_figures: unmatched.len(),
+        unmatched_figure_claims: unmatched,
         verdicts: verdicts
             .into_iter()
             .map(|v| verdict_row(v, corpus))
@@ -600,7 +608,7 @@ mod tests {
                 "8 hours of sleep doubles recovery",
             ),
         ];
-        assert_eq!(unmatched_figures(&verdicts), 1);
+        assert_eq!(unmatched_figures(&verdicts).len(), 1);
     }
 
     fn stamp(kind: ReplyReviewKind, at: &str) -> ReplyReviewStamp {

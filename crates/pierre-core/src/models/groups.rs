@@ -766,8 +766,27 @@ pub struct MemberFitnessSnapshot {
     /// share one.
     #[serde(default)]
     pub timezone: Option<String>,
+    /// The run of consecutive mornings whose form fell in
+    /// [`FormBand::DeepFatigue`](super::FormBand::DeepFatigue), today first,
+    /// each banded by the same calculation as [`Self::form_reading`] one day
+    /// earlier. Empty unless today's form is in that band; bounded to a few
+    /// weeks. Lets the coach's queue say "third morning" without a stored
+    /// band history: the series is the one the snapshot already reads.
+    #[serde(default)]
+    pub deep_fatigue_mornings: Vec<FormMorning>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
+}
+
+/// One morning of a run of form readings, counted back from the snapshot's
+/// own day.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FormMorning {
+    /// Days before the snapshot's own day: `0` is that day.
+    pub days_ago: u32,
+    /// Form that morning as a percentage of the athlete's own fitness, as
+    /// [`FormReading::form_pct`] reports it.
+    pub form_pct: f64,
 }
 
 impl MemberFitnessSnapshot {

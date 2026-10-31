@@ -313,6 +313,13 @@ export const QUERY_KEYS = {
     weekly: () => ['coach-replies', 'weekly'] as const,
   },
 
+  // ==================== COACH HOME (carnet#1250, #1252, #1253) ====================
+  coachRoster: {
+    all: ['coach-roster'] as const,
+    /** The coach's whole roster, every page read and merged. */
+    list: () => ['coach-roster', 'list'] as const,
+  },
+
   // ==================== MESSAGING ====================
   messaging: {
     all: ['messaging'] as const,

@@ -669,7 +669,7 @@ const AGENT_PROPOSAL_STEP: &str = "coach_proposal";
 /// `devfixture:<user_id>`. The dev fixture API reads that bearer to serve this
 /// user's seeded activities, so the real provider fetches them through the
 /// normal path. Dev/test only — never run against real users.
-async fn register_provider_connection(
+pub(crate) async fn register_provider_connection(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: Uuid,

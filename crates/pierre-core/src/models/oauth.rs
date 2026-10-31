@@ -602,6 +602,11 @@ pub struct ProviderConnection {
     /// provider; `None` until then. Cleared on every (re)connect, since a new
     /// login may be a different account.
     pub account_role: Option<ProviderAccountRole>,
+    /// When `status` last changed — for a `needs_reauth` connection, when the
+    /// provider started refusing it. `None` for a row whose status never
+    /// changed. Read from the database only; not on any wire.
+    #[serde(skip)]
+    pub status_changed_at: Option<DateTime<Utc>>,
 }
 
 impl ProviderConnection {
@@ -624,6 +629,7 @@ impl ProviderConnection {
             status: ConnectionStatus::Active,
             metadata: None,
             account_role: None,
+            status_changed_at: None,
         }
     }
 }

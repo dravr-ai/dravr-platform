@@ -16,6 +16,7 @@ mod accounts;
 pub mod agent_packages;
 pub mod agents;
 pub mod bootstrap;
+pub mod coach_home;
 pub mod coach_plan_thread;
 mod coached_group;
 pub mod demo_data;

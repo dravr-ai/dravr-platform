@@ -13,6 +13,8 @@ interface UserOptions {
   email?: string;
   displayName?: string;
   status?: 'active' | 'pending' | 'suspended';
+  /** The user holds coach access (`manages_roster`): Home opens on their athletes (carnet#1253). */
+  managesRoster?: boolean;
   /**
    * Skip the default `/api/providers` mock below, leaving the spec's own the
    * only handler for that route.
@@ -344,6 +346,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     email = 'admin@test.com',
     displayName = 'Test Admin',
     status = 'active',
+    managesRoster = false,
     skipProvidersRoute = false,
     language = 'en',
   } = userOptions;
@@ -381,6 +384,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
           user_status: status,
           tier: role === 'super_admin' ? 'enterprise' : 'professional',
           tenant_id: 'user-123',
+          manages_roster: managesRoster,
         },
       }),
     });

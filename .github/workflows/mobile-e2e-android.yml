@@ -299,6 +299,19 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "warn"
 
+      # coach-home/01 signs in as the Coach Home coach: 45 athletes in three
+      # groups covering every attention reason and season state (carnet#1253).
+      # The seeder creates the coach as a returning one who trains; the Strava
+      # connection answers their own agent proposal, so they land on Coach Home.
+      - name: Seed the Coach Home coach for Maestro tests
+        run: |
+          ./target/release/pierre-cli seed coach-home --coach-email coachhome@pierre.dev --model ci-test-model
+          ./target/release/pierre-cli seed synthetic-activities --email coachhome@pierre.dev --provider strava --count 30 --days 30
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-android-test.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          RUST_LOG: "warn"
+
       - name: Checkout dravr-contremaitre for coach seed source
         uses: actions/checkout@v6
         with:
@@ -529,7 +542,7 @@ jobs:
           # Every flow but login/ signs in with a seeded session the control
           # process mints (carnet#1201), so none of them leaves a session in
           # Chrome for the next; login/02, 06 and 07 use the hosted page.
-          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml onboarding/02-coach-group-step.yaml coach-plan/01-publish-draft-from-athlete-thread.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml onboarding/02-coach-group-step.yaml coach-plan/01-publish-draft-from-athlete-thread.yaml coach-home/01-queue-athlete-and-switch.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
 
           # The list is unconditional now, so an empty one means someone edited it to
           # nothing — which under the guard below would silently report a green run of

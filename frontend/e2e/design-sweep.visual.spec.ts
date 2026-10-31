@@ -15,6 +15,7 @@ import {
   ONBOARDED_STATUS,
 } from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
+import { mockCoach } from './coach-home-mocks';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
@@ -465,6 +466,68 @@ test.describe('design sweep — Home first arrival', () => {
   for (const theme of THEMES) {
     test(`Home's first arrival renders in ${theme}`, async ({ page }) => {
       await sweepHomeFirstArrival(page, theme);
+    });
+  }
+});
+
+// A coach's Home (carnet#1250, #1252, #1253): À traiter with an athlete open,
+// the team table and the season, each on a roster tall enough that the list,
+// the table and the pane have to scroll inside themselves — the contract a
+// bleed surface owns — then the same three on a phone. The shared mocks model
+// an athlete, so none of this is reached by the registry walk.
+async function captureCoachPane(page: Page, theme: (typeof THEMES)[number], name: string) {
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/coach-home-${name}.png`, fullPage: true });
+  const failures = describeLayoutFailures(`coach-home/${name}`, await measurePageLayout(page));
+  expect(failures, `layout contract broken:\n${failures.join('\n')}`).toEqual([]);
+}
+
+async function sweepCoachHome(page: Page, theme: (typeof THEMES)[number]) {
+  await mockCoach(page, { fillers: 30 });
+  page.setDefaultTimeout(5_000);
+  await expect(page.getByTestId('coach-queue')).toBeVisible();
+
+  await page.getByTestId('coach-queue-row-u-lea').click();
+  await expect(page.getByTestId('form-strip')).toBeVisible();
+  await captureCoachPane(page, theme, 'queue');
+
+  await page.getByTestId('coach-see-all').click();
+  await expect(page.getByTestId('coach-roster')).toBeVisible();
+  await captureCoachPane(page, theme, 'team');
+
+  await page.getByTestId('coach-roster-back').click();
+  await page.getByTestId('coach-view-season').click();
+  await expect(page.getByTestId('coach-season-ahead')).toBeVisible();
+  await captureCoachPane(page, theme, 'season');
+  await page.getByTestId('coach-season-scale-12w').click();
+  await captureCoachPane(page, theme, 'season-12w');
+
+  await page.getByTestId('coach-home-switch-me').click();
+  await expect(page.getByTestId('home-page')).toBeVisible();
+  await captureCoachPane(page, theme, 'me');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByTestId('coach-home-switch-athletes').click();
+  await expect(page.getByTestId('coach-queue')).toBeVisible();
+  await captureCoachPane(page, theme, 'queue-phone');
+  await page.getByTestId('coach-queue-row-u-julien').click();
+  await expect(page.getByTestId('coach-athlete-pane')).toBeVisible();
+  await captureCoachPane(page, theme, 'athlete-phone');
+  await page.getByTestId('coach-pane-back').click();
+  await page.getByTestId('coach-see-all').click();
+  await expect(page.getByTestId('coach-roster-list')).toBeVisible();
+  await captureCoachPane(page, theme, 'team-phone');
+  await page.getByTestId('coach-view-season').click();
+  await expect(page.getByTestId('coach-season-ahead')).toBeVisible();
+  await captureCoachPane(page, theme, 'season-phone');
+}
+
+test.describe('design sweep — Coach Home', () => {
+  test.describe.configure({ timeout: 180_000 });
+  for (const theme of THEMES) {
+    test(`a coach's Home renders in ${theme}`, async ({ page }) => {
+      await sweepCoachHome(page, theme);
     });
   }
 });

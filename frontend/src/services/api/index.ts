@@ -13,6 +13,8 @@ export { pierreApi } from './client';
 export const authApi = pierreApi.auth;
 export const chatApi = pierreApi.chat;
 export const coachesApi = pierreApi.coaches;
+// The human coach's roster for Coach Home: athletes with their ranked reasons, and "Traité".
+export const coachRosterApi = pierreApi.coachRoster;
 export const apiKeysApi = pierreApi.apiKeys;
 export const oauthApi = pierreApi.oauth;
 export const storeApi = pierreApi.store;

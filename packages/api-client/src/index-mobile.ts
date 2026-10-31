@@ -79,6 +79,8 @@ export {
 export type { TurnCallbacks, TurnProgressSink, SseFrame } from './core/turn-stream';
 
 export { createCoachesApi } from './domains/coaches';
+export { createCoachRosterApi } from './domains/coachRoster';
+export type { CoachRosterApi } from './domains/coachRoster';
 export { createApiKeysApi } from './domains/apiKeys';
 export type { ApiKeysApi } from './domains/apiKeys';
 export type {
@@ -207,6 +209,7 @@ import { createAxiosClient } from './core/client';
 import { createAuthApi } from './domains/auth';
 import { createChatApi } from './domains/chat';
 import { createCoachesApi } from './domains/coaches';
+import { createCoachRosterApi } from './domains/coachRoster';
 import { createApiKeysApi } from './domains/apiKeys';
 import { createOAuthApi } from './domains/oauth';
 import { createStoreApi } from './domains/store';
@@ -252,6 +255,8 @@ export interface PierreApiService {
   chat: ReturnType<typeof createChatApi>;
   /** Coaches API */
   coaches: ReturnType<typeof createCoachesApi>;
+  /** The human coach's roster for Coach Home */
+  coachRoster: ReturnType<typeof createCoachRosterApi>;
   /** The caller's own API keys */
   apiKeys: ReturnType<typeof createApiKeysApi>;
   /** OAuth API */
@@ -306,6 +311,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     auth: createAuthApi(axios, adapter.authStorage, adapter.platform),
     chat: createChatApi(axios, adapter),
     coaches: createCoachesApi(axios),
+    coachRoster: createCoachRosterApi(axios),
     apiKeys: createApiKeysApi(axios),
     oauth: createOAuthApi(axios),
     store: createStoreApi(axios),

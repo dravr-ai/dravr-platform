@@ -48,6 +48,8 @@ pub mod check_in_preferences;
 pub mod claim_verdicts;
 /// Coach-access requests a super-admin decides (Postgres)
 pub mod coach_access_requests;
+/// A coach's "Traité" on Coach Home attention reasons (Postgres)
+pub mod coach_attention_dismissals;
 /// A coach's review of the agent's group replies (Postgres)
 pub mod coach_reply_reviews;
 /// Coaching group repository implementation (group CRUD, membership, invites)

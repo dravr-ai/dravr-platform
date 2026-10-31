@@ -38,6 +38,8 @@ pub use crate::guardian::GuardianSettings;
 pub use crate::timeouts::ServerTimeouts;
 // How a chat turn sends its tool catalogue
 pub use crate::chat_tools::ChatToolSettings;
+// When Coach Home's attention queue raises a reason
+pub use crate::coach_home::CoachHomeConfig;
 // Inbound webhook secrets
 pub use crate::webhooks::WebhookSecrets;
 // Logging
@@ -148,6 +150,9 @@ pub struct ServerConfig {
     pub chat_tools: ChatToolSettings,
     /// What inbound provider and messaging webhooks are verified against
     pub webhooks: WebhookSecrets,
+    /// When Coach Home's attention queue raises a reason
+    #[serde(default)]
+    pub coach_home: CoachHomeConfig,
 }
 
 impl ServerConfig {
@@ -208,6 +213,7 @@ impl ServerConfig {
             timeouts: ServerTimeouts::from_env(),
             chat_tools: ChatToolSettings::from_env(),
             webhooks: WebhookSecrets::from_env(),
+            coach_home: CoachHomeConfig::from_env(),
         };
 
         config.validate()?;

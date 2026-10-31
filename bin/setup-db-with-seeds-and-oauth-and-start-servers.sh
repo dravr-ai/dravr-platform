@@ -307,6 +307,15 @@ echo "    Seeding a coach plan thread for plancoach@pierre.dev..."
 "$PIERRE_CLI" user create --email plancoach@pierre.dev --password PlanTest1234 --name "Plan Coach" --locale en --force 2>&1 | tail -1
 "$PIERRE_CLI" user create --email planathlete@pierre.dev --password PlanTest1234 --name "Maya Tempo" --locale en --force 2>&1 | tail -1
 "$PIERRE_CLI" seed coach-plan-thread --coach-email plancoach@pierre.dev --athlete-email planathlete@pierre.dev 2>&1 | tail -1
+# Coach Home's live walk: a coach holding 45 dev-fixture athletes in three
+# groups, every attention reason and season-view section among them. The
+# seeder creates the coach itself: `user create` makes an admin, and an admin
+# lands on the admin console instead of Coach Home.
+echo "    Seeding Coach Home for coachhome@pierre.dev..."
+"$PIERRE_CLI" seed coach-home --coach-email coachhome@pierre.dev 2>&1 | tail -1
+# The coach trains too ("Mon entraînement" behind the switch): a Strava
+# athlete like alice, which also answers their agent proposal.
+"$PIERRE_CLI" seed synthetic-activities --email coachhome@pierre.dev --provider strava --count 30 --days 30 2>&1 | tail -1
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Home tab stack layout for Expo Router — the athlete's Home under the native header
+// ABOUTME: Home tab stack layout for Expo Router — the athlete's Home under the native header, and a coach's athlete detail pushed over it
 // ABOUTME: The screen sets its own title view (the pressable Dravr lockup); the title here is the spoken fallback
 
 import { Stack } from 'expo-router';
@@ -13,6 +13,7 @@ export default function HomeLayout() {
   return (
     <Stack screenOptions={useStackScreenOptions()}>
       <Stack.Screen name="index" options={{ title: t('nav.home') }} />
+      <Stack.Screen name="athlete/[athleteId]" options={{ title: '' }} />
     </Stack>
   );
 }

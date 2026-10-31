@@ -21,14 +21,11 @@
 //! pierre-cli seed demo-data --reset
 //! ```
 
-use bcrypt::{hash, DEFAULT_COST};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
 use pierre_database::repositories::SeedTable;
-use pierre_database::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant, SEED_LOCALE,
-};
+use pierre_database::seed_models::{SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
 use rand::rngs::StdRng;
@@ -36,9 +33,11 @@ use rand::{Rng, SeedableRng};
 use tracing::info;
 use uuid::Uuid;
 
+use crate::accounts::{create_account, hash_password, NewAccount};
+
 /// Default password for all demo users - allows login for testing.
 /// Password: `DemoUser123!`
-const DEMO_USER_PASSWORD: &str = "DemoUser123!";
+pub(crate) const DEMO_USER_PASSWORD: &str = "DemoUser123!";
 
 /// CLI arguments for the demo data seeder.
 #[derive(Debug, clap::Args)]
@@ -700,57 +699,18 @@ async fn arm_exposure_notice(
 
 /// Create a single demo user with tenant via [`SeederRepository`] operations
 async fn create_demo_user(repos: &RepositoryRegistry, user: &DemoUser) -> AppResult<Uuid> {
-    let user_id = Uuid::new_v4();
-    let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
-    let password_hash =
-        hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
-
-    let now = Utc::now();
-
-    // Insert user row
-    let seed_user = SeedDemoUser {
-        id: user_id,
-        email: user.email.to_owned(),
-        display_name: user.display_name.to_owned(),
-        password_hash,
-        tier: user.tier.to_owned(),
-        status: user.status.to_owned(),
-        is_admin: false,
-        created_at: now,
-        locale: SEED_LOCALE.to_owned(),
-    };
-    repos.seeder.seed_insert_demo_user(&seed_user).await?;
-
-    // Create personal tenant (plan matches user tier)
-    let tenant_id = Uuid::new_v4();
-    let tenant_slug = format!("user-{}", user_id.as_simple());
-    let tenant_name = format!("{}'s Workspace", user.display_name);
-
-    let seed_tenant = SeedTenant {
-        id: tenant_id,
-        name: tenant_name,
-        slug: tenant_slug,
-        plan: user.tier.to_owned(),
-        owner_user_id: user_id,
-        created_at: now,
-        updated_at: now,
-    };
-    repos.seeder.seed_insert_tenant(&seed_tenant).await?;
-
-    // Add user as tenant owner in junction table
-    let tenant_user_id = Uuid::new_v4();
-    repos
-        .seeder
-        .seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
-        .await?;
-
-    // Update tenant_id column on user for backwards compatibility
-    repos
-        .seeder
-        .seed_update_user_tenant(user_id, tenant_id)
-        .await?;
-
-    Ok(user_id)
+    let password_hash = hash_password(user.password.unwrap_or(DEMO_USER_PASSWORD))?;
+    create_account(
+        repos,
+        &NewAccount {
+            email: user.email,
+            display_name: user.display_name,
+            password_hash: &password_hash,
+            tier: user.tier,
+            status: user.status,
+        },
+    )
+    .await
 }
 
 /// Seed API keys

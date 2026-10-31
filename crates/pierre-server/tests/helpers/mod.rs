@@ -11,6 +11,9 @@ pub(crate) mod axum_test;
 pub(crate) mod chat_scenario;
 /// A local stand-in for the Cloud Tasks API that records every task it is handed.
 pub(crate) mod cloud_tasks_stub;
+/// Coaches, athletes, coached groups, cached sessions and plans for the coach roster suites.
+#[cfg(feature = "tools-groups")]
+pub(crate) mod coach_roster_fixtures;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod command_e2e;
 /// The dravr-contremaitre tree the build compiled against, found without cargo.

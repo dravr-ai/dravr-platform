@@ -17,6 +17,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
+use pierre_seeders::coach_home::{run as run_coach_home, SeedArgs as CoachHomeArgs};
 use pierre_seeders::coach_plan_thread::{
     run as run_coach_plan_thread, SeedArgs as CoachPlanThreadArgs,
 };
@@ -65,6 +66,9 @@ pub(crate) enum SeedCommand {
 
     /// Seed a coach's thread about one athlete whose plan card shows the coach's open draft, for the plan-thread flows
     CoachPlanThread(CoachPlanThreadArgs),
+
+    /// Seed a coach holding 45 athletes in three groups, every Coach Home attention reason and season state among them
+    CoachHome(CoachHomeArgs),
 }
 
 /// Dispatch a `Seed` subcommand to its seeder module.
@@ -102,6 +106,13 @@ pub(crate) async fn dispatch(action: SeedCommand, database_url: &str) -> AppResu
         SeedCommand::CoachPlanThread(mut args) => {
             args.model = args.model.or_else(|| LlmChain::from_env().head_model());
             dispatch_with_database(SeedCommand::CoachPlanThread(args), database_url).await
+        }
+        // The athletes are dev-fixture Strava athletes, whose token is
+        // encrypted; the agent replies' conversations get the configured model.
+        SeedCommand::CoachHome(mut args) => {
+            args.model = args.model.or_else(|| LlmChain::from_env().head_model());
+            let repos = keyed_repositories(database_url, "coach-home").await?;
+            run_coach_home(args, &repos).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
@@ -153,7 +164,9 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::Mobility => run_mobility(repos).await,
         SeedCommand::VerdictConversation(args) => run_verdict_conversation(args, repos).await,
         SeedCommand::CoachPlanThread(args) => run_coach_plan_thread(args, repos).await,
-        SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
+        SeedCommand::SyntheticActivities(_)
+        | SeedCommand::TrainingpeaksDelegation(_)
+        | SeedCommand::CoachHome(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }
     }

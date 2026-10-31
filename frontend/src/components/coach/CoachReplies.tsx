@@ -233,9 +233,9 @@ function ReplyCard({ reply }: ReplyCardProps) {
  * to one athlete. The header line counts this week's flags and corrections —
  * the "corrections needed" figure the cohort report prints.
  */
-export default function CoachReplies() {
+export default function CoachReplies({ initialAthleteId = null }: { initialAthleteId?: string | null }) {
   const { t, i18n } = useTranslation();
-  const [athleteId, setAthleteId] = useState<string | null>(null);
+  const [athleteId, setAthleteId] = useState<string | null>(initialAthleteId);
 
   const pages = useInfiniteQuery({
     queryKey: QUERY_KEYS.coachReplies.list(athleteId),

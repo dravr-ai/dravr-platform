@@ -27,6 +27,8 @@ pub(crate) struct GroupSpec<'a> {
     pub agent_description: &'a str,
     /// The system prompt of the group's agent.
     pub agent_prompt: &'a str,
+    /// How many members the group holds at most.
+    pub max_members: i32,
 }
 
 /// Whether `coach` already coaches a group named `name`, which makes a
@@ -111,7 +113,7 @@ pub(crate) async fn seed_coached_group(
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
                 digest_mode: GroupDigestMode::Off,
-                max_members: 10,
+                max_members: spec.max_members,
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
@@ -125,27 +127,45 @@ pub(crate) async fn seed_coached_group(
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
         .await?;
     for (account, role) in members {
-        repos
-            .groups
-            .add_member(&GroupMember {
-                id: Uuid::new_v4(),
-                group_id: group.id,
-                user_id: account.id,
-                tenant_id: account.tenant.to_string(),
-                role: *role,
-                peer_sharing_consent: false,
-                coach_sharing_consent: true,
-                coach_sharing_consent_at: None,
-                coach_consents: CoachConsents::default(),
-                consent_given_at: now,
-                joined_at: now,
-                left_at: None,
-                display_name: None,
-            })
-            .await?;
+        add_member(repos, group.id, account, *role, true).await?;
     }
     Ok(CoachingGroup {
         coach_user_id: Some(coach.id),
         ..group
     })
+}
+
+/// Add `account` to the group with `role`, sharing their data with its coach
+/// or not. The membership is dated now, as every join is.
+///
+/// # Errors
+///
+/// Returns the repository error from the member write.
+pub(crate) async fn add_member(
+    repos: &RepositoryRegistry,
+    group_id: Uuid,
+    account: &Account,
+    role: GroupRole,
+    shares_with_coach: bool,
+) -> AppResult<()> {
+    let now = Utc::now();
+    repos
+        .groups
+        .add_member(&GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id: account.id,
+            tenant_id: account.tenant.to_string(),
+            role,
+            peer_sharing_consent: false,
+            coach_sharing_consent: shares_with_coach,
+            coach_sharing_consent_at: None,
+            coach_consents: CoachConsents::default(),
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        })
+        .await?;
+    Ok(())
 }

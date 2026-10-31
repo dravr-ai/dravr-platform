@@ -289,3 +289,47 @@ export {
   gearDraftOf,
   splitGear,
 } from './gearLedger';
+
+// Coach Home: the queue, the team table's order, the season's layout and the words of an evidence line, one rule on both clients.
+export {
+  FORM_STRIP_STEPS,
+  agentCell,
+  agentCellNeedsLook,
+  athletesInGroup,
+  buildQueue,
+  buildRosterTable,
+  buildSeason,
+  civilDayNumber,
+  civilFromDayNumber,
+  countdownBars,
+  daysBetween,
+  daysToARace,
+  describeLine,
+  describeSource,
+  firstQueued,
+  formStripIndex,
+  localToday,
+  nextPhase,
+  providerLetter,
+  providerName,
+  queueCount,
+  queueWhen,
+  sourceChips,
+  trainingCut,
+  type CoachQueue,
+  type MergedRoster,
+  type QueueEntry,
+  type SeasonRow,
+  type SeasonScale,
+} from './coachHome';
+export { createCoachRosterHooks } from './coachRosterHooks';
+export {
+  agentWords,
+  formWords,
+  lastSessionWords,
+  lastWhenWords,
+  nonSharerStatusWords,
+  planWords,
+  sourceChipWords,
+  threadWords,
+} from './coachHomeWords';

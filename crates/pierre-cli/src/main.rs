@@ -55,6 +55,7 @@
 //! pierre-cli seed llm-usage --days 60
 //! pierre-cli seed verdict-conversation --email verdicttest@pierre.dev
 //! pierre-cli seed coach-plan-thread --coach-email plancoach@pierre.dev --athlete-email planathlete@pierre.dev
+//! pierre-cli seed coach-home --coach-email coachhome@pierre.dev
 //!
 //! # Mint a mobile app session for a Maestro flow that starts signed in
 //! # (built with --features e2e-seeded-sessions, against a SQLite database only)

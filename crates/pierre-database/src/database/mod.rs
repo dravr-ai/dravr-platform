@@ -44,6 +44,8 @@ pub mod check_in_preferences;
 pub mod claim_verdicts;
 /// Coach-access requests a super-admin decides (`SQLite`)
 pub mod coach_access_requests;
+/// A coach's "Traité" on Coach Home attention reasons (`SQLite`)
+pub mod coach_attention_dismissals;
 /// A coach's review of the agent's group replies (`SQLite`)
 pub mod coach_reply_reviews;
 /// Coaching group storage, membership, and invite management

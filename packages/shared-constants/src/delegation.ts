@@ -4,6 +4,7 @@
 // ABOUTME: The coaching-platform link vocabulary both group-info surfaces print — each refusal and consent as a corpus key
 // ABOUTME: A constants module cannot translate, so it names the keys and the platform each client passes to its own t()
 
+import { PROVIDER_BRAND } from './brands';
 import type {
   CoachConsentsResponse,
   CoachPlatformProvider,
@@ -67,8 +68,8 @@ export const DELEGATION_CONNECTION_REFUSALS: ReadonlySet<DelegationRefusalReason
  * language.
  */
 const COACH_PLATFORM_NAMES: Record<CoachPlatformProvider, string> = {
-  trainingpeaks: 'TrainingPeaks',
-  intervals_icu: 'Intervals.icu',
+  trainingpeaks: PROVIDER_BRAND.trainingpeaks,
+  intervals_icu: PROVIDER_BRAND.intervals_icu,
 };
 
 /** The backend a platform's own connection is stored under, where it differs from the platform. */
