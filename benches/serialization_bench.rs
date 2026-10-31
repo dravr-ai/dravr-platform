@@ -85,10 +85,6 @@ fn generate_sleep_sessions(count: usize) -> Vec<SleepSession> {
                 sleep_score: Some(70.0 + ((index * 13) % 30) as f32),
                 stages,
                 hrv_during_sleep: Some(40.0 + ((index * 11) % 40) as f64),
-                respiratory_rate: Some(14.0 + ((index * 3) % 6) as f32),
-                temperature_variation: Some(0.5 + ((index * 7) % 10) as f32 / 10.0),
-                wake_count: Some(2 + ((index * 3) % 5) as u32),
-                sleep_onset_latency: Some(10 + ((index * 5) % 20) as u32),
                 provider: "benchmark".to_owned(),
             }
         })

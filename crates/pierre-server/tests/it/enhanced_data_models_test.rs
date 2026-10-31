@@ -173,10 +173,6 @@ fn test_sleep_session_model() {
             },
         ],
         hrv_during_sleep: Some(42.5),
-        respiratory_rate: Some(16.0),
-        temperature_variation: Some(0.8),
-        wake_count: Some(2),
-        sleep_onset_latency: Some(12),
         provider: "oura".to_owned(),
     };
 
@@ -209,8 +205,6 @@ fn test_recovery_metrics_model() {
             .and_utc(),
         recovery_score: Some(78.0),
         readiness_score: Some(82.0),
-        hrv_status: Some("Balanced".to_owned()),
-        sleep_score: Some(85.0),
         stress_level: Some(25.0), // Low stress
         training_load: Some(65.0),
         resting_heart_rate: Some(52),
@@ -224,8 +218,11 @@ fn test_recovery_metrics_model() {
 
     // Test wellness score calculation
     let wellness = recovery_metrics.wellness_score().unwrap();
-    // Should be average of recovery (78), sleep (85), and inverted stress (75) = 79.33
-    assert!((wellness - 79.33).abs() < 0.1);
+    // Should be average of recovery (78) and inverted stress (75) = 76.5
+    assert!(
+        (wellness - 76.5).abs() < 0.1,
+        "bug: wellness_score must average recovery and inverted stress, got {wellness}"
+    );
 
     // Test serialization (before creating poor_recovery to avoid borrow checker issue)
     let json =
@@ -313,7 +310,6 @@ fn test_health_metrics_model() {
         muscle_mass: Some(58.2),
         bone_mass: Some(3.1),
         body_water_percentage: Some(62.8),
-        bmr: Some(1750),
         blood_pressure: Some((120, 80)),
         blood_glucose: Some(95.0),
         vo2_max: Some(52.8),

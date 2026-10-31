@@ -18,12 +18,6 @@ pub struct RecoveryMetrics {
     /// Readiness score for training (0-100)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readiness_score: Option<f32>,
-    /// HRV status or trend
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hrv_status: Option<String>,
-    /// Sleep contribution to recovery (0-100)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sleep_score: Option<f32>,
     /// Stress level indicator (0-100, higher = more stress)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stress_level: Option<f32>,
@@ -67,11 +61,6 @@ impl RecoveryMetrics {
             factor_count += 1;
         }
 
-        if let Some(sleep) = self.sleep_score {
-            total_score += sleep;
-            factor_count += 1;
-        }
-
         // Invert stress level (lower stress = better wellness)
         if let Some(stress) = self.stress_level {
             total_score += 100.0 - stress;
@@ -106,9 +95,6 @@ pub struct HealthMetrics {
     /// Body water percentage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_water_percentage: Option<f32>,
-    /// Basal metabolic rate (calories/day)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bmr: Option<u32>,
     /// Blood pressure (systolic, diastolic)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blood_pressure: Option<(u32, u32)>,

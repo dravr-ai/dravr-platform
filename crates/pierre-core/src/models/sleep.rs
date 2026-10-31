@@ -57,18 +57,6 @@ pub struct SleepSession {
     /// Heart rate variability during sleep
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hrv_during_sleep: Option<f64>,
-    /// Average respiratory rate during sleep
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub respiratory_rate: Option<f32>,
-    /// Temperature variation during sleep
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature_variation: Option<f32>,
-    /// Number of times awakened
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wake_count: Option<u32>,
-    /// Time to fall asleep (minutes)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sleep_onset_latency: Option<u32>,
     /// Provider of this sleep data
     pub provider: String,
 }
