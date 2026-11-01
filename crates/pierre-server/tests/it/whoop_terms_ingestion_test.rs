@@ -268,6 +268,30 @@ fn from<'a, T>(rows: &'a [T], source: &str, name: impl Fn(&T) -> &str) -> &'a T 
         .unwrap_or_else(|| panic!("no {source} row among {} read back", rows.len()))
 }
 
+/// The migration ran on a `recovery_metrics` that still held `sleep_score`,
+/// which S13 (carnet#1280) dropped later; the test puts the column back first.
+const RECOVERY_SLEEP_SCORE: &str =
+    "ALTER TABLE recovery_metrics ADD COLUMN sleep_score DOUBLE PRECISION";
+
+/// Give the test database back the schema the migration ran on.
+async fn restore_schema_of_the_migration(db: &Database) {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::raw_sql(RECOVERY_SLEEP_SCORE)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::raw_sql(RECOVERY_SLEEP_SCORE)
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
 /// Apply the migration under test, whole, to whichever engine the test database is.
 async fn run_migration(db: &Database) {
     match db.backend() {
@@ -851,6 +875,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
         .await
         .unwrap();
 
+    restore_schema_of_the_migration(&db).await;
     run_migration(&db).await;
     // Rerunning it changes nothing: every statement is a plain rewrite.
     run_migration(&db).await;

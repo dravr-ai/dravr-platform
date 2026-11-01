@@ -1,5 +1,5 @@
 // ABOUTME: Soft- and hard-delete on the sleep / recovery / health repositories, and the wellness writer's write modes
-// ABOUTME: T9 (a whole-day write clears a retracted reading, a soft-deleted row comes back with nothing stale), plus S5
+// ABOUTME: T9 (a whole-day write clears a retracted reading, a soft-deleted row comes back with nothing stale), S5, S13
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,6 +27,8 @@
 //! - A night's `SpO2` reaches its column.
 //! - DECISION 2's migration clears the scores Body Battery filled on stored
 //!   Garmin days, and nothing else.
+//! - S13's migration (carnet#1280) moves a night's respiratory rate onto its
+//!   morning's recovery row, then drops the seven columns nothing writes.
 //! - **S5**: a cached activity synced earlier than the stored copy does not
 //!   overwrite it, and is not counted as written.
 //!
@@ -508,7 +510,6 @@ async fn time_series_latest_returns_most_recent_point() {
 /// The `SQLite` and `PostgreSQL` DECISION 2 migrations under test.
 const SQLITE_MIGRATION: &str =
     include_str!("../../../../migrations/20261031120000_body_battery_is_not_a_score.sql");
-#[cfg(feature = "postgresql")]
 const POSTGRES_MIGRATION: &str =
     include_str!("../../../../migrations_pg/20261031120000_body_battery_is_not_a_score.sql");
 
@@ -965,20 +966,31 @@ async fn an_activity_synced_earlier_than_the_stored_copy_leaves_it_standing() {
 /// Apply the DECISION 2 migration, whole, to whichever engine the test
 /// database is.
 async fn run_migration(db: &Database) {
+    run_shipped(db, SQLITE_MIGRATION, POSTGRES_MIGRATION).await;
+}
+
+/// Run one shipped migration file, whole, on whichever engine the test
+/// database is.
+async fn run_shipped(db: &Database, sqlite_sql: &str, postgres_sql: &str) {
+    raw(db, sqlite_sql, postgres_sql).await.unwrap();
+}
+
+/// Run raw SQL, per engine, and hand back what the engine answered.
+async fn raw(
+    db: &Database,
+    sqlite_sql: &str,
+    #[cfg_attr(not(feature = "postgresql"), expect(unused_variables))] postgres_sql: &str,
+) -> Result<(), sqlx::Error> {
     match db.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            sqlx::raw_sql(SQLITE_MIGRATION)
-                .execute(sqlite.pool())
-                .await
-                .unwrap();
-        }
+        DatabaseBackend::SQLite(sqlite) => sqlx::raw_sql(sqlite_sql)
+            .execute(sqlite.pool())
+            .await
+            .map(drop),
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(postgres) => {
-            sqlx::raw_sql(POSTGRES_MIGRATION)
-                .execute(postgres.pool())
-                .await
-                .unwrap();
-        }
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::raw_sql(postgres_sql)
+            .execute(postgres.pool())
+            .await
+            .map(drop),
     }
 }
 
@@ -1047,4 +1059,221 @@ async fn the_migration_clears_body_battery_scores_and_nothing_else() {
         (Some(64), Some(64)),
         "another provider's scores are not Garmin's to clear"
     );
+}
+
+/// S13 step 2 (carnet#1280): the migration that drops the seven wellness
+/// columns nothing writes.
+const SQLITE_DROP: &str =
+    include_str!("../../../../migrations/20261101120000_drop_unwritten_wellness_columns.sql");
+const POSTGRES_DROP: &str =
+    include_str!("../../../../migrations_pg/20261101120000_drop_unwritten_wellness_columns.sql");
+
+/// The seven columns, as the table that held each and a type for it
+/// (`FLOAT8`: a double on PostgreSQL, where `REAL` would round 14.2).
+const DROPPED: [(&str, &str, &str); 7] = [
+    ("sleep_sessions", "respiratory_rate", "FLOAT8"),
+    ("sleep_sessions", "temperature_variation", "FLOAT8"),
+    ("sleep_sessions", "wake_count", "INTEGER"),
+    ("sleep_sessions", "sleep_onset_latency", "INTEGER"),
+    ("recovery_metrics", "hrv_status", "TEXT"),
+    ("recovery_metrics", "sleep_score", "FLOAT8"),
+    ("health_snapshots", "bmr", "INTEGER"),
+];
+
+/// Each night's respiratory rate, in the column the migration reads it from.
+/// The test database is the test's own, so no row of another test is here.
+/// A soft-deleted night carries a rate that would win if it were read.
+const NIGHT_RATES: &str = "UPDATE sleep_sessions SET respiratory_rate = CASE \
+     WHEN deleted_at IS NOT NULL THEN 99.0 \
+     WHEN is_nap = 1 THEN 18.0 WHEN provider = 'garmin' THEN 14.2 \
+     WHEN provider = 'whoop' THEN 13.0 WHEN provider = 'coros' THEN 16.0 END";
+
+/// A recovery row's stored rate, read from the table itself, so a
+/// soft-deleted row the repositories hide is read too.
+async fn stored_rate(db: &Database, id: &str) -> Option<f64> {
+    const SQL: &str = "SELECT resting_respiratory_rate FROM recovery_metrics WHERE id = $1";
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_one(pg.pool())
+            .await
+            .unwrap(),
+    }
+}
+
+/// The nights S13's migration reads, all ending on [`morning`] except a
+/// coros night that ends at 02:00 UTC the day after: garmin's main night
+/// (14.2), its nap (18.0) and a longer soft-deleted night (99.0), a shorter
+/// whoop night (13.0) and that late coros night (16.0).
+async fn seed_s13_nights(
+    db: &Database,
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: TenantId,
+) {
+    let garmin = &data_source(repos, user_id, tenant, "garmin").await;
+    let whoop = &data_source(repos, user_id, tenant, "whoop").await;
+    let coros = &data_source(repos, user_id, tenant, "coros").await;
+    let nap = StoredSleepSession {
+        is_nap: true,
+        start_datetime: night_start() + Duration::hours(9),
+        end_datetime: night_start() + Duration::hours(10),
+        ..night(user_id, garmin, "garmin")
+    };
+    let deleted = StoredSleepSession {
+        start_datetime: night_start() - Duration::hours(1),
+        total_sleep_seconds: Some(30_000),
+        ..night(user_id, garmin, "garmin")
+    };
+    let shorter = StoredSleepSession {
+        total_sleep_seconds: Some(20_000),
+        ..night(user_id, whoop, "whoop")
+    };
+    let late = StoredSleepSession {
+        start_datetime: night_start() + Duration::hours(19),
+        end_datetime: night_start() + Duration::hours(27),
+        total_sleep_seconds: Some(24_000),
+        ..night(user_id, coros, "coros")
+    };
+    let mut writes = WellnessStore::new(repos).writes("sleep");
+    let main_night = night(user_id, garmin, "garmin");
+    let stored = [&main_night, &nap, &deleted, &shorter, &late];
+    for session in stored {
+        writes.sleep(tenant, session, Utc::now()).await.unwrap();
+    }
+    let soft_deleted = repos
+        .sleep
+        .delete_sleep_session_by_id(&tenant, &deleted.id, true)
+        .await
+        .unwrap();
+    assert!(
+        soft_deleted,
+        "test setup bug: the night to soft-delete was not stored"
+    );
+    raw(db, NIGHT_RATES, NIGHT_RATES).await.unwrap();
+}
+
+/// The recovery rows on [`morning`]: an empty day for garmin, coros and
+/// intervals.icu, a whoop day that already holds 15.5, a soft-deleted polar
+/// day, and an empty garmin day for the same athlete under a second tenant.
+/// Hands back the soft-deleted day's id and the second tenant.
+async fn seed_s13_days(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> (String, TenantId) {
+    let garmin = &data_source(repos, user_id, tenant, "garmin").await;
+    let whoop = &data_source(repos, user_id, tenant, "whoop").await;
+    let coros = &data_source(repos, user_id, tenant, "coros").await;
+    let icu = &data_source(repos, user_id, tenant, "intervals_icu").await;
+    let polar = &data_source(repos, user_id, tenant, "polar").await;
+    let other_tenant = TenantId::generate();
+    let other_garmin = &data_source(repos, user_id, other_tenant, "garmin").await;
+    let stored_day = StoredRecoveryMetrics {
+        respiratory_rate: Some(15.5),
+        ..day(user_id, whoop, "whoop")
+    };
+    let deleted_day = day(user_id, polar, "polar");
+    let rows = [
+        (tenant, &day(user_id, garmin, "garmin")),
+        (tenant, &stored_day),
+        (tenant, &day(user_id, coros, "coros")),
+        (tenant, &day(user_id, icu, "intervals_icu")),
+        (tenant, &deleted_day),
+        (other_tenant, &day(user_id, other_garmin, "garmin")),
+    ];
+    for (owner, row) in rows {
+        repos
+            .recovery
+            .upsert_recovery_metrics(&owner, row, WellnessWriteMode::FullDay, Utc::now())
+            .await
+            .unwrap();
+    }
+    let soft_deleted = repos
+        .recovery
+        .delete_recovery_metric_by_id(&tenant, &deleted_day.id, true)
+        .await
+        .unwrap();
+    assert!(
+        soft_deleted,
+        "test setup bug: the day to soft-delete was not stored"
+    );
+    (deleted_day.id, other_tenant)
+}
+
+/// The migration copies a night's respiratory rate into its morning's
+/// `recovery_metrics.resting_respiratory_rate`, for the same athlete and
+/// tenant, only where the day holds none: the day's own provider's night
+/// first, then the main night ahead of a nap, then the longer sleep. A
+/// soft-deleted row on either side is left out. Then the seven columns are
+/// gone.
+#[tokio::test]
+async fn the_s13_migration_moves_night_respiration_to_the_morning_and_drops_seven_columns() {
+    let (db, repos, user_id, tenant) = setup().await;
+    // The databases before this migration still had the seven columns.
+    for (table, column, kind) in DROPPED {
+        let add = ["ALTER TABLE ", table, " ADD COLUMN ", column, " ", kind].concat();
+        raw(&db, &add, &add).await.unwrap();
+    }
+    // The athlete lives in Toronto: a night that ends at 02:00 UTC ends the
+    // evening before, locally (PostgreSQL reads the zone; SQLite has none).
+    repos
+        .users
+        .set_timezone(user_id, "America/Toronto")
+        .await
+        .unwrap();
+    seed_s13_nights(&db, &repos, user_id, tenant).await;
+    let (deleted_day, other_tenant) = seed_s13_days(&repos, user_id, tenant).await;
+    run_shipped(&db, SQLITE_DROP, POSTGRES_DROP).await;
+
+    let read = days(&repos, user_id, tenant).await;
+    let rate = |provider: &str| {
+        read.iter()
+            .find(|d| d.source_name == provider && d.date == morning())
+            .unwrap_or_else(|| panic!("no {provider} day: {read:?}"))
+            .respiratory_rate
+    };
+    assert_eq!(
+        rate("garmin"),
+        Some(14.2),
+        "the day's own main night: not the nap, not the soft-deleted night"
+    );
+    assert_eq!(rate("whoop"), Some(15.5), "a day's stored rate stands");
+    assert_eq!(
+        rate("intervals_icu"),
+        Some(14.2),
+        "a day with no night of its own takes the athlete's longest main night"
+    );
+    // PostgreSQL places the late coros night on this morning, in Toronto;
+    // SQLite places it on the next UTC day, so coros takes garmin's.
+    let zoned = !matches!(db.backend(), DatabaseBackend::SQLite(_));
+    assert_eq!(
+        rate("coros"),
+        Some(if zoned { 16.0 } else { 14.2 }),
+        "a night ending the evening before, in the athlete's zone"
+    );
+    assert_eq!(
+        stored_rate(&db, &deleted_day).await,
+        None,
+        "a soft-deleted day takes no rate"
+    );
+    let other = days(&repos, user_id, other_tenant).await;
+    assert_eq!(
+        other.iter().map(|d| d.respiratory_rate).collect::<Vec<_>>(),
+        [None],
+        "another tenant's day takes none of this tenant's nights"
+    );
+    for (table, column, _) in DROPPED {
+        let select = ["SELECT ", column, " FROM ", table].concat();
+        assert!(
+            raw(&db, &select, &select).await.is_err(),
+            "{table}.{column} is dropped"
+        );
+    }
 }
