@@ -261,12 +261,14 @@ macro_rules! recovery_insert {
 
 /// A whole day's recovery readings: each replaces the stored one.
 ///
-/// `training_load` (a provider's day strain) is the exception and keeps its
-/// stored value when the write carries none: enforme reads strain from a
-/// separate request that a spent request budget or a failed call leaves
-/// unread, and a strain that was not read is not a strain of nothing
-/// (carnet#996). A provider whose terms forbid keeping its strain has it
-/// cleared outright ([`CLEAR_PROVIDER_RECOVERY_SCORES_SQL`]).
+/// `training_load` (a provider's day strain) and `resting_respiratory_rate`
+/// are the exceptions and keep their stored value when the write carries
+/// none: enforme reads WHOOP's strain and its night's respiratory rate from
+/// separate requests (the cycle, the sleep) that a spent request budget or a
+/// failed call leaves unread, and a reading that was not read is not a
+/// reading of nothing (carnet#996, carnet#1316). A provider whose terms
+/// forbid keeping its strain has it cleared outright
+/// ([`CLEAR_PROVIDER_RECOVERY_SCORES_SQL`]).
 pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = concat!(
     recovery_insert!(),
     "recovery_score = EXCLUDED.recovery_score,
@@ -277,12 +279,15 @@ pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = concat!(
                 spo2 = EXCLUDED.spo2,
                 athlete_note = EXCLUDED.athlete_note,
                 ",
-    kept_unless_carried!("recovery_metrics", "training_load"),
+    kept_unless_carried!(
+        "recovery_metrics";
+        "training_load",
+        "resting_respiratory_rate"
+    ),
     ",
                 stress_level = EXCLUDED.stress_level,
                 resting_heart_rate = EXCLUDED.resting_heart_rate,
-                body_temperature = EXCLUDED.body_temperature,
-                resting_respiratory_rate = EXCLUDED.resting_respiratory_rate
+                body_temperature = EXCLUDED.body_temperature
             RETURNING id
             "
 );

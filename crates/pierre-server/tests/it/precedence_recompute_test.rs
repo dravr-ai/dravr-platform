@@ -199,3 +199,50 @@ async fn an_athlete_whose_connection_needs_reconnecting_lets_the_generation_reco
         "bug: the generation was held back: {report:?}"
     );
 }
+
+/// A rollout runs two revisions at once: the old one must not take a newer
+/// generation for a stale one and recompute every history back under its
+/// older rule (review of carnet#1315). A generation this build's or later
+/// stands down, untouched.
+#[tokio::test]
+async fn a_later_generation_stored_by_a_newer_revision_stands() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("precedence-newer-{}@example.com", uuid::Uuid::new_v4());
+    let (user_id, _user, tenant) =
+        common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    let today = Utc::now().date_naive();
+    let mut kept = DailyTrainingState::zero(today - Duration::days(1));
+    kept.daily_load = 999.0;
+    resources
+        .common
+        .repos
+        .training_history
+        .upsert_training_history_batch(tenant, user_id, &[kept])
+        .await
+        .unwrap();
+    let database = Arc::clone(&resources.agent.database);
+    let newer = (PRECEDENCE_GENERATION + 1).to_string();
+    database
+        .set_system_setting(GENERATION_SETTING_KEY, &newer)
+        .await
+        .unwrap();
+    let runtime = into_runtime(&resources);
+
+    let report = run_precedence_recompute_pass(&database, &runtime)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        report,
+        PrecedenceRecomputeReport::default(),
+        "bug: an older revision recomputed under a newer generation"
+    );
+    let stored = database
+        .get_system_setting(GENERATION_SETTING_KEY)
+        .await
+        .unwrap()
+        .expect("generation kept");
+    assert_eq!(stored.value, newer, "bug: the generation was written down");
+}

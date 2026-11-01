@@ -655,9 +655,29 @@ async fn dailies_hrv_and_body_pushes_merge_on_their_days_rows() {
         json!([{ "userId": GARMIN_USER, "calendarDate": calendar, "vo2Max": 56.0 }]),
     )
     .await;
+    // The night ending that morning: its breathing rate is the day's resting
+    // respiratory rate (carnet#1316); Garmin's no-reading code is left out.
+    push(
+        &resources,
+        "sleeps",
+        json!([{
+            "userId": GARMIN_USER,
+            "summaryId": "sleep-respiration",
+            "calendarDate": calendar,
+            "startTimeInSeconds": day_start - 7_200,
+            "durationInSeconds": 25_200,
+            "timeOffsetSleepRespiration": { "0": 13.0, "60": 15.0, "120": -2.0 },
+        }]),
+    )
+    .await;
 
     let recovery = garmin_recovery(&resources, user_id, &tenant_id).await;
     assert_eq!(recovery.len(), 1, "one recovery row for the day");
+    assert_eq!(
+        recovery[0].respiratory_rate,
+        Some(14.0),
+        "bug: the night's average breathing rate is not the day's resting respiratory rate"
+    );
     assert_eq!(
         recovery[0].resting_heart_rate,
         Some(47),

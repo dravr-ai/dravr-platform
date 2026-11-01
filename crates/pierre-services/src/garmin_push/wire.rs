@@ -271,6 +271,10 @@ pub(crate) struct SleepScore {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SleepRecord {
+    /// The morning the night ends on, `yyyy-mm-dd`: the day Garmin files the
+    /// night's HRV under too.
+    #[serde(default)]
+    pub(crate) calendar_date: Option<String>,
     /// Start of the sleep window, unix seconds UTC: the key an update keeps.
     #[serde(default)]
     pub(crate) start_time_in_seconds: Option<i64>,
@@ -298,6 +302,9 @@ pub(crate) struct SleepRecord {
     /// Pulse oximetry readings by offset from the start, percent.
     #[serde(default)]
     pub(crate) time_offset_sleep_spo2: OffsetSeries,
+    /// Breathing-rate readings by offset from the start, breaths per minute.
+    #[serde(default)]
+    pub(crate) time_offset_sleep_respiration: OffsetSeries,
 }
 
 /// One `hrv` record: the night's heart-rate variability.

@@ -26,8 +26,8 @@ use pierre_core::errors::AppResult;
 use serde_json::Value;
 
 use super::mapping::{
-    body_row, calendar_date, daily_activity_row, measured, offset_points, recovery_row,
-    sleep_session, BodyReadings, RecoveryReadings,
+    average_respiration, body_row, calendar_date, daily_activity_row, measured, offset_points,
+    recovery_row, sleep_session, BodyReadings, RecoveryReadings,
 };
 use super::wire::{
     BodyCompRecord, DailyRecord, HrvRecord, SkinTempRecord, SleepRecord, StressDetailsRecord,
@@ -145,8 +145,12 @@ pub(super) async fn write_dailies(
 }
 
 /// `sleeps`: one session per sleep, replaced by each update of the same
-/// night, with the night's average pulse oximetry. Its minute-by-minute
-/// `SpO2` and breathing-rate readings are not kept: no reader serves them.
+/// night, with the night's average pulse oximetry; the night's average
+/// breathing rate on the recovery row of the morning it ends (its
+/// `calendarDate`), the resting respiratory rate every source files there.
+/// The minute-by-minute `SpO2` and breathing-rate readings are not kept: no
+/// reader serves them. A night a later push already superseded files
+/// nothing: its readings stand.
 pub(super) async fn write_sleeps(
     batch: &OwnerBatch<'_>,
     records: Vec<Value>,
@@ -168,6 +172,16 @@ pub(super) async fn write_sleeps(
             // A later push of the same night already landed; its readings stand.
             outcome.skipped += 1;
             continue;
+        }
+        if let (Some(date), Some(rate)) = (
+            calendar_date(sleep.calendar_date.as_deref()),
+            average_respiration(sleep),
+        ) {
+            let readings = RecoveryReadings {
+                respiratory_rate: Some(rate),
+                ..RecoveryReadings::default()
+            };
+            land_recovery(batch, &source_id, date, readings).await?;
         }
         outcome.stored += 1;
     }

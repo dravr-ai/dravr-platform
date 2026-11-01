@@ -1995,3 +1995,374 @@ fn a_garmin_export_row_and_the_push_of_its_id_are_one_workout() {
     assert_eq!(merged[0].provider(), "garmin");
     assert_eq!(report.groups[0].canonical_id, "19876543299");
 }
+
+// ── The athlete's Strava title and sport (carnet#1315) ──────────────────────
+
+/// The usr/pwd capture of a Garmin trail run, titled by Garmin.
+fn garmin_capture_of_trail_run(start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        "21000000012",
+        "Charlevoix-Est Trail",
+        SportType::TrailRunning,
+        start,
+        21_600,
+        "sciotte_garmin",
+    )
+    .source("garmin")
+    .distance_meters(42_300.0)
+    .elevation_gain(1_850.0)
+    .average_heart_rate(148)
+    .build()
+}
+
+/// Strava's list row of a Garmin recording: no device, the athlete's title.
+fn strava_list_row(id: &str, name: &str, sport: SportType, start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(id, name, sport, start, 21_610, "strava")
+        .distance_meters(41_900.0)
+        .elevation_gain(1_790.0)
+        .build()
+}
+
+/// A Garmin trail run the athlete renamed on Strava ("UTHC 42km" on dev,
+/// 2026-10-31) stands as Garmin's copy with Garmin's figures, and with the
+/// title the athlete gave it on Strava.
+#[test]
+fn a_garmin_run_renamed_on_strava_takes_stravas_title_and_keeps_garmins_figures() {
+    let t = base_time();
+    let (merged, report) = merge_duplicates(
+        vec![
+            strava_list_row("16000000012", "UTHC 42km", SportType::TrailRunning, t),
+            garmin_capture_of_trail_run(t),
+        ],
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    let session = &merged[0];
+    assert_eq!(
+        session.provider(),
+        "sciotte_garmin",
+        "bug: Garmin's copy no longer stands"
+    );
+    assert_eq!(
+        session.name(),
+        "UTHC 42km",
+        "bug: the athlete's Strava title was dropped"
+    );
+    assert_eq!(
+        *session.sport_type(),
+        SportType::TrailRunning,
+        "bug: an unchanged sport moved"
+    );
+    assert_eq!(
+        session.distance_meters(),
+        Some(42_300.0),
+        "bug: not Garmin's distance"
+    );
+    assert_eq!(
+        session.elevation_gain(),
+        Some(1_850.0),
+        "bug: not Garmin's climb"
+    );
+    assert!(
+        report.groups[0].filled_fields.contains(&FilledField {
+            field: "name",
+            provider: "strava".to_owned(),
+        }),
+        "bug: the merge line does not say the title came from Strava: {:?}",
+        report.groups[0].filled_fields
+    );
+}
+
+/// Strava's own title ("Course à pied de nuit") is no rename: the recorder's
+/// title stands, as on 20 of the dev account's 25 Garmin/Strava pairs.
+#[test]
+fn stravas_own_title_leaves_the_recorders() {
+    let t = base_time();
+    for strava_title in [
+        "Course à pied de nuit",
+        "Morning Run",
+        "Entrainement aux poids  le midi",
+    ] {
+        let (merged, report) = merge_duplicates(
+            vec![
+                strava_list_row("16000000013", strava_title, SportType::TrailRunning, t),
+                garmin_capture_of_trail_run(t),
+            ],
+            &DedupConfig::default(),
+        );
+        assert_eq!(
+            merged[0].name(),
+            "Charlevoix-Est Trail",
+            "bug: Strava's own title {strava_title:?} replaced the recorder's"
+        );
+        assert!(
+            report.groups[0]
+                .filled_fields
+                .iter()
+                .all(|f| f.field != "name"),
+            "bug: {strava_title:?} reported as the athlete's title"
+        );
+    }
+}
+
+/// An indoor-rower session the athlete retyped as weight training on Strava
+/// (4 sessions on dev): Strava's sport, its detail and its title stand, even
+/// a title Strava wrote itself (the recorder's names the sport it is not),
+/// and Garmin's figures stay.
+#[test]
+fn a_garmin_session_retyped_on_strava_takes_stravas_sport_and_title() {
+    let t = base_time();
+    let rower = ActivityBuilder::new(
+        "21000000018",
+        "Rameur d'intérieur",
+        SportType::Rowing,
+        t,
+        2_700,
+        "sciotte_garmin",
+    )
+    .source("garmin")
+    .sport_type_detail("indoor_rowing".to_owned())
+    .calories(310)
+    .average_heart_rate(118)
+    .build();
+    let strava = ActivityBuilder::new(
+        "16000000018",
+        "Entrainement aux poids le midi",
+        SportType::StrengthTraining,
+        t,
+        2_702,
+        "strava",
+    )
+    .sport_type_detail("WeightTraining".to_owned())
+    .calories(280)
+    .build();
+
+    let (merged, report) = merge_duplicates(vec![strava, rower], &DedupConfig::default());
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    let session = &merged[0];
+    assert_eq!(
+        session.provider(),
+        "sciotte_garmin",
+        "bug: Garmin's copy no longer stands"
+    );
+    assert_eq!(
+        *session.sport_type(),
+        SportType::StrengthTraining,
+        "bug: the athlete's Strava sport was dropped"
+    );
+    assert_eq!(
+        session.sport_type_detail(),
+        Some("WeightTraining"),
+        "bug: a retyped session kept the rower's detail"
+    );
+    assert_eq!(
+        session.name(),
+        "Entrainement aux poids le midi",
+        "bug: a retyped session kept the title naming the old sport"
+    );
+    assert_eq!(session.calories(), Some(310), "bug: not Garmin's calories");
+    assert_eq!(
+        report.groups[0].sport_type,
+        SportType::StrengthTraining,
+        "bug: the merge line names the old sport"
+    );
+}
+
+/// Strava's coarser type (`Run` for a trail run) refines nothing: no retype.
+#[test]
+fn a_coarser_strava_type_is_no_retype() {
+    let t = base_time();
+    let (merged, _) = merge_duplicates(
+        vec![
+            strava_list_row("16000000014", "Morning Run", SportType::Run, t),
+            garmin_capture_of_trail_run(t),
+        ],
+        &DedupConfig::default(),
+    );
+    assert_eq!(
+        *merged[0].sport_type(),
+        SportType::TrailRunning,
+        "bug: Strava's Run hid the trail run"
+    );
+    assert_eq!(
+        merged[0].name(),
+        "Charlevoix-Est Trail",
+        "bug: the title moved"
+    );
+}
+
+/// Strava's detail (naming the Garmin device) and the athlete's Strava export
+/// are Strava's copy too: the title the athlete gave stands from either.
+#[test]
+fn a_strava_detail_or_export_renamed_by_the_athlete_titles_the_session() {
+    let t = base_time();
+    let (merged, _) = merge_duplicates(
+        vec![strava_detail_of_fenix_ride(t), garmin_push_of_fenix_ride(t)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(
+        merged[0].provider(),
+        "garmin",
+        "bug: Garmin's copy no longer stands"
+    );
+    assert_eq!(
+        merged[0].name(),
+        "Sunday loop",
+        "bug: the detail's title was dropped"
+    );
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(62_400.0),
+        "bug: not Garmin's distance"
+    );
+
+    let export = ActivityBuilder::new(
+        "16000000015",
+        "UTHC 42km",
+        SportType::TrailRunning,
+        t,
+        21_610,
+        "strava_archive",
+    )
+    .device_name("Garmin fenix 7")
+    .distance_meters(41_900.0)
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![export, garmin_capture_of_trail_run(t)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(
+        merged[0].name(),
+        "UTHC 42km",
+        "bug: the export's title was dropped"
+    );
+    assert_eq!(
+        merged[0].distance_meters(),
+        Some(42_300.0),
+        "bug: not Garmin's distance"
+    );
+}
+
+/// A Strava-app recording beside the Garmin one is a second recording, not
+/// Strava's copy of it: its title never names the Garmin session.
+#[test]
+fn a_strava_app_recordings_title_never_names_the_garmin_session() {
+    let t = base_time();
+    let phone = ActivityBuilder::new(
+        "16000000016",
+        "Phone ride",
+        SportType::Ride,
+        t + Duration::seconds(40),
+        7_100,
+        "strava",
+    )
+    .device_name("Strava iPhone App")
+    .distance_meters(61_000.0)
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![phone, garmin_push_of_fenix_ride(t)],
+        &DedupConfig::default(),
+    );
+    assert_eq!(
+        merged[0].name(),
+        "Montreal Cycling",
+        "bug: a second recording's title stood"
+    );
+}
+
+/// Garmin Connect relays a Cardio recording to Strava as its catch-all
+/// `Workout`, and files pilates as yoga where Strava keeps `Pilates`: the
+/// athlete retyped nothing, so the session keeps the recorder's sport and
+/// title (carnet#1315 review).
+#[test]
+fn a_vocabulary_difference_between_garmin_and_strava_is_no_retype() {
+    let t = base_time();
+    for (garmin_sport, garmin_title, strava_sport, strava_title) in [
+        (
+            SportType::StrengthTraining,
+            "Cardio",
+            SportType::Workout,
+            "Entraînement le soir",
+        ),
+        (
+            SportType::Yoga,
+            "Pilates",
+            SportType::Pilates,
+            "Pilates le soir",
+        ),
+    ] {
+        let garmin = ActivityBuilder::new(
+            "21000000020",
+            garmin_title,
+            garmin_sport.clone(),
+            t,
+            3_600,
+            "sciotte_garmin",
+        )
+        .source("garmin")
+        .average_heart_rate(120)
+        .build();
+        let strava = ActivityBuilder::new(
+            "16000000020",
+            strava_title,
+            strava_sport,
+            t,
+            3_602,
+            "strava",
+        )
+        .build();
+        let (merged, _) = merge_duplicates(vec![strava, garmin], &DedupConfig::default());
+        assert_eq!(merged.len(), 1, "{merged:?}");
+        assert_eq!(
+            *merged[0].sport_type(),
+            garmin_sport,
+            "bug: Strava's name for the same sport read as a retype"
+        );
+        assert_eq!(
+            merged[0].name(),
+            garmin_title,
+            "bug: a vocabulary difference replaced the recorder's title"
+        );
+    }
+}
+
+/// A Strava list row whose detail names Strava's own app is that app's
+/// recording, not Strava's copy of the Garmin one, even when the two start
+/// together: neither its sport nor its title reaches the Garmin session.
+#[test]
+fn a_strava_list_row_whose_detail_names_its_app_never_retypes_the_garmin_session() {
+    let t = base_time();
+    let list = strava_list_row("16000000021", "Morning Walk", SportType::Walk, t);
+    let detail = ActivityBuilder::new(
+        "16000000021",
+        "Morning Walk",
+        SportType::Walk,
+        t,
+        21_610,
+        "strava",
+    )
+    .device_name("Strava iPhone App")
+    .distance_meters(41_900.0)
+    .build();
+    let (merged, _) = merge_duplicates(
+        vec![list, detail, garmin_capture_of_trail_run(t)],
+        &DedupConfig::default(),
+    );
+    let session = merged
+        .iter()
+        .find(|a| a.provider() == "sciotte_garmin")
+        .expect("Garmin's copy stands");
+    assert_eq!(
+        *session.sport_type(),
+        SportType::TrailRunning,
+        "bug: the phone app's sport retyped the Garmin session"
+    );
+    assert_eq!(
+        session.name(),
+        "Charlevoix-Est Trail",
+        "bug: the phone app's title named the Garmin session"
+    );
+}

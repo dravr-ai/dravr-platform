@@ -181,8 +181,10 @@ fn recovery(user_id: Uuid, source: &str, ds: &str, date: NaiveDate) -> StoredRec
 // carnet#996: a refresh whose strain read was refused (a spent request
 // budget, a failed /cycle call) carries no strain; it must not erase the
 // strain an earlier sync stored, while a new strain still replaces it.
+// carnet#1316: the night's respiratory rate is joined from WHOOP's sleep read
+// the same best-effort way, so a refresh that missed it keeps it too.
 #[tokio::test]
-async fn a_refresh_without_strain_keeps_the_stored_strain() -> Result<()> {
+async fn a_refresh_without_strain_or_respiration_keeps_the_stored_reading() -> Result<()> {
     let executor = executor().await?;
     let (user_id, tenant) = connected_user(&executor).await?;
     let ds = data_source(&executor, user_id, &tenant, "whoop").await?;
@@ -194,12 +196,13 @@ async fn a_refresh_without_strain_keeps_the_stored_strain() -> Result<()> {
     );
 
     let mut day = recovery(user_id, "whoop", &ds, today);
-    for (strain, expected) in [
+    for (read_now, expected) in [
         (Some(14.2), Some(14.2)),
         (None, Some(14.2)),
         (Some(9.0), Some(9.0)),
     ] {
-        day.daily_strain = strain;
+        day.daily_strain = read_now;
+        day.respiratory_rate = read_now;
         repos
             .recovery
             .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
@@ -209,7 +212,14 @@ async fn a_refresh_without_strain_keeps_the_stored_strain() -> Result<()> {
             .get_recovery_metrics(user_id, &tenant, window.0, window.1)
             .await?;
         assert_eq!(read.len(), 1, "one row per day");
-        assert_eq!(read[0].daily_strain, expected, "after upserting {strain:?}");
+        assert_eq!(
+            read[0].daily_strain, expected,
+            "strain after upserting {read_now:?}"
+        );
+        assert_eq!(
+            read[0].respiratory_rate, expected,
+            "respiration after upserting {read_now:?}"
+        );
     }
     Ok(())
 }

@@ -469,12 +469,26 @@ pub(crate) fn sleep_session(
 /// with no reading in range (Garmin writes a negative code for a minute it
 /// could not read).
 fn average_spo2(readings: &OffsetSeries) -> Option<f64> {
+    average_of(readings, |v| v > 0.0 && v <= 100.0)
+}
+
+/// The average of the finite readings of an offset map that `keep` accepts;
+/// `None` when it accepts none.
+fn average_of(readings: &OffsetSeries, keep: fn(f64) -> bool) -> Option<f64> {
     let (sum, count) = readings
         .values()
         .copied()
-        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+        .filter(|v| v.is_finite() && keep(*v))
         .fold((0.0, 0u32), |(sum, count), v| (sum + v, count + 1));
     (count > 0).then(|| sum / f64::from(count))
+}
+
+/// The night's average breathing rate, in breaths per minute, from its
+/// readings by offset: the day's resting respiratory rate. `None` with no
+/// reading Garmin marks as real (its "no reading" codes are negative).
+#[must_use]
+pub(crate) fn average_respiration(record: &SleepRecord) -> Option<f64> {
+    average_of(&record.time_offset_sleep_respiration, |v| v > 0.0)
 }
 
 /// A `dailies` record's activity totals as the owner's day, or `None` when
@@ -568,6 +582,8 @@ pub(crate) struct RecoveryReadings {
     pub(crate) hrv_rmssd: Option<f64>,
     /// The night's skin-temperature deviation, Celsius (`skinTemp`).
     pub(crate) skin_temp_deviation: Option<f64>,
+    /// The night's average breathing rate, breaths per minute (`sleeps`).
+    pub(crate) respiratory_rate: Option<f64>,
 }
 
 impl RecoveryReadings {
@@ -605,7 +621,7 @@ pub(crate) fn recovery_row(
         stress_score: readings.stress,
         body_battery: readings.body_battery,
         spo2: None,
-        respiratory_rate: None,
+        respiratory_rate: readings.respiratory_rate,
         skin_temp_deviation: readings.skin_temp_deviation,
         daily_strain: None,
         athlete_note: None,

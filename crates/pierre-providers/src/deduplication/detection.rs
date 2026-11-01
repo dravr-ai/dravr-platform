@@ -13,7 +13,7 @@
 //! lands in one group whatever order the rows arrived in.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::{iter, mem};
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
@@ -21,6 +21,7 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
 
+use dravr_barrage::authored;
 use dravr_barrage::strava_edit::{edited_on_strava, StravaFigures};
 
 use super::config::DedupConfig;
@@ -91,7 +92,9 @@ pub struct FragmentGroup {
     pub window_start: DateTime<Utc>,
     /// Latest end time (start + duration) across all members.
     pub window_end: DateTime<Utc>,
-    /// Fields the canonical row lacked and took from another recording.
+    /// Fields the canonical row took from another recording: those it
+    /// lacked, and the title and sport the athlete gave the workout on
+    /// Strava's copy (`name`, `sport_type`, `sport_type_detail`).
     pub filled_fields: Vec<FilledField>,
 }
 
@@ -188,6 +191,18 @@ impl FragmentReport {
 /// it ([`lift_edited_strava_copy`]). A session summed from pieces keeps its
 /// sum: no single copy holds its totals.
 ///
+/// Otherwise, when the athlete renamed or retyped Strava's copy (carnet#1315,
+/// JF 2026-10-31), the session takes Strava's title and sport while every
+/// figure stays the canonical row's ([`authored_on_strava`]): a title that is
+/// not one Strava wrote by itself (`dravr_barrage::authored::is_strava_default_title`)
+/// is a rename, and a sport that differs once a coarser Strava type is read as
+/// the recording's finer one and the two services' vocabularies are set aside
+/// (`dravr_barrage::authored::retyped_on_strava`: Strava's catch-all
+/// `Workout`, pilates filed as yoga) is a retype. A retype takes Strava's
+/// title too, even its own: the recorder's names the sport the workout is
+/// not. Strava's copy is a list row only when no twin of it (its detail, its
+/// export) names another recorder ([`strava_copy_of`]).
+///
 /// Every other member is then either a piece of the session or a recording of
 /// it. A **piece** recorded time no row already counted recorded: it has the
 /// canonical row's sport, it is not one service's activity id with any
@@ -222,17 +237,26 @@ pub fn merge_duplicates(
     let raw_count = activities.len();
     let mut member_sets = group_members(&activities, config);
     let sources = copy_sources(&activities);
+    let device_named = device_named_activities(&activities);
+    let mut strava_copies = Vec::with_capacity(member_sets.len());
     for members in &mut member_sets {
         members.sort_by(|&a, &b| {
             rank_activity_copy((&activities[a], &sources[a]), (&activities[b], &sources[b]))
         });
-        lift_edited_strava_copy(&activities, &sources, members);
+        lift_edited_strava_copy(&activities, &sources, &device_named, members);
+        strava_copies.push(authored_on_strava(
+            &activities,
+            &sources,
+            &device_named,
+            members,
+        ));
     }
 
     let mut slots: Vec<Option<Activity>> = activities.into_iter().map(Some).collect();
     let mut groups: Vec<FragmentGroup> = member_sets
         .iter()
-        .filter_map(|members| fold_group(&mut slots, members))
+        .zip(strava_copies)
+        .filter_map(|(members, strava)| fold_group(&mut slots, members, strava))
         .collect();
     groups.sort_by_key(|g| g.window_start);
 
@@ -257,9 +281,14 @@ fn origin_name(activity: &Activity) -> String {
 /// are disjoint, so every slot a group names is still occupied.
 ///
 /// The canonical row first takes the volume of every piece of the session,
-/// then the missing fields of every recording of the whole of it, as
-/// [`merge_duplicates`] documents.
-fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<FragmentGroup> {
+/// then the missing fields of every recording of the whole of it, then the
+/// title and sport the athlete gave Strava's copy (`strava`, the member
+/// holding it), as [`merge_duplicates`] documents.
+fn fold_group(
+    slots: &mut [Option<Activity>],
+    members: &[usize],
+    strava: Option<usize>,
+) -> Option<FragmentGroup> {
     let (&canonical_index, peer_indices) = members.split_first()?;
     let mut canonical = slots[canonical_index].take()?;
     let peers: Vec<Activity> = peer_indices
@@ -295,6 +324,20 @@ fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<Fragm
                 }
             }));
         }
+    }
+    if let Some(copy) = peer_indices
+        .iter()
+        .position(|&index| Some(index) == strava)
+        .map(|position| &peers[position])
+    {
+        filled_fields.extend(
+            take_authored(&mut canonical, copy)
+                .into_iter()
+                .map(|field| FilledField {
+                    field,
+                    provider: origin_name(copy),
+                }),
+        );
     }
 
     let group = FragmentGroup {
@@ -518,7 +561,12 @@ fn rank_activity_copy(
 /// Strava's copy is the best-ranked member Strava holds (its API's row, the
 /// athlete's export, the usr/pwd capture) with a real start that can be its
 /// copy of the canonical row's recording ([`strava_copy_of`]).
-fn lift_edited_strava_copy(activities: &[Activity], sources: &[Source], members: &mut Vec<usize>) {
+fn lift_edited_strava_copy(
+    activities: &[Activity],
+    sources: &[Source],
+    device_named: &HashSet<(&str, &str)>,
+    members: &mut Vec<usize>,
+) {
     let Some(&canonical) = members.first() else {
         return;
     };
@@ -531,7 +579,7 @@ fn lift_edited_strava_copy(activities: &[Activity], sources: &[Source], members:
         let copy = &activities[index];
         is_strava_copy(copy)
             && has_known_time(copy)
-            && strava_copy_of(copy, sources[index], origin_service)
+            && strava_copy_of(copy, sources[index], origin_service, device_named)
     });
     if let Some(position) =
         edited.filter(|&p| edited_on_strava(&StravaFigures::of(&activities[members[p]]), origin))
@@ -541,17 +589,93 @@ fn lift_edited_strava_copy(activities: &[Activity], sources: &[Source], members:
     }
 }
 
-/// Whether Strava's `copy`, standing as `source`, can be its copy of a
-/// recording `origin` made: it names that service's device (relayed), or it
-/// names no recorder at all.
+/// The member holding Strava's copy of the canonical row's recording, whose
+/// title and sport the session takes when the athlete changed them there
+/// ([`take_authored`]); `None` when the canonical row is a Strava copy itself
+/// (Strava's copy already stands, its title and sport with it).
+///
+/// Strava's copy is the best-ranked member Strava holds that can be its copy
+/// of the canonical row's recording ([`strava_copy_of`]). Every Strava copy in
+/// the group must be one Strava activity (its API row, the athlete's export,
+/// the usr/pwd capture of the same id): two Strava activities are two pieces
+/// of the session, and neither one's title is the session's.
+fn authored_on_strava(
+    activities: &[Activity],
+    sources: &[Source],
+    device_named: &HashSet<(&str, &str)>,
+    members: &[usize],
+) -> Option<usize> {
+    let &canonical = members.first()?;
+    if is_strava_copy(&activities[canonical]) {
+        return None;
+    }
+    let origin_service = sources[canonical].service;
+    let mut copies = members.iter().copied().filter(|&index| {
+        is_strava_copy(&activities[index])
+            && strava_copy_of(
+                &activities[index],
+                sources[index],
+                origin_service,
+                device_named,
+            )
+    });
+    let best = copies.next()?;
+    let strava_id = |index: usize| native_activity_id(&activities[index]).map(|(_, id, _)| id);
+    copies
+        .all(|index| strava_id(index) == strava_id(best))
+        .then_some(best)
+}
+
+/// Give `session` the title and sport the athlete gave Strava's `copy` of its
+/// recording, when the athlete renamed or retyped it there, as
+/// [`merge_duplicates`] documents; returns the fields that changed.
+fn take_authored(session: &mut Activity, copy: &Activity) -> Vec<&'static str> {
+    let retyped = authored::retyped_on_strava(copy.sport_type(), session.sport_type());
+    let renamed = !authored::is_strava_default_title(copy.name());
+    if !(retyped || renamed) {
+        return Vec::new();
+    }
+    let sport = if retyped {
+        copy.sport_type().clone()
+    } else {
+        session.sport_type().clone()
+    };
+    session.overlay_authored_from(copy, &sport)
+}
+
+/// Whether Strava's copy `activities[index]`, standing as `source`, can be
+/// its copy of a recording `origin` made: it names that service's device
+/// (relayed), or neither it nor any twin of it names a recorder.
 ///
 /// Strava's list rows name no device, only its detail does, so a copy naming
 /// nothing is tied to the recording by its merge group: it is the same
 /// workout. A copy naming another recorder (Strava's own app, another
-/// brand's device) is a second recording, never an edit of this one.
-fn strava_copy_of(copy: &Activity, source: Source, origin: Service) -> bool {
+/// brand's device) is a second recording, never an edit of this one, and so
+/// is a list row whose detail or export names one (`device_named`, from
+/// [`device_named_activities`]): twins are one activity. A list row no twin
+/// speaks for stays tied by its group alone; nothing Strava's list returns
+/// tells a relay from its app.
+fn strava_copy_of(
+    copy: &Activity,
+    source: Source,
+    origin: Service,
+    device_named: &HashSet<(&str, &str)>,
+) -> bool {
     (source.service == origin && source.ingress == Ingress::Relay)
-        || (source.service == Service::Strava && copy.device_name().is_none())
+        || (source.service == Service::Strava
+            && copy.device_name().is_none()
+            && native_activity_id(copy)
+                .is_none_or(|(service, id, _)| !device_named.contains(&(service, id))))
+}
+
+/// The service activities (service, native id) some copy of which names the
+/// device that recorded it: a detail, an export.
+fn device_named_activities(activities: &[Activity]) -> HashSet<(&str, &str)> {
+    activities
+        .iter()
+        .filter(|activity| activity.device_name().is_some())
+        .filter_map(|activity| native_activity_id(activity).map(|(service, id, _)| (service, id)))
+        .collect()
 }
 
 /// Whether a group holds pieces of one session (two members of one sport

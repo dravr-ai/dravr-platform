@@ -1,5 +1,5 @@
 // ABOUTME: Recomputes every athlete's training-history rollup once after the rule their workouts merge by changed
-// ABOUTME: A worker-ledger pass compares the stored precedence generation with this build's and recomputes on a mismatch
+// ABOUTME: A worker-ledger pass compares the stored precedence generation with this build's and recomputes when it is older
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,11 +16,13 @@
 //! recomputed; a capture only re-warms its default window.
 //!
 //! So the rule carries a generation, [`PRECEDENCE_GENERATION`], bumped by
-//! every change to how a workout's copies rank — the change itself and its
+//! every change to how a workout's copies rank or what the session takes from
+//! them — the change itself and its
 //! rollback alike. A
 //! pass on [`spawn_periodic`] (once across instances, through the worker
 //! ledger) reads the generation the stored rollups were computed under from
-//! `system_settings`; on a mismatch it recomputes every stored day of every
+//! `system_settings`; when it is older than this build's (or none is
+//! stored) it recomputes every stored day of every
 //! athlete holding one (`recompute_stored_history`) and then records this
 //! build's generation, so later passes read one setting and stop. An athlete
 //! whose recompute fails leaves the generation unrecorded, and the next pass
@@ -29,9 +31,11 @@
 //! imported, or every connection to reconnect with no workout cached) is
 //! skipped and never holds the generation back.
 //!
+//! A newer generation stored stands: a rollout runs the old revision beside
+//! the new one, and the old one must not recompute every history back.
 //! Rolling the rule back is a forward change that bumps the generation again,
-//! never a `git revert` of the change: a revert deletes this worker with it,
-//! so the days computed under the reverted rule would stand.
+//! never a `git revert` of the change or a deploy of an older build: either
+//! leaves the days computed under the newer rule standing.
 //!
 //! The gear ledger needs no pass: each read moves an attributed workout's
 //! distance to its merged session's (`gear_ledger`).
@@ -64,7 +68,11 @@ pub const GENERATION_SETTING_KEY: &str = "derived.precedence_generation";
 /// 1: Athlete Data Consolidation S3 — the recording service's own copy of a
 /// workout stands over Strava's unless the athlete edited it on Strava
 /// (carnet#1274); before it, the copy carrying a route stood.
-pub const PRECEDENCE_GENERATION: u32 = 1;
+///
+/// 2: the session takes the title and sport the athlete gave Strava's copy
+/// when they renamed or retyped it there, the recorder's figures staying
+/// (carnet#1315): a retyped session is scored as the sport it was.
+pub const PRECEDENCE_GENERATION: u32 = 2;
 
 /// What one pass did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -130,7 +138,13 @@ fn owes_no_recompute(error: &AppError) -> bool {
 }
 
 /// Recompute every athlete's stored training history when the stored
-/// generation is not [`PRECEDENCE_GENERATION`], then record it.
+/// generation is below [`PRECEDENCE_GENERATION`] (or none is stored), then
+/// record it.
+///
+/// A generation above this build's was recorded by a newer revision: a
+/// rollout runs both at once, and an older pod recomputing every history back
+/// under its own rule would flap the two until it drains. It stands down, and
+/// a rollback keeps the newer rollups until the next generation bump.
 ///
 /// # Errors
 /// Returns a database error when the setting or the athletes holding a
@@ -144,7 +158,7 @@ pub async fn run_precedence_recompute_pass(
         .get_system_setting(GENERATION_SETTING_KEY)
         .await?
         .and_then(|setting| setting.value.parse::<u32>().ok());
-    if stored == Some(PRECEDENCE_GENERATION) {
+    if stored.is_some_and(|generation| generation >= PRECEDENCE_GENERATION) {
         return Ok(PrecedenceRecomputeReport::default());
     }
     let mut report = PrecedenceRecomputeReport::default();
