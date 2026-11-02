@@ -1,5 +1,5 @@
 // ABOUTME: carnet#1300 — closing a sign-in window cancels its login on the scraper by a key bound to the caller
-// ABOUTME: Pins the key on every step, the per-user binding, the 400, the quiet 409, the best-effort 200 and the released flow
+// ABOUTME: Pins the key on every step, the per-user binding, the 400, the quiet 409, the released flow, and the cancelled attempt refused on any instance
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,6 +12,9 @@
 //! registry: it derives a cancel key — the hex SHA-256 of
 //! `"{tenant}:{user}:{attempt}"` — sends it on every step in
 //! `x-sciotte-cancel-key`, and asks the service to cancel the same key.
+//! The cancel also files the attempt as cancelled in the shared cache, so a
+//! step that ran on a service instance the cancel never reached — a second
+//! instance a cold start brought up — still links nothing.
 //!
 //! The scraper is a loopback stand-in (a test double, per the repo's mock
 //! rule) recording the keys each step and each cancel named. It runs on a
@@ -29,6 +32,7 @@ use std::net::TcpListener as StdTcpListener;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -49,6 +53,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
+use tokio::time::sleep;
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::subscriber::{set_default, DefaultGuard};
@@ -70,6 +75,13 @@ const SUBMIT_OTP_PATH: &str = "/auth/submit-otp";
 
 /// Logins whose email starts with this are ended by a cancel.
 const CANCELLED: &str = "cancelled";
+
+/// Logins whose email starts with this run on an instance the cancel never
+/// reaches: each waits for a cancel of its key to arrive, then signs in.
+const OUTLIVED: &str = "outlived";
+
+/// The session an outliving login signs in with.
+const OUTLIVED_SESSION: &str = "session-outlived-1300";
 
 /// What the stand-in received.
 #[derive(Default)]
@@ -142,6 +154,21 @@ async fn login(
         .push((email.clone(), header_key(&headers)));
     if email.starts_with(CANCELLED) {
         return cancelled_step();
+    }
+    if email.starts_with(OUTLIVED) {
+        let key = header_key(&headers).unwrap_or_default();
+        for _ in 0..200 {
+            if seen.cancels.lock().unwrap().contains(&key) {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        return Json(json!({
+            "status": "authenticated",
+            "session_id": OUTLIVED_SESSION,
+            "provider": "garmin"
+        }))
+        .into_response();
     }
     Json(json!({
         "status": "otp_required",
@@ -363,6 +390,17 @@ impl Athlete {
         .await;
     }
 
+    async fn holds_garmin_session(&self) -> bool {
+        self.resources
+            .common
+            .repos
+            .oauth_tokens
+            .get_token(self.user_id, self.tenant_id, SCIOTTE_GARMIN)
+            .await
+            .unwrap()
+            .is_some()
+    }
+
     async fn holds_a_flow(&self) -> bool {
         require_remote_flow(
             &self.resources.common.cache,
@@ -389,7 +427,7 @@ async fn a_cancel_names_the_callers_own_key_to_the_service() {
     assert_eq!(
         body,
         json!({ "cancelled": true }),
-        "only the hex SHA-256 of tenant:user:attempt is answered true"
+        "the attempt is cancelled"
     );
     assert_eq!(
         cancels_of(&key),
@@ -416,11 +454,6 @@ async fn another_users_attempt_id_names_another_key() {
     );
     assert_eq!(status, 200, "{body}");
     assert_eq!(
-        body,
-        json!({ "cancelled": false }),
-        "another user's cancel reaches nothing of the athlete's"
-    );
-    assert_eq!(
         cancels_of(&other_key),
         1,
         "the neighbour's own key was sent"
@@ -429,6 +462,14 @@ async fn another_users_attempt_id_names_another_key() {
     assert!(
         athlete.holds_a_flow().await,
         "the athlete's flow is untouched"
+    );
+    let from = email("neighbour-cancelled");
+    let (status, body) = athlete.login(&from, &attempt_id).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        login_keys_of(&from),
+        vec![Some(own_key)],
+        "the neighbour's cancel refuses none of the athlete's steps"
     );
 }
 
@@ -577,22 +618,110 @@ async fn a_code_step_the_cancel_ended_drops_the_flow_quietly() {
 // ── Best effort, and the released flow ──
 
 #[tokio::test]
-async fn a_cancel_that_cannot_reach_the_service_is_a_quiet_false() {
+async fn a_cancel_that_cannot_reach_the_service_still_refuses_the_attempt() {
     // A port nothing listens on: bound, read, then released.
     let unbound = {
         let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap()
     };
     let athlete = Athlete::on(&format!("http://{unbound}")).await;
+    let attempt_id = attempt();
 
     let (events, guard) = setup_capture();
-    let (status, body) = athlete.cancel(&attempt()).await;
+    let (status, body) = athlete.cancel(&attempt_id).await;
     let (errors, sync_failed) = system_failure_signals(&events);
     drop(guard);
 
     assert_eq!(status, 200, "{body}");
-    assert_eq!(body, json!({ "cancelled": false }));
+    assert_eq!(
+        body,
+        json!({ "cancelled": true }),
+        "the platform refuses the attempt whether or not the service heard"
+    );
     assert_eq!((errors, sync_failed), (0, 0), "a cancel never alerts");
+
+    let (status, body) = athlete.login(&email("unreached"), &attempt_id).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
+}
+
+// ── A cancel the service instance running the step never saw ──
+
+#[tokio::test]
+async fn a_step_after_its_cancel_never_reaches_the_service() {
+    let athlete = Athlete::new().await;
+    let attempt_id = attempt();
+    let key = expected_key(athlete.tenant_id, athlete.user_id, &attempt_id);
+
+    let (status, body) = athlete.cancel(&attempt_id).await;
+    assert_eq!(status, 200, "{body}");
+
+    let from = email("after-cancel");
+    let (status, body) = athlete.login(&from, &attempt_id).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
+
+    athlete.remember_flow("flow-1300").await;
+    let (status, body) = athlete
+        .post(
+            "/api/providers/sciotte/submit-otp",
+            json!({ "code": "123456", "attempt_id": attempt_id }),
+        )
+        .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
+
+    assert!(
+        login_keys_of(&from).is_empty(),
+        "the login never reached the service"
+    );
+    assert!(
+        steps_keyed(&key).is_empty(),
+        "no step of the cancelled attempt reached the service"
+    );
+}
+
+#[tokio::test]
+async fn a_step_that_outlived_its_cancel_links_nothing() {
+    let athlete = Athlete::new().await;
+    let attempt_id = attempt();
+    let key = expected_key(athlete.tenant_id, athlete.user_id, &attempt_id);
+    let from = email(OUTLIVED);
+
+    let (events, guard) = setup_capture();
+    let login = athlete.login(&from, &attempt_id);
+    let cancel = async {
+        while login_keys_of(&from).is_empty() {
+            sleep(Duration::from_millis(10)).await;
+        }
+        athlete.cancel(&attempt_id).await
+    };
+    let ((status, body), (cancel_status, cancel_body)) = tokio::join!(login, cancel);
+    let (errors, sync_failed) = system_failure_signals(&events);
+    drop(guard);
+
+    assert_eq!(cancel_status, 200, "{cancel_body}");
+    assert_eq!(
+        cancel_body,
+        json!({ "cancelled": true }),
+        "the cancel filed the attempt"
+    );
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
+    assert_eq!((errors, sync_failed), (0, 0), "no alert, no sync.failed");
+    assert!(
+        !athlete.holds_garmin_session().await,
+        "the sign-in the service finished stored no session"
+    );
+    assert!(
+        !athlete.holds_a_flow().await,
+        "the sign-in the service finished parked no flow"
+    );
+    assert_eq!(
+        cancels_of(&key),
+        2,
+        "the window's cancel, then the release once the step answered"
+    );
 }
 
 #[tokio::test]

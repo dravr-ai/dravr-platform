@@ -35,7 +35,9 @@ use pierre_providers::sciotte_error::{
 
 #[cfg(feature = "health-sync")]
 use crate::oauth::spawn_health_backfill;
-use crate::sciotte_cancel::{login_cancelled_refusal, step_cancel_key};
+use crate::sciotte_cancel::{
+    login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
+};
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
@@ -52,14 +54,14 @@ use pierre_middleware::provider_link_token::{
 /// continuation can name the right server-side flow *and* alert operators with
 /// the right platform on a system failure.
 #[derive(Clone, Serialize, Deserialize)]
-struct RemoteFlowState {
+pub(crate) struct RemoteFlowState {
     /// Service-minted id that names the parked browser. It is the only binding
     /// between the caller and the login *they* started, so every continuation
     /// carries it: the service refuses a continuation without one
     /// (`flow_id_required`), and resumes whichever browser the id names — so an
     /// id that is not the caller's own would persist another athlete's session
     /// under the caller's account.
-    flow_id: String,
+    pub(crate) flow_id: String,
     /// Backend provider name (`sciotte`, `sciotte_garmin`,
     /// `sciotte_trainingpeaks`, `sciotte_coros`) carried from the login
     /// request. A *system* failure on an OTP/2FA continuation needs it for the
@@ -84,7 +86,7 @@ pub const REMOTE_FLOW_TTL_SECS: u64 = 1800;
 /// (`sciotte`, `sciotte_garmin`, `sciotte_trainingpeaks`, `sciotte_coros`) is
 /// what the entry stores, so a continuation — which does not know it yet —
 /// could not use it to find the entry.
-const REMOTE_FLOW_KEY_PROVIDER: &str = "sciotte";
+pub(crate) const REMOTE_FLOW_KEY_PROVIDER: &str = "sciotte";
 
 /// User-facing copy when a continuation arrives with no live flow of the
 /// caller's own. `InvalidInput` renders verbatim (see
@@ -194,7 +196,7 @@ pub async fn remember_remote_flow_for(
 /// resume nothing and surface the service's `no_pending_login` 404 as a
 /// platform failure. A cache read that *fails* is treated the same way, since
 /// refusing a continuation the platform cannot bind is the safe direction.
-async fn recall_remote_flow(
+pub(crate) async fn recall_remote_flow(
     cache: &Cache,
     tenant_id: Uuid,
     user_id: Uuid,
@@ -892,7 +894,8 @@ pub(crate) async fn handle_sciotte_login(
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
-    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
+    let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
+    refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
     // A provider-specific link-token signs in only to the platform it was
     // minted for — it must not accept another platform's notice or store a
@@ -961,17 +964,18 @@ pub(crate) async fn handle_sciotte_login(
         with_prior_session = prior_session.is_some(),
         "Starting sciotte credential login (remote service)"
     );
-    let outcome = match remote
+    let result = remote
         .login_with_credentials_keyed(
             &request.email,
             request.password.expose_secret(),
             request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
             prior_session.as_ref(),
-            cancel_key.as_deref(),
+            attempt.as_ref().map(StepAttempt::cancel_key),
         )
-        .await
-    {
+        .await;
+    refuse_cancelled_outcome(&resources.cache, remote, attempt.as_ref(), None).await?;
+    let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
             return login_failure_response(
@@ -1002,7 +1006,8 @@ pub(crate) async fn handle_sciotte_select_2fa(
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
-    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
+    let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
+    refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
     // ADR-021: the parked browser lives on the dedicated service; resume the
     // flow by its server-minted flow_id, which is also the only thing tying
@@ -1011,10 +1016,15 @@ pub(crate) async fn handle_sciotte_select_2fa(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
-    let outcome = match remote
-        .select_2fa_keyed(&request.option_id, &flow_id, cancel_key.as_deref())
-        .await
-    {
+    let result = remote
+        .select_2fa_keyed(
+            &request.option_id,
+            &flow_id,
+            attempt.as_ref().map(StepAttempt::cancel_key),
+        )
+        .await;
+    refuse_cancelled_outcome(&resources.cache, remote, attempt.as_ref(), Some(&flow_id)).await?;
+    let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(
@@ -1060,7 +1070,8 @@ pub(crate) async fn handle_sciotte_submit_otp(
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
-    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
+    let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
+    refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
     if request.code.is_empty() {
         return Err(AppError::invalid_input("Verification code is required"));
@@ -1075,10 +1086,15 @@ pub(crate) async fn handle_sciotte_submit_otp(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
-    let outcome = match remote
-        .submit_otp_keyed(&request.code, &flow_id, cancel_key.as_deref())
-        .await
-    {
+    let result = remote
+        .submit_otp_keyed(
+            &request.code,
+            &flow_id,
+            attempt.as_ref().map(StepAttempt::cancel_key),
+        )
+        .await;
+    refuse_cancelled_outcome(&resources.cache, remote, attempt.as_ref(), Some(&flow_id)).await?;
+    let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(

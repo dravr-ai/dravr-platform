@@ -343,6 +343,14 @@ pub enum CacheResource {
     /// a knob this crate has no visibility into — so `recommended_ttl` returns
     /// 0 for it, as it does for [`CacheResource::Custom`].
     SciotteLoginFlow,
+    /// A sign-in attempt its window cancelled, refused from then on. Shared
+    /// rather than process-local because the cancel and the steps it refuses
+    /// land on whichever pods serve them. TTL is caller-specified, so
+    /// `recommended_ttl` returns 0 for it.
+    SciotteLoginCancel {
+        /// The attempt id the window minted, letters, digits and hyphens.
+        attempt_id: String,
+    },
     /// The drawable line of a route found by route discovery or composed from
     /// such routes, addressed by its `route_ref` (24 h TTL). Shared rather than
     /// process-local because the line is stored by the tool call that found
@@ -378,7 +386,9 @@ impl CacheResource {
             Self::LastKnownAthleteProfile | Self::LastKnownStats => {
                 Duration::from_secs(TTL_LAST_KNOWN_SECS)
             }
-            Self::SciotteLoginFlow | Self::Custom(_) => Duration::ZERO,
+            Self::SciotteLoginFlow | Self::SciotteLoginCancel { .. } | Self::Custom(_) => {
+                Duration::ZERO
+            }
         }
     }
 }
@@ -407,6 +417,9 @@ impl fmt::Display for CacheResource {
             Self::Stats { athlete_id } => write!(f, "stats:{athlete_id}"),
             Self::ProviderRoster => write!(f, "provider_roster_v2"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
+            Self::SciotteLoginCancel { attempt_id } => {
+                write!(f, "sciotte_login_cancel:{attempt_id}")
+            }
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
             Self::LastKnownAthleteProfile => write!(f, "last_known_athlete_profile"),
             Self::LastKnownStats => write!(f, "last_known_stats"),
