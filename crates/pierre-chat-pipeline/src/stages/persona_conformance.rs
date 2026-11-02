@@ -504,7 +504,7 @@ async fn rewrite_to_satisfy_contract(
 ) -> Option<String> {
     let rules = violations
         .iter()
-        .map(|v| format!("- {}", v.detail))
+        .map(|v| format!("- {}", repair_instruction(v)))
         .collect::<Vec<_>>()
         .join("\n");
     // The instructions are the catalogue's `persona_style_editor` prompt.
@@ -550,6 +550,23 @@ async fn rewrite_to_satisfy_contract(
             None
         }
     }
+}
+
+/// The line the style editor is asked to satisfy for one violation.
+///
+/// A detail is a diagnosis naming the one hedge the check stopped on. Handed
+/// over alone, the editor read "'~' is wrong" and swapped `~` for `environ`,
+/// shipping the same violation (2026-11-02 `power_athlete` alert). Exact
+/// numbers therefore carry the whole hedge set, in every locale.
+fn repair_instruction(v: &ContractViolation) -> String {
+    if v.rule == "require_exact_numbers" {
+        return format!(
+            "{}; state every number exactly, with none of these hedges next to it: {}",
+            v.detail,
+            VAGUE_MODIFIERS.join(", ")
+        );
+    }
+    v.detail.clone()
 }
 
 /// Emit one structured log per violation, at `warn!`. A strict-mode style
@@ -1091,6 +1108,38 @@ mod tests {
 
     fn called(names: &[&str]) -> Vec<String> {
         names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[test]
+    fn exact_number_repair_names_every_hedge() {
+        let detail = "vague modifier '~' sits next to a numeric value".to_owned();
+        let line = repair_instruction(&ContractViolation {
+            rule: "require_exact_numbers",
+            detail: detail.clone(),
+        });
+        assert!(
+            line.starts_with(&detail),
+            "bug: the diagnosis must lead the repair line: {line}"
+        );
+        for hedge in VAGUE_MODIFIERS {
+            assert!(
+                line.contains(hedge),
+                "bug: hedge {hedge} missing from the repair line: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_repairs_pass_the_detail_through() {
+        let detail = "reply exceeds the persona word budget".to_owned();
+        let line = repair_instruction(&ContractViolation {
+            rule: "max_words",
+            detail: detail.clone(),
+        });
+        assert_eq!(
+            line, detail,
+            "bug: a rule without a repair override must hand the editor its detail unchanged"
+        );
     }
 
     #[test]
