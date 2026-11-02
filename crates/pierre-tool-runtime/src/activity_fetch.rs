@@ -32,7 +32,6 @@ use crate::capture_sweep::FLAG_REASON;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 use crate::protocol::reauth_notice::flag_needs_reauth;
-use crate::protocol::types::{auth_required_provider, UniversalResponse};
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
@@ -912,27 +911,6 @@ async fn fetch_and_persist_head(
         .await;
     }
     Ok(head.activities)
-}
-
-/// Type a failed `create_authenticated_provider`, preserving the auth shape.
-///
-/// That call tags a non-recoverably dead connection with
-/// the auth-required provider slug — the one signal that says the athlete must
-/// reconnect. Everything else it can fail with (an unsupported provider, a
-/// tenant missing OAuth credentials, a transport blip) is not a dead session
-/// and must never flag a connection, so it degrades to a plain external-service
-/// error the sweep treats as transient.
-pub(crate) fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
-    if auth_required_provider(response).is_some() {
-        return AppError::provider_auth_required(provider_slug);
-    }
-    AppError::external_service(
-        provider_slug,
-        response
-            .error
-            .clone()
-            .unwrap_or_else(|| "provider authentication failed".to_owned()),
-    )
 }
 
 /// The `[start, end]` of cached rows a read of `params` covers.

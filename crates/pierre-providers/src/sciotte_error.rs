@@ -78,6 +78,13 @@ const NO_SERVICE_WORDS: &str = "no detail";
 /// What a message names the provider as when its caller knows no brand.
 const UNNAMED_BRAND: &str = "The provider";
 
+/// What the coach-account refusal ([`ATHLETE_REQUIRED`]) says when its caller
+/// has no words of its own: the scraper's refusal, and a pre-read refusal that
+/// arrived without text.
+pub const COACH_ACCOUNT_REFUSAL: &str = "This account is a coach account, and a coach account has \
+     no training calendar of its own. To read an athlete's workouts, link each athlete from a \
+     group you coach; the athlete confirms the link.";
+
 /// The platform error for a failed call to the sciotte scraper service, its
 /// words naming no provider. A caller that knows which provider the session
 /// signed in to uses [`to_app_error_as`].
@@ -115,14 +122,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
                 ),
             )
         }
-        ClientError::AthleteRequired { .. } => with_refusal_marker(
-            AppError::invalid_input(
-                "This account is a coach account, and a coach account has no training \
-                 calendar of its own. To read an athlete's workouts, link each athlete from a \
-                 group you coach; the athlete confirms the link.",
-            ),
-            ATHLETE_REQUIRED,
-        ),
+        ClientError::AthleteRequired { .. } => coach_account_error(COACH_ACCOUNT_REFUSAL),
         ClientError::AthleteNotAccessible { .. } => athlete_not_accessible(),
         challenge @ ClientError::LoginChallenge { .. } => {
             warn!(error = %challenge, "sciotte login stopped at a provider challenge");
@@ -319,6 +319,17 @@ pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
         ),
         other => to_app_error_as(other, brand),
     }
+}
+
+/// The coach-account refusal ([`ATHLETE_REQUIRED`]) worded as `message`.
+///
+/// The error the scraper's refusal maps to, and the one a read refused before
+/// it reached the scraper reports, because the account is already recorded as
+/// a coach's: both carry the marker [`is_coach_account_refusal`] reads, so a
+/// caller judges the refusal the same whichever step answered it.
+#[must_use]
+pub fn coach_account_error(message: impl Into<String>) -> AppError {
+    with_refusal_marker(AppError::invalid_input(message), ATHLETE_REQUIRED)
 }
 
 /// `error` with `marker` recorded under the refusal details key.

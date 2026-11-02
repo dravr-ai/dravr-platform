@@ -36,6 +36,7 @@ use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId, 
 use pierre_database::repositories::CaptureFreshness;
 use pierre_mcp_server::routes::admin::diagnostics::partition_stale_captures;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::sciotte_error::coach_account_error;
 use pierre_tool_runtime::activity_fetch::sync_verdict::{
     record_head_outcome, HeadRead, HeadVerdict,
 };
@@ -479,6 +480,45 @@ async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
     assert!(
         named(&events, HEAD_READ_FAILED).is_empty(),
         "bug: an authentication failure or a complete read must not page"
+    );
+
+    // A coach account's own calendar, refused before any read once its role
+    // is recorded: the account's standing state, never a page — but still a
+    // recorded failure, so the backoff spaces the reads.
+    record_head_outcome(
+        &runtime,
+        user_id,
+        tenant,
+        "sciotte_trainingpeaks",
+        &head,
+        &Err(coach_account_error(
+            "This TrainingPeaks account is a coach account.",
+        )),
+    )
+    .await;
+    assert!(
+        named(&events, HEAD_READ_FAILED).is_empty(),
+        "bug: a coach account's refused own calendar must not page"
+    );
+    let refused = named(
+        &events,
+        "Live activity head read refused: a coach account keeps no calendar of its own",
+    );
+    assert_eq!(refused.len(), 1, "bug: the refusal stays traceable");
+    assert_eq!(
+        refused[0].level,
+        Level::INFO,
+        "bug: the refusal is logged at info, below the paging level"
+    );
+    assert!(
+        runtime
+            .repos()
+            .activity_cache
+            .latest_activity_fetch_failure(user_id, &tenant, "sciotte_trainingpeaks")
+            .await
+            .expect("read failure record")
+            .is_some(),
+        "bug: the refused read must still be recorded so the backoff spaces it"
     );
 
     record_head_outcome(

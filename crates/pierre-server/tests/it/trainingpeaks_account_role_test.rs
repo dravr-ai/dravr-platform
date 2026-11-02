@@ -51,7 +51,7 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_providers::sciotte_error::sciotte_refusal;
+use pierre_providers::sciotte_error::{is_coach_account_refusal, sciotte_refusal};
 use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
@@ -577,6 +577,10 @@ async fn a_recorded_coach_account_is_refused_before_any_scrape(
     .expect_err("the capture path is refused the same way");
     assert_eq!(error.provider_auth_required_provider(), None);
     assert!(error.message.contains(GROUP_LINK_POINTER), "{error:?}");
+    assert!(
+        is_coach_account_refusal(&error),
+        "bug: the refusal reached the head read untyped, so it pages as an outage: {error:?}"
+    );
 
     assert_eq!(
         calls_to(calls, "/auth/import-session", COACH_SESSION),

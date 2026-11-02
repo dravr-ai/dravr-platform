@@ -24,14 +24,14 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
+use pierre_providers::sciotte_error::is_coach_account_refusal;
 use tracing::field::Empty;
 use tracing::{error, info, instrument, warn, Span};
 use uuid::Uuid;
 
-use super::{
-    before_bounds_a_closed_window, cached_window_bounds, provider_auth_failure, read_cached_window,
-};
+use super::{before_bounds_a_closed_window, cached_window_bounds, read_cached_window};
 use crate::protocol::auth::AuthService;
+use crate::protocol::types::provider_auth_failure;
 use crate::runtime::ToolRuntime;
 
 /// Whether a list read of `params` reads the provider's list head: its
@@ -356,7 +356,13 @@ async fn connect_prefetch_answer(
 /// shown. On 2026-10-30 a scraper release failed every Strava read for
 /// hours, the chat answered from yesterday's cache, and the only trace was
 /// a `warn` nobody is paged for (carnet#1278). An authentication failure
-/// stays out of it: the reconnect notice is that failure's page.
+/// stays out of it: the reconnect notice is that failure's page. So does the
+/// refusal of a coach account's own calendar ([`is_coach_account_refusal`]):
+/// the account keeps no calendar, every read of it is refused the same way,
+/// and no operator can change that — the athlete is told in the refusal's own
+/// words, and the connect-time role probe already reported it. It is still
+/// recorded, so the backoff spaces the reads it would otherwise repeat, and
+/// logged at `info` with the same fields.
 pub async fn record_head_outcome(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -382,12 +388,21 @@ pub async fn record_head_outcome(
         Err(e) => e.to_string(),
         Ok(head) => head.verdict.label().to_owned(),
     };
-    error!(
-        user_id = %user_id,
-        provider = %provider_slug,
-        cause = %cause,
-        "Live activity head read failed; the athlete is served from the cache until it recovers"
-    );
+    if matches!(read, Err(e) if is_coach_account_refusal(e)) {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            cause = %cause,
+            "Live activity head read refused: a coach account keeps no calendar of its own"
+        );
+    } else {
+        error!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            cause = %cause,
+            "Live activity head read failed; the athlete is served from the cache until it recovers"
+        );
+    }
     record_sync_failure(runtime, user_id, tenant, provider_slug, failure).await;
 }
 

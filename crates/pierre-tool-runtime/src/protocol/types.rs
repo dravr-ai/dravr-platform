@@ -6,6 +6,8 @@
 
 use crate::protocol::executor::UniversalExecutor;
 use crate::protocols::ProtocolError;
+use pierre_core::errors::AppError;
+use pierre_providers::sciotte_error::{coach_account_error, COACH_ACCOUNT_REFUSAL};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -70,6 +72,28 @@ pub fn is_no_provider_refusal(response: &UniversalResponse) -> bool {
         .unwrap_or(false)
 }
 
+/// Metadata key set (to `true`) on the refusal of a read of a coach account's
+/// own calendar, on a platform whose coach accounts keep none.
+///
+/// The refusal is answered before any read, once the account is recorded as a
+/// coach's, so its words alone would reach the caller as a plain provider
+/// failure. The key keeps it typed: it is the account's standing state, not
+/// an outage, and signing in again leaves a coach account a coach account, so
+/// it is never the re-auth signal either.
+pub(crate) const META_OWN_CALENDAR_REFUSED: &str = "own_calendar_refused";
+
+/// Whether a failed response is the refusal of a coach account's own calendar
+/// ([`META_OWN_CALENDAR_REFUSED`]).
+#[must_use]
+pub(crate) fn is_own_calendar_refusal(response: &UniversalResponse) -> bool {
+    response
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get(META_OWN_CALENDAR_REFUSED))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// The provider slug a failed response says the athlete must reconnect, if any.
 ///
 /// Every caller that re-raises the typed auth error, drops a cached page, or
@@ -87,6 +111,39 @@ pub fn auth_required_provider(response: &UniversalResponse) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// Type a failed `create_authenticated_provider`, preserving the auth shape.
+///
+/// That call tags a non-recoverably dead connection with
+/// the auth-required provider slug — the one signal that says the athlete must
+/// reconnect. It tags the refusal of a coach account's own calendar
+/// ([`is_own_calendar_refusal`]) too, which becomes the same coach-account
+/// error the scraper's refusal maps to ([`coach_account_error`]): the
+/// account's standing state, judged the same whichever step refused it.
+/// Everything else it can fail with (an unsupported provider, a tenant
+/// missing OAuth credentials, a transport blip) is not a dead session and
+/// must never flag a connection, so it degrades to a plain external-service
+/// error the sweep treats as transient.
+pub(crate) fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
+    if auth_required_provider(response).is_some() {
+        return AppError::provider_auth_required(provider_slug);
+    }
+    if is_own_calendar_refusal(response) {
+        return coach_account_error(
+            response
+                .error
+                .clone()
+                .unwrap_or_else(|| COACH_ACCOUNT_REFUSAL.to_owned()),
+        );
+    }
+    AppError::external_service(
+        provider_slug,
+        response
+            .error
+            .clone()
+            .unwrap_or_else(|| "provider authentication failed".to_owned()),
+    )
+}
+
 /// Universal tool definition with handler function
 #[derive(Debug, Clone)]
 pub struct UniversalTool {
@@ -101,3 +158,63 @@ pub struct UniversalTool {
 
 /// Type alias for `UniversalExecutor` used in tool handler signatures
 pub type UniversalToolExecutor = UniversalExecutor;
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::errors::ErrorCode;
+    use pierre_providers::sciotte_error::is_coach_account_refusal;
+
+    use super::*;
+
+    fn refused(metadata: Option<HashMap<String, Value>>) -> UniversalResponse {
+        UniversalResponse {
+            success: false,
+            result: None,
+            error: Some("This TrainingPeaks account is a coach account.".to_owned()),
+            metadata,
+        }
+    }
+
+    #[test]
+    fn a_refused_own_calendar_keeps_its_coach_account_marker() {
+        let error = provider_auth_failure(
+            "sciotte_trainingpeaks",
+            &refused(Some(HashMap::from([(
+                META_OWN_CALENDAR_REFUSED.to_owned(),
+                Value::Bool(true),
+            )]))),
+        );
+        assert!(
+            is_coach_account_refusal(&error),
+            "bug: the marker was lost: {error:?}"
+        );
+        assert_eq!(
+            error.code,
+            ErrorCode::InvalidInput,
+            "bug: the refusal must keep the coach-account code"
+        );
+        assert_eq!(
+            error.message, "This TrainingPeaks account is a coach account.",
+            "bug: the refusal must keep its own words"
+        );
+        assert_eq!(
+            error.provider_auth_required_provider(),
+            None,
+            "bug: a coach account's refusal is never the re-auth signal"
+        );
+    }
+
+    #[test]
+    fn an_untagged_refusal_stays_a_plain_external_service_error() {
+        let error = provider_auth_failure("sciotte_trainingpeaks", &refused(None));
+        assert!(
+            !is_coach_account_refusal(&error),
+            "bug: an untagged failure must not read as a coach-account refusal: {error:?}"
+        );
+        assert_eq!(
+            error.code,
+            ErrorCode::ExternalServiceError,
+            "bug: an untagged failure must degrade to a plain external-service error"
+        );
+    }
+}

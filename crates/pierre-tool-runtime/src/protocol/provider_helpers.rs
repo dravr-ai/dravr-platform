@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::activity_fetch::provider_auth_failure;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
+use crate::protocol::types::provider_auth_failure;
 use crate::protocol::types::{
     UniversalResponse, UniversalToolExecutor, META_NO_PROVIDER_CONNECTED,
 };

@@ -40,6 +40,8 @@
 //! send the reader to a login. A coach credential the platform reports dead
 //! flags the coach's connection and tells the coach instead.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -55,13 +57,14 @@ use pierre_services::coach_platform::{coach_platform, CoachPlatform};
 use pierre_services::delegated_connections::{end_off_roster, person_name, unbound_link_reason};
 use pierre_services::delegated_read::{member_read, CoachRead, CoachReadRefusal, MemberRead};
 use pierre_services::trainingpeaks_accounts::{record_trainingpeaks_role, EmailBinding};
+use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::auth::AuthService;
 use crate::protocol::coach_calendar::CoachSeat;
 use crate::protocol::reauth_notice::flag_needs_reauth;
-use crate::protocol::types::UniversalResponse;
+use crate::protocol::types::{UniversalResponse, META_OWN_CALENDAR_REFUSED};
 
 /// Longest coach name a refusal carries. A coach's name is their own Dravr
 /// display name, typed by them, so it reaches the model as one defanged line.
@@ -81,6 +84,19 @@ const fn refusal(text: String) -> UniversalResponse {
         result: None,
         error: Some(text),
         metadata: None,
+    }
+}
+
+/// What a read of a coach account's own calendar answers on a platform whose
+/// coach accounts keep none: `text`, tagged [`META_OWN_CALENDAR_REFUSED`] so
+/// the caller can tell the account's standing state from a failed read.
+fn own_calendar_refused(text: String) -> UniversalResponse {
+    UniversalResponse {
+        metadata: Some(HashMap::from([(
+            META_OWN_CALENDAR_REFUSED.to_owned(),
+            Value::Bool(true),
+        )])),
+        ..refusal(text)
     }
 }
 
@@ -176,7 +192,7 @@ impl AuthService {
                     && connection.account_role == Some(ProviderAccountRole::Coach)
             });
             if own_coach_account {
-                return Some(Err(Box::new(refusal(own_calendar_refusal))));
+                return Some(Err(Box::new(own_calendar_refused(own_calendar_refusal))));
             }
         }
         let delegated_row = connections
