@@ -71,17 +71,20 @@ fn anchor_carries_the_common_window_boundaries_ordered() {
     let month0 = epoch_for(&rendered, "start of this month");
 
     // Ordering the agent relies on: week/month start ≤ today start ≤ now, and
-    // yesterday is exactly one day before today's local midnight.
+    // yesterday starts one local calendar day before today. That day lasts 23,
+    // 24 or 25 hours: Toronto's 2026-11-01 ran 25 h, and a fixed 24 h failed
+    // every run on 2026-11-02.
     assert!(today0 <= now, "today0 {today0} must be ≤ now {now}");
     assert!(week0 <= today0, "week0 {week0} must be ≤ today0 {today0}");
     assert!(
         month0 <= today0,
         "month0 {month0} must be ≤ today0 {today0}"
     );
-    assert_eq!(
-        yesterday0,
-        today0 - 86_400,
-        "yesterday must be today − 24h (barring a rare midnight DST shift)"
+    let yesterday_len = today0 - yesterday0;
+    assert!(
+        (23 * 3_600..=25 * 3_600).contains(&yesterday_len),
+        "yesterday must start one local day (23–25 h) before today: \
+         yesterday0 {yesterday0}, today0 {today0}"
     );
     // The boundaries are all within the current year, not a year off — the
     // exact failure mode this anchor prevents.
