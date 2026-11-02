@@ -187,12 +187,16 @@ async fn a_slow_link_still_serves_queries() {
     let Some(faulty) = faulty_pool().await else {
         return;
     };
-    faulty.proxy.set(Fault::Latency(Duration::from_millis(100)));
+    // 50 ms each way. The sever makes the probe open a fresh connection,
+    // whose startup and authentication cost several round trips: at 100 ms
+    // each way that took 1.26 s locally against the 2 s acquire timeout, and
+    // a loaded CI runner crossed it (a timed-out acquire reads as "down").
+    faulty.proxy.set(Fault::Latency(Duration::from_millis(50)));
     faulty.proxy.sever();
     let (ok, took) = probe(&faulty.db).await;
-    assert!(ok, "a slow link is slow, not down");
+    assert!(ok, "bug: a slow link is slow, not down (took {took:?})");
     assert!(
-        took >= Duration::from_millis(200),
-        "the latency was applied: {took:?}"
+        took >= Duration::from_millis(100),
+        "bug: the latency was not applied to the round trip: {took:?}"
     );
 }

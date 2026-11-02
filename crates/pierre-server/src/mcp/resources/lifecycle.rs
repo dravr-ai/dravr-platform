@@ -229,7 +229,7 @@ impl ServerContext {
         let repos = Arc::clone(database_arc.repositories());
         // The binary passes the deployment's blob store; a context built
         // without one keeps blobs in memory over an in-memory database and
-        // keeps uploads in the table over any other.
+        // has none over any other, where uploads are refused.
         let blobs = options
             .blobs
             .unwrap_or_else(|| blob_store_when_unset(&config.database.url));

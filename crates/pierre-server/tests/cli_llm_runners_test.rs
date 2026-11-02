@@ -11,8 +11,6 @@ use std::env;
 #[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -38,29 +36,30 @@ use pierre_core::llm::ChatRequest;
 /// ETXTBSY on Linux CI runners.
 #[cfg(unix)]
 fn create_mock_cli_script(name: &str, script_content: &str) -> PathBuf {
-    use std::io::Write;
+    use std::process::Command;
     let dir = tempfile::tempdir().expect("create temp dir for mock script");
     // Keep the TempDir on disk for the duration of the test (caller cleans up)
     let dir_path = dir.keep();
+    let source = dir_path.join(format!("{name}.source"));
+    fs::write(&source, format!("#!/bin/bash\n{script_content}")).expect("write mock script");
+    // The executable is written by a child `install`, never through a file
+    // descriptor of this process: a sibling test spawning a process forks
+    // this one, and a child between its fork and exec holding a writable fd
+    // of the script makes exec fail with ETXTBSY ("Text file busy"), which no
+    // delay after closing the fd prevents. Named by its absolute path (on
+    // Linux and macOS alike): tests in this binary rewrite PATH.
     let script_path = dir_path.join(name);
-    let full_script = format!("#!/bin/bash\n{script_content}");
-    {
-        let mut file = fs::File::create(&script_path).expect("create mock script file");
-        file.write_all(full_script.as_bytes())
-            .expect("write mock script");
-        file.sync_all().expect("sync mock script to disk");
-    }
-    let mut perms = fs::metadata(&script_path)
-        .expect("read script metadata")
-        .permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms).expect("set script executable");
-    // Brief yield to let the kernel finish releasing the file descriptor,
-    // preventing ETXTBSY (errno 26) on Linux CI runners.
-    {
-        use std::thread;
-        thread::sleep(Duration::from_millis(10));
-    }
+    let status = Command::new("/usr/bin/install")
+        .arg("-m")
+        .arg("755")
+        .arg(&source)
+        .arg(&script_path)
+        .status()
+        .expect("run install for the mock script");
+    assert!(
+        status.success(),
+        "bug: install could not place the mock script: {status}"
+    );
     script_path
 }
 

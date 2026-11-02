@@ -23,6 +23,7 @@
 //! across integration tests.
 
 use anyhow::Result;
+use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
@@ -1101,12 +1102,14 @@ async fn create_test_server_resources_over(
         blobs,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
-    // imports the context keeps them in a memory store of its own.
+    // imports the context keeps them in a memory store of its own, since no
+    // table keeps an upload's bytes.
     let blobs = blobs.or_else(|| {
-        archive_imports
+        let memory: Arc<dyn BlobStore> = Arc::new(MemoryBlobStore::new());
+        Some(Ok(archive_imports
             .as_ref()
             .and_then(|imports| imports.wiring().ok())
-            .map(|wiring| Ok(Arc::clone(&wiring.stores.blobs)))
+            .map_or(memory, |wiring| Arc::clone(&wiring.stores.blobs))))
     });
     init_test_logging();
     init_test_http_clients();

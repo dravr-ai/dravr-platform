@@ -1,5 +1,5 @@
 // ABOUTME: OriginalsStore — the one store of the files athletes uploaded: bytes in barrage's blob store, a row naming each
-// ABOUTME: Every write is verified against the file's SHA-256; the drain moves bytes the table still holds into blobs
+// ABOUTME: Every write is verified against the file's SHA-256; with no blob store placed, uploads are refused
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,21 +23,17 @@
 //! - A read finds the row first, then the bytes.
 //! - A delete removes the bytes first, then the row, so a failure part-way
 //!   leaves a row a retry finds and finishes, never bytes no row names.
-//! - Files uploaded before this store kept them still hold their bytes in
-//!   the table. [`OriginalsStore::drain_pending`] copies them out, verified
-//!   the same way, and clears the column; a read of a file not drained yet
-//!   is served from the table's copy, which only the drain clears.
 //! - A deleted account's files are erased with everything else it holds in
 //!   the blob store ([`OriginalsStore::erase_user`]), from the erasure queue
 //!   the account deletion writes in its own transaction.
 //!
-//! Where no blob store is placed (a Postgres deployment whose bucket has not
-//! been applied yet), the store keeps uploads in the table, as it did before
-//! the blob store existed: a write records the bytes in the row, a read
-//! serves them from it, a delete removes the row and the bytes with it, and
-//! nothing drains. The day a blob store is placed, new uploads go to it and
-//! the drain moves the table's bytes out, so turning the bucket on needs no
-//! deploy of its own and never strands a file.
+//! The table held the bytes of the files uploaded before this store kept
+//! them; a drain copied each out, verified, and the column was dropped
+//! (Athlete Data Consolidation, S12; carnet#1309). No bytes are kept in the
+//! table any more, so where no blob store is placed (a Postgres deployment
+//! with no bucket) an upload is refused as unavailable before anything is
+//! written, a read of a file a row names fails, and a delete fails before it
+//! removes the row, so its retry finishes once a store is placed.
 
 use std::fmt;
 use std::sync::Arc;
@@ -46,10 +42,7 @@ use bytes::Bytes;
 use dravr_barrage::blob::{BlobKey, BlobMeta, BlobPrefix, BlobStore};
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::{BarrageError, Scope, UserId};
-use pierre_database::repositories::{
-    PendingUploadBytes, UploadedActivityFileRepository, UPLOAD_ORIGIN,
-};
-use tracing::{info, warn};
+use pierre_database::repositories::{UploadedActivityFileRepository, UPLOAD_ORIGIN};
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
@@ -58,72 +51,45 @@ use crate::models::TenantId;
 /// The media type an uploaded activity file is stored with.
 const FIT_MEDIA_TYPE: &str = "application/vnd.ant.fit";
 
-/// What one drain pass did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DrainReport {
-    /// Files copied to the blob store, verified, and cleared from the table.
-    pub drained: usize,
-    /// Files left in the table: their bytes do not match their recorded hash
-    /// or size, or their ids do not parse. Logged one by one, and stepped
-    /// over, so they never hold back the files behind them.
-    pub refused: usize,
-}
-
-/// Where the bytes of uploaded files are kept.
-enum Backing {
-    /// In the blob store; the table names each file.
-    Blobs(Arc<dyn BlobStore>),
-    /// In the table, because no blob store is placed here, for this reason.
-    Table(String),
-}
-
 /// The files athletes uploaded, over the blob store and the table naming them.
 pub struct OriginalsStore {
-    backing: Backing,
+    /// The blob store keeping the bytes, or why none is placed here.
+    blobs: Result<Arc<dyn BlobStore>, String>,
     files: Arc<dyn UploadedActivityFileRepository>,
 }
 
 impl fmt::Debug for OriginalsStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let backing = match &self.backing {
-            Backing::Blobs(_) => "blob store",
-            Backing::Table(_) => "table",
+        let blobs = match &self.blobs {
+            Ok(_) => "placed",
+            Err(reason) => reason.as_str(),
         };
         f.debug_struct("OriginalsStore")
-            .field("backing", &backing)
+            .field("blobs", &blobs)
             .finish_non_exhaustive()
     }
 }
 
 impl OriginalsStore {
-    /// The store over `blobs` — or over the table alone, for the reason
-    /// `blobs` carries — and the table naming the files.
+    /// The store over `blobs`, or over none for the reason `blobs` carries,
+    /// and the table naming the files.
     #[must_use]
     pub fn new(
         blobs: Result<Arc<dyn BlobStore>, String>,
         files: Arc<dyn UploadedActivityFileRepository>,
     ) -> Self {
-        let backing = match blobs {
-            Ok(store) => Backing::Blobs(store),
-            Err(reason) => Backing::Table(reason),
-        };
-        Self { backing, files }
+        Self { blobs, files }
     }
 
-    /// Whether files are kept in a blob store here (and so drained into it
-    /// and erased from it), rather than in the table.
-    #[must_use]
-    pub const fn keeps_blobs(&self) -> bool {
-        matches!(self.backing, Backing::Blobs(_))
-    }
-
-    /// Why no blob store keeps the files here, `None` when one does.
-    #[must_use]
-    pub fn table_reason(&self) -> Option<&str> {
-        match &self.backing {
-            Backing::Blobs(_) => None,
-            Backing::Table(reason) => Some(reason),
-        }
+    /// The blob store keeping the files here.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::resource_unavailable`] naming why none is placed.
+    fn blobs(&self) -> AppResult<&Arc<dyn BlobStore>> {
+        self.blobs.as_ref().map_err(|reason| {
+            AppError::resource_unavailable(format!("uploaded files cannot be kept: {reason}"))
+        })
     }
 
     /// Keep the file `file_sha256` the athlete uploaded in this tenant.
@@ -132,10 +98,11 @@ impl OriginalsStore {
     ///
     /// # Errors
     ///
-    /// [`AppError::invalid_input`] when the hash is not 64 lowercase hex
-    /// characters, or (kept in the table) the bytes are not the ones it
-    /// names; an internal error when the blob store reports other bytes than
-    /// the hash names; a database error when the row cannot be written.
+    /// [`AppError::resource_unavailable`] when no blob store is placed here,
+    /// before anything is written; [`AppError::invalid_input`] when the hash
+    /// is not 64 lowercase hex characters; an internal error when the blob
+    /// store reports other bytes than the hash names; a database error when
+    /// the row cannot be written.
     pub async fn put_upload(
         &self,
         tenant_id: &TenantId,
@@ -143,48 +110,22 @@ impl OriginalsStore {
         file_sha256: &str,
         bytes: Bytes,
     ) -> AppResult<bool> {
+        let blobs = self.blobs()?;
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        match &self.backing {
-            Backing::Blobs(blobs) => {
-                put_verified(blobs, tenant_id, user_id, file_sha256, bytes).await?;
-                self.files
-                    .record_uploaded_file(tenant_id, user_id, file_sha256, size, UPLOAD_ORIGIN)
-                    .await
-            }
-            Backing::Table(_) => {
-                let named = Sha256::parse_hex(file_sha256).map_err(|e| {
-                    AppError::invalid_input(format!("uploaded file hash {file_sha256}: {e}"))
-                })?;
-                if Sha256::of(&bytes) != named {
-                    return Err(AppError::invalid_input(format!(
-                        "the uploaded bytes are not the file {file_sha256} names"
-                    )));
-                }
-                self.files
-                    .record_uploaded_file_bytes(
-                        tenant_id,
-                        user_id,
-                        file_sha256,
-                        &bytes,
-                        UPLOAD_ORIGIN,
-                    )
-                    .await
-            }
-        }
+        put_verified(blobs, tenant_id, user_id, file_sha256, bytes).await?;
+        self.files
+            .record_uploaded_file(tenant_id, user_id, file_sha256, size, UPLOAD_ORIGIN)
+            .await
     }
 
     /// The bytes of the file `file_sha256` the athlete holds in this tenant,
     /// `None` when they hold no such file.
     ///
-    /// A file uploaded before the blob store kept files, and not drained
-    /// yet, is served from the table; only the drain clears the table's
-    /// copy, so a read never changes what an older instance still serving
-    /// during a rollout reads.
-    ///
     /// # Errors
     ///
-    /// An internal error when the row names a file neither the blob store
-    /// nor the table holds, or the store fails.
+    /// [`AppError::resource_unavailable`] when the row names a file and no
+    /// blob store is placed here; an internal error when the blob store does
+    /// not hold the bytes the row names, or fails.
     pub async fn get_upload(
         &self,
         tenant_id: &TenantId,
@@ -198,25 +139,18 @@ impl OriginalsStore {
         {
             return Ok(None);
         }
-        if let Backing::Blobs(blobs) = &self.backing {
-            let key = upload_key(tenant_id, user_id, file_sha256)?;
-            if let Some(bytes) = blobs.get(&key).await.map_err(|e| blob_error(&e))? {
-                return Ok(Some(bytes));
-            }
-        }
-        self.files
-            .pending_upload_bytes(Some((tenant_id, user_id, file_sha256)), 1, 0)
-            .await?
-            .into_iter()
-            .next()
-            .map_or_else(
-                || {
-                    Err(AppError::internal(format!(
-                        "uploaded file {file_sha256} is recorded but no store holds its bytes"
-                    )))
-                },
-                |held| Ok(Some(Bytes::from(held.bytes))),
-            )
+        let key = upload_key(tenant_id, user_id, file_sha256)?;
+        let bytes = self
+            .blobs()?
+            .get(&key)
+            .await
+            .map_err(|e| blob_error(&e))?
+            .ok_or_else(|| {
+                AppError::internal(format!(
+                    "uploaded file {file_sha256} is recorded but the blob store holds no bytes for it"
+                ))
+            })?;
+        Ok(Some(bytes))
     }
 
     /// Delete the file `file_sha256` the athlete holds in this tenant: its
@@ -224,7 +158,8 @@ impl OriginalsStore {
     ///
     /// # Errors
     ///
-    /// The blob store's or the database's error. The row stays when the
+    /// [`AppError::resource_unavailable`] when no blob store is placed here;
+    /// the blob store's or the database's error. The row stays when the
     /// bytes could not be deleted, so the retry finds the file again.
     pub async fn delete_upload(
         &self,
@@ -239,71 +174,26 @@ impl OriginalsStore {
         {
             return Ok(false);
         }
-        if let Backing::Blobs(blobs) = &self.backing {
-            let key = upload_key(tenant_id, user_id, file_sha256)?;
-            blobs.delete(&key).await.map_err(|e| blob_error(&e))?;
-        }
+        let key = upload_key(tenant_id, user_id, file_sha256)?;
+        self.blobs()?
+            .delete(&key)
+            .await
+            .map_err(|e| blob_error(&e))?;
         self.files
             .delete_uploaded_file(tenant_id, user_id, file_sha256)
             .await
     }
 
-    /// Copy files the table still holds bytes for into the blob store, each
-    /// verified against its recorded hash and size before the table's copy
-    /// is cleared, until `limit` are drained or none is left. A file refused
-    /// is stepped over, so refused files never fill a pass.
-    ///
-    /// Nothing to do where the files are kept in the table.
-    ///
-    /// # Errors
-    ///
-    /// The database's error when the files cannot be listed. One file's
-    /// failure is logged, counted, and the pass goes on.
-    pub async fn drain_pending(&self, limit: i64) -> AppResult<DrainReport> {
-        let Backing::Blobs(blobs) = &self.backing else {
-            return Ok(DrainReport::default());
-        };
-        let page = limit.max(1);
-        let mut report = DrainReport::default();
-        loop {
-            let skip = i64::try_from(report.refused).unwrap_or(i64::MAX);
-            let files = self.files.pending_upload_bytes(None, page, skip).await?;
-            let listed = files.len();
-            for file in files {
-                let name = file.file_sha256.clone();
-                match self.drain_one(blobs, file).await {
-                    Ok(()) => report.drained += 1,
-                    Err(e) => {
-                        report.refused += 1;
-                        warn!(file_sha256 = %name, error = %e, "an uploaded file could not be drained to the blob store");
-                    }
-                }
-            }
-            let short = i64::try_from(listed).map_or(true, |n| n < page);
-            if short || i64::try_from(report.drained).unwrap_or(i64::MAX) >= page {
-                break;
-            }
-        }
-        if report != DrainReport::default() {
-            info!(
-                drained = report.drained,
-                refused = report.refused,
-                "uploaded files drained to the blob store"
-            );
-        }
-        Ok(report)
-    }
-
     /// Erase every file the account `user_id` uploaded, in every tenant,
     /// with everything else the blob store keeps for it. Returns how many
-    /// blobs were removed: none where the files are kept in the table, whose
-    /// rows go with the account.
+    /// blobs were removed: none where no blob store is placed, as nothing
+    /// can be kept there.
     ///
     /// # Errors
     ///
     /// The blob store's error.
     pub async fn erase_user(&self, user_id: Uuid) -> AppResult<u64> {
-        let Backing::Blobs(blobs) = &self.backing else {
+        let Ok(blobs) = &self.blobs else {
             return Ok(0);
         };
         let prefix = BlobPrefix::User(UserId(user_id));
@@ -320,55 +210,6 @@ impl OriginalsStore {
                 None => return Ok(erased),
             }
         }
-    }
-
-    /// Copy one file the table still holds into the blob store, verified,
-    /// then clear the table's copy. When the row went away meanwhile (the
-    /// athlete deleted the file, or the account was erased, between the
-    /// listing and the copy), the copy just written is removed, so no blob
-    /// outlives the row naming it.
-    async fn drain_one(
-        &self,
-        blobs: &Arc<dyn BlobStore>,
-        file: PendingUploadBytes,
-    ) -> AppResult<()> {
-        let tenant_id = TenantId::parse_str(&file.tenant_id).map_err(|e| {
-            AppError::invalid_input(format!("uploaded file tenant {}: {e}", file.tenant_id))
-        })?;
-        let user_id = Uuid::parse_str(&file.user_id).map_err(|e| {
-            AppError::invalid_input(format!("uploaded file user {}: {e}", file.user_id))
-        })?;
-        if i64::try_from(file.bytes.len()).ok() != Some(file.byte_size) {
-            return Err(AppError::internal(format!(
-                "uploaded file {} holds {} bytes, its row records {}",
-                file.file_sha256,
-                file.bytes.len(),
-                file.byte_size
-            )));
-        }
-        put_verified(
-            blobs,
-            &tenant_id,
-            user_id,
-            &file.file_sha256,
-            Bytes::from(file.bytes),
-        )
-        .await?;
-        let cleared = self
-            .files
-            .clear_drained_bytes(&tenant_id, user_id, &file.file_sha256)
-            .await?;
-        if !cleared
-            && !self
-                .files
-                .holds_uploaded_file(&tenant_id, user_id, &file.file_sha256)
-                .await?
-        {
-            let key = upload_key(&tenant_id, user_id, &file.file_sha256)?;
-            blobs.delete(&key).await.map_err(|e| blob_error(&e))?;
-            info!(file_sha256 = %file.file_sha256, "an uploaded file was deleted while it drained; its copy was removed");
-        }
-        Ok(())
     }
 }
 

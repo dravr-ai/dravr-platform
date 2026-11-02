@@ -44,11 +44,10 @@ use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::UploadedActivityFileRepository;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
-use pierre_providers::originals::{DrainReport, OriginalsStore};
+use pierre_providers::originals::OriginalsStore;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{
@@ -772,68 +771,76 @@ fn upload_key(athlete: &Athlete, sha: &str) -> BlobKey {
     )
 }
 
-/// A file uploaded before the blob store kept files: its bytes in the
-/// table's `file_bytes`, its size `byte_size`, as the old upload wrote it.
-async fn legacy_upload(
+/// Run `sqlite_sql` or `postgres_sql`, whichever engine the context's
+/// database is, and hand back what the engine answered.
+async fn raw(
     resources: &Arc<ServerContext>,
-    athlete: &Athlete,
-    bytes: &[u8],
-    byte_size: i64,
-) {
-    legacy_upload_at(resources, athlete, bytes, byte_size, Utc::now()).await;
-}
-
-/// [`legacy_upload`], uploaded at `uploaded_at`.
-async fn legacy_upload_at(
-    resources: &Arc<ServerContext>,
-    athlete: &Athlete,
-    bytes: &[u8],
-    byte_size: i64,
-    uploaded_at: DateTime<Utc>,
-) {
-    const SQL: &str = "INSERT INTO uploaded_activity_files \
-         (tenant_id, user_id, file_sha256, byte_size, file_bytes, uploaded_at) \
-         VALUES ($1, $2, $3, $4, $5, $6)";
-    let sha = file_sha256(bytes);
+    sqlite_sql: &str,
+    #[cfg_attr(not(feature = "postgresql"), expect(unused_variables))] postgres_sql: &str,
+) -> Result<(), sqlx::Error> {
     match resources.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            sqlx::query(SQL)
-                .bind(athlete.tenant.to_string())
-                .bind(athlete.user_id.to_string())
-                .bind(&sha)
-                .bind(byte_size)
-                .bind(bytes)
-                .bind(uploaded_at)
-                .execute(sqlite.pool())
-                .await
-                .unwrap();
-        }
+        DatabaseBackend::SQLite(sqlite) => sqlx::raw_sql(sqlite_sql)
+            .execute(sqlite.pool())
+            .await
+            .map(drop),
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(postgres) => {
-            sqlx::query(SQL)
-                .bind(athlete.tenant.to_string())
-                .bind(athlete.user_id.to_string())
-                .bind(&sha)
-                .bind(byte_size)
-                .bind(bytes)
-                .bind(uploaded_at)
-                .execute(postgres.pool())
-                .await
-                .unwrap();
-        }
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::raw_sql(postgres_sql)
+            .execute(postgres.pool())
+            .await
+            .map(drop),
     }
 }
 
-/// Whether the table still holds the bytes of `sha`.
-async fn table_holds_bytes(resources: &Arc<ServerContext>, athlete: &Athlete, sha: &str) -> bool {
-    !resources
-        .common
-        .repos
-        .uploaded_activity_files
-        .pending_upload_bytes(Some((&athlete.tenant, athlete.user_id, sha)), 1, 0)
-        .await
-        .unwrap()
-        .is_empty()
+/// A row of `uploaded_activity_files` as the table held it before the
+/// drop: imported, holding `bytes` in `file_bytes` or none.
+async fn insert_file_row(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    sha: &str,
+    bytes: Option<&[u8]>,
+) {
+    const SQL: &str = "INSERT INTO uploaded_activity_files \
+         (tenant_id, user_id, file_sha256, byte_size, file_bytes, uploaded_at, origin) \
+         VALUES ($1, $2, $3, 4, $4, $5, 'import')";
+    // One statement, bound per engine: a sqlx query is typed by its driver.
+    macro_rules! insert {
+        ($pool:expr) => {
+            sqlx::query(SQL)
+                .bind(athlete.tenant.to_string())
+                .bind(athlete.user_id.to_string())
+                .bind(sha.to_owned())
+                .bind(bytes.map(<[u8]>::to_vec))
+                .bind(Utc::now())
+                .execute($pool)
+                .await
+                .unwrap()
+                .rows_affected()
+        };
+    }
+    let written = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => insert!(sqlite.pool()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => insert!(postgres.pool()),
+    };
+    assert_eq!(written, 1, "bug: the test's file row {sha} was not written");
+}
+
+/// How many rows of `uploaded_activity_files` hold bytes, read from the
+/// table itself.
+async fn rows_holding_bytes(resources: &Arc<ServerContext>) -> i64 {
+    const SQL: &str =
+        "SELECT count(*) AS held FROM uploaded_activity_files WHERE file_bytes IS NOT NULL";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(SQL)
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::query_scalar(SQL)
+            .fetch_one(postgres.pool())
+            .await
+            .unwrap(),
+    }
 }
 
 /// An upload's bytes live in the blob store under its own `upload` key —
@@ -888,10 +895,6 @@ async fn an_upload_is_kept_in_the_blob_store_with_a_row_naming_it() {
             .unwrap()
             .is_none(),
         "bug: an upload is kept apart from an import's originals"
-    );
-    assert!(
-        !table_holds_bytes(&resources, &athlete, &sha).await,
-        "bug: a new upload writes no bytes into the table"
     );
     assert_eq!(
         originals
@@ -977,194 +980,77 @@ async fn bytes_that_are_not_their_hash_are_refused_and_nothing_is_kept() {
     );
 }
 
-/// A file uploaded before the blob store kept files reads from the table
-/// until a drain pass copies it out, verified against its hash and size; a
-/// read never clears the table's copy, which an older revision still serving
-/// during a rollout reads. A file whose bytes disagree with its row stays.
-#[tokio::test]
-async fn files_kept_in_the_table_drain_to_the_blob_store_verified() {
-    let resources = common::create_test_server_resources().await.unwrap();
-    let athlete = seed_athlete(&resources, "originals-drain").await;
-    let (blobs, originals) = inspectable_originals(&resources);
-    let read_first = FitWorkout::ride(yesterday_morning(), 600).encode();
-    let drained = FitWorkout::ride(yesterday_morning(), 900).encode();
-    let torn = FitWorkout::ride(yesterday_morning(), 1200).encode();
-    legacy_upload(
-        &resources,
-        &athlete,
-        &read_first,
-        i64::try_from(read_first.len()).unwrap(),
-    )
-    .await;
-    legacy_upload(
-        &resources,
-        &athlete,
-        &drained,
-        i64::try_from(drained.len()).unwrap(),
-    )
-    .await;
-    legacy_upload(
-        &resources,
-        &athlete,
-        &torn,
-        i64::try_from(torn.len()).unwrap() + 1,
-    )
-    .await;
-
-    let sha = file_sha256(&read_first);
-    assert_eq!(
-        originals
-            .get_upload(&athlete.tenant, athlete.user_id, &sha)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(read_first.as_slice()),
-        "bug: a file not drained yet must still read"
-    );
-    assert!(
-        table_holds_bytes(&resources, &athlete, &sha).await,
-        "bug: a read cleared the table's copy an older revision still reads"
-    );
-
-    let report = originals.drain_pending(10).await.unwrap();
-    assert_eq!(
-        (report.drained, report.refused),
-        (2, 1),
-        "bug: two files drain, the torn one is refused: {report:?}"
-    );
-    assert_eq!(
-        blobs
-            .get(&upload_key(&athlete, &sha))
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(read_first.as_slice()),
-        "bug: the file read first drains like the others"
-    );
-    assert!(
-        !table_holds_bytes(&resources, &athlete, &sha).await,
-        "bug: the table keeps a drained file's bytes"
-    );
-    let drained_sha = file_sha256(&drained);
-    assert_eq!(
-        blobs
-            .get(&upload_key(&athlete, &drained_sha))
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(drained.as_slice()),
-        "bug: the drained file lives in the blob store"
-    );
-    assert!(
-        !table_holds_bytes(&resources, &athlete, &drained_sha).await,
-        "bug: the table keeps the drained file's bytes"
-    );
-    let torn_sha = file_sha256(&torn);
-    assert!(
-        table_holds_bytes(&resources, &athlete, &torn_sha).await,
-        "bug: bytes that disagree with their row were dropped from the table"
-    );
-    assert!(
-        blobs
-            .get(&upload_key(&athlete, &torn_sha))
-            .await
-            .unwrap()
-            .is_none(),
-        "bug: bytes that disagree with their row reached the blob store"
-    );
-}
-
 /// Where no blob store is placed (a Postgres deployment whose bucket is not
-/// applied yet), uploads are kept in the table as before the blob store:
-/// the upload succeeds, reads back, deletes with its row, and nothing
-/// drains. Bytes that are not their hash are still refused.
+/// applied), an upload is refused as unavailable before anything is kept: no
+/// row, no activity. A file a row already names cannot be read, and its
+/// delete fails and leaves the row, so the retry finishes it once a store is
+/// placed — no bytes are ever kept in the table.
 #[tokio::test]
-async fn without_a_blob_store_uploads_are_kept_in_the_table() {
+async fn without_a_blob_store_an_upload_is_refused_and_nothing_is_kept() {
     let resources = common::create_test_server_resources_with_blobs(Err(
         "BARRAGE_GCS_BUCKET is unset".to_owned(),
     ))
     .await
     .unwrap();
-    let athlete = seed_athlete(&resources, "originals-table").await;
+    let athlete = seed_athlete(&resources, "originals-unplaced").await;
     let file = FitWorkout::ride(yesterday_morning(), 600).encode();
     let sha = file_sha256(&file);
 
-    let (status, body) = upload(&resources, &athlete.token, file.clone()).await;
+    let (status, body) = upload(&resources, &athlete.token, file).await;
     assert_eq!(
         status,
-        StatusCode::CREATED,
-        "bug: an upload with no blob store must still be kept: {body}"
+        StatusCode::SERVICE_UNAVAILABLE,
+        "bug: an upload with no blob store to keep it must be refused: {body}"
     );
-    let originals = Arc::clone(&resources.common.originals);
+    let files = &resources.common.repos.uploaded_activity_files;
     assert!(
-        !originals.keeps_blobs(),
-        "bug: no blob store is placed here"
-    );
-    assert!(
-        table_holds_bytes(&resources, &athlete, &sha).await,
-        "bug: with no blob store the table keeps the bytes"
-    );
-    assert_eq!(
-        originals
-            .get_upload(&athlete.tenant, athlete.user_id, &sha)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(file.as_slice()),
-        "bug: the upload reads back from the table"
-    );
-    assert_eq!(
-        originals.drain_pending(10).await.unwrap(),
-        DrainReport::default(),
-        "bug: there is nothing to drain into"
-    );
-    assert_eq!(
-        originals.erase_user(athlete.user_id).await.unwrap(),
-        0,
-        "bug: no blob store holds anything to erase"
-    );
-
-    let other = FitWorkout::ride(yesterday_morning(), 900).encode();
-    assert!(
-        originals
-            .put_upload(
-                &athlete.tenant,
-                athlete.user_id,
-                &file_sha256(&file.iter().rev().copied().collect::<Vec<_>>()),
-                Bytes::from(other)
-            )
-            .await
-            .is_err(),
-        "bug: bytes another hash names were kept in the table"
-    );
-
-    let id = format!("{sha}-0");
-    let (status, body) = delete(&resources, &athlete.token, &id).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "bug: delete: {body}");
-    assert!(
-        !resources
-            .common
-            .repos
-            .uploaded_activity_files
+        !files
             .holds_uploaded_file(&athlete.tenant, athlete.user_id, &sha)
             .await
             .unwrap(),
-        "bug: a deleted upload kept in the table leaves its row"
+        "bug: a refused upload left a row naming bytes no store holds"
+    );
+    assert!(
+        !files
+            .file_backs_cached_activity(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap(),
+        "bug: a refused upload left an activity behind"
+    );
+
+    // A row written while a store was placed, read where none is.
+    files
+        .record_uploaded_file(&athlete.tenant, athlete.user_id, &sha, 10, UPLOAD)
+        .await
+        .unwrap();
+    let originals = Arc::clone(&resources.common.originals);
+    assert!(
+        originals
+            .get_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .is_err(),
+        "bug: a file whose store is not placed must not read as absent"
+    );
+    assert!(
+        originals
+            .delete_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .is_err(),
+        "bug: a delete that cannot reach the bytes must fail"
+    );
+    assert!(
+        files
+            .holds_uploaded_file(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap(),
+        "bug: a failed delete dropped the row its retry needs"
     );
 }
 
-/// A blob store a test scripts: deletes that fail a set number of times, and
-/// a row deleted right after a put (an athlete's delete landing while the
-/// drain copies their file).
+/// A blob store a test scripts: deletes that fail a set number of times.
 struct ScriptedBlobs {
     inner: MemoryBlobStore,
     failing_deletes: AtomicUsize,
-    delete_after_put: Option<(
-        Arc<dyn UploadedActivityFileRepository>,
-        TenantId,
-        Uuid,
-        String,
-    )>,
 }
 
 impl ScriptedBlobs {
@@ -1172,7 +1058,6 @@ impl ScriptedBlobs {
         Self {
             inner: MemoryBlobStore::new(),
             failing_deletes: AtomicUsize::new(0),
-            delete_after_put: None,
         }
     }
 }
@@ -1194,14 +1079,7 @@ impl BlobStore for ScriptedBlobs {
         bytes: Bytes,
         meta: &BlobMeta,
     ) -> Result<BlobStat, BarrageError> {
-        let stat = self.inner.put(key, bytes, meta).await?;
-        if let Some((files, tenant, user, sha)) = &self.delete_after_put {
-            files
-                .delete_uploaded_file(tenant, *user, sha)
-                .await
-                .unwrap();
-        }
-        Ok(stat)
+        self.inner.put(key, bytes, meta).await
     }
 
     async fn get(&self, key: &BlobKey) -> Result<Option<Bytes>, BarrageError> {
@@ -1292,86 +1170,100 @@ async fn a_delete_that_failed_on_the_file_is_finished_by_its_retry() {
         "bug: once finished, the delete is not found"
     );
 }
+/// S12 phase 2 (carnet#1309): the migration that drops
+/// `uploaded_activity_files.file_bytes` once every upload's bytes live in
+/// the blob store. Read as a file because the migration is the data under
+/// test: the database already ran it, so the test replays it, whole, over a
+/// table given the column back.
+const SQLITE_DROP_FILE_BYTES: &str =
+    include_str!("../../../../migrations/20261102120000_drop_uploaded_file_bytes.sql");
+const POSTGRES_DROP_FILE_BYTES: &str =
+    include_str!("../../../../migrations_pg/20261102120000_drop_uploaded_file_bytes.sql");
 
-/// A file deleted while the drain copies it leaves no blob behind: the copy
-/// the drain wrote is removed once it finds no row to clear.
+/// The drop refuses while any row still holds bytes, leaving the column and
+/// the bytes as they were, and its refusal names what is held and the
+/// remedy, since no code is left to drain a row; once none does, the column
+/// goes and every row naming a file stays, with its origin.
 #[tokio::test]
-async fn a_file_deleted_while_it_drains_leaves_no_blob() {
+async fn the_file_bytes_drop_refuses_while_a_row_holds_bytes() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let athlete = seed_athlete(&resources, "originals-drain-race").await;
-    let file = FitWorkout::ride(yesterday_morning(), 600).encode();
-    let sha = file_sha256(&file);
-    legacy_upload(
+    let athlete = seed_athlete(&resources, "originals-drop").await;
+    // The databases before this migration still had the column.
+    raw(
         &resources,
-        &athlete,
-        &file,
-        i64::try_from(file.len()).unwrap(),
+        "ALTER TABLE uploaded_activity_files ADD COLUMN file_bytes BLOB",
+        "ALTER TABLE uploaded_activity_files ADD COLUMN file_bytes BYTEA",
     )
-    .await;
-    let files = Arc::clone(&resources.common.repos.uploaded_activity_files);
-    let mut scripted = ScriptedBlobs::new();
-    scripted.delete_after_put = Some((
-        Arc::clone(&files),
-        athlete.tenant,
-        athlete.user_id,
-        sha.clone(),
-    ));
-    let blobs = Arc::new(scripted);
-    let shared: Arc<dyn BlobStore> = blobs.clone();
-    let originals = OriginalsStore::new(Ok(shared), files);
+    .await
+    .unwrap();
+    let held = file_sha256(b"held");
+    let drained = file_sha256(b"drained");
+    // Bytes that are not the file their row names: the drain refused such a
+    // row on every pass, so it would hold its bytes for good.
+    let corrupt = file_sha256(b"gone");
+    insert_file_row(&resources, &athlete, &held, Some(b"held")).await;
+    insert_file_row(&resources, &athlete, &drained, None).await;
+    insert_file_row(&resources, &athlete, &corrupt, Some(b"lost")).await;
 
-    originals.drain_pending(10).await.unwrap();
-    assert!(
-        blobs
-            .get(&upload_key(&athlete, &sha))
-            .await
-            .unwrap()
-            .is_none(),
-        "bug: the drain left a blob no row names"
-    );
-}
-
-/// Files the drain refuses never fill a pass: with more refused files than
-/// a pass's batch ahead of a good one, the good one still drains.
-#[tokio::test]
-async fn refused_files_never_hold_back_the_files_behind_them() {
-    let resources = common::create_test_server_resources().await.unwrap();
-    let athlete = seed_athlete(&resources, "originals-drain-torn").await;
-    let (blobs, originals) = inspectable_originals(&resources);
-    let oldest = Utc::now() - Duration::hours(3);
-    for (offset, seconds) in [(0, 600), (1, 900)] {
-        let torn = FitWorkout::ride(yesterday_morning(), seconds).encode();
-        legacy_upload_at(
-            &resources,
-            &athlete,
-            &torn,
-            i64::try_from(torn.len()).unwrap() + 1,
-            oldest + Duration::minutes(offset),
-        )
-        .await;
+    let refusal = raw(&resources, SQLITE_DROP_FILE_BYTES, POSTGRES_DROP_FILE_BYTES)
+        .await
+        .expect_err("bug: the column was dropped while a row still held bytes")
+        .to_string();
+    for remedy in ["carnet#1309", "operator decision"] {
+        assert!(
+            refusal.contains(remedy),
+            "bug: the refusal does not name its remedy ({remedy}): {refusal}"
+        );
     }
-    let good = FitWorkout::ride(yesterday_morning(), 1200).encode();
-    legacy_upload_at(
-        &resources,
-        &athlete,
-        &good,
-        i64::try_from(good.len()).unwrap(),
-        oldest + Duration::hours(1),
-    )
-    .await;
-
-    let report = originals.drain_pending(2).await.unwrap();
+    #[cfg(feature = "postgresql")]
+    if matches!(
+        resources.agent.database.backend(),
+        DatabaseBackend::PostgreSQL(_)
+    ) {
+        assert!(
+            refusal.contains("2 uploaded file(s)") && refusal.contains("1 of them"),
+            "bug: the refusal does not count the held and the unrecoverable files: {refusal}"
+        );
+    }
     assert_eq!(
-        (report.drained, report.refused),
-        (1, 2),
-        "bug: two refused files filled the pass: {report:?}"
+        rows_holding_bytes(&resources).await,
+        2,
+        "bug: the refused drop lost the bytes a row held"
     );
+
+    let clear = "UPDATE uploaded_activity_files SET file_bytes = NULL";
+    raw(&resources, clear, clear).await.unwrap();
+    raw(&resources, SQLITE_DROP_FILE_BYTES, POSTGRES_DROP_FILE_BYTES)
+        .await
+        .unwrap();
+    let select = "SELECT file_bytes FROM uploaded_activity_files";
     assert!(
-        blobs
-            .get(&upload_key(&athlete, &file_sha256(&good)))
+        raw(&resources, select, select).await.is_err(),
+        "bug: uploaded_activity_files.file_bytes is still there"
+    );
+    let files = &resources.common.repos.uploaded_activity_files;
+    for sha in [&held, &drained, &corrupt] {
+        assert!(
+            files
+                .holds_uploaded_file(&athlete.tenant, athlete.user_id, sha)
+                .await
+                .unwrap(),
+            "bug: the drop lost the row naming {sha}"
+        );
+    }
+    let origin = "SELECT 1 FROM uploaded_activity_files WHERE origin = 'import'";
+    raw(&resources, origin, origin).await.unwrap();
+    assert!(
+        files
+            .record_uploaded_file(
+                &athlete.tenant,
+                athlete.user_id,
+                &file_sha256(b"new"),
+                3,
+                UPLOAD
+            )
             .await
-            .unwrap()
-            .is_some(),
-        "bug: the good file behind the refused ones never drained"
+            .unwrap(),
+        "bug: a file is recorded after the drop"
     );
 }

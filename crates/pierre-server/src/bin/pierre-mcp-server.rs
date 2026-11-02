@@ -785,15 +785,6 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_archive_import_sweeps(&resources);
     }
 
-    // Start the originals drain (Athlete Data Consolidation, S12): files
-    // uploaded before the blob store kept them move out of the table into
-    // it, each verified against its hash, once the rollout has settled.
-    // Nothing starts without a blob store: uploads stay in the table there.
-    {
-        use pierre_mcp_server::services::originals::start_originals_drain;
-        start_originals_drain(&resources);
-    }
-
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
     // tasks extension stamps every handle with `expires_at_ms` and advertises
     // the same budget to the client as `ttlMs`; reads filter on it, but until

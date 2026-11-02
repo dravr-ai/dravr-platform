@@ -26,9 +26,7 @@
 #      UFCS spelling, only from crates/pierre-services/src/wellness_store.rs
 #      (and, delegating to themselves, from their own repository file).
 #   3. Uploaded files have one store (S12): the upload table's repository
-#      writes and drain (record_uploaded_file, record_uploaded_file_bytes,
-#      delete_uploaded_file, pending_upload_bytes, clear_drained_bytes) are
-#      called only from crates/pierre-providers/src/originals.rs (and,
+#      writes (record_uploaded_file, delete_uploaded_file) are called only from crates/pierre-providers/src/originals.rs (and,
 #      delegating to themselves, from the upload table's own repository
 #      file, no other owner's), and the blob key of an
 #      upload (`BlobKey::upload(`) is built only there, so no other code
@@ -155,10 +153,10 @@ if [ -n "$outside" ]; then
     failed=1
 fi
 
-# 3. Uploaded files: the table's writes and drain, and the upload blob key,
+# 3. Uploaded files: the table's writes, and the upload blob key,
 # only in the originals store (and, delegating to themselves, their own
 # repository file).
-UPLOAD_CALLS='(\.|::)\s*(record_uploaded_file|record_uploaded_file_bytes|delete_uploaded_file|pending_upload_bytes|clear_drained_bytes)\s*\(|BlobKey\s*::\s*upload\s*\('
+UPLOAD_CALLS='(\.|::)\s*(record_uploaded_file|delete_uploaded_file)\s*\(|BlobKey\s*::\s*upload\s*\('
 upload_calls="$(bash "$SCAN" "$UPLOAD_CALLS" -U --vimgrep "${SRC_DIRS[@]}")"
 upload_inside="$(printf '%s\n' "$upload_calls" | grep -c "^$ORIGINALS:" || true)"
 if [ "$upload_inside" -eq 0 ]; then
@@ -168,7 +166,7 @@ fi
 upload_outside="$(printf '%s\n' "$upload_calls" | sed '/^$/d' | grep -v "^$ORIGINALS:" \
     | grep -v "^$UPLOAD_OWNER:" || true)"
 if [ -n "$upload_outside" ]; then
-    echo -e "${RED}❌ Uploaded files written, drained or keyed outside $ORIGINALS:${NC}"
+    echo -e "${RED}❌ Uploaded files written or keyed outside $ORIGINALS:${NC}"
     printf '%s\n' "$upload_outside" | sed 's/^/    /'
     echo "   Keep and read uploaded files through pierre_providers::originals::OriginalsStore."
     failed=1

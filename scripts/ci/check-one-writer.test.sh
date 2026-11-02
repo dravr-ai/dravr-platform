@@ -243,18 +243,9 @@ expect_upload_bypass "an uploaded file's row written" \
 expect_upload_bypass "an uploaded file's row deleted" \
     crates/pierre-server/src/services/activity_upload.rs \
     'async fn drop(r: &R) { r.uploaded_activity_files.delete_uploaded_file(&t, u, &sha).await; }'
-expect_upload_bypass "table-held upload bytes read" \
-    crates/pierre-server/src/services/upload_streams_backfill.rs \
-    'async fn read(r: &R) { UploadedActivityFileRepository::pending_upload_bytes(&*r.files, None, 10).await; }'
-expect_upload_bypass "table-held upload bytes cleared" \
-    crates/pierre-server/src/services/upload_streams_backfill.rs \
-    'async fn clear(r: &R) { r.files.clear_drained_bytes(&t, u, &sha).await; }'
 expect_upload_bypass "an upload blob key built" \
     crates/pierre-server/src/services/archive_import/sweeps.rs \
     'fn key() -> BlobKey { BlobKey :: upload(scope, digest) }'
-expect_upload_bypass "upload bytes written into the table" \
-    crates/pierre-server/src/services/activity_upload.rs \
-    'async fn keep(r: &R) { r.uploaded_activity_files.record_uploaded_file_bytes(&t, u, &sha, &b, "upload").await; }'
 # The same, appended to a file that owns another table, which must stay its
 # table's one writer.
 expect_upload_bypass_in_owner() {
