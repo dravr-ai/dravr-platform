@@ -369,6 +369,26 @@ jobs:
           echo "Gate base: $base"
           echo "sha=$base" >> "$GITHUB_OUTPUT"
 
+      # Migration immutability asks a different question from the gates above:
+      # not "what did this push add" but "what had main already published". A
+      # branch's before-sha is its own previous push, so a migration added in
+      # push 1 and edited in push 2 read as applied though nothing deployed it
+      # (carnet#1318). `fork` mode answers with the fork point from main on a
+      # branch (first push and force-push included, fetched 200 deep past the
+      # shallow checkout) and with the previous push on main itself. The other
+      # gates keep the before-sha: they judge only the commits a push adds.
+      - name: Resolve the migration-freeze base
+        id: freeze_base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
+        run: |
+          base="$(./scripts/ci/resolve-push-base.sh fork)"
+          echo "Migration-freeze base: $base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
       - name: Architectural Validation (Custom Patterns + Security Skills)
         env:
           # The diff-scoped gates this script nests (file-size ratchet, migration
@@ -377,6 +397,8 @@ jobs:
           # force-creates refs/heads/main from refs/remotes/origin/main, leaving
           # origin/main == HEAD, and a gate diffing against that inspects nothing.
           GATE_BASE_REF: ${{ steps.gate_base.outputs.sha }}
+          # check-migration-immutability.sh reads this ahead of GATE_BASE_REF.
+          MIGRATION_FREEZE_BASE_REF: ${{ steps.freeze_base.outputs.sha }}
         run: ./scripts/ci/architectural-validation.sh --apply-skills
 
       # The fleet-wide text scans and this repo's validation-patterns.local.toml

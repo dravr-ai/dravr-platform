@@ -51,7 +51,15 @@ cd "$ROOT"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
-if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then
+# The freeze base comes ahead of $GATE_BASE_REF. ci-backend.yml sets
+# $GATE_BASE_REF to the push's before-sha for every diff gate, and that is the
+# wrong question here: on a branch it is the branch's own previous push, so a
+# migration added in push 1 and edited in push 2 read as "published" though no
+# deploy ever applied it (carnet#1318). What is published is what main had, so
+# the workflow resolves $MIGRATION_FREEZE_BASE_REF with resolve-push-base.sh
+# `fork`: the fork point from main on a branch (first push and force-push
+# included), the previous push on main itself.
+if ! BASE_REF="$(resolve_gate_base_ref "${1:-${MIGRATION_FREEZE_BASE_REF:-}}")"; then
   echo -e "${GREEN}✅ migration-immutability: no base ref to diff against; skipping.${NC}"
   exit 0
 fi

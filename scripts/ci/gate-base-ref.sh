@@ -27,6 +27,11 @@
 #   tip's message alone is not the push's, and a base naming no range there
 #   means nothing to judge.
 #
+#   check-migration-immutability.sh sources it but reads $MIGRATION_FREEZE_BASE_REF
+#   ahead of $GATE_BASE_REF. "Already published" is a fact about main, not about
+#   the push: a branch's before-sha is its own previous push, which no deploy
+#   applied (carnet#1318). ci-backend.yml resolves that base in `fork` mode.
+#
 # Usage:
 #   . "$SCRIPT_DIR/gate-base-ref.sh"
 #   if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then ... skip ... ; fi

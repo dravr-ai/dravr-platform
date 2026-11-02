@@ -1696,8 +1696,10 @@ fi
 # one (VersionMissing) breaks every deploy and every long-lived DB, while a fresh
 # CI database still passes. 2026-09-08: 119040a11 edited two applied migrations
 # and nothing caught it until the nightly drift-check job died at 06:00 UTC.
-# Diff-scoped against $GATE_BASE_REF; restoring the applied bytes stays allowed,
-# because that is the only correct repair once a break is on main.
+# Diff-scoped against $MIGRATION_FREEZE_BASE_REF (CI: the fork point from main,
+# or the previous push on main), else $GATE_BASE_REF; restoring the applied
+# bytes stays allowed, because that is the only correct repair once a break is
+# on main.
 if [ -f "$SCRIPT_DIR/check-migration-immutability.sh" ]; then
     bash "$SCRIPT_DIR/check-migration-immutability.sh" || VALIDATION_FAILED=true
 else
