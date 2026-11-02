@@ -419,7 +419,7 @@ describe('the catalogue behind the tables', () => {
     expect(describeLine(t(fr), 'fr', 'coachHome.reason.unverifiedFigure', { count: 1 })).toBe('Une réponse de l’agent cite un chiffre non vérifié');
     expect(describeLine(t(en), 'en', 'coachHome.reason.deepFatigueStreak', { mornings: 3 })).toBe('Deep fatigue for 3 mornings in a row');
     expect(describeLine(t(en), 'en', 'coachHome.reason.nothingReceivedReconnect', { provider: 'garmin' })).toBe(
-      'Nothing received · Garmin needs reconnecting',
+      'Nothing received · reconnect Garmin',
     );
   });
 });

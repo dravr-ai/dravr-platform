@@ -26,6 +26,7 @@ use tracing::warn;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 
+use crate::chat_catalogue;
 use crate::guardian::workflow::{self, StepId, Workflow};
 use crate::protocol::{UniversalRequest, UniversalToolExecutor};
 
@@ -115,7 +116,7 @@ impl<'a> WorkflowExecutor<'a> {
 
             let request = UniversalRequest {
                 tool_name: step.tool_name.clone(),
-                parameters,
+                parameters: chat_catalogue::chat_arguments(parameters),
                 user_id: self.user_id.to_owned(),
                 protocol: "chat".to_owned(),
                 tenant_id: Some(self.tenant_id.to_string()),

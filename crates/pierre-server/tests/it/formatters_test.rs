@@ -98,7 +98,7 @@ fn test_format_activity_list_toon() {
     let json_output = json_result.unwrap();
     let toon_output = toon_result.unwrap();
 
-    // TOON should be more compact for uniform arrays (~40% reduction)
+    // Uniform scalar rows are the one shape where TOON beats JSON
     println!("JSON length: {}", json_output.data.len());
     println!("TOON length: {}", toon_output.data.len());
     assert!(
@@ -357,7 +357,8 @@ fn test_summary_plus_toon_maximizes_token_savings() {
     // Combined summary + TOON should provide significant savings
     assert!(
         total_savings > 40.0,
-        "Combined mode=summary + format=toon should save at least 40% tokens, got {total_savings:.1}%"
+        "On synthetic uniform rows, mode=summary + format=toon should be at least 40% smaller \
+         than detailed JSON (mostly the summary mode's doing), got {total_savings:.1}%"
     );
 }
 

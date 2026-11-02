@@ -50,7 +50,6 @@ const coachWithDataReqs = {
       count: 25,
       time_frame: '16w',
       mode: 'summary',
-      format: 'toon',
       analysis_type: 'race_preparation',
     },
     athlete_profile: true,
@@ -215,7 +214,9 @@ test.describe('Agent Data Requirements', () => {
     const activities = dr.activities as Record<string, unknown>;
     expect(activities.count).toBe(30);
     expect(activities.time_frame).toBe('16w');
-    expect(activities.format).toBe('toon');
+    // The prefetch reads the prose activity list, never an encoded copy, so
+    // the request carries no wire format to choose (carnet#1314).
+    expect(activities).not.toHaveProperty('format');
     expect(activities.mode).toBe('summary');
     expect(dr.athlete_profile).toBe(true);
   });

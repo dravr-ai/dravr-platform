@@ -100,7 +100,6 @@ const storedCoach = (overrides: Partial<Agent> = {}): Agent => ({
       count: 15,
       time_frame: '8w',
       mode: 'summary',
-      format: 'toon',
       analysis_type: 'general_overview',
     },
     athlete_profile: false,
@@ -170,6 +169,10 @@ describe('CoachEditorScreen', () => {
         }),
       );
     });
+    // The prefetch reads the prose activity list, never an encoded copy, so the
+    // request carries no wire format to choose (carnet#1314).
+    const saved = mockUpdate.mock.calls[0][1] as Partial<Agent>;
+    expect(saved.data_requirements?.activities).not.toHaveProperty('format');
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalledTimes(1));
     expect(mockCreate).not.toHaveBeenCalled();
   });

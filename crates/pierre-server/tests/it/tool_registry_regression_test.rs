@@ -384,3 +384,47 @@ fn test_a2a_agent_card_skills_are_registered_tools() {
         "A2A skills with no registered tool: {unregistered:?}"
     );
 }
+
+/// A chat turn is never offered `format`, while an MCP client still is.
+///
+/// `format=toon` on `get_activities` put the activity IDs in a key the tool
+/// loop's projection drops, so the model could not chain `analyze_activity` on
+/// what it had just listed, and TOON was larger than JSON on every tool the
+/// chat loop reads (carnet#1314). The MCP listing keeps the option: external
+/// clients opt into it there.
+#[test]
+fn chat_tools_are_never_offered_an_output_format_and_mcp_tools_still_are() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let offering_format: Vec<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .filter(|schema| {
+            schema
+                .input_schema
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("format"))
+        })
+        .map(|schema| schema.name)
+        .collect();
+    assert!(
+        offering_format.is_empty(),
+        "chat-callable tools still offer `format`: {offering_format:?}"
+    );
+
+    let get_activities = registry
+        .user_visible_schemas()
+        .into_iter()
+        .find(|schema| schema.name == "get_activities")
+        .expect("get_activities is registered");
+    assert!(
+        get_activities
+            .input_schema
+            .properties
+            .as_ref()
+            .is_some_and(|properties| properties.contains_key("format")),
+        "the MCP listing lost `format`: external clients can no longer opt into TOON"
+    );
+}

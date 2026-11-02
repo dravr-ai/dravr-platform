@@ -244,7 +244,7 @@ impl ToolSurface for TurnToolSurface {
 
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
-            parameters: arguments.clone(),
+            parameters: chat_catalogue::chat_arguments(arguments.clone()),
             user_id: self.user_id.clone(),
             // The agent reached us over MCP, and this is what the charge and the
             // operator event are attributed to.

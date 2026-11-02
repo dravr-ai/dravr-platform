@@ -53,7 +53,7 @@ use std::sync::Arc;
 use pierre_core::models::{EffectiveTool, TenantId};
 use pierre_core::tokens::estimate_context_tokens;
 use pierre_llm::{FunctionDeclaration, Tool};
-use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::Sha256;
@@ -86,6 +86,48 @@ pub const LOADED_CORE: &[&str] = &[
     "remember_fact",
 ];
 
+/// Parameters a chat turn is never offered, and never forwarded when the
+/// model sends one anyway.
+///
+/// `format` asks a tool for TOON instead of JSON. It is there for external MCP
+/// clients, and on a chat turn it only ever cost: measured over 21 data-bearing
+/// tools on 2026-10-31, TOON came out 1.4% to 6.2% larger than JSON once the
+/// tool loop's projection ran, smaller on none of them, and on
+/// `get_activities` the TOON envelope carried the activity IDs in a key the
+/// projection drops, so the model could no longer chain `analyze_activity` or
+/// `compare_activities` on what it had just listed (carnet#1314). Withholding it
+/// from the declarations, the names index and the loopback listing keeps the
+/// model from asking; [`chat_arguments`] covers a model that asks regardless,
+/// because a prompt or its own training told it the option exists.
+const CHAT_WITHHELD_PARAMETERS: &[&str] = &["format"];
+
+/// Remove [`CHAT_WITHHELD_PARAMETERS`] from a tool's input schema.
+pub(crate) fn withhold_chat_parameters(schema: &mut JsonSchema) {
+    if let Some(properties) = &mut schema.properties {
+        for name in CHAT_WITHHELD_PARAMETERS {
+            properties.remove(*name);
+        }
+    }
+    if let Some(required) = &mut schema.required {
+        required.retain(|name| !CHAT_WITHHELD_PARAMETERS.contains(&name.as_str()));
+    }
+}
+
+/// A chat tool call's arguments, less [`CHAT_WITHHELD_PARAMETERS`].
+///
+/// Every path a chat model's call reaches a tool through goes through this:
+/// the API tool loop, the loopback MCP surface an agent CLI calls, and the
+/// Guardian's plan runner.
+#[must_use]
+pub fn chat_arguments(mut arguments: Value) -> Value {
+    if let Some(object) = arguments.as_object_mut() {
+        for name in CHAT_WITHHELD_PARAMETERS {
+            object.remove(*name);
+        }
+    }
+    arguments
+}
+
 /// Build the LLM tool definition set for chat-mode function calling.
 ///
 /// Derives function declarations from the registry's chat-callable schemas
@@ -98,7 +140,9 @@ pub const LOADED_CORE: &[&str] = &[
 ///
 /// Tool descriptions and parameter schemas come from each `McpTool`
 /// implementation's `description()` / `input_schema()` methods, with any
-/// contremaitre overlay already applied by `ToolRegistry::build_schema`.
+/// contremaitre overlay already applied by `ToolRegistry::build_schema`, less
+/// the parameters a chat turn is never offered (`format`; see
+/// [`chat_arguments`]).
 #[must_use]
 pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
     declarations(tool_registry.chat_callable_schemas())
@@ -649,6 +693,51 @@ mod tests {
         assert_ne!(
             measure_catalogue(&forward).digest,
             measure_catalogue(&reversed).digest
+        );
+    }
+
+    #[test]
+    fn a_chat_schema_offers_no_format_and_requires_none() {
+        let mut schema: JsonSchema = serde_json::from_value(json!({
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+                "format": {"type": "string", "description": "'json' (default) or 'toon'"}
+            },
+            "required": ["limit", "format"]
+        }))
+        .unwrap();
+
+        withhold_chat_parameters(&mut schema);
+
+        let properties = schema.properties.unwrap();
+        assert!(
+            properties.contains_key("limit"),
+            "only `format` is withheld; `limit` must survive: {properties:?}"
+        );
+        assert!(
+            !properties.contains_key("format"),
+            "a chat turn must not be offered `format`: {properties:?}"
+        );
+        assert_eq!(
+            schema.required,
+            Some(vec!["limit".to_owned()]),
+            "a withheld parameter left in `required` makes a strict provider reject every call"
+        );
+    }
+
+    #[test]
+    fn a_chat_call_asking_for_toon_reaches_the_tool_without_it() {
+        let arguments = chat_arguments(json!({"limit": 30, "format": "toon"}));
+        assert_eq!(
+            arguments,
+            json!({"limit": 30}),
+            "`format` must be stripped before the call reaches the tool, the rest kept"
+        );
+        assert_eq!(
+            chat_arguments(json!("not an object")),
+            json!("not an object"),
+            "a non-object argument value passes through for the tool to reject"
         );
     }
 

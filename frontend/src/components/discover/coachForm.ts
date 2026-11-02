@@ -112,7 +112,6 @@ export function formDataToUpdateRequest(data: AgentFormData): UpdateAgentRequest
         count: data.activity_count,
         time_frame: data.time_frame,
         mode: data.detail_mode,
-        format: 'toon',
         analysis_type: 'general_overview',
       },
       athlete_profile: data.athlete_profile,

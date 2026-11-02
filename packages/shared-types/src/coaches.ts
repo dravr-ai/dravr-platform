@@ -29,8 +29,6 @@ export interface ActivityDataRequirements {
   time_frame?: string;
   /** Data detail level */
   mode: 'summary' | 'detailed';
-  /** Output format for token efficiency */
-  format: 'toon' | 'json';
   /** Analysis type for data sufficiency guidance */
   analysis_type: string;
 }

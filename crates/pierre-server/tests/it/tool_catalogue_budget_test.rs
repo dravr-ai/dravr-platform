@@ -41,13 +41,18 @@ use crate::common;
 /// 2026-10-28: 94,750 → 95,100 for `get_group_member_plan_status` (carnet#1244),
 /// the coach seat's one plan read, kept to a single argument and a two-line
 /// description (~330 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_100;
+///
+/// 2026-11-02: 95,100 → 92,950. `format` is withheld from the 27 chat tools
+/// that declared it (carnet#1314); measured 92,914.
+const CATALOGUE_BUDGET_BYTES: usize = 92_950;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.
 /// It measured 10,418 bytes (10 of 89 tools, ~3.9k estimated tokens) on
 /// 2026-10-29, against 95,050 for the whole catalogue (carnet#406).
-const LOADED_PREFIX_BUDGET_BYTES: usize = 10_450;
+///
+/// 2026-11-02: 10,450 → 9,950 with `format` withheld (carnet#1314); measured 9,932.
+const LOADED_PREFIX_BUDGET_BYTES: usize = 9_950;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;

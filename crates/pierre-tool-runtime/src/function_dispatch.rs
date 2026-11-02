@@ -38,6 +38,7 @@ use pierre_services::chat_stream::{
     TOOL_STATUS_IN_PROGRESS, TOOL_STATUS_NOT_RUN,
 };
 
+use crate::chat_catalogue;
 use crate::prose_stream;
 use crate::protocol::types::{auth_required_provider, META_AUTH_REQUIRED_PROVIDER};
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -140,7 +141,7 @@ async fn execute_mcp_tool(
     // `guardian::caller_tool_enabled`.
     let request = UniversalRequest {
         tool_name: function_call.name.clone(),
-        parameters,
+        parameters: chat_catalogue::chat_arguments(parameters),
         user_id: user_id.to_owned(),
         protocol: "chat".to_owned(),
         tenant_id: Some(tenant_id.to_string()),

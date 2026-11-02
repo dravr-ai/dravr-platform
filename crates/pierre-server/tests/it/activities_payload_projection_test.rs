@@ -17,11 +17,12 @@ use embacle_tool_host::ToolSurface;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_llm::{ChatMessage, FunctionResponse};
+use pierre_llm::{ChatMessage, FunctionCall, FunctionResponse};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::function_dispatch::execute_function_calls;
 use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
@@ -536,5 +537,97 @@ async fn the_loopback_seam_passes_unrecognised_payloads_through() {
     assert!(
         project_activities_payload("get_athlete", &activities_envelope(3)).is_none(),
         "the projection is scoped to get_activities by name"
+    );
+}
+
+// ============================================================================
+// A chat model that asks for TOON still gets the IDs (carnet#1314)
+// ============================================================================
+
+/// The ids of a delivered `get_activities` window, after checking it is JSON.
+fn ids_in_a_json_window(delivered: &Value) -> Vec<String> {
+    assert!(
+        delivered.get("activities_toon").is_none(),
+        "a chat call must never be answered in TOON: {delivered}"
+    );
+    delivered["activities"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the window must carry its activities array: {delivered}"))
+        .iter()
+        .filter_map(|row| row["id"].as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+/// The premise both seams below rest on: asked directly, the tool answers
+/// `format=toon` with the rows in `activities_toon` and no `activities` array,
+/// which the projection drops. A chat call that reached the tool with `format`
+/// intact would hand the model a window with no ids in it.
+async fn assert_toon_hides_the_ids(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) {
+    let toon = whole_payload(
+        resources,
+        user_id,
+        tenant,
+        "get_activities",
+        json!({ "limit": 10, "mode": "summary", "format": "toon" }),
+    )
+    .await;
+    assert!(
+        toon.get("activities_toon").is_some() && toon.get("activities").is_none(),
+        "premise: format=toon moves the rows out of `activities`: {toon}"
+    );
+}
+
+#[tokio::test]
+async fn the_api_loop_answers_a_toon_request_in_json_with_its_ids() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_cached_rides(&resources).await;
+    assert_toon_hides_the_ids(&resources, user_id, tenant).await;
+
+    let calls = vec![FunctionCall {
+        name: "get_activities".to_owned(),
+        args: json!({ "limit": 10, "mode": "summary", "format": "toon" }),
+    }];
+    let outcome = execute_function_calls(
+        &loopback_executor(&resources),
+        &calls,
+        &user_id.to_string(),
+        tenant,
+        None,
+    )
+    .await
+    .expect("the call dispatches");
+
+    let delivered = &outcome.responses[0].response;
+    assert_eq!(
+        ids_in_a_json_window(delivered),
+        vec!["strava-ride-1", "strava-ride-2"],
+        "bug: the model asked for TOON and lost the ids analyze_activity needs: {delivered}"
+    );
+}
+
+#[tokio::test]
+async fn the_loopback_seam_answers_a_toon_request_in_json_with_its_ids() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_cached_rides(&resources).await;
+    assert_toon_hides_the_ids(&resources, user_id, tenant).await;
+
+    let outcome = loopback_surface(&resources, user_id, tenant)
+        .call(
+            "get_activities",
+            &json!({ "limit": 10, "mode": "summary", "format": "toon" }),
+        )
+        .await;
+    assert!(!outcome.is_error, "the call succeeded: {}", outcome.text);
+    let delivered = outcome
+        .structured
+        .expect("a served window reaches the agent as structured content");
+    assert_eq!(
+        ids_in_a_json_window(&delivered),
+        vec!["strava-ride-1", "strava-ride-2"],
+        "bug: the agent asked for TOON and lost the ids analyze_activity needs: {delivered}"
     );
 }

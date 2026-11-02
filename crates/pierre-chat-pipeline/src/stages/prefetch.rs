@@ -92,7 +92,7 @@ fn parse_data_requirements(agent_ctx: &AgentRuntimeContext) -> Option<DataRequir
 /// of which the athlete corrected by hand.
 ///
 /// The window is deliberately the shape a general "how was my week" question
-/// needs: four weeks, summary detail, token-efficient format. An agent that
+/// needs: four weeks at summary detail. An agent that
 /// declares its own requirements still wins — this only fills the hole where
 /// there was nothing.
 #[must_use]
@@ -102,7 +102,6 @@ pub fn agentless_activity_window() -> DataRequirements {
             count: AGENTLESS_ACTIVITY_COUNT,
             time_frame: Some(AGENTLESS_TIME_FRAME.to_owned()),
             mode: ActivityDataRequirements::default_mode(),
-            format: ActivityDataRequirements::default_format(),
             analysis_type: ActivityDataRequirements::default_analysis_type(),
         }),
         athlete_profile: false,
@@ -238,7 +237,6 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
     let mut params = serde_json::json!({
         "limit": activities_req.count,
         "mode": activities_req.mode,
-        "format": activities_req.format,
         "analysis_type": activities_req.analysis_type,
     });
 

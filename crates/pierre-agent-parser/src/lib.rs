@@ -332,15 +332,6 @@ pub fn parse_frontmatter(content: &str) -> AppResult<AgentFrontmatter> {
                     ),
                 ));
             }
-            if !["toon", "json"].contains(&activities.format.as_str()) {
-                return Err(AppError::new(
-                    ErrorCode::InvalidFormat,
-                    format!(
-                        "data_requirements.activities.format must be 'toon' or 'json', got '{}'",
-                        activities.format
-                    ),
-                ));
-            }
             // Validate time_frame format if provided
             if let Some(tf) = &activities.time_frame {
                 if activities.time_frame_seconds().is_none() {

@@ -512,7 +512,6 @@ fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
         count: 30,
         time_frame: Some("16w".to_owned()),
         mode: "summary".to_owned(),
-        format: "toon".to_owned(),
         analysis_type: "race_preparation".to_owned(),
     };
 
@@ -525,14 +524,7 @@ fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec![
-            "after",
-            "analysis_type",
-            "before",
-            "format",
-            "limit",
-            "mode"
-        ],
+        vec!["after", "analysis_type", "before", "limit", "mode"],
         "the grounding window grew a parameter. If it is sport-shaped, it is the \
          2026-08-27 defect returning: the athlete's training is not the coach's \
          specialty. Got {params}"
@@ -557,7 +549,6 @@ fn an_unbounded_window_still_carries_no_sport_key() {
         count: 40,
         time_frame: None,
         mode: "summary".to_owned(),
-        format: "toon".to_owned(),
         analysis_type: "general_overview".to_owned(),
     };
 
@@ -570,7 +561,7 @@ fn an_unbounded_window_still_carries_no_sport_key() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["analysis_type", "format", "limit", "mode"],
+        vec!["analysis_type", "limit", "mode"],
         "an absent time_frame must drop the range, not acquire anything else: {params}"
     );
 }
@@ -661,7 +652,6 @@ fn the_window_states_its_own_bounds() {
         count: 30,
         time_frame: Some("16w".to_owned()),
         mode: "summary".to_owned(),
-        format: "toon".to_owned(),
         analysis_type: "race_preparation".to_owned(),
     };
     // The turn's own clock: 2026-09-21 16:51 UTC, sixteen weeks after June 1.
@@ -692,7 +682,6 @@ fn a_count_only_window_is_stated_as_a_count() {
         count: 40,
         time_frame: None,
         mode: "summary".to_owned(),
-        format: "toon".to_owned(),
         analysis_type: "general_overview".to_owned(),
     };
     let now = Utc.with_ymd_and_hms(2026, 9, 21, 16, 51, 36).unwrap();

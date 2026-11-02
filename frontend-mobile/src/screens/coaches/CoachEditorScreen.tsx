@@ -187,7 +187,6 @@ export function CoachEditorScreen() {
               count: activityCount,
               time_frame: timeFrame,
               mode: detailMode,
-              format: 'toon' as const,
               analysis_type: 'general_overview',
             },
             athlete_profile: athleteProfile,

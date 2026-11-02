@@ -317,7 +317,7 @@ describe('the season countdown', () => {
     const screen = await openSeason();
     const without = within(screen.getByTestId('coach-season-without'));
     const olivier = without.getByTestId('coach-season-row-olivier');
-    expect(within(olivier).getByTestId('coach-season-subline')).toHaveTextContent(/Nothing planned since/i);
+    expect(within(olivier).getByTestId('coach-season-subline')).toHaveTextContent(/Nothing planned after/i);
     expect(without.getByTestId('coach-season-row-thomas')).toHaveTextContent(/No plan yet/i);
     expect(within(without.getByTestId('coach-season-row-thomas')).getByTestId('coach-season-subline')).toBeTruthy();
   });

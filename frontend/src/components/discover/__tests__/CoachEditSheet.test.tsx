@@ -226,7 +226,6 @@ describe('agent form → update request tool budget', () => {
     expect(enabled.data_requirements?.activities).toMatchObject({
       count: 30,
       time_frame: '16w',
-      format: 'toon',
       mode: 'summary',
     });
 

@@ -23,6 +23,7 @@ use tracing::{debug, warn};
 
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
+use crate::chat_catalogue;
 use crate::security::{RuntimeTool, SecurityLabels};
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
@@ -327,6 +328,10 @@ impl ToolRegistry {
     /// was written ended up advertised in the prose "Available Tools" section
     /// but missing from the function-calling surface, so agent prompts that
     /// referenced them got truthful "no callable tool" refusals.
+    ///
+    /// Each schema here omits `format`: a chat turn never picks TOON
+    /// (carnet#1314). The MCP listings (`user_visible_schemas` and the rest)
+    /// keep it, for external clients that opt in.
     #[must_use]
     pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
         const CHAT_CALLABLE_CATEGORIES: &[&str] = &[
@@ -371,7 +376,11 @@ impl ToolRegistry {
                 allowed_names.contains(name.as_str())
                     && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
-            .map(|(_, tool)| self.build_schema(tool))
+            .map(|(_, tool)| {
+                let mut schema = self.build_schema(tool);
+                chat_catalogue::withhold_chat_parameters(&mut schema.input_schema);
+                schema
+            })
             .collect();
         // Order matters here and is guaranteed by `self.tools` being a
         // `BTreeMap`: this Vec IS the `tools` array on the wire

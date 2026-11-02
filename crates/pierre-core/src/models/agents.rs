@@ -33,10 +33,6 @@ pub struct ActivityDataRequirements {
     #[serde(default = "ActivityDataRequirements::default_mode")]
     pub mode: String,
 
-    /// Output format: "toon" (token-efficient, default) or "json"
-    #[serde(default = "ActivityDataRequirements::default_format")]
-    pub format: String,
-
     /// Analysis type for data sufficiency guidance.
     /// Values: `general_overview`, `weekly_summary`, `trend_analysis`,
     /// `race_preparation`, `recovery_assessment`
@@ -54,13 +50,6 @@ impl ActivityDataRequirements {
     #[must_use]
     pub fn default_mode() -> String {
         "summary".to_owned()
-    }
-
-    /// Wire format an agent gets when its frontmatter omits `format`.
-    /// `pub` for the reason given on [`Self::default_mode`].
-    #[must_use]
-    pub fn default_format() -> String {
-        "toon".to_owned()
     }
 
     /// Analysis type an agent gets when its frontmatter omits `analysis_type`.

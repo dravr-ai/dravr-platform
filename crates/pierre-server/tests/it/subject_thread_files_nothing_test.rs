@@ -919,7 +919,6 @@ async fn windowed_agent(repos: &RepositoryRegistry, owner: &Person) -> String {
                         count: 10,
                         time_frame: Some("4w".to_owned()),
                         mode: ActivityDataRequirements::default_mode(),
-                        format: ActivityDataRequirements::default_format(),
                         analysis_type: ActivityDataRequirements::default_analysis_type(),
                     }),
                     athlete_profile: false,

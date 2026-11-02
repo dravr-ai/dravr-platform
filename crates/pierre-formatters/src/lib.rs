@@ -1,5 +1,5 @@
 // ABOUTME: Output format abstraction for serializing data to multiple formats
-// ABOUTME: Supports JSON (default) and TOON (token-efficient for LLMs)
+// ABOUTME: Supports JSON (default) and TOON, a compact encoding external MCP clients can opt into
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,14 +7,21 @@
 //! Output Format Abstraction Layer
 //!
 //! This module provides pluggable serialization formats for API responses.
-//! The primary motivation is supporting TOON (Token-Oriented Object Notation)
-//! which achieves ~40% token reduction compared to JSON, making it ideal for
-//! LLM consumption of large datasets like a year's worth of fitness activities.
+//! It exists so an external MCP client can ask for TOON (Token-Oriented Object
+//! Notation) instead of JSON.
+//!
+//! TOON only saves tokens on arrays of uniform rows with scalar values, where it
+//! writes one header and one line per row. The commonly quoted "~40%" compares it
+//! against indented JSON; this server sends compact JSON. Measured on 2026-10-31
+//! with the Claude, `o200k_base` and Gemini tokenizers, TOON was 8.8% to 9.2%
+//! larger than compact JSON across 21 data-bearing tools and smaller on none,
+//! because their payloads are nested or carry prose (carnet#1314). JSON stays the
+//! default, and the chat tool loop never requests TOON.
 //!
 //! ## Supported Formats
 //!
 //! - **JSON**: Default format, universal compatibility
-//! - **TOON**: Token-efficient format optimized for LLM input
+//! - **TOON**: Opt-in compact encoding, smaller than JSON only on uniform tables
 //!
 //! ## Usage
 //!
@@ -40,8 +47,8 @@ pub enum OutputFormat {
     /// JSON format (default) - universal compatibility
     #[default]
     Json,
-    /// TOON format - Token-Oriented Object Notation for LLM efficiency
-    /// Achieves ~40% token reduction compared to JSON
+    /// TOON format - Token-Oriented Object Notation, opt-in for external
+    /// clients; smaller than compact JSON only on arrays of uniform scalar rows
     Toon,
 }
 

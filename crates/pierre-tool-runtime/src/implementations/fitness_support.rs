@@ -777,7 +777,7 @@ pub(crate) struct ActivitiesResponseParams<'a> {
 /// Build success response for activities with mode and format support
 /// `mode="summary"` returns minimal fields (id, name, `sport_type`, `start_date`, distance, duration)
 /// `mode="detailed"` returns full activity data (default for backwards compatibility when not specified)
-/// `format="json"` (default) or `format="toon"` for token-efficient LLM output
+/// `format="json"` (default) or `format="toon"`, an opt-in for external MCP clients
 /// `pagination` enables clients to paginate through large result sets
 pub(crate) fn build_activities_success_response(
     params: ActivitiesResponseParams<'_>,
