@@ -3556,7 +3556,9 @@
       "historyOnCardN": "Imported history: {{count}} activities",
       "sources": {
         "strava": "Strava",
-        "stravaHint": "Your full activity history from Strava's data export"
+        "stravaHint": "Your full activity history from Strava's data export",
+        "garmin": "Garmin Connect",
+        "garminHint": "Your activities and daily wellness from Garmin's data export"
       },
       "state": {
         "awaitingLink": "Waiting for Strava's email · Paste the link",
@@ -3634,6 +3636,27 @@
           "unknown_locale": "The export's activity list is in a language Dravr can't read yet. Set Strava to English or French, then request a new export.",
           "spool_missing": "The import lost its copy of the export.",
           "not_an_export": "That file isn't a Strava export."
+        }
+      },
+      "garmin": {
+        "intro": "History you import from your own Garmin export is yours and stays, even if you disconnect Garmin.",
+        "step1Title": "Step 1 of 3 · Request your Garmin export",
+        "step1Body": "On Garmin's account site, sign in, open Account, then Data Management, then Export Your Data, and choose Request Data Export. Garmin emails you a link when it is ready, which can take several days.",
+        "step1Open": "Open Garmin's export page",
+        "step2Title": "Step 2 of 3 · Paste the link from Garmin's email",
+        "linkLabel": "Link from Garmin's email",
+        "linkHint": "In Garmin's email, copy the link behind the download button and paste all of it. It works for 3 days. If Garmin sends your export in several parts, import each link in turn.",
+        "progressStarting": "Getting your export from Garmin…",
+        "inProgress": "An import from Garmin is already running.",
+        "awaitingLink": "Waiting for Garmin's email · Paste the link",
+        "awaitingLinkLate": "Still waiting on Garmin?",
+        "refusal": {
+          "link_invalid": "That doesn't look like an export link. Copy the whole link from Garmin's email.",
+          "link_host_not_allowed": "That link isn't from Garmin's export email.",
+          "link_expired": "That link has expired. Request a new export from Garmin."
+        },
+        "failure": {
+          "not_an_export": "That file isn't a Garmin export."
         }
       }
     }

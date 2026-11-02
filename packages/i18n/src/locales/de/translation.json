@@ -3556,7 +3556,9 @@
       "historyOnCardN": "Importierter Verlauf: {{count}} Aktivitäten",
       "sources": {
         "strava": "Strava",
-        "stravaHint": "Dein gesamter Aktivitätsverlauf aus dem Datenexport von Strava"
+        "stravaHint": "Dein gesamter Aktivitätsverlauf aus dem Datenexport von Strava",
+        "garmin": "Garmin Connect",
+        "garminHint": "Deine Aktivitäten und dein tägliches Wohlbefinden aus dem Datenexport von Garmin"
       },
       "state": {
         "awaitingLink": "Warte auf die E-Mail von Strava · Link einfügen",
@@ -3634,6 +3636,27 @@
           "unknown_locale": "Die Aktivitätsliste des Exports ist in einer Sprache, die Dravr noch nicht lesen kann. Stelle Strava auf Englisch oder Französisch um und fordere einen neuen Export an.",
           "spool_missing": "Der Import hat seine Kopie des Exports verloren.",
           "not_an_export": "Diese Datei ist kein Strava-Export."
+        }
+      },
+      "garmin": {
+        "intro": "Der Verlauf, den du aus deinem eigenen Garmin-Export importierst, gehört dir und bleibt, auch wenn du Garmin trennst.",
+        "step1Title": "Schritt 1 von 3 · Fordere deinen Garmin-Export an",
+        "step1Body": "Melde dich auf der Kontoseite von Garmin an, öffne Konto, dann Datenverwaltung, dann Deine Daten exportieren, und wähle Datenexport anfordern. Garmin schickt dir einen Link per E-Mail, sobald er bereit ist, was mehrere Tage dauern kann.",
+        "step1Open": "Exportseite von Garmin öffnen",
+        "step2Title": "Schritt 2 von 3 · Füge den Link aus der E-Mail von Garmin ein",
+        "linkLabel": "Link aus der E-Mail von Garmin",
+        "linkHint": "Kopiere in der E-Mail von Garmin den Link hinter der Download-Schaltfläche und füge ihn vollständig ein. Er ist 3 Tage gültig. Schickt Garmin deinen Export in mehreren Teilen, importiere jeden Link nacheinander.",
+        "progressStarting": "Dein Export wird von Garmin geholt…",
+        "inProgress": "Ein Import von Garmin läuft bereits.",
+        "awaitingLink": "Warte auf die E-Mail von Garmin · Link einfügen",
+        "awaitingLinkLate": "Wartest du noch auf Garmin?",
+        "refusal": {
+          "link_invalid": "Das sieht nicht nach einem Export-Link aus. Kopiere den ganzen Link aus der E-Mail von Garmin.",
+          "link_host_not_allowed": "Dieser Link stammt nicht aus der Export-E-Mail von Garmin.",
+          "link_expired": "Dieser Link ist abgelaufen. Fordere bei Garmin einen neuen Export an."
+        },
+        "failure": {
+          "not_an_export": "Diese Datei ist kein Garmin-Export."
         }
       }
     }

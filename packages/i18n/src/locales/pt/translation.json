@@ -3556,7 +3556,9 @@
       "historyOnCardN": "Histórico importado: {{count}} atividades",
       "sources": {
         "strava": "Strava",
-        "stravaHint": "Todo o seu histórico de atividades, da exportação de dados do Strava"
+        "stravaHint": "Todo o seu histórico de atividades, da exportação de dados do Strava",
+        "garmin": "Garmin Connect",
+        "garminHint": "Suas atividades e seu bem-estar diário, da exportação de dados da Garmin"
       },
       "state": {
         "awaitingLink": "Aguardando o e-mail do Strava · Cole o link",
@@ -3634,6 +3636,27 @@
           "unknown_locale": "A lista de atividades da exportação está em um idioma que o Dravr ainda não consegue ler. Mude o Strava para inglês ou francês e solicite uma nova exportação.",
           "spool_missing": "A importação perdeu sua cópia da exportação.",
           "not_an_export": "Esse arquivo não é uma exportação do Strava."
+        }
+      },
+      "garmin": {
+        "intro": "O histórico que você importa da sua própria exportação da Garmin é seu e permanece, mesmo que você desconecte a Garmin.",
+        "step1Title": "Etapa 1 de 3 · Solicite sua exportação da Garmin",
+        "step1Body": "No site de conta da Garmin, entre, abra Conta, depois Gerenciamento de dados, depois Exportar seus dados, e escolha Solicitar exportação de dados. A Garmin envia um link por e-mail quando estiver pronto, o que pode levar vários dias.",
+        "step1Open": "Abrir a página de exportação da Garmin",
+        "step2Title": "Etapa 2 de 3 · Cole o link do e-mail da Garmin",
+        "linkLabel": "Link do e-mail da Garmin",
+        "linkHint": "No e-mail da Garmin, copie o link do botão de download e cole-o inteiro. Ele vale por 3 dias. Se a Garmin enviar sua exportação em várias partes, importe cada link por vez.",
+        "progressStarting": "Obtendo sua exportação da Garmin…",
+        "inProgress": "Uma importação da Garmin já está em andamento.",
+        "awaitingLink": "Aguardando o e-mail da Garmin · Cole o link",
+        "awaitingLinkLate": "Ainda aguardando a Garmin?",
+        "refusal": {
+          "link_invalid": "Isso não parece um link de exportação. Copie o link completo do e-mail da Garmin.",
+          "link_host_not_allowed": "Esse link não é do e-mail de exportação da Garmin.",
+          "link_expired": "Esse link expirou. Solicite uma nova exportação à Garmin."
+        },
+        "failure": {
+          "not_an_export": "Esse arquivo não é uma exportação da Garmin."
         }
       }
     }
