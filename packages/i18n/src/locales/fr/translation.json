@@ -1323,6 +1323,7 @@
       "reviewDraft": "Relire le brouillon",
       "createPlan": "Créer son plan",
       "writeToGroup": "Écrire dans le groupe",
+      "openingGroup": "Ouverture du groupe…",
       "treated": "Traité",
       "undo": "Annuler",
       "treatedToast": "Marqué comme traité",
@@ -1355,6 +1356,22 @@
       "planDraftWaiting": "Brouillon de plan prêt à publier",
       "newMemberNoPlan": "A rejoint le groupe le {{date}}, pas encore de plan",
       "planEnded": "Plan terminé le {{date}}, rien ne le remplace"
+    },
+    "reasonTitle": {
+      "consentRevoked": "{{name}} a coupé le partage de ses données avec toi.",
+      "unverifiedFigureOne": "L’agent a répondu à {{name}} dans le groupe avec un chiffre qu’aucune de ses données ne confirme.",
+      "unverifiedFigure": "L’agent a répondu à {{name}} dans le groupe avec {{count}} chiffres qu’aucune de ses données ne confirme.",
+      "providerReconnect": "{{provider}} demande une nouvelle connexion à {{name}} ; rien de neuf n’arrive d’ici là.",
+      "nothingReceived": "Aucune activité de {{name}} ne nous parvient depuis {{days}}.",
+      "nothingReceivedReconnect": "Aucune activité de {{name}} ne nous parvient depuis {{days}} : {{provider}} demande une nouvelle connexion.",
+      "nothingReceivedReconnectNoDays": "Aucune activité de {{name}} ne nous parvient : {{provider}} demande une nouvelle connexion.",
+      "nothingReceivedStale": "Aucune activité de {{name}} ne nous parvient depuis {{days}}, et les données en cache ne disent pas ce qui a été fait.",
+      "nothingReceivedStaleNoDays": "Les sources de {{name}} ne se relisent plus : les données en cache ne montrent rien de récent.",
+      "nothingReceivedInLookback": "Aucune activité de {{name}} n’est arrivée sur la période lue.",
+      "deepFatigueStreak": "{{name}} est en fatigue profonde depuis {{mornings}}.",
+      "planDraftWaiting": "Le plan préparé avec l’agent attend ta relecture ; {{name}} ne le voit pas encore.",
+      "newMemberNoPlan": "{{name}} a rejoint le groupe le {{date}} et n’a pas encore de plan.",
+      "planEnded": "Le plan de {{name}} s’est terminé le {{date}} et rien ne le remplace."
     },
     "evidence": {
       "sharingStopped": "Partage coupé le {{at}}",
@@ -2711,7 +2728,14 @@
       "subtitle": "Plan · {{name}}",
       "kindLabel": "Plan d’athlète",
       "empty": "Ton fil privé avec l’agent sur le plan de {{name}}. Demande-lui de rédiger, d’ajuster ou d’expliquer le plan ; {{name}} ne voit que ce que tu publies.",
+      "composerPlaceholder": "Écris à l’agent sur le plan de {{name}}…",
       "openError": "Impossible d’ouvrir ce fil de plan. Réessaie."
+    },
+    "groupRoom": {
+      "kindLabel": "Salon du groupe",
+      "empty": "Le salon de {{group}} : tous les membres et l’agent lisent ce que tu y écris.",
+      "composerPlaceholder": "Écris à {{group}}…",
+      "openError": "Impossible d’ouvrir le salon du groupe. Réessaie."
     },
     "planDraft": {
       "badge": "Brouillon · {{name}} ne le voit pas encore",

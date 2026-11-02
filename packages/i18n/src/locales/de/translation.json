@@ -1323,6 +1323,7 @@
       "reviewDraft": "Entwurf prüfen",
       "createPlan": "Plan erstellen",
       "writeToGroup": "In die Gruppe schreiben",
+      "openingGroup": "Gruppe wird geöffnet…",
       "treated": "Erledigt",
       "undo": "Rückgängig",
       "treatedToast": "Als erledigt markiert",
@@ -1355,6 +1356,22 @@
       "planDraftWaiting": "Planentwurf zur Veröffentlichung bereit",
       "newMemberNoPlan": "Ist der Gruppe am {{date}} beigetreten, noch kein Plan",
       "planEnded": "Plan endete am {{date}}, nichts ersetzt ihn"
+    },
+    "reasonTitle": {
+      "consentRevoked": "{{name}} teilt die Daten nicht mehr mit dir.",
+      "unverifiedFigureOne": "Der Agent hat {{name}} in der Gruppe mit einer Zahl geantwortet, die keine der Daten stützt.",
+      "unverifiedFigure": "Der Agent hat {{name}} in der Gruppe mit {{count}} Zahlen geantwortet, die keine der Daten stützt.",
+      "providerReconnect": "{{provider}} braucht eine neue Verbindung von {{name}}; bis dahin kommt nichts Neues an.",
+      "nothingReceived": "Seit {{days}} kommt keine Aktivität von {{name}} an.",
+      "nothingReceivedReconnect": "Seit {{days}} kommt keine Aktivität von {{name}} an: {{provider}} braucht eine neue Verbindung.",
+      "nothingReceivedReconnectNoDays": "Von {{name}} kommt keine Aktivität an: {{provider}} braucht eine neue Verbindung.",
+      "nothingReceivedStale": "Seit {{days}} kommt keine Aktivität von {{name}} an, und die zwischengespeicherten Daten zeigen nicht, was gemacht wurde.",
+      "nothingReceivedStaleNoDays": "Die Quellen von {{name}} lassen sich nicht mehr lesen: Die zwischengespeicherten Daten zeigen nichts Aktuelles.",
+      "nothingReceivedInLookback": "Im gelesenen Zeitraum kam keine Aktivität von {{name}} an.",
+      "deepFatigueStreak": "{{name}} ist seit {{mornings}} tief ermüdet.",
+      "planDraftWaiting": "Der mit dem Agenten erstellte Plan wartet auf deine Durchsicht; {{name}} sieht ihn noch nicht.",
+      "newMemberNoPlan": "{{name}} ist der Gruppe am {{date}} beigetreten und hat noch keinen Plan.",
+      "planEnded": "Der Plan von {{name}} endete am {{date}}, und nichts ersetzt ihn."
     },
     "evidence": {
       "sharingStopped": "Freigabe am {{at}} beendet",
@@ -2711,7 +2728,14 @@
       "subtitle": "Plan · {{name}}",
       "kindLabel": "Athletenplan",
       "empty": "Dein privater Verlauf mit dem Agenten zum Plan von {{name}}. Bitte ihn, den Plan zu entwerfen, anzupassen oder zu erklären; {{name}} sieht nur, was du veröffentlichst.",
+      "composerPlaceholder": "Schreib dem Agenten zum Plan von {{name}}…",
       "openError": "Dieser Plan-Verlauf konnte nicht geöffnet werden. Bitte versuche es erneut."
+    },
+    "groupRoom": {
+      "kindLabel": "Gruppenraum",
+      "empty": "Der Raum von {{group}}: Alle Mitglieder und der Agent lesen, was du hier schreibst.",
+      "composerPlaceholder": "Schreib an {{group}}…",
+      "openError": "Der Gruppenraum ließ sich nicht öffnen. Bitte versuche es erneut."
     },
     "planDraft": {
       "badge": "Entwurf · {{name}} sieht ihn noch nicht",

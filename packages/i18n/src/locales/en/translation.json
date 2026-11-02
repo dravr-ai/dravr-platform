@@ -1323,6 +1323,7 @@
       "reviewDraft": "Review the draft",
       "createPlan": "Create their plan",
       "writeToGroup": "Write in the group",
+      "openingGroup": "Opening the group…",
       "treated": "Handled",
       "undo": "Undo",
       "treatedToast": "Marked as handled",
@@ -1355,6 +1356,22 @@
       "planDraftWaiting": "Plan draft ready to publish",
       "newMemberNoPlan": "Joined the group on {{date}}, no plan yet",
       "planEnded": "Plan ended on {{date}}, nothing replaces it"
+    },
+    "reasonTitle": {
+      "consentRevoked": "{{name}} stopped sharing their data with you.",
+      "unverifiedFigureOne": "The agent replied to {{name}} in the group with a figure none of their data supports.",
+      "unverifiedFigure": "The agent replied to {{name}} in the group with {{count}} figures none of their data supports.",
+      "providerReconnect": "{{provider}} needs a new connection from {{name}}; nothing new comes in until then.",
+      "nothingReceived": "No activity from {{name}} has come in for {{days}}.",
+      "nothingReceivedReconnect": "No activity from {{name}} has come in for {{days}}: {{provider}} needs a new connection.",
+      "nothingReceivedReconnectNoDays": "No activity from {{name}} comes in: {{provider}} needs a new connection.",
+      "nothingReceivedStale": "No activity from {{name}} has come in for {{days}}, and the cached data can’t tell what was done.",
+      "nothingReceivedStaleNoDays": "{{name}}’s sources can’t be read again: the cached data shows nothing recent.",
+      "nothingReceivedInLookback": "No activity from {{name}} came in over the period read.",
+      "deepFatigueStreak": "{{name}} has been in deep fatigue for {{mornings}}.",
+      "planDraftWaiting": "The plan drafted with the agent is waiting for your review; {{name}} can’t see it yet.",
+      "newMemberNoPlan": "{{name}} joined the group on {{date}} and has no plan yet.",
+      "planEnded": "{{name}}’s plan ended on {{date}} and nothing replaces it."
     },
     "evidence": {
       "sharingStopped": "Sharing stopped on {{at}}",
@@ -2711,7 +2728,14 @@
       "subtitle": "Plan · {{name}}",
       "kindLabel": "Athlete plan",
       "empty": "Your private thread with the agent on {{name}}’s plan. Ask it to draft, adjust or explain the plan; {{name}} sees only what you publish.",
+      "composerPlaceholder": "Write to the agent about {{name}}’s plan…",
       "openError": "We couldn't open this plan thread. Please try again."
+    },
+    "groupRoom": {
+      "kindLabel": "Group room",
+      "empty": "The {{group}} room: every member and the agent read what you write here.",
+      "composerPlaceholder": "Write to {{group}}…",
+      "openError": "We couldn't open the group room. Please try again."
     },
     "planDraft": {
       "badge": "Draft · {{name}} can't see it yet",

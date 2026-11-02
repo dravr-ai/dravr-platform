@@ -1323,6 +1323,7 @@
       "reviewDraft": "Revisar o rascunho",
       "createPlan": "Criar o plano",
       "writeToGroup": "Escrever no grupo",
+      "openingGroup": "Abrindo o grupo…",
       "treated": "Tratado",
       "undo": "Desfazer",
       "treatedToast": "Marcado como tratado",
@@ -1355,6 +1356,22 @@
       "planDraftWaiting": "Rascunho de plano pronto para publicar",
       "newMemberNoPlan": "Entrou no grupo em {{date}}, ainda sem plano",
       "planEnded": "Plano encerrado em {{date}}, nada o substitui"
+    },
+    "reasonTitle": {
+      "consentRevoked": "{{name}} parou de compartilhar os dados com você.",
+      "unverifiedFigureOne": "O agente respondeu a {{name}} no grupo com um número que nenhum dos seus dados confirma.",
+      "unverifiedFigure": "O agente respondeu a {{name}} no grupo com {{count}} números que nenhum dos seus dados confirma.",
+      "providerReconnect": "{{provider}} precisa de uma nova conexão de {{name}}; até lá, nada novo chega.",
+      "nothingReceived": "Nenhuma atividade de {{name}} chega há {{days}}.",
+      "nothingReceivedReconnect": "Nenhuma atividade de {{name}} chega há {{days}}: {{provider}} precisa de uma nova conexão.",
+      "nothingReceivedReconnectNoDays": "Nenhuma atividade de {{name}} chega: {{provider}} precisa de uma nova conexão.",
+      "nothingReceivedStale": "Nenhuma atividade de {{name}} chega há {{days}}, e os dados em cache não dizem o que foi feito.",
+      "nothingReceivedStaleNoDays": "As fontes de {{name}} não podem mais ser lidas: os dados em cache não mostram nada recente.",
+      "nothingReceivedInLookback": "Nenhuma atividade de {{name}} chegou no período lido.",
+      "deepFatigueStreak": "{{name}} está em fadiga profunda há {{mornings}}.",
+      "planDraftWaiting": "O plano preparado com o agente aguarda sua revisão; {{name}} ainda não o vê.",
+      "newMemberNoPlan": "{{name}} entrou no grupo em {{date}} e ainda não tem plano.",
+      "planEnded": "O plano de {{name}} terminou em {{date}} e nada o substitui."
     },
     "evidence": {
       "sharingStopped": "Compartilhamento interrompido em {{at}}",
@@ -2711,7 +2728,14 @@
       "subtitle": "Plano · {{name}}",
       "kindLabel": "Plano de atleta",
       "empty": "O teu fio privado com o agente sobre o plano de {{name}}. Pede-lhe que redija, ajuste ou explique o plano; {{name}} só vê o que publicas.",
+      "composerPlaceholder": "Escreva ao agente sobre o plano de {{name}}…",
       "openError": "Não conseguimos abrir esta conversa do plano. Tenta de novo."
+    },
+    "groupRoom": {
+      "kindLabel": "Sala do grupo",
+      "empty": "A sala de {{group}}: todos os membros e o agente leem o que você escreve aqui.",
+      "composerPlaceholder": "Escreva para {{group}}…",
+      "openError": "Não foi possível abrir a sala do grupo. Tente novamente."
     },
     "planDraft": {
       "badge": "Rascunho · {{name}} ainda não o vê",
@@ -3367,7 +3391,7 @@
         "build": "Construção",
         "specialty": "Específica",
         "peak": "Pico",
-        "taper": "Descarga",
+        "taper": "Polimento",
         "race": "Prova",
         "transition": "Transição",
         "recovery": "Recuperação"
