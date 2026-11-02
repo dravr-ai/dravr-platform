@@ -22,16 +22,19 @@
 //! - **[`ContremaitreRoutingProvider`]** — thread-safe registry holding an
 //!   `Arc<RoutingTable>` in an `ArcSwap`. The `RoutingProvider` impl
 //!   merges overrides on top of defaults to produce the [`RoutingRule`] the
-//!   layer applies. Boot-time state is `defaults: enabled=false` so the
-//!   layer drops every event until the first sync installs real rules,
-//!   matching the platform-wide "no Slack noise before the prompts are
-//!   loaded" invariant.
+//!   layer applies. Boot-time state is the routing compiled in from the
+//!   pinned contremaitre rev ([`ContremaitreRoutingProvider::compiled_in`]),
+//!   so an event raised before the first sync still reaches its real room.
+//!   The first full sync takes ~40 s on a cold Cloud Run instance, which
+//!   serves traffic long before that: a disabled bootstrap dropped every
+//!   sign-up an autoscaled pod took in that window, unlogged.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
 use dravr_tronc::notify::{BatchRule, DedupRule, RoutingProvider, RoutingRule};
 use serde::Deserialize;
 
@@ -50,7 +53,7 @@ use pierre_core::errors::{AppError, AppResult};
 /// instead lets every consumer clone the same `Arc` lazily on first use
 /// without explicit boot-order plumbing.
 pub static NOTIFY_ROUTING_PROVIDER: LazyLock<Arc<ContremaitreRoutingProvider>> =
-    LazyLock::new(|| Arc::new(ContremaitreRoutingProvider::new_empty()));
+    LazyLock::new(|| Arc::new(ContremaitreRoutingProvider::compiled_in()));
 
 /// Parsed snapshot of `config/notify-routing.yaml`. Read-only once built.
 ///
@@ -106,11 +109,10 @@ impl Default for RoutingTable {
 /// [`NotifyLayer`](dravr_tronc::notify::NotifyLayer) via the
 /// [`RoutingProvider`] trait.
 ///
-/// Built at platform boot with [`Self::new_empty`]; the contremaitre sync
+/// Built at platform boot with [`Self::compiled_in`]; the contremaitre sync
 /// (see [`super::sync::sync_notify_routing`]) calls [`Self::reload`] on
-/// every tick to swap in the latest YAML. Until the first reload succeeds
-/// the registry's `defaults.enabled` is `false`, so the layer drops every
-/// emit — consistent with cageux / persona-contracts bootstrap behaviour.
+/// every tick to swap in the latest YAML. [`Self::new_empty`] is the
+/// disabled snapshot tests start from.
 #[derive(Debug)]
 pub struct ContremaitreRoutingProvider {
     table: ArcSwap<RoutingTable>,
@@ -132,6 +134,22 @@ impl ContremaitreRoutingProvider {
         Self {
             table: ArcSwap::from_pointee(RoutingTable::default()),
         }
+    }
+
+    /// Build a provider holding the routing compiled in from the pinned
+    /// contremaitre rev, for the window before the first sync.
+    ///
+    /// The snapshot carries no `overlay_sha256`, so the first sync always
+    /// replaces it with the live overlay. The compiled-in document is a
+    /// constant that a unit test parses, so the disabled fallback is never
+    /// reached by a build that passed its tests.
+    #[must_use]
+    pub fn compiled_in() -> Self {
+        let provider = Self::new_empty();
+        if provider.reload(NOTIFY_ROUTING_YAML).is_err() {
+            return Self::new_empty();
+        }
+        provider
     }
 
     /// Parse `yaml_text` and atomically swap the routing table.
@@ -454,6 +472,26 @@ fn merge_rule(defaults: &RoutingRule, override_entry: Option<&EventOverride>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sign-up on a pod that has not synced yet must still reach the
+    /// approvals room: the boot snapshot is the compiled-in routing, never
+    /// the disabled placeholder that dropped every event.
+    #[test]
+    fn the_boot_snapshot_routes_a_pending_approval_before_any_sync() {
+        let provider = ContremaitreRoutingProvider::compiled_in();
+
+        // Parsed for real, not the placeholder: the placeholder routes nothing.
+        let rule = provider
+            .route_for("user.pending_approval")
+            .expect("the compiled-in routing enables user.pending_approval");
+        let room = provider
+            .event_channel("user.pending_approval")
+            .expect("the compiled-in routing names the approvals room");
+        assert_eq!(rule.channel, room);
+        assert!(provider.route_for("user.signed_up").is_some());
+        // No overlay hash, so the first sync replaces it with the live overlay.
+        assert_eq!(provider.current_sha256(), None);
+    }
 
     #[test]
     fn an_events_channel_is_only_the_one_its_own_rule_names() {
