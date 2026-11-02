@@ -154,9 +154,11 @@ pub mod fitness_config;
 /// Athlete physiology tools (`tools-config` feature).
 ///
 /// `set_physiology` writes the athlete's own values into
-/// `user_physiological_profiles`; [`physiology_import`] is the one other
-/// writer. The lactate step test has its own module, [`lactate_thresholds`],
-/// and the `VO2max` field-test estimate its own, [`vo2max_estimate`].
+/// `user_physiological_profiles` through [`physiology::store_profile`], which
+/// [`physiology_import`] and the weekly anchor promotion
+/// (`crate::anchor_promotion`) save through too. The lactate step test has
+/// its own module, [`lactate_thresholds`], and the `VO2max` field-test
+/// estimate its own, [`vo2max_estimate`].
 #[cfg(feature = "tools-config")]
 pub mod physiology;
 

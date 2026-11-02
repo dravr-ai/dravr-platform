@@ -25,8 +25,8 @@ use dravr_meteo::{
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    MeasurementKind, Merged, MetricProvenance, ProvenancedValue, SportType, StoredDailyActivity,
-    ThresholdProvenance,
+    AnchorProvenance, AnchorStamp, MeasurementKind, Merged, MetricProvenance, ProvenancedValue,
+    SportType, StoredDailyActivity, ThresholdProvenance,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::precedence::wellness_source;
@@ -4845,6 +4845,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            anchor_provenance: AnchorProvenance::default(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4906,6 +4907,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             )),
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            anchor_provenance: AnchorProvenance::default(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4983,6 +4985,10 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                     as_of: NaiveDate::from_ymd_opt(2026, 9, 30),
                 }),
                 ..ThresholdProvenance::default()
+            },
+            anchor_provenance: AnchorProvenance {
+                resting_hr: NaiveDate::from_ymd_opt(2026, 10, 30).map(AnchorStamp::promoted),
+                ..AnchorProvenance::default()
             },
         }),
         training_history: HistoryRefresh::NothingStored,

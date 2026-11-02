@@ -106,6 +106,11 @@ impl AthleteInputs {
     /// The inputs a stored profile gives, each absent where the profile is
     /// silent.
     ///
+    /// The resting heart rate and weight are the profile's stored anchors:
+    /// the athlete's own, or promoted weekly from their measurements when they
+    /// set none — never a daily reading, which would rescore every stored day
+    /// each morning.
+    ///
     /// The LTHR is [`UserPhysiologicalProfile::lactate_threshold_hr`]: the
     /// measured `threshold_hr` first, else the estimate from the lactate
     /// threshold (a fraction of `VO2max`) and max HR. No profile gives

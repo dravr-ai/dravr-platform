@@ -10,8 +10,9 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
-    Dossier, MeasurementKind, MetricProvenance, PhysiologicalSex, ProvenancedValue, SportType,
-    TenantId, ThresholdProvenance, UserPhysiologicalProfile,
+    AnchorOrigin, AnchorProvenance, AnchorStamp, Dossier, MeasurementKind, MetricProvenance,
+    PhysiologicalSex, ProvenancedValue, SportType, TenantId, ThresholdProvenance,
+    UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
@@ -54,6 +55,13 @@ pub trait UserPhysiologicalProfileRepository: Send + Sync {
     /// The zone backfill walks a tenant's profiles with it; nothing else
     /// needs a tenant's whole roster of profiles.
     async fn list_profile_user_ids(&self, tenant_id: TenantId) -> AppResult<Vec<Uuid>>;
+
+    /// Every `(tenant, user)` holding a profile row, across every tenant.
+    ///
+    /// Only the weekly anchor promotion reads it: it returns ids alone, and
+    /// every read and write the promotion makes for one of them is scoped to
+    /// that user in that tenant.
+    async fn profile_holders(&self) -> AppResult<Vec<(TenantId, Uuid)>>;
 }
 
 /// Read-time composer for the Endurance [`Dossier`] aggregate.
@@ -117,12 +125,16 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
                 max_hr_kind, max_hr_origin, max_hr_as_of,
                 threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of,
-                sex
+                sex,
+                resting_hr_origin, resting_hr_as_of,
+                vo2_max_origin, vo2_max_as_of,
+                weight_origin, weight_as_of
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
                     $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
-                    $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
+                    $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46,
+                    $47, $48, $49, $50, $51, $52)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -168,7 +180,13 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 threshold_pace_sec_per_km_kind = EXCLUDED.threshold_pace_sec_per_km_kind,
                 threshold_pace_sec_per_km_origin = EXCLUDED.threshold_pace_sec_per_km_origin,
                 threshold_pace_sec_per_km_as_of = EXCLUDED.threshold_pace_sec_per_km_as_of,
-                sex = EXCLUDED.sex
+                sex = EXCLUDED.sex,
+                resting_hr_origin = EXCLUDED.resting_hr_origin,
+                resting_hr_as_of = EXCLUDED.resting_hr_as_of,
+                vo2_max_origin = EXCLUDED.vo2_max_origin,
+                vo2_max_as_of = EXCLUDED.vo2_max_as_of,
+                weight_origin = EXCLUDED.weight_origin,
+                weight_as_of = EXCLUDED.weight_as_of
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -187,7 +205,10 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
                    max_hr_kind, max_hr_origin, max_hr_as_of,
                    threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of,
-                   sex
+                   sex,
+                   resting_hr_origin, resting_hr_as_of,
+                   vo2_max_origin, vo2_max_as_of,
+                   weight_origin, weight_as_of
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -199,6 +220,18 @@ pub(crate) const LIST_PROFILE_USER_IDS_SQL: &str = r"
             FROM user_physiological_profiles
             WHERE tenant_id = $1
             ORDER BY user_id
+            ";
+
+/// Every `(tenant, user)` holding a profile row, both read as text.
+///
+/// ISOLATION EXEMPTION: this read spans every tenant on purpose. It serves the
+/// system worker that promotes each athlete's own training anchors from their
+/// own measurements; it returns only ids, and every read and write the
+/// promotion makes is scoped to one user in one tenant.
+pub(crate) const PROFILE_HOLDERS_SQL: &str = r"
+            SELECT CAST(tenant_id AS TEXT) AS tenant_id, CAST(user_id AS TEXT) AS user_id
+            FROM user_physiological_profiles
+            ORDER BY 1, 2
             ";
 
 /// The column values the upsert binds, converted from the typed profile.
@@ -219,6 +252,26 @@ pub(crate) struct ProfileBinds {
     pub(crate) threshold_hr_provenance: ThresholdProvenanceBinds,
     pub(crate) max_hr_provenance: ThresholdProvenanceBinds,
     pub(crate) threshold_pace_provenance: ThresholdProvenanceBinds,
+    pub(crate) resting_hr_stamp: AnchorStampBinds,
+    pub(crate) vo2_max_stamp: AnchorStampBinds,
+    pub(crate) weight_stamp: AnchorStampBinds,
+}
+
+/// The two columns one anchor's [`AnchorStamp`] is stored in: both `None` for
+/// an anchor with no value, or one whose origin was never recorded.
+pub(crate) struct AnchorStampBinds {
+    pub(crate) origin: Option<&'static str>,
+    pub(crate) as_of: Option<NaiveDate>,
+}
+
+/// The origin columns of an anchor: its stamp when the anchor has a value,
+/// nothing otherwise — an origin with no value to describe is never stored.
+fn anchor_stamp_binds(has_value: bool, stamp: Option<&AnchorStamp>) -> AnchorStampBinds {
+    let stamp = stamp.filter(|_| has_value);
+    AnchorStampBinds {
+        origin: stamp.map(|stamp| stamp.origin.as_str()),
+        as_of: stamp.and_then(|stamp| stamp.as_of),
+    }
 }
 
 /// The four columns one [`ProvenancedValue`] is stored in: the value, its
@@ -353,6 +406,18 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
                 .threshold_pace_sec_per_km
                 .as_ref(),
         ),
+        resting_hr_stamp: anchor_stamp_binds(
+            profile.resting_hr.is_some(),
+            profile.anchor_provenance.resting_hr.as_ref(),
+        ),
+        vo2_max_stamp: anchor_stamp_binds(
+            profile.vo2_max.is_some(),
+            profile.anchor_provenance.vo2_max.as_ref(),
+        ),
+        weight_stamp: anchor_stamp_binds(
+            profile.weight.is_some(),
+            profile.anchor_provenance.weight.as_ref(),
+        ),
     })
 }
 
@@ -433,10 +498,19 @@ where
         )?,
     };
 
+    let resting_hr = resting_hr.and_then(|v| u16::try_from(v).ok());
+    let vo2_max = row.try_get::<Option<f64>, _>("vo2_max").ok().flatten();
+    let weight = row.try_get::<Option<f64>, _>("weight").ok().flatten();
+    let anchor_provenance = AnchorProvenance {
+        resting_hr: anchor_stamp_from_row(row, "resting_hr", resting_hr.is_some())?,
+        vo2_max: anchor_stamp_from_row(row, "vo2_max", vo2_max.is_some())?,
+        weight: anchor_stamp_from_row(row, "weight", weight.is_some())?,
+    };
+
     Ok(UserPhysiologicalProfile {
         user_id,
-        vo2_max: row.try_get::<Option<f64>, _>("vo2_max").ok().flatten(),
-        resting_hr: resting_hr.and_then(|v| u16::try_from(v).ok()),
+        vo2_max,
+        resting_hr,
         max_hr,
         lactate_threshold_percentage: row
             .try_get::<Option<f64>, _>("lactate_threshold_percentage")
@@ -444,7 +518,7 @@ where
             .flatten(),
         threshold_hr,
         age: age.and_then(|v| u16::try_from(v).ok()),
-        weight: row.try_get::<Option<f64>, _>("weight").ok().flatten(),
+        weight,
         fitness_level,
         primary_sport,
         training_experience_years: training_years.and_then(|v| u8::try_from(v).ok()),
@@ -461,6 +535,7 @@ where
         critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
         d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
         threshold_provenance,
+        anchor_provenance,
         sex: row
             .try_get::<Option<String>, _>("sex")
             .map_err(|e| AppError::database(format!("read sex: {e}")))?
@@ -517,6 +592,44 @@ where
     Ok(Some(MetricProvenance {
         kind: MeasurementKind::parse_lenient(&kind),
         origin,
+        as_of,
+    }))
+}
+
+/// Read the stamp of the anchor stored in `column` from `<column>_origin` and
+/// `<column>_as_of`.
+///
+/// No origin is the athlete's own value (`None`), as is a stamp beside no
+/// value: the binds never write one. An origin no build knows reads as the
+/// athlete's ([`AnchorOrigin::parse_lenient`]), so it is never promoted over.
+///
+/// # Errors
+/// Returns a database error when a column cannot be decoded.
+fn anchor_stamp_from_row<R>(
+    row: &R,
+    column: &str,
+    has_value: bool,
+) -> AppResult<Option<AnchorStamp>>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
+    let origin_column = format!("{column}_origin");
+    let origin: Option<String> = row
+        .try_get(origin_column.as_str())
+        .map_err(|e| read(e, &origin_column))?;
+    let Some(origin) = origin.filter(|_| has_value) else {
+        return Ok(None);
+    };
+    let as_of_column = format!("{column}_as_of");
+    let as_of: Option<NaiveDate> = row
+        .try_get(as_of_column.as_str())
+        .map_err(|e| read(e, &as_of_column))?;
+    Ok(Some(AnchorStamp {
+        origin: AnchorOrigin::parse_lenient(&origin),
         as_of,
     }))
 }
@@ -651,6 +764,12 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.threshold_pace_provenance.origin)
                     .bind(binds.threshold_pace_provenance.as_of)
                     .bind(profile.sex.map(PhysiologicalSex::as_str))
+                    .bind(binds.resting_hr_stamp.origin)
+                    .bind(binds.resting_hr_stamp.as_of)
+                    .bind(binds.vo2_max_stamp.origin)
+                    .bind(binds.vo2_max_stamp.as_of)
+                    .bind(binds.weight_stamp.origin)
+                    .bind(binds.weight_stamp.as_of)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -686,6 +805,28 @@ macro_rules! impl_user_physiological_profile_repository {
                         row.try_get::<UserId, _>("user_id")
                             .map(|id| id.as_uuid())
                             .map_err(|e| AppError::database(format!("read user_id: {e}")))
+                    })
+                    .collect()
+            }
+
+            async fn profile_holders(&self) -> AppResult<Vec<(TenantId, Uuid)>> {
+                let rows = sqlx::query(PROFILE_HOLDERS_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("profile_holders: {e}")))?;
+                rows.iter()
+                    .map(|row| {
+                        let tenant: String = row
+                            .try_get("tenant_id")
+                            .map_err(|e| AppError::database(format!("read tenant_id: {e}")))?;
+                        let user: String = row
+                            .try_get("user_id")
+                            .map_err(|e| AppError::database(format!("read user_id: {e}")))?;
+                        let tenant = TenantId::parse_str(&tenant)
+                            .map_err(|e| AppError::database(format!("tenant_id {tenant}: {e}")))?;
+                        let user = Uuid::parse_str(&user)
+                            .map_err(|e| AppError::database(format!("user_id {user}: {e}")))?;
+                        Ok((tenant, user))
                     })
                     .collect()
             }

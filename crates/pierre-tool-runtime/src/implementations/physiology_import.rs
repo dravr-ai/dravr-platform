@@ -532,7 +532,8 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
 
                 let (shown, training_history) = if saved {
                     let (stored, history) =
-                        store_profile(&context, tenant_id, profile, &load_inputs_before).await?;
+                        store_profile(&context.resources, tenant_id, profile, &load_inputs_before)
+                            .await?;
                     (Some(stored), history)
                 } else {
                     ((!created).then_some(profile), HistoryRefresh::Unaffected)

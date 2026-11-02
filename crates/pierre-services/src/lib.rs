@@ -323,6 +323,9 @@ pub mod strava_seat_reclaim;
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;
 
+/// The weekly promotion of the profile's resting heart rate, `VO2max` and weight
+/// from the athlete's own measurements (DECISION 5).
+pub mod anchor_promotion;
 /// Stored continuous heart-rate and HRV series, read under each source's provider terms.
 pub mod continuous_series;
 /// The athlete's effective training anchors: the profile's, else the latest measurement.

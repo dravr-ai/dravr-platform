@@ -54,6 +54,10 @@ pub mod upload_streams_backfill;
 /// The one-time recompute of every athlete's training history after the workout precedence rule changed
 pub mod precedence_recompute;
 
+/// The weekly promotion of every athlete's empty or unvouched resting HR, `VO2max` and weight anchors
+#[cfg(feature = "tools-config")]
+pub mod anchor_promotion;
+
 /// What one Terra webhook event carried, stored through the activity cache and the wellness store
 #[cfg(feature = "provider-terra")]
 pub mod terra_ingest;

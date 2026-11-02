@@ -65,11 +65,13 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    HrZoneSet, MeasurementKind, MetricProvenance, PhysiologicalSex, PowerZoneSet, ProvenancedValue,
-    SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
+    AnchorProvenance, AnchorStamp, HrZoneSet, MeasurementKind, MetricProvenance, PhysiologicalSex,
+    PowerZoneSet, ProvenancedValue, SportType, TenantId, ThresholdProvenance,
+    UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::athlete_clock::athlete_today;
 use pierre_services::effective_physiology::{record_manual_measurements, ManualMeasurements};
 use pierre_tools_core::ToolResult;
 
@@ -481,8 +483,10 @@ impl PhysiologyUpdate {
     /// Overlay the supplied fields onto the stored profile, leaving every
     /// field this call did not mention exactly as it was. A threshold the
     /// call sets becomes the athlete's own: its provider provenance, if any,
-    /// is cleared; one it does not set keeps its own.
-    fn apply_to(&self, profile: &mut UserPhysiologicalProfile) {
+    /// is cleared; one it does not set keeps its own. A resting heart rate,
+    /// `VO2max` or weight the call sets is stamped as the athlete's, stated on
+    /// `today`, so the weekly promotion never replaces it.
+    fn apply_to(&self, profile: &mut UserPhysiologicalProfile, today: NaiveDate) {
         if let Some(v) = self.ftp_watts {
             profile.ftp_watts = Some(v);
             profile.threshold_provenance.ftp_watts = None;
@@ -497,6 +501,7 @@ impl PhysiologyUpdate {
         }
         if let Some(v) = self.resting_hr {
             profile.resting_hr = Some(v);
+            profile.anchor_provenance.resting_hr = Some(AnchorStamp::athlete(today));
         }
         if let Some(v) = self.threshold_hr {
             profile.threshold_hr = Some(v);
@@ -507,9 +512,11 @@ impl PhysiologyUpdate {
         }
         if let Some(v) = self.vo2_max {
             profile.vo2_max = Some(v);
+            profile.anchor_provenance.vo2_max = Some(AnchorStamp::athlete(today));
         }
         if let Some(v) = self.weight {
             profile.weight = Some(v);
+            profile.anchor_provenance.weight = Some(AnchorStamp::athlete(today));
         }
         if let Some(v) = self.age {
             profile.age = Some(v);
@@ -750,7 +757,7 @@ pub(crate) async fn profile_for_write(
 /// Returns the repository error of the write or the re-read, or a database
 /// error when the row cannot be read back.
 pub(crate) async fn store_profile(
-    context: &ToolExecutionContext,
+    resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     mut profile: UserPhysiologicalProfile,
     load_inputs_before: &AthleteInputs,
@@ -761,7 +768,7 @@ pub(crate) async fn store_profile(
         .strictest(ai_scope::derived_policy());
     profile.refresh_zones();
 
-    let repos = context.resources.repos();
+    let repos = resources.repos();
     repos
         .user_physiological_profile
         .upsert_user_physiological_profile(tenant_id, user_id, &profile)
@@ -777,7 +784,7 @@ pub(crate) async fn store_profile(
     let training_history = if AthleteInputs::from_profile(Some(&stored)) == *load_inputs_before {
         HistoryRefresh::Unaffected
     } else {
-        recompute_stored_history(&context.resources, tenant_id, user_id).await
+        recompute_stored_history(resources, tenant_id, user_id).await
     };
     Ok((stored, training_history))
 }
@@ -805,6 +812,7 @@ pub(crate) fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyP
         critical_speed_mps: profile.critical_speed_mps.clone(),
         d_prime_meters: profile.d_prime_meters.clone(),
         threshold_provenance: profile.threshold_provenance.clone(),
+        anchor_provenance: profile.anchor_provenance,
     }
 }
 
@@ -880,6 +888,13 @@ pub struct PhysiologyProfile {
     /// athlete's own, and the field is absent when all of them are.
     #[serde(skip_serializing_if = "ThresholdProvenance::is_empty")]
     pub threshold_provenance: ThresholdProvenance,
+    /// Where `resting_hr`, `vo2_max` and `weight` came from, for the ones with
+    /// a recorded origin. `promoted` is filled weekly from the athlete's own
+    /// device readings (resting heart rate: the 7-day median of morning
+    /// readings): say it came from their devices, not that they set it.
+    /// Absent when none is recorded.
+    #[serde(skip_serializing_if = "AnchorProvenance::is_empty")]
+    pub anchor_provenance: AnchorProvenance,
 }
 
 /// What `set_physiology` answers with.
@@ -1082,7 +1097,8 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             let mut profile =
                 existing.unwrap_or_else(|| UserPhysiologicalProfile::new(user_id, SportType::Run));
             profile.user_id = user_id;
-            update.apply_to(&mut profile);
+            let today = athlete_today(context.resources.repos(), user_id).await;
+            update.apply_to(&mut profile, today);
             validate_merged(&profile)?;
             // A resting heart rate or weight the athlete states is also that
             // day's measurement, which trends and merged reads see. Filed
@@ -1100,7 +1116,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             )
             .await?;
             let (stored, training_history) =
-                store_profile(&context, tenant_id, profile, &load_inputs_before).await?;
+                store_profile(&context.resources, tenant_id, profile, &load_inputs_before).await?;
 
             info!(
                 user_id = %user_id,

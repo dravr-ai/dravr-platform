@@ -7066,6 +7066,91 @@
               }
             ]
           },
+          "AnchorOrigin": {
+            "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
+            "oneOf": [
+              {
+                "const": "athlete",
+                "description": "The athlete stated it (`set_physiology`).",
+                "type": "string"
+              },
+              {
+                "const": "imported",
+                "description": "Brought in from another system that holds the athlete's own number.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "A model's estimate standing in until a measurement exists.",
+                "type": "string"
+              },
+              {
+                "const": "promoted",
+                "description": "Promoted from the athlete's own measurements by the weekly promotion.",
+                "type": "string"
+              }
+            ]
+          },
+          "AnchorProvenance": {
+            "description": "Where each of the profile's three training anchors came from.\n\nAn anchor with no entry holds no value, or holds one stored before origins\nwere recorded — which only `set_physiology` and the athlete's own\nconfiguration ever wrote — so it reads as the athlete's own. An entry is\nkept only beside a value.",
+            "properties": {
+              "resting_hr": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the resting heart rate came from."
+              },
+              "vo2_max": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the `VO2max` came from."
+              },
+              "weight": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the weight came from."
+              }
+            },
+            "type": "object"
+          },
+          "AnchorStamp": {
+            "description": "Where one training anchor came from and as of which day.",
+            "properties": {
+              "as_of": {
+                "description": "The day it was stated, imported, estimated or measured, when known.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "$ref": "#/$defs/AnchorOrigin",
+                "description": "Who set it."
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
           "DossierFact": {
             "description": "A single pillar-context fact projected onto the dossier.\n\nThis is a read-time projection of a `pierre_memory::UserFact` — the subset\nthe per-user OKF bundle needs to render, plus a computed freshness flag.\n`kind` and `source` are carried as their stable string slugs to keep this\ntype free of a `pierre-memory` dependency. The `object` field is\nuser-authored free text and must be treated as untrusted at render time.",
             "properties": {
@@ -7832,6 +7917,10 @@
                   "integer",
                   "null"
                 ]
+              },
+              "anchor_provenance": {
+                "$ref": "#/$defs/AnchorProvenance",
+                "description": "Where [`Self::resting_hr`], [`Self::vo2_max`] and [`Self::weight`] came\nfrom: the athlete, an import, an estimate, or the weekly promotion from\nthe athlete's own measurements (DECISION 5). An anchor not listed is\nthe athlete's own. Left out when none is listed, so a profile nobody\npromoted reads exactly as before."
               },
               "critical_power_watts": {
                 "anyOf": [
@@ -19659,6 +19748,91 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorOrigin": {
+            "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
+            "oneOf": [
+              {
+                "const": "athlete",
+                "description": "The athlete stated it (`set_physiology`).",
+                "type": "string"
+              },
+              {
+                "const": "imported",
+                "description": "Brought in from another system that holds the athlete's own number.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "A model's estimate standing in until a measurement exists.",
+                "type": "string"
+              },
+              {
+                "const": "promoted",
+                "description": "Promoted from the athlete's own measurements by the weekly promotion.",
+                "type": "string"
+              }
+            ]
+          },
+          "AnchorProvenance": {
+            "description": "Where each of the profile's three training anchors came from.\n\nAn anchor with no entry holds no value, or holds one stored before origins\nwere recorded — which only `set_physiology` and the athlete's own\nconfiguration ever wrote — so it reads as the athlete's own. An entry is\nkept only beside a value.",
+            "properties": {
+              "resting_hr": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the resting heart rate came from."
+              },
+              "vo2_max": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the `VO2max` came from."
+              },
+              "weight": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the weight came from."
+              }
+            },
+            "type": "object"
+          },
+          "AnchorStamp": {
+            "description": "Where one training anchor came from and as of which day.",
+            "properties": {
+              "as_of": {
+                "description": "The day it was stated, imported, estimated or measured, when known.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "$ref": "#/$defs/AnchorOrigin",
+                "description": "Who set it."
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
           "FitnessLevel": {
             "description": "Athlete fitness level",
             "oneOf": [
@@ -19987,6 +20161,10 @@
                   "integer",
                   "null"
                 ]
+              },
+              "anchor_provenance": {
+                "$ref": "#/$defs/AnchorProvenance",
+                "description": "Where `resting_hr`, `vo2_max` and `weight` came from, for the ones with\na recorded origin. `promoted` is filled weekly from the athlete's own\ndevice readings (resting heart rate: the 7-day median of morning\nreadings): say it came from their devices, not that they set it.\nAbsent when none is recorded."
               },
               "critical_power_watts": {
                 "anyOf": [
@@ -28363,6 +28541,91 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorOrigin": {
+            "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
+            "oneOf": [
+              {
+                "const": "athlete",
+                "description": "The athlete stated it (`set_physiology`).",
+                "type": "string"
+              },
+              {
+                "const": "imported",
+                "description": "Brought in from another system that holds the athlete's own number.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "A model's estimate standing in until a measurement exists.",
+                "type": "string"
+              },
+              {
+                "const": "promoted",
+                "description": "Promoted from the athlete's own measurements by the weekly promotion.",
+                "type": "string"
+              }
+            ]
+          },
+          "AnchorProvenance": {
+            "description": "Where each of the profile's three training anchors came from.\n\nAn anchor with no entry holds no value, or holds one stored before origins\nwere recorded — which only `set_physiology` and the athlete's own\nconfiguration ever wrote — so it reads as the athlete's own. An entry is\nkept only beside a value.",
+            "properties": {
+              "resting_hr": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the resting heart rate came from."
+              },
+              "vo2_max": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the `VO2max` came from."
+              },
+              "weight": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorStamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the weight came from."
+              }
+            },
+            "type": "object"
+          },
+          "AnchorStamp": {
+            "description": "Where one training anchor came from and as of which day.",
+            "properties": {
+              "as_of": {
+                "description": "The day it was stated, imported, estimated or measured, when known.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "$ref": "#/$defs/AnchorOrigin",
+                "description": "Who set it."
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
           "FitnessLevel": {
             "description": "Athlete fitness level",
             "oneOf": [
@@ -28691,6 +28954,10 @@
                   "integer",
                   "null"
                 ]
+              },
+              "anchor_provenance": {
+                "$ref": "#/$defs/AnchorProvenance",
+                "description": "Where `resting_hr`, `vo2_max` and `weight` came from, for the ones with\na recorded origin. `promoted` is filled weekly from the athlete's own\ndevice readings (resting heart rate: the 7-day median of morning\nreadings): say it came from their devices, not that they set it.\nAbsent when none is recorded."
               },
               "critical_power_watts": {
                 "anyOf": [

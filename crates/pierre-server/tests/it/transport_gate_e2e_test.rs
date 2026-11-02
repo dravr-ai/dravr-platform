@@ -31,8 +31,8 @@ use pierre_core::models::groups::{
     NewGroupTranscriptEntry, TranscriptSpeaker,
 };
 use pierre_core::models::{
-    Activity, ActivityBuilder, AddMessageParams, Athlete, ConnectionType, ConversationTurnId,
-    SportType, Stats, TenantId, ThresholdProvenance, User, UserOAuthToken,
+    Activity, ActivityBuilder, AddMessageParams, AnchorProvenance, Athlete, ConnectionType,
+    ConversationTurnId, SportType, Stats, TenantId, ThresholdProvenance, User, UserOAuthToken,
     UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
@@ -793,6 +793,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 critical_speed_mps: None,
                 d_prime_meters: None,
                 threshold_provenance: ThresholdProvenance::default(),
+                anchor_provenance: AnchorProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
                 sex: None,
             },

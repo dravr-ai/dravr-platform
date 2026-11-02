@@ -13,7 +13,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZoneSet;
 use pierre_core::models::{
-    Activity, SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
+    Activity, AnchorProvenance, SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
@@ -78,6 +78,7 @@ fn make_profile(
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
     }

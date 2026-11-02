@@ -15,22 +15,27 @@ use dravr_cageux::zones::{HrZoneTier, HrZones, PowerZones, Vo2maxSource};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::{HrZoneModel, HrZoneSet, PowerZoneModel, PowerZoneSet};
 use pierre_core::models::{
-    Activity, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
-    TenantId, UserPhysiologicalProfile,
+    Activity, AnchorOrigin, AnchorStamp, DailyTrainingState, DataSource, DeviceType, SportType,
+    StoredHealthMetrics, StoredRecoveryMetrics, TenantId, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::WellnessWriteMode;
 use pierre_fitness_compute::training_history_compute::{compute_training_history, AthleteInputs};
+use pierre_mcp_server::services::anchor_promotion::run_anchor_promotion_pass;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_providers::ai_scope;
 use pierre_providers::precedence::{Ingress, Service, Source};
 use pierre_services::effective_physiology::effective_physiology;
 use pierre_services::stored_health::{self, Anchors, SourceFilter};
+use pierre_tool_runtime::anchor_promotion::{
+    promote_anchors, read_promotion, save_promotion, AnchorPromotion,
+};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
+use pierre_tool_runtime::training_history_compute::HistoryRefresh;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1376,6 +1381,609 @@ async fn a_failed_measurement_write_saves_no_profile() -> Result<()> {
     assert!(
         profile.is_none(),
         "bug: the profile was saved although the tool reported a failure: {profile:?}"
+    );
+    Ok(())
+}
+
+// ── Anchor promotion (DECISION 5, carnet#1307) ───────────────────────────────
+
+/// File `bpm` as the Garmin morning of each of the athlete's last days, newest
+/// first: `mornings[0]` is today.
+async fn garmin_mornings(
+    executor: &UniversalToolExecutor,
+    tenant: &TenantId,
+    user_id: Uuid,
+    today: NaiveDate,
+    mornings: &[u32],
+) -> Result<()> {
+    let garmin = source_of(executor, tenant, user_id, "garmin").await?;
+    for (days_ago, bpm) in (0_i64..).zip(mornings) {
+        executor
+            .resources
+            .repos()
+            .recovery
+            .upsert_recovery_metrics(
+                tenant,
+                &garmin_morning(user_id, &garmin, today - Duration::days(days_ago), *bpm),
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+/// Heart-rate runs the athlete uploaded on each of the last ten days, plus a
+/// stored rollup day whose load no workout gives, so a recompute shows.
+async fn stored_history_to_recompute(
+    executor: &UniversalToolExecutor,
+    tenant: TenantId,
+    user_id: Uuid,
+) -> Result<NaiveDate> {
+    let repos = executor.resources.repos();
+    let runs: Vec<Activity> = (1..=10)
+        .map(|day| {
+            ActivityBuilder::new(
+                format!("upload-run-{day}"),
+                "Run",
+                SportType::Run,
+                Utc::now() - Duration::days(day),
+                3_600,
+                "upload",
+            )
+            .distance_meters(10_000.0)
+            .average_heart_rate(150)
+            .build()
+        })
+        .collect();
+    repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "upload", &runs)
+        .await?;
+    let stale_day = Utc::now().date_naive() - Duration::days(1);
+    let mut stale = DailyTrainingState::zero(stale_day);
+    stale.daily_load = 999.0;
+    repos
+        .training_history
+        .upsert_training_history_batch(tenant, user_id, &[stale])
+        .await?;
+    Ok(stale_day)
+}
+
+async fn stored_profile(
+    executor: &UniversalToolExecutor,
+    tenant: TenantId,
+    user_id: Uuid,
+) -> Result<UserPhysiologicalProfile> {
+    Ok(executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant, user_id)
+        .await?
+        .expect("a stored profile"))
+}
+
+/// The anchors `set_physiology` sets are stamped as the athlete's own, on
+/// their own calendar day, and the stamp survives the round trip through the
+/// table; an anchor it does not set carries none.
+#[tokio::test]
+async fn the_anchors_set_physiology_sets_are_stamped_as_the_athletes() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    executor
+        .resources
+        .repos()
+        .users
+        .set_timezone(user_id, "Australia/Brisbane")
+        .await?;
+    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+
+    let saved = set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "resting_hr": 47, "weight": 70.5 }),
+    )
+    .await?;
+
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        profile.anchor_provenance.resting_hr,
+        Some(AnchorStamp::athlete(today)),
+        "bug: a stated resting heart rate is not stamped as the athlete's"
+    );
+    assert_eq!(
+        profile.anchor_provenance.weight,
+        Some(AnchorStamp::athlete(today)),
+        "bug: a stated weight is not stamped as the athlete's"
+    );
+    assert_eq!(
+        profile.anchor_provenance.vo2_max, None,
+        "an anchor the call did not set carries no stamp"
+    );
+    assert_eq!(
+        saved["profile"]["anchor_provenance"]["resting_hr"]["origin"],
+        json!("athlete"),
+        "the tool echoes where the anchor came from: {saved}"
+    );
+    Ok(())
+}
+
+/// An empty resting heart rate takes the median of the last seven mornings,
+/// stamped as promoted and as of the newest; the zones are recut from it and
+/// the stored training history recomputed against it. The Garmin rows it came
+/// from keep the profile on Dravr's own surfaces (carnet#769).
+#[tokio::test]
+async fn an_empty_resting_hr_is_promoted_from_the_weeks_median_and_recomputes_history() -> Result<()>
+{
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    set_physiology(&executor, user_id, &tenant_id, json!({ "max_hr": 190 })).await?;
+    let zones_before = stored_profile(&executor, tenant, user_id).await?.hr_zones;
+    // An eighth, older morning sits outside the window.
+    garmin_mornings(
+        &executor,
+        &tenant,
+        user_id,
+        today,
+        &[50, 52, 49, 51, 70, 50, 53, 40],
+    )
+    .await?;
+    let stale_day = stored_history_to_recompute(&executor, tenant, user_id).await?;
+    let runtime = Arc::clone(&executor.resources);
+
+    let outcome = promote_anchors(&runtime, tenant, user_id).await?;
+
+    assert!(
+        matches!(
+            outcome,
+            AnchorPromotion::Promoted(HistoryRefresh::Recomputed { .. })
+        ),
+        "bug: the promotion did not recompute the stored history: {outcome:?}"
+    );
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        profile.resting_hr,
+        Some(51),
+        "bug: not the median of the last seven mornings"
+    );
+    assert_eq!(
+        profile.anchor_provenance.resting_hr,
+        Some(AnchorStamp::promoted(today)),
+        "stamped as promoted, as of the newest morning"
+    );
+    assert_eq!(
+        AthleteInputs::from_profile(Some(&profile)).resting_hr,
+        Some(51.0),
+        "bug: stored training load does not read the promoted anchor"
+    );
+    assert_ne!(
+        profile.hr_zones, zones_before,
+        "bug: the zones were not recut from the promoted resting heart rate"
+    );
+    assert!(
+        profile.transport_policy.is_first_party_only(),
+        "bug: a number promoted from Garmin rows left the profile open to external callers"
+    );
+    let day = executor
+        .resources
+        .repos()
+        .training_history
+        .get_training_history(tenant, user_id, stale_day, stale_day)
+        .await?;
+    assert!(
+        day.iter()
+            .all(|state| (state.daily_load - 999.0).abs() > f64::EPSILON),
+        "bug: the stored day was not recomputed: {day:?}"
+    );
+
+    let again = promote_anchors(&runtime, tenant, user_id).await?;
+    assert_eq!(
+        again,
+        AnchorPromotion::Unchanged,
+        "the same week promoted twice writes nothing"
+    );
+    Ok(())
+}
+
+/// Fewer than three mornings in the week promote nothing: one reading never
+/// stands for the week.
+#[tokio::test]
+async fn two_mornings_promote_no_resting_hr() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    garmin_mornings(
+        &executor,
+        &tenant,
+        user_id,
+        Utc::now().date_naive(),
+        &[50, 52],
+    )
+    .await?;
+
+    let outcome = promote_anchors(&executor.resources, tenant, user_id).await?;
+
+    assert_eq!(outcome, AnchorPromotion::Unchanged, "nothing qualifies");
+    let profile = executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant, user_id)
+        .await?;
+    assert!(profile.is_none(), "no profile is invented: {profile:?}");
+    Ok(())
+}
+
+/// The athlete's own number is never promoted over: neither one they stated
+/// after a promotion, nor one stored before origins were recorded. Stated in
+/// their own app: a profile promoted from Garmin rows is first-party-only.
+#[tokio::test]
+async fn a_promotion_never_overwrites_the_athletes_resting_hr() -> Result<()> {
+    let executor = own_app_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49, 51, 50]).await?;
+    let runtime = Arc::clone(&executor.resources);
+    promote_anchors(&runtime, tenant, user_id).await?;
+    assert_eq!(
+        stored_profile(&executor, tenant, user_id).await?.resting_hr,
+        Some(50),
+        "the empty anchor was promoted"
+    );
+
+    // The athlete states their own: it is theirs from now on.
+    set_physiology(&executor, user_id, &tenant_id, json!({ "resting_hr": 46 })).await?;
+    let outcome = promote_anchors(&runtime, tenant, user_id).await?;
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        outcome,
+        AnchorPromotion::Unchanged,
+        "bug: a promotion wrote over the athlete's stated anchor: {outcome:?}"
+    );
+    assert_eq!(
+        profile.resting_hr,
+        Some(46),
+        "bug: the promotion overwrote the resting heart rate the athlete stated"
+    );
+    assert_eq!(
+        profile.anchor_provenance.resting_hr.map(|s| s.origin),
+        Some(AnchorOrigin::Athlete),
+        "bug: the athlete's statement did not reclaim the anchor"
+    );
+
+    // A value stored before origins were recorded is the athlete's too.
+    let (legacy_user, legacy_tenant_id) = create_test_user(&executor).await?;
+    let legacy_tenant = TenantId::from_uuid(Uuid::parse_str(&legacy_tenant_id)?);
+    let mut legacy = UserPhysiologicalProfile::new(legacy_user, SportType::Run);
+    legacy.resting_hr = Some(44);
+    executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .upsert_user_physiological_profile(legacy_tenant, legacy_user, &legacy)
+        .await?;
+    garmin_mornings(&executor, &legacy_tenant, legacy_user, today, &[50, 52, 49]).await?;
+    let outcome = promote_anchors(&runtime, legacy_tenant, legacy_user).await?;
+    assert_eq!(
+        outcome,
+        AnchorPromotion::Unchanged,
+        "bug: a promotion wrote over a value stored before origins: {outcome:?}"
+    );
+    assert_eq!(
+        stored_profile(&executor, legacy_tenant, legacy_user)
+            .await?
+            .resting_hr,
+        Some(44),
+        "bug: a legacy value was promoted over"
+    );
+    Ok(())
+}
+
+/// A promoted resting heart rate that contradicts the stored maximum is
+/// refused whole: nothing is saved.
+#[tokio::test]
+async fn a_promotion_contradicting_the_stored_maximum_saves_nothing() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    set_physiology(&executor, user_id, &tenant_id, json!({ "max_hr": 120 })).await?;
+    garmin_mornings(
+        &executor,
+        &tenant,
+        user_id,
+        Utc::now().date_naive(),
+        &[125, 126, 124],
+    )
+    .await?;
+
+    let outcome = promote_anchors(&executor.resources, tenant, user_id).await?;
+
+    assert_eq!(
+        outcome,
+        AnchorPromotion::Refused,
+        "bug: a promoted resting HR at or above the stored maximum was not refused"
+    );
+    assert_eq!(
+        stored_profile(&executor, tenant, user_id).await?.resting_hr,
+        None,
+        "bug: a contradictory promotion was saved"
+    );
+    Ok(())
+}
+
+/// The weekly pass reaches an athlete holding stored history but no profile,
+/// and the latest weigh-in and running `VO2max` fill their anchors too.
+#[tokio::test]
+async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    garmin_mornings(&executor, &tenant, user_id, today, &[48, 49, 50]).await?;
+    stored_history_to_recompute(&executor, tenant, user_id).await?;
+    let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
+    for (days_ago, weight, vo2_max) in [(9, 71.0, Some(52.0)), (2, 70.4, None)] {
+        executor
+            .resources
+            .repos()
+            .health_snapshots
+            .upsert_health_snapshot(
+                &tenant,
+                &StoredHealthMetrics {
+                    id: String::new(),
+                    user_id: user_id.to_string(),
+                    data_source_id: garmin.clone(),
+                    date: today - Duration::days(days_ago),
+                    weight_kg: Some(weight),
+                    body_fat_pct: None,
+                    muscle_mass_kg: None,
+                    bmi: None,
+                    bone_mass_kg: None,
+                    water_pct: None,
+                    systolic_bp: None,
+                    diastolic_bp: None,
+                    blood_glucose: None,
+                    vo2_max,
+                    source_name: "garmin".to_owned(),
+                    recorded_at: Utc::now(),
+                },
+                WellnessWriteMode::FullDay,
+                Utc::now(),
+            )
+            .await?;
+    }
+    let runtime = Arc::clone(&executor.resources);
+
+    let report = run_anchor_promotion_pass(&runtime).await?;
+
+    assert_eq!(
+        report.promoted, 1,
+        "bug: the pass did not promote the history holder's anchors: {report:?}"
+    );
+    assert_eq!(
+        report.recomputed, 1,
+        "bug: the promotion did not recompute the stored history: {report:?}"
+    );
+    assert_eq!(
+        report.failed, 0,
+        "bug: a promotion failed on a read or write: {report:?}"
+    );
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        profile.resting_hr,
+        Some(49),
+        "bug: not the median of the three mornings"
+    );
+    assert_eq!(profile.weight, Some(70.4), "the latest weigh-in");
+    assert_eq!(
+        profile.anchor_provenance.weight,
+        Some(AnchorStamp::promoted(today - Duration::days(2))),
+        "bug: the weight is not stamped as of its weigh-in"
+    );
+    assert_eq!(
+        profile.vo2_max,
+        Some(52.0),
+        "the latest VO2max, however old"
+    );
+    assert_eq!(
+        profile.anchor_provenance.vo2_max,
+        Some(AnchorStamp::promoted(today - Duration::days(9))),
+        "bug: the VO2max is not stamped as of its measurement"
+    );
+
+    let again = run_anchor_promotion_pass(&runtime).await?;
+    assert_eq!(
+        again.promoted, 0,
+        "a second pass changes nothing: {again:?}"
+    );
+    assert_eq!(
+        again.unchanged, 1,
+        "bug: the second pass did not count the athlete as unchanged: {again:?}"
+    );
+    Ok(())
+}
+
+/// File a weigh-in from `provider` on `date`.
+async fn weigh_in(
+    executor: &UniversalToolExecutor,
+    tenant: &TenantId,
+    user_id: Uuid,
+    provider: &str,
+    date: NaiveDate,
+    weight_kg: f64,
+) -> Result<()> {
+    let source = source_of(executor, tenant, user_id, provider).await?;
+    executor
+        .resources
+        .repos()
+        .health_snapshots
+        .upsert_health_snapshot(
+            tenant,
+            &StoredHealthMetrics {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                data_source_id: source,
+                date,
+                weight_kg: Some(weight_kg),
+                body_fat_pct: None,
+                muscle_mass_kg: None,
+                bmi: None,
+                bone_mass_kg: None,
+                water_pct: None,
+                systolic_bp: None,
+                diastolic_bp: None,
+                blood_glucose: None,
+                vo2_max: None,
+                source_name: provider.to_owned(),
+                recorded_at: Utc::now(),
+            },
+            WellnessWriteMode::FullDay,
+            Utc::now(),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Rows read for an anchor that does not move never stamp the profile: two
+/// Garmin mornings promote no resting heart rate, so a profile whose weight
+/// alone moved, from a provider open to every transport, stays open to every
+/// transport.
+#[tokio::test]
+async fn rows_read_for_an_anchor_that_did_not_move_do_not_stamp_the_profile() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    garmin_mornings(&executor, &tenant, user_id, today, &[50, 52]).await?;
+    weigh_in(&executor, &tenant, user_id, "wahoo", today, 70.0).await?;
+
+    let outcome = promote_anchors(&executor.resources, tenant, user_id).await?;
+
+    assert!(
+        matches!(outcome, AnchorPromotion::Promoted(_)),
+        "bug: the weigh-in from an open provider was not promoted: {outcome:?}"
+    );
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(profile.weight, Some(70.0), "the weigh-in is promoted");
+    assert_eq!(profile.resting_hr, None, "two mornings promote nothing");
+    assert!(
+        !profile.transport_policy.is_first_party_only(),
+        "bug: Garmin mornings that promoted nothing stamped the profile first-party-only"
+    );
+    Ok(())
+}
+
+/// A `set_physiology` that commits while the promotion reads the measurements
+/// stands: the promotion is applied to the profile as it is when it saves, not
+/// to the copy it read before.
+#[tokio::test]
+async fn a_set_physiology_during_the_measurement_read_is_not_reverted() -> Result<()> {
+    let executor = own_app_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    set_physiology(&executor, user_id, &tenant_id, json!({ "ftp_watts": 250 })).await?;
+    garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49, 51]).await?;
+    let runtime = Arc::clone(&executor.resources);
+    let promotion = read_promotion(
+        &runtime,
+        tenant,
+        user_id,
+        Anchors {
+            resting_hr: true,
+            ..Anchors::default()
+        },
+    )
+    .await?;
+
+    set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "ftp_watts": 265, "resting_hr": 46 }),
+    )
+    .await?;
+    let outcome = save_promotion(&runtime, tenant, user_id, &promotion).await?;
+
+    assert_eq!(
+        outcome,
+        AnchorPromotion::Unchanged,
+        "bug: the promotion was applied to a profile read before the athlete's save: {outcome:?}"
+    );
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        profile.ftp_watts,
+        Some(265),
+        "bug: the promotion reverted the FTP the athlete saved meanwhile"
+    );
+    assert_eq!(
+        profile.resting_hr,
+        Some(46),
+        "bug: the promotion overwrote the resting heart rate the athlete saved meanwhile"
+    );
+    assert_eq!(
+        profile.anchor_provenance.resting_hr.map(|s| s.origin),
+        Some(AnchorOrigin::Athlete),
+        "bug: the athlete's stamp was replaced"
+    );
+    Ok(())
+}
+
+/// A revision written before the origin columns rewrites an anchor without
+/// naming them; the number it writes is the athlete's, and the next promotion
+/// leaves it alone.
+#[tokio::test]
+async fn a_value_written_without_its_origin_is_never_promoted_over() -> Result<()> {
+    let executor = own_app_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+    let today = Utc::now().date_naive();
+    garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49]).await?;
+    let runtime = Arc::clone(&executor.resources);
+    promote_anchors(&runtime, tenant, user_id).await?;
+    assert_eq!(
+        stored_profile(&executor, tenant, user_id)
+            .await?
+            .anchor_provenance
+            .resting_hr,
+        Some(AnchorStamp::promoted(today)),
+        "the empty anchor was promoted"
+    );
+
+    // The previous revision's upsert sets the value and names no origin.
+    let statement = "UPDATE user_physiological_profiles SET resting_hr = 47 WHERE user_id = $1";
+    match executor.resources.database().backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(statement)
+                .bind(user_id.to_string())
+                .execute(sqlite.pool())
+                .await?;
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(statement)
+                .bind(user_id)
+                .execute(postgres.pool())
+                .await?;
+        }
+    }
+    let outcome = promote_anchors(&runtime, tenant, user_id).await?;
+
+    let profile = stored_profile(&executor, tenant, user_id).await?;
+    assert_eq!(
+        profile.resting_hr,
+        Some(47),
+        "bug: the promotion overwrote a number an origin-unaware writer stored ({outcome:?})"
+    );
+    assert_eq!(
+        profile.anchor_provenance.resting_hr, None,
+        "bug: a promoted origin was left beside the athlete's number"
     );
     Ok(())
 }

@@ -38,7 +38,9 @@
 //! What scores stored history keeps reading the stored profile alone
 //! (`AthleteInputs::from_profile`): filling it from a daily measurement
 //! would recut the zones and every stored day's load each time a watch
-//! reported a new resting heart rate.
+//! reported a new resting heart rate. An empty or unvouched anchor is instead
+//! stored from the measurements once a week ([`crate::anchor_promotion`]),
+//! and stored history recomputed when it moves.
 
 use chrono::Utc;
 use pierre_core::ai_policy::ProviderTerms;

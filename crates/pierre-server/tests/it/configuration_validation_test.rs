@@ -10,7 +10,9 @@
 use pierre_config::runtime::ConfigValue;
 use pierre_config::validation::ConfigValidator;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::models::{SportType, ThresholdProvenance, UserPhysiologicalProfile};
+use pierre_core::models::{
+    AnchorProvenance, SportType, ThresholdProvenance, UserPhysiologicalProfile,
+};
 use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -142,6 +144,7 @@ fn test_vo2_max_requirement() {
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
     };

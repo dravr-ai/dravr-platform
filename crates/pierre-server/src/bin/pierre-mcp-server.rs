@@ -766,6 +766,16 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_precedence_recompute(&resources);
     }
 
+    // Promote every athlete's empty or unvouched resting heart rate, VO2max
+    // and weight anchors from their own measurements once a week (DECISION 5);
+    // a promotion that moves the numbers load is scored against recomputes
+    // that athlete's stored history.
+    #[cfg(feature = "tools-config")]
+    {
+        use pierre_mcp_server::start_anchor_promotion;
+        start_anchor_promotion(&resources);
+    }
+
     // Start the archive import sweeps (carnet#1218): imports never given their
     // link expire, and a deleted account's imported history and uploaded
     // files are erased from the blob store, where one is placed (elsewhere

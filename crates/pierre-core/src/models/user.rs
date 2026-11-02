@@ -21,7 +21,7 @@ use dravr_cageux::algorithms::lthr::LthrAlgorithm;
 use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::{EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance};
+use super::{AnchorProvenance, EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance};
 
 /// Type-safe wrapper for user identifiers.
 ///
@@ -835,6 +835,13 @@ pub struct UserPhysiologicalProfile {
     /// touched reads exactly as before.
     #[serde(default, skip_serializing_if = "ThresholdProvenance::is_empty")]
     pub threshold_provenance: ThresholdProvenance,
+    /// Where [`Self::resting_hr`], [`Self::vo2_max`] and [`Self::weight`] came
+    /// from: the athlete, an import, an estimate, or the weekly promotion from
+    /// the athlete's own measurements (DECISION 5). An anchor not listed is
+    /// the athlete's own. Left out when none is listed, so a profile nobody
+    /// promoted reads exactly as before.
+    #[serde(default, skip_serializing_if = "AnchorProvenance::is_empty")]
+    pub anchor_provenance: AnchorProvenance,
     /// Physiological sex, for the published equations that take one
     /// ([`PhysiologicalSex`]). Set by the athlete with `set_physiology`, or
     /// filled once from a provider that reports it when none is set; a value
@@ -874,6 +881,7 @@ impl UserPhysiologicalProfile {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::NONE,
+            anchor_provenance: AnchorProvenance::NONE,
             sex: None,
             transport_policy: TransportPolicy::AnyTransport,
         }

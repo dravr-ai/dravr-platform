@@ -33,8 +33,8 @@ use pierre_core::constants::oauth_providers::{
     GARMIN, GARMIN_ARCHIVE, SCIOTTE, SCIOTTE_GARMIN, STRAVA, STRAVA_ARCHIVE, UPLOAD,
 };
 use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, DailyTrainingState, SportType, ThresholdProvenance,
-    TimeSeriesData, UserOAuthToken, UserPhysiologicalProfile,
+    Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
+    ThresholdProvenance, TimeSeriesData, UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -214,6 +214,7 @@ async fn give_physiology(resources: &Arc<ServerContext>, athlete: &Athlete) {
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
     };

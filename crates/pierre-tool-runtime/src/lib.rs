@@ -64,6 +64,12 @@ pub mod activity_backfill_resume;
 pub mod activity_fetch;
 /// What a model may see of provider data under each provider's AI policy.
 pub mod ai_view;
+/// The weekly promotion of one athlete's training anchors.
+///
+/// Gated with the physiology tools (`tools-config`), whose writer it saves
+/// through.
+#[cfg(feature = "tools-config")]
+pub mod anchor_promotion;
 /// The MCP behaviour hints every tool declares (carnet#1198).
 pub mod annotations;
 pub mod capabilities;

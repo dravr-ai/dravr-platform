@@ -134,8 +134,142 @@ impl ThresholdProvenance {
     }
 }
 
+/// Who set one of the profile's training anchors: its resting heart rate,
+/// `VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).
+///
+/// The anchors are what stored training load and the heart-rate zones are
+/// scored against, so which number fills one is decided once and recorded:
+/// only an anchor nobody vouches for — an estimate, or one an earlier
+/// promotion wrote — is ever refreshed from the athlete's measurements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AnchorOrigin {
+    /// The athlete stated it (`set_physiology`).
+    Athlete,
+    /// Brought in from another system that holds the athlete's own number.
+    Imported,
+    /// A model's estimate standing in until a measurement exists.
+    Estimated,
+    /// Promoted from the athlete's own measurements by the weekly promotion.
+    Promoted,
+}
+
+impl AnchorOrigin {
+    /// Stable string identifier used in DB serialization.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Athlete => "athlete",
+            Self::Imported => "imported",
+            Self::Estimated => "estimated",
+            Self::Promoted => "promoted",
+        }
+    }
+
+    /// Parse the DB string form. Anything unrecognised reads as
+    /// [`Self::Athlete`]: an anchor whose origin cannot be read must never be
+    /// overwritten automatically.
+    #[must_use]
+    pub fn parse_lenient(s: &str) -> Self {
+        match s {
+            "imported" => Self::Imported,
+            "estimated" => Self::Estimated,
+            "promoted" => Self::Promoted,
+            _ => Self::Athlete,
+        }
+    }
+
+    /// Whether the weekly promotion may replace an anchor of this origin:
+    /// only one nobody vouches for. An athlete's or an imported number stands.
+    #[must_use]
+    pub const fn is_promotable(self) -> bool {
+        matches!(self, Self::Estimated | Self::Promoted)
+    }
+}
+
+/// Where one training anchor came from and as of which day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AnchorStamp {
+    /// Who set it.
+    pub origin: AnchorOrigin,
+    /// The day it was stated, imported, estimated or measured, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of: Option<NaiveDate>,
+}
+
+impl AnchorStamp {
+    /// The stamp of a number the athlete stated on `as_of`.
+    #[must_use]
+    pub const fn athlete(as_of: NaiveDate) -> Self {
+        Self {
+            origin: AnchorOrigin::Athlete,
+            as_of: Some(as_of),
+        }
+    }
+
+    /// The stamp of a number promoted from a measurement taken on `as_of`.
+    #[must_use]
+    pub const fn promoted(as_of: NaiveDate) -> Self {
+        Self {
+            origin: AnchorOrigin::Promoted,
+            as_of: Some(as_of),
+        }
+    }
+}
+
+/// Where each of the profile's three training anchors came from.
+///
+/// An anchor with no entry holds no value, or holds one stored before origins
+/// were recorded — which only `set_physiology` and the athlete's own
+/// configuration ever wrote — so it reads as the athlete's own. An entry is
+/// kept only beside a value.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+pub struct AnchorProvenance {
+    /// Where the resting heart rate came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resting_hr: Option<AnchorStamp>,
+    /// Where the `VO2max` came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vo2_max: Option<AnchorStamp>,
+    /// Where the weight came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<AnchorStamp>,
+}
+
+impl AnchorProvenance {
+    /// No anchor carries a recorded origin.
+    pub(crate) const NONE: Self = Self {
+        resting_hr: None,
+        vo2_max: None,
+        weight: None,
+    };
+
+    /// Whether no anchor carries a recorded origin.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.resting_hr.is_none() && self.vo2_max.is_none() && self.weight.is_none()
+    }
+
+    /// The origin of an anchor holding a value: its recorded one, else the
+    /// athlete's (the value predates origins). `None` when it holds no value.
+    fn origin_of(has_value: bool, stamp: Option<&AnchorStamp>) -> Option<AnchorOrigin> {
+        has_value.then(|| stamp.map_or(AnchorOrigin::Athlete, |stamp| stamp.origin))
+    }
+
+    /// Whether the weekly promotion may fill or replace an anchor: it holds no
+    /// value, or one whose origin [`AnchorOrigin::is_promotable`].
+    #[must_use]
+    pub fn promotable(has_value: bool, stamp: Option<&AnchorStamp>) -> bool {
+        Self::origin_of(has_value, stamp).is_none_or(AnchorOrigin::is_promotable)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
 
     #[test]
@@ -213,6 +347,100 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<ThresholdProvenance>(json)?,
             imported
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_unreadable_anchor_origin_is_the_athletes_and_never_promotable() {
+        for origin in [
+            AnchorOrigin::Athlete,
+            AnchorOrigin::Imported,
+            AnchorOrigin::Estimated,
+            AnchorOrigin::Promoted,
+        ] {
+            assert_eq!(
+                AnchorOrigin::parse_lenient(origin.as_str()),
+                origin,
+                "{origin:?} must round-trip through its stored form"
+            );
+        }
+        assert_eq!(
+            AnchorOrigin::parse_lenient("garmin"),
+            AnchorOrigin::Athlete,
+            "an origin no build knows must read as the athlete's"
+        );
+        assert!(
+            !AnchorOrigin::Athlete.is_promotable(),
+            "bug: the athlete's number would be promoted over"
+        );
+        assert!(
+            !AnchorOrigin::Imported.is_promotable(),
+            "bug: an imported number would be promoted over"
+        );
+        assert!(
+            AnchorOrigin::Estimated.is_promotable(),
+            "bug: an estimate would never be replaced by a measurement"
+        );
+        assert!(
+            AnchorOrigin::Promoted.is_promotable(),
+            "bug: a promoted number would never be refreshed"
+        );
+    }
+
+    #[test]
+    fn a_value_with_no_recorded_origin_is_the_athletes_own() -> Result<(), String> {
+        let day = NaiveDate::from_ymd_opt(2026, 10, 31).ok_or("a valid day")?;
+        assert!(
+            !AnchorProvenance::promotable(true, None),
+            "a legacy value must never be promoted over"
+        );
+        assert!(
+            AnchorProvenance::promotable(false, None),
+            "an empty anchor is promotable"
+        );
+        assert!(
+            AnchorProvenance::promotable(true, Some(&AnchorStamp::promoted(day))),
+            "bug: a promoted anchor would never be refreshed"
+        );
+        assert!(
+            !AnchorProvenance::promotable(true, Some(&AnchorStamp::athlete(day))),
+            "bug: the athlete's stamped anchor would be promoted over"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn anchor_provenance_serializes_only_what_is_recorded() -> Result<(), Box<dyn Error>> {
+        assert!(
+            AnchorProvenance::NONE.is_empty(),
+            "bug: NONE records an origin"
+        );
+        assert_eq!(
+            AnchorProvenance::default(),
+            AnchorProvenance::NONE,
+            "bug: the default records an origin"
+        );
+        assert_eq!(
+            serde_json::to_value(AnchorProvenance::NONE)?,
+            serde_json::json!({}),
+            "bug: an unrecorded origin is serialized"
+        );
+        let day = NaiveDate::from_ymd_opt(2026, 10, 25).ok_or("a valid day")?;
+        let promoted = AnchorProvenance {
+            resting_hr: Some(AnchorStamp::promoted(day)),
+            ..AnchorProvenance::NONE
+        };
+        let json = serde_json::to_value(promoted)?;
+        assert_eq!(
+            json,
+            serde_json::json!({ "resting_hr": { "origin": "promoted", "as_of": "2026-10-25" } }),
+            "bug: the promoted stamp serializes in another shape"
+        );
+        assert_eq!(
+            serde_json::from_value::<AnchorProvenance>(json)?,
+            promoted,
+            "bug: the stamp does not round-trip"
         );
         Ok(())
     }
