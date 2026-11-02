@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for importing your own data (carnet#1218): the link under the providers opens /import, the Strava import's states
+// ABOUTME: E2E for importing your own data (carnet#1218, #1337): the link opens /import, its Strava and Garmin rows, Strava's states
 // ABOUTME: Runs against a mocked /api/imports shaped like the server's, holding the athlete's import between requests
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -54,9 +54,10 @@ function completed(): Job {
 async function mockImports(page: Page, initial: Job | null) {
   const state = { job: initial };
   await page.route('**/api/imports', (route) =>
-    json(route, { enabled: true, sources: ['strava_archive'], imports: state.job ? [state.job] : [] }),
+    json(route, { enabled: true, sources: ['strava_archive', 'garmin_archive'], imports: state.job ? [state.job] : [] }),
   );
   await page.route('**/api/imports/strava_archive/current', (route) => json(route, { import: state.job }));
+  await page.route('**/api/imports/garmin_archive/current', (route) => json(route, { import: null }));
   await page.route('**/api/imports/strava_archive/check', (route, request) => {
     const { url } = JSON.parse(request.postData() ?? '{}') as { url: string };
     return url.includes('export.example.com')
@@ -108,6 +109,25 @@ test.describe('Import your own data', () => {
     const window = await opened;
 
     await expect(window).toHaveURL(/\/import$/);
+  });
+
+  test('lists the Strava and Garmin exports, and Garmin\'s import says where to request it', async ({ page }) => {
+    await mockImports(page, null);
+    await loginToDashboard(page);
+    await page.goto('/import');
+
+    await expect(page.getByTestId('import-source-strava_archive')).toContainText('Strava');
+    await page.getByTestId('import-source-garmin_archive').click();
+
+    await expect(page).toHaveURL(/\/import#garmin$/);
+    const garmin = page.getByTestId('source-import-garmin_archive');
+    await expect(garmin.getByRole('heading', { level: 2 })).toHaveText('Garmin Connect');
+    await expect(garmin).toContainText('Export Your Data');
+    await expect(garmin.getByRole('link', { name: /Open Garmin's export page/ })).toHaveAttribute(
+      'href',
+      'https://www.garmin.com/account/datamanagement/exportdata/',
+    );
+    await expect(page.getByTestId('import-link-input')).toBeVisible();
   });
 
   test('refuses a link off the export host, then imports from one that is, then deletes the history', async ({ page }) => {

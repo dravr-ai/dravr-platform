@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile import screen: the source list's state line, the link check, progress and delete
+// ABOUTME: Unit tests for the mobile import screen: Strava and Garmin rows and state lines, the link check, progress, delete
 // ABOUTME: The imports API is mocked; the copy is the shipped English catalogue, so a missing key fails a test
 
 import React from 'react';
@@ -69,7 +69,7 @@ describe('ImportScreen', () => {
     });
     renderScreen();
 
-    expect(await screen.findByTestId('import-state-strava')).toHaveTextContent('Importing · 1240 of 3105');
+    expect(await screen.findByTestId('import-state-strava_archive')).toHaveTextContent('Importing · 1240 of 3105');
   });
 
   it('says so where imports do not run', async () => {
@@ -116,7 +116,7 @@ describe('ImportScreen', () => {
     });
     api.getCurrentImport.mockResolvedValue(job({ imported: 1 }));
     const list = renderScreen();
-    expect(await screen.findByTestId('import-state-strava')).toHaveTextContent(/^1 activity imported · /);
+    expect(await screen.findByTestId('import-state-strava_archive')).toHaveTextContent(/^1 activity imported · /);
     list.unmount();
 
     renderScreen('strava_archive');
@@ -128,5 +128,42 @@ describe('ImportScreen', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByTestId('import-delete-confirm')).toHaveTextContent('Delete 1 activity');
+  });
+
+  // carnet#1337: the Garmin export was built but never offered.
+  it('lists Garmin beside Strava, each with its own state line', async () => {
+    api.getImports.mockResolvedValue({
+      enabled: true,
+      sources: ['strava_archive', 'garmin_archive'],
+      imports: [job({ source: 'garmin_archive', status: 'awaiting_link', created_at: new Date().toISOString() })],
+    });
+    renderScreen();
+
+    expect(await screen.findByTestId('import-source-strava_archive')).toHaveTextContent(/Strava/);
+    expect(screen.getByTestId('import-source-garmin_archive')).toHaveTextContent(/Garmin Connect/);
+    expect(screen.getByTestId('import-state-garmin_archive')).toHaveTextContent(
+      "Waiting for Garmin's email · Paste the link",
+    );
+    expect(screen.queryByTestId('import-state-strava_archive')).toBeNull();
+  });
+
+  it('opens the Garmin import from its row, says where to request the export, and checks under Garmin', async () => {
+    api.getImports.mockResolvedValue({ enabled: true, sources: ['strava_archive', 'garmin_archive'], imports: [] });
+    api.getCurrentImport.mockResolvedValue(null);
+    api.checkLink.mockResolvedValue({ accepted: false, refusal: 'link_expired', size_bytes: null });
+    renderScreen();
+
+    fireEvent.press(await screen.findByTestId('import-source-garmin_archive'));
+    const view = await screen.findByTestId('source-import-garmin_archive');
+    expect(view).toHaveTextContent(/Data Management, then Export Your Data/);
+    expect(screen.getByTestId('import-link-hint')).toHaveTextContent(/It works for 3 days\./);
+    expect(api.getCurrentImport).toHaveBeenCalledWith('garmin_archive');
+
+    fireEvent.changeText(screen.getByTestId('import-link-input'), 'https://s3.amazonaws.com/it-gdpr-bucket/x_1.zip');
+    fireEvent.press(screen.getByTestId('import-check'));
+    expect(await screen.findByTestId('import-error')).toHaveTextContent(
+      'That link has expired. Request a new export from Garmin.',
+    );
+    expect(api.checkLink).toHaveBeenCalledWith('garmin_archive', 'https://s3.amazonaws.com/it-gdpr-bucket/x_1.zip');
   });
 });

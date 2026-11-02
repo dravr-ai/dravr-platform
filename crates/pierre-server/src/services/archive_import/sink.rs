@@ -18,7 +18,7 @@
 //!    version barrage decoded them to — before the row they belong to, so a
 //!    cached archive activity is never read without its samples;
 //! 2. the records' activities into the activity cache under the source key
-//!    (`strava_archive`), which no provider sync prunes;
+//!    (`strava_archive`, `garmin_archive`), which no provider sync prunes;
 //! 3. the best efforts each run with samples sets, recorded without an
 //!    announcement (an import is history, not news);
 //! 4. the gear the export named for each run, walk or hike, attributed in the

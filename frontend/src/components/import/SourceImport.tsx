@@ -1,5 +1,5 @@
-// ABOUTME: The Strava import (W2): request the export, paste and check its link, follow the import, read its report, delete it
-// ABOUTME: Polls the current import every 5 s while it runs; the copy for each state and code is ui-logic's, shared with mobile
+// ABOUTME: One source's import (W2), Strava's or Garmin's: request the export, paste and check its link, follow it, delete it
+// ABOUTME: Polls the current import every 5 s while it runs; the copy for each source, state and code is ui-logic's, shared with mobile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,12 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import {
-  STRAVA_ARCHIVE_SOURCE,
-  isFinalImportStatus,
-  type ArchiveImport,
-  type ImportLinkCheck,
-} from '@pierre/shared-types';
+import { isFinalImportStatus, type ArchiveImport, type ImportLinkCheck } from '@pierre/shared-types';
 import {
   IMPORT_POLL_INTERVAL_MS,
   IMPORT_RESULT_STORAGE_KEY,
@@ -26,23 +21,22 @@ import {
   importSize,
   linkRefusalKey,
   startErrorKey,
+  type ImportSourceCopy,
 } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
 import { copyText } from './importCopy';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Input } from '../ui';
 
-/** Strava's page where an athlete requests their account archive. */
-const STRAVA_EXPORT_PAGE = 'https://www.strava.com/athlete/delete_your_account';
-
-const SOURCE = STRAVA_ARCHIVE_SOURCE;
-
-interface StravaImportProps {
+interface SourceImportProps {
+  /** The source imported, and the copy that names its service. */
+  copy: ImportSourceCopy;
   /** Whether imports run on this deployment. */
   enabled: boolean;
 }
 
-export default function StravaImport({ enabled }: StravaImportProps) {
+export default function SourceImport({ copy, enabled }: SourceImportProps) {
+  const { source } = copy;
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [link, setLink] = useState('');
@@ -53,8 +47,8 @@ export default function StravaImport({ enabled }: StravaImportProps) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const { data: current, isLoading } = useQuery({
-    queryKey: QUERY_KEYS.imports.current(SOURCE),
-    queryFn: () => importsApi.getCurrentImport(SOURCE),
+    queryKey: QUERY_KEYS.imports.current(source),
+    queryFn: () => importsApi.getCurrentImport(source),
     enabled,
     refetchInterval: (query) => {
       const entry = query.state.data;
@@ -74,34 +68,34 @@ export default function StravaImport({ enabled }: StravaImportProps) {
       try {
         localStorage.setItem(
           IMPORT_RESULT_STORAGE_KEY,
-          JSON.stringify({ source: SOURCE, status: current.status, timestamp: Date.now() }),
+          JSON.stringify({ source, status: current.status, timestamp: Date.now() }),
         );
       } catch {
         // Storage refused: the opener refreshes on its next focus instead.
       }
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.imports.overview() });
     }
-  }, [current, queryClient]);
+  }, [current, queryClient, source]);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.imports.all });
   };
 
   const checkLink = useMutation({
-    mutationFn: () => importsApi.checkLink(SOURCE, link.trim()),
+    mutationFn: () => importsApi.checkLink(source, link.trim()),
     onMutate: () => {
       setError(null);
       setCheck(null);
     },
     onSuccess: (result) => {
       setCheck(result);
-      if (!result.accepted && result.refusal) setError(t(linkRefusalKey(result.refusal)));
+      if (!result.accepted && result.refusal) setError(t(linkRefusalKey(result.refusal, copy)));
     },
     onError: () => setError(t('providers.import.strava.genericError')),
   });
 
   const start = useMutation({
-    mutationFn: (url?: string) => importsApi.startImport(SOURCE, url),
+    mutationFn: (url?: string) => importsApi.startImport(source, url),
     onMutate: () => setError(null),
     onSuccess: () => {
       setLink('');
@@ -110,18 +104,18 @@ export default function StravaImport({ enabled }: StravaImportProps) {
     },
     onError: (err) => {
       const classified = classifyApiError(err);
-      setError(t(startErrorKey(classified.status, classified.detail)));
+      setError(t(startErrorKey(classified.status, classified.detail, copy)));
     },
   });
 
   const cancel = useMutation({
-    mutationFn: (importId: string) => importsApi.cancelImport(SOURCE, importId),
+    mutationFn: (importId: string) => importsApi.cancelImport(source, importId),
     onSuccess: refresh,
     onError: () => setError(t('providers.import.strava.genericError')),
   });
 
   const remove = useMutation({
-    mutationFn: () => importsApi.deleteHistory(SOURCE),
+    mutationFn: () => importsApi.deleteHistory(source),
     onSuccess: () => {
       setConfirmDelete(false);
       setNotice(t('providers.import.strava.deleted'));
@@ -135,8 +129,8 @@ export default function StravaImport({ enabled }: StravaImportProps) {
   });
 
   const report = useQuery({
-    queryKey: QUERY_KEYS.imports.report(SOURCE, current?.id ?? ''),
-    queryFn: () => importsApi.getReport(SOURCE, current?.id ?? ''),
+    queryKey: QUERY_KEYS.imports.report(source, current?.id ?? ''),
+    queryFn: () => importsApi.getReport(source, current?.id ?? ''),
     enabled: showReport && !!current,
   });
 
@@ -152,9 +146,9 @@ export default function StravaImport({ enabled }: StravaImportProps) {
   const deleteCopy = importDeleteCopy(current?.imported ?? 0, locale);
 
   return (
-    <div data-testid="strava-import">
-      <h2 className="mb-2 text-lg font-semibold text-on-surface">{t('providers.import.sources.strava')}</h2>
-      <p className="mb-4 text-sm text-on-surface-variant">{t('providers.import.strava.intro')}</p>
+    <div data-testid={`source-import-${source}`}>
+      <h2 className="mb-2 text-lg font-semibold text-on-surface">{t(copy.name)}</h2>
+      <p className="mb-4 text-sm text-on-surface-variant">{t(copy.intro)}</p>
 
       {notice && (
         <p role="status" className="mb-4 text-sm text-on-surface" data-testid="import-notice">
@@ -224,7 +218,7 @@ export default function StravaImport({ enabled }: StravaImportProps) {
                   processed: current.processed_rows,
                   total: current.total_rows,
                 })
-              : t('providers.import.strava.progressStarting')}
+              : t(copy.progressStarting)}
           </p>
           {current.status === 'importing' && current.total_rows ? (
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high" aria-hidden="true">
@@ -251,20 +245,20 @@ export default function StravaImport({ enabled }: StravaImportProps) {
         <>
           {current && current.status === 'failed' && (
             <p className="mb-2 text-sm text-error" data-testid="import-failed">
-              {t(importFailureKey(current.error_code))} {t('providers.import.strava.retry')}
+              {t(importFailureKey(current.error_code, copy))} {t('providers.import.strava.retry')}
             </p>
           )}
           <section className={stepClass}>
-            <h3 className="text-sm font-semibold text-on-surface">{t('providers.import.strava.step1Title')}</h3>
-            <p className="mt-1 text-sm text-on-surface-variant">{t('providers.import.strava.step1Body')}</p>
+            <h3 className="text-sm font-semibold text-on-surface">{t(copy.step1Title)}</h3>
+            <p className="mt-1 text-sm text-on-surface-variant">{t(copy.step1Body)}</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <a
-                href={STRAVA_EXPORT_PAGE}
+                href={copy.exportPage}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm font-medium text-primary hover:text-primary-hover"
               >
-                {t('providers.import.strava.step1Open')} <span aria-hidden="true">↗</span>
+                {t(copy.step1Open)} <span aria-hidden="true">↗</span>
               </a>
               {phase === 'request' && (
                 <Button variant="tertiary" size="sm" onClick={() => start.mutate(undefined)} loading={start.isPending}>
@@ -274,7 +268,7 @@ export default function StravaImport({ enabled }: StravaImportProps) {
             </div>
           </section>
           <section className={stepClass}>
-            <h3 className="text-sm font-semibold text-on-surface">{t('providers.import.strava.step2Title')}</h3>
+            <h3 className="text-sm font-semibold text-on-surface">{t(copy.step2Title)}</h3>
             <form
               className="mt-3 space-y-3"
               onSubmit={(event) => {
@@ -287,9 +281,9 @@ export default function StravaImport({ enabled }: StravaImportProps) {
               }}
             >
               <Input
-                label={t('providers.import.strava.linkLabel')}
+                label={t(copy.linkLabel)}
                 placeholder={t('providers.import.strava.linkPlaceholder')}
-                helpText={t('providers.import.strava.linkHint')}
+                helpText={t(copy.linkHint)}
                 value={link}
                 onChange={(event) => {
                   setLink(event.target.value);

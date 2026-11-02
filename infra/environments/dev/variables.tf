@@ -468,9 +468,19 @@ variable "archive_fetch_hosts" {
     valid 7 days). email.strava.com is listed as a host; s3.amazonaws.com only
     under Strava's strava.portability bucket, so a link or a redirect into any
     other bucket is refused without a byte being read.
+
+    The Garmin export spike (carnet#1231) recorded the link Garmin Connect
+    emails: a presigned S3 URL, path-style, straight into Garmin's GDPR bucket
+    (https://s3.amazonaws.com/it-gdpr-bucket/<uuid>_1.zip, valid 3 days), with
+    no redirect host in front of it. s3.amazonaws.com is listed a second time,
+    under that bucket only (carnet#1337).
   EOT
   type        = list(string)
-  default     = ["email.strava.com", "s3.amazonaws.com/strava.portability/"]
+  default = [
+    "email.strava.com",
+    "s3.amazonaws.com/strava.portability/",
+    "s3.amazonaws.com/it-gdpr-bucket/",
+  ]
 }
 
 

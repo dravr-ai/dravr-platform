@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for the Strava import screen: link check and refusal, start, progress, completion, report, delete
+// ABOUTME: Unit tests for a source's import screen, Strava's and Garmin's: link check and refusal, start, progress, report, delete
 // ABOUTME: The imports API is mocked; the copy is the shipped English catalogue, so a missing key shows up as a failure
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ArchiveImport } from '@pierre/shared-types';
-import StravaImport from '../StravaImport';
+import { importSourceCopy, type ImportSourceCopy } from '@pierre/ui-logic';
+import SourceImport from '../SourceImport';
+
+function copyOf(source: string): ImportSourceCopy {
+  const copy = importSourceCopy(source);
+  if (!copy) throw new Error(`no copy for ${source}`);
+  return copy;
+}
 
 const getCurrentImport = vi.fn();
 const checkLink = vi.fn();
@@ -51,16 +58,16 @@ function job(overrides: Partial<ArchiveImport>): ArchiveImport {
   };
 }
 
-function renderImport() {
+function renderImport(source = 'strava_archive') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <StravaImport enabled />
+      <SourceImport copy={copyOf(source)} enabled />
     </QueryClientProvider>,
   );
 }
 
-describe('StravaImport', () => {
+describe('SourceImport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -150,5 +157,48 @@ describe('StravaImport', () => {
       'The link expired before the download finished.',
     );
     expect(screen.getByTestId('import-link-input')).toBeInTheDocument();
+  });
+
+  // carnet#1337: the Garmin export is offered beside Strava's.
+  it('tells the athlete where Garmin Connect makes the export, and that its link expires', async () => {
+    getCurrentImport.mockResolvedValue(null);
+    renderImport('garmin_archive');
+
+    const view = await screen.findByTestId('source-import-garmin_archive');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Garmin Connect');
+    expect(view).toHaveTextContent('Data Management, then Export Your Data');
+    expect(view).toHaveTextContent('can take several days');
+    expect(view).toHaveTextContent('It works for 3 days.');
+    expect(screen.getByRole('link', { name: /Open Garmin's export page/ })).toHaveAttribute(
+      'href',
+      'https://www.garmin.com/account/datamanagement/exportdata/',
+    );
+    expect(view).not.toHaveTextContent('Strava');
+    expect(getCurrentImport).toHaveBeenCalledWith('garmin_archive');
+  });
+
+  it('checks and starts a Garmin import under the Garmin source, naming Garmin when it refuses', async () => {
+    getCurrentImport.mockResolvedValue(null);
+    checkLink
+      .mockResolvedValueOnce({ accepted: false, refusal: 'link_host_not_allowed', size_bytes: null })
+      .mockResolvedValueOnce({ accepted: true, refusal: null, size_bytes: 200_717_053 });
+    startImport.mockResolvedValue(job({ source: 'garmin_archive', status: 'queued', imported: 0, failed: 0 }));
+    const user = userEvent.setup();
+    renderImport('garmin_archive');
+
+    const input = await screen.findByTestId('import-link-input');
+    await user.type(input, 'https://elsewhere.example.com/x.zip');
+    await user.click(screen.getByTestId('import-check'));
+    expect(await screen.findByTestId('import-error')).toHaveTextContent("That link isn't from Garmin's export email.");
+    expect(checkLink).toHaveBeenCalledWith('garmin_archive', 'https://elsewhere.example.com/x.zip');
+
+    const link = 'https://s3.amazonaws.com/it-gdpr-bucket/0b6f3d8e_1.zip?X-Amz-Expires=259200';
+    await user.clear(input);
+    await user.type(input, link);
+    await user.click(screen.getByTestId('import-check'));
+    expect(await screen.findByTestId('import-link-found')).toHaveTextContent('Export found · about 200.7 MB');
+    await user.click(screen.getByTestId('import-start'));
+
+    await waitFor(() => expect(startImport).toHaveBeenCalledWith('garmin_archive', link));
   });
 });

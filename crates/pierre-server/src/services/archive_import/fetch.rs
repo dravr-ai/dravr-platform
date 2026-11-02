@@ -341,11 +341,12 @@ mod tests {
     }
 
     /// The dev deployment's `archive_fetch_hosts`, as `main.tf` joins it.
-    const STRAVA_EXPORT_HOSTS: &str = "email.strava.com,s3.amazonaws.com/strava.portability/";
+    const EXPORT_HOSTS: &str = "email.strava.com,s3.amazonaws.com/strava.portability/,\
+        s3.amazonaws.com/it-gdpr-bucket/";
 
     #[tokio::test]
     async fn the_export_bucket_entry_admits_only_strava_s_bucket() {
-        let fetcher = GuardedExportFetcher::try_from_hosts(STRAVA_EXPORT_HOSTS).expect("client");
+        let fetcher = GuardedExportFetcher::try_from_hosts(EXPORT_HOSTS).expect("client");
         for link in [
             "https://email.strava.com/ls/click?upn=token",
             "https://s3.amazonaws.com/strava.portability/athlete/1/export/live/export_1.zip?X-Amz-Expires=604800",
@@ -365,6 +366,35 @@ mod tests {
                 fetcher.check(link).await,
                 Err(LinkRefusal::HostNotAllowed),
                 "a link outside Strava's bucket is refused before any fetch"
+            );
+        }
+    }
+
+    /// Garmin's export link is a presigned URL straight into its GDPR bucket,
+    /// path-style, with no redirect host (carnet#1231, carnet#1337).
+    #[tokio::test]
+    async fn the_export_bucket_entry_admits_only_garmin_s_bucket() {
+        let fetcher = GuardedExportFetcher::try_from_hosts(EXPORT_HOSTS).expect("client");
+        assert!(
+            fetcher
+                .client
+                .check_url(
+                    "https://s3.amazonaws.com/it-gdpr-bucket/0b6f3d8e-1c2a-4f5b-9d7e-3a4b5c6d7e8f_1.zip\
+                     ?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=259200&X-Amz-Signature=abc"
+                )
+                .is_ok(),
+            "the link Garmin emails is admitted"
+        );
+        for link in [
+            "https://s3.amazonaws.com/it-gdpr-bucketX/export_1.zip",
+            "https://s3.amazonaws.com/it-gdpr-bucket/%2e%2e/another-bucket/export_1.zip",
+            "https://it-gdpr-bucket.s3.amazonaws.com/export_1.zip",
+            "https://connect.garmin.com/export_1.zip",
+        ] {
+            assert_eq!(
+                fetcher.check(link).await,
+                Err(LinkRefusal::HostNotAllowed),
+                "a link outside Garmin's bucket is refused before any fetch: {link}"
             );
         }
     }
@@ -427,11 +457,10 @@ mod tests {
                 "`{entry}` must stop the fetcher, naming the entry: {refusal:?}"
             );
         }
-        let refusal = GuardedExportFetcher::try_from_hosts(&format!(
-            "{STRAVA_EXPORT_HOSTS},s3.amazonaws.com"
-        ))
-        .map(drop)
-        .map_err(|refusal| refusal.to_string());
+        let refusal =
+            GuardedExportFetcher::try_from_hosts(&format!("{EXPORT_HOSTS},s3.amazonaws.com"))
+                .map(drop)
+                .map_err(|refusal| refusal.to_string());
         assert!(
             refusal
                 .as_ref()

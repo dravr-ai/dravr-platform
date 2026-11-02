@@ -27,8 +27,8 @@ use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobKey;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
-use dravr_barrage::store::{BarrageStores, JobStatus, NewImportJob, PageReq, RecordQuery};
-use dravr_barrage::{BarrageError, Importer, Scope, SourceKey, StepOutcome};
+use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
+use dravr_barrage::{BarrageError, Scope, SourceKey};
 use futures_util::stream::{self, BoxStream, StreamExt};
 use pierre_core::constants::oauth_providers::{GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE};
 use pierre_core::models::TenantId;
@@ -41,7 +41,6 @@ use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 use pierre_mcp_server::services::archive_import::fetch::{ExportFetcher, LinkCheck, LinkRefusal};
 use pierre_mcp_server::services::archive_import::link::{link_digest, open, seal};
 use pierre_mcp_server::services::archive_import::runner::ImportRunner;
-use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
 use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
 use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
 use pierre_providers::upload_provider::file_sha256;
@@ -254,12 +253,22 @@ pub(crate) async fn call(
     )
 }
 
-/// Start an import of the athlete's export and wait for it to finish.
+/// Start an import of the athlete's Strava export and wait for it to finish.
 pub(crate) async fn import_export(resources: &Arc<ServerContext>, athlete: &Athlete) -> Value {
+    import_export_of(resources, athlete, STRAVA_ARCHIVE).await
+}
+
+/// Start an import of the athlete's export of `source` through the routes,
+/// and wait for it to finish.
+async fn import_export_of(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    source: &str,
+) -> Value {
     let (status, started) = call(
         resources,
         "POST",
-        "/api/imports/strava_archive",
+        &format!("/api/imports/{source}"),
         &athlete.token,
         Some(json!({ "url": LINK })),
     )
@@ -269,7 +278,7 @@ pub(crate) async fn import_export(resources: &Arc<ServerContext>, athlete: &Athl
         let (_, current) = call(
             resources,
             "GET",
-            "/api/imports/strava_archive/current",
+            &format!("/api/imports/{source}/current"),
             &athlete.token,
             None,
         )
@@ -449,49 +458,20 @@ fn garmin_wellness_export(days_ago: i64) -> Vec<u8> {
 /// as series no daily reader reads.
 #[tokio::test]
 async fn an_export_only_athlete_reads_their_wellness_back_from_the_tools() {
-    let (imports, stores) = imports_serving(Vec::new());
+    let (imports, _) = imports_serving(garmin_wellness_export(3));
     let resources = common::create_test_server_resources_with_archive_imports(imports)
         .await
         .expect("a server context");
     let athlete = seed_athlete(&resources, "garmin-export-wellness").await;
 
-    // The Garmin import is not offered on the routes yet, so barrage's own
-    // importer runs it, projecting through the platform's production sink.
-    let importer = Importer::new(
-        stores,
-        Arc::new(CachedActivitiesSink::new(Arc::clone(&resources))),
-    );
-    let scope = athlete.scope();
-    let job = importer
-        .create(
-            &scope,
-            NewImportJob {
-                source: SourceKey::GarminArchive,
-                status: JobStatus::Queued,
-                url_sha256: None,
-                url_ciphertext: Some(b"sealed link".to_vec()),
-                expires_at: None,
-            },
-        )
-        .await
-        .expect("the job is created");
-    let export = garmin_wellness_export(3);
-    let body = stream::iter(vec![Ok(Bytes::from(export))]).boxed();
-    let mut outcome = importer
-        .download(&scope, job.id, body)
-        .await
-        .expect("the export spools");
-    while let StepOutcome::Next { expect_cursor } = outcome {
-        outcome = importer
-            .step(&scope, job.id, expect_cursor)
-            .await
-            .expect("a step runs");
-    }
+    // The athlete's own session imports it through the routes, the in-process
+    // runner and the production sink, as the /import window does (carnet#1337).
+    let finished = import_export_of(&resources, &athlete, GARMIN_ARCHIVE).await;
     assert_eq!(
-        outcome,
-        StepOutcome::Finished(JobStatus::Completed),
-        "the export imports"
+        finished["status"], "completed",
+        "the export imports: {finished}"
     );
+    assert_eq!(finished["source"], GARMIN_ARCHIVE, "{finished}");
 
     let recovery = agent_tool(&resources, &athlete, "get_recovery_metrics", json!({})).await;
     let day = &recovery["metrics"][0];
@@ -721,6 +701,30 @@ async fn a_refused_link_starts_nothing() {
     )
     .await;
     assert_eq!(current["import"], Value::Null, "{current}");
+
+    let (check, verdict) = call(
+        &resources,
+        "POST",
+        "/api/imports/garmin_archive/check",
+        &athlete.token,
+        Some(json!({ "url": REFUSED_LINK })),
+    )
+    .await;
+    assert_eq!(check, StatusCode::OK, "{verdict}");
+    assert_eq!(
+        verdict["refusal"], "link_host_not_allowed",
+        "the Garmin source checks its link the same way: {verdict}"
+    );
+    let (accepted, verdict) = call(
+        &resources,
+        "POST",
+        "/api/imports/garmin_archive/check",
+        &athlete.token,
+        Some(json!({ "url": LINK })),
+    )
+    .await;
+    assert_eq!(accepted, StatusCode::OK, "{verdict}");
+    assert_eq!(verdict["accepted"], true, "{verdict}");
 }
 
 #[tokio::test]
@@ -764,7 +768,7 @@ async fn only_the_athletes_own_session_manages_imports() {
     let (unknown, _) = call(
         &resources,
         "POST",
-        "/api/imports/garmin_archive",
+        "/api/imports/fitbit_archive",
         &athlete.token,
         None,
     )
@@ -1061,4 +1065,9 @@ async fn the_web_apps_own_session_manages_imports() {
         "the web app's session reads its imports: {overview}"
     );
     assert_eq!(overview["enabled"], true, "{overview}");
+    assert_eq!(
+        overview["sources"],
+        json!([STRAVA_ARCHIVE, GARMIN_ARCHIVE]),
+        "both exports are offered, Strava's first (carnet#1337): {overview}"
+    );
 }

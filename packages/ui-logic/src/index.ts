@@ -95,7 +95,7 @@ export {
   describeAccountDeletionFailure,
 } from './accountDeletion';
 // What both clients say about an import of the athlete's own data
-export type { CopyLine, ImportPhase } from './archiveImport';
+export type { CopyLine, ImportPhase, ImportSourceCopy } from './archiveImport';
 export {
   AWAITING_LINK_LATE_MS,
   IMPORT_POLL_INTERVAL_MS,
@@ -107,8 +107,10 @@ export {
   importOutcomeKey,
   importPhase,
   importSize,
+  importSourceCopy,
   importStateCopy,
   linkRefusalKey,
+  offeredImportSources,
   startErrorKey,
 } from './archiveImport';
 

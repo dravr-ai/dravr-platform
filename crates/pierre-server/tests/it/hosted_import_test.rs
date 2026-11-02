@@ -283,10 +283,23 @@ async fn connect_provider_expired_and_other_source_tokens_are_refused() {
     assert_eq!(current["import"], Value::Null, "nothing started: {current}");
 
     let token = import_token(&resources, &athlete);
-    let (status, _) = call(
+    let (status, body) = call(
         &resources,
         "POST",
         "/providers/connect/import/garmin_archive",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a token minted for Strava's export starts no Garmin import: {body}"
+    );
+    let (status, _) = call(
+        &resources,
+        "POST",
+        "/providers/connect/import/fitbit_archive",
         &token,
         None,
     )

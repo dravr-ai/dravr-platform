@@ -7,9 +7,10 @@
 //! # Import operations
 //!
 //! Every operation acts in the athlete's [`Scope`] (their tenant and account)
-//! and on one source; only `strava_archive` is offered. One import per source
-//! runs at a time: a second start answers a conflict while the first is not
-//! final (barrage's partial unique index).
+//! and on one of the [`OFFERED_SOURCES`] (`strava_archive`,
+//! `garmin_archive`). One import per source runs at a time: a second start
+//! answers a conflict while the first is not final (barrage's partial unique
+//! index).
 //!
 //! An athlete who has asked the service for their export but not yet received
 //! the link has an import *waiting for its link* (`awaiting_link`), which
@@ -42,15 +43,16 @@ use crate::mcp::resources::ServerContext;
 /// How long an import waits for its link before the expiry sweep cancels it.
 pub const AWAITING_LINK_DAYS: i64 = 14;
 
-/// The sources an athlete may import today.
-pub const OFFERED_SOURCES: &[SourceKey] = &[SourceKey::StravaArchive];
+/// The sources an athlete may import today, in the order their screens list
+/// them: the Strava export, then the Garmin Connect export (carnet#1337).
+pub const OFFERED_SOURCES: &[SourceKey] = &[SourceKey::StravaArchive, SourceKey::GarminArchive];
 
 /// One import as the athlete's screens read it. The link is never part of it.
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportView {
     /// Its id.
     pub id: Uuid,
-    /// The source it imports (`strava_archive`).
+    /// The source it imports (`strava_archive`, `garmin_archive`).
     pub source: &'static str,
     /// Where it is: `awaiting_link`, `queued`, `downloading`, `importing`,
     /// `completed`, `failed` or `cancelled`.

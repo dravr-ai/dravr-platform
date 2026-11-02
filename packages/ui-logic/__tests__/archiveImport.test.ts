@@ -13,16 +13,28 @@ import pt from '../../i18n/src/locales/pt/translation.json';
 import type { ArchiveImport, ImportStatus } from '@pierre/shared-types';
 import {
   AWAITING_LINK_LATE_MS,
+  IMPORT_SOURCE_COPY,
   importDeleteCopy,
   importFailureKey,
   importHistoryCopy,
   importOutcomeKey,
   importPhase,
   importSize,
+  importSourceCopy,
   importStateCopy,
   linkRefusalKey,
+  offeredImportSources,
   startErrorKey,
+  type ImportSourceCopy,
 } from '../src/archiveImport';
+
+function copyOf(source: string): ImportSourceCopy {
+  const copy = importSourceCopy(source);
+  if (!copy) throw new Error(`no copy for ${source}`);
+  return copy;
+}
+const STRAVA = copyOf('strava_archive');
+const GARMIN = copyOf('garmin_archive');
 
 const LOCALES: Record<string, unknown> = { de, en, es, fr, pt };
 
@@ -58,33 +70,33 @@ function entry(status: ImportStatus, overrides: Partial<ArchiveImport> = {}): Ar
 describe('an import, as both clients say it', () => {
   it('gives each state its line, and a late link its own', () => {
     const created = Date.parse('2026-10-27T08:00:00Z');
-    expect(importStateCopy(entry('awaiting_link'), 'en', created + 1000).key).toBe('providers.import.state.awaitingLink');
-    expect(importStateCopy(entry('awaiting_link'), 'en', created + AWAITING_LINK_LATE_MS + 1).key).toBe(
+    expect(importStateCopy(entry('awaiting_link'), STRAVA, 'en', created + 1000).key).toBe('providers.import.state.awaitingLink');
+    expect(importStateCopy(entry('awaiting_link'), STRAVA, 'en', created + AWAITING_LINK_LATE_MS + 1).key).toBe(
       'providers.import.state.awaitingLinkLate',
     );
-    expect(importStateCopy(entry('importing'), 'en')).toEqual({
+    expect(importStateCopy(entry('importing'), STRAVA, 'en')).toEqual({
       key: 'providers.import.state.importing',
       values: { processed: 1240, total: 3105 },
     });
-    expect(importStateCopy(entry('completed'), 'en')).toMatchObject({
+    expect(importStateCopy(entry('completed'), STRAVA, 'en')).toMatchObject({
       key: 'providers.import.state.completedN',
       values: { count: 1240 },
     });
-    expect(importStateCopy(entry('failed'), 'en').key).toBe('providers.import.state.stoppedN');
-    expect(importStateCopy(entry('cancelled'), 'en').key).toBe('providers.import.state.stoppedN');
+    expect(importStateCopy(entry('failed'), STRAVA, 'en').key).toBe('providers.import.state.stoppedN');
+    expect(importStateCopy(entry('cancelled'), STRAVA, 'en').key).toBe('providers.import.state.stoppedN');
   });
 
   // carnet#1212: the count read one plural form, so « 1 activities imported »
   // and a French « Import arrêté · 0 importées »; countKey now picks the form.
   it('picks the imported count\'s form in the reader\'s language', () => {
-    expect(importStateCopy(entry('completed', { imported: 1 }), 'en').key).toBe('providers.import.state.completedOne');
-    expect(importStateCopy(entry('completed', { imported: 0 }), 'en').key).toBe('providers.import.state.completedN');
-    expect(importStateCopy(entry('completed', { imported: 0 }), 'fr').key).toBe('providers.import.state.completedOne');
-    expect(importStateCopy(entry('failed', { imported: 0 }), 'pt-BR')).toEqual({
+    expect(importStateCopy(entry('completed', { imported: 1 }), STRAVA, 'en').key).toBe('providers.import.state.completedOne');
+    expect(importStateCopy(entry('completed', { imported: 0 }), STRAVA, 'en').key).toBe('providers.import.state.completedN');
+    expect(importStateCopy(entry('completed', { imported: 0 }), STRAVA, 'fr').key).toBe('providers.import.state.completedOne');
+    expect(importStateCopy(entry('failed', { imported: 0 }), STRAVA, 'pt-BR')).toEqual({
       key: 'providers.import.state.stoppedOne',
       values: { count: 0 },
     });
-    expect(importStateCopy(entry('cancelled', { imported: 0 }), 'de').key).toBe('providers.import.state.stoppedN');
+    expect(importStateCopy(entry('cancelled', { imported: 0 }), STRAVA, 'de').key).toBe('providers.import.state.stoppedN');
   });
 
   // carnet#1212: the history line and the delete confirmation read one plural
@@ -116,22 +128,58 @@ describe('an import, as both clients say it', () => {
       importPhase(entry('completed', { history_held: false })),
       'a completed import whose history was deleted asks for an export again',
     ).toBe('request');
-    expect(importStateCopy(entry('completed', { history_held: false }), 'en').key).toBe(
+    expect(importStateCopy(entry('completed', { history_held: false }), STRAVA, 'en').key).toBe(
       'providers.import.strava.deleted',
     );
   });
 
   it('reads a refused start by the code the server names, and a second import as in progress', () => {
-    expect(startErrorKey(400, 'link_host_not_allowed: the export link was refused')).toBe(
+    expect(startErrorKey(400, 'link_host_not_allowed: the export link was refused', STRAVA)).toBe(
       'providers.import.strava.refusal.link_host_not_allowed',
     );
-    expect(startErrorKey(409, 'an import of strava_archive in progress')).toBe('providers.import.strava.inProgress');
-    expect(startErrorKey(500, 'boom')).toBe('providers.import.strava.genericError');
+    expect(startErrorKey(409, 'an import of strava_archive in progress', STRAVA)).toBe(
+      'providers.import.strava.inProgress',
+    );
+    expect(startErrorKey(500, 'boom', STRAVA)).toBe('providers.import.strava.genericError');
+  });
+
+  // carnet#1337: the Garmin export is offered beside Strava's; every line
+  // that names the service names Garmin, and the rest is shared.
+  it('names Garmin wherever a Garmin import\'s copy names the service', () => {
+    const created = Date.parse('2026-10-27T08:00:00Z');
+    const garmin = entry('awaiting_link', { source: 'garmin_archive' });
+    expect(importStateCopy(garmin, GARMIN, 'en', created + 1000).key).toBe('providers.import.garmin.awaitingLink');
+    expect(importStateCopy(garmin, GARMIN, 'en', created + AWAITING_LINK_LATE_MS + 1).key).toBe(
+      'providers.import.garmin.awaitingLinkLate',
+    );
+    expect(startErrorKey(400, 'link_expired: the export link was refused', GARMIN)).toBe(
+      'providers.import.garmin.refusal.link_expired',
+    );
+    expect(startErrorKey(409, 'an import of garmin_archive in progress', GARMIN)).toBe(
+      'providers.import.garmin.inProgress',
+    );
+    expect(linkRefusalKey('link_unreachable', GARMIN), 'an unreachable link names no service').toBe(
+      'providers.import.strava.refusal.link_unreachable',
+    );
+    expect(importFailureKey('not_an_export', GARMIN)).toBe('providers.import.garmin.failure.not_an_export');
+    expect(importFailureKey('archive_limit', GARMIN)).toBe('providers.import.strava.failure.archive_limit');
+    expect(GARMIN.exportPage).toMatch(/^https:\/\/www\.garmin\.com\//);
+  });
+
+  it('lists the offered sources it can show, in the server\'s order', () => {
+    expect(offeredImportSources(['strava_archive', 'garmin_archive']).map((copy) => copy.source)).toEqual([
+      'strava_archive',
+      'garmin_archive',
+    ]);
+    expect(offeredImportSources(['garmin_archive']).map((copy) => copy.name)).toEqual([
+      'providers.import.sources.garmin',
+    ]);
+    expect(offeredImportSources(['fitbit_archive']), 'a source with no copy is not shown').toEqual([]);
   });
 
   it('reads an unknown failure or outcome as the generic copy rather than a raw key', () => {
-    expect(importFailureKey('spool_missing')).toBe('providers.import.strava.failure.spool_missing');
-    expect(importFailureKey('something_new')).toBe('providers.import.strava.genericError');
+    expect(importFailureKey('spool_missing', STRAVA)).toBe('providers.import.strava.failure.spool_missing');
+    expect(importFailureKey('something_new', STRAVA)).toBe('providers.import.strava.genericError');
     expect(importOutcomeKey('something_new')).toBe('providers.import.strava.outcome.unreadable_file');
   });
 
@@ -143,17 +191,34 @@ describe('an import, as both clients say it', () => {
   it('names only keys every shipped locale carries', () => {
     const keys = [
       ...(['awaiting_link', 'queued', 'downloading', 'importing', 'completed', 'failed'] as ImportStatus[]).map(
-        (status) => importStateCopy(entry(status), 'en').key,
+        (status) => importStateCopy(entry(status), STRAVA, 'en').key,
       ),
       ...(['completed', 'failed'] as ImportStatus[]).map(
-        (status) => importStateCopy(entry(status, { imported: 1 }), 'en').key,
+        (status) => importStateCopy(entry(status, { imported: 1 }), STRAVA, 'en').key,
       ),
       ...[1, 2].flatMap((count) => {
         const { body, action } = importDeleteCopy(count, 'en');
         return [body.key, action.key, importHistoryCopy(entry('completed', { imported: count }), 'en').key];
       }),
-      'providers.import.state.awaitingLinkLate',
-      ...(['link_invalid', 'link_host_not_allowed', 'link_expired', 'link_unreachable'] as const).map(linkRefusalKey),
+      ...IMPORT_SOURCE_COPY.flatMap((copy) => [
+        copy.name,
+        copy.hint,
+        copy.intro,
+        copy.step1Title,
+        copy.step1Body,
+        copy.step1Open,
+        copy.step2Title,
+        copy.linkLabel,
+        copy.linkHint,
+        copy.progressStarting,
+        copy.inProgress,
+        copy.awaitingLink,
+        copy.awaitingLinkLate,
+        ...(['link_invalid', 'link_host_not_allowed', 'link_expired', 'link_unreachable'] as const).map((refusal) =>
+          linkRefusalKey(refusal, copy),
+        ),
+        copy.notAnExport,
+      ]),
       ...[
         'download_failed',
         'link_expired',
@@ -163,9 +228,8 @@ describe('an import, as both clients say it', () => {
         'missing_activities_csv',
         'unknown_locale',
         'spool_missing',
-        'not_an_export',
         null,
-      ].map(importFailureKey),
+      ].map((code) => importFailureKey(code, STRAVA)),
       ...['strava_export_error', 'missing_file', 'unreadable_file', 'file_too_large', 'invalid_row', 'zero_elapsed'].map(
         importOutcomeKey,
       ),

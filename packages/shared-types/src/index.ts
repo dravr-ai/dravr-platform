@@ -269,6 +269,7 @@ export type {
   ImportsOverview,
 } from './imports.js';
 export {
+  GARMIN_ARCHIVE_SOURCE,
   STRAVA_ARCHIVE_SOURCE,
   isFinalImportStatus,
   linkRefusalOf,

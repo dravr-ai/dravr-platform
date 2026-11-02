@@ -19,7 +19,8 @@
 //! Every route takes the athlete's own session, in their active tenant: an
 //! API key, a personal MCP token or a delegated OAuth grant is refused, so no
 //! agent, MCP client or A2A caller can start, cancel or delete an import.
-//! `source` is `strava_archive`; any other is `404`.
+//! `source` is one of the offered sources (`strava_archive`, `garmin_archive`);
+//! any other is `404`.
 //!
 //! `POST /internal/imports/{id}/step` exists only where Cloud Tasks delivers
 //! the steps; its one gate is the delivery's OIDC token.

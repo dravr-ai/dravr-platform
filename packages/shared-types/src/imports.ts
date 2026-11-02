@@ -7,6 +7,9 @@
 /** The source key a Strava export is imported under (`STRAVA_ARCHIVE` in pierre-core). */
 export const STRAVA_ARCHIVE_SOURCE = 'strava_archive';
 
+/** The source key a Garmin Connect export is imported under (`GARMIN_ARCHIVE` in pierre-core). */
+export const GARMIN_ARCHIVE_SOURCE = 'garmin_archive';
+
 /** Where an import is. The last three are final. */
 export type ImportStatus =
   | 'awaiting_link'
@@ -61,7 +64,7 @@ const LINK_REFUSALS: readonly ImportLinkRefusal[] = [
 /** One import, as the athlete's screens read it. The link never comes back. */
 export interface ArchiveImport {
   id: string;
-  /** The source it imports, e.g. {@link STRAVA_ARCHIVE_SOURCE}. */
+  /** The source it imports: {@link STRAVA_ARCHIVE_SOURCE} or {@link GARMIN_ARCHIVE_SOURCE}. */
   source: string;
   status: ImportStatus;
   /** Rows in the export's activity list, once downloaded. */

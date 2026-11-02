@@ -6,10 +6,11 @@
 
 //! # Importing an athlete's own export
 //!
-//! An athlete brings their history in from a service's bulk export (Strava
-//! first): they paste the link the service emailed them, and dravr-barrage
-//! spools the export, keeps each recording file as the original, and imports
-//! it a chunk of rows per step. The platform owns everything around that:
+//! An athlete brings their history in from a service's bulk export (Strava's
+//! or Garmin Connect's): they paste the link the service emailed them, and
+//! dravr-barrage spools the export, keeps each recording file as the
+//! original, and imports it a chunk of rows per step. The platform owns
+//! everything around that:
 //!
 //! - **the stores** barrage runs on, chosen here from the deployment
 //!   ([`ArchiveImports::from_env`]): Postgres schema `barrage` on the

@@ -1,5 +1,5 @@
 // ABOUTME: The /import window: the sources an athlete can import their own history from, and each import's state
-// ABOUTME: Opens on the source list (W1); a source opens its import (W2) in place, and #strava opens it directly
+// ABOUTME: Opens on the source list (W1); a source opens its import (W2) in place, and #strava or #garmin opens it directly
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,19 +7,24 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import { STRAVA_ARCHIVE_SOURCE, type ArchiveImport } from '@pierre/shared-types';
+import { GARMIN_ARCHIVE_SOURCE, STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
+import { importSourceCopy, offeredImportSources } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { DravrLogo } from '../DravrLogo';
-import StravaImport from './StravaImport';
+import SourceImport from './SourceImport';
 import { importStateLine } from './importCopy';
 
-/** Which screen of the window is showing. */
-type View = 'sources' | 'strava';
+/** The hash a link into the window names each source's import by. */
+const SOURCE_HASHES: Record<string, string> = {
+  [STRAVA_ARCHIVE_SOURCE]: '#strava',
+  [GARMIN_ARCHIVE_SOURCE]: '#garmin',
+};
 
-/** The view a link into the window asks for: `#strava` opens the Strava import. */
-function viewFromHash(): View {
-  return window.location.hash === '#strava' ? 'strava' : 'sources';
+/** The source a link into the window opens: `#strava` the Strava import, `#garmin` the Garmin one; else none, the list. */
+function sourceFromHash(): string | null {
+  const hash = window.location.hash;
+  return Object.keys(SOURCE_HASHES).find((source) => SOURCE_HASHES[source] === hash) ?? null;
 }
 
 interface ImportWindowProps {
@@ -29,26 +34,25 @@ interface ImportWindowProps {
 
 export default function ImportWindow({ onClose }: ImportWindowProps) {
   const { t, i18n } = useTranslation();
-  const [view, setView] = useState<View>(viewFromHash);
+  const [openSource, setOpenSource] = useState<string | null>(sourceFromHash);
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash());
+    const onHash = () => setOpenSource(sourceFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const open = (next: View) => {
-    window.history.pushState(null, '', next === 'strava' ? '#strava' : window.location.pathname);
-    setView(next);
+  const open = (next: string | null) => {
+    window.history.pushState(null, '', (next && SOURCE_HASHES[next]) ?? window.location.pathname);
+    setOpenSource(next);
   };
 
   const { data: overview, isLoading, isError } = useQuery({
     queryKey: QUERY_KEYS.imports.overview(),
     queryFn: () => importsApi.getImports(),
   });
-  const stravaImport: ArchiveImport | undefined = overview?.imports.find(
-    (entry) => entry.source === STRAVA_ARCHIVE_SOURCE,
-  );
+  const sources = offeredImportSources(overview?.sources ?? []);
+  const opened = openSource ? importSourceCopy(openSource) : undefined;
 
   return (
     <div className="min-h-dvh bg-surface pad-safe-top">
@@ -68,17 +72,17 @@ export default function ImportWindow({ onClose }: ImportWindowProps) {
           </button>
         </header>
 
-        {view === 'strava' ? (
+        {opened ? (
           <div>
             <button
               type="button"
-              onClick={() => open('sources')}
+              onClick={() => open(null)}
               className="mb-4 text-sm font-medium text-primary hover:text-primary-hover"
             >
               <span aria-hidden="true">← </span>
               {t('providers.import.back')}
             </button>
-            <StravaImport enabled={overview?.enabled ?? true} />
+            <SourceImport key={opened.source} copy={opened} enabled={overview?.enabled ?? true} />
           </div>
         ) : (
           <section aria-labelledby="import-sources">
@@ -93,25 +97,36 @@ export default function ImportWindow({ onClose }: ImportWindowProps) {
               </p>
             )}
             {overview?.enabled && (
-              <button
-                type="button"
-                onClick={() => open('strava')}
-                data-testid="import-source-strava"
-                className="group flex w-full items-center gap-3 border-t border-b ghost-border-faint py-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              >
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-medium text-on-surface">{t('providers.import.sources.strava')}</span>
-                  <span className="text-xs text-on-surface-variant">{t('providers.import.sources.stravaHint')}</span>
-                  {stravaImport && (
-                    <span className="mt-1 text-xs text-on-surface" data-testid="import-state-strava">
-                      {importStateLine(t, stravaImport, i18n.language)}
-                    </span>
-                  )}
-                </span>
-                <span aria-hidden="true" className="text-on-surface-variant">
-                  ›
-                </span>
-              </button>
+              <ul>
+                {sources.map((copy, index) => {
+                  const latest = overview.imports.find((entry) => entry.source === copy.source);
+                  return (
+                    <li key={copy.source}>
+                      <button
+                        type="button"
+                        onClick={() => open(copy.source)}
+                        data-testid={`import-source-${copy.source}`}
+                        className={`group flex w-full items-center gap-3 border-b ghost-border-faint py-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                          index === 0 ? 'border-t' : ''
+                        }`}
+                      >
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="text-sm font-medium text-on-surface">{t(copy.name)}</span>
+                          <span className="text-xs text-on-surface-variant">{t(copy.hint)}</span>
+                          {latest && (
+                            <span className="mt-1 text-xs text-on-surface" data-testid={`import-state-${copy.source}`}>
+                              {importStateLine(t, latest, copy, i18n.language)}
+                            </span>
+                          )}
+                        </span>
+                        <span aria-hidden="true" className="text-on-surface-variant">
+                          ›
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
         )}
