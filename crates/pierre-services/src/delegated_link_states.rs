@@ -328,6 +328,11 @@ impl Assessment<'_> {
         {
             return Ok((self.link_state(link).await?, false));
         }
+        // LIMITATION(registre#1322): `LinkState::RosterEmailMissing` ends the
+        // assessment, and no member's own connection is ever matched to the
+        // athlete's id: `MemberOwnConnection` is reached only by email, so an
+        // athlete with no roster email who connects the platform themselves
+        // reads as unlinkable.
         if provider_email_key(athlete.email.as_deref()).is_none() {
             return Ok((LinkState::RosterEmailMissing, false));
         }

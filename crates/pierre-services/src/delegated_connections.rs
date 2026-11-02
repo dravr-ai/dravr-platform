@@ -470,6 +470,10 @@ pub async fn describe_link(
 /// binds. An athlete a live link of the coach's holds in another group is
 /// left out: it cannot be linked here.
 ///
+/// LIMITATION(registre#1323): `roster_for_group` drops each athlete's
+/// `LinkState`, so the picker lists roster athletes who are no member of
+/// `group` and offers links [`propose`] refuses.
+///
 /// # Errors
 ///
 /// Returns the errors of [`coach_roster`], or a repository error.
