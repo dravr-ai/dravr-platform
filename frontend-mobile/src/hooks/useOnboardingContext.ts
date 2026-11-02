@@ -8,6 +8,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   athleteStepsWaived as serverAthleteStepsWaived,
   isServerStepComplete,
+  isConnectProviderRecorded,
+  beforeProviderGate,
   pastProviderGate,
   type OnboardingContext,
 } from '@pierre/shared-constants';
@@ -97,11 +99,14 @@ export function useOnboardingContext(): OnboardingContextState {
   const { skipped: skippedProvider } = useProviderSkipped(user?.id);
   const { done: connectProviderDone } = useConnectProviderDone(user?.id);
   const needsProviderConnection = onboardingStatus?.needs_provider_connection;
+  // Server-only: the status read records it the first time a provider is
+  // connected, so disconnecting later never reopens the wizard (carnet#1341).
+  const connectProviderRecorded = isConnectProviderRecorded(onboardingStatus?.steps);
   // The messaging steps live post-connect; only fetch the channel list there.
   // A coach who does not train is past the gate without connecting, so the
   // group flag and the channel list load (and are waited on) for them too.
   const postConnect =
-    onboardingActive && pastProviderGate({ needsProviderConnection, athleteStepsWaived });
+    onboardingActive && pastProviderGate({ needsProviderConnection, connectProviderRecorded, athleteStepsWaived });
   const messaging = useMessagingOnboarding(user?.id, postConnect);
 
   // First-connect transition (needs true→false) — keeps the connect step up
@@ -116,7 +121,7 @@ export function useOnboardingContext(): OnboardingContextState {
   }, [needsProviderConnection]);
 
   const preConnectPending =
-    needsProviderConnection === true &&
+    beforeProviderGate({ needsProviderConnection, connectProviderRecorded }) &&
     (profileTypeChosen === undefined ||
       aboutYouDone === undefined ||
       parqDone === undefined ||
@@ -130,6 +135,7 @@ export function useOnboardingContext(): OnboardingContextState {
     () => ({
       onboardingActive,
       needsProviderConnection,
+      connectProviderRecorded,
       skippedProvider,
       justOnboarded,
       connectProviderDone,
@@ -149,6 +155,7 @@ export function useOnboardingContext(): OnboardingContextState {
     [
       onboardingActive,
       needsProviderConnection,
+      connectProviderRecorded,
       skippedProvider,
       justOnboarded,
       connectProviderDone,

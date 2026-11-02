@@ -42,6 +42,7 @@ jest.mock('../../src/hooks/useOnboardingContext', () => ({
     context: {
       onboardingActive: false,
       needsProviderConnection: false,
+      connectProviderRecorded: true,
       skippedProvider: false,
       justOnboarded: false,
       connectProviderDone: false,

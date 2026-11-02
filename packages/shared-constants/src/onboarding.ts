@@ -31,10 +31,22 @@ export type OnboardingStepId =
  *     the OAuth return never observes the flip (carnet#1042).
  *   - `profileTypeChosen` / `coachProposalDone` — the per-user local flag OR
  *     the server's step record, so a step done on any surface stays done.
+ *   - `connectProviderRecorded` — the server's durable record that this user
+ *     has had a provider connected, which closes the pre-connect phase for
+ *     good (carnet#1341).
  */
 export interface OnboardingContext {
   onboardingActive: boolean;
   needsProviderConnection: boolean | undefined;
+  /**
+   * The server records the connect step complete: this user has had a real
+   * provider connected. `needsProviderConnection` is live, so disconnecting
+   * the last provider turns it back to `true`; this flag is what keeps an
+   * onboarded athlete out of the wizard then (carnet#1341). A user who never
+   * connected has no record, so their connect step still comes back at each
+   * login — the skip stays session-only on purpose.
+   */
+  connectProviderRecorded: boolean;
   skippedProvider: boolean;
   justOnboarded: boolean;
   profileTypeChosen: boolean;
@@ -117,17 +129,35 @@ export const COACH_PLATFORM_PROVIDERS: readonly string[] = [
 ];
 
 /**
- * Whether the post-connect steps are open: a provider is connected, or the
- * user is a coach who does not train. Nothing reads such a coach's own
+ * Whether the post-connect steps are open: a provider is connected, one has
+ * been (the server's connect-step record — an athlete who disconnects midway
+ * still meets the steps after the gate, carnet#1341), or the user is a coach
+ * who does not train. Nothing reads such a coach's own
  * training, so a missing provider holds back none of their steps; the connect
  * step still comes first by order, and skipping it moves on to the group.
  * `undefined` (status still loading) opens nothing, so no step flashes.
  */
 export function pastProviderGate(
-  c: Pick<OnboardingContext, 'needsProviderConnection' | 'athleteStepsWaived'>,
+  c: Pick<
+    OnboardingContext,
+    'needsProviderConnection' | 'connectProviderRecorded' | 'athleteStepsWaived'
+  >,
 ): boolean {
   if (c.needsProviderConnection === undefined) return false;
-  return c.needsProviderConnection === false || c.athleteStepsWaived;
+  return (
+    c.needsProviderConnection === false || c.connectProviderRecorded || c.athleteStepsWaived
+  );
+}
+
+/**
+ * Whether the user is still before the provider gate: no provider now, and
+ * none ever recorded. An athlete who connected and later disconnected is past
+ * it for good, so no pre-connect step comes back (carnet#1341).
+ */
+export function beforeProviderGate(
+  c: Pick<OnboardingContext, 'needsProviderConnection' | 'connectProviderRecorded'>,
+): boolean {
+  return c.needsProviderConnection === true && !c.connectProviderRecorded;
 }
 
 /**
@@ -139,8 +169,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   {
     id: 'profile_type',
     labelKey: 'onboarding.stepAboutYou',
-    isApplicable: (c) =>
-      c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
+    isApplicable: (c) => c.onboardingActive && beforeProviderGate(c) && !c.skippedProvider,
     isComplete: (c) => c.profileTypeChosen,
   },
   {
@@ -153,7 +182,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     labelKey: 'onboarding.stepAboutTraining',
     isApplicable: (c) =>
       c.onboardingActive &&
-      c.needsProviderConnection === true &&
+      beforeProviderGate(c) &&
       !c.skippedProvider &&
       !c.athleteStepsWaived,
     isComplete: (c) => c.aboutYouDone,
@@ -167,7 +196,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     labelKey: 'onboarding.stepHealthCheck',
     isApplicable: (c) =>
       c.onboardingActive &&
-      c.needsProviderConnection === true &&
+      beforeProviderGate(c) &&
       !c.skippedProvider &&
       !c.athleteStepsWaived,
     isComplete: (c) => c.parqDone,
@@ -181,7 +210,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     labelKey: 'onboarding.stepCheckIn',
     isApplicable: (c) =>
       c.onboardingActive &&
-      c.needsProviderConnection === true &&
+      beforeProviderGate(c) &&
       !c.skippedProvider &&
       !c.athleteStepsWaived,
     isComplete: (c) => c.checkInDone,
@@ -194,11 +223,13 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     //
     // The first connection does not close it: a user who has just connected one
     // service (`justOnboarded`) stays on the list to connect another, and moves
-    // on with Continue. A returning, already-connected user never sees it.
+    // on with Continue. A returning, already-connected user never sees it, and
+    // neither does one who has since disconnected every provider: the server
+    // record keeps them past the gate (carnet#1341).
     id: 'connect_provider',
     labelKey: 'onboarding.stepConnect',
     isApplicable: (c) =>
-      (c.needsProviderConnection === true || (c.justOnboarded && !c.connectProviderDone)) &&
+      (beforeProviderGate(c) || (c.justOnboarded && !c.connectProviderDone)) &&
       !c.skippedProvider &&
       !(c.athleteStepsWaived && c.coachGroupDone),
     isComplete: (c) =>
@@ -223,7 +254,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isApplicable: (c) =>
       c.onboardingActive &&
       !c.athleteStepsWaived &&
-      (c.needsProviderConnection === false || c.skippedProvider),
+      (c.needsProviderConnection === false || c.connectProviderRecorded || c.skippedProvider),
     isComplete: (c) => c.coachProposalDone,
   },
   {
@@ -297,6 +328,16 @@ export function isServerStepComplete(
   return (steps ?? []).some(
     (s) => s.step_id === stepId && (s.status === 'complete' || s.status === 'skipped'),
   );
+}
+
+/**
+ * Whether the server has recorded the connect step `complete`: this user has
+ * had a real provider connected (carnet#1341). Unlike `isServerStepComplete`,
+ * a `skipped` row does not count — continuing without connecting stays
+ * session-only, so the connect step comes back at the next login.
+ */
+export function isConnectProviderRecorded(steps: PersistedOnboardingStep[] | undefined): boolean {
+  return (steps ?? []).some((s) => s.step_id === 'connect_provider' && s.status === 'complete');
 }
 
 /**

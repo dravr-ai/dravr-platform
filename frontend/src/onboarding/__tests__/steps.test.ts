@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   athleteStepsWaived,
   currentOnboardingStep,
+  isConnectProviderRecorded,
   isServerStepComplete,
   onboardingProgress,
   ONBOARDING_STEPS,
@@ -19,6 +20,9 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
   return {
     onboardingActive: true,
     needsProviderConnection: false,
+    // Never connected unless a test says so: the pre-connect phase is open
+    // whenever `needsProviderConnection` is true.
+    connectProviderRecorded: false,
     skippedProvider: false,
     justOnboarded: false,
     // Continue on the connect step already pressed, so a just-connected test
@@ -147,6 +151,49 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     expect(
       currentOnboardingStep(ctx({ needsProviderConnection: false, connectProviderDone: false })),
     ).toBeNull();
+  });
+
+  // carnet#1341: an onboarded athlete who disconnects their last provider
+  // turns `needsProviderConnection` back to true. The server's connect-step
+  // record keeps them out of the wizard; a user who never connected has no
+  // record and still meets the connect step.
+  it('an onboarded athlete who disconnected every provider stays out of the wizard', () => {
+    const disconnected = ctx({ needsProviderConnection: true, connectProviderRecorded: true });
+    expect(currentOnboardingStep(disconnected)).toBeNull();
+    // Not even a pre-connect question added after they onboarded.
+    expect(currentOnboardingStep({ ...disconnected, checkInDone: false })).toBeNull();
+  });
+
+  it('an athlete who disconnects before the agent step still meets it, not the connect step', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: true,
+          connectProviderRecorded: true,
+          coachProposalDone: false,
+        }),
+      )?.id,
+    ).toBe('coach_proposal');
+  });
+
+  it('a user who never connected still meets the connect step at each login', () => {
+    expect(
+      currentOnboardingStep(ctx({ needsProviderConnection: true, connectProviderRecorded: false }))
+        ?.id,
+    ).toBe('connect_provider');
+  });
+
+  it('the first connection still keeps the connect step up until Continue', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: false,
+          connectProviderRecorded: true,
+          justOnboarded: true,
+          connectProviderDone: false,
+        }),
+      )?.id,
+    ).toBe('connect_provider');
   });
 
   it('connect_provider reads incomplete while waiting on Continue, complete after', () => {
@@ -462,6 +509,21 @@ describe('isServerStepComplete — durable cross-device step state', () => {
   it('ignores unknown statuses (e.g. a future "pending")', () => {
     const steps = [{ step_id: 'profile_type', status: 'pending' }];
     expect(isServerStepComplete(steps, 'profile_type')).toBe(false);
+  });
+});
+
+// carnet#1341: only the server's `complete` record closes the pre-connect
+// phase. A `skipped` row must not, or a user who continued without connecting
+// would never meet the connect step again.
+describe('isConnectProviderRecorded — the connect step is past for good', () => {
+  it('is true for a server "complete" record', () => {
+    expect(isConnectProviderRecorded([{ step_id: 'connect_provider', status: 'complete' }])).toBe(true);
+  });
+
+  it('is false for a "skipped" record, another step, or no steps', () => {
+    expect(isConnectProviderRecorded([{ step_id: 'connect_provider', status: 'skipped' }])).toBe(false);
+    expect(isConnectProviderRecorded([{ step_id: 'coach_proposal', status: 'complete' }])).toBe(false);
+    expect(isConnectProviderRecorded(undefined)).toBe(false);
   });
 });
 

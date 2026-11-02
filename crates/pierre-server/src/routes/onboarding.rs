@@ -87,7 +87,7 @@ const ONBOARDING_STEP_IDS: [&str; 9] = [
     "profile_type",
     "about_you",
     "parq",
-    "connect_provider",
+    onboarding_gate::STEP_CONNECT_PROVIDER,
     "coach_proposal",
     "coach_group",
     intake::STEP_CHECK_IN,
@@ -154,11 +154,12 @@ pub async fn handle_self_get(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let has_provider = onboarding_gate::user_has_real_provider(
+    let has_real_provider = onboarding_gate::user_has_real_provider(
         &resources.common.repos.provider_connections,
         auth.user_id,
     )
-    .await?
+    .await?;
+    let has_provider = has_real_provider
         || imports_own_history(&resources, auth.active_tenant_id, auth.user_id).await;
 
     // Best-effort pillar coverage (D8: onboarding-status reflects coverage-map
@@ -169,13 +170,31 @@ pub async fn handle_self_get(
 
     // Durable per-step onboarding state. Best-effort like pillar coverage: a read
     // error degrades to "no persisted steps" rather than failing the routing gate.
-    let step_records = resources
+    let mut step_records = resources
         .common
         .repos
         .user_onboarding
         .get_onboarding_steps(&auth.user_id.to_string())
         .await
         .unwrap_or_default();
+    // A connected athlete is past the connect step for good, so disconnecting
+    // later never restarts the wizard (carnet#1341). Only a real connection
+    // records it: an import still queued may fail, and that athlete still has
+    // the connect step to meet. Best-effort like the reads above: a failed
+    // write is retried on the next status read.
+    if has_real_provider {
+        let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
+        if let Err(e) = onboarding_gate::record_connect_step(
+            &resources.common.repos.user_onboarding,
+            auth.user_id,
+            tenant_id.as_deref(),
+            &mut step_records,
+        )
+        .await
+        {
+            warn!(user_id = %auth.user_id, error = %e, "onboarding status: connect step not recorded");
+        }
+    }
     let chosen_channel = step_records.iter().find_map(|r| r.chosen_channel.clone());
     let steps = step_records
         .into_iter()

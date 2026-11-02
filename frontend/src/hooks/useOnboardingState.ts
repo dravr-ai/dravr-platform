@@ -13,6 +13,7 @@ import { useAvailableChannels } from './useAvailableChannels';
 import {
   ATHLETE_STEP_IDS,
   athleteStepsWaived as serverAthleteStepsWaived,
+  isConnectProviderRecorded,
   isServerStepComplete,
   pastProviderGate,
   type OnboardingContext,
@@ -187,6 +188,9 @@ export function useOnboardingState(): OnboardingState {
   const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
   const coachGroupDone = coachGroupDoneLocal || isServerStepComplete(serverSteps, 'coach_group');
   const coachesOthers = onboardingStatus?.coaches_others === true;
+  // Server-only: the status read records it the first time a provider is
+  // connected, so disconnecting later never reopens the wizard (carnet#1341).
+  const connectProviderRecorded = isConnectProviderRecorded(serverSteps);
 
   // The messaging steps live in the just-connected phase, so only fetch the
   // connectable-channel list once the user is past the provider gate — which a
@@ -195,6 +199,7 @@ export function useOnboardingState(): OnboardingState {
     onboardingActive &&
     pastProviderGate({
       needsProviderConnection: onboardingStatus?.needs_provider_connection,
+      connectProviderRecorded,
       athleteStepsWaived,
     });
   const { channels: availableChannels } = useAvailableChannels({ enabled: postConnect });
@@ -336,6 +341,7 @@ export function useOnboardingState(): OnboardingState {
   const ctx: OnboardingContext = {
     onboardingActive,
     needsProviderConnection: onboardingStatus?.needs_provider_connection,
+    connectProviderRecorded,
     skippedProvider,
     justOnboarded,
     connectProviderDone,

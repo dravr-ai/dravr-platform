@@ -309,6 +309,74 @@ test.describe('Provider Connections - Disconnect', () => {
 
     expect(disconnectCalled).toBe(true);
   });
+
+  // carnet#1341: disconnecting the last provider turned the live
+  // `needs_provider_connection` back to true, and the wizard reopened at its
+  // connect step over Settings. The server now keeps a `connect_provider`
+  // record once a provider has been connected, which holds the athlete past
+  // the gate.
+  test('disconnecting the last provider keeps an onboarded athlete in Settings', async ({ page }) => {
+    let connected = true;
+    // Every step the athlete answered, plus the connect-step record the
+    // status read wrote while the provider was connected.
+    const steps = [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'complete' },
+      { step_id: 'parq', status: 'complete' },
+      { step_id: 'check_in', status: 'complete' },
+      { step_id: 'connect_provider', status: 'complete' },
+      { step_id: 'coach_proposal', status: 'complete' },
+    ];
+    const garmin = {
+      provider: 'sciotte_garmin',
+      display_name: 'Garmin',
+      description: 'Activities and health metrics from Garmin devices',
+      requires_oauth: false,
+      needs_reauth: false,
+      capabilities: ['activities', 'sleep', 'health'],
+      consent_required: false,
+    };
+    await page.route('**/api/providers', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ providers: [{ ...garmin, connected }] }),
+      }),
+    );
+    await page.route('**/api/oauth/providers/*/disconnect', (route) => {
+      connected = false;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
+    });
+    await page.route('**/api/me/onboarding-status', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ needs_provider_connection: !connected, steps }),
+      }),
+    );
+
+    await loginToDashboard(page);
+    await page.goto('/#settings/connections');
+    await page.getByTestId('provider-disconnect-sciotte_garmin').click();
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).last().click();
+    await expect.poll(() => connected).toBe(false);
+
+    // The athlete comes back to the tab: once the status is stale (5 s) the
+    // app reads it again, now with no provider. Wait for that read to land,
+    // or the assertions run before the wizard has had its chance.
+    const statusRead = page.waitForResponse(
+      (r) => r.url().includes('/api/me/onboarding-status') && !connected,
+    );
+    await page.waitForTimeout(5_500);
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+    await statusRead;
+    await expect(page.getByText('Garmin has been disconnected.')).toBeVisible();
+    await expect(page.getByTestId('settings-pane')).toBeVisible();
+    // The card offers Connect again: the disconnect landed in Settings itself.
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/#settings\/connections$/);
+    await expect(page.getByTestId('onboarding-flow')).toHaveCount(0);
+  });
 });
 
 test.describe('Provider Connections - Error Handling', () => {

@@ -81,6 +81,7 @@ describe('useOnboardingContext', () => {
     expect(result.current.context).toEqual({
       onboardingActive: true,
       needsProviderConnection: true,
+      connectProviderRecorded: false,
       skippedProvider: false,
       justOnboarded: false,
       connectProviderDone: false,
@@ -253,6 +254,42 @@ describe('useOnboardingContext', () => {
 
     await waitFor(() => {
       expect(result.current.context.needsProviderConnection).toBe(false);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(currentOnboardingStep(result.current.context)).toBeNull();
+  });
+
+  // carnet#1341: disconnecting the last provider turns the live gate back to
+  // true; the server's connect-step record keeps the onboarded athlete out of
+  // the wizard, with nothing done on this device.
+  it('an onboarded athlete who disconnected every provider is never sent back to onboarding', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(false),
+      steps: [
+        { step_id: 'connect_provider', status: 'complete' },
+        { step_id: 'coach_proposal', status: 'complete' },
+      ],
+    });
+    const { client, wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(currentOnboardingStep(result.current.context)).toBeNull();
+
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(true),
+      steps: [
+        { step_id: 'connect_provider', status: 'complete' },
+        { step_id: 'coach_proposal', status: 'complete' },
+      ],
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    });
+
+    await waitFor(() => {
+      expect(result.current.context.needsProviderConnection).toBe(true);
+      expect(result.current.context.connectProviderRecorded).toBe(true);
       expect(result.current.settled).toBe(true);
     });
     expect(currentOnboardingStep(result.current.context)).toBeNull();

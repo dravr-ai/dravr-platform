@@ -26,7 +26,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
-use pierre_core::models::{MessageRecord, TenantId};
+use pierre_core::models::{ConnectionType, MessageRecord, TenantId};
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
@@ -1016,4 +1016,81 @@ async fn start_names_the_team_in_the_leads_welcome_once() {
         .filter(MessageRecord::is_agent_welcome)
         .count();
     assert_eq!(welcomes, 1, "the introduction ledger keeps it once");
+}
+
+/// The `connect_provider` row the status read holds for the user, if any.
+fn connect_step_status(status: &serde_json::Value) -> Option<String> {
+    status["steps"].as_array().and_then(|steps| {
+        steps
+            .iter()
+            .find(|s| s["step_id"] == "connect_provider")
+            .and_then(|s| s["status"].as_str().map(str::to_owned))
+    })
+}
+
+/// carnet#1341: the status read records the connect step the first time it
+/// sees a real provider, and the record outlives the connection — so an
+/// athlete who disconnects their last provider is not sent back into the
+/// wizard. A user who never connected has no record.
+#[tokio::test]
+async fn status_records_the_connect_step_and_keeps_it_after_disconnect() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let router = OnboardingRoutes::routes(Arc::clone(&resources));
+    let repos = resources.agent.database.repositories();
+    let tenant_id = TenantId::from_uuid(
+        repos.tenants.list_for_user(user_id).await.unwrap()[0]
+            .id
+            .as_uuid(),
+    );
+    let read = |router: axum::Router| {
+        let token = token.clone();
+        async move {
+            AxumTestRequest::get("/api/me/onboarding-status")
+                .header("Authorization", &token)
+                .send(router)
+                .await
+                .assert_status(StatusCode::OK)
+                .json::<serde_json::Value>()
+        }
+    };
+
+    let never = read(router.clone()).await;
+    assert_eq!(never["needs_provider_connection"], true);
+    assert_eq!(
+        connect_step_status(&never),
+        None,
+        "a user who never connected has no connect-step record"
+    );
+
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let connected = read(router.clone()).await;
+    assert_eq!(connected["needs_provider_connection"], false);
+    assert_eq!(
+        connect_step_status(&connected).as_deref(),
+        Some("complete"),
+        "the status read records the connect step once a provider is connected"
+    );
+
+    repos
+        .provider_connections
+        .remove_connection(user_id, tenant_id, "strava")
+        .await
+        .unwrap();
+    let disconnected = read(router).await;
+    assert_eq!(disconnected["needs_provider_connection"], true);
+    assert_eq!(
+        connect_step_status(&disconnected).as_deref(),
+        Some("complete"),
+        "disconnecting the last provider keeps the athlete past the connect step"
+    );
 }
