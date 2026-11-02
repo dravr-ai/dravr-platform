@@ -1369,6 +1369,10 @@
       "nothingReceivedStaleNoDays": "As fontes de {{name}} não podem mais ser lidas: os dados em cache não mostram nada recente.",
       "nothingReceivedInLookback": "Nenhuma atividade de {{name}} chegou no período lido.",
       "deepFatigueStreak": "{{name}} está em fadiga profunda há {{mornings}}.",
+      "deepFatigueStreak_ordinal_one": "{{name}} está em fadiga profunda pela {{count}}.ª manhã seguida.",
+      "deepFatigueStreak_ordinal_two": "{{name}} está em fadiga profunda pela {{count}}.ª manhã seguida.",
+      "deepFatigueStreak_ordinal_few": "{{name}} está em fadiga profunda pela {{count}}.ª manhã seguida.",
+      "deepFatigueStreak_ordinal_other": "{{name}} está em fadiga profunda pela {{count}}.ª manhã seguida.",
       "planDraftWaiting": "O plano preparado com o agente aguarda sua revisão; {{name}} ainda não o vê.",
       "newMemberNoPlan": "{{name}} entrou no grupo em {{date}} e ainda não tem plano.",
       "planEnded": "O plano de {{name}} terminou em {{date}} e nada o substitui."
@@ -2729,6 +2733,8 @@
       "kindLabel": "Plano de atleta",
       "empty": "O teu fio privado com o agente sobre o plano de {{name}}. Pede-lhe que redija, ajuste ou explique o plano; {{name}} só vê o que publicas.",
       "composerPlaceholder": "Escreva ao agente sobre o plano de {{name}}…",
+      "starterLabel": "Redigir o plano de {{name}}",
+      "starterMessage": "Redige um plano de treino para {{name}}, a partir do treino recente e dos objetivos. Diz-me o que assumes onde faltam dados.",
       "openError": "Não conseguimos abrir esta conversa do plano. Tenta de novo."
     },
     "groupRoom": {

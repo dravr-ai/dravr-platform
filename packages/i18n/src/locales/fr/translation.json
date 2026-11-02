@@ -1369,6 +1369,10 @@
       "nothingReceivedStaleNoDays": "Les sources de {{name}} ne se relisent plus : les données en cache ne montrent rien de récent.",
       "nothingReceivedInLookback": "Aucune activité de {{name}} n’est arrivée sur la période lue.",
       "deepFatigueStreak": "{{name}} est en fatigue profonde depuis {{mornings}}.",
+      "deepFatigueStreak_ordinal_one": "{{name}} est en fatigue profonde pour le {{count}}er matin de suite.",
+      "deepFatigueStreak_ordinal_two": "{{name}} est en fatigue profonde pour le {{count}}e matin de suite.",
+      "deepFatigueStreak_ordinal_few": "{{name}} est en fatigue profonde pour le {{count}}e matin de suite.",
+      "deepFatigueStreak_ordinal_other": "{{name}} est en fatigue profonde pour le {{count}}e matin de suite.",
       "planDraftWaiting": "Le plan préparé avec l’agent attend ta relecture ; {{name}} ne le voit pas encore.",
       "newMemberNoPlan": "{{name}} a rejoint le groupe le {{date}} et n’a pas encore de plan.",
       "planEnded": "Le plan de {{name}} s’est terminé le {{date}} et rien ne le remplace."
@@ -2729,6 +2733,8 @@
       "kindLabel": "Plan d’athlète",
       "empty": "Ton fil privé avec l’agent sur le plan de {{name}}. Demande-lui de rédiger, d’ajuster ou d’expliquer le plan ; {{name}} ne voit que ce que tu publies.",
       "composerPlaceholder": "Écris à l’agent sur le plan de {{name}}…",
+      "starterLabel": "Rédiger le plan de {{name}}",
+      "starterMessage": "Rédige un plan d’entraînement pour {{name}}, à partir de son entraînement récent et de ses objectifs. Dis-moi ce que tu supposes là où ses données manquent.",
       "openError": "Impossible d’ouvrir ce fil de plan. Réessaie."
     },
     "groupRoom": {

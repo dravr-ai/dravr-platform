@@ -1369,6 +1369,10 @@
       "nothingReceivedStaleNoDays": "Las fuentes de {{name}} ya no se pueden volver a leer: los datos en caché no muestran nada reciente.",
       "nothingReceivedInLookback": "No llegó ninguna actividad de {{name}} en el periodo leído.",
       "deepFatigueStreak": "{{name}} está en fatiga profunda desde hace {{mornings}}.",
+      "deepFatigueStreak_ordinal_one": "{{name}} está en fatiga profunda por {{count}}.ª mañana consecutiva.",
+      "deepFatigueStreak_ordinal_two": "{{name}} está en fatiga profunda por {{count}}.ª mañana consecutiva.",
+      "deepFatigueStreak_ordinal_few": "{{name}} está en fatiga profunda por {{count}}.ª mañana consecutiva.",
+      "deepFatigueStreak_ordinal_other": "{{name}} está en fatiga profunda por {{count}}.ª mañana consecutiva.",
       "planDraftWaiting": "El plan preparado con el agente espera tu revisión; {{name}} todavía no lo ve.",
       "newMemberNoPlan": "{{name}} se unió al grupo el {{date}} y todavía no tiene plan.",
       "planEnded": "El plan de {{name}} terminó el {{date}} y nada lo reemplaza."
@@ -2729,6 +2733,8 @@
       "kindLabel": "Plan de atleta",
       "empty": "Tu hilo privado con el agente sobre el plan de {{name}}. Pídele que redacte, ajuste o explique el plan; {{name}} solo ve lo que publicas.",
       "composerPlaceholder": "Escribe al agente sobre el plan de {{name}}…",
+      "starterLabel": "Redactar el plan de {{name}}",
+      "starterMessage": "Redacta un plan de entrenamiento para {{name}}, a partir de su entrenamiento reciente y sus objetivos. Dime qué supones donde faltan sus datos.",
       "openError": "No pudimos abrir este hilo del plan. Inténtalo de nuevo."
     },
     "groupRoom": {

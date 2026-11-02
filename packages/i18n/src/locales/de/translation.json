@@ -1369,6 +1369,10 @@
       "nothingReceivedStaleNoDays": "Die Quellen von {{name}} lassen sich nicht mehr lesen: Die zwischengespeicherten Daten zeigen nichts Aktuelles.",
       "nothingReceivedInLookback": "Im gelesenen Zeitraum kam keine Aktivität von {{name}} an.",
       "deepFatigueStreak": "{{name}} ist seit {{mornings}} tief ermüdet.",
+      "deepFatigueStreak_ordinal_one": "{{name}} ist den {{count}}. Morgen in Folge tief ermüdet.",
+      "deepFatigueStreak_ordinal_two": "{{name}} ist den {{count}}. Morgen in Folge tief ermüdet.",
+      "deepFatigueStreak_ordinal_few": "{{name}} ist den {{count}}. Morgen in Folge tief ermüdet.",
+      "deepFatigueStreak_ordinal_other": "{{name}} ist den {{count}}. Morgen in Folge tief ermüdet.",
       "planDraftWaiting": "Der mit dem Agenten erstellte Plan wartet auf deine Durchsicht; {{name}} sieht ihn noch nicht.",
       "newMemberNoPlan": "{{name}} ist der Gruppe am {{date}} beigetreten und hat noch keinen Plan.",
       "planEnded": "Der Plan von {{name}} endete am {{date}}, und nichts ersetzt ihn."
@@ -2729,6 +2733,8 @@
       "kindLabel": "Athletenplan",
       "empty": "Dein privater Verlauf mit dem Agenten zum Plan von {{name}}. Bitte ihn, den Plan zu entwerfen, anzupassen oder zu erklären; {{name}} sieht nur, was du veröffentlichst.",
       "composerPlaceholder": "Schreib dem Agenten zum Plan von {{name}}…",
+      "starterLabel": "Plan für {{name}} entwerfen",
+      "starterMessage": "Entwirf einen Trainingsplan für {{name}}, ausgehend von dem jüngsten Training und den Zielen. Sag mir, was du annimmst, wo die Daten nicht reichen.",
       "openError": "Dieser Plan-Verlauf konnte nicht geöffnet werden. Bitte versuche es erneut."
     },
     "groupRoom": {
