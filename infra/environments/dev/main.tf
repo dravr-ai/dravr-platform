@@ -1167,6 +1167,14 @@ module "sciotte" {
   # backend_sciotte_iam turns on, so reachable stops meaning open.
   ingress = "INGRESS_TRAFFIC_ALL"
 
+  # Every outbound request leaves through the VPC connector and the Cloud NAT,
+  # from the project's one reserved address (module.networking nat_egress_ip),
+  # not the shared Cloud Run pool. Garmin SSO scores the sign-in's source: from
+  # the shared pool it put a captcha on about 2 of 3 fresh sign-ins, while the
+  # same image from a home IP signed in on the first try (2026-11-02).
+  vpc_connector_id = module.networking.vpc_connector_id
+  vpc_egress       = "ALL_TRAFFIC"
+
   # Two-step on purpose. The audience below must reach both services before the
   # image that requires it deploys, and Cloud Run must not start rejecting the
   # API until the API is sending tokens. So this flips false -> true only after

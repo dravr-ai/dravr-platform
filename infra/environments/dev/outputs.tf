@@ -185,3 +185,7 @@ output "archive_import_queue_id" {
   value       = google_cloud_tasks_queue.archive_import.id
 }
 
+output "nat_egress_ip" {
+  description = "The static public address the VPC's outbound traffic (the sciotte scraper's provider sign-ins included) leaves from"
+  value       = module.networking.nat_egress_ip
+}

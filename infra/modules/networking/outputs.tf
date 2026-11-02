@@ -40,3 +40,8 @@ output "private_vpc_connection_id" {
   description = "ID of the private VPC connection for Cloud SQL"
   value       = var.enable_database ? google_service_networking_connection.private_vpc_connection[0].id : null
 }
+
+output "nat_egress_ip" {
+  description = "The static public address traffic behind the Cloud NAT leaves from"
+  value       = google_compute_address.nat_egress.address
+}

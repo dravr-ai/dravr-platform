@@ -80,12 +80,26 @@ resource "google_compute_router" "router" {
   network = google_compute_network.vpc.id
 }
 
+# The one public address everything behind the NAT leaves from. Reserved, so
+# it belongs to this project alone and carries no other tenant's reputation.
+# That is why dev routes the sciotte scraper's provider sign-ins through it
+# (module "sciotte" in environments/dev/main.tf says what the shared Cloud Run
+# egress pool cost them).
+resource "google_compute_address" "nat_egress" {
+  name         = "${var.vpc_name}-egress"
+  project      = var.project_id
+  region       = var.region
+  address_type = "EXTERNAL"
+  network_tier = "PREMIUM"
+}
+
 resource "google_compute_router_nat" "nat" {
   name                               = "${var.vpc_name}-nat"
   project                            = var.project_id
   region                             = var.region
   router                             = google_compute_router.router.name
-  nat_ip_allocate_option             = "AUTO_ONLY"
+  nat_ip_allocate_option             = "MANUAL_ONLY"
+  nat_ips                            = [google_compute_address.nat_egress.self_link]
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 
   log_config {
