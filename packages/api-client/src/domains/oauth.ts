@@ -10,6 +10,7 @@ import type {
   ProvidersStatusResponse,
   ApiMetadata,
   OAuthGrant,
+  SciotteCancelResponse,
   SciotteLoginResponse,
   SciotteTarget,
 } from '@pierre/shared-types';
@@ -42,6 +43,20 @@ export interface SciotteRequestOptions {
    * drops, and the server drops the login it was running.
    */
   signal?: AbortSignal;
+  /**
+   * Names the sign-in window's opening the step belongs to, sent as
+   * `attempt_id`. Closing the window cancels that attempt by the same id
+   * ({@link createOAuthApi}'s `sciotteCancel`).
+   */
+  attemptId?: string;
+}
+
+/** `body`, carrying `attempt_id` when the step names an attempt. */
+function withAttempt<TBody extends object>(
+  body: TBody,
+  options: SciotteRequestOptions,
+): TBody & { attempt_id?: string } {
+  return options.attemptId === undefined ? body : { ...body, attempt_id: options.attemptId };
 }
 
 /** Waits `ms`, or rejects at once when `signal` fires first. */
@@ -260,8 +275,8 @@ export function createOAuthApi(axios: AxiosInstance) {
     }, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
-        typeof params
-      >(axios, '/api/providers/sciotte/login', params, {
+        typeof params & { attempt_id?: string }
+      >(axios, '/api/providers/sciotte/login', withAttempt(params, options), {
         timeout: 1_200_000,
         signal: options.signal,
       });
@@ -274,11 +289,11 @@ export function createOAuthApi(axios: AxiosInstance) {
     async sciotteSelect2FA(optionId: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
-        { option_id: string }
+        { option_id: string; attempt_id?: string }
       >(
         axios,
         '/api/providers/sciotte/select-2fa',
-        { option_id: optionId },
+        withAttempt({ option_id: optionId }, options),
         { timeout: 1_200_000, signal: options.signal },
       );
       return response.data;
@@ -290,12 +305,25 @@ export function createOAuthApi(axios: AxiosInstance) {
     async sciotteSubmitOTP(code: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
-        { code: string }
+        { code: string; attempt_id?: string }
       >(
         axios,
         '/api/providers/sciotte/submit-otp',
-        { code },
+        withAttempt({ code }, options),
         { timeout: 1_200_000, signal: options.signal },
+      );
+      return response.data;
+    },
+
+    /**
+     * Cancel the sign-in attempt a closed window left running: the server
+     * stops its step and releases its parked flow. Best effort, so it is
+     * sent once and never retried on a busy answer.
+     */
+    async sciotteCancel(attemptId: string): Promise<SciotteCancelResponse> {
+      const response = await axios.post<SciotteCancelResponse>(
+        '/api/providers/sciotte/cancel',
+        { attempt_id: attemptId },
       );
       return response.data;
     },

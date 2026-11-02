@@ -100,6 +100,8 @@ mod registration_sign_in;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_cancel;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted_templates;
@@ -446,6 +448,12 @@ impl AuthRoutes {
             .route(
                 "/api/providers/sciotte/submit-otp",
                 post(sciotte::handle_sciotte_submit_otp),
+            )
+            // Explicit cancel of the sign-in a closed window left running:
+            // the dropped connection never reaches the scraper service.
+            .route(
+                "/api/providers/sciotte/cancel",
+                post(sciotte_cancel::handle_sciotte_cancel),
             )
             // Channel-initiated hosted credential sign-in pages. Their
             // link-tokens are minted in-process by the messaging pipeline and

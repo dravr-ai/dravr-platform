@@ -30,6 +30,11 @@
 //!   [`ErrorCode::ExternalServiceError`] carrying the service's words, and
 //!   keeps the service's words on any status the client has no name for,
 //!   the `500` a failed scrape answers included;
+//! - a login step its caller cancelled (the window closed, and the platform
+//!   asked the service to stop it) is [`ErrorCode::ResourceLocked`], a `409`,
+//!   carrying the [`LOGIN_CANCELLED`] marker, read back by
+//!   [`is_login_cancelled`]. Nobody is waiting for its answer, and it is no
+//!   fault to alert on;
 //! - a login the provider stopped at a challenge (a captcha) is
 //!   [`ErrorCode::ExternalAuthFailed`] carrying the [`LOGIN_CHALLENGE`]
 //!   marker, read back by [`is_login_challenge`]. It is neither a refused
@@ -46,7 +51,9 @@
 use dravr_sciotte::client::{
     ClientError, Operation, SciotteClient, ServiceError, TransportFailure,
 };
-use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED, LOGIN_CHALLENGE};
+use dravr_sciotte::wire::{
+    ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED, LOGIN_CANCELLED, LOGIN_CHALLENGE,
+};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 use tracing::warn;
@@ -132,6 +139,12 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
         }
         refused @ ClientError::QueryRefused { .. } => AppError::internal(refused.to_string()),
         mismatch @ ClientError::CountMismatch { .. } => AppError::internal(mismatch.to_string()),
+        cancelled @ ClientError::Unexpected { .. } if cancelled.is_login_cancelled() => {
+            with_refusal_marker(
+                AppError::new(ErrorCode::ResourceLocked, "The sign-in was cancelled"),
+                LOGIN_CANCELLED,
+            )
+        }
         // LIMITATION(registre#746): the login-step `ClientError::Unexpected` arm also receives a
         // login that ran out its budget, which the service answers `401 session_expired`.
         ClientError::Unexpected {
@@ -320,8 +333,8 @@ fn with_refusal_marker(mut error: AppError, marker: &str) -> AppError {
 }
 
 /// The scraper refusal `error` carries ([`ATHLETE_REQUIRED`],
-/// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`]), or `None` for any other
-/// error.
+/// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`], [`LOGIN_CANCELLED`]), or
+/// `None` for any other error.
 #[must_use]
 pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
     error
@@ -359,6 +372,17 @@ pub fn require_client(client: Option<&SciotteClient>) -> AppResult<&SciotteClien
 pub fn is_login_challenge(error: &AppError) -> bool {
     matches!(error.code, ErrorCode::ExternalAuthFailed)
         && sciotte_refusal(error) == Some(LOGIN_CHALLENGE)
+}
+
+/// Whether `error` is a login step its caller cancelled.
+///
+/// Callers branch on this to answer it without the system-failure path: the
+/// window that started the step was closed and asked for it to stop, so
+/// nobody reads the answer and no operator has anything to do.
+#[must_use]
+pub fn is_login_cancelled(error: &AppError) -> bool {
+    matches!(error.code, ErrorCode::ResourceLocked)
+        && sciotte_refusal(error) == Some(LOGIN_CANCELLED)
 }
 
 /// The wait window a load-shed advertises, or `None` when `error` is anything
@@ -855,6 +879,50 @@ mod tests {
             assert_eq!(shed_retry_after_secs(&error), None);
             assert_eq!(error.provider_auth_required_provider(), None);
         }
+    }
+
+    #[test]
+    fn a_login_step_its_caller_cancelled_is_a_conflict_with_its_marker() {
+        for operation in [Operation::Login, Operation::SubmitOtp, Operation::Select2fa] {
+            let client_error = unexpected(
+                operation,
+                StatusCode::CONFLICT,
+                json!({"error": "login_cancelled", "message": "the caller cancelled this login"}),
+            );
+            let error = mapped(
+                client_error,
+                ErrorCode::ResourceLocked,
+                Some(&json!({"sciotte_refusal": "login_cancelled"})),
+            );
+            assert!(
+                is_login_cancelled(&error),
+                "{operation:?} is read back as cancelled"
+            );
+            assert!(!is_login_challenge(&error), "{operation:?} is no challenge");
+            assert_eq!(
+                shed_retry_after_secs(&error),
+                None,
+                "{operation:?} is no shed"
+            );
+        }
+        // Another 409 on a login step is still the unrecognised answer it was.
+        let other = to_app_error(unexpected(
+            Operation::Login,
+            StatusCode::CONFLICT,
+            json!({"error": "something_else"}),
+        ));
+        assert_eq!(
+            other.code,
+            ErrorCode::InternalError,
+            "an unnamed 409 stays internal"
+        );
+        assert!(!is_login_cancelled(&other), "an unnamed 409 is no cancel");
+        // The marker on another code is not a cancel.
+        let marked = with_refusal_marker(AppError::internal("plain"), LOGIN_CANCELLED);
+        assert!(
+            !is_login_cancelled(&marked),
+            "the marker alone is no cancel"
+        );
     }
 
     #[test]

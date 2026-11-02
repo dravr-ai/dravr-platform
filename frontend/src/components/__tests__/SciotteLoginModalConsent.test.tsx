@@ -18,6 +18,7 @@ vi.mock('../../services/api', () => ({
     sciotteLogin: (...args: unknown[]) => sciotteLogin(...args),
     sciotteSelect2FA: vi.fn(),
     sciotteSubmitOTP: vi.fn(),
+    sciotteCancel: vi.fn().mockResolvedValue({ cancelled: false }),
     authorizeUrl: vi.fn(),
   },
 }));
@@ -82,7 +83,7 @@ describe('SciotteLoginModal — the TrainingPeaks notice', () => {
       method: 'email',
       target: 'trainingpeaks',
       tos_consent: true,
-    }, { signal: expect.any(AbortSignal) });
+    }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) });
   });
 
   it('asks TrainingPeaks for a username, not an email', () => {
@@ -104,7 +105,7 @@ describe('SciotteLoginModal — the TrainingPeaks notice', () => {
       password: 'not-a-real-password',
       method: 'email',
       target: 'trainingpeaks',
-    }, { signal: expect.any(AbortSignal) });
+    }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) });
   });
 
   it('never shows the notice for Garmin, whatever the flag says', async () => {
@@ -122,7 +123,7 @@ describe('SciotteLoginModal — the TrainingPeaks notice', () => {
       password: 'not-a-real-password',
       method: 'email',
       target: 'garmin',
-    }, { signal: expect.any(AbortSignal) });
+    }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) });
   });
 });
 

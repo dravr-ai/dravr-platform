@@ -683,6 +683,7 @@ mod rsa_key_persistence_test;
 mod schema_completeness_test;
 mod schema_parity_test;
 mod sciotte_backpressure_test;
+mod sciotte_cancel_test;
 mod sciotte_connect_read_burst_test;
 mod sciotte_coros_otp_test;
 mod sciotte_disconnect_session_drop_test;

@@ -19,6 +19,7 @@ vi.mock('../../services/api', () => ({
     sciotteLogin: (...args: unknown[]) => sciotteLogin(...args),
     sciotteSelect2FA: (...args: unknown[]) => sciotteSelect2FA(...args),
     sciotteSubmitOTP: (...args: unknown[]) => sciotteSubmitOTP(...args),
+    sciotteCancel: vi.fn().mockResolvedValue({ cancelled: false }),
     authorizeUrl: vi.fn(),
   },
 }));

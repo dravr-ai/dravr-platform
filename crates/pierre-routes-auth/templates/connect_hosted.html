@@ -177,6 +177,43 @@
             };
 
             const S = CONFIG.strings;
+
+            // Each page load is one sign-in attempt, named on every step as
+            // `attempt_id`. Leaving the page while the server holds it (a
+            // step running, or a flow waiting on a 2FA pick or a code)
+            // cancels it there: the dropped request alone never reaches the
+            // browser the login runs in.
+            const LIVE_PHASES = ['logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp'];
+            let currentPhase = null;
+            function mintAttemptId() {
+                if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                    return window.crypto.randomUUID();
+                }
+                const bytes = new Uint8Array(16);
+                window.crypto.getRandomValues(bytes);
+                return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+            }
+            let attemptId = mintAttemptId();
+            function cancelAttempt() {
+                if (LIVE_PHASES.indexOf(currentPhase) === -1) return;
+                const cancelled = attemptId;
+                // A page the browser restores from its back-forward cache
+                // starts a new attempt: the cancelled one stays refused.
+                attemptId = mintAttemptId();
+                currentPhase = null;
+                try {
+                    fetch('/api/providers/sciotte/cancel', {
+                        method: 'POST',
+                        keepalive: true,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + CONFIG.token,
+                        },
+                        body: JSON.stringify({ attempt_id: cancelled }),
+                    }).catch(() => { /* best effort */ });
+                } catch (_) { /* best effort */ }
+            }
+            window.addEventListener('pagehide', cancelAttempt);
             // Fill a catalogue string's `{0}` slot.
             function fmt(template, value) {
                 return template.split('{0}').join(value);
@@ -232,6 +269,7 @@
 
             const phases = ['picker', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
+                currentPhase = name;
                 phases.forEach((p) => {
                     const el = document.getElementById('phase-' + p);
                     if (el) el.hidden = (p !== name);
@@ -395,7 +433,7 @@
                             'Content-Type': 'application/json',
                             'Authorization': 'Bearer ' + CONFIG.token,
                         },
-                        body: JSON.stringify(body),
+                        body: JSON.stringify(Object.assign({}, body, { attempt_id: attemptId })),
                         signal: controller.signal,
                     });
                     const text = await resp.text();

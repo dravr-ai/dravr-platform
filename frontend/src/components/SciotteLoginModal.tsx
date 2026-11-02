@@ -10,7 +10,7 @@ import { startOAuthInThisTab } from '../utils/oauthReturn';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
-import { describeApiError, refusalReason, useAbortOnClose } from '@pierre/ui-logic';
+import { describeApiError, isSignInPhaseLive, refusalReason, useAbortOnClose, useSignInAttempt } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
@@ -78,6 +78,14 @@ export default function SciotteLoginModal({
   // Closing the window ends the sign-in it started, on the server too.
   const beginRequest = useAbortOnClose(isOpen);
   const [phase, setPhase] = useState<LoginPhase>('choose');
+  // Each opening of the window is one sign-in attempt, named on every step.
+  // Closing it while the server holds that attempt cancels it there: the
+  // aborted request alone never gets past the hops in front of the API.
+  const attemptId = useSignInAttempt(isOpen, {
+    active: isSignInPhaseLive(phase),
+    mintAttemptId: () => crypto.randomUUID(),
+    cancel: oauthApi.sciotteCancel,
+  });
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +171,7 @@ export default function SciotteLoginModal({
           method,
           target,
           ...(notice ? { tos_consent: consentAccepted } : {}),
-        }, { signal });
+        }, { signal, attemptId: attemptId() });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -204,7 +212,7 @@ export default function SciotteLoginModal({
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, onClose, onConnected, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, refusalMessage, t]
   );
 
   // What a refused continuation tells the user.
@@ -224,7 +232,7 @@ export default function SciotteLoginModal({
 
       const signal = beginRequest();
       try {
-        const data = await oauthApi.sciotteSelect2FA(optionId, { signal });
+        const data = await oauthApi.sciotteSelect2FA(optionId, { signal, attemptId: attemptId() });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -262,7 +270,7 @@ export default function SciotteLoginModal({
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [beginRequest, continuationError, onClose, onConnected, t]
+    [beginRequest, attemptId, continuationError, onClose, onConnected, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -323,7 +331,7 @@ export default function SciotteLoginModal({
 
       const signal = beginRequest();
       try {
-        const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal });
+        const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal, attemptId: attemptId() });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -349,7 +357,7 @@ export default function SciotteLoginModal({
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, beginRequest, continuationError, onClose, onConnected, t]
+    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, t]
   );
 
 

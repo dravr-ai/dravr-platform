@@ -29,10 +29,13 @@ use uuid::Uuid;
 
 use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::wire::{LoginMethod, LoginOutcome, LOGIN_CHALLENGE};
-use pierre_providers::sciotte_error::{is_login_challenge, shed_retry_after_secs, to_app_error};
+use pierre_providers::sciotte_error::{
+    is_login_cancelled, is_login_challenge, shed_retry_after_secs, to_app_error,
+};
 
 #[cfg(feature = "health-sync")]
 use crate::oauth::spawn_health_backfill;
+use crate::sciotte_cancel::{login_cancelled_refusal, step_cancel_key};
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
@@ -276,6 +279,10 @@ pub(crate) struct SciotteLoginRequest {
     /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
+    /// The sign-in window's attempt id, which a cancel names
+    /// (`POST /api/providers/sciotte/cancel`); see [`crate::sciotte_cancel`].
+    #[serde(default)]
+    pub attempt_id: Option<String>,
 }
 
 fn default_target() -> String {
@@ -285,17 +292,26 @@ fn default_target() -> String {
 #[derive(Debug, Deserialize)]
 pub(crate) struct SciotteSelectTwoFactorRequest {
     pub option_id: String,
+    /// The sign-in window's attempt id, which a cancel names
+    /// (`POST /api/providers/sciotte/cancel`); see [`crate::sciotte_cancel`].
+    #[serde(default)]
+    pub attempt_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct SciotteOtpRequest {
     pub code: String,
+    /// The sign-in window's attempt id, which a cancel names
+    /// (`POST /api/providers/sciotte/cancel`); see [`crate::sciotte_cancel`].
+    #[serde(default)]
+    pub attempt_id: Option<String>,
 }
 
 impl fmt::Debug for SciotteOtpRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SciotteOtpRequest")
             .field("code", &"[REDACTED]")
+            .field("attempt_id", &self.attempt_id)
             .finish()
     }
 }
@@ -604,13 +620,13 @@ pub(crate) struct LinkContext {
 /// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
 ///    minted in-process by the messaging pipeline or the backfill notifier. This
 ///    is the path used by the hosted Sciotte login page embedded in chat
-///    channels, and it reaches only the login, 2FA and OTP routes.
+///    channels, and it reaches only the login, 2FA, OTP and cancel routes.
 /// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
 ///    `SciotteLoginModal` component.
 ///
 /// When the link-token path is taken, the returned `LinkContext` carries the
 /// channel metadata needed to emit a post-back webhook on success.
-async fn authenticate(
+pub(crate) async fn authenticate(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
 ) -> Result<(Uuid, Uuid, Option<LinkContext>), AppError> {
@@ -750,7 +766,7 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 }
 
 /// Turn an `Err` from the dedicated scraper service into what the athlete gets
-/// back: a retryable shed response, the challenge refusal, or the
+/// back: a retryable shed response, the cancel or challenge refusal, or the
 /// operator-alerting system failure.
 ///
 /// A load-shed is the service's designed answer to a saturated Chrome budget
@@ -767,11 +783,17 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 /// a shed it ends the attempt — the service stopped the login — so it is an
 /// `Err`, which the continuation handlers answer by dropping the flow.
 ///
+/// A step its own caller cancelled (the sign-in window closed and asked the
+/// service to stop it) goes around it as well: it is a quiet `409`
+/// ([`login_cancelled_refusal`]), since nobody waits on the answer. It is an
+/// `Err` too, so the continuation handlers drop the flow it ended.
+///
 /// Everything else still alerts.
 ///
 /// # Errors
 ///
-/// Returns the challenge refusal for a challenge, and the system-failure
+/// Returns the cancel refusal for a cancelled step, the challenge refusal for
+/// a challenge, and the system-failure
 /// [`AppError`] (already logged + alerted) for any other error that is not a
 /// shed.
 pub fn login_failure_response(
@@ -781,6 +803,12 @@ pub fn login_failure_response(
     stage: &str,
     error: &AppError,
 ) -> Result<Response, AppError> {
+    // The window that sent the step closed and cancelled it: nobody reads
+    // the answer, and there is nothing to alert on.
+    if is_login_cancelled(error) {
+        info!(%user_id, provider = %provider, stage = %stage, "Sciotte login step cancelled by its caller");
+        return Err(login_cancelled_refusal());
+    }
     if is_login_challenge(error) {
         warn!(
             %user_id,
@@ -864,6 +892,7 @@ pub(crate) async fn handle_sciotte_login(
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
 
     // A provider-specific link-token signs in only to the platform it was
     // minted for — it must not accept another platform's notice or store a
@@ -933,12 +962,13 @@ pub(crate) async fn handle_sciotte_login(
         "Starting sciotte credential login (remote service)"
     );
     let outcome = match remote
-        .login_with_credentials(
+        .login_with_credentials_keyed(
             &request.email,
             request.password.expose_secret(),
             request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
             prior_session.as_ref(),
+            cancel_key.as_deref(),
         )
         .await
     {
@@ -972,6 +1002,7 @@ pub(crate) async fn handle_sciotte_select_2fa(
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
 
     // ADR-021: the parked browser lives on the dedicated service; resume the
     // flow by its server-minted flow_id, which is also the only thing tying
@@ -980,7 +1011,10 @@ pub(crate) async fn handle_sciotte_select_2fa(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
-    let outcome = match remote.select_2fa(&request.option_id, &flow_id).await {
+    let outcome = match remote
+        .select_2fa_keyed(&request.option_id, &flow_id, cancel_key.as_deref())
+        .await
+    {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(
@@ -1026,6 +1060,7 @@ pub(crate) async fn handle_sciotte_submit_otp(
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let cancel_key = step_cancel_key(tenant_id, user_id, request.attempt_id.as_deref())?;
 
     if request.code.is_empty() {
         return Err(AppError::invalid_input("Verification code is required"));
@@ -1040,7 +1075,10 @@ pub(crate) async fn handle_sciotte_submit_otp(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
-    let outcome = match remote.submit_otp(&request.code, &flow_id).await {
+    let outcome = match remote
+        .submit_otp_keyed(&request.code, &flow_id, cancel_key.as_deref())
+        .await
+    {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(
@@ -1088,6 +1126,7 @@ mod tests {
         let sentinel = "sentinel-otp-4b7d";
         let request = SciotteOtpRequest {
             code: sentinel.to_owned(),
+            attempt_id: None,
         };
         let printed = format!("{request:?}");
         assert!(!printed.contains(sentinel), "{printed}");

@@ -63,6 +63,8 @@ export {
   useConfirmDialog,
 } from './useModal';
 export { useAbortOnClose } from './useAbortOnClose';
+export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
+export type { SignInAttemptOptions } from './useSignInAttempt';
 
 // API error classification — one classifier for web and mobile, so a failed
 // request is named by its transport state and status, never by matching on

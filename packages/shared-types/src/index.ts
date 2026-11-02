@@ -72,6 +72,7 @@ export type {
   ThemePreference,
   UpdateThemeRequest,
   SciotteLoginResponse,
+  SciotteCancelResponse,
   AccountDeletionBlockerKind,
   AccountDeletionBlocker,
   AccountDeletionPreview,

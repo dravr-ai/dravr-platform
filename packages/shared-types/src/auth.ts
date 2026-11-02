@@ -472,6 +472,16 @@ export type SciotteLoginResponse =
       error: string;
     };
 
+/**
+ * Answer of `POST /api/providers/sciotte/cancel`: whether the cancel ended a
+ * running step or released a parked flow. `false` also when there was
+ * nothing to cancel, or the scraper could not be reached: a cancel is best
+ * effort.
+ */
+export interface SciotteCancelResponse {
+  cancelled: boolean;
+}
+
 /** Response from /api/providers endpoint */
 export interface ProvidersStatusResponse {
   providers: ExtendedProviderStatus[];

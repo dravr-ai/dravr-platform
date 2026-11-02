@@ -17,6 +17,7 @@ jest.mock('../../services/api', () => ({
     sciotteLogin: jest.fn(),
     sciotteSelect2FA: jest.fn(),
     sciotteSubmitOTP: jest.fn(),
+    sciotteCancel: jest.fn().mockResolvedValue({ cancelled: false }),
     initMobileOAuth: jest.fn(),
   },
 }));
@@ -76,7 +77,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
       method: 'email',
       target: 'trainingpeaks',
       tos_consent: true,
-    }, { signal: expect.any(AbortSignal) });
+    }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) });
   });
 
   it('goes straight to the credentials once the account has accepted the notice', async () => {
@@ -92,7 +93,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
         password: 'not-a-real-password',
         method: 'email',
         target: 'trainingpeaks',
-      }, { signal: expect.any(AbortSignal) }),
+      }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) }),
     );
   });
 
@@ -110,7 +111,7 @@ describe('SciotteLoginModal (mobile) — the TrainingPeaks notice', () => {
         password: 'not-a-real-password',
         method: 'email',
         target: 'garmin',
-      }, { signal: expect.any(AbortSignal) }),
+      }, { signal: expect.any(AbortSignal), attemptId: expect.any(String) }),
     );
   });
 });

@@ -705,6 +705,8 @@ test.describe('Settings Page - User Mode', () => {
       method: 'email',
       target: 'trainingpeaks',
       tos_consent: true,
+      // Each sign-in window names its attempt so closing it can cancel the login.
+      attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
   });
 
@@ -761,6 +763,8 @@ test.describe('Settings Page - User Mode', () => {
       method: 'email',
       target: 'coros',
       tos_consent: true,
+      // Each sign-in window names its attempt so closing it can cancel the login.
+      attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
   });
 

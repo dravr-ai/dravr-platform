@@ -23,6 +23,7 @@ jest.mock('../../services/api', () => ({
     sciotteLogin: jest.fn(),
     sciotteSelect2FA: jest.fn(),
     sciotteSubmitOTP: jest.fn(),
+    sciotteCancel: jest.fn().mockResolvedValue({ cancelled: false }),
     initMobileOAuth: jest.fn(),
   },
 }));

@@ -18,6 +18,7 @@ import {
   Alert,
   useWindowDimensions,
 } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,7 +39,7 @@ import {
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
-import { describeApiError, refusalReason, useAbortOnClose } from '@pierre/ui-logic';
+import { describeApiError, isSignInPhaseLive, refusalReason, useAbortOnClose, useSignInAttempt } from '@pierre/ui-logic';
 
 // `logging-in` is the credential login, shown with its connecting copy;
 // `verifying` is a code or a 2FA pick being checked, shown with its status only.
@@ -216,6 +217,14 @@ export function SciotteLoginModal({
   const { height: windowHeight } = useWindowDimensions();
   const contentMaxHeight = Math.max(420, Math.round(windowHeight * 0.65));
   const [phase, setPhase] = useState<LoginPhase>('choose');
+  // Each opening of the window is one sign-in attempt, named on every step.
+  // Closing it while the server holds that attempt cancels it there: the
+  // aborted request alone never gets past the hops in front of the API.
+  const attemptId = useSignInAttempt(visible, {
+    active: isSignInPhaseLive(phase),
+    mintAttemptId: Crypto.randomUUID,
+    cancel: oauthApi.sciotteCancel,
+  });
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -340,7 +349,7 @@ export function SciotteLoginModal({
         method,
         target,
         ...(notice ? { tos_consent: consentAccepted } : {}),
-      }, { signal });
+      }, { signal, attemptId: attemptId() });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -372,7 +381,7 @@ export function SciotteLoginModal({
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, onClose, onConnected, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, refusalMessage, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -388,7 +397,7 @@ export function SciotteLoginModal({
 
     const signal = beginRequest();
     try {
-      const data = await oauthApi.sciotteSelect2FA(optionId, { signal });
+      const data = await oauthApi.sciotteSelect2FA(optionId, { signal, attemptId: attemptId() });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -417,7 +426,7 @@ export function SciotteLoginModal({
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [beginRequest, continuationError, onClose, onConnected, t]);
+  }, [beginRequest, attemptId, continuationError, onClose, onConnected, t]);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -440,7 +449,7 @@ export function SciotteLoginModal({
 
     const signal = beginRequest();
     try {
-      const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal });
+      const data = await oauthApi.sciotteSubmitOTP(otpCode, { signal, attemptId: attemptId() });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -465,7 +474,7 @@ export function SciotteLoginModal({
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [otpCode, beginRequest, continuationError, onClose, onConnected, t]);
+  }, [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, t]);
 
   // A provider that signs in with its own credentials draws the form's mark on
   // its own colour, not the email row's Strava orange.

@@ -3,7 +3,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, the code label naming the provider, the right code connecting, a lapsed or challenged sign-in's copy
+// ABOUTME: Pins the inline refusal, the provider-named label, a lapsed or challenged sign-in's copy, and the attempt cancel on pagehide
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -123,7 +123,7 @@ afterEach(() => {
 
 /** Load `page` with its script running against `answers`, popped in order per path. */
 function open(page: Page, answers: Record<string, Answer[]>) {
-  const calls: Array<{ path: string; body: unknown }> = [];
+  const calls: Array<{ path: string; body: unknown; keepalive?: boolean; authorization?: string }> = [];
   const virtualConsole = new VirtualConsole();
   dom = new JSDOM(renderPage(page), {
     runScripts: 'dangerously',
@@ -131,10 +131,18 @@ function open(page: Page, answers: Record<string, Answer[]>) {
     virtualConsole,
     beforeParse(window) {
       Object.assign(window, {
-        fetch: async (url: string, init: { body: string }) => {
+        fetch: async (
+          url: string,
+          init: { body: string; keepalive?: boolean; headers?: Record<string, string> },
+        ) => {
           const queue = answers[url];
           if (!queue || queue.length === 0) throw new Error(`no answer scripted for ${url}`);
-          calls.push({ path: url, body: JSON.parse(init.body) });
+          calls.push({
+            path: url,
+            body: JSON.parse(init.body),
+            keepalive: init.keepalive,
+            authorization: init.headers?.Authorization,
+          });
           const answer = queue.shift() as Answer;
           return {
             ok: answer.status >= 200 && answer.status < 300,
@@ -150,11 +158,13 @@ function open(page: Page, answers: Record<string, Answer[]>) {
   const submit = (formId: string) =>
     byId(formId).dispatchEvent(new dom!.window.Event('submit', { bubbles: true, cancelable: true }));
   const visible = (id: string) => !byId(id).hidden;
-  return { document, byId, submit, visible, calls };
+  const hide = () => dom!.window.dispatchEvent(new dom!.window.Event('pagehide'));
+  return { document, byId, submit, visible, calls, hide };
 }
 
 const LOGIN = '/api/providers/sciotte/login';
 const SUBMIT = '/api/providers/sciotte/submit-otp';
+const CANCEL = '/api/providers/sciotte/cancel';
 
 async function reachCodeStep(page: Page, answers: Record<string, Answer[]>) {
   const view = open(page, { [LOGIN]: [{ status: 200, body: { status: 'otp_required' } }], ...answers });
@@ -196,9 +206,11 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — the code s
     expect(input.getAttribute('maxlength')).toBe('6');
 
     await enterCode(view, '246810', () => expect(view.visible('phase-success')).toBe(true));
+    const attemptId = (view.calls[0].body as { attempt_id: string }).attempt_id;
+    expect(attemptId).toMatch(/^[0-9a-f-]{32,36}$/);
     expect(view.calls.filter((c) => c.path === SUBMIT).map((c) => c.body)).toEqual([
-      { code: '000000' },
-      { code: '246810' },
+      { code: '000000', attempt_id: attemptId },
+      { code: '246810', attempt_id: attemptId },
     ]);
   });
 
@@ -232,5 +244,47 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — the code s
     view.submit('login-form');
     await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
     expect(view.byId('error-message').textContent).toBe(SIGN_IN_CHALLENGED);
+  });
+});
+
+describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — leaving the page', (page) => {
+  /** A cancel the server answers; a fresh queue for each test. */
+  const cancelled = () => ({ [CANCEL]: [{ status: 200, body: { cancelled: true } }] });
+
+  it('cancels the attempt its steps named, with a request that outlives the page', async () => {
+    const view = await reachCodeStep(page, cancelled());
+    const attemptId = (view.calls[0].body as { attempt_id: string }).attempt_id;
+
+    view.hide();
+
+    await vi.waitFor(() => expect(view.calls.some((c) => c.path === CANCEL)).toBe(true));
+    const cancel = view.calls.find((c) => c.path === CANCEL)!;
+    expect(cancel.body).toEqual({ attempt_id: attemptId });
+    expect(cancel.keepalive).toBe(true);
+    expect(cancel.authorization).toBe('Bearer link-token');
+  });
+
+  it('starts a fresh attempt once the old one is cancelled, and cancels it once', async () => {
+    const view = await reachCodeStep(page, {
+      ...cancelled(),
+      [SUBMIT]: [{ status: 200, body: { status: 'otp_required' } }],
+    });
+    const first = (view.calls[0].body as { attempt_id: string }).attempt_id;
+    view.hide();
+    view.hide();
+
+    await enterCode(view, '246810', () =>
+      expect(view.calls.some((c) => c.path === SUBMIT)).toBe(true),
+    );
+    const next = (view.calls.find((c) => c.path === SUBMIT)!.body as { attempt_id: string }).attempt_id;
+    expect(next).not.toBe(first);
+    expect(view.calls.filter((c) => c.path === CANCEL)).toHaveLength(1);
+  });
+
+  it('sends no cancel when nothing is running', async () => {
+    const view = open(page, {});
+    view.hide();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(view.calls).toEqual([]);
   });
 });
