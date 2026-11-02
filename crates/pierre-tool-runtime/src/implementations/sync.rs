@@ -334,9 +334,7 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
         &auth_repos,
         context.resources.repos().activity_cache.clone(),
         #[cfg(feature = "health-sync")]
-        context.resources.repos().provider_connections.clone(),
-        #[cfg(feature = "health-sync")]
-        context.resources.repos().groups.clone(),
+        Arc::clone(context.resources.repos()),
         #[cfg(feature = "health-sync")]
         context.resources.sync_orchestrator().cloned(),
         #[cfg(feature = "health-sync")]

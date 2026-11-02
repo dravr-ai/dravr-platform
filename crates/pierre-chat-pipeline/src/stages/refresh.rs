@@ -26,9 +26,9 @@ use std::sync::Arc;
 use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::repositories::ActivityCacheRepository;
-#[cfg(feature = "health-sync")]
-use pierre_database::repositories::{CoachingGroupRepository, ProviderConnectionRepository};
 use pierre_database::AuthRepos;
+#[cfg(feature = "health-sync")]
+use pierre_database::RepositoryRegistry;
 
 use pierre_core::models::TenantId;
 use pierre_services::provider_refresh::RefreshService;
@@ -53,14 +53,11 @@ pub struct RefreshDeps<'a> {
     /// Activity cache, source of truth for on-demand providers' freshness
     /// (sciotte's `synced_at`). Cloned into the `RefreshService`.
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
-    /// The user's provider connections, which the refresh reads to tell a
-    /// wellness source of their own. Cloned into the `RefreshService`.
+    /// The repository registry the refresh reads the user's connections and
+    /// coach consents through, and whether their wellness reaches them by
+    /// push. Cloned into the `RefreshService`.
     #[cfg(feature = "health-sync")]
-    pub provider_connections: Arc<dyn ProviderConnectionRepository>,
-    /// The user's group memberships, which the refresh reads for the coach
-    /// consents a link's sync goes by. Cloned into the `RefreshService`.
-    #[cfg(feature = "health-sync")]
-    pub groups: Arc<dyn CoachingGroupRepository>,
+    pub registry: &'a Arc<RepositoryRegistry>,
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: &'a Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -101,9 +98,7 @@ pub async fn refresh_and_hint(
         auth_repos,
         activity_cache,
         #[cfg(feature = "health-sync")]
-        provider_connections,
-        #[cfg(feature = "health-sync")]
-        groups,
+        registry,
         #[cfg(feature = "health-sync")]
         sync_orchestrator,
         #[cfg(feature = "health-sync")]
@@ -124,9 +119,7 @@ pub async fn refresh_and_hint(
         auth_repos,
         activity_cache,
         #[cfg(feature = "health-sync")]
-        provider_connections,
-        #[cfg(feature = "health-sync")]
-        groups,
+        Arc::clone(registry),
         #[cfg(feature = "health-sync")]
         sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]

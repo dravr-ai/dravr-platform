@@ -39,6 +39,8 @@ use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_providers::ProviderCapabilities;
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
+#[cfg(feature = "health-sync")]
+use pierre_services::health_sync::wellness_pull_stands_down;
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
@@ -1069,9 +1071,7 @@ pub(crate) async fn handle_sync_provider(
         &auth_repos,
         resources.repos.activity_cache.clone(),
         #[cfg(feature = "health-sync")]
-        resources.repos.provider_connections.clone(),
-        #[cfg(feature = "health-sync")]
-        resources.repos.groups.clone(),
+        Arc::clone(&resources.repos),
         #[cfg(feature = "health-sync")]
         resources.sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]
@@ -1134,6 +1134,7 @@ pub(crate) fn spawn_health_backfill(
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
     let auth_repos = resources.repos.auth_repos();
+    let repos = Arc::clone(&resources.repos);
     let notices = resources.sync_failure_notices.clone();
     let first_sync = Arc::clone(&resources.first_sync);
     tokio::spawn(async move {
@@ -1141,6 +1142,10 @@ pub(crate) fn spawn_health_backfill(
             // What the pre-fetch read is the activity readers'; the backfill
             // only needs the session to itself.
             drop(prefetch.finished().await);
+        }
+        // Wellness the provider pushes has nothing to pull (carnet#1257).
+        if wellness_pull_stands_down(&repos, &user_id, &provider).await {
+            return;
         }
         info!(
             user_id = %user_id,

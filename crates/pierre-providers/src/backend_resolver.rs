@@ -185,8 +185,10 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
 /// A provider routed to its mirror by default ([`mirror_is_default`]: Garmin,
 /// COROS) is pulled through its mirror's browser session, and every other
 /// provider through its own backend. Garmin's OAuth backend is never pulled:
-/// Garmin pushes its data ([`pushed_backend_for`]), so a user who holds it is
-/// skipped by the sync rather than read through it. The sync stamps its rows
+/// Garmin pushes its data ([`pushed_backend_for`]), so a user whose grant
+/// serves Garmin ([`oauth_grant`]) is skipped by the sync rather than read
+/// through it, while one with a live usr/pwd session beside the grant is
+/// pulled through that session. The sync stamps its rows
 /// with the provider name, so a stored night is `coros` whichever backend fed
 /// it, while the session lives on `sciotte_coros`.
 #[must_use]
@@ -205,9 +207,11 @@ pub fn sync_backend(provider: &str) -> String {
 /// token row for it, or `None` when the provider has none.
 ///
 /// Garmin's Developer Program API pushes every summary to Dravr (carnet#1155),
-/// so the background sync, which pulls through [`sync_backend`], must leave a
-/// user who holds this backend alone: reading them through the usr/pwd
-/// session as well would write the same days twice.
+/// so the background sync, which pulls through [`sync_backend`], leaves alone
+/// a user whose grant for this backend serves Garmin ([`oauth_grant`]):
+/// reading them through the usr/pwd session as well would write the same days
+/// twice. A live usr/pwd session beside the grant serves Garmin instead, and
+/// is pulled (carnet#1302).
 #[must_use]
 pub fn pushed_backend_for(provider: &str) -> Option<&'static str> {
     (user_facing_name(provider) == oauth_providers::GARMIN).then_some(oauth_providers::GARMIN)

@@ -16,7 +16,8 @@
 // order and the withheld raw `garmin` row do not change. Once connected, a
 // Garmin API user's reads resolve to the API backend, which serves what
 // Garmin pushed without a call to Garmin, and the health sync leaves them to
-// the pushes.
+// the pushes — unless a live usr/pwd session serves Garmin beside the grant,
+// which the sync then pulls through (carnet#1302, carnet#1257).
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -377,8 +378,12 @@ async fn the_hosted_picker_starts_garmin_oauth_while_seats_remain() {
     );
 }
 
+/// The health sync follows the one Garmin rule (carnet#1302, carnet#1257): a
+/// live usr/pwd session serves Garmin whatever the API grant holds, so its
+/// athlete stays on the roster and is pulled through it; only an API user
+/// with no live session is left to the pushes.
 #[tokio::test]
-async fn a_garmin_api_user_leaves_the_health_sync_roster_and_a_usr_pwd_user_stays() {
+async fn a_garmin_api_user_leaves_the_health_sync_roster_only_without_a_live_session() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (usr_pwd, _, usr_pwd_tenant) =
         user_and_tenant(&resources, "garmin-roster-usrpwd@example.com").await;
@@ -390,7 +395,8 @@ async fn a_garmin_api_user_leaves_the_health_sync_roster_and_a_usr_pwd_user_stay
         None,
     )
     .await;
-    // Holds both: the API wins their reads, so its pushes feed their days.
+    // Holds both, the session live: the session serves their reads, so it
+    // pulls their wellness too.
     let (both, _, both_tenant) =
         user_and_tenant(&resources, "garmin-roster-both@example.com").await;
     connect(
@@ -409,21 +415,67 @@ async fn a_garmin_api_user_leaves_the_health_sync_roster_and_a_usr_pwd_user_stay
         Some("garmin-user-both"),
     )
     .await;
+    // Holds both, the session dead: the API serves, its pushes feed the days.
+    let (dead, _, dead_tenant) =
+        user_and_tenant(&resources, "garmin-roster-dead@example.com").await;
+    connect(
+        &resources,
+        dead,
+        dead_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        None,
+    )
+    .await;
+    mark_dead(
+        &resources,
+        dead,
+        dead_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    connect(
+        &resources,
+        dead,
+        dead_tenant,
+        oauth_providers::GARMIN,
+        Some("garmin-user-dead"),
+    )
+    .await;
 
     let storage = PierreSyncStorage::new(&resources.common.repos);
     let roster = storage.list_connected_users("garmin").await.unwrap();
     let ids: Vec<String> = roster.iter().map(|u| u.user_id.clone()).collect();
 
     assert!(ids.contains(&usr_pwd.to_string()), "{ids:?}");
-    assert!(!ids.contains(&both.to_string()), "{ids:?}");
+    assert!(
+        ids.contains(&both.to_string()),
+        "bug: a live session beside the API grant serves Garmin: {ids:?}"
+    );
+    assert!(
+        !ids.contains(&dead.to_string()),
+        "bug: a dead session beside the API grant leaves the days to the pushes: {ids:?}"
+    );
 
-    // Nor does any other pull reach them: a sync asked for on request finds
-    // no credential of theirs, while the usr/pwd user's session still serves.
-    assert!(storage
+    // A sync asked for on request reads the same way: the live session serves,
+    // a dead one beside the grant leaves nothing of theirs to pull.
+    let served = storage
         .get_credentials(&both.to_string(), "garmin")
         .await
         .unwrap()
-        .is_none());
+        .expect("bug: the live usr/pwd session serves the wellness pull");
+    assert_eq!(
+        served.provider,
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: the pull reads the usr/pwd session's row"
+    );
+    assert!(
+        storage
+            .get_credentials(&dead.to_string(), "garmin")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a dead session beside the API grant has nothing of its own to pull"
+    );
     assert!(storage
         .get_credentials(&usr_pwd.to_string(), "garmin")
         .await
@@ -431,10 +483,11 @@ async fn a_garmin_api_user_leaves_the_health_sync_roster_and_a_usr_pwd_user_stay
         .is_some());
 }
 
-/// The usr/pwd health pull steps aside only for an athlete whose Garmin API
-/// connection pushes their wellness. One who withheld (or never granted) the
-/// health export gets no wellness push, so the usr/pwd connection keeps
-/// pulling it; one who granted it is left to the pushes.
+/// Where the API serves Garmin (no live usr/pwd session), the usr/pwd health
+/// pull steps aside only for an athlete whose API connection pushes their
+/// wellness. One who withheld (or never granted) the health export gets no
+/// wellness push, so the usr/pwd connection keeps pulling it; one who granted
+/// it is left to the pushes.
 #[tokio::test]
 async fn a_garmin_api_user_without_the_health_grant_keeps_the_usr_pwd_wellness_pull() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -450,6 +503,7 @@ async fn a_garmin_api_user_without_the_health_grant_keeps_the_usr_pwd_wellness_p
                 None,
             )
             .await;
+            mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
             connect(
                 &resources,
                 user_id,

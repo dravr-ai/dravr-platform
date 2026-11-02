@@ -22,9 +22,9 @@ use pierre_core::models::{
 #[cfg(feature = "health-sync")]
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
 use pierre_database::repositories::ActivityCacheRepository;
-#[cfg(feature = "health-sync")]
-use pierre_database::repositories::{CoachingGroupRepository, ProviderConnectionRepository};
 use pierre_database::AuthRepos;
+#[cfg(feature = "health-sync")]
+use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::backend_resolver::sync_backend;
@@ -40,6 +40,8 @@ use crate::coach_consents::{link_consents, wellness_read_skipped, WellnessReadSk
 use crate::coach_platform::coach_platform;
 #[cfg(feature = "health-sync")]
 use crate::delegated_read::{holds_own_session, OwnLogins};
+#[cfg(feature = "health-sync")]
+use crate::health_sync::wellness_pull_stands_down;
 
 /// Push interface used by the refresh service to inform connected clients.
 ///
@@ -89,16 +91,13 @@ pub struct RefreshService {
     /// scrape. Read for on-demand providers so the agent hint reflects honest
     /// staleness instead of unconditionally reporting them Fresh.
     activity_cache: Arc<dyn ActivityCacheRepository>,
-    /// The user's provider connections: whether a wellness source of their
-    /// own keeps their human coach's link from syncing any wellness. Shared
-    /// with the repository registry it is cloned from, whose pools every
-    /// request reads through.
+    /// The repository registry every request reads through: the user's
+    /// provider connections (whether a wellness source of their own keeps
+    /// their human coach's link from syncing any wellness, and whether their
+    /// wellness reaches them by push), and their group memberships (whether
+    /// they granted their human coach `wellness_read`).
     #[cfg(feature = "health-sync")]
-    provider_connections: Arc<dyn ProviderConnectionRepository>,
-    /// The user's group memberships: whether they granted their human coach
-    /// `wellness_read`, which a refresh served by the coach's link reports.
-    #[cfg(feature = "health-sync")]
-    groups: Arc<dyn CoachingGroupRepository>,
+    registry: Arc<RepositoryRegistry>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -126,8 +125,7 @@ impl RefreshService {
     pub fn new(
         repos: &AuthRepos,
         activity_cache: Arc<dyn ActivityCacheRepository>,
-        #[cfg(feature = "health-sync")] provider_connections: Arc<dyn ProviderConnectionRepository>,
-        #[cfg(feature = "health-sync")] groups: Arc<dyn CoachingGroupRepository>,
+        #[cfg(feature = "health-sync")] registry: Arc<RepositoryRegistry>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
             Arc<dravr_enforme::SyncOrchestrator>,
         >,
@@ -137,9 +135,7 @@ impl RefreshService {
             repos: repos.clone(),
             activity_cache,
             #[cfg(feature = "health-sync")]
-            provider_connections,
-            #[cfg(feature = "health-sync")]
-            groups,
+            registry,
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
             #[cfg(feature = "health-sync")]
@@ -565,7 +561,7 @@ impl RefreshService {
     /// granted.
     #[cfg(feature = "health-sync")]
     async fn wellness_granted(&self, link: &DelegatedConnection) -> bool {
-        link_consents(self.groups.as_ref(), link)
+        link_consents(self.registry.groups.as_ref(), link)
             .await
             .map_or_else(
                 |e| {
@@ -583,7 +579,7 @@ impl RefreshService {
     async fn wellness_skip(&self, link: &DelegatedConnection) -> Option<WellnessReadSkip> {
         let logins = OwnLogins {
             tokens: self.repos.oauth_tokens.as_ref(),
-            connections: self.provider_connections.as_ref(),
+            connections: self.registry.provider_connections.as_ref(),
         };
         wellness_read_skipped(logins, link)
             .await
@@ -615,10 +611,14 @@ impl RefreshService {
             }
 
             let repos = self.repos.clone();
+            let registry = Arc::clone(&self.registry);
             let sse = self.sse_manager.clone();
             let user_id_str = user_id.to_string();
 
             tokio::spawn(async move {
+                if wellness_pull_stands_down(&registry, &user_id_str, &provider).await {
+                    return;
+                }
                 let result = orchestrator.sync_user(&user_id_str, &provider).await;
 
                 match &result {
@@ -741,6 +741,15 @@ impl RefreshService {
         }
 
         let user_id_str = user_id.to_string();
+        if wellness_pull_stands_down(&self.registry, &user_id_str, provider).await {
+            return RefreshResult {
+                provider: provider.to_owned(),
+                success: true,
+                message: FED_BY_PUSH_MESSAGE.to_owned(),
+                records_synced: 0,
+            };
+        }
+
         match orchestrator.sync_user(&user_id_str, provider).await {
             Ok(sync_result) => {
                 // Update last_sync on the token row the sync read
@@ -774,6 +783,12 @@ impl RefreshService {
         }
     }
 }
+
+/// What a refresh of a provider whose wellness reaches the athlete by push
+/// answers: nothing was pulled, and nothing failed.
+#[cfg(feature = "health-sync")]
+const FED_BY_PUSH_MESSAGE: &str =
+    "nothing to pull: the provider pushes this data as it is recorded";
 
 /// Result of a single provider refresh operation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

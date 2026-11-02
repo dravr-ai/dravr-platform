@@ -39,11 +39,12 @@ use dravr_enforme::traits::recovery_store::RecoveryStore;
 use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
-    OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
+    ConnectionType, OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId,
+    UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::health_sync::{wellness_pull_stands_down, PierreSyncStorage};
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
@@ -516,8 +517,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
-        repos.provider_connections.clone(),
-        repos.groups.clone(),
+        Arc::clone(&repos),
         Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
         Arc::new(NoopNotifier),
     );
@@ -770,4 +770,238 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     }
 
     an_instance_that_never_saw_the_import_is_imported_once_more(day).await;
+}
+
+// ── carnet#1257: a live usr/pwd session serves Garmin wellness beside a push grant ──
+
+/// A Garmin API grant whose connection pushes the athlete's wellness, as the
+/// OAuth callback and Garmin's permission report leave it.
+async fn connect_garmin_push(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
+    connect_oauth(repos, user_id, tenant, "garmin").await;
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let grants = vec!["ACTIVITY_EXPORT".to_owned(), "HEALTH_EXPORT".to_owned()];
+    assert!(
+        repos
+            .provider_connections
+            .set_provider_grants(user_id, tenant, "garmin", &grants)
+            .await
+            .unwrap(),
+        "test setup: the Garmin connection registered above takes its grants"
+    );
+}
+
+/// A usr/pwd Garmin session and its live connection, as the hosted login
+/// writes them.
+async fn connect_garmin_session(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
+    connect_scrape(repos, user_id, tenant, "sciotte_garmin").await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            "sciotte_garmin",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+/// The refresh service over `storage`'s sync, reading through `reader`.
+fn refresh_service(
+    repos: &Arc<RepositoryRegistry>,
+    storage: &Arc<PierreSyncStorage>,
+    reader: &Arc<dyn DailySummaryReader>,
+) -> RefreshService {
+    RefreshService::new(
+        &repos.auth_repos(),
+        repos.activity_cache.clone(),
+        Arc::clone(repos),
+        Some(storage.build_orchestrator_with_reader(reader).unwrap()),
+        Arc::new(NoopNotifier),
+    )
+}
+
+/// Whether any of the user's connections asks for a reconnect.
+async fn any_reconnect(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) -> bool {
+    repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant))
+        .await
+        .unwrap()
+        .iter()
+        .any(|c| c.status.requires_reauth())
+}
+
+/// The dev athlete of 2026-11-02: a Garmin API grant pushing wellness and a
+/// live usr/pwd session beside it. The session serves Garmin's reads
+/// (carnet#1302), so it serves the wellness pull too: the athlete stays on the
+/// roster, the sync reads the session, and the night lands as `garmin`.
+#[tokio::test]
+async fn a_live_garmin_session_beside_a_push_grant_pulls_the_wellness_through_the_session() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant).await;
+    connect_garmin_push(&repos, user_id, tenant).await;
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+
+    let roster = storage.list_connected_users("garmin").await.unwrap();
+    assert!(
+        roster.iter().any(|u| u.user_id == user_id.to_string()),
+        "bug: the live session serves Garmin, so the athlete stays on the roster: {roster:?}"
+    );
+    let credentials = storage
+        .get_credentials(&user_id.to_string(), "garmin")
+        .await
+        .unwrap()
+        .expect("bug: the live usr/pwd session serves the Garmin wellness pull");
+    assert_eq!(
+        credentials.provider, "sciotte_garmin",
+        "bug: the pull reads the usr/pwd session's row"
+    );
+    assert!(
+        !wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
+        "bug: a live session serves Garmin, so the pull does not stand down"
+    );
+
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let result = orchestrator
+        .sync_user(&user_id.to_string(), "garmin")
+        .await
+        .expect("bug: the pull must not end as expired credentials");
+    assert_eq!(
+        result.status,
+        SyncStatus::Completed,
+        "bug: the session pull completes"
+    );
+    assert!(
+        !fake.asked.lock().unwrap().is_empty(),
+        "the session was read"
+    );
+    let (start, end) = window();
+    let nights = repos
+        .sleep
+        .get_sleep_sessions(user_id, &tenant, start, end)
+        .await
+        .unwrap();
+    assert_eq!(
+        nights.len(),
+        1,
+        "bug: the night read from the session lands"
+    );
+    assert_eq!(
+        nights[0].source_name, "garmin",
+        "bug: a night is stamped with the provider, whichever backend fed it"
+    );
+
+    let refreshed = refresh_service(&repos, &storage, &reader)
+        .refresh_provider(user_id, tenant, "garmin", true)
+        .await;
+    assert!(
+        refreshed.success,
+        "bug: the refresh through the live session succeeds: {refreshed:?}"
+    );
+    assert!(
+        !any_reconnect(&repos, user_id, tenant).await,
+        "bug: a pull that succeeded flags no reconnect"
+    );
+}
+
+/// An athlete on the Garmin API alone, pushing wellness: there is nothing to
+/// pull, and a refresh says so rather than failing on expired credentials,
+/// reads no session and asks for no reconnect.
+#[tokio::test]
+async fn a_push_only_garmin_athlete_stands_down_quietly() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_push(&repos, user_id, tenant).await;
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+
+    assert!(
+        wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
+        "bug: wellness the API pushes has nothing to pull"
+    );
+    let refreshed = refresh_service(&repos, &storage, &reader)
+        .refresh_provider(user_id, tenant, "garmin", true)
+        .await;
+    assert!(
+        refreshed.success,
+        "bug: standing down for the pushes is not a failure: {refreshed:?}"
+    );
+    assert!(!refreshed.message.contains("expired"), "bug: {refreshed:?}");
+    assert_eq!(
+        refreshed.records_synced, 0,
+        "bug: standing down pulls nothing"
+    );
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: standing down reads no session"
+    );
+    assert!(
+        !any_reconnect(&repos, user_id, tenant).await,
+        "bug: standing down for the pushes flags no reconnect"
+    );
+}
+
+/// A usr/pwd session flagged for a reconnect serves nothing, so beside a push
+/// grant the pushes feed the wellness: the athlete leaves the roster and a
+/// refresh stands down quietly, without reading the dead session.
+#[tokio::test]
+async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pushes() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant).await;
+    connect_garmin_push(&repos, user_id, tenant).await;
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "sciotte_garmin",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+
+    let roster = storage.list_connected_users("garmin").await.unwrap();
+    assert!(
+        !roster.iter().any(|u| u.user_id == user_id.to_string()),
+        "bug: a dead session serves nothing, so the pushes feed the days: {roster:?}"
+    );
+    assert!(
+        storage
+            .get_credentials(&user_id.to_string(), "garmin")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a dead session beside the push grant has nothing of its own to pull"
+    );
+    assert!(
+        wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
+        "bug: a dead session beside the push grant stands the pull down"
+    );
+
+    let refreshed = refresh_service(&repos, &storage, &reader)
+        .refresh_provider(user_id, tenant, "garmin", true)
+        .await;
+    assert!(
+        refreshed.success,
+        "bug: standing down for the pushes is not a failure: {refreshed:?}"
+    );
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: standing down never reads the dead session"
+    );
 }
