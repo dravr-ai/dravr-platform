@@ -34,6 +34,8 @@ import {
   localDayKey,
   opensPrivateStretch,
   planCardDraft,
+  GROUP_ROOM_KEYS,
+  PLAN_THREAD_KEYS,
   PRIVATE_LANE_KEYS,
   transcriptBlocks,
   withVerdictRows,
@@ -510,6 +512,28 @@ interface MessageListProps {
    * stays its one line and the slash hint.
    */
   starters?: UseCaseStarter[];
+  /**
+   * The athlete a coach's plan thread is about. Empty, it is the coach's
+   * planning space with the agent: one line saying so, no athlete starters.
+   */
+  planSubjectName?: string | null;
+  /**
+   * The group's name, when the viewer is its human coach in its room. Empty,
+   * it says who reads what they write — no athlete prompt, no starters.
+   */
+  coachRoomName?: string | null;
+  /**
+   * The coach's open draft no row in the plan thread shows, as the host draws
+   * it: under the empty thread's line, else after the rows and before a live
+   * turn. Absent in every other thread and while the draft read is out.
+   */
+  planDraft?: React.ReactNode;
+  /**
+   * The empty plan thread's one-tap start — "Draft <name>'s plan" — when the
+   * coach holds no draft: its label, what a press does, and whether a turn
+   * is already running.
+   */
+  planStarter?: { label: string; onPress: () => void; disabled: boolean } | null;
   /** Open the thread on a starter: the host sends its postback under its label. */
   onStarter?: (starter: UseCaseStarter) => void;
   /**
@@ -550,6 +574,10 @@ export function MessageList({
   onShowVerdict,
   header,
   starters,
+  planSubjectName = null,
+  coachRoomName = null,
+  planDraft = null,
+  planStarter = null,
   onStarter,
   hasEarlier = false,
   loadingEarlier = false,
@@ -1296,25 +1324,53 @@ export function MessageList({
       keyboardShouldPersistTaps="handled"
       testID="chat-empty-state"
     >
-      <Text className="text-base text-text-secondary text-center leading-6">
-        {t('app.emptyThreadPrompt')}
-      </Text>
-      <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
-        {t(SLASH_HINT_KEY)}
-      </Text>
-      {onStarter
-        ? (starters ?? []).map((starter, index) => (
+      {planSubjectName !== null ? (
+        <>
+          <Text className="text-base text-text-secondary text-center leading-6" testID="chat-plan-thread-empty">
+            {t(PLAN_THREAD_KEYS.empty, { name: planSubjectName })}
+          </Text>
+          {planStarter !== null ? (
             <Pressable
-              key={starter.id}
-              onPress={() => onStarter(starter)}
+              onPress={planStarter.onPress}
+              disabled={planStarter.disabled}
               accessibilityRole="button"
-              className={`${index === 0 ? 'mt-4' : 'mt-1'} min-h-11 flex-row items-center`}
-              testID={`chat-empty-starter-${starter.id}`}
+              accessibilityState={{ disabled: planStarter.disabled }}
+              className={`mt-4 min-h-11 flex-row items-center ${planStarter.disabled ? 'opacity-50' : ''}`}
+              testID="chat-plan-thread-starter"
             >
-              <Text className="text-sm font-medium text-primary">{starter.label}</Text>
+              <Text className="text-sm font-medium text-primary">{planStarter.label}</Text>
             </Pressable>
-          ))
-        : null}
+          ) : null}
+          {/* The draft "Review the draft" came for, though no reply in the thread carries it. */}
+          {planDraft}
+        </>
+      ) : coachRoomName !== null ? (
+        <Text className="text-base text-text-secondary text-center leading-6" testID="chat-coach-room-empty">
+          {t(GROUP_ROOM_KEYS.empty, { group: coachRoomName })}
+        </Text>
+      ) : (
+        <>
+          <Text className="text-base text-text-secondary text-center leading-6">
+            {t('app.emptyThreadPrompt')}
+          </Text>
+          <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
+            {t(SLASH_HINT_KEY)}
+          </Text>
+          {onStarter
+            ? (starters ?? []).map((starter, index) => (
+                <Pressable
+                  key={starter.id}
+                  onPress={() => onStarter(starter)}
+                  accessibilityRole="button"
+                  className={`${index === 0 ? 'mt-4' : 'mt-1'} min-h-11 flex-row items-center`}
+                  testID={`chat-empty-starter-${starter.id}`}
+                >
+                  <Text className="text-sm font-medium text-primary">{starter.label}</Text>
+                </Pressable>
+              ))
+            : null}
+        </>
+      )}
     </ScrollView>
   );
 
@@ -1349,7 +1405,7 @@ export function MessageList({
       renderThinkingIndicator()
     );
 
-  const renderFooter = () => {
+  const renderTurnFooter = () => {
     if (isSending) return renderLiveTurn();
     if (isLoading) {
       return (
@@ -1360,6 +1416,14 @@ export function MessageList({
     }
     return null;
   };
+
+  // The coach's open draft no row shows comes after the rows, before a live turn.
+  const renderFooter = () => (
+    <>
+      {planDraft}
+      {renderTurnFooter()}
+    </>
+  );
 
   return (
     <View style={{ flex: 1 }} testID="messages-list">
@@ -1395,7 +1459,7 @@ export function MessageList({
             header
           )
         }
-        ListFooterComponent={isSending || isLoading ? renderFooter : null}
+        ListFooterComponent={planDraft !== null || isSending || isLoading ? renderFooter : null}
       />
     </View>
   );

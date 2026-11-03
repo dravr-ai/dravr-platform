@@ -15,6 +15,7 @@ import type {
   DraftState,
   PublishSubjectPlanResult,
   SubjectPlanResponse,
+  WorkoutPlan,
 } from '@pierre/shared-types';
 import type { Translate } from '@pierre/chat-utils';
 import en from '../../i18n/src/locales/en/translation.json';
@@ -74,6 +75,7 @@ function participants(ownerId: string): ConversationParticipant[] {
 function fakeChatApi() {
   return {
     openAthleteThread: vi.fn<(athleteUserId: string, groupId: string) => Promise<Conversation>>(),
+    openGroupRoom: vi.fn<(groupId: string) => Promise<Conversation>>(),
     getAthletePlan: vi.fn<(athleteUserId: string, groupId: string) => Promise<AthletePlanResponse>>(),
     getSubjectPlan: vi.fn<(conversationId: string) => Promise<SubjectPlanResponse>>(),
     publishSubjectPlan: vi.fn<
@@ -252,6 +254,64 @@ describe('useOpenAthleteThread', () => {
     const { result } = renderHook(() => hooks.useOpenAthleteThread(), { wrapper });
 
     await expect(result.current.openThread(ATHLETE_ID, 'group-1')).rejects.toThrow('403');
+  });
+});
+
+describe('useOpenGroupRoom', () => {
+  const ROOM: Conversation = { id: 'room-tri', title: 'Tri', message_count: 0, created_at: '', updated_at: '' };
+
+  it('opens one room however often it is asked while the first is out, and refreshes the list', async () => {
+    const { api, client, wrapper, hooks } = setup();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    let release: (conversation: Conversation) => void = () => undefined;
+    api.openGroupRoom.mockReturnValue(
+      new Promise<Conversation>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const { result } = renderHook(() => hooks.useOpenGroupRoom(), { wrapper });
+
+    let first: Promise<Conversation> | null = null;
+    let second: Promise<Conversation> | null = Promise.resolve(ROOM);
+    act(() => {
+      first = result.current.openRoom(ATHLETE_ID, 'group-1');
+      second = result.current.openRoom(ATHLETE_ID, 'group-1');
+    });
+    expect(second).toBeNull();
+    expect(api.openGroupRoom).toHaveBeenCalledTimes(1);
+    expect(api.openGroupRoom).toHaveBeenCalledWith('group-1');
+    expect(result.current.pendingRoomAthleteId).toBe(ATHLETE_ID);
+
+    release(ROOM);
+    await expect(first).resolves.toMatchObject({ id: 'room-tri' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['chat-conversations'] });
+    await waitFor(() => expect(result.current.pendingRoomAthleteId).toBeNull());
+    // Once it answered, the next tap opens again.
+    api.openGroupRoom.mockResolvedValue(ROOM);
+    await act(async () => {
+      await result.current.openRoom(ATHLETE_ID, 'group-2');
+    });
+    expect(api.openGroupRoom).toHaveBeenLastCalledWith('group-2');
+  });
+
+  it('rejects with the refusal and frees the next tap', async () => {
+    const { api, wrapper, hooks } = setup();
+    api.openGroupRoom.mockRejectedValue(refusal(403, { error_code: 'not_group_member' }));
+    const { result } = renderHook(() => hooks.useOpenGroupRoom(), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.openRoom(ATHLETE_ID, 'group-1')).rejects.toThrow('403');
+    });
+    expect(result.current.pendingRoomAthleteId).toBeNull();
+    let again: Promise<Conversation> | null = null;
+    act(() => {
+      again = result.current.openRoom(ATHLETE_ID, 'group-1');
+    });
+    expect(again).not.toBeNull();
+    await act(async () => {
+      await expect(again).rejects.toThrow('403');
+    });
+    expect(api.openGroupRoom).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -486,5 +546,64 @@ describe('usePlanDraftCard', () => {
 
     expect(outcome).toEqual({ kind: 'failed', error: failure });
     expect(result.current.state).toEqual({ kind: 'draft' });
+  });
+});
+
+describe('usePlanThreadDraft', () => {
+  const DRAFT_PLAN = { title: 'Base block' } as unknown as WorkoutPlan;
+
+  function renderDraft(ctx: ReturnType<typeof setup>) {
+    return renderHook(() => ctx.hooks.usePlanThreadDraft(CONVERSATION_ID, true), { wrapper: ctx.wrapper });
+  }
+
+  it('hands back the open draft, with its athlete, and never says there is none', async () => {
+    const ctx = setup();
+    ctx.api.getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), draft: DRAFT_PLAN });
+    const { result } = renderDraft(ctx);
+
+    await waitFor(() => expect(result.current.open).not.toBeNull());
+    expect(result.current.open).toEqual({
+      subject: { user_id: ATHLETE_ID, display_name: 'Alice Runner' },
+      plan: DRAFT_PLAN,
+      draft: DRAFT,
+    });
+    expect(result.current.noDraft).toBe(false);
+  });
+
+  it('says there is no draft only once the read answered without one', async () => {
+    const ctx = setup();
+    let answer: (plan: SubjectPlanResponse) => void = () => undefined;
+    ctx.api.getSubjectPlan.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const { result } = renderDraft(ctx);
+
+    // While the read is out, the start must not show before a card that may come.
+    expect(result.current).toEqual({ open: null, noDraft: false });
+    await waitFor(() => expect(ctx.api.getSubjectPlan).toHaveBeenCalled());
+    act(() => answer(subjectPlan(null)));
+    await waitFor(() => expect(result.current.noDraft).toBe(true));
+    expect(result.current.open).toBeNull();
+  });
+
+  it("draws nothing for a host that is not a plan thread, though a card already read that conversation's plan", async () => {
+    const ctx = setup();
+    ctx.api.getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), draft: DRAFT_PLAN });
+    // A draft card in the thread reads the subject plan under the same key.
+    const card = renderDraft(ctx);
+    await waitFor(() => expect(card.result.current.open).not.toBeNull());
+
+    const { result } = renderHook(() => ctx.hooks.usePlanThreadDraft(CONVERSATION_ID, false), {
+      wrapper: ctx.wrapper,
+    });
+    expect(result.current).toEqual({ open: null, noDraft: false });
+  });
+
+  it('offers no start for an athlete who stopped sharing', async () => {
+    const ctx = setup();
+    ctx.api.getSubjectPlan.mockRejectedValue(refusal(403, { error_code: COACH_SHARING_REVOKED }));
+    const { result } = renderDraft(ctx);
+
+    await waitFor(() => expect(ctx.api.getSubjectPlan).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current).toEqual({ open: null, noDraft: false });
   });
 });

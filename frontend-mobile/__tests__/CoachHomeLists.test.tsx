@@ -5,7 +5,7 @@
 // ABOUTME: Pins the server's order in the queue, days-without-activity (never form) in the list, non-sharers as status only, and every state of the roster read
 
 import React from 'react';
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CoachRosterResponse } from '@pierre/shared-types';
 import {
@@ -34,7 +34,7 @@ jest.mock('expo-router', () =>
 );
 
 const mockGetRoster = jest.fn<Promise<CoachRosterResponse>, [{ offset?: number; limit?: number }?]>();
-const mockGetConversations = jest.fn();
+const mockOpenGroupRoom = jest.fn();
 jest.mock('../src/services/api', () => ({
   coachRosterApi: {
     getRoster: (query?: { offset?: number; limit?: number }) => mockGetRoster(query),
@@ -42,7 +42,7 @@ jest.mock('../src/services/api', () => ({
     restoreAttention: jest.fn(),
   },
   chatApi: {
-    getConversations: (limit?: number, offset?: number) => mockGetConversations(limit, offset),
+    openGroupRoom: (groupId: string) => mockOpenGroupRoom(groupId),
     openAthleteThread: jest.fn(),
   },
 }));
@@ -62,7 +62,7 @@ function renderCoachHome() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetRoster.mockResolvedValue(ROSTER);
-  mockGetConversations.mockResolvedValue({ conversations: [], total: 0 });
+  mockOpenGroupRoom.mockReset();
 });
 
 describe('the roster read', () => {
@@ -123,7 +123,16 @@ describe('À traiter', () => {
       'coach-queue-row-lea',
     ]);
     expect(week.getAllByTestId(/^coach-queue-row-/).map((n) => n.props.testID)).toEqual(['coach-queue-row-mathieu']);
-    expect(screen.getByTestId('coach-queue-count').props.children).toBe(5);
+    expect(screen.getByTestId('coach-views-queue-count').props.children).toBe(5);
+  });
+
+  it('names "To handle" once: the tab carries the count, the queue no second title', async () => {
+    const screen = renderCoachHome();
+    await screen.findByTestId('coach-queue');
+    expect(screen.getAllByText('To handle')).toHaveLength(1);
+    expect(within(screen.getByTestId('coach-views-queue')).getByText('To handle')).toBeTruthy();
+    expect(screen.queryByTestId('coach-queue-count')).toBeNull();
+    expect(screen.getByTestId('coach-see-all')).toBeTruthy();
   });
 
   it('puts a non-sharer who revoked on today, with the reason in words and a quiet avatar', async () => {
@@ -152,8 +161,14 @@ describe('À traiter', () => {
     await screen.findByTestId('coach-queue');
     const calm = screen.getByTestId('coach-queue-calm-line');
     expect(calm).toHaveTextContent(/Nothing to flag · 2/);
-    expect(calm).toHaveTextContent(/Camille Bouchard, Olivier Fortin/);
-    expect(screen.getByTestId('coach-queue-not-sharing')).toHaveTextContent(/Noé Roy/);
+    // Each name is its own link, a row-high target the test driver reaches by id.
+    const names = within(calm).getAllByRole('link');
+    expect(names.map((n) => n.props.testID)).toEqual(['coach-calm-camille', 'coach-calm-olivier']);
+    expect(within(calm).getByTestId('coach-calm-camille')).toHaveTextContent('Camille Bouchard');
+    const notSharing = screen.getByTestId('coach-queue-not-sharing');
+    expect(notSharing).toHaveTextContent(/Not sharing:/);
+    fireEvent.press(within(notSharing).getByTestId('coach-not-sharing-noe'));
+    expect(mockPush).toHaveBeenCalledWith(coachAthleteHref('noe'));
   });
 
   it('opens the athlete on a tap', async () => {
@@ -180,7 +195,15 @@ describe('À traiter', () => {
     const screen = renderCoachHome();
     await screen.findByTestId('coach-queue-treated');
     expect(screen.queryByTestId('coach-queue-row-felix')).toBeNull();
-    expect(screen.getByTestId('coach-queue-count').props.children).toBe(1);
+    expect(screen.getByTestId('coach-views-queue-count').props.children).toBe(1);
+    // Name over reason, as the open rows: the reason is not squeezed onto the name's line.
+    const treatedRow = within(screen.getByTestId('coach-treated-row-felix'));
+    expect(treatedRow.getByText('Félix Morin')).toBeTruthy();
+    expect(treatedRow.getByTestId('coach-treated-reason')).not.toHaveTextContent(/Félix/);
+    // The undo is its own row-high target with a side pad, not a word with a slop beside the athlete.
+    const undoTarget = screen.getByTestId('coach-treated-undo-felix');
+    expect(undoTarget.props.className).toMatch(/min-w-11/);
+    expect(undoTarget.props.className).toMatch(/px-4/);
     fireEvent.press(screen.getByTestId('coach-treated-undo-felix'));
     await waitFor(() => expect(restore).toHaveBeenCalledWith({ athlete_user_id: 'felix', reason_id: treated.attention[0].id }));
     // Optimistic: Félix is back in the queue before any refetch.
@@ -239,6 +262,9 @@ describe('the team list', () => {
     const block = within(screen.getByTestId('coach-roster-non-sharers'));
     expect(block.getByTestId('coach-nonsharer-maude')).toHaveTextContent(/stopped sharing on/i);
     expect(block.getByTestId('coach-nonsharer-hugo')).toHaveTextContent(/any data source/i);
+    // A status that wraps keeps its dot beside the first word.
+    const statusRow = block.getByTestId('coach-nonsharer-status-maude').parent?.parent;
+    expect(statusRow?.props.className).toMatch(/items-start/);
     expect(block.queryByTestId('form-strip')).toBeNull();
     // They are not among the sharers' rows.
     expect(within(screen.getByTestId('coach-roster-list')).queryByTestId('coach-row-maude')).toBeNull();
@@ -246,23 +272,30 @@ describe('the team list', () => {
     expect(HUGO.training).toBeUndefined();
   });
 
-  it('writes to a non-sharer in their group room, or the Chat list with none open', async () => {
+  it('writes to a non-sharer in their group room, as the server finds or opens it', async () => {
+    mockOpenGroupRoom.mockResolvedValue({ id: 'room-tri', group_id: 'g-tri' });
     const screen = await openRoster();
+    // One action, named after the place it opens.
+    expect(screen.getByTestId('coach-nonsharer-write-maude')).toHaveTextContent('Write in the group');
+    expect(screen.queryByText('Message them')).toBeNull();
     fireEvent.press(screen.getByTestId('coach-nonsharer-write-maude'));
-    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(chat)');
+    await waitFor(() => expect(mockOpenGroupRoom).toHaveBeenCalledWith('g-tri'));
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/chat/[conversationId]', params: { conversationId: 'room-tri' } }),
+    );
+    expect(mockPush).not.toHaveBeenCalledWith('/(app)/(tabs)/(chat)');
   });
 
-  it('opens the room of the group when the coach holds one', async () => {
-    mockGetConversations.mockResolvedValue({
-      conversations: [{ id: 'room-tri', group_id: 'g-tri', title: 'Tri', message_count: 0, created_at: '', updated_at: '' }],
-      total: 1,
-    });
+  it('opens one room however often the link is tapped while it opens', async () => {
+    let resolve: (room: unknown) => void = () => undefined;
+    mockOpenGroupRoom.mockReturnValue(new Promise((r) => (resolve = r)));
     const screen = await openRoster();
-    await waitFor(() => expect(mockGetConversations).toHaveBeenCalled());
-    await waitFor(() => {
-      fireEvent.press(screen.getByTestId('coach-nonsharer-write-maude'));
-      expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/chat/[conversationId]', params: { conversationId: 'room-tri' } });
-    });
+    fireEvent.press(screen.getByTestId('coach-nonsharer-write-maude'));
+    fireEvent.press(screen.getByTestId('coach-nonsharer-write-maude'));
+    await waitFor(() => expect(screen.getByTestId('coach-nonsharer-write-maude')).toHaveTextContent('Opening the group…'));
+    expect(mockOpenGroupRoom).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ id: 'room-tri', group_id: 'g-tri' }));
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 
   it('filters by group on the tabs, with each group counting its athletes', async () => {
@@ -325,9 +358,20 @@ describe('the season countdown', () => {
   it('says a stale source plainly, and names those whose plans are not shown', async () => {
     const screen = await openSeason();
     expect(within(screen.getByTestId('coach-season-row-julien')).getByText(/no data since/i)).toBeTruthy();
-    const hidden = screen.getByTestId('coach-season-hidden');
-    expect(hidden).toHaveTextContent(/Hugo Lemieux/);
-    expect(hidden).toHaveTextContent(/Maude Poirier/);
+    const hidden = within(screen.getByTestId('coach-season-hidden'));
+    // A label with its count, so it checks against the scope line, and each one's status.
+    expect(hidden.getByText('Not sharing')).toBeTruthy();
+    expect(hidden.getByText('2')).toBeTruthy();
+    expect(hidden.getByTestId('coach-season-hidden-hugo')).toHaveTextContent(/Hugo Lemieux · Hasn.t connected any data source/);
+    expect(hidden.getByTestId('coach-season-hidden-maude')).toHaveTextContent(/Maude Poirier · Stopped sharing on/);
+  });
+
+  it('dates a plan that ran out by its last planned day, as the queue does', async () => {
+    const screen = await openSeason();
+    // Olivier's season `ends` is the day after his plan's last day.
+    const lastDay = new Date(`${day(-13)}T12:00:00`).toLocaleDateString('en', { day: 'numeric', month: 'short' });
+    const subline = within(screen.getByTestId('coach-season-row-olivier')).getByTestId('coach-season-subline');
+    expect(subline).toHaveTextContent(new RegExp(`${lastDay}$`));
   });
 
   it('prints no form in the season', async () => {

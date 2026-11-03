@@ -19,6 +19,7 @@ import {
   COACH_EVIDENCE_SOURCE_LABEL_KEY,
   COACH_MORNING_UNIT_KEYS,
   COACH_OPTIONAL_DAYS_KEYS,
+  COACH_ORDINAL_TITLE_PARAM,
   COACH_PHASE_LABEL_KEY,
   COACH_PLURAL_LINE_PARAM,
   COACH_SCOPE_KEYS,
@@ -39,6 +40,7 @@ import {
   countdownBars,
   daysBetween,
   describeLine,
+  describeReasonTitle,
   describeSource,
   formStripIndex,
   lastActivity,
@@ -47,6 +49,7 @@ import {
   nextPhase,
   providerName,
   queueCount,
+  reasonTitle,
   sourceChips,
   threadState,
 } from '../src/coachHome';
@@ -378,6 +381,42 @@ describe('buildSeason', () => {
   });
 });
 
+describe('reasonTitle', () => {
+  it('reads the title twin of the reason key, with the athlete named', () => {
+    expect(reasonTitle(reason({ id: 'r', key: 'coachHome.reason.nothingReceived', params: { days: 6 } }), 'Chloé Martin', 'en')).toEqual({
+      key: 'coachHome.reasonTitle.nothingReceived',
+      params: { days: 6, name: 'Chloé Martin' },
+    });
+  });
+
+  it('counts a fatigue streak as an ordinal morning, its suffix picked per language', () => {
+    const fatigue = (mornings: number) => reason({ id: 'r', key: 'coachHome.reason.deepFatigueStreak', params: { mornings } });
+    expect(reasonTitle(fatigue(4), 'Chloé Martin', 'en')).toEqual({
+      key: 'coachHome.reasonTitle.deepFatigueStreak_ordinal_other',
+      params: { mornings: 4, count: 4, name: 'Chloé Martin' },
+    });
+    expect(reasonTitle(fatigue(3), 'A', 'en')?.key).toBe('coachHome.reasonTitle.deepFatigueStreak_ordinal_few');
+    expect(reasonTitle(fatigue(22), 'A', 'en')?.key).toBe('coachHome.reasonTitle.deepFatigueStreak_ordinal_two');
+    expect(reasonTitle(fatigue(3), 'A', 'fr')?.key).toBe('coachHome.reasonTitle.deepFatigueStreak_ordinal_other');
+    // A streak of one has no « 1st morning in a row »: it reads the counted title.
+    expect(reasonTitle(fatigue(1), 'A', 'en')?.key).toBe('coachHome.reasonTitle.deepFatigueStreak');
+  });
+
+  it('picks the same count and no-days variant the short label reads', () => {
+    const title = (key: string, params: Record<string, string | number>) => reasonTitle(reason({ id: 'r', key, params }), 'A', 'fr')?.key;
+    expect(title('coachHome.reason.unverifiedFigure', { count: 1 })).toBe('coachHome.reasonTitle.unverifiedFigureOne');
+    expect(title('coachHome.reason.unverifiedFigure', { count: 3 })).toBe('coachHome.reasonTitle.unverifiedFigure');
+    expect(title('coachHome.reason.nothingReceivedReconnect', { provider: 'garmin' })).toBe('coachHome.reasonTitle.nothingReceivedReconnectNoDays');
+    expect(title('coachHome.reason.nothingReceivedReconnect', { provider: 'garmin', days: 6 })).toBe('coachHome.reasonTitle.nothingReceivedReconnect');
+    expect(title('coachHome.reason.nothingReceivedStale', {})).toBe('coachHome.reasonTitle.nothingReceivedStaleNoDays');
+  });
+
+  it('gives a key outside the reason catalogue no title', () => {
+    expect(reasonTitle(reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A', 'en')).toBeNull();
+    expect(describeReasonTitle(echo, 'en', reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A')).toBeNull();
+  });
+});
+
 describe('describeSource', () => {
   it('prints the time of a source when it has one', () => {
     const line = describeSource(echo, 'en', { kind: 'verification', providers: [] }, '2026-10-30T08:14:00Z');
@@ -409,6 +448,44 @@ describe('the catalogue behind the tables', () => {
       expect(missing).toEqual([]);
     });
   }
+
+  for (const [locale, catalogue] of Object.entries(CATALOGUES)) {
+    it(`${locale} has a full-sentence title for every reason line and no other`, () => {
+      const reasons = Object.keys(lookup(catalogue, 'coachHome.reason') as Record<string, unknown>).sort();
+      const all = Object.keys(lookup(catalogue, 'coachHome.reasonTitle') as Record<string, unknown>);
+      const titles = all.filter((key) => !key.includes('_ordinal_')).sort();
+      expect(reasons.length).toBeGreaterThan(0);
+      expect(titles).toEqual(reasons);
+      // Every ordinal title is the twin of a reason that counts as one, with all four categories.
+      const ordinals = all.filter((key) => key.includes('_ordinal_')).sort();
+      const expected = Object.keys(COACH_ORDINAL_TITLE_PARAM)
+        .map((key) => key.slice('coachHome.reason.'.length))
+        .flatMap((key) => ['few', 'one', 'other', 'two'].map((category) => `${key}_ordinal_${category}`))
+        .sort();
+      expect(ordinals).toEqual(expected);
+    });
+  }
+
+  it('writes the title of a reason as a sentence naming the athlete, in French and English', () => {
+    const t = (catalogue: unknown) => (key: string, options?: Record<string, unknown>) => {
+      const template = String(lookup(catalogue, key) ?? key);
+      return template.replace(/\{\{(\w+)\}\}/g, (_m, name: string) => String(options?.[name] ?? ''));
+    };
+    const fatigue = reason({ id: 'r', key: 'coachHome.reason.deepFatigueStreak', params: { mornings: 3 } });
+    expect(describeReasonTitle(t(en), 'en', fatigue, 'Chloé')).toBe('Chloé is in deep fatigue for the 3rd morning in a row.');
+    const fourth = reason({ id: 'r', key: 'coachHome.reason.deepFatigueStreak', params: { mornings: 4 } });
+    expect(describeReasonTitle(t(en), 'en', fourth, 'Chloé')).toBe('Chloé is in deep fatigue for the 4th morning in a row.');
+    expect(describeReasonTitle(t(fr), 'fr', fourth, 'Chloé')).toBe('Chloé est en fatigue profonde pour le 4e matin de suite.');
+    const silent = reason({ id: 'r', key: 'coachHome.reason.nothingReceived', params: { days: 6 } });
+    expect(describeReasonTitle(t(en), 'en', silent, 'Julien')).toBe('No activity from Julien has come in for 6 days.');
+    const figure = reason({ id: 'r', key: 'coachHome.reason.unverifiedFigure', params: { count: 1 } });
+    expect(describeReasonTitle(t(en), 'en', figure, 'Félix')).toBe(
+      'The agent replied to Félix in the group with a figure none of their data supports.',
+    );
+    const frTitle = describeReasonTitle(t(fr), 'fr', silent, 'Julien');
+    expect(frTitle).toContain('Julien');
+    expect(frTitle).toContain('6 jours');
+  });
 
   it('writes a count as a phrase the reason embeds, in French and English', () => {
     const t = (catalogue: unknown) => (key: string, options?: Record<string, unknown>) => {

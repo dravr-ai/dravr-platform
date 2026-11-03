@@ -16,6 +16,7 @@
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
+//! - [`chat::group_room`] — the caller's conversation in a group's room, opened when they hold none
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::room_quote`] — the room entry a coach's message quotes into their athlete thread, verified
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
@@ -27,6 +28,7 @@ mod common;
 mod conversations;
 mod dto;
 mod feedback;
+mod group_room;
 mod group_transcript;
 mod messages;
 mod participants;
@@ -161,6 +163,12 @@ impl ChatRoutes {
             .route(
                 "/api/chat/groups/{group_id}/transcript",
                 get(group_transcript::get_group_transcript),
+            )
+            // The caller's conversation in a group's room: the one they hold,
+            // else one opened now — Coach Home's "Write in the group"
+            .route(
+                "/api/chat/groups/{group_id}/room",
+                post(group_room::open_group_room),
             )
             // POST messages with MCP tool support — an event stream when the
             // request's Accept header names text/event-stream, one JSON

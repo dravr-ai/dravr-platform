@@ -173,6 +173,26 @@ export function planCardDraft(
 }
 
 /**
+ * Whether a plan card in the thread already shows the draft `draftId` — so
+ * its Publish and Discard controls are on screen. The coach's open draft is
+ * drawn on its own only when none does: one saved from an MCP client, from
+ * the coach's own chat, or whose saving reply sits outside what the thread
+ * has read, is still theirs to review. Matched on the draft's id, so a card
+ * left by a draft since discarded never hides the one open now.
+ */
+export function threadCarriesDraft(
+  blocksByMessage: Iterable<readonly ReplyBlock[]>,
+  draftId: string,
+): boolean {
+  for (const blocks of blocksByMessage) {
+    for (const block of blocks) {
+      if (block.type === 'workout_plan' && planCardDraft(block)?.draft.draft_id === draftId) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The `verdicts` block a reply carries for its persisted verdict rows, or
  * `null` when it has none. One conversion for both a history read and a live
  * turn whose rows were read after it landed.

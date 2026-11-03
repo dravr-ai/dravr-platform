@@ -100,6 +100,15 @@ describe('initialsFor', () => {
     expect(initialsFor('@tempo-coach')).toBe('T');
   });
 
+  it('skips a word of dashes or punctuation alone, so a group name gets no dash for an initial', () => {
+    expect(initialsFor('Tri — longue distance')).toBe('TL');
+    expect(initialsFor('Club – Montréal')).toBe('CM');
+    expect(initialsFor('Run - 10K')).toBe('R1');
+    expect(initialsFor('Base · Build')).toBe('BB');
+    expect(initialsFor('… Tempo')).toBe('T');
+    expect(initialsFor('— · —')).toBe('?');
+  });
+
   it('yields ? when there is nothing to take a letter from', () => {
     expect(initialsFor('')).toBe('?');
     expect(initialsFor('   ')).toBe('?');

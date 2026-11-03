@@ -17,8 +17,11 @@
 mod coach_home_seed_tests {
     use std::collections::BTreeSet;
 
+    use chrono::{Duration, Utc};
+    use pierre_core::models::{Activity, TenantId};
     use pierre_seeders::coach_home::{run, SeedArgs};
     use serde_json::Value;
+    use uuid::Uuid;
 
     use crate::common::create_test_server_resources;
     use crate::helpers::coach_roster_fixtures::{get, person, router};
@@ -137,6 +140,52 @@ mod coach_home_seed_tests {
             mornings.iter().all(|pct| (-40.0..-30.0).contains(pct)),
             "just inside deep fatigue: {mornings:?}"
         );
+
+        // Each warmed session is keyed by the id the dev fixture serves it
+        // under, so the first sync through the fixture rewrites it. Keyed by
+        // the row's UUID, that sync would double the cache, the newest page
+        // would hold half the history, and a fatigue athlete would read
+        // "Heavy block" hours after the seed.
+        let fatigued: Vec<&str> = athletes
+            .iter()
+            .filter(|a| {
+                a["attention"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["kind"] == "deep_fatigue_streak")
+            })
+            .map(|a| a["user_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(fatigued.len(), 3, "{fatigued:?}");
+        let now = Utc::now();
+        for user_id in fatigued {
+            let user_id = Uuid::parse_str(user_id).unwrap();
+            let tenant = repos
+                .seeder
+                .seed_get_user_tenant(user_id)
+                .await
+                .unwrap()
+                .unwrap();
+            let cached = repos
+                .activity_cache
+                .get_cached_activities(
+                    user_id,
+                    &TenantId::from_uuid(Uuid::parse_str(&tenant).unwrap()),
+                    Some("strava"),
+                    now - Duration::days(90),
+                    now,
+                    500,
+                )
+                .await
+                .unwrap();
+            assert_eq!(cached.len(), 56, "one row per seeded session");
+            assert!(
+                cached.iter().all(|a| a.id().parse::<u64>().is_ok()),
+                "keyed as the fixture serves them: {:?}",
+                cached.iter().map(Activity::id).collect::<Vec<_>>()
+            );
+        }
 
         // Plans differ by group and athlete, so the season view is no column
         // of copies.

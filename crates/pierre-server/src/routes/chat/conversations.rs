@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use chrono::Utc;
+use pierre_auth::auth::AuthResult;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
@@ -29,8 +30,8 @@ use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents::{require_bindable_agent, require_room_agent};
 use pierre_services::conversation_forge::{
-    counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model,
-    selected_or_system_agent, SlotQuota,
+    counterpart_title, create_conversation_slot, dated_title, open_group_room_slot,
+    resolve_conversation_model, selected_or_system_agent, RoomOrigin, SlotQuota,
 };
 use pierre_services::locale::{resolve_user_locale, user_locale};
 use pierre_tool_runtime::derived_content;
@@ -38,8 +39,9 @@ use pierre_tool_runtime::derived_content;
 use super::common::{conversation_response, get_tenant_id, verify_group_membership};
 use super::dto::preview_text;
 use super::dto::{
-    ConversationListResponse, ConversationSummaryResponse, CreateConversationRequest,
-    LastMessageResponse, ListConversationsQuery, UpdateConversationRequest,
+    ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
+    CreateConversationRequest, LastMessageResponse, ListConversationsQuery,
+    UpdateConversationRequest,
 };
 use super::send_message::client_surface;
 
@@ -109,13 +111,52 @@ pub(super) async fn create_conversation(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    let (response, _) = create_for(
+        &resources,
+        &auth,
+        tenant_id,
+        &headers,
+        &request,
+        RoomSlot::Fresh,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// Whether [`create_for`] always makes a conversation, or first returns the
+/// one the caller already holds in the request's group room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RoomSlot {
+    /// A new conversation, every time: the Chat list's "+".
+    Fresh,
+    /// The caller's conversation in the request's group room, made only when
+    /// they hold none — looked up and made in one locked decision, so two
+    /// opens racing each other return one room.
+    CallersRoom,
+}
+
+/// Create the conversation `request` asks for, as `auth` in `tenant_id`:
+/// the group and agent checks, the title, the bound agent, the capped slot
+/// and the agent's welcome — every conversation the REST surface creates
+/// goes through here, so a room opened from Coach Home is made the way one
+/// opened from the Chat list is. Answers whether the conversation was opened
+/// by this call: under [`RoomSlot::CallersRoom`] it may be one already held,
+/// which is returned as it is, with no second welcome.
+pub(super) async fn create_for(
+    resources: &Arc<ServerContext>,
+    auth: &AuthResult,
+    tenant_id: TenantId,
+    headers: &HeaderMap,
+    request: &CreateConversationRequest,
+    slot: RoomSlot,
+) -> Result<(ConversationResponse, RoomOrigin), AppError> {
     let user_id_str = auth.user_id.to_string();
 
     // Verify group membership when caller asks to attach a group_id —
     // a user can only create a conversation scoped to a group they belong to,
     // or one they are the human coach of.
     if let Some(gid) = request.group_id.as_deref() {
-        verify_group_membership(&resources, gid, auth.user_id, tenant_id).await?;
+        verify_group_membership(resources, gid, auth.user_id, tenant_id).await?;
     }
 
     // A named agent must be one the caller may bind: readable, coach-facing
@@ -192,25 +233,33 @@ pub(super) async fn create_conversation(
     // get the last slot.
     let model =
         resolve_conversation_model(request.model.as_deref(), &resources.common.config.llm_chain)?;
-    let conv = create_conversation_slot(
-        &resources.common.repos,
-        SlotQuota::Capped(
-            resources
-                .agent
-                .admin_config
-                .as_deref()
-                .map(|c| -> &dyn AdminConfigLookup { c }),
+    let quota = SlotQuota::Capped(
+        resources
+            .agent
+            .admin_config
+            .as_deref()
+            .map(|c| -> &dyn AdminConfigLookup { c }),
+    );
+    let new = NewConversation {
+        user_id: &user_id_str,
+        tenant_id,
+        title: &title,
+        model: &model,
+        agent_id: agent_id.as_deref(),
+        group_id: request.group_id.as_deref(),
+    };
+    let (conv, origin) = match (slot, request.group_id.is_some()) {
+        (RoomSlot::CallersRoom, true) => {
+            open_group_room_slot(&resources.common.repos, quota, &new).await?
+        }
+        _ => (
+            create_conversation_slot(&resources.common.repos, quota, &new).await?,
+            RoomOrigin::Opened,
         ),
-        &NewConversation {
-            user_id: &user_id_str,
-            tenant_id,
-            title: &title,
-            model: &model,
-            agent_id: agent_id.as_deref(),
-            group_id: request.group_id.as_deref(),
-        },
-    )
-    .await?;
+    };
+    if origin == RoomOrigin::Held {
+        return Ok((conversation_response(resources, conv).await, origin));
+    }
 
     // Bump the per-agent use_count + last_used_at when a conversation is
     // opened with an agent attached. Audit (2026-05-07) showed every agent
@@ -222,23 +271,21 @@ pub(super) async fn create_conversation(
     // A thread opened from an empty thread's starter is such a thread: the
     // starter is its first line, so no welcome offers the same starters again.
     if let Some(agent_id) = agent_id.as_deref() {
-        record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
+        record_agent_usage_best_effort(resources, agent_id, auth.user_id, tenant_id).await;
         if !request.athlete_speaks_first {
             post_welcome_best_effort(
-                &resources,
+                resources,
                 &conv,
                 agent_id,
                 auth.user_id,
                 tenant_id,
-                client_surface(&headers),
+                client_surface(headers),
             )
             .await;
         }
     }
 
-    let response = conversation_response(&resources, conv).await;
-
-    Ok((StatusCode::CREATED, Json(response)).into_response())
+    Ok((conversation_response(resources, conv).await, origin))
 }
 
 /// List every conversation the caller takes part in — whatever surface opened

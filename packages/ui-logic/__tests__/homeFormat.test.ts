@@ -24,6 +24,7 @@ import {
   planDayRouteDraft,
   sportLabel,
   volumeMetricText,
+  volumeReadoutShown,
   type Translate,
 } from '../src/homeFormat';
 
@@ -232,5 +233,17 @@ describe('the chat drafts a plan day opens', () => {
       name: 'Vélo',
       date: 'dimanche 20 septembre',
     });
+  });
+});
+
+describe('volumeReadoutShown', () => {
+  it('reads this week out at rest only when the week has an activity', () => {
+    expect(volumeReadoutShown(null, { activities: 2 })).toBe(true);
+    expect(volumeReadoutShown(null, { activities: 0 })).toBe(false);
+  });
+
+  it('reads out any week the athlete points at, an empty one included', () => {
+    expect(volumeReadoutShown(0, { activities: 0 })).toBe(true);
+    expect(volumeReadoutShown(11, { activities: 0 })).toBe(true);
   });
 });

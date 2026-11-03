@@ -5,7 +5,7 @@
 // ABOUTME: Red if a week the server did not send is drawn, a filter leaks another sport's figures, or nothing stored reads as zeros
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
@@ -154,6 +154,32 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Oct 5: 1h 30m');
     // One sport: nothing to choose between.
     expect(screen.queryByRole('group', { name: 'Sport' })).not.toBeInTheDocument();
+  });
+
+  it('says an empty week in its count line only: no zero tiles, no readout of it under the chart', async () => {
+    api.getTrainingVolume.mockResolvedValue(
+      volume({
+        weeks: [
+          { week_start: '2026-09-21', sports: [{ ...RUN, activities: 3, distance_meters: 21_000 }] },
+          { week_start: '2026-09-28', sports: [RUN] },
+          { week_start: '2026-10-05', sports: [] },
+        ],
+      }),
+    );
+    renderVolume();
+
+    expect(await screen.findByTestId('home-volume-count')).toHaveTextContent('0 activities');
+    expect(screen.queryByTestId('home-volume-figures')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('home-volume-time')).not.toBeInTheDocument();
+    // « Week of Oct 5: 0 m » only said the count line again.
+    expect(screen.queryByTestId('home-volume-readout')).not.toBeInTheDocument();
+
+    // A week the athlete points at is still read out.
+    const frame = screen.getByTestId('home-volume-trend').parentElement as HTMLElement;
+    frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 72 }) as DOMRect;
+    // jsdom has no PointerEvent; a MouseEvent of the same type carries clientX.
+    fireEvent(frame, new MouseEvent('pointermove', { bubbles: true, clientX: 10 }));
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 21.00 km');
   });
 
   // carnet#1212: the count chose its form with an inline `=== 1`, so a quiet

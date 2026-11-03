@@ -2,17 +2,17 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Where each of Coach Home's actions goes on the phone — the group's room, or the coach's plan thread on the athlete
-// ABOUTME: Each action opens a screen the app has: the group's room, the coach's plan thread on the athlete, or the human coach's reply review
+// ABOUTME: Each action opens a screen the app has: the group's room (found or opened by the server, once per tap), the plan thread, or the reply review
 
 import { useCallback } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { CoachAttentionAction, CoachAttentionReason, CoachRosterAthlete } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { GROUP_ROOM_KEYS } from '@pierre/chat-utils';
 import { openThreadRefusalText } from '@pierre/ui-logic';
-import { useConversationRows } from '../conversations/useConversationList';
-import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
-import { CHAT_LIST_ROUTE, coachRepliesHref, threadHref } from '../../navigation/routes';
+import { useOpenAthleteThread, useOpenGroupRoom } from '../../hooks/useCoachPlan';
+import { coachRepliesHref, threadHref } from '../../navigation/routes';
 
 /** The group an action about `athlete` acts in: the one the reason names, else the athlete's first. */
 export function actionGroupId(athlete: CoachRosterAthlete, reason: CoachAttentionReason | null): string | null {
@@ -31,33 +31,44 @@ export interface CoachDestinations {
   openPlanThread: (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => void;
   /** The athlete whose plan thread is opening, while one is. */
   pendingAthleteId: string | null;
+  /** The athlete whose group room is opening, while one is: its buttons wait and say so. */
+  pendingRoomAthleteId: string | null;
 }
 
 /**
  * The destinations of Coach Home's actions. A group's room is the
- * conversation the caller holds in that group; with none in the list the Chat
- * tab opens instead. A refused plan thread says why in an alert.
+ * conversation the caller holds in that group, which the server finds or
+ * opens in one call, so a second tap lands in the same room. While a room
+ * is opening every other room tap is ignored; a room or plan thread that
+ * cannot be opened says why in an alert, never by dropping the coach on a
+ * list that does not hold it.
  */
 export function useCoachDestinations(): CoachDestinations {
   const { t } = useTranslation();
   const router = useRouter();
-  const { conversations } = useConversationRows();
   const { openThread, pendingAthleteId } = useOpenAthleteThread();
+  const { openRoom, pendingRoomAthleteId } = useOpenGroupRoom();
 
   const writeToGroup = useCallback(
     (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => {
       const groupId = actionGroupId(athlete, reason);
-      const room = groupId === null ? undefined : conversations.find((c) => c.group_id === groupId);
-      router.push(room === undefined ? CHAT_LIST_ROUTE : threadHref(room.id));
+      if (groupId === null) {
+        Alert.alert(t('common.error'), t(GROUP_ROOM_KEYS.openError));
+        return;
+      }
+      openRoom(athlete.user_id, groupId)?.then(
+        (room) => router.push(threadHref(room.id)),
+        () => Alert.alert(t('common.error'), t(GROUP_ROOM_KEYS.openError)),
+      );
     },
-    [conversations, router],
+    [openRoom, router, t],
   );
 
   const openPlanThread = useCallback(
     (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => {
       const groupId = actionGroupId(athlete, reason);
       if (groupId === null) {
-        router.push(CHAT_LIST_ROUTE);
+        Alert.alert(t('common.error'), t('humanCoach.planThread.openError'));
         return;
       }
       openThread(athlete.user_id, groupId).then(
@@ -92,5 +103,5 @@ export function useCoachDestinations(): CoachDestinations {
     [openPlanThread, openReplies, writeToGroup],
   );
 
-  return { writeToGroup, perform, openReplies, openPlanThread, pendingAthleteId };
+  return { writeToGroup, perform, openReplies, openPlanThread, pendingAthleteId, pendingRoomAthleteId };
 }

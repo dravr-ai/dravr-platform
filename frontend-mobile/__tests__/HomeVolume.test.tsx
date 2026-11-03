@@ -135,6 +135,35 @@ describe('HomeVolume', () => {
     }
   });
 
+  it('says an empty week in its count line, with no row of zero tiles', () => {
+    const screen = renderVolume({
+      today: '2026-09-24',
+      weeks: [VOLUME_RESPONSE.weeks[0], VOLUME_RESPONSE.weeks[1], { week_start: '2026-09-21', sports: [] }],
+      garmin_contribution: null,
+    });
+    expect(screen.getByTestId('home-volume-count')).toHaveTextContent('0 activities');
+    expect(screen.queryByTestId('home-volume-figures')).toBeNull();
+    expect(screen.queryByTestId('home-volume-time')).toBeNull();
+  });
+
+  it('does not read an empty week out again under the chart, but reads out a week the athlete taps', () => {
+    const screen = renderVolume({
+      today: '2026-09-24',
+      weeks: [VOLUME_RESPONSE.weeks[0], VOLUME_RESPONSE.weeks[1], { week_start: '2026-09-21', sports: [] }],
+      garmin_contribution: null,
+    });
+    layOut(screen);
+    // The count line already says « 0 activities »; « Week of Sep 21: 0 m » said it again.
+    expect(screen.getByTestId('home-volume-count')).toHaveTextContent('0 activities');
+    expect(screen.queryByTestId('home-volume-readout')).toBeNull();
+    expect(screen.getAllByTestId('home-volume-bar')).toHaveLength(3);
+
+    fireEvent.press(screen.getByTestId('home-volume-trend'), { nativeEvent: { locationX: 10 } });
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 7: 21.00 km');
+    fireEvent.press(screen.getByTestId('home-volume-trend'), { nativeEvent: { locationX: 230 } });
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 0 m');
+  });
+
   it('says in words that one week is not yet a trend', () => {
     const screen = renderVolume({ today: '2026-09-24', weeks: [VOLUME_RESPONSE.weeks[2]], garmin_contribution: null });
 

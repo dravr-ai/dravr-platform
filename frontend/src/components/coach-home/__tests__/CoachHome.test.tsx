@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { localToday } from '@pierre/ui-logic';
+import { civilDayNumber, civilFromDayNumber, civilShortDate, localToday } from '@pierre/ui-logic';
 import { ToastProvider } from '../../ui';
 import CoachHome from '../CoachHome';
 import { CoachHomeSwitch } from '../CoachHomeSwitch';
@@ -22,6 +22,7 @@ const restoreAttention = vi.fn();
 const listReplies = vi.fn();
 const getConversations = vi.fn();
 const openAthleteThread = vi.fn();
+const openGroupRoom = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   coachRosterApi: {
@@ -33,6 +34,7 @@ vi.mock('../../../services/api', () => ({
   chatApi: {
     getConversations: (...a: unknown[]) => getConversations(...a),
     openAthleteThread: (...a: unknown[]) => openAthleteThread(...a),
+    openGroupRoom: (...a: unknown[]) => openGroupRoom(...a),
   },
 }));
 
@@ -90,6 +92,7 @@ beforeEach(() => {
     offset: 0,
   });
   openAthleteThread.mockResolvedValue({ id: 'thread-1' });
+  openGroupRoom.mockResolvedValue({ id: 'room-tri', group_id: 'g-tri' });
 });
 
 afterEach(() => {
@@ -136,6 +139,24 @@ describe('À traiter', () => {
     expect(within(pane).getByTestId('coach-evidence-source')).toBeInTheDocument();
   });
 
+  it('says why in a full sentence naming the athlete, with the short label and evidence under it', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    const maude = within(await screen.findByTestId('coach-athlete-pane'));
+    expect(maude.getByTestId('coach-reason-title')).toHaveTextContent('Maude Poirier stopped sharing their data with you.');
+    expect(maude.getByTestId('coach-reason-label')).toHaveTextContent('No longer shares their data with you');
+
+    await user.click(screen.getByTestId('coach-queue-row-u-lea'));
+    const block = within(await screen.findByTestId('coach-reason-deep_fatigue_streak'));
+    expect(block.getByTestId('coach-reason-title')).toHaveTextContent('Léa Gagnon is in deep fatigue for the 3rd morning in a row.');
+    expect(block.getByTestId('coach-reason-label')).toHaveTextContent('Deep fatigue for 3 mornings in a row');
+    expect(block.getAllByTestId('coach-evidence').length).toBeGreaterThan(0);
+    // The queue row keeps the short label: the sentence is the detail's.
+    expect(within(screen.getByTestId('coach-queue-row-u-lea')).getByTestId('coach-queue-reason')).toHaveTextContent(
+      'Deep fatigue for 3 mornings in a row',
+    );
+  });
+
   it('shows form as the server band on a six-step strip, and nothing for a non-sharer', async () => {
     const user = userEvent.setup();
     renderHome();
@@ -178,6 +199,38 @@ describe('À traiter', () => {
     await user.click(await screen.findByTestId('coach-queue-row-u-lea'));
     const plan = await screen.findByTestId('coach-plan-block');
     expect(within(plan).getByTestId('coach-today-line')).toBeInTheDocument();
+  });
+
+  it('draws a plan that ran out as one Transition band and the day nothing is planned after', async () => {
+    const roster = buildRoster(TODAY);
+    const lea = roster.athletes.find((a) => a.user_id === 'u-lea');
+    if (!lea?.plan) throw new Error('the fixture has no plan for Léa');
+    // Her plan's last phase ended yesterday (its `end` is the day after its last day).
+    const lastDay = civilFromDayNumber(civilDayNumber(TODAY) - 2);
+    const ends = civilFromDayNumber(civilDayNumber(TODAY) - 1);
+    lea.plan = {
+      ...lea.plan,
+      phase: null,
+      ends,
+      phases: [
+        { kind: 'base', start: civilFromDayNumber(civilDayNumber(TODAY) - 60), end: civilFromDayNumber(civilDayNumber(TODAY) - 30), weeks: 4 },
+        { kind: 'build', start: civilFromDayNumber(civilDayNumber(TODAY) - 30), end: ends, weeks: 4 },
+      ],
+    };
+    lea.season = { state: 'plan_ended', race: null, ends };
+    getRoster.mockResolvedValue(roster);
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-lea'));
+
+    const plan = await screen.findByTestId('coach-plan-block');
+    const bands = within(within(plan).getByTestId('coach-plan-ended')).getAllByTitle('Transition');
+    expect(bands).toHaveLength(1);
+    expect(within(plan).queryByTitle('Base')).not.toBeInTheDocument();
+    expect(within(plan).queryByTitle('Build')).not.toBeInTheDocument();
+    expect(within(plan).queryByText('No A race')).not.toBeInTheDocument();
+    expect(within(plan).queryByTestId('coach-today-line')).not.toBeInTheDocument();
+    expect(plan).toHaveTextContent(`Nothing planned after ${civilShortDate(lastDay, 'en')}`);
   });
 
   it('marks a source to reconnect', async () => {
@@ -272,9 +325,33 @@ describe('actions', () => {
     const user = userEvent.setup();
     const { navigate } = renderHome();
     await user.click(await screen.findByTestId('coach-queue-row-u-lea'));
-    await waitFor(() => expect(getConversations).toHaveBeenCalled());
     await user.click(await screen.findByTestId('coach-write-group'));
-    expect(navigate).toHaveBeenCalledWith('chat/room-tri');
+    expect(openGroupRoom).toHaveBeenCalledWith('g-tri');
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('chat/room-tri'));
+  });
+
+  it('opens one room however often the group action is clicked while it opens, and says it is opening', async () => {
+    let resolve: (room: unknown) => void = () => undefined;
+    openGroupRoom.mockReturnValue(new Promise((r) => (resolve = r)));
+    const user = userEvent.setup();
+    const { navigate } = renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-lea'));
+    const button = await screen.findByTestId('coach-write-group');
+    await user.click(button);
+    await user.click(button);
+    expect(button).toHaveTextContent('Opening the group…');
+    expect(button).toBeDisabled();
+    expect(openGroupRoom).toHaveBeenCalledTimes(1);
+    resolve({ id: 'room-tri', group_id: 'g-tri' });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('chat/room-tri'));
+    expect(navigate.mock.calls.filter(([route]) => route === 'chat/room-tri')).toHaveLength(1);
+  });
+
+  it('labels the write action on a non-sharer "Write in the group", never "Message them"', async () => {
+    renderHome();
+    await screen.findByTestId('coach-athlete-pane');
+    expect(screen.getByTestId('coach-primary-action')).toHaveTextContent('Write in the group');
+    expect(screen.queryByText('Message them')).not.toBeInTheDocument();
   });
 
   it('does not repeat the group room as a second button when it is already the primary action', async () => {

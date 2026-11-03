@@ -27,5 +27,9 @@ export function useEmptyThreadStarters(shown: boolean): UseCaseStarter[] {
     refetchOnReconnect: false,
     retry: false,
   });
+  // A disabled query still hands back what an earlier read cached under the
+  // same key: the new thread's starters would follow the coach into a plan
+  // thread or any other open one that happens to be empty.
+  if (!shown) return [];
   return query.data ?? [];
 }

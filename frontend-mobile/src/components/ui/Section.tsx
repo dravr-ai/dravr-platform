@@ -46,8 +46,11 @@ export function Section({ title, description, actions, children, className, test
             <Text className="text-sm text-text-secondary mt-0.5">{description}</Text>
           )}
         </View>
+        {/* An action is a 44 target; pulled up and down by 12 its words sit on
+            the title's line instead of 13 below it, and the header stays the
+            title's height. */}
         {actions !== undefined && (
-          <View className="flex-row shrink-0 items-center gap-1.5">{actions}</View>
+          <View className="-my-3 flex-row shrink-0 items-center gap-1.5">{actions}</View>
         )}
       </View>
       {hasContent && <View className="mt-3">{children}</View>}

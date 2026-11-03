@@ -16,6 +16,7 @@ import {
   countdownBars,
   formatCivilDate,
   nextPhase,
+  planLastDay,
   type SeasonRow,
   type SeasonScale,
 } from '@pierre/ui-logic';
@@ -49,7 +50,7 @@ function useRowSubline() {
       row.state === 'nothing_since_last_race'
         ? row.raceDate
         : row.state === 'plan_ended'
-          ? (row.athlete.season?.ends ?? null)
+          ? planLastDay(row.athlete.season?.ends)
           : null;
     return t(COACH_SEASON_STATE_KEY[row.state], date === null ? {} : { date: civilShortDate(date, language) });
   };

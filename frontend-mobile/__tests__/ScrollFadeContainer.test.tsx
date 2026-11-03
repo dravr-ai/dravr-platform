@@ -3,8 +3,8 @@
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
-import { View, Text } from 'react-native';
-import { ScrollFadeContainer } from '../src/components/ui/ScrollFadeContainer';
+import { View, Text, StyleSheet } from 'react-native';
+import { ScrollFadeContainer, clearOf } from '../src/components/ui/ScrollFadeContainer';
 
 describe('ScrollFadeContainer', () => {
   describe('rendering', () => {
@@ -287,6 +287,53 @@ describe('ScrollFadeContainer', () => {
       );
       // Should render without errors using default fade width
       expect(getByTestId('test-scroll')).toBeTruthy();
+    });
+  });
+  // The fade is drawn, not only mounted: a gradient sized by a class NativeWind
+  // never reached was 0 wide, and one ending in `'transparent'` ran through grey.
+  describe('the fade is drawn', () => {
+    function scrolled(backgroundColor?: string) {
+      const screen = render(
+        <ScrollFadeContainer testID="fade" backgroundColor={backgroundColor}>
+          <View style={{ width: 1000 }}>
+            <Text>Wide content</Text>
+          </View>
+        </ScrollFadeContainer>
+      );
+      fireEvent(screen.getByTestId('fade'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 40 } } });
+      fireEvent(screen.getByTestId('fade-scroll'), 'contentSizeChange', 1000, 40);
+      fireEvent.scroll(screen.getByTestId('fade-scroll'), {
+        nativeEvent: {
+          contentOffset: { x: 200, y: 0 },
+          contentSize: { width: 1000, height: 40 },
+          layoutMeasurement: { width: 390, height: 40 },
+        },
+      });
+      return screen;
+    }
+
+    it('fills each edge with its gradient through a style, not a class', () => {
+      const screen = scrolled('#f7f6f2');
+      for (const edge of ['fade-left-fade', 'fade-right-fade']) {
+        const gradient = screen.getByTestId(edge).findByProps({ testID: 'linear-gradient' });
+        expect(StyleSheet.flatten(gradient.props.style)).toMatchObject({ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 });
+      }
+    });
+
+    it('fades the page colour into itself made clear, never into black at alpha 0', () => {
+      const screen = scrolled('#f7f6f2');
+      const right = screen.getByTestId('fade-right-fade').findByProps({ testID: 'linear-gradient' });
+      const left = screen.getByTestId('fade-left-fade').findByProps({ testID: 'linear-gradient' });
+      expect(right.props.colors).toEqual(['#f7f6f200', '#f7f6f2']);
+      expect(left.props.colors).toEqual(['#f7f6f2', '#f7f6f200']);
+    });
+
+    it('makes any page colour clear without changing its hue', () => {
+      expect(clearOf('#fff')).toBe('#ffffff00');
+      expect(clearOf('#11130f')).toBe('#11130f00');
+      expect(clearOf('#11130fcc')).toBe('#11130f00');
+      expect(clearOf('rgb(17, 19, 15)')).toBe('rgba(17, 19, 15, 0)');
+      expect(clearOf('rgba(17,19,15,0.5)')).toBe('rgba(17, 19, 15, 0)');
     });
   });
 });

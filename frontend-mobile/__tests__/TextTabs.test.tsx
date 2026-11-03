@@ -103,4 +103,41 @@ describe('TextTabs', () => {
     expect(scroll.props.contentContainerClassName).toContain('flex-row');
     expect(getByTestId('memory-kind-all').props.className).toContain('py-2.5');
   });
+
+  it('scrolls a selection made before the row was drawn into view, keeping the side inset', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ key: `a${i}`, label: `Athlete ${i}` }));
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
+    const { getByTestId } = render(<TextTabs items={many} value="a9" onChange={() => {}} testID="filter" />);
+    fireEvent(getByTestId('filter'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 40 } } });
+    fireEvent(getByTestId('filter-a9'), 'layout', { nativeEvent: { layout: { x: 900, y: 0, width: 80, height: 40 } } });
+    // Its right edge plus the 16 inset lands on the row's right edge.
+    expect(scrollTo).toHaveBeenLastCalledWith({ x: 900 + 80 + 16 - 390, animated: false });
+    scrollTo.mockRestore();
+  });
+
+  it('fades the edge a scrolling row cuts, and only that one', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ key: `a${i}`, label: `Athlete ${i}` }));
+    const { getByTestId, queryByTestId, UNSAFE_getByType } = render(
+      <TextTabs items={many} value="a0" onChange={() => {}} testID="filter" />,
+    );
+    expect(queryByTestId('filter-row-right-fade')).toBeNull();
+    fireEvent(getByTestId('filter-row'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 40 } } });
+    fireEvent(UNSAFE_getByType(ScrollView), 'contentSizeChange', 1200, 40);
+    expect(getByTestId('filter-row-right-fade')).toBeTruthy();
+    expect(queryByTestId('filter-row-left-fade')).toBeNull();
+    fireEvent.scroll(UNSAFE_getByType(ScrollView), {
+      nativeEvent: { contentOffset: { x: 810, y: 0 }, contentSize: { width: 1200, height: 40 }, layoutMeasurement: { width: 390, height: 40 } },
+    });
+    expect(getByTestId('filter-row-left-fade')).toBeTruthy();
+    expect(queryByTestId('filter-row-right-fade')).toBeNull();
+  });
+
+  it('draws a count beside a label in mono', () => {
+    const { getByTestId } = render(
+      <TextTabs items={[{ key: 'queue', label: 'To handle', count: 23 }, { key: 'roster', label: 'Team' }]} value="queue" onChange={() => {}} testID="views" />,
+    );
+    const count = getByTestId('views-queue-count');
+    expect(count.props.children).toBe(23);
+    expect(count.props.className).toContain('font-mono');
+  });
 });

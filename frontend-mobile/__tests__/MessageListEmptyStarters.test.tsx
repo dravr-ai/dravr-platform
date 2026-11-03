@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
+import { Text } from 'react-native';
 import type { UseCaseStarter } from '@pierre/shared-types';
 
 jest.mock('@expo/vector-icons', () => {
@@ -24,7 +25,13 @@ const STARTERS: UseCaseStarter[] = [
   { id: 'can_see', label: 'What can you see?', postback: 'uc:2:can_see' },
 ];
 
-function renderEmpty(onStarter?: (starter: UseCaseStarter) => void, starters = STARTERS) {
+function renderEmpty(
+  onStarter?: (starter: UseCaseStarter) => void,
+  starters = STARTERS,
+  planSubjectName: string | null = null,
+  coachRoomName: string | null = null,
+  extra: Partial<React.ComponentProps<typeof MessageList>> = {},
+) {
   return render(
     <MessageList
       messages={[]}
@@ -42,6 +49,9 @@ function renderEmpty(onStarter?: (starter: UseCaseStarter) => void, starters = S
       onReconnectProvider={jest.fn()}
       starters={starters}
       onStarter={onStarter}
+      planSubjectName={planSubjectName}
+      coachRoomName={coachRoomName}
+      {...extra}
     />,
   );
 }
@@ -82,5 +92,59 @@ describe('MessageList empty thread starters', () => {
   it('draws no link while the starters load or when none fits', () => {
     const { queryAllByTestId } = renderEmpty(jest.fn(), []);
     expect(queryAllByTestId(/^chat-empty-starter-/)).toHaveLength(0);
+  });
+
+  it("gives a coach's empty plan thread its own line and none of the athlete's starters", () => {
+    const { getByTestId, queryAllByTestId, queryByTestId, queryByText } = renderEmpty(jest.fn(), STARTERS, 'Chloé Tremblay');
+
+    expect(getByTestId('chat-plan-thread-empty')).toHaveTextContent(/Chloé Tremblay|humanCoach\.planThread\.empty/);
+    expect(queryByText('Ask anything about your training.')).toBeNull();
+    expect(queryByTestId('chat-slash-hint')).toBeNull();
+    expect(queryAllByTestId(/^chat-empty-starter-/)).toHaveLength(0);
+  });
+
+  it("gives a coach's empty group room the room's line and none of the athlete's", () => {
+    const { getByTestId, queryAllByTestId, queryByTestId, queryByText } = renderEmpty(jest.fn(), STARTERS, null, 'Tri Squad');
+
+    expect(getByTestId('chat-coach-room-empty')).toHaveTextContent(/Tri Squad|humanCoach\.groupRoom\.empty/);
+    expect(queryByText('Ask anything about your training.')).toBeNull();
+    expect(queryByTestId('chat-slash-hint')).toBeNull();
+    expect(queryAllByTestId(/^chat-empty-starter-/)).toHaveLength(0);
+  });
+
+  it("draws the plan thread's one-tap start and the open draft under its line", () => {
+    const onPress = jest.fn();
+    const { getByTestId } = renderEmpty(jest.fn(), STARTERS, 'Chloé Tremblay', null, {
+      planStarter: { label: "Draft Chloé Tremblay's plan", onPress, disabled: false },
+      planDraft: <Text testID="draft-card">draft</Text>,
+    });
+
+    expect(getByTestId('draft-card')).toBeTruthy();
+    fireEvent.press(getByTestId('chat-plan-thread-starter'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the open draft after the rows of a thread with messages', () => {
+    const { getByTestId } = render(
+      <MessageList
+        messages={[{ id: 'm1', role: 'assistant', content: 'About her week.', created_at: '2026-11-02T10:00:00Z' }]}
+        isLoading={false}
+        isSending={false}
+        messageFeedback={{}}
+        messageFeedbackComment={{}}
+        flatListRef={React.createRef()}
+        onScrollToBottom={jest.fn()}
+        onThumbsUp={jest.fn()}
+        onThumbsDown={jest.fn()}
+        onSubmitFeedbackReason={jest.fn()}
+        onRetryMessage={jest.fn()}
+        onOpenUrl={jest.fn()}
+        onReconnectProvider={jest.fn()}
+        planSubjectName="Chloé Tremblay"
+        planDraft={<Text testID="draft-card">draft</Text>}
+      />,
+    );
+    expect(getByTestId('messages-list')).toBeTruthy();
+    expect(getByTestId('draft-card')).toBeTruthy();
   });
 });

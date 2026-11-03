@@ -4,18 +4,17 @@
 // ABOUTME: The human coach's reply review on the phone — every reply the agent sent into a group they run, newest first, narrowed to one athlete
 // ABOUTME: The header line counts this week's flags and corrections; replies page in with "Show older replies", as on the web (carnet#1304)
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { coachReviewWeekSummary } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { Button, EmptyState, TextTabs } from '../../components/ui';
+import { ALL_COACHED_ATHLETES, coachedAthleteOptions } from '@pierre/ui-logic';
+import { Button, EmptyState, Row, Sheet } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachReplies } from '../../hooks/useCoachReplies';
 import { ReplyCard } from './ReplyCard';
-
-/** The filter tab that means every athlete. */
-const ALL_ATHLETES = 'all';
 
 export function CoachRepliesScreen() {
   const { t, language } = useTranslation();
@@ -24,6 +23,7 @@ export function CoachRepliesScreen() {
   const [athleteId, setAthleteId] = useState<string | null>(params.athleteId ?? null);
   const review = useCoachReplies(athleteId);
   const [refreshing, setRefreshing] = useState(false);
+  const [picking, setPicking] = useState(false);
   const { refetch } = review;
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -37,6 +37,13 @@ export function CoachRepliesScreen() {
   useEffect(() => {
     if (first !== undefined) setChoices(first.athletes);
   }, [first]);
+  // A roster runs to dozens of athletes: one row saying who the list is
+  // narrowed to, and a sheet to choose, where a row of tabs would run off the
+  // phone with the chosen name out of sight. Names in the reader's collation,
+  // so « Félix » sorts with the F's.
+  const options = useMemo(() => coachedAthleteOptions(t, language, choices ?? []), [choices, language, t]);
+  const selectedKey = athleteId ?? ALL_COACHED_ATHLETES;
+  const selectedLabel = options.find((option) => option.key === selectedKey)?.label ?? t('coachReview.allAthletes');
   const weekLine = review.thisWeek ? coachReviewWeekSummary(t, review.thisWeek, language) : null;
 
   let body: React.ReactNode;
@@ -98,23 +105,42 @@ export function CoachRepliesScreen() {
           )}
         </View>
         {choices !== undefined && choices.length > 0 && (
-          <TextTabs
-            items={[
-              { key: ALL_ATHLETES, label: t('coachReview.allAthletes') },
-              ...choices.map((athlete) => ({
-                key: athlete.user_id,
-                label: athlete.shares_with_coach
-                  ? (athlete.name ?? t('coachReview.unnamedAthlete'))
-                  : t('coachReview.notSharing', { name: athlete.name ?? t('coachReview.unnamedAthlete') }),
-              })),
-            ]}
-            value={athleteId ?? ALL_ATHLETES}
-            onChange={(key) => setAthleteId(key === ALL_ATHLETES ? null : key)}
+          <Row
+            title={t('coachReview.athleteFilter')}
+            hint={selectedLabel}
+            hintTestID="coach-replies-filter-value"
+            showChevron
+            compact
+            onPress={() => setPicking(true)}
             testID="coach-replies-filter"
           />
         )}
         {body}
       </ScrollView>
+      <Sheet visible={picking} onClose={() => setPicking(false)} flush testID="coach-replies-filter-sheet">
+        <ScrollView>
+          {options.map((option, index) => {
+            const selected = option.key === selectedKey;
+            return (
+              <Row
+                key={option.key}
+                title={option.label}
+                compact
+                last={index === options.length - 1}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                trailing={selected ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined}
+                showChevron={false}
+                onPress={() => {
+                  setAthleteId(option.key === ALL_COACHED_ATHLETES ? null : option.key);
+                  setPicking(false);
+                }}
+                testID={`coach-replies-filter-${option.key}`}
+              />
+            );
+          })}
+        </ScrollView>
+      </Sheet>
     </View>
   );
 }

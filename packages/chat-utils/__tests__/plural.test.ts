@@ -5,7 +5,7 @@
 // ABOUTME: Red if French or Portuguese print « 0 signalées », or English, Spanish or German print « 0 flagged reply »
 
 import { describe, expect, it } from 'vitest';
-import { countKey } from '../src/plural';
+import { countKey, ordinalCategory, ordinalKey } from '../src/plural';
 
 const KEYS = { one: 'one', many: 'many' };
 
@@ -41,5 +41,25 @@ describe('countKey', () => {
   it('reads a large count plural, never singular', () => {
     expect(countKey(21, 'fr', KEYS)).toBe('many');
     expect(countKey(100, 'pt', KEYS)).toBe('many');
+  });
+});
+
+describe('ordinalKey', () => {
+  it('writes English ordinals as 1st, 2nd, 3rd, 4th, with 11th to 13th and 21st', () => {
+    const suffix = (n: number) => ordinalCategory(n, 'en');
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111].map(suffix)).toEqual([
+      'one', 'two', 'few', 'other', 'other', 'other', 'other', 'one', 'two', 'few', 'one', 'other',
+    ]);
+    expect(ordinalKey(4, 'en-GB', 'k')).toBe('k_ordinal_other');
+    expect(ordinalKey(3, undefined, 'k')).toBe('k_ordinal_few');
+  });
+
+  it('writes French 1er then 2e, and one mark everywhere in Spanish, German and Portuguese', () => {
+    expect(ordinalKey(1, 'fr-CA', 'k')).toBe('k_ordinal_one');
+    expect(ordinalKey(2, 'fr', 'k')).toBe('k_ordinal_other');
+    expect(ordinalKey(21, 'fr', 'k')).toBe('k_ordinal_other');
+    for (const language of ['es', 'de', 'pt']) {
+      for (const n of [1, 2, 3, 4]) expect(ordinalKey(n, language, 'k'), `${language} ${n}`).toBe('k_ordinal_other');
+    }
   });
 });

@@ -14,8 +14,9 @@
 //!
 //! - **today**: two revoke their sharing; two get an
 //!   agent reply in the group citing a figure their data does not hold;
-//!   three lost their Strava connection eight days ago; three end a ten-day
-//!   loading block just inside the deep-fatigue band;
+//!   three lost their Strava connection eight days ago; three are ten days
+//!   into a loading block, just inside the deep-fatigue band, and train
+//!   again on the seed day;
 //! - **this week**: four have gone 6 to 12 days without a session on live
 //!   sources; two have only the coach's draft and one a draft over a live
 //!   plan; three joined this week with no plan; two finished their plan with
@@ -47,6 +48,7 @@ use pierre_core::models::groups::{GroupRole, NewGroupTranscriptEntry, Transcript
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{Activity, ActivityBuilder, AddMessageParams, SportType};
 use pierre_core::transport::TransportPolicy;
+use pierre_core::uuid_utils;
 use pierre_database::repositories::{
     DraftOwner, InsertClaimVerdictParams, PlanAuthor, PlanOutlineInput, PlanWeekInput,
     SaveDraftParams, SavePlanBundleParams,
@@ -77,7 +79,8 @@ const PROVIDER: &str = "strava";
 /// Days of steady training before the latest stretch.
 const BASE_DAYS: i64 = 55;
 
-/// The days of the loading block a fatigue athlete ends on.
+/// The days of the loading block a fatigue athlete ends on, before the
+/// session they train on the seed day itself.
 const FATIGUE_BLOCK_DAYS: i64 = 10;
 
 /// What one seeded athlete's situation is.
@@ -95,7 +98,8 @@ enum Scenario {
     UnmatchedFigure,
     /// Their Strava connection died eight days ago.
     DeadSource,
-    /// A ten-day loading block on top of the base: just inside deep fatigue.
+    /// A loading block on top of the base, still going on the seed day:
+    /// just inside deep fatigue.
     Fatigue,
     /// No session for this many days, sources live.
     Quiet(i64),
@@ -481,45 +485,34 @@ impl Seeded<'_> {
             #[allow(clippy::cast_precision_loss)]
             let metres = seconds as f64 * 30_000.0 / 3_600.0;
             let duration = i64::try_from(seconds).unwrap_or(i64::MAX);
+            let row = SeedSyntheticActivity {
+                id,
+                user_id: self.athlete.id,
+                tenant_id: tenant,
+                name: "Sortie vélo".to_owned(),
+                sport_type: "ride".to_owned(),
+                start_date: start,
+                duration_seconds: duration,
+                distance_meters: Some(metres),
+                elevation_gain: None,
+                average_heart_rate: 140,
+                max_heart_rate: 165,
+                average_speed: Some(30_000.0 / 3_600.0),
+                max_speed: None,
+                calories: None,
+                city: "Montreal".to_owned(),
+                region: "Quebec".to_owned(),
+                country: "Canada".to_owned(),
+                start_latitude: None,
+                start_longitude: None,
+                created_at: self.now,
+                updated_at: self.now,
+            };
+            cached.push(served_activity(&row));
             self.repos
                 .seeder
-                .seed_insert_synthetic_activity(&SeedSyntheticActivity {
-                    id,
-                    user_id: self.athlete.id,
-                    tenant_id: tenant,
-                    name: "Sortie vélo".to_owned(),
-                    sport_type: "ride".to_owned(),
-                    start_date: start,
-                    duration_seconds: duration,
-                    distance_meters: Some(metres),
-                    elevation_gain: None,
-                    average_heart_rate: 140,
-                    max_heart_rate: 165,
-                    average_speed: Some(30_000.0 / 3_600.0),
-                    max_speed: None,
-                    calories: None,
-                    city: "Montreal".to_owned(),
-                    region: "Quebec".to_owned(),
-                    country: "Canada".to_owned(),
-                    start_latitude: None,
-                    start_longitude: None,
-                    created_at: self.now,
-                    updated_at: self.now,
-                })
+                .seed_insert_synthetic_activity(&row)
                 .await?;
-            cached.push(
-                ActivityBuilder::new(
-                    id.to_string(),
-                    "Sortie vélo".to_owned(),
-                    SportType::Ride,
-                    start,
-                    seconds,
-                    PROVIDER.to_owned(),
-                )
-                .distance_meters(metres)
-                .average_heart_rate(140)
-                .build(),
-            );
         }
         register_provider_connection(self.repos, self.athlete.id, tenant, PROVIDER).await?;
         self.repos
@@ -558,7 +551,7 @@ impl Seeded<'_> {
         let week_start = ymd(today);
         let weeks = [PlanWeekInput {
             week_start: &week_start,
-            focus: "base",
+            focus: "Aerobic base: easy volume and one long session",
             days: &[],
             adjustment_reason: "coach draft",
             phase_index: None,
@@ -653,6 +646,33 @@ impl Seeded<'_> {
     }
 }
 
+/// `row` as the dev fixture serves it and the Strava provider reads it back:
+/// keyed by the fixture's numeric id, with the fields the
+/// training load reads. The cache is warmed with this, so the first sync
+/// through the fixture rewrites each warmed row instead of adding a second
+/// copy of the session beside it. A doubled cache's newest page would hold
+/// half the history, and a fatigue athlete's load would move hours after
+/// the seed.
+fn served_activity(row: &SeedSyntheticActivity) -> Activity {
+    ActivityBuilder::new(
+        uuid_utils::fixture_numeric_id(&row.id.to_string()).to_string(),
+        row.name.clone(),
+        SportType::Ride,
+        row.start_date,
+        u64::try_from(row.duration_seconds).unwrap_or(0),
+        PROVIDER.to_owned(),
+    )
+    .distance_meters_opt(row.distance_meters)
+    .average_heart_rate_opt(u32::try_from(row.average_heart_rate).ok())
+    .max_heart_rate_opt(u32::try_from(row.max_heart_rate).ok())
+    .average_speed_opt(row.average_speed)
+    .city_opt(Some(row.city.clone()))
+    .region_opt(Some(row.region.clone()))
+    .country_opt(Some(row.country.clone()))
+    .sport_type_detail_opt(Some(row.sport_type.clone()))
+    .build()
+}
+
 /// How long before `now`'s time of day a seeded session starts: three
 /// hours, but never back across midnight UTC. A session `n` days ago is then
 /// both `n` whole days old (the roster's days without a session) and on the
@@ -666,13 +686,16 @@ fn session_offset(now: DateTime<Utc>) -> Duration {
 /// The sessions a scenario trains: `(days ago, seconds)`.
 fn sessions(scenario: Scenario) -> Vec<(i64, u64)> {
     match scenario {
-        // An hour a day, then ten days of 1 h 40: form ends just inside the
-        // deep-fatigue band (about -31 % to -33 % of their own fitness) for
-        // the last four mornings, measured against the snapshot's own load
-        // calculation; the band's edge is cageux's.
+        // An hour a day, then ten days of 1 h 40 and one more today: form
+        // ends just inside the deep-fatigue band (about -31 % to -33 % of
+        // their own fitness) for the last four mornings, measured against the
+        // snapshot's own load calculation; the band's edge is cageux's.
+        // Today's session counts from tomorrow's morning on, so the band holds
+        // when the snapshot's UTC day turns over during the coach's evening;
+        // a block ending yesterday would let one rest day lift form to -17 %.
         Scenario::Fatigue => (FATIGUE_BLOCK_DAYS + 1..=BASE_DAYS)
             .map(|day| (day, 3_600))
-            .chain((1..=FATIGUE_BLOCK_DAYS).map(|day| (day, 6_000)))
+            .chain((0..=FATIGUE_BLOCK_DAYS).map(|day| (day, 6_000)))
             .collect(),
         // Nothing since the connection died.
         Scenario::DeadSource => every_other_day(8),
@@ -731,7 +754,7 @@ fn phase(kind: PhaseKind, start: NaiveDate, weeks: u8) -> PlanPhase {
         start: ymd(start),
         weeks,
         purpose: String::new(),
-        intent: "Le bloc de la saison.".to_owned(),
+        intent: "Build the aerobic engine the season stands on.".to_owned(),
         target_hours: None,
         volume_share_of_peak: None,
         tid_target: None,
@@ -932,6 +955,11 @@ fn ended_season(slot: Slot, today: NaiveDate, priority: RacePriority) -> Season 
 mod tests {
     use std::collections::BTreeSet;
 
+    use dravr_cageux::config::intelligence::AlgorithmConfig;
+    use dravr_cageux::training_load::TrainingLoadCalculator;
+    use pierre_core::models::{FormBand, FormReading};
+    use pierre_fitness_compute::AthleteInputs;
+
     use super::*;
 
     #[test]
@@ -956,6 +984,131 @@ mod tests {
             assert!(SCENARIOS.contains(&wanted), "{wanted:?} has no athlete");
         }
         assert!(SCENARIOS.iter().any(|s| matches!(s, Scenario::Quiet(_))));
+    }
+
+    #[test]
+    fn a_warmed_session_is_keyed_and_filled_as_the_fixture_serves_it() {
+        let now = DateTime::parse_from_rfc3339("2026-11-02T15:19:28Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let id = Uuid::parse_str("45a5cfc9-a75b-4bd3-a6d8-167253afd3c8").unwrap();
+        let row = SeedSyntheticActivity {
+            id,
+            user_id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4(),
+            name: "Sortie vélo".to_owned(),
+            sport_type: "ride".to_owned(),
+            start_date: now,
+            duration_seconds: 6_000,
+            distance_meters: Some(50_000.0),
+            elevation_gain: None,
+            average_heart_rate: 140,
+            max_heart_rate: 165,
+            average_speed: Some(30_000.0 / 3_600.0),
+            max_speed: None,
+            calories: None,
+            city: "Montreal".to_owned(),
+            region: "Quebec".to_owned(),
+            country: "Canada".to_owned(),
+            start_latitude: None,
+            start_longitude: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let served = served_activity(&row);
+
+        // The fixture's id for the row, never the row's UUID: a sync through
+        // the fixture then rewrites this cache row.
+        assert_eq!(
+            served.id(),
+            "5018645824777440211",
+            "the row's first sixteen hex digits as one u64"
+        );
+        assert_eq!(
+            served.id(),
+            uuid_utils::fixture_numeric_id(&id.to_string()).to_string(),
+            "keyed by the id the fixture serves the row under"
+        );
+        assert_eq!(served.sport_type(), &SportType::Ride, "the row's sport");
+        assert_eq!(served.start_date(), now, "the row's start");
+        assert_eq!(served.duration_seconds(), 6_000, "the row's duration");
+        assert_eq!(
+            served.distance_meters(),
+            Some(50_000.0),
+            "the row's distance"
+        );
+        assert_eq!(
+            served.average_heart_rate(),
+            Some(140),
+            "the row's average heart rate"
+        );
+        assert_eq!(
+            served.max_heart_rate(),
+            Some(165),
+            "the row's max heart rate"
+        );
+        assert_eq!(
+            served.average_speed(),
+            row.average_speed,
+            "the row's average speed"
+        );
+    }
+
+    /// A fatigue athlete's seeded sessions, as the warmed cache holds them,
+    /// with the form the roster reads off them on the morning of `as_of`.
+    fn fatigue_form(seed: DateTime<Utc>, as_of: NaiveDate) -> FormReading {
+        let offset = session_offset(seed);
+        let activities: Vec<Activity> = sessions(Scenario::Fatigue)
+            .into_iter()
+            .map(|(days_ago, seconds)| {
+                #[allow(clippy::cast_precision_loss)]
+                let metres = seconds as f64 * 30_000.0 / 3_600.0;
+                served_activity(&SeedSyntheticActivity {
+                    id: Uuid::new_v4(),
+                    user_id: Uuid::nil(),
+                    tenant_id: Uuid::nil(),
+                    name: "Sortie vélo".to_owned(),
+                    sport_type: "ride".to_owned(),
+                    start_date: seed - Duration::days(days_ago) - offset,
+                    duration_seconds: i64::try_from(seconds).unwrap(),
+                    distance_meters: Some(metres),
+                    elevation_gain: None,
+                    average_heart_rate: 140,
+                    max_heart_rate: 165,
+                    average_speed: Some(30_000.0 / 3_600.0),
+                    max_speed: None,
+                    calories: None,
+                    city: "Montreal".to_owned(),
+                    region: "Quebec".to_owned(),
+                    country: "Canada".to_owned(),
+                    start_latitude: None,
+                    start_longitude: None,
+                    created_at: seed,
+                    updated_at: seed,
+                })
+            })
+            .collect();
+        let calculator = TrainingLoadCalculator::from_config(AlgorithmConfig::default(), as_of);
+        let load = AthleteInputs::default()
+            .training_load(&calculator, &activities)
+            .unwrap();
+        FormReading::from_training_load(&load)
+    }
+
+    #[test]
+    fn a_fatigue_athlete_stays_in_deep_fatigue_through_the_seed_day() {
+        // Seeded mid-afternoon in Montreal; the coach walks the queue into
+        // the evening, past midnight UTC, when the roster's day turns over.
+        let seed = DateTime::parse_from_rfc3339("2026-11-02T15:19:28Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let today = seed.date_naive();
+        for as_of in [today, today.succ_opt().unwrap()] {
+            let form = fatigue_form(seed, as_of);
+            assert_eq!(form.band, FormBand::DeepFatigue, "{as_of}: {form:?}");
+            let pct = form.form_pct.unwrap();
+            assert!((-40.0..-30.0).contains(&pct), "{as_of}: just inside, {pct}");
+        }
     }
 
     #[test]

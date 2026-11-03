@@ -83,6 +83,21 @@ pub enum SlotClaim {
     },
 }
 
+/// What [`ChatRepository::open_group_conversation`] did.
+#[derive(Debug, Clone)]
+pub enum GroupRoomClaim {
+    /// The owner already held a conversation in the group's room: this one.
+    Held(Box<ConversationRecord>),
+    /// The owner held none, and this one was created; it holds a slot.
+    Opened(Box<ConversationRecord>),
+    /// The owner held none and nothing was written: they already have
+    /// `current` active conversations, at or over the cap.
+    AtCap {
+        /// The owner's active conversations when the cap was checked.
+        current: i64,
+    },
+}
+
 /// Chat conversation and message management repository.
 ///
 /// Access is a membership question, not an ownership one. Every method that
@@ -127,6 +142,29 @@ pub trait ChatRepository: Send + Sync {
         new: &NewConversation<'_>,
         cap: Option<i64>,
     ) -> AppResult<SlotClaim>;
+
+    /// The conversation `new.user_id` holds in `new.group_id`'s room — the
+    /// one [`Self::find_group_conversation`] answers — or, when they hold
+    /// none, one created from `new` under `cap` as
+    /// [`Self::create_conversation_within_cap`] creates it.
+    ///
+    /// The lookup and the insert run in one transaction under the owner slot
+    /// lock, taken whether or not there is a cap, so two opens racing each
+    /// other (two devices, one tap each) end on one room: the second waits
+    /// for the first to commit and then finds its row. Nothing in the schema
+    /// holds a user to one room per group — a room bound later, or one forged
+    /// for a messaging channel, sits beside it — so the lock, not an index,
+    /// is what makes this one call find-or-create.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::invalid_input`] when `new` names no group; the database
+    /// error when the transaction fails.
+    async fn open_group_conversation(
+        &self,
+        new: &NewConversation<'_>,
+        cap: Option<i64>,
+    ) -> AppResult<GroupRoomClaim>;
     /// Get a conversation by ID, when `user_id` is a participant in this tenant.
     ///
     /// This is the membership check every route and pipeline stage reuses:

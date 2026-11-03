@@ -336,6 +336,7 @@ mod group_digest_command_test;
 mod group_digest_room_test;
 mod group_member_activities_tool_test;
 mod group_member_snapshot_tenant_test;
+mod group_room_test;
 mod group_scoped_conversation_test;
 mod group_transcript_test;
 mod group_weekly_digest_test;

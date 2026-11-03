@@ -7,9 +7,8 @@
 import React, { useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { COACH_DAY_UNIT_KEYS, COACH_PHASE_LABEL_KEY, COACH_SEASON_STATE_KEY, countKey } from '@pierre/shared-constants';
-import { formatList } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { buildSeason, civilShortDate, countdownBars, nextPhase, type SeasonRow } from '@pierre/ui-logic';
+import { buildSeason, civilShortDate, countdownBars, nextPhase, nonSharerStatusWords, planLastDay, type SeasonRow } from '@pierre/ui-logic';
 import type { CoachRosterAthlete } from '@pierre/shared-types';
 import { EmptyState, StatusDot } from '../../components/ui';
 import { GroupLabel, phaseFill } from './parts';
@@ -29,7 +28,7 @@ function useSubline() {
       row.state === 'nothing_since_last_race'
         ? row.raceDate
         : row.state === 'plan_ended'
-          ? (row.athlete.season?.ends ?? null)
+          ? planLastDay(row.athlete.season?.ends)
           : null;
     return t(COACH_SEASON_STATE_KEY[row.state], date === null ? {} : { date: civilShortDate(date, language) });
   };
@@ -128,9 +127,31 @@ export function CoachSeasonList({ athletes, today, onOpen }: CoachSeasonListProp
       {view.ahead.length > 0 && section(t('coachHome.seasonView.sectionRace'), view.ahead, 'coach-season-ahead')}
       {view.without.length > 0 && section(t('coachHome.seasonView.sectionNone'), view.without, 'coach-season-without')}
       {view.hidden.length > 0 && (
-        <Text className="px-4 pb-4 pt-4 text-sm text-text-secondary" testID="coach-season-hidden">
-          {t('coachHome.seasonView.noShare', { names: formatList(view.hidden.map((a) => a.name), language) })}
-        </Text>
+        // The same block the team list ends on: a label with its count, so it
+        // checks against the scope line, and each athlete's status, so a revoke
+        // reads apart from a share never accepted. Status only, never a plan.
+        <View className="px-4 pb-4" testID="coach-season-hidden">
+          <GroupLabel count={view.hidden.length} className="pb-1 pt-5">
+            {t('coachHome.roster.noShareTitle')}
+          </GroupLabel>
+          {view.hidden.map((athlete) => (
+            <Pressable
+              key={athlete.user_id}
+              accessibilityRole="button"
+              onPress={() => onOpen(athlete.user_id)}
+              testID={`coach-season-hidden-${athlete.user_id}`}
+              className="min-h-11 flex-row items-start gap-2 border-b border-border-faint py-2 active:bg-surface-container-low"
+            >
+              <View className="h-[18px] justify-center">
+                <StatusDot tone="neutral" />
+              </View>
+              <Text className="min-w-0 flex-1 text-sm text-text-secondary">
+                <Text className="font-medium text-text-primary">{athlete.name}</Text>
+                {` · ${nonSharerStatusWords(t, language, athlete)}`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       )}
     </View>
   );

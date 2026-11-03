@@ -160,14 +160,20 @@ export function scopeOfKind(kind: ConversationKind): ConversationScope {
   return kind === 'group' || kind === 'subject' ? 'groups' : 'personal';
 }
 
-// Punctuation a title may open a word with (`«Plan»`, `"Tempo"`, `@coach`)
-// that must not become an initial.
-const LEADING_PUNCTUATION = /^["'«‘“([{@#*_~-]+/;
+// Punctuation a title may open a word with (`«Plan»`, `"Tempo"`, `@coach`),
+// or a word that is punctuation alone (the dash in `Tri — longue distance`),
+// that must not become an initial: ASCII and Latin-1 punctuation and symbols,
+// and the General Punctuation block (dashes, curly quotes, bullets,
+// ellipsis). Written as ranges rather than `\p{P}`, which the phone's engine
+// is not guaranteed to read.
+const LEADING_PUNCTUATION =
+  /^[\u0021-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E\u00A1-\u00BF\u00D7\u00F7\u2010-\u2027\u2030-\u205E]+/;
 
 /**
  * Up to two letters for the avatar circle: the first character of the first
- * two words, upper-cased. A single word yields one letter; a title with no
- * letter at all yields `?`.
+ * two words, upper-cased. A word of punctuation alone counts for nothing, so
+ * `Tri — longue distance` reads `TL`. A single word yields one letter; a
+ * title with no letter at all yields `?`.
  */
 export function initialsFor(title: string): string {
   const letters: string[] = [];

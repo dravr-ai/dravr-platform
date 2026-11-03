@@ -183,12 +183,17 @@ pub struct GatheredRoster {
 }
 
 impl GatheredRoster {
-    /// Athletes whose training the coach may see (`shared` or `no_source`).
+    /// Athletes whose training the roster shows the coach: `shared` only.
+    ///
+    /// A `no_source` athlete consented but has nothing to share, and the
+    /// route gives their row no training and no plan, as for one who does not
+    /// share; counting them here would make the scope line ("42 of 45 share")
+    /// one more than the rows every client lists as sharers.
     #[must_use]
     pub fn visible_members(&self) -> usize {
         self.members
             .iter()
-            .filter(|m| m.status != RosterAthleteStatus::NoCoachConsent)
+            .filter(|m| m.status == RosterAthleteStatus::Shared)
             .count()
     }
 

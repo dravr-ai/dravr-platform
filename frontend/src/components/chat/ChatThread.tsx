@@ -5,7 +5,15 @@
 // ABOUTME: The Groups tab, Home and an activity's view each own the thread's state (useChatThread) and draw it here
 
 import { useCallback, useMemo, useState, type ReactNode, type UIEvent } from 'react';
-import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
+import {
+  coachComposerPlaceholder,
+  GROUP_ROOM_KEYS,
+  PLAN_THREAD_KEYS,
+  threadCarriesDraft,
+  transcriptBlocks,
+  trustedActionUrl,
+  verdictSupportReference,
+} from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { useInfoToast, useSuccessToast, useErrorToast } from '../ui';
@@ -13,6 +21,8 @@ import MessageList, { type TranscriptPrivateLane } from './MessageList';
 import MessageInput, { type ComposerPrivateLane } from './MessageInput';
 import UsageWarningBanner from './UsageWarningBanner';
 import VerdictDrawer, { type VerdictSource } from './VerdictDrawer';
+import PlanThreadOpenDraft from './PlanThreadOpenDraft';
+import { usePlanThreadDraft } from '../../hooks/useCoachPlan';
 import type { ChatThreadState } from './useChatThread';
 
 export interface ChatThreadProps {
@@ -193,6 +203,61 @@ export default function ChatThread({
         }
       : null;
 
+  // A coach's own threads — the plan thread on an athlete, the group's room —
+  // say whom the line goes to; an athlete's keep the app's own words; one not
+  // yet known says nothing.
+  const { planSubjectName, coachRoomName, composerPending } = thread;
+  const coachPlaceholder = coachComposerPlaceholder(t, { planSubjectName, coachRoomName, pending: composerPending });
+
+  // The coach's open draft on the plan thread's athlete, drawn whenever no
+  // card in the thread shows it: "Review the draft" lands on a thread whose
+  // saving reply may be elsewhere, or not there at all.
+  // A row read back carries no block list on the wire: its blocks are decoded
+  // from the row, as its bubble decodes them.
+  const planDraft = usePlanThreadDraft(thread.conversationId, planSubjectName !== null);
+  const openDraftId = planDraft.open?.draft.draft_id ?? null;
+  const { messageBlocks } = thread;
+  const draftCarried = useMemo(
+    () =>
+      openDraftId !== null &&
+      threadCarriesDraft(
+        threadMessages.map((message) => messageBlocks.get(message.id) ?? transcriptBlocks(message)),
+        openDraftId,
+      ),
+    [openDraftId, threadMessages, messageBlocks],
+  );
+  const openDraft = draftCarried ? null : planDraft.open;
+  const draftCard =
+    openDraft !== null && thread.conversationId !== null ? (
+      <PlanThreadOpenDraft conversationId={thread.conversationId} open={openDraft} />
+    ) : null;
+
+  // What an opened thread with nothing in it says, in the coach's voice: the
+  // plan thread with its one-tap start while no draft is open, or the room.
+  const opening =
+    planSubjectName !== null ? (
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="max-w-[520px] text-sm text-on-surface-variant" data-testid="chat-plan-thread-empty">
+          {t(PLAN_THREAD_KEYS.empty, { name: planSubjectName })}
+        </p>
+        {planDraft.noDraft ? (
+          <button
+            type="button"
+            onClick={() => void sendTurn(t(PLAN_THREAD_KEYS.starterMessage, { name: planSubjectName }))}
+            disabled={thread.turnInFlight || thread.usageStatus.sendDisabled}
+            data-testid="chat-plan-thread-starter"
+            className="inline-flex items-center rounded text-sm font-medium text-primary transition-colors hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-50 focus-ring touch-target"
+          >
+            {t(PLAN_THREAD_KEYS.starterLabel, { name: planSubjectName })}
+          </button>
+        ) : null}
+      </div>
+    ) : coachRoomName !== null ? (
+      <p className="text-center text-sm text-on-surface-variant" data-testid="chat-coach-room-empty">
+        {t(GROUP_ROOM_KEYS.empty, { group: coachRoomName })}
+      </p>
+    ) : null;
+
   const handleShareMessage = useCallback((content: string) => {
     // Use native Web Share API if available, otherwise copy to clipboard
     if (navigator.share) {
@@ -259,6 +324,8 @@ export default function ChatThread({
             onReachStart={thread.reachStart}
             privateLane={transcriptLane}
             liveAudience={thread.liveAudience}
+            opening={opening}
+            tail={draftCard}
           />
         </div>
       </div>
@@ -274,6 +341,7 @@ export default function ChatThread({
         conversationId={thread.conversationId}
         focusOnMount={focusComposerOnOpen}
         privateLane={composerLane}
+        placeholder={coachPlaceholder}
       />
 
       {verdictMessageId ? (

@@ -37,6 +37,11 @@ appId: ai.dravr.app
     timeout: 30000
 - assertVisible:
     id: "coach-scope"
+# "À traiter" is named once: its count rides on the tab, the queue carries no second title.
+- assertVisible:
+    id: "coach-views-queue-count"
+- assertNotVisible:
+    id: "coach-queue-count"
 
 # An athlete from today's list opens their detail: why now, with its evidence.
 - tapOn:
@@ -90,7 +95,37 @@ appId: ai.dravr.app
     direction: DOWN
     timeout: 20000
 
-# The season: A races ahead as a countdown, then those without one.
+# "Écrire dans le groupe" on a non-sharer opens the coach's room in their group,
+# opened for them when they hold none — never the Chat list, which does not hold it.
+- scrollUntilVisible:
+    element:
+      id: "coach-nonsharer-write-.*"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: "coach-nonsharer-write-.*"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 15000
+- assertNotVisible:
+    id: "conversations-screen"
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "coach-roster"
+    timeout: 10000
+
+# The season: A races ahead as a countdown, then those without one. Back from
+# the thread restores the list where it was left, below the view tabs, so
+# scroll up to them first.
+- scrollUntilVisible:
+    element:
+      id: "coach-views-season"
+    direction: UP
+    timeout: 20000
 - tapOn:
     id: "coach-views-season"
 - extendedWaitUntil:

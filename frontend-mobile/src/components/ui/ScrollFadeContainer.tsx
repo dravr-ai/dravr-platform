@@ -5,6 +5,7 @@ import React, { useState, useCallback, type ReactNode } from 'react';
 import {
   View,
   ScrollView,
+  StyleSheet,
   type ViewStyle,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
@@ -12,6 +13,29 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '../../constants/theme';
+
+/**
+ * The same colour at alpha 0. A gradient stop of `'transparent'` is black at
+ * alpha 0, so on iOS a fade from it into a light page runs through grey; the
+ * fade has to end in the page's own colour, only clear.
+ */
+export function clearOf(color: string): string {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(color);
+  if (hex) {
+    const digits = hex[1];
+    const rgb =
+      digits.length === 3
+        ? digits
+            .split('')
+            .map((digit) => digit + digit)
+            .join('')
+        : digits.slice(0, 6);
+    return `#${rgb}00`;
+  }
+  const functional = /^rgba?\(\s*([^,\s]+)\s*,\s*([^,\s]+)\s*,\s*([^,\s)]+)/i.exec(color);
+  if (functional) return `rgba(${functional[1]}, ${functional[2]}, ${functional[3]}, 0)`;
+  return 'transparent';
+}
 
 interface ScrollFadeContainerProps {
   children: ReactNode;
@@ -23,6 +47,12 @@ interface ScrollFadeContainerProps {
   containerStyle?: ViewStyle;
   /** Style for the scroll view content container */
   contentContainerStyle?: ViewStyle;
+  /** Classes for the scroll view content container */
+  contentContainerClassName?: string;
+  /** The scroll view, for a host that scrolls it itself (a selection brought into view) */
+  scrollRef?: React.Ref<ScrollView>;
+  /** Told the horizontal offset on every scroll */
+  onScrollX?: (x: number) => void;
   /** Test ID for the component */
   testID?: string;
 }
@@ -42,6 +72,9 @@ export function ScrollFadeContainer({
   fadeWidth = 32,
   containerStyle,
   contentContainerStyle,
+  contentContainerClassName,
+  scrollRef,
+  onScrollX,
   testID,
 }: ScrollFadeContainerProps) {
   const colors = useThemeColors();
@@ -58,6 +91,7 @@ export function ScrollFadeContainer({
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
       const scrollX = contentOffset.x;
+      onScrollX?.(scrollX);
       const maxScrollX = contentSize.width - layoutMeasurement.width;
 
       // Show left fade when scrolled past threshold (not at start)
@@ -66,7 +100,7 @@ export function ScrollFadeContainer({
       // Show right fade when not at end (with small threshold for float precision)
       setShowRightFade(scrollX < maxScrollX - 10);
     },
-    []
+    [onScrollX]
   );
 
   const handleContentSizeChange = useCallback((width: number) => {
@@ -85,17 +119,11 @@ export function ScrollFadeContainer({
     }
   }, [contentWidth, containerWidth]);
 
-  // Transparent to background color (for right edge - content fades into background)
-  const rightGradientColors: [string, string] = [
-    'transparent',
-    resolvedBackgroundColor,
-  ];
-
-  // Background color to transparent (for left edge - background fades into content)
-  const leftGradientColors: [string, string] = [
-    resolvedBackgroundColor,
-    'transparent',
-  ];
+  // The page's colour, clear, into the page's colour: the right edge's content fades into the page.
+  const clear = clearOf(resolvedBackgroundColor);
+  const rightGradientColors: [string, string] = [clear, resolvedBackgroundColor];
+  // The page's colour into clear: the left edge's content comes out of the page.
+  const leftGradientColors: [string, string] = [resolvedBackgroundColor, clear];
 
   return (
     <View
@@ -105,12 +133,14 @@ export function ScrollFadeContainer({
       testID={testID}
     >
       <ScrollView
+        ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         onScroll={handleScroll}
         onContentSizeChange={handleContentSizeChange}
         scrollEventThrottle={16}
         contentContainerStyle={contentContainerStyle}
+        contentContainerClassName={contentContainerClassName}
         testID={testID ? `${testID}-scroll` : undefined}
       >
         {children}
@@ -128,7 +158,10 @@ export function ScrollFadeContainer({
             colors={leftGradientColors}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            className="flex-1"
+            // A style, not a class: NativeWind does not reach a third-party
+            // view, so a `className` leaves the gradient 0 wide and draws no
+            // fade.
+            style={StyleSheet.absoluteFill}
           />
         </View>
       )}
@@ -145,7 +178,10 @@ export function ScrollFadeContainer({
             colors={rightGradientColors}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            className="flex-1"
+            // A style, not a class: NativeWind does not reach a third-party
+            // view, so a `className` leaves the gradient 0 wide and draws no
+            // fade.
+            style={StyleSheet.absoluteFill}
           />
         </View>
       )}

@@ -5,9 +5,18 @@
 // ABOUTME: Wraps all routes with Auth and Query providers and handles auth gating
 
 import '../global.css';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, ActivityIndicator, LogBox } from 'react-native';
-import { Slot, useSegments, useRouter, useNavigationContainerRef } from 'expo-router';
+import {
+  DarkTheme,
+  DefaultTheme,
+  Slot,
+  ThemeProvider as NavigationThemeProvider,
+  useNavigationContainerRef,
+  useRouter,
+  useSegments,
+} from 'expo-router';
+import type { Theme as NavigationTheme } from 'expo-router';
 import type { Route } from 'expo-router/react-navigation';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -235,13 +244,33 @@ function RootLayoutNav() {
 }
 
 function RootShell() {
-  const { scheme } = useTheme();
+  const { scheme, colors } = useTheme();
+  // The native stack sets each bar's interface style from the navigation
+  // theme's `dark` flag, not from the app's appearance: without this every
+  // header stays Light in the dark theme, and the back button's glass disc,
+  // the Chat search field and the header buttons draw as light-grey pills on
+  // the dark canvas.
+  const navigationTheme = useMemo<NavigationTheme>(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      dark: scheme === 'dark',
+      colors: {
+        ...base.colors,
+        primary: colors.tokens.primary,
+        background: colors.background.primary,
+        card: colors.background.primary,
+        text: colors.text.primary,
+        border: colors.border.default,
+      },
+    };
+  }, [scheme, colors]);
   return (
-    <>
+    <NavigationThemeProvider value={navigationTheme}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <RootLayoutNav />
       <Toast config={toastConfig} />
-    </>
+    </NavigationThemeProvider>
   );
 }
 

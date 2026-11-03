@@ -38,7 +38,9 @@ export function CoachHomeSwitch({ scope, onChange }: CoachHomeSwitchProps) {
             onPress={() => !selected && onChange(item.id)}
             testID={`coach-home-switch-${item.id}`}
             className={`h-9 flex-1 items-center justify-center rounded-lg ${
-              selected ? 'border border-border bg-surface-container-lowest' : 'border border-transparent'
+              // A raised chip in both themes: white on the light track, the tier
+              // above the track in dark, where the lowest tier sits below the canvas.
+              selected ? 'border border-border bg-surface-container-lowest dark:bg-surface-container-highest' : 'border border-transparent'
             }`}
           >
             <Text className={`text-sm ${selected ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'}`}>

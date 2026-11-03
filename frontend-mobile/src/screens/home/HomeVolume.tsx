@@ -32,6 +32,7 @@ import {
   sportLabel,
   useDistanceUnit,
   volumeMetricText,
+  volumeReadoutShown,
   type VolumeSportFilter,
 } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
@@ -76,20 +77,24 @@ function ThisWeek({ totals }: { totals: VolumeTotals }) {
           {activitiesLine(t, totals.activities, language)}
         </Text>
       </View>
-      <View className="mt-2 flex-row gap-3">
-        {figures.map((figure) => (
-          <View key={figure.key} className="flex-1">
-            <Text className="text-xs text-text-secondary">{figure.label}</Text>
-            <Text
-              className="mt-0.5 font-mono text-base text-text-primary"
-              numberOfLines={1}
-              testID={`home-volume-${figure.key}`}
-            >
-              {figure.value}
-            </Text>
-          </View>
-        ))}
-      </View>
+      {/* A week with nothing in it says so in its count line; three tiles of
+          zeros (one of them "0s") would say it again as numbers. */}
+      {totals.activities > 0 && (
+        <View className="mt-2 flex-row gap-3" testID="home-volume-figures">
+          {figures.map((figure) => (
+            <View key={figure.key} className="flex-1">
+              <Text className="text-xs text-text-secondary">{figure.label}</Text>
+              <Text
+                className="mt-0.5 font-mono text-base text-text-primary"
+                numberOfLines={1}
+                testID={`home-volume-${figure.key}`}
+              >
+                {figure.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -174,12 +179,17 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
         <Text className="font-mono text-xs text-text-secondary">{civilShortDate(starts[0], language)}</Text>
         <Text className="font-mono text-xs text-text-secondary">{civilShortDate(starts[last], language)}</Text>
       </View>
-      <Text className="mt-2 text-xs text-text-secondary" testID="home-volume-readout">
-        {t(TRAINING_VOLUME_KEY.weekReadout, {
-          date: civilShortDate(starts[shown], language),
-          value: volumeMetricText(t, metric, values[shown], language, unit),
-        })}
-      </Text>
+      {/* At rest the readout is this week's. A week with nothing in it already
+          says so in its count line above, so « Week of …: 0 m » would only say
+          it again; a week the athlete taps is read out, empty or not. */}
+      {volumeReadoutShown(pointed, totals[last]) && (
+        <Text className="mt-2 text-xs text-text-secondary" testID="home-volume-readout">
+          {t(TRAINING_VOLUME_KEY.weekReadout, {
+            date: civilShortDate(starts[shown], language),
+            value: volumeMetricText(t, metric, values[shown], language, unit),
+          })}
+        </Text>
+      )}
     </View>
   );
 }

@@ -8,19 +8,16 @@ import React, { useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 import type { CoachReply, ReplyFlagReason, VerdictTone } from '@pierre/shared-types';
-import { summarizeVerdicts } from '@pierre/shared-types';
 import {
   MAX_CORRECTION_CHARS,
   MAX_FLAG_NOTE_CHARS,
   REPLY_FLAG_REASONS,
   REPLY_FLAG_REASON_LABEL_KEY,
-  VERDICT_SPOKEN_SEPARATOR,
   VERDICT_STATUS_LABEL_KEY,
-  verdictChipLabel,
 } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, replyStatus } from '@pierre/ui-logic';
 import { Button, Input, StatusDot, type StatusDotTone } from '../../components/ui';
 import { useReplyWrites } from '../../hooks/useCoachReplies';
 
@@ -76,7 +73,7 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
   const [note, setNote] = useState('');
   const [correction, setCorrection] = useState('');
   const athlete = reply.athlete_name ?? t('coachReview.unnamedAthlete');
-  const summary = summarizeVerdicts(reply.verdicts);
+  const status = replyStatus(t, reply, athlete, language);
 
   const fail = (error: unknown, fallbackKey: string) =>
     Alert.alert(t('common.error'), describeApiError(error, { t, fallbackKey }));
@@ -103,11 +100,16 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
 
   return (
     <View className="gap-2 border-b border-border-faint px-4 py-4" testID={`coach-reply-${reply.id}`}>
-      <View className="flex-row flex-wrap items-baseline justify-between gap-x-3">
-        <Text className="min-w-0 shrink text-sm font-medium text-text-primary" numberOfLines={2}>
+      {/* No wrap: the date keeps its place at the right on every card, and a
+          long recipient line wraps inside its own column instead of pushing
+          the date under it on one card and not the next. */}
+      <View className="flex-row items-baseline gap-x-3" testID="coach-reply-header">
+        <Text className="min-w-0 flex-1 text-sm font-medium text-text-primary" numberOfLines={2}>
           {t('coachReview.replyTo', { name: athlete, group: reply.group_name })}
         </Text>
-        <Text className="font-mono text-xs text-text-secondary">{formatDateTime(reply.created_at, language)}</Text>
+        <Text className="shrink-0 font-mono text-xs text-text-secondary" testID="coach-reply-date">
+          {formatDateTime(reply.created_at, language)}
+        </Text>
       </View>
 
       {reply.withheld || reply.content === null ? (
@@ -120,18 +122,12 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
         </Text>
       )}
 
-      {reply.unmatched_figures > 0 && (
-        <View className="flex-row items-start gap-2" testID="coach-reply-unmatched">
-          <View className="pt-1.5">
-            <StatusDot tone="warning" />
-          </View>
-          <Text className="min-w-0 flex-1 text-xs text-text-primary">
-            {t('coachReview.unmatchedFigures', { count: reply.unmatched_figures, name: athlete })}
-          </Text>
-        </View>
-      )}
-
-      {summary !== null && (
+      {/* One status per reply, one dot beside its words: the figures no source
+          backs are the unverifiable athlete-data claims the verdicts list, so
+          a count of them, a rollup of the same verdicts and the list itself
+          would be three lines in two tones about one claim. The claims follow,
+          each as its words. */}
+      {status !== null && (
         <View className="gap-1.5" testID="coach-reply-verdicts">
           {/* The human coach's surfaces state a verdict as a dot beside the
               words, never as red or green text (DESIGN.md, Coach Home); the
@@ -139,16 +135,14 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
               opens nothing. */}
           <View
             accessible
-            accessibilityLabel={t('app.claimVerdictsStatus', {
-              status: verdictChipLabel(t, summary, language, VERDICT_SPOKEN_SEPARATOR),
-            })}
+            accessibilityLabel={t('app.claimVerdictsStatus', { status: status.spoken })}
             className="mt-1 flex-row items-start gap-2"
             testID="coach-reply-verdict-chip"
           >
-            <View className="pt-1">
-              <StatusDot tone={VERDICT_DOT_TONE[summary.tone]} />
+            <View className="h-4 justify-center">
+              <StatusDot tone={VERDICT_DOT_TONE[status.tone]} />
             </View>
-            <Text className="min-w-0 flex-1 text-xs font-medium text-text-primary">{verdictChipLabel(t, summary, language)}</Text>
+            <Text className="min-w-0 flex-1 text-xs font-medium text-text-primary">{status.text}</Text>
           </View>
           {reply.verdicts.map((verdict) => (
             <Text key={verdict.id} className="text-xs text-text-secondary" testID="coach-reply-verdict">
@@ -183,6 +177,7 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
           <ReasonPicker value={reason} onChange={setReason} />
           <Input
             label={t('coachReview.noteLabel')}
+            placeholder={t('coachReview.notePlaceholder')}
             value={note}
             onChangeText={setNote}
             maxLength={MAX_FLAG_NOTE_CHARS}

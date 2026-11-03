@@ -117,10 +117,12 @@ describe('the list', () => {
     const screen = renderReview();
     const card = within(await screen.findByTestId('coach-reply-reply-1'));
     expect(card.getByTestId('coach-reply-content')).toHaveTextContent('Your 2:41 marathon in May shows you are ready.');
-    expect(card.getByTestId('coach-reply-unmatched')).toHaveTextContent(/couldn't match to Alex's activities: 2/i);
-    // The chat chip's own rollup: the supported claim leads, the abstention is counted.
-    expect(card.getByTestId('coach-reply-verdict-chip')).toHaveTextContent(/1 supported.{1,5}1 unverifiable/);
-    expect(card.getByTestId('coach-reply-verdict-chip').props.accessibilityLabel).toMatch(/^Claim verdicts: 1 supported/);
+    // One status line with one dot: the unmatched figures lead, the rollup of
+    // the other verdicts follows it, and no second line repeats the count.
+    expect(card.queryByTestId('coach-reply-unmatched')).toBeNull();
+    expect(card.getAllByTestId('coach-reply-verdict-chip')).toHaveLength(1);
+    expect(card.getByTestId('coach-reply-verdict-chip')).toHaveTextContent(/couldn't match to Alex's activities: 2 · 1 supported.{1,5}1 unverifiable/i);
+    expect(card.getByTestId('coach-reply-verdict-chip').props.accessibilityLabel).toMatch(/^Claim verdicts: .*activities: 2.*1 supported/i);
     expect(card.getAllByTestId('coach-reply-verdict')).toHaveLength(2);
     expect(card.getAllByTestId('coach-reply-verdict')[0]).toHaveTextContent(/ · your 2:41 marathon in May$/);
     expect(within(screen.getByTestId('coach-reply-reply-2')).queryByTestId('coach-reply-verdict-chip')).toBeNull();
@@ -131,6 +133,27 @@ describe('the list', () => {
     const screen = renderReview();
     await waitFor(() => expect(screen.getByTestId('coach-replies-week')).toHaveTextContent('This week: 1 flagged · 0 corrected'));
     expect(mockWeekly).toHaveBeenCalledWith(1);
+  });
+
+  it('says a single unmatched figure once, with one dot, then the claim', async () => {
+    mockList.mockResolvedValue(
+      page([reply('reply-1', { unmatched_figures: 1, verdicts: [verdict('v1', 'unverifiable', 'ton seuil est à 285 W')] })]),
+    );
+    const screen = renderReview();
+    const card = within(await screen.findByTestId('coach-reply-reply-1'));
+    const chip = card.getByTestId('coach-reply-verdict-chip');
+    expect(chip).toHaveTextContent(/couldn't match to Alex's activities: 1$/i);
+    expect(chip).not.toHaveTextContent(/1 unverifiable/);
+    expect(card.getAllByTestId('coach-reply-verdict')).toHaveLength(1);
+    expect(card.getByTestId('coach-reply-verdict')).toHaveTextContent(/ton seuil est à 285 W$/);
+  });
+
+  it('keeps the date on the header line for every recipient, long or short', async () => {
+    mockList.mockResolvedValue(page([reply('reply-1', { group_name: 'Route — Gran Fondo des Laurentides, groupe du jeudi' })]));
+    const screen = renderReview();
+    const header = within(await screen.findByTestId('coach-reply-reply-1')).getByTestId('coach-reply-header');
+    expect(header.props.className).not.toMatch(/flex-wrap/);
+    expect(within(header).getByTestId('coach-reply-date').props.className).toMatch(/shrink-0/);
   });
 
   it('reads the first page newest first with the page size and no filter', async () => {
@@ -145,9 +168,35 @@ describe('the list', () => {
     const screen = renderReview();
     await screen.findByTestId('coach-reply-reply-1');
     expect(mockList).toHaveBeenCalledWith({ athlete_id: 'user-alex', before: undefined, limit: 20 });
+    // The row names who the list is narrowed to, so a filter set before the screen opened is never out of sight.
+    expect(screen.getByTestId('coach-replies-filter-value')).toHaveTextContent('Alex');
+    fireEvent.press(screen.getByTestId('coach-replies-filter'));
+    expect(screen.getByTestId('coach-replies-filter-user-ben')).toHaveTextContent('Ben (not shared with you)');
     fireEvent.press(screen.getByTestId('coach-replies-filter-all'));
     await waitFor(() => expect(mockList).toHaveBeenCalledWith({ athlete_id: undefined, before: undefined, limit: 20 }));
-    expect(screen.getByTestId('coach-replies-filter-user-ben')).toHaveTextContent('Ben (not shared with you)');
+    expect(screen.getByTestId('coach-replies-filter-value')).toHaveTextContent('All athletes');
+  });
+
+  it('lists the athletes to choose from in the reader\'s collation, an accented name with its letter', async () => {
+    mockList.mockResolvedValue({
+      ...page([reply('reply-1')]),
+      // The server's code-point order: « Félix » after « Florence ».
+      athletes: [
+        { user_id: 'u-clara', name: 'Clara Girouard', shares_with_coach: true },
+        { user_id: 'u-florence', name: 'Florence Martel', shares_with_coach: true },
+        { user_id: 'u-felix', name: 'Félix Morin', shares_with_coach: true },
+      ],
+    });
+    const screen = renderReview();
+    await screen.findByTestId('coach-reply-reply-1');
+    fireEvent.press(screen.getByTestId('coach-replies-filter'));
+    const sheet = within(screen.getByTestId('coach-replies-filter-sheet'));
+    expect(sheet.getAllByRole('radio').map((row) => row.props.testID)).toEqual([
+      'coach-replies-filter-all',
+      'coach-replies-filter-u-clara',
+      'coach-replies-filter-u-felix',
+      'coach-replies-filter-u-florence',
+    ]);
   });
 
   it('pages older replies with the cursor and hides the button on the last page', async () => {

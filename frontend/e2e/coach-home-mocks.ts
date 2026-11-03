@@ -58,6 +58,10 @@ export async function mockCoach(page: Page, options: { fillers?: number } = {}):
   await page.route('**/api/coach/replies**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ groups: [], athletes: [], replies: [], next_before: null }) }),
   );
+  // "Write in the group": the server finds or opens the caller's room.
+  await page.route('**/api/chat/groups/*/room', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GROUP_ROOM) }),
+  );
   // The list pattern also matches the messages and read-marker URLs; those fall through.
   await page.route('**/api/chat/conversations**', async (route, request) => {
     const url = request.url();

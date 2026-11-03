@@ -9,8 +9,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AWAITING_REPLY_POLL_MS,
   awaitedSince,
+  coachRoomName as coachRoomNameOf,
+  composerVoicePending,
   COMMAND_FINISH_REASON,
   composeRoomThread,
+  GROUP_ROOM_KEYS,
   hasEarlierMessages,
   joinMessageWindows,
   PLAN_THREAD_KEYS,
@@ -147,8 +150,17 @@ export interface ChatThreadState {
   activeCoachTitle: string | null;
   /** The thread's stored title — the list row's — else the agent about to be talked to. */
   title: string;
-  /** The line under the title: a plan thread's athlete, the group badge, the agent's handle, or what the agent can see. */
+  /** The line under the title: a plan thread's athlete, the room's group, the agent's handle, or what the agent can see. */
   subtitle: string | null;
+  /** The athlete a coach's plan thread is about, by name; `null` in every other thread. */
+  planSubjectName: string | null;
+  /**
+   * The group's name when the viewer is its human coach in its room: the
+   * room's empty line and composer speak to them. `null` for every other reader.
+   */
+  coachRoomName: string | null;
+  /** The composer's voice is not yet known: it shows no placeholder. */
+  composerPending: boolean;
   /** What the agent can read, worded; `null` until the status call answers. */
   providerStatus: string | null;
   /** The athlete has no provider connected, and the status call said so. */
@@ -329,7 +341,7 @@ export function useChatThread({
   const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? null);
   // A group's agent may belong to another tenant, where the caller's own agent
   // list cannot see it; the group names its agent as the caller reads it.
-  const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
+  const { group: activeGroup, isLoading: activeGroupLoading } = useGroup(activeConversation?.group_id ?? '');
   const activeCoachTitle = activeGroup?.agent_title ?? activeCoach?.title ?? null;
 
   // A coach's private lane in a room of one athlete (carnet#1249): the
@@ -593,10 +605,26 @@ export function useChatThread({
   const subtitle = useMemo<string | null>(() => {
     const line = threadSubtitle(activeConversation);
     if (line?.kind === 'subject') return t(PLAN_THREAD_KEYS.subtitle, { name: line.name });
-    if (line?.kind === 'group') return t('chat.groupChatBadge');
+    // A room is called after its group: the line says what it is instead of
+    // the name twice, and names the group under any other title.
+    if (line?.kind === 'group' && activeConversation?.group_name) {
+      return title === activeConversation.group_name ? t(GROUP_ROOM_KEYS.kindLabel) : activeConversation.group_name;
+    }
     if (line?.kind === 'handle') return `${MENTION_PREFIX}${line.handle}`;
     return providerStatus;
-  }, [activeConversation, providerStatus, t]);
+  }, [activeConversation, providerStatus, title, t]);
+  const planSubjectName = useMemo<string | null>(() => {
+    const line = threadSubtitle(activeConversation);
+    return line?.kind === 'subject' ? line.name : null;
+  }, [activeConversation]);
+  const coachRoomName = coachRoomNameOf(activeGroup ?? null, user?.id ?? null, activeConversation?.group_name ?? null);
+  // Until a room's group is read, nobody knows whether the composer is the
+  // coach's or an athlete's: it says nothing rather than swap words.
+  const composerPending = composerVoicePending({
+    openedId: activeConversation?.id ?? null,
+    groupId: activeConversation?.group_id ?? null,
+    groupLoading: activeGroupLoading,
+  });
 
   // Mutations. The server resolves the agent's system prompt at runtime from
   // the coaches table, and binds the athlete's own agent when none is named.
@@ -1191,6 +1219,9 @@ export function useChatThread({
     activeCoachTitle,
     title,
     subtitle,
+    planSubjectName,
+    coachRoomName,
+    composerPending,
     providerStatus,
     showConnectBanner,
     usageStatus,

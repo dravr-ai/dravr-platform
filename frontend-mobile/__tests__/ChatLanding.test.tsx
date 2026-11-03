@@ -156,6 +156,23 @@ describe('the landing after onboarding', () => {
     expect(view.getByTestId('slot')).toBeTruthy();
   });
 
+  it('feeds the native headers the scheme the app renders, so a dark app gets dark bars', async () => {
+    const view = render(<RootLayout />);
+    await view.findByTestId('slot');
+    const theme = view.getByTestId('navigation-theme');
+    // The app's own scheme is the class on the theme wrapper above it.
+    let node = theme.parent;
+    let scheme: 'dark' | 'light' | null = null;
+    while (node && scheme === null) {
+      const className = node.props?.className;
+      if (className === 'dark') scheme = 'dark';
+      else if (className === '') scheme = 'light';
+      node = node.parent;
+    }
+    expect(scheme).not.toBeNull();
+    expect(theme.props.accessibilityHint).toBe(scheme);
+  });
+
   it('leaves an athlete already in the app where they are', async () => {
     mockSegments = ['(app)', '(tabs)', '(discover)'];
     render(<RootLayout />);

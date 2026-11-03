@@ -61,19 +61,112 @@ macro_rules! impl_chat_repository {
                 let Some(cap) = cap else {
                     return Ok((tx, None));
                 };
-                let user = $ids::bind_text(user_id)?;
+                Self::lock_owner_slot(&mut tx, user_id).await?;
+                let current = Self::count_owned_active(&mut tx, user_id, tenant).await?;
+                Ok((tx, (current >= cap).then_some(current)))
+            }
+
+            /// Take the owner slot lock in `tx`: every decision about one of
+            /// `user_id`'s slots, or about whether they already hold a room,
+            /// waits here for the one before it to commit.
+            async fn lock_owner_slot(
+                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
+                user_id: &str,
+            ) -> AppResult<()> {
                 sqlx::query(owner_slot_lock_sql!($lock))
+                    .bind($ids::bind_text(user_id)?)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to decide a conversation slot: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            /// The active conversations `user_id` owns in `tenant`, read in
+            /// `tx` under the owner slot lock.
+            async fn count_owned_active(
+                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
+                user_id: &str,
+                tenant: &str,
+            ) -> AppResult<i64> {
+                sqlx::query_scalar(COUNT_CONVERSATIONS_SQL)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to decide a conversation slot: {e}"))
+                    })
+            }
+
+            /// Insert `new` and its owner participant in `tx`, and commit.
+            async fn insert_conversation(
+                mut tx: sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
+                new: &NewConversation<'_>,
+            ) -> AppResult<ConversationRecord> {
+                let id = Uuid::new_v4().to_string();
+                let now = Utc::now();
+                let user = $ids::bind_text(new.user_id)?;
+                let group = $ids::bind_text_opt(new.group_id)?;
+                let tenant = new.tenant_id.to_string();
+
+                sqlx::query(CREATE_CONVERSATION_SQL)
+                    .bind(&id)
                     .bind(&user)
+                    .bind(&tenant)
+                    .bind(new.title)
+                    .bind(new.model)
+                    .bind(new.agent_id)
+                    .bind(group)
+                    .bind(now)
                     .execute(&mut *tx)
                     .await
-                    .map_err(failed)?;
-                let current: i64 = sqlx::query_scalar(COUNT_CONVERSATIONS_SQL)
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to create conversation: {e}"))
+                    })?;
+
+                sqlx::query(CREATE_OWNER_PARTICIPANT_SQL)
+                    .bind(&id)
                     .bind(&user)
-                    .bind(tenant)
-                    .fetch_one(&mut *tx)
+                    .bind(&tenant)
+                    .bind(ParticipantRole::Owner.as_str())
+                    .bind(now)
+                    .execute(&mut *tx)
                     .await
-                    .map_err(failed)?;
-                Ok((tx, (current >= cap).then_some(current)))
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to add conversation owner: {e}"))
+                    })?;
+
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to create conversation: {e}"))
+                })?;
+
+                Ok(ConversationRecord {
+                    id,
+                    user_id: new.user_id.to_owned(),
+                    tenant_id: tenant,
+                    title: new.title.to_owned(),
+                    model: new.model.to_owned(),
+                    agent_id: new.agent_id.map(ToOwned::to_owned),
+                    session_id: None,
+                    total_tokens: 0,
+                    created_at: now.to_rfc3339(),
+                    updated_at: now.to_rfc3339(),
+                    group_id: new.group_id.map(ToOwned::to_owned),
+                    // The INSERT above does not name the column, so the stored
+                    // value is the schema default. Callers that mean another
+                    // channel stamp it afterwards through `set_conversation_channel`.
+                    channel_type: CHANNEL_TYPE_WEB.to_owned(),
+                    onboarding_state: None,
+                    archived_at: None,
+                    // Designated afterwards, by the personal-thread resolver.
+                    personal: false,
+                    // A thread about one athlete is opened only by
+                    // `open_subject_conversation`.
+                    subject_user_id: None,
+                    subject_group_id: None,
+                })
             }
         }
 
@@ -110,76 +203,54 @@ macro_rules! impl_chat_repository {
                 new: &NewConversation<'_>,
                 cap: Option<i64>,
             ) -> AppResult<SlotClaim> {
-                let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
-                let user = $ids::bind_text(new.user_id)?;
-                let group = $ids::bind_text_opt(new.group_id)?;
                 let tenant = new.tenant_id.to_string();
-
-                let (mut tx, at_cap) = self
+                let (tx, at_cap) = self
                     .open_slot_transaction(new.user_id, &tenant, cap)
                     .await?;
                 if let Some(current) = at_cap {
                     // Dropping the transaction rolls it back; nothing was written.
                     return Ok(SlotClaim::AtCap { current });
                 }
+                let conversation = Self::insert_conversation(tx, new).await?;
+                Ok(SlotClaim::Claimed(Box::new(conversation)))
+            }
 
-                sqlx::query(CREATE_CONVERSATION_SQL)
-                    .bind(&id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .bind(new.title)
-                    .bind(new.model)
-                    .bind(new.agent_id)
-                    .bind(group)
-                    .bind(now)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to create conversation: {e}"))
-                    })?;
-
-                sqlx::query(CREATE_OWNER_PARTICIPANT_SQL)
-                    .bind(&id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .bind(ParticipantRole::Owner.as_str())
-                    .bind(now)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to add conversation owner: {e}"))
-                    })?;
-
-                tx.commit().await.map_err(|e| {
-                    AppError::database(format!("Failed to create conversation: {e}"))
+            async fn open_group_conversation(
+                &self,
+                new: &NewConversation<'_>,
+                cap: Option<i64>,
+            ) -> AppResult<GroupRoomClaim> {
+                let group_id = new
+                    .group_id
+                    .ok_or_else(|| AppError::invalid_input("a group room is opened for a group"))?;
+                let tenant = new.tenant_id.to_string();
+                let mut tx = self.pool().begin_with($begin).await.map_err(|e| {
+                    AppError::database(format!("Failed to open the group room: {e}"))
                 })?;
-
-                Ok(SlotClaim::Claimed(Box::new(ConversationRecord {
-                    id,
-                    user_id: new.user_id.to_owned(),
-                    tenant_id: tenant,
-                    title: new.title.to_owned(),
-                    model: new.model.to_owned(),
-                    agent_id: new.agent_id.map(ToOwned::to_owned),
-                    session_id: None,
-                    total_tokens: 0,
-                    created_at: now.to_rfc3339(),
-                    updated_at: now.to_rfc3339(),
-                    group_id: new.group_id.map(ToOwned::to_owned),
-                    // The INSERT above does not name the column, so the stored
-                    // value is the schema default. Callers that mean another
-                    // channel stamp it afterwards through `set_conversation_channel`.
-                    channel_type: CHANNEL_TYPE_WEB.to_owned(),
-                    onboarding_state: None,
-                    archived_at: None,
-                    // Designated afterwards, by the personal-thread resolver.
-                    personal: false,
-                    // A thread about one athlete is opened only by
-                    // `open_subject_conversation`.
-                    subject_user_id: None,
-                    subject_group_id: None,
-                })))
+                // Locked before the lookup, so a racing open that got here
+                // first has committed its room by the time this one looks.
+                Self::lock_owner_slot(&mut tx, new.user_id).await?;
+                let held = sqlx::query(FIND_GROUP_CONVERSATION_SQL)
+                    .bind($ids::bind_text(new.user_id)?)
+                    .bind(&tenant)
+                    .bind($ids::bind_text(group_id)?)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to find group conversation: {e}"))
+                    })?;
+                if let Some(row) = held.as_ref() {
+                    // Dropping the transaction rolls it back; nothing was written.
+                    return Ok(GroupRoomClaim::Held(Box::new(conversation_from_row(row)?)));
+                }
+                if let Some(cap) = cap {
+                    let current = Self::count_owned_active(&mut tx, new.user_id, &tenant).await?;
+                    if current >= cap {
+                        return Ok(GroupRoomClaim::AtCap { current });
+                    }
+                }
+                let conversation = Self::insert_conversation(tx, new).await?;
+                Ok(GroupRoomClaim::Opened(Box::new(conversation)))
             }
 
             async fn get_conversation(

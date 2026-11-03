@@ -9,7 +9,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { COACH_SCOPE_KEYS, countKey } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { formatInstant, localToday } from '@pierre/ui-logic';
+import { buildQueue, formatInstant, localToday, queueCount } from '@pierre/ui-logic';
 import { BrandLockup, EmptyState, Row, TextTabs } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
@@ -72,6 +72,9 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
     void refetch().finally(() => setRefreshing(false));
   }, [refetch]);
 
+  // "À traiter" counts on its own tab: the queue under it carries no second title.
+  const toHandle = useMemo(() => (roster === undefined ? undefined : queueCount(buildQueue(roster.athletes))), [roster]);
+
   const scrollToTop = useCallback(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), []);
   const open = useCallback((athleteId: string) => router.push(coachAthleteHref(athleteId)), [router]);
 
@@ -124,9 +127,11 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tokens.primary} />}
         testID="coach-home-scroll"
       >
-        <View className="px-4 pb-2 pt-2">{scopeSwitch}</View>
+        {/* The athlete Home insets its switch the same 16 from the top, so the
+            pill stays under the coach's finger when they flip between the two. */}
+        <View className="px-4 pb-2 pt-4">{scopeSwitch}</View>
         <TextTabs
-          items={VIEWS.map((id) => ({ key: id, label: t(VIEW_LABEL_KEY[id]) }))}
+          items={VIEWS.map((id) => ({ key: id, label: t(VIEW_LABEL_KEY[id]), count: id === 'queue' ? toHandle : undefined }))}
           value={view}
           onChange={(key) => setView(key as CoachView)}
           testID="coach-views"

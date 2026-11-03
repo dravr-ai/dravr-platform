@@ -5,6 +5,7 @@
 // ABOUTME: The server ranks and evidences; a client never derives a band, never scores form, and never compares one athlete's form with another's
 
 import type {
+  CoachAttentionEvidence,
   CoachAttentionReason,
   CoachEvidenceSource,
   CoachRosterAthlete,
@@ -19,11 +20,13 @@ import {
   COACH_EVIDENCE_SOURCE_LABEL_KEY,
   COACH_MORNING_UNIT_KEYS,
   COACH_OPTIONAL_DAYS_KEYS,
+  COACH_ORDINAL_TITLE_PARAM,
   COACH_PLURAL_LINE_PARAM,
   countKey,
   providerBrand,
   signedWhole,
 } from '@pierre/shared-constants';
+import { ordinalKey } from '@pierre/chat-utils';
 import { formatDuration } from '@pierre/domain-utils';
 import { civilShortDate, formatInstant, formatSyncTime, sportLabel, type Translate } from './homeFormat';
 
@@ -85,6 +88,20 @@ export function trainingCut(training: CoachRosterAthlete['training']): boolean {
   return training !== undefined && (training.stale || training.needs_reconnect.length > 0);
 }
 
+/**
+ * The day a cut reading's data stops. A source that refuses access is read
+ * again today over activities that end at its last sync, so the band's own
+ * `as_of` is today while nothing has arrived for days; the reading is only as
+ * new as the last day any source delivered. Null without a reading.
+ */
+export function cutReadingDay(training: CoachRosterAthlete['training']): string | null {
+  const form = training?.form;
+  if (form === undefined || form === null) return null;
+  const delivered = Object.values(training?.last_activity_per_source ?? {}).sort();
+  const last = delivered[delivered.length - 1];
+  return last !== undefined && last < form.as_of ? last : form.as_of;
+}
+
 // ── Dates ───────────────────────────────────────────────────────────────────
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -108,6 +125,51 @@ export function localToday(now: Date = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * The last day a plan has anything on. The roster's `ends` is the day AFTER
+ * it (an exclusive end), so a surface that prints `ends` as the day the plan
+ * ended reads one day later than the queue's "Plan terminé le …".
+ */
+export function planLastDay(ends: string | null | undefined): string | null {
+  if (ends === null || ends === undefined) return null;
+  const n = civilDayNumber(ends);
+  return Number.isNaN(n) ? null : civilFromDayNumber(n - 1);
+}
+
+/** A plan that has run out, as the athlete pane draws it: the season line's state and its day. */
+export interface EndedPlan {
+  /** `plan_ended`, or `nothing_since_last_race` when the plan closed on its A race. */
+  state: Extract<CoachSeasonState, 'plan_ended' | 'nothing_since_last_race'>;
+  /** The day the line names — the plan's last day, or the race's — `YYYY-MM-DD`; null when unknown. */
+  date: string | null;
+}
+
+/**
+ * Whether the athlete's plan has run out by `today`, and how the pane says
+ * so: a plan that ran out is not its old phases with today past their end,
+ * it is in transition with nothing ahead, as the queue's reason says. The
+ * server's season state decides when it names one; otherwise today on or
+ * after the day following the last phase does. `null` while a plan runs.
+ */
+export function endedPlan(
+  plan: Pick<CoachRosterAthlete, 'plan'>['plan'],
+  season: Pick<CoachRosterAthlete, 'season'>['season'],
+  today: string,
+): EndedPlan | null {
+  if (plan === undefined || plan.phases.length === 0) return null;
+  const lastDay = planLastDay(plan.ends ?? season?.ends);
+  if (season?.state === 'nothing_since_last_race') {
+    return { state: 'nothing_since_last_race', date: season.race?.date ?? lastDay };
+  }
+  const ended = { state: 'plan_ended' as const, date: lastDay };
+  if (season?.state === 'plan_ended') return ended;
+  const lastPhase = plan.phases[plan.phases.length - 1];
+  const todayAt = civilDayNumber(today);
+  // A phase's `end` is the day after its last day; with none, its start is all that is known.
+  const over = lastPhase.end !== null ? todayAt >= civilDayNumber(lastPhase.end) : todayAt > civilDayNumber(lastPhase.start);
+  return over ? ended : null;
 }
 
 /** Whole days from `from` to `to` (negative when `to` is earlier); null when either is not a day. */
@@ -155,6 +217,23 @@ export interface CoachQueue {
   notSharing: CoachRosterAthlete[];
 }
 
+function evidenceIdentity(line: CoachAttentionEvidence): string {
+  return `${line.key}|${JSON.stringify(line.params)}`;
+}
+
+/**
+ * Whether `other` says nothing `lead` does not: every line of its evidence is
+ * already one of the lead's. "Rien reçu depuis 8 jours · Strava à
+ * reconnecter" carries the refusal and the last day received; the separate
+ * "Strava à reconnecter" behind it carries those same two lines, and listing
+ * it again only repeats them.
+ */
+export function restatesReason(lead: CoachAttentionReason, other: CoachAttentionReason): boolean {
+  if (other.evidence.length === 0) return false;
+  const known = new Set(lead.evidence.map(evidenceIdentity));
+  return other.evidence.every((line) => known.has(evidenceIdentity(line)));
+}
+
 function byRankThenName(a: QueueEntry, b: QueueEntry): number {
   return a.reason.rank - b.reason.rank || a.athlete.name.localeCompare(b.athlete.name);
 }
@@ -174,7 +253,11 @@ export function buildQueue(athletes: readonly CoachRosterAthlete[]): CoachQueue 
     const closed = ranked.filter((r) => r.dismissed_at !== null);
     const [top, ...others] = open;
     if (top !== undefined) {
-      (top.horizon === 'today' ? queue.today : queue.week).push({ athlete, reason: top, others });
+      (top.horizon === 'today' ? queue.today : queue.week).push({
+        athlete,
+        reason: top,
+        others: others.filter((other) => !restatesReason(top, other)),
+      });
     } else if (closed[0] !== undefined) {
       queue.treated.push({ athlete, reason: closed[0], others: [] });
     } else if (athlete.status === 'shared') {
@@ -276,7 +359,7 @@ export function threadState(athlete: CoachRosterAthlete): ThreadState {
   const thread = athlete.plan_thread;
   if (thread !== undefined && thread.draft_updated_at !== null) return { kind: 'draft' };
   if (athlete.season?.state === 'plan_ended' || athlete.season?.state === 'nothing_since_last_race') {
-    const date = athlete.season.ends ?? athlete.season.race?.date;
+    const date = planLastDay(athlete.season.ends) ?? athlete.season.race?.date;
     if (date !== undefined && date !== null) return { kind: 'ended', date };
   }
   if (thread !== undefined && thread.published_at !== null) return { kind: 'published', date: thread.published_at.slice(0, 10) };
@@ -583,6 +666,95 @@ export function lineKey(key: string, params: LineParams, language: string): stri
 /** One reason or evidence line, ready to print. */
 export function describeLine(t: Translate, language: string, key: string, params: LineParams): string {
   return t(lineKey(key, params, language), formatLineParams(t, language, params));
+}
+
+const REASON_PREFIX = 'coachHome.reason.';
+const REASON_TITLE_PREFIX = 'coachHome.reasonTitle.';
+
+/** A reason's full-sentence title: the catalogue key it reads under and the params it interpolates. */
+export interface ReasonTitle {
+  key: string;
+  params: LineParams;
+}
+
+/**
+ * The sentence a reason opens with in an athlete's detail (« Chloé is in
+ * deep fatigue for the 3rd morning in a row. »), over its short label and its
+ * evidence. Every reason key has a twin under `coachHome.reasonTitle`; the
+ * twin is chosen after the reason's own `One`/`NoDays` variant, so the two
+ * lines always agree on count and on whether the days are known. A streak
+ * counts as an ordinal (« for the 4th morning in a row »), its suffix picked
+ * here by `ordinalKey` rather than by `Intl.PluralRules`, which the phone
+ * lacks. The server never sends the name, so the athlete's name is added
+ * here. A key outside the reason catalogue has no title.
+ */
+export function reasonTitle(reason: CoachAttentionReason, athleteName: string, language: string): ReasonTitle | null {
+  if (!reason.key.startsWith(REASON_PREFIX)) return null;
+  const variant = lineKey(reason.key, reason.params, language);
+  const key = `${REASON_TITLE_PREFIX}${variant.slice(REASON_PREFIX.length)}`;
+  const params = { ...reason.params, name: athleteName };
+  const ordinal = COACH_ORDINAL_TITLE_PARAM[reason.key];
+  const n = ordinal === undefined ? undefined : reason.params[ordinal];
+  if (typeof n === 'number' && Number.isInteger(n) && n >= 2) {
+    return { key: ordinalKey(n, language, key), params: { ...params, count: n } };
+  }
+  return { key, params };
+}
+
+/** A reason's full-sentence title, ready to print; null when the reason has none. */
+export function describeReasonTitle(
+  t: Translate,
+  language: string,
+  reason: CoachAttentionReason,
+  athleteName: string,
+): string | null {
+  const title = reasonTitle(reason, athleteName, language);
+  return title === null ? null : t(title.key, formatLineParams(t, language, title.params));
+}
+
+/** The evidence key one fatigued morning's form reading comes under. */
+export const FORM_MORNING_EVIDENCE_KEY = 'coachHome.evidence.formMorning';
+
+/** One evidence line ready to print: its words, and the source and time of what it says. */
+export interface EvidenceLineText {
+  /** The line it was built from (the latest morning, for merged mornings): its key, source and time. */
+  line: CoachAttentionEvidence;
+  text: string;
+}
+
+/**
+ * A reason's evidence as the lines a coach reads. A streak of fatigued
+ * mornings arrives as one line per morning, each with the same source; it is
+ * read as one line — this morning's form with the earlier ones in brackets —
+ * where the first of them stood, under the latest one's source.
+ */
+export function describeEvidence(
+  t: Translate,
+  language: string,
+  evidence: readonly CoachAttentionEvidence[],
+): EvidenceLineText[] {
+  const mornings = evidence
+    .filter((line) => line.key === FORM_MORNING_EVIDENCE_KEY)
+    .sort((a, b) => String(b.params.date ?? '').localeCompare(String(a.params.date ?? '')));
+  const out: EvidenceLineText[] = [];
+  let mergedPlaced = false;
+  for (const line of evidence) {
+    if (line.key !== FORM_MORNING_EVIDENCE_KEY || mornings.length < 2) {
+      out.push({ line, text: describeLine(t, language, line.key, line.params) });
+      continue;
+    }
+    if (mergedPlaced) continue;
+    mergedPlaced = true;
+    const [latest, ...earlier] = mornings;
+    const earlierText = earlier
+      .map((m) => t('coachHome.evidence.formMorningEarlier', formatLineParams(t, language, m.params)))
+      .join(', ');
+    out.push({
+      line: latest,
+      text: t('coachHome.evidence.formMornings', { ...formatLineParams(t, language, latest.params), earlier: earlierText }),
+    });
+  }
+  return out;
 }
 
 /** The source of an evidence line: « Garmin · Calcul · 27 oct., 06:30 ». */

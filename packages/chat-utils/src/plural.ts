@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Picks the singular or plural catalogue key for a count, per locale, without Intl.PluralRules
+// ABOUTME: Picks the singular or plural, or the ordinal, catalogue key for a count, per locale, without Intl.PluralRules
 // ABOUTME: French and Portuguese read 0 as singular (« 0 signalée »); English, Spanish and German read it as plural
 
 /** A count's two catalogue keys: `{{count}} signalée` / `{{count}} signalées`. */
@@ -36,4 +36,37 @@ export function countKey(count: number, language: string | undefined, keys: Coun
 /** `fr-CA` → `fr`; the catalogue's languages differ only by their base tag. */
 function baseLanguage(language: string | undefined): string {
   return (language ?? '').toLowerCase().split(/[-_]/, 1)[0] ?? '';
+}
+
+/** The CLDR ordinal categories the catalogue writes a `_ordinal_*` key for. */
+export type OrdinalCategory = 'one' | 'two' | 'few' | 'other';
+
+/**
+ * The CLDR ordinal category of a whole count in `language`, written out for
+ * the same reason `countKey` is: `Intl.PluralRules` with `type: 'ordinal'` is
+ * not there on every runtime the phone ships. English: 1st, 2nd, 3rd, 4th,
+ * 11th–13th, 21st…; French: 1er, then 2e…; Spanish, German and Portuguese
+ * write one ordinal mark for every count. An unknown language reads English.
+ */
+export function ordinalCategory(count: number, language: string | undefined): OrdinalCategory {
+  const base = baseLanguage(language);
+  if (base === 'fr') return count === 1 ? 'one' : 'other';
+  if (base === 'es' || base === 'de' || base === 'pt') return 'other';
+  const tens = count % 100;
+  if (tens >= 11 && tens <= 13) return 'other';
+  switch (count % 10) {
+    case 1:
+      return 'one';
+    case 2:
+      return 'two';
+    case 3:
+      return 'few';
+    default:
+      return 'other';
+  }
+}
+
+/** The `_ordinal_<category>` twin of `key` a count reads under in `language` (« the 4th morning »). */
+export function ordinalKey(count: number, language: string | undefined, key: string): string {
+  return `${key}_ordinal_${ordinalCategory(count, language)}`;
 }

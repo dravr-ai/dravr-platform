@@ -86,6 +86,13 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
     color: fieldColors.text,
     paddingRight: showPasswordToggle ? 64 : undefined,
   };
+  // A multiline field grows downward from a floor of three lines, starting
+  // at its top: centred in a flex-row with `flex: 1`, iOS draws the empty
+  // field as bare space with no placeholder in it, and the label sits over
+  // nothing that reads as a field.
+  const multilineStyle: ViewStyle & TextStyle = props.multiline
+    ? { flex: undefined, alignSelf: 'stretch', width: '100%', minHeight: 88, textAlignVertical: 'top', paddingTop: 12 }
+    : {};
 
   return (
     <View className="mb-4" style={containerStyle}>
@@ -105,7 +112,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
         <TextInput
           ref={ref}
           className="text-base"
-          style={inputBaseStyle}
+          style={[inputBaseStyle, multilineStyle]}
           placeholderTextColor={fieldColors.tertiary}
           selectionColor={themeColors.tokens.primary}
           secureTextEntry={shouldHidePassword}

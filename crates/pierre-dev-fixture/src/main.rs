@@ -50,6 +50,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{serve, Json, Router};
+use pierre_core::uuid_utils;
 use pierre_dev_fixture::garmin::{
     self, user_from_bearer, GarminFixture, GarminFixtureConfig, PushTarget,
 };
@@ -141,7 +142,7 @@ fn app(pool: SqlitePool, garmin: GarminFixture) -> Router {
 async fn athlete(headers: HeaderMap) -> Json<Value> {
     let user_id = user_from_bearer(&headers).unwrap_or_else(|| "unknown".to_owned());
     Json(json!({
-        "id": stable_id(&user_id),
+        "id": uuid_utils::fixture_numeric_id(&user_id),
         "username": user_id,
         "firstname": "Dev",
         "lastname": "Fixture",
@@ -195,8 +196,8 @@ async fn athlete_activities(
 /// the provider's `DetailedActivityResponse` flattens, and no laps or splits,
 /// since a seed records none.
 ///
-/// The id is the numeric one the list handed out ([`stable_id`]): the first 16
-/// hex digits of the row's UUID. An id the bearer user holds no row for is
+/// The id is the numeric one the list handed out ([`uuid_utils::fixture_numeric_id`]):
+/// the first 16 hex digits of the row's UUID. An id the bearer user holds no row for is
 /// Strava's `404 Record Not Found`, and a request without the fixture's bearer
 /// is its `401`, so the provider meets the same answers it would in prod.
 async fn activity_detail(
@@ -361,8 +362,8 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
         (Some(lat), Some(lng)) => (
             json!([lat, lng]),
             json!({
-                "id": format!("a{}", stable_id(&id)),
-                "summary_polyline": loop_route((lat, lng), distance.unwrap_or(0.0), stable_id(&id)),
+                "id": format!("a{}", uuid_utils::fixture_numeric_id(&id)),
+                "summary_polyline": loop_route((lat, lng), distance.unwrap_or(0.0), uuid_utils::fixture_numeric_id(&id)),
                 "resource_state": 2,
             }),
         ),
@@ -371,7 +372,7 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
     };
 
     json!({
-        "id": stable_id(&id),
+        "id": uuid_utils::fixture_numeric_id(&id),
         "name": row.try_get::<String, _>("name").unwrap_or_default(),
         "type": row.try_get::<String, _>("sport_type").unwrap_or_else(|_| "Workout".to_owned()),
         "start_date": rfc3339_z(&row.try_get::<String, _>("start_date").unwrap_or_default()),
@@ -380,9 +381,9 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
         "total_elevation_gain": row.try_get::<Option<f64>, _>("elevation_gain").ok().flatten(),
         "average_speed": row.try_get::<Option<f64>, _>("average_speed").ok().flatten(),
         "max_speed": row.try_get::<Option<f64>, _>("max_speed").ok().flatten(),
-        "average_heartrate": row.try_get::<Option<f64>, _>("average_heart_rate").ok().flatten(),
-        "max_heartrate": row.try_get::<Option<f64>, _>("max_heart_rate").ok().flatten(),
-        "calories": row.try_get::<Option<f64>, _>("calories").ok().flatten(),
+        "average_heartrate": row.try_get::<Option<i64>, _>("average_heart_rate").ok().flatten(),
+        "max_heartrate": row.try_get::<Option<i64>, _>("max_heart_rate").ok().flatten(),
+        "calories": row.try_get::<Option<i64>, _>("calories").ok().flatten(),
         "start_latlng": start_latlng,
         "map": map,
         "location_city": row.try_get::<Option<String>, _>("city").ok().flatten(),
@@ -440,17 +441,6 @@ fn rfc3339_z(start_date: &str) -> String {
     }
 }
 
-/// Derive a stable numeric Strava-style activity id from a `UUID` string by
-/// taking its first 64 bits. Deterministic so repeated fetches are stable.
-fn stable_id(uuid: &str) -> u64 {
-    let hex: String = uuid
-        .chars()
-        .filter(char::is_ascii_hexdigit)
-        .take(16)
-        .collect();
-    u64::from_str_radix(&hex, 16).unwrap_or(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,8 +464,10 @@ mod tests {
     const TREADMILL_RUN: &str = "1b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e";
     const STRANGER: &str = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
 
-    /// A pool holding the seed table's read columns, with one ride recorded
-    /// with GPS and one treadmill run recorded without, both the athlete's.
+    /// A pool holding the seed table's read columns, typed as the migration
+    /// types them (heart rates and calories are INTEGER), with one ride
+    /// recorded with GPS and one treadmill run recorded without, both the
+    /// athlete's.
     async fn seeded_pool() -> SqlitePool {
         // One connection: an in-memory database lives and dies with it.
         let pool = SqlitePoolOptions::new()
@@ -486,9 +478,9 @@ mod tests {
         sqlx::query(
             "CREATE TABLE synthetic_activities (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, \
              name TEXT, sport_type TEXT, start_date TEXT, duration_seconds INTEGER, \
-             distance_meters REAL, elevation_gain REAL, average_heart_rate REAL, \
-             max_heart_rate REAL, average_speed REAL, max_speed REAL, calories REAL, city TEXT, \
-             region TEXT, country TEXT, start_latitude REAL, start_longitude REAL)",
+             distance_meters REAL, elevation_gain REAL, average_heart_rate INTEGER, \
+             max_heart_rate INTEGER, average_speed REAL, max_speed REAL, calories INTEGER, \
+             city TEXT, region TEXT, country TEXT, start_latitude REAL, start_longitude REAL)",
         )
         .execute(&pool)
         .await
@@ -499,8 +491,9 @@ mod tests {
         ] {
             sqlx::query(
                 "INSERT INTO synthetic_activities (id, user_id, name, sport_type, start_date, \
-                 duration_seconds, distance_meters, start_latitude, start_longitude) \
-                 VALUES (?, ?, ?, ?, '2026-09-28T10:00:00', 3600, 10000.0, ?, ?)",
+                 duration_seconds, distance_meters, average_heart_rate, max_heart_rate, \
+                 calories, start_latitude, start_longitude) \
+                 VALUES (?, ?, ?, ?, '2026-09-28T10:00:00', 3600, 10000.0, 140, 165, 600, ?, ?)",
             )
             .bind(id)
             .bind(ATHLETE)
@@ -600,7 +593,7 @@ mod tests {
     #[tokio::test]
     async fn a_seeded_activity_without_gps_reads_as_no_samples_not_a_failed_read() {
         let provider = provider_on_fixture(seeded_pool().await, ATHLETE).await;
-        let id = stable_id(TREADMILL_RUN).to_string();
+        let id = uuid_utils::fixture_numeric_id(TREADMILL_RUN).to_string();
 
         // The route read: the detail, then the streams. The streams' 404 is
         // Strava's word that nothing was recorded, so the read carries an empty
@@ -617,11 +610,45 @@ mod tests {
         assert!(streams.gps_coordinates.is_none(), "no track recorded");
     }
 
+    /// A seeder that warms the activity cache keys each session by the id the
+    /// list serves it under, and its integer heart rates reach the provider:
+    /// a sync then rewrites the warmed rows instead of doubling them with a
+    /// copy that lost its heart rate.
+    #[tokio::test]
+    async fn the_list_serves_each_row_under_its_numeric_id_with_its_heart_rate() {
+        let provider = provider_on_fixture(seeded_pool().await, ATHLETE).await;
+        let activities = provider
+            .get_activities(Some(10), None)
+            .await
+            .expect("the list read succeeds");
+
+        let ride = activities
+            .iter()
+            .find(|a| a.name() == "Morning ride")
+            .expect("the ride is listed");
+        assert_eq!(
+            ride.id(),
+            uuid_utils::fixture_numeric_id(ROAD_RIDE).to_string(),
+            "listed under the fixture's numeric id"
+        );
+        assert_eq!(
+            ride.average_heart_rate(),
+            Some(140),
+            "the INTEGER average heart rate is read"
+        );
+        assert_eq!(
+            ride.max_heart_rate(),
+            Some(165),
+            "the INTEGER max heart rate is read"
+        );
+        assert_eq!(ride.calories(), Some(600), "the INTEGER calories are read");
+    }
+
     #[tokio::test]
     async fn a_seeded_activity_with_gps_answers_its_detail_and_route() {
         let provider = provider_on_fixture(seeded_pool().await, ATHLETE).await;
         let activity = provider
-            .get_activity_detailed(&stable_id(ROAD_RIDE).to_string())
+            .get_activity_detailed(&uuid_utils::fixture_numeric_id(ROAD_RIDE).to_string())
             .await
             .expect("the detail read succeeds");
 
@@ -639,7 +666,7 @@ mod tests {
     async fn another_athletes_activity_and_an_unknown_id_are_not_found() {
         let stranger = provider_on_fixture(seeded_pool().await, STRANGER).await;
         let foreign = stranger
-            .get_activity_detailed(&stable_id(ROAD_RIDE).to_string())
+            .get_activity_detailed(&uuid_utils::fixture_numeric_id(ROAD_RIDE).to_string())
             .await
             .expect_err("a row the bearer does not own is not served");
         // The provider reads Strava's `Record Not Found` body as the activity
@@ -664,7 +691,7 @@ mod tests {
     async fn the_detail_refuses_a_request_without_the_fixture_bearer() {
         let response = activity_detail(
             State(seeded_pool().await),
-            Path(stable_id(ROAD_RIDE).to_string()),
+            Path(uuid_utils::fixture_numeric_id(ROAD_RIDE).to_string()),
             HeaderMap::new(),
         )
         .await;

@@ -210,4 +210,23 @@ describe('Input Component', () => {
       expect(getByTestId('limited-input').props.maxLength).toBe(100);
     });
   });
+
+  describe('multiline', () => {
+    it('grows from a three-line floor, read from its top, so an empty field reads as one', () => {
+      const { getByTestId } = render(<Input testID="note" multiline placeholder="What is wrong with this reply?" />);
+      const field = getByTestId('note');
+      const style = Object.assign({}, ...[field.props.style].flat(2).filter(Boolean));
+      expect(style.minHeight).toBe(88);
+      expect(style.textAlignVertical).toBe('top');
+      expect(style.flex).toBeUndefined();
+      expect(field.props.placeholder).toBe('What is wrong with this reply?');
+    });
+
+    it('leaves a one-line field filling its row', () => {
+      const { getByTestId } = render(<Input testID="name" />);
+      const style = Object.assign({}, ...[getByTestId('name').props.style].flat(2).filter(Boolean));
+      expect(style.flex).toBe(1);
+      expect(style.minHeight).toBeUndefined();
+    });
+  });
 });

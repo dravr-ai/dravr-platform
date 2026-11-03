@@ -9,14 +9,18 @@ import { Alert, Keyboard, Text, TextInput, TouchableOpacity } from 'react-native
 import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
 import {
+  coachComposerPlaceholder,
   composeRoomThread,
+  PLAN_THREAD_KEYS,
   PRIVATE_LANE_KEYS,
   privateLaneComposerText,
+  threadCarriesDraft,
+  transcriptBlocks,
   trustedActionUrl,
   verdictSupportReference,
 } from '@pierre/chat-utils';
 import { intervalsConnectPath, noticeRequired } from '@pierre/shared-constants';
-import { privateSendFailureText, type UsePrivateLaneResult } from '@pierre/ui-logic';
+import { privateSendFailureText, type PlanThreadDraft, type UsePrivateLaneResult } from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -36,6 +40,7 @@ import { ChatInputBar, type ComposerAudience, type ComposerQuote } from './ChatI
 import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
+import PlanThreadOpenDraft from './PlanThreadOpenDraft';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import type { useMessages } from './useMessages';
 import type { useProviderStatus } from './useProviderStatus';
@@ -72,6 +77,28 @@ export interface ChatThreadProps {
    * host that leaves them out draws the empty thread without them.
    */
   starters?: UseCaseStarter[];
+  /**
+   * The athlete a coach's plan thread is about. Its empty state is the
+   * coach's planning space, not the athlete's own "ask anything".
+   */
+  planSubjectName?: string | null;
+  /**
+   * The group's name, when the viewer is its human coach in its room. Its
+   * empty state and composer say who reads what the coach writes there.
+   */
+  coachRoomName?: string | null;
+  /**
+   * The host has not yet read whose thread this is — the routed conversation,
+   * or its group's coach. The composer shows no placeholder until it has, so
+   * a coach's thread never opens on the athlete's words.
+   */
+  composerPending?: boolean;
+  /**
+   * The plan thread's draft read, which the host makes in a coach's plan
+   * thread: the open draft to draw when no card in the thread shows it, and
+   * whether the coach holds none, when the empty thread offers its start.
+   */
+  planDraftRead?: PlanThreadDraft;
   /** How the transcript follows its content; the list's own scroll-to-end when absent. */
   onScrollToBottom?: () => void;
   /**
@@ -87,6 +114,9 @@ export interface ChatThreadProps {
    */
   privateLane?: { lane: UsePrivateLaneResult; agentName: string } | null;
 }
+
+/** No plan thread, or its draft read still out. */
+const NO_PLAN_DRAFT: PlanThreadDraft = { open: null, noDraft: false };
 
 /** Nothing private to draw. */
 const NO_PRIVATE_ROWS: readonly Message[] = [];
@@ -112,6 +142,10 @@ export function ChatThread({
   composerOrigin,
   header,
   starters,
+  planSubjectName = null,
+  coachRoomName = null,
+  composerPending = false,
+  planDraftRead = NO_PLAN_DRAFT,
   onScrollToBottom,
   conversationTitle,
   privateLane = null,
@@ -448,6 +482,42 @@ export function ChatThread({
         },
       }
     : undefined;
+  // A coach's own threads say whom the line goes to; an athlete's composer
+  // keeps the app's own words; one not yet known says nothing.
+  const coachPlaceholder =
+    coachComposerPlaceholder(t, { planSubjectName, coachRoomName, pending: composerPending }) ?? undefined;
+
+  // The coach's open draft on the plan thread's athlete, drawn whenever no
+  // card in the thread shows it: "Review the draft" lands on a thread whose
+  // saving reply may be elsewhere, or not there at all. A row read back
+  // carries no block list on the wire: its blocks are decoded from the row,
+  // as its bubble decodes them.
+  const openDraftId = planDraftRead.open?.draft.draft_id ?? null;
+  const { messageBlocks } = messagesHook;
+  const draftCarried = useMemo(
+    () =>
+      openDraftId !== null &&
+      threadCarriesDraft(
+        threadMessages.map((message) => messageBlocks[message.id] ?? transcriptBlocks(message)),
+        openDraftId,
+      ),
+    [openDraftId, threadMessages, messageBlocks],
+  );
+  const openDraft = draftCarried ? null : planDraftRead.open;
+  const planDraft =
+    openDraft !== null && conversationId !== null ? (
+      <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} />
+    ) : null;
+  // The empty plan thread's one-tap start while the coach holds no draft:
+  // the plan request, sent in the coach's words under its label.
+  const planStarter =
+    planSubjectName !== null && planDraftRead.noDraft
+      ? {
+          label: t(PLAN_THREAD_KEYS.starterLabel, { name: planSubjectName }),
+          onPress: () => void sendText(t(PLAN_THREAD_KEYS.starterMessage, { name: planSubjectName })),
+          disabled: turnRunning || usageStatus.sendDisabled,
+        }
+      : null;
   // The quote rides a private send only, so the chip shows only while the
   // next send is private: the composer shows what the next send carries.
   const composerQuote: ComposerQuote | null = lane?.quote && sendsPrivately
@@ -495,6 +565,10 @@ export function ChatThread({
         onShowVerdict={handleShowVerdict}
         header={header}
         starters={starters}
+        planSubjectName={planSubjectName}
+        coachRoomName={coachRoomName}
+        planDraft={planDraft}
+        planStarter={planStarter}
         onStarter={handleStarter}
         hasEarlier={messagesHook.hasEarlier}
         loadingEarlier={messagesHook.loadingEarlier}
@@ -529,6 +603,7 @@ export function ChatThread({
         onVoicePress={voiceInput.handleVoicePress}
         onSendMessage={handleSendMessage}
         audience={composerAudience}
+        placeholder={coachPlaceholder}
         quote={composerQuote}
       />
 

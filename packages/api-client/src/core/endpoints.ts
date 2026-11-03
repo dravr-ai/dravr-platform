@@ -60,6 +60,8 @@ export const ENDPOINTS = {
     PERSONAL: '/api/chat/personal',
     /** Open a new topic in the personal thread — Home's "+" */
     PERSONAL_TOPICS: '/api/chat/personal/topics',
+    /** The caller's conversation in a group's room (POST): the one they hold, else one opened now */
+    GROUP_ROOM: (groupId: string) => `/api/chat/groups/${groupId}/room`,
     /** Open or reopen (POST) the coach's plan thread for one athlete of a group they coach */
     ATHLETE_THREAD: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/thread`,
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info */

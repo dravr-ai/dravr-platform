@@ -14,7 +14,8 @@ import type { CountKeys } from '@pierre/chat-utils';
 
 /** The label of each action a reason names as its primary one. */
 export const COACH_ACTION_LABEL_KEY: Record<CoachAttentionAction, string> = {
-  write_to_athlete: 'coachHome.action.writeToAthlete',
+  // Every write_to_athlete reason opens the group's room, so the button says so.
+  write_to_athlete: 'coachHome.action.writeToGroup',
   correct_reply: 'coachHome.action.correctReply',
   open_plan_thread: 'coachHome.action.openPlanThread',
   review_draft: 'coachHome.action.reviewDraft',
@@ -106,6 +107,16 @@ export const COACH_UNVERIFIED_KEYS: CountKeys = {
  */
 export const COACH_PLURAL_LINE_PARAM: Readonly<Record<string, string>> = {
   'coachHome.reason.unverifiedFigure': 'count',
+};
+
+/**
+ * The reasons whose full-sentence title counts with an ordinal — « for the
+ * 4th morning in a row » — under `<title key>_ordinal_<category>`. The value
+ * is the param that counts. A count under 2 reads the title key itself: « the
+ * 1st morning in a row » says nothing a streak should.
+ */
+export const COACH_ORDINAL_TITLE_PARAM: Readonly<Record<string, string>> = {
+  'coachHome.reason.deepFatigueStreak': 'mornings',
 };
 
 /**

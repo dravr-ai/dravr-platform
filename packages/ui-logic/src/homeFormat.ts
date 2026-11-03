@@ -141,6 +141,16 @@ export function volumeMetricText(
 }
 
 /**
+ * Whether the volume chart reads a week out under it. A week the athlete
+ * points at is read out, empty or not. At rest the readout is this week's,
+ * and a week with no activity already says so in its count line, so « Week
+ * of Nov 2: 0 m » would only say it a second time.
+ */
+export function volumeReadoutShown(pointed: number | null, thisWeek: { activities: number }): boolean {
+  return pointed !== null || thisWeek.activities > 0;
+}
+
+/**
  * How a question about the activity names it: its title — its sport when the
  * provider stored none — and its day, the two things the agent finds it by.
  */

@@ -369,6 +369,17 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
     },
 
     /**
+     * The caller's conversation in a group's room: the one they already hold
+     * there, else one the server opens now. Asking again returns the same
+     * room, so a second tap never makes a second one. 403 when the caller is
+     * neither a member nor the group's human coach.
+     */
+    async openGroupRoom(groupId: string): Promise<Conversation> {
+      const response = await axios.post<Conversation>(ENDPOINTS.CHAT.GROUP_ROOM(groupId));
+      return response.data;
+    },
+
+    /**
      * Open the caller's plan thread for one athlete of a group they coach —
      * the one thread per coach per athlete where the coach works on that
      * athlete's plan (carnet#1070). The server checks the coaching link by id

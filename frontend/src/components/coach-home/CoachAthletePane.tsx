@@ -19,6 +19,7 @@ import {
   COACH_ACTION_LABEL_KEY,
   COACH_AGENT_COUNT_KEYS,
   COACH_PHASE_LABEL_KEY,
+  COACH_SEASON_STATE_KEY,
   COACH_UNVERIFIED_KEYS,
   FORM_BAND_LABEL_KEY,
   VERDICT_CHIP_SEPARATOR,
@@ -31,7 +32,9 @@ import {
   civilShortDate,
   daysBetween,
   describeLine,
+  describeReasonTitle,
   describeSource,
+  endedPlan,
   formatSyncTime,
   providerName,
   sourceChipWords,
@@ -63,12 +66,18 @@ function Heading({ children }: { children: React.ReactNode }) {
   return <h3 className="font-sans text-sm font-semibold text-on-surface">{children}</h3>;
 }
 
-/** One reason and the lines of evidence behind it. */
-function ReasonBlock({ reason, lead }: { reason: CoachAttentionReason; lead: boolean }) {
+/** One reason: the sentence that says why, its short label, then the lines of evidence behind it. */
+function ReasonBlock({ reason, athleteName, lead }: { reason: CoachAttentionReason; athleteName: string; lead: boolean }) {
   const { t, language } = useTranslation();
+  const title = describeReasonTitle(t, language, reason, athleteName);
   return (
     <div className="space-y-3" data-testid={`coach-reason-${reason.id}`}>
-      <p className={lead ? 'text-base text-on-surface' : 'text-sm font-medium text-on-surface-variant'}>
+      {title !== null && (
+        <p className={lead ? 'text-base text-on-surface' : 'text-sm font-medium text-on-surface'} data-testid="coach-reason-title">
+          {title}
+        </p>
+      )}
+      <p className={lead ? 'text-sm text-on-surface-variant' : 'text-xs text-on-surface-variant'} data-testid="coach-reason-label">
         {describeLine(t, language, reason.key, reason.params)}
       </p>
       <ul className="m-0 flex list-none flex-col p-0">
@@ -134,6 +143,29 @@ function PlanBlock({ athlete, today }: { athlete: CoachRosterAthlete; today: str
         <span className="text-sm text-on-surface-variant">
           {draft ? t('coachHome.detail.planDraftOnly') : t('coachHome.detail.planNone')}
         </span>
+      </div>
+    );
+  }
+
+  // A plan that ran out is not its old phases with today past their end: it
+  // is in transition, with nothing ahead, as the queue's reason says.
+  const ended = endedPlan(plan, season, today);
+  if (ended !== null) {
+    const transition = t(COACH_PHASE_LABEL_KEY.transition);
+    return (
+      <div className="flex min-w-0 flex-col gap-2.5" data-testid="coach-plan-block">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-sm font-semibold text-on-surface">{t('coachHome.detail.plan')}</span>
+          <span className="text-sm text-on-surface">{transition}</span>
+        </div>
+        <div className="flex" data-testid="coach-plan-ended">
+          <PhaseBand className={clsx('h-[22px] min-w-0 flex-1 rounded-[5px] text-xs font-medium', phaseClass('transition'))} label={transition} />
+        </div>
+        {ended.date !== null && (
+          <span className="text-xs text-on-surface-variant">
+            {t(COACH_SEASON_STATE_KEY[ended.state], { date: civilShortDate(ended.date, language) })}
+          </span>
+        )}
       </div>
     );
   }
@@ -297,6 +329,10 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
   const showGroupAction =
     athlete.groups.length > 0 && (primaryAction === null || !destinations.primaryIsGroupRoom(primaryAction));
   const planThreadBusy = destinations.pendingAthleteId === athlete.user_id;
+  // Opening a room takes a round trip: the button that asked says so and
+  // takes no second click, so a coach never opens two rooms.
+  const roomBusy = destinations.pendingRoomAthleteId === athlete.user_id;
+  const primaryOpensRoom = primaryAction !== null && destinations.primaryIsGroupRoom(primaryAction);
 
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-8" data-testid="coach-athlete-pane">
@@ -311,10 +347,11 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
             <Button
               size="sm"
               data-testid="coach-primary-action"
-              disabled={planThreadBusy}
+              disabled={primaryOpensRoom ? roomBusy : planThreadBusy}
+              aria-busy={primaryOpensRoom ? roomBusy : planThreadBusy}
               onClick={() => destinations.perform(primaryAction, athlete, reason)}
             >
-              {t(COACH_ACTION_LABEL_KEY[primaryAction])}
+              {primaryOpensRoom && roomBusy ? t('coachHome.action.openingGroup') : t(COACH_ACTION_LABEL_KEY[primaryAction])}
             </Button>
           )}
           {showGroupAction && (
@@ -322,9 +359,11 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
               size="sm"
               variant="secondary"
               data-testid="coach-write-group"
+              disabled={roomBusy}
+              aria-busy={roomBusy}
               onClick={() => destinations.writeToGroup(athlete, reason)}
             >
-              {t('coachHome.action.writeToGroup')}
+              {roomBusy ? t('coachHome.action.openingGroup') : t('coachHome.action.writeToGroup')}
             </Button>
           )}
           {reason !== null && (
@@ -346,9 +385,9 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
           <h3 id="coach-why" className="font-sans text-sm font-semibold text-on-surface">
             {t('coachHome.detail.why')}
           </h3>
-          <ReasonBlock reason={entry.reason} lead />
+          <ReasonBlock reason={entry.reason} athleteName={athlete.name} lead />
           {entry.others.map((other) => (
-            <ReasonBlock key={other.id} reason={other} lead={false} />
+            <ReasonBlock key={other.id} reason={other} athleteName={athlete.name} lead={false} />
           ))}
         </section>
       )}
@@ -356,7 +395,7 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
       {entry === null && treatedReason !== null && (
         <section className="flex flex-col gap-3" data-testid="coach-treated-note">
           <Heading>{t('coachHome.detail.why')}</Heading>
-          <ReasonBlock reason={treatedReason} lead />
+          <ReasonBlock reason={treatedReason} athleteName={athlete.name} lead />
           <p className="m-0 text-xs text-on-surface-variant">
             {t('coachHome.detail.treatedNote')}
             {treatedReason.dismissed_at !== null ? ` · ${formatSyncTime(treatedReason.dismissed_at, language)}` : ''}

@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
-import { isModelReply, planCardDraft, transcriptBlocks, withVerdictRows } from '../src/blocks';
+import { isModelReply, planCardDraft, threadCarriesDraft, transcriptBlocks, withVerdictRows } from '../src/blocks';
 
 const CHART = {
   kind: 'chart',
@@ -291,5 +291,32 @@ describe('planCardDraft', () => {
         draft: DRAFT,
       }),
     ).toBeNull();
+  });
+});
+
+describe('threadCarriesDraft', () => {
+  const card = (draftId: string) => ({
+    type: 'workout_plan' as const,
+    plan: PLAN.plan,
+    subject: SUBJECT,
+    draft: { ...DRAFT, draft_id: draftId },
+  });
+
+  it('is true when a plan card in the thread shows the open draft', () => {
+    const thread = [[{ type: 'prose' as const, text: 'Here it is.' }], [card(DRAFT.draft_id)]];
+    expect(threadCarriesDraft(thread, DRAFT.draft_id)).toBe(true);
+  });
+
+  it('is false for an empty thread, prose only, a card with no draft, or a discarded draft', () => {
+    expect(threadCarriesDraft([], DRAFT.draft_id)).toBe(false);
+    expect(threadCarriesDraft([[{ type: 'prose', text: 'Hi' }]], DRAFT.draft_id)).toBe(false);
+    expect(threadCarriesDraft([[{ type: 'workout_plan', plan: PLAN.plan }]], DRAFT.draft_id)).toBe(false);
+    // A card left by a draft the coach since discarded never hides the new one.
+    expect(threadCarriesDraft([[card('draft-old')]], DRAFT.draft_id)).toBe(false);
+  });
+
+  it('reads a Map of blocks keyed by message as the threads hold them', () => {
+    const blocks = new Map([['m1', [card(DRAFT.draft_id)]]]);
+    expect(threadCarriesDraft(blocks.values(), DRAFT.draft_id)).toBe(true);
   });
 });

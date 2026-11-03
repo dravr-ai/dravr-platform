@@ -26,7 +26,8 @@
 //!   provider reads (one per shared athlete) happen only for the requested
 //!   page, at most [`MAX_PAGE`] rows, a bounded number at a time.
 //! - **Scope.** `scope: { visible_members, roster_members }` says how many of
-//!   the athletes held share with the caller (ADR-002, 2026-10-23).
+//!   the athletes held share with the caller (ADR-002, 2026-10-23): those
+//!   whose rows carry training, so `shared` and never `no_source`.
 //!
 //! No route resolves the caller's tenant: a coach reads the groups they coach
 //! whatever tenant owns them (carnet#1210), and every per-athlete read is
@@ -106,7 +107,7 @@ pub struct RosterQuery {
 /// How many athletes the response covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct RosterScope {
-    /// Athletes who share their training with the caller.
+    /// Athletes who share their training with the caller and have a source: the `shared` rows.
     pub visible_members: usize,
     /// Athletes the caller's groups hold.
     pub roster_members: usize,

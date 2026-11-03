@@ -3,6 +3,7 @@
 
 // ABOUTME: Tests the draft controls a coach's plan card carries on the phone — owner-only, Publish, a refused publish, Discard, a private row
 // ABOUTME: Reads the card back from a persisted transcript row through MessageList, so the block, the card and the shared hook run together
+// ABOUTME: An empty plan thread reads its open draft as ChatScreen does and hands MessageList the card, so the read and the controls run together
 
 import React from 'react';
 import { Alert } from 'react-native';
@@ -39,6 +40,8 @@ jest.mock('../src/screens/chat/presentMessageMenu', () => ({
 
 import { composeRoomThread } from '@pierre/chat-utils';
 import { MessageList, type MessageListPrivateLane } from '../src/screens/chat/MessageList';
+import PlanThreadOpenDraft from '../src/screens/chat/PlanThreadOpenDraft';
+import { usePlanThreadDraft } from '../src/hooks/useCoachPlan';
 import type { Message } from '../src/types';
 
 const PLAN: WorkoutPlan = {
@@ -85,6 +88,7 @@ const draftReply: Message = {
 function renderThread(
   conversationId: string | null = CONVERSATION_ID,
   room: { messages: Message[]; privateLane: MessageListPrivateLane } | null = null,
+  planThread: { messages: Message[]; planSubjectName: string } | null = null,
 ) {
   // No garbage-collection timers: a cache entry's five-minute timer would
   // otherwise hold an in-band run open long after the last assertion.
@@ -96,10 +100,11 @@ function renderThread(
   });
   return render(
     <QueryClientProvider client={client}>
-      <MessageList
+      <ThreadUnderTest
         conversationId={conversationId}
-        messages={room?.messages ?? [draftReply]}
+        messages={planThread?.messages ?? room?.messages ?? [draftReply]}
         privateLane={room?.privateLane}
+        planSubjectName={planThread?.planSubjectName ?? null}
         isLoading={false}
         isSending={false}
         messageFeedback={{}}
@@ -116,6 +121,20 @@ function renderThread(
       />
     </QueryClientProvider>,
   );
+}
+
+/**
+ * The list as a coach's plan thread hosts it: ChatScreen reads the thread's
+ * draft and ChatThread hands MessageList the open draft's card. Every other
+ * thread passes a disabled read and draws no such card.
+ */
+function ThreadUnderTest(props: Omit<React.ComponentProps<typeof MessageList>, 'planDraft'>) {
+  const conversationId = props.conversationId ?? null;
+  const isPlanThread = props.planSubjectName !== null && props.planSubjectName !== undefined;
+  const { open } = usePlanThreadDraft(conversationId, isPlanThread);
+  const planDraft =
+    open !== null && conversationId !== null ? <PlanThreadOpenDraft conversationId={conversationId} open={open} /> : null;
+  return <MessageList {...props} planDraft={planDraft} />;
 }
 
 describe("a coach's draft on the phone's plan card", () => {
@@ -272,5 +291,24 @@ describe("a coach's draft on the phone's plan card", () => {
     expect(screen.getByText('Harricana 65K')).toBeTruthy();
     expect(screen.queryByTestId('plan-draft-controls')).toBeNull();
     expect(mockListParticipants).not.toHaveBeenCalled();
+  });
+
+  it('draws the open draft in an empty plan thread, where "Review the draft" lands, with its controls', async () => {
+    const screen = renderThread(CONVERSATION_ID, null, { messages: [], planSubjectName: 'Alice Runner' });
+
+    expect(screen.getByTestId('chat-plan-thread-empty')).toBeTruthy();
+    expect(await screen.findByTestId('chat-plan-thread-open-draft')).toBeTruthy();
+    expect(screen.getByText('Harricana 65K')).toBeTruthy();
+    expect(await screen.findByTestId('plan-draft-publish')).toHaveTextContent('Publish to Alice Runner');
+    expect(mockGetSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID);
+  });
+
+  it('keeps an empty plan thread to its line when the coach holds no draft', async () => {
+    mockGetSubjectPlan.mockResolvedValue(subjectPlan(null));
+    const screen = renderThread(CONVERSATION_ID, null, { messages: [], planSubjectName: 'Alice Runner' });
+
+    await waitFor(() => expect(mockGetSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID));
+    expect(screen.getByTestId('chat-plan-thread-empty')).toBeTruthy();
+    expect(screen.queryByTestId('chat-plan-thread-open-draft')).toBeNull();
   });
 });

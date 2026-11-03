@@ -11,9 +11,10 @@ import { chatApi } from '../services/api';
  * The plan-thread hooks over the web chat API. The API is reached when a
  * hook calls it, so importing this touches no client.
  */
-export const { useOpenAthleteThread, useAthletePlan, usePlanDraftCard } = createCoachPlanHooks({
+export const { useOpenAthleteThread, useOpenGroupRoom, useAthletePlan, usePlanDraftCard, usePlanThreadDraft } = createCoachPlanHooks({
   chatApi: {
     openAthleteThread: (athleteUserId, groupId) => chatApi.openAthleteThread(athleteUserId, groupId),
+    openGroupRoom: (groupId) => chatApi.openGroupRoom(groupId),
     getAthletePlan: (athleteUserId, groupId) => chatApi.getAthletePlan(athleteUserId, groupId),
     getSubjectPlan: (conversationId) => chatApi.getSubjectPlan(conversationId),
     publishSubjectPlan: (conversationId, request) => chatApi.publishSubjectPlan(conversationId, request),

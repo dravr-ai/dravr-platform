@@ -85,8 +85,8 @@ mod coach_roster_route_tests {
         assert_eq!(status, 200, "{page:#}");
         assert_eq!(
             page["scope"],
-            json!({"visible_members": 2, "roster_members": 3}),
-            "two of the three athletes share with the coach"
+            json!({"visible_members": 1, "roster_members": 3}),
+            "Alex is the one sharer with training: Ben declined, Cleo has no source, and the lists show both apart"
         );
         assert_eq!(
             page["groups"][0]["athlete_count"], 3,

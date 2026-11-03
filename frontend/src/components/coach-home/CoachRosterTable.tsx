@@ -306,10 +306,14 @@ export function CoachRosterTable(props: CoachRosterTableProps) {
                 <button
                   type="button"
                   data-testid={`coach-nonsharer-write-${athlete.user_id}`}
+                  disabled={destinations.pendingRoomAthleteId !== null}
+                  aria-busy={destinations.pendingRoomAthleteId === athlete.user_id}
                   onClick={() => destinations.writeToGroup(athlete, athlete.attention[0] ?? null)}
-                  className="rounded text-sm font-medium text-primary hover:underline focus-ring-visible"
+                  className="rounded text-sm font-medium text-primary hover:underline focus-ring-visible disabled:opacity-60"
                 >
-                  {t('coachHome.action.writeToAthlete')}
+                  {destinations.pendingRoomAthleteId === athlete.user_id
+                    ? t('coachHome.action.openingGroup')
+                    : t('coachHome.action.writeToGroup')}
                 </button>
               )}
             </div>

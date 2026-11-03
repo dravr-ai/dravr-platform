@@ -21,6 +21,7 @@ export {
   isDivider,
   isModelReply,
   planCardDraft,
+  threadCarriesDraft,
   transcriptBlocks,
   withVerdictRows,
 } from './blocks';
@@ -225,11 +226,15 @@ export { formatList } from './list-format';
 
 // A coach's plan thread for one athlete and the draft card in it: the
 // catalogue keys, and how a refused publish names what it collided with
-export { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS, planConflictText } from './plan-draft';
+export { coachRoomName, GROUP_ROOM_KEYS, PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS, planConflictText } from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
+
+// Whose composer it is, and when that is not yet known.
+export { coachComposerPlaceholder, composerVoicePending } from './composer-voice';
+export type { ComposerVoice, ComposerVoiceInputs } from './composer-voice';
 
 // Singular or plural catalogue key for a count, per locale (no Intl.PluralRules).
 // It lives here, below shared-constants (which depends on this package and
 // re-exports it), so this package's own counts pick their form the same way.
-export { countKey } from './plural';
-export type { CountKeys } from './plural';
+export { countKey, ordinalCategory, ordinalKey } from './plural';
+export type { CountKeys, OrdinalCategory } from './plural';

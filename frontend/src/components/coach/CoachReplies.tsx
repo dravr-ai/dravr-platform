@@ -6,9 +6,8 @@
 
 import { useMemo, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Flag, PenLine } from 'lucide-react';
-import clsx from 'clsx';
-import type { ClaimVerdict, CoachReply, ReplyFlagReason } from '@pierre/shared-types';
+import { Flag, PenLine } from 'lucide-react';
+import type { CoachReply, ReplyFlagReason, VerdictTone } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import {
   COACH_REPLIES_PAGE_SIZE,
@@ -20,25 +19,21 @@ import {
   coachReviewWeekSummary,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { ALL_COACHED_ATHLETES, coachedAthleteOptions, describeApiError, replyStatus } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { TabHeader } from '../ui/TabHeader';
 import { Button, Select, Textarea, useErrorToast, useSuccessToast } from '../ui';
+import { StatusDot, type DotTone } from '../coach-home/parts';
 
-/** A verdict chip's tone: how alarming its status is. */
-function chipTone(status: ClaimVerdict['status']): string {
-  switch (status) {
-    case 'contradicted':
-      return 'badge-error';
-    case 'unsupported':
-      return 'badge-warning';
-    case 'supported':
-      return 'badge-success';
-    default:
-      return '';
-  }
-}
+/** The dot each verdict rollup tone draws; a rhetorical or unverifiable claim is no alarm, so it stays quiet. */
+const VERDICT_DOT_TONE: Record<VerdictTone, DotTone> = {
+  success: 'ok',
+  warning: 'warn',
+  error: 'bad',
+  info: 'none',
+  secondary: 'none',
+};
 
 /** Which form a reply card has open. */
 type OpenForm = 'flag' | 'correct' | null;
@@ -58,6 +53,7 @@ function ReplyCard({ reply }: ReplyCardProps) {
   const [note, setNote] = useState('');
   const [correction, setCorrection] = useState('');
   const athlete = reply.athlete_name ?? t('coachReview.unnamedAthlete');
+  const status = replyStatus(t, reply, athlete, i18n.language);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coachReplies.all });
@@ -108,26 +104,30 @@ function ReplyCard({ reply }: ReplyCardProps) {
         </p>
       )}
 
-      {reply.unmatched_figures > 0 && (
-        <p data-testid="coach-reply-unmatched" className="mt-2 flex items-start gap-1.5 text-xs text-on-warning-container">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-          {t('coachReview.unmatchedFigures', { count: reply.unmatched_figures, name: athlete })}
-        </p>
-      )}
-
-      {reply.verdicts.length > 0 && (
-        <ul aria-label={t('coachReview.verdicts')} className="mt-2 flex flex-wrap gap-1.5">
-          {reply.verdicts.map((verdict) => (
-            <li
-              key={verdict.id}
-              data-testid="coach-reply-verdict"
-              title={verdict.claim_text}
-              className={clsx('badge max-w-full truncate', chipTone(verdict.status))}
-            >
-              {t(VERDICT_STATUS_LABEL_KEY[verdict.status])} · {verdict.claim_text}
-            </li>
-          ))}
-        </ul>
+      {/* One status per reply, one dot beside its words, never red or green
+          text (DESIGN.md, Coach Home); the claims follow, each as its words. */}
+      {status !== null && (
+        <div data-testid="coach-reply-verdicts" className="mt-2 space-y-1">
+          <p
+            data-testid="coach-reply-status"
+            aria-label={t('app.claimVerdictsStatus', { status: status.spoken })}
+            className="flex items-start gap-2 text-xs font-medium text-on-surface"
+          >
+            <span className="flex h-4 items-center">
+              <StatusDot tone={VERDICT_DOT_TONE[status.tone]} />
+            </span>
+            <span className="min-w-0">{status.text}</span>
+          </p>
+          {reply.verdicts.length > 0 && (
+            <ul aria-label={t('coachReview.verdicts')} className="space-y-0.5">
+              {reply.verdicts.map((verdict) => (
+                <li key={verdict.id} data-testid="coach-reply-verdict" className="break-words text-xs text-on-surface-variant">
+                  {t(VERDICT_STATUS_LABEL_KEY[verdict.status])} · {verdict.claim_text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {reply.flags.map((f) => (
@@ -255,15 +255,11 @@ export default function CoachReplies({ initialAthleteId = null }: { initialAthle
       size="sm"
       value={athleteId ?? ''}
       onChange={(event) => setAthleteId(event.target.value || null)}
-      options={[
-        { value: '', label: t('coachReview.allAthletes') },
-        ...first.athletes.map((athlete) => ({
-          value: athlete.user_id,
-          label: athlete.shares_with_coach
-            ? (athlete.name ?? t('coachReview.unnamedAthlete'))
-            : t('coachReview.notSharing', { name: athlete.name ?? t('coachReview.unnamedAthlete') }),
-        })),
-      ]}
+      // The reader's collation, so « Félix » sorts with the F's (the server sends code-point order).
+      options={coachedAthleteOptions(t, i18n.language, first.athletes).map((option) => ({
+        value: option.key === ALL_COACHED_ATHLETES ? '' : option.key,
+        label: option.label,
+      }))}
     />
   );
 

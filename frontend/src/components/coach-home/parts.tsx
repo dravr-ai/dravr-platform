@@ -46,7 +46,8 @@ export function AthleteAvatar({
   );
 }
 
-type DotTone = 'ok' | 'warn' | 'bad' | 'none';
+/** A status dot's tone. */
+export type DotTone = 'ok' | 'warn' | 'bad' | 'none';
 
 const DOT_CLASS: Record<DotTone, string> = {
   ok: 'bg-success',

@@ -86,6 +86,11 @@ interface MessageInputProps {
    * in the private accent and says the athlete won't see what is typed.
    */
   privateLane?: ComposerPrivateLane | null;
+  /**
+   * What the field says, and is named, in a thread whose reader is not the
+   * athlete — a coach's plan thread or room. The private lane's words win over it.
+   */
+  placeholder?: string | null;
 }
 
 export default function MessageInput({
@@ -99,6 +104,7 @@ export default function MessageInput({
   conversationId,
   focusOnMount = true,
   privateLane = null,
+  placeholder: threadPlaceholder = null,
 }: MessageInputProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -107,10 +113,11 @@ export default function MessageInput({
   const laneText = privateLane
     ? privateLaneComposerText(privateLane.audience, { agent: privateLane.agentName, athlete: privateLane.athleteName }, t)
     : null;
-  const placeholder = laneText?.placeholder ?? t('chat.messageDravrPlaceholder');
-  // With the switch, the field's name says who reads it; the placeholder
-  // already does, and it is gone once the coach types.
-  const fieldLabel = laneText?.placeholder ?? t('chat.messageDravrLabel');
+  const placeholder = laneText?.placeholder ?? threadPlaceholder ?? t('chat.messageDravrPlaceholder');
+  // With the switch, or in a coach's own thread, the field's name says who
+  // reads it; the placeholder already does, and it is gone once the coach types.
+  // An empty placeholder (a thread whose voice is not yet known) still names the field.
+  const fieldLabel = laneText?.placeholder ?? (threadPlaceholder || null) ?? t('chat.messageDravrLabel');
 
   // The switch sits in the field beside the slash, and its label is as wide
   // as the language spells it: the text starts after whatever the left slot

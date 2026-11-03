@@ -32,6 +32,7 @@ import {
   sportLabel,
   useDistanceUnit,
   volumeMetricText,
+  volumeReadoutShown,
   type VolumeSportFilter,
 } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
@@ -74,16 +75,20 @@ function ThisWeek({ totals }: { totals: VolumeTotals }) {
           {activitiesLine(t, totals.activities, language)}
         </span>
       </div>
-      <dl className="mt-2 grid grid-cols-3 gap-3">
-        {figures.map((figure) => (
-          <div key={figure.key} className="min-w-0">
-            <dt className="text-xs text-on-surface-variant">{figure.label}</dt>
-            <dd data-testid={`home-volume-${figure.key}`} className="mt-0.5 truncate font-mono text-base text-on-surface">
-              {figure.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      {/* A week with nothing in it says so in its count line; three tiles of
+          zeros (one of them "0s") would say it again as numbers. */}
+      {totals.activities > 0 && (
+        <dl data-testid="home-volume-figures" className="mt-2 grid grid-cols-3 gap-3">
+          {figures.map((figure) => (
+            <div key={figure.key} className="min-w-0">
+              <dt className="text-xs text-on-surface-variant">{figure.label}</dt>
+              <dd data-testid={`home-volume-${figure.key}`} className="mt-0.5 truncate font-mono text-base text-on-surface">
+                {figure.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
@@ -170,9 +175,12 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
         <span>{day(starts[0])}</span>
         <span>{day(starts[last])}</span>
       </div>
-      <p data-testid="home-volume-readout" className="mt-2 text-xs text-on-surface-variant">
-        {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: volumeMetricText(t, metric, values[shown], language, unit) })}
-      </p>
+      {/* At rest the readout is this week's; an empty one already says so in its count line. */}
+      {volumeReadoutShown(pointed, totals[last]) && (
+        <p data-testid="home-volume-readout" className="mt-2 text-xs text-on-surface-variant">
+          {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: volumeMetricText(t, metric, values[shown], language, unit) })}
+        </p>
+      )}
     </div>
   );
 }

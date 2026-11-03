@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::chat::{
     chat_column_error, instant_from_rfc3339, owner_slot_lock_sql, stamp_column, AssistantMessage,
-    ChatRepository, NewConversation, Reactivation, SlotClaim, ADD_MESSAGE_SQL,
+    ChatRepository, GroupRoomClaim, NewConversation, Reactivation, SlotClaim, ADD_MESSAGE_SQL,
     ADVANCE_READ_MARKER_SQL, ARCHIVED_SLOT_SQL, ARCHIVE_CONVERSATION_SQL,
     ASSISTANT_MESSAGES_AFTER_SQL, BUMP_CONVERSATION_TOKENS_SQL, CAS_ONBOARDING_STATE_SQL,
     CLEAR_READ_MARKER_SQL, CONTENT_HEAD_CHARS, COUNT_ACTIVE_SINCE_SQL, COUNT_CONVERSATIONS_SQL,

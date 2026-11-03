@@ -76,6 +76,13 @@ describe('ChatHeaderTitle subtitle', () => {
     ).toEqual(expect.objectContaining({ borderRadius: 12 }));
   });
 
+  it('says "Group room" under a room called after its group, instead of the name twice', () => {
+    renderHeader(conversation({ title: 'Sunday Long Run', group_id: 'g-1', group_name: 'Sunday Long Run' }), null);
+
+    expect(screen.getByTestId('chat-title')).toHaveTextContent('Sunday Long Run');
+    expect(screen.getByTestId('chat-header-group')).toHaveTextContent(/Group room|humanCoach\.groupRoom\.kindLabel/);
+  });
+
   it('draws a 1:1 thread avatar as a circle and prints the stored title', () => {
     renderHeader(conversation({ title: 'Trail Coach', agent_handle: 'trail' }), null);
 
@@ -97,14 +104,29 @@ describe('ChatHeaderTitle subtitle', () => {
       'No provider connected',
     );
 
-    // The translator here answers with the key; the line is the plan-thread subtitle.
-    expect(screen.getByTestId('chat-header-subject')).toHaveTextContent('humanCoach.planThread.subtitle');
+    // The translator here answers with the key. The title already names the
+    // athlete, so the line under it says what the thread is, not her name again.
+    expect(screen.getByTestId('chat-header-subject')).toHaveTextContent('humanCoach.planThread.kindLabel');
     expect(screen.queryByTestId('chat-header-handle')).toBeNull();
     expect(screen.queryByTestId('chat-header-provider-status')).toBeNull();
     // A person, so a circle.
     expect(
       screen.getByTestId('chat-header-avatar', { includeHiddenElements: true }).props.style,
     ).toEqual(expect.objectContaining({ borderRadius: 16 }));
+  });
+
+  it("names the athlete under a plan thread the coach renamed", () => {
+    renderHeader(
+      conversation({
+        title: 'Spring block',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-1',
+        subject_display_name: 'Alice Runner',
+      }),
+      null,
+    );
+
+    expect(screen.getByTestId('chat-header-subject')).toHaveTextContent('humanCoach.planThread.subtitle');
   });
 
   it('yields to the coach handle', () => {

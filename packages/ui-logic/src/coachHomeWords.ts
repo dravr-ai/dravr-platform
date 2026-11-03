@@ -14,7 +14,7 @@ import {
   countKey,
 } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
-import { agentCell, lastActivity, threadState, trainingCut, type SourceChip } from './coachHome';
+import { agentCell, cutReadingDay, lastActivity, threadState, trainingCut, type SourceChip } from './coachHome';
 import { civilShortDate, sportLabel, type Translate } from './homeFormat';
 
 /** How a "last activity" reads, and whether it is worth emphasis (days ago, or nothing on record). */
@@ -51,7 +51,7 @@ export function formWords(
     text: name,
     asOf:
       cut && training?.form && band !== 'insufficient_history'
-        ? t('coachHome.roster.staleBand', { band: name, date: civilShortDate(training.form.as_of, language) })
+        ? t('coachHome.roster.staleBand', { band: name, date: civilShortDate(cutReadingDay(training) ?? training.form.as_of, language) })
         : null,
     cut,
   };

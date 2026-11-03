@@ -74,6 +74,15 @@ function createExpoRouterMock(overrides = {}) {
   // One function per navigator: `Object.assign` mutates its target, so a
   // shared passthrough would give Stack and Tabs one `Screen` between them.
   const passthrough = ({ children }) => React.createElement(View, null, children);
+  const NAVIGATION_FONTS = {
+    regular: { fontFamily: 'System', fontWeight: '400' },
+    medium: { fontFamily: 'System', fontWeight: '500' },
+    bold: { fontFamily: 'System', fontWeight: '600' },
+    heavy: { fontFamily: 'System', fontWeight: '700' },
+  };
+  const NAVIGATION_COLORS = { primary: '', background: '', card: '', text: '', border: '', notification: '' };
+  const NAVIGATION_THEME_LIGHT = { dark: false, colors: NAVIGATION_COLORS, fonts: NAVIGATION_FONTS };
+  const NAVIGATION_THEME_DARK = { dark: true, colors: NAVIGATION_COLORS, fonts: NAVIGATION_FONTS };
   const StackNavigator = ({ children }) => React.createElement(View, null, children);
   const TabsNavigator = ({ children }) => React.createElement(View, null, children);
 
@@ -95,6 +104,11 @@ function createExpoRouterMock(overrides = {}) {
     Link: ({ children }) => children,
     Redirect: () => null,
     Slot: passthrough,
+    // The navigation theme the root layout feeds the native headers from.
+    ThemeProvider: ({ value, children }) =>
+      React.createElement(View, { testID: 'navigation-theme', accessibilityHint: value && value.dark ? 'dark' : 'light' }, children),
+    DefaultTheme: NAVIGATION_THEME_LIGHT,
+    DarkTheme: NAVIGATION_THEME_DARK,
     Stack: Object.assign(StackNavigator, { Screen: StackScreen }),
     Tabs: Object.assign(TabsNavigator, { Screen: () => null }),
     ...overrides,

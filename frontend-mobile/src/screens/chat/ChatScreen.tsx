@@ -37,7 +37,9 @@ import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
 import { usePrivateLane } from '../../hooks/usePrivateLane';
+import { coachRoomName, composerVoicePending, threadSubtitle } from '@pierre/chat-utils';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
+import { usePlanThreadDraft } from '../../hooks/useCoachPlan';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
@@ -81,7 +83,7 @@ export function ChatScreen() {
   // offers the Everyone / Only <agent> switch (carnet#1249). One lane per
   // room screen; the thread draws it and routes its sends.
   const roomGroupId = conversations.currentConversation?.group_id ?? null;
-  const { group: readGroup } = useGroup(roomGroupId ?? '');
+  const { group: readGroup, isLoading: groupLoading } = useGroup(roomGroupId ?? '');
   const roomGroup = roomGroupId !== null && readGroup?.id === roomGroupId ? readGroup : null;
   const privateLane = usePrivateLane({
     group: roomGroup,
@@ -89,6 +91,19 @@ export function ChatScreen() {
     conversations: conversations.conversations,
   });
   const roomAgentName = roomGroup?.agent_title ?? t('app.aiAgent');
+  // The group's human coach in its room writes to every member and the
+  // agent: the room's empty state and composer are theirs, not an athlete's.
+  const coachRoom = coachRoomName(roomGroup, user?.id ?? null, conversations.currentConversation?.group_name ?? null);
+  // Whose composer this is depends on the thread the route names and, in a
+  // room, on its group's coach: until both are read it says nothing, never
+  // the athlete's words a coach's room would swap a moment later.
+  const composerPending = composerVoicePending({
+    routedId: params.conversationId,
+    newThreadId: NEW_CONVERSATION_ID,
+    openedId: conversations.currentConversation?.id ?? null,
+    groupId: roomGroupId,
+    groupLoading,
+  });
   const messagesHook = useMessages();
   const providerStatus = useProviderStatus();
   // The header's fallback line reads the status the reconnect banner under it
@@ -99,6 +114,10 @@ export function ChatScreen() {
     [statusRows, t, language],
   );
   const usageStatus = useUsageStatus();
+  // A coach's plan thread on an athlete: its empty state is theirs, not the athlete's.
+  const planSubject = threadSubtitle(conversations.currentConversation);
+  // Its draft read: the open draft the thread draws, or the start it offers.
+  const planDraftRead = usePlanThreadDraft(conversations.currentConversation?.id ?? null, planSubject?.kind === 'subject');
   // The starters the empty thread offers, read while it is the thread on
   // screen: the new thread, which exists only once its first line is sent,
   // with nothing in it yet and nothing on its way. An open thread whose
@@ -470,6 +489,10 @@ export function ChatScreen() {
           sendText={sendText}
           composerOrigin={draftSeeded ? 'draft' : undefined}
           starters={starters}
+          planSubjectName={planSubject?.kind === 'subject' ? planSubject.name : null}
+          coachRoomName={coachRoom}
+          composerPending={composerPending}
+          planDraftRead={planDraftRead}
           privateLane={{ lane: privateLane, agentName: roomAgentName }}
         />
 

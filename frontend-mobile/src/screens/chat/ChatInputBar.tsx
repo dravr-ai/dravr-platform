@@ -69,6 +69,11 @@ interface ChatInputBarProps {
   audience?: ComposerAudience;
   /** The quote the next private send carries, shown as a chip over the field. */
   quote?: ComposerQuote | null;
+  /**
+   * What the field says in a thread whose reader is not the athlete — a
+   * coach's plan thread or room. The audience switch's words win over it.
+   */
+  placeholder?: string;
 }
 
 /**
@@ -105,6 +110,7 @@ export function ChatInputBar({
   onStopTurn,
   audience,
   quote = null,
+  placeholder: placeholderText,
 }: ChatInputBarProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -188,7 +194,7 @@ export function ChatInputBar({
   const fieldTone = isPrivate ? 'border border-dashed border-warning/60 bg-warning/5' : 'bg-surface-container';
   const placeholder = isListening
     ? t('app.composerListening')
-    : (audience?.text.placeholder ?? t('app.composerPlaceholder'));
+    : (audience?.text.placeholder ?? placeholderText ?? t('app.composerPlaceholder'));
 
   return (
     <View

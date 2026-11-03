@@ -105,13 +105,19 @@ export function FormStrip({
   );
 }
 
+/**
+ * Light keeps the board's soft tints. On the dark canvas those tints sit at
+ * about 1.3:1 and base and build blend into one band, so dark lifts each fill
+ * to about 3:1 against the page while keeping the hues apart: a phase is told
+ * by its fill alone on the season bars, which carry no label.
+ */
 const PHASE_FILL: Record<CoachRosterPhaseKind | 'draft', string> = {
-  prep: 'bg-surface-container-high',
-  base: 'bg-surface-container-high',
-  build: 'bg-info/15',
-  specialty: 'bg-primary/20',
-  peak: 'bg-warning/20',
-  taper: 'bg-warning/20',
+  prep: 'bg-surface-container-high dark:bg-outline/50',
+  base: 'bg-surface-container-high dark:bg-outline/50',
+  build: 'bg-info/15 dark:bg-info/50',
+  specialty: 'bg-primary/20 dark:bg-primary/45',
+  peak: 'bg-warning/20 dark:bg-warning/50',
+  taper: 'bg-warning/20 dark:bg-warning/50',
   race: 'bg-on-surface',
   transition: 'border border-dashed border-outline',
   recovery: 'border border-dashed border-outline',

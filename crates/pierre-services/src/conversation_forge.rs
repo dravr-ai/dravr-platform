@@ -36,7 +36,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
-use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
+use pierre_database::repositories::{
+    ChatRepository, GroupRoomClaim, NewConversation, Reactivation, SlotClaim,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_providers::ai_scope;
@@ -193,6 +195,50 @@ pub async fn create_conversation_slot(
     match repos.chat.create_conversation_within_cap(new, cap).await? {
         SlotClaim::Claimed(conversation) => Ok(*conversation),
         SlotClaim::AtCap { current } => Err(conversation_cap_error(
+            current,
+            cap.unwrap_or(UNLIMITED_CONVERSATIONS),
+        )),
+    }
+}
+
+/// Whether the conversation [`open_group_room_slot`] answers with was
+/// already held or opened by that call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoomOrigin {
+    /// The owner already held it; nothing was written.
+    Held,
+    /// Opened by this call; it took one of the owner's slots.
+    Opened,
+}
+
+/// The conversation `new.user_id` holds in `new.group_id`'s room, or one
+/// opened now under the same cap [`create_conversation_slot`] applies, and
+/// whether it was opened by this call.
+///
+/// The lookup and the create are one decision under the owner slot lock
+/// ([`ChatRepository::open_group_conversation`]), so two opens racing each
+/// other — the same coach tapping on two devices — return one room.
+///
+/// # Errors
+///
+/// The [`create_conversation_slot`] refusal when the owner holds no room and
+/// is at the cap; nothing is written then. The database error when the
+/// transaction fails.
+pub async fn open_group_room_slot(
+    repos: &RepositoryRegistry,
+    quota: SlotQuota<'_>,
+    new: &NewConversation<'_>,
+) -> AppResult<(ConversationRecord, RoomOrigin)> {
+    let cap = match quota {
+        SlotQuota::Capped(admin_config) => {
+            resolved_cap(admin_config, new.user_id, new.tenant_id).await
+        }
+        SlotQuota::Exempt => None,
+    };
+    match repos.chat.open_group_conversation(new, cap).await? {
+        GroupRoomClaim::Held(conversation) => Ok((*conversation, RoomOrigin::Held)),
+        GroupRoomClaim::Opened(conversation) => Ok((*conversation, RoomOrigin::Opened)),
+        GroupRoomClaim::AtCap { current } => Err(conversation_cap_error(
             current,
             cap.unwrap_or(UNLIMITED_CONVERSATIONS),
         )),

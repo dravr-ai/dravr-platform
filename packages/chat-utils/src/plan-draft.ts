@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The words of a coach's plan thread and its draft card — the catalogue keys, and the conflict a refused publish names
+// ABOUTME: The words of a coach's plan thread, its draft card and the group room as the coach reads it — keys, and a refused publish's conflict
 // ABOUTME: Both clients render from these, so a conflict reads the same on web and on the phone (carnet#1069/#1070)
 
+import type { CoachingGroup } from '@pierre/shared-types';
 import { formatList } from './list-format';
 import type { Translate } from './text';
 
@@ -17,7 +18,42 @@ export const PLAN_THREAD_KEYS = {
   kindLabel: 'humanCoach.planThread.kindLabel',
   /** The thread could not be opened. */
   openError: 'humanCoach.planThread.openError',
+  /** The coach's empty plan thread: their planning space with the agent, in their voice. */
+  empty: 'humanCoach.planThread.empty',
+  /** "Write to the agent about {{name}}'s plan…" — the coach's composer in the thread. */
+  composerPlaceholder: 'humanCoach.planThread.composerPlaceholder',
+  /** "Draft {{name}}'s plan" — the one-tap start in the coach's empty plan thread. */
+  starterLabel: 'humanCoach.planThread.starterLabel',
+  /** What that start sends to the agent, in the coach's words. */
+  starterMessage: 'humanCoach.planThread.starterMessage',
 } as const;
+
+/** The catalogue keys of a group's room as its human coach reads it. */
+export const GROUP_ROOM_KEYS = {
+  /** "Group room" — the header line under a title that already names the group. */
+  kindLabel: 'humanCoach.groupRoom.kindLabel',
+  /** The coach's empty room: who reads what they write there. */
+  empty: 'humanCoach.groupRoom.empty',
+  /** "Write to {{group}}…" — the coach's composer in the room. */
+  composerPlaceholder: 'humanCoach.groupRoom.composerPlaceholder',
+  /** The room could not be opened. */
+  openError: 'humanCoach.groupRoom.openError',
+} as const;
+
+/**
+ * The group's name when `viewerId` is the human coach of the room's group —
+ * the reader whose empty state and composer are the room's, not an
+ * athlete's — else `null`. A member, the coach of another group, or a room
+ * whose group has not been read yet keeps the athlete's words.
+ */
+export function coachRoomName(
+  group: Pick<CoachingGroup, 'name' | 'coach_user_id'> | null,
+  viewerId: string | null,
+  fallbackName: string | null = null,
+): string | null {
+  if (group === null || viewerId === null || group.coach_user_id !== viewerId) return null;
+  return group.name.trim() || fallbackName?.trim() || null;
+}
 
 /** The catalogue keys of the draft controls on a plan card. */
 export const PLAN_DRAFT_KEYS = {

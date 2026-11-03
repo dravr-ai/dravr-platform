@@ -10,6 +10,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import {
   avatarSlot,
   CONVERSATION_ROW_LABEL_KEYS,
+  GROUP_ROOM_KEYS,
   initialsFor,
   PLAN_THREAD_KEYS,
   threadSubtitle,
@@ -87,12 +88,14 @@ export function ChatHeaderTitle({
         </Text>
         {subtitle?.kind === 'subject' && (
           <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-subject">
-            {t(PLAN_THREAD_KEYS.subtitle, { name: subtitle.name })}
+            {/* The title already names the athlete when the thread is called after them. */}
+            {title === subtitle.name ? t(PLAN_THREAD_KEYS.kindLabel) : t(PLAN_THREAD_KEYS.subtitle, { name: subtitle.name })}
           </Text>
         )}
         {subtitle?.kind === 'group' && currentConversation?.group_name && (
           <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-group">
-            {currentConversation.group_name}
+            {/* A room is called after its group: the line says what it is instead of the name twice. */}
+            {title === currentConversation.group_name ? t(GROUP_ROOM_KEYS.kindLabel) : currentConversation.group_name}
           </Text>
         )}
         {subtitle?.kind === 'handle' && (

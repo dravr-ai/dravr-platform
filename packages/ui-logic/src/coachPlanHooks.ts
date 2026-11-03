@@ -15,7 +15,9 @@ import {
   type Conversation,
   type DraftState,
   type PlanPublishConflict,
+  type PlanSubject,
   type SubjectPlanResponse,
+  type WorkoutPlan,
 } from '@pierre/shared-types';
 import { refusalReason } from './apiError';
 
@@ -24,6 +26,7 @@ export interface CoachPlanApis {
   chatApi: Pick<
     ChatApi,
     | 'openAthleteThread'
+    | 'openGroupRoom'
     | 'getAthletePlan'
     | 'getSubjectPlan'
     | 'publishSubjectPlan'
@@ -186,6 +189,23 @@ export interface UsePlanDraftCardResult {
   isDiscarding: boolean;
 }
 
+/** The coach's open draft as the plan thread draws it when no reply carries it. */
+export interface OpenPlanDraft {
+  /** The athlete the draft is for. */
+  subject: PlanSubject;
+  /** The draft over the athlete's live weeks, as a plan card draws it. */
+  plan: WorkoutPlan;
+  /** Where the draft stands: the controls publish or discard this one. */
+  draft: DraftState;
+}
+
+/** The plan thread's draft read: the open draft, and whether the coach holds none. */
+export interface PlanThreadDraft {
+  open: OpenPlanDraft | null;
+  /** The read answered, the athlete still shares, and no draft is open. */
+  noDraft: boolean;
+}
+
 /** What `useOpenAthleteThread` hands Group info. */
 export interface UseOpenAthleteThreadResult {
   /**
@@ -196,6 +216,20 @@ export interface UseOpenAthleteThreadResult {
   openThread: (athleteUserId: string, groupId: string) => Promise<Conversation>;
   /** The athlete whose thread is being opened, while one is. */
   pendingAthleteId: string | null;
+}
+
+/** What `useOpenGroupRoom` hands Coach Home. */
+export interface UseOpenGroupRoomResult {
+  /**
+   * Open the caller's room in `groupId` for an action about `athleteUserId`
+   * and resolve with the room the server found or opened; the conversation
+   * list is refreshed behind it. `null` while a room is already opening, so a
+   * second tap before the server answers opens nothing. Rejects with the
+   * server's refusal.
+   */
+  openRoom: (athleteUserId: string, groupId: string) => Promise<Conversation> | null;
+  /** The athlete whose group room is opening, while one is: its buttons wait and say so. */
+  pendingRoomAthleteId: string | null;
 }
 
 /** A publish or discard the server answered with something the card states. */
@@ -245,6 +279,36 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
       openThread: (athleteUserId, groupId) => mutation.mutateAsync({ athleteUserId, groupId }),
       pendingAthleteId: mutation.isPending ? (mutation.variables?.athleteUserId ?? null) : null,
     };
+  }
+
+  /**
+   * Open a group's room from Coach Home. The server finds the caller's room
+   * or opens one, so asking twice lands in the same room; the guard is set at
+   * the tap itself, before the next render, so a double tap sends one request.
+   */
+  function useOpenGroupRoom(): UseOpenGroupRoomResult {
+    const queryClient = useQueryClient();
+    const [pendingRoomAthleteId, setPendingRoomAthleteId] = useState<string | null>(null);
+    const opening = useRef(false);
+    const openRoom = useCallback(
+      (athleteUserId: string, groupId: string): Promise<Conversation> | null => {
+        if (opening.current) return null;
+        opening.current = true;
+        setPendingRoomAthleteId(athleteUserId);
+        return chatApi
+          .openGroupRoom(groupId)
+          .then((room) => {
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+            return room;
+          })
+          .finally(() => {
+            opening.current = false;
+            setPendingRoomAthleteId(null);
+          });
+      },
+      [queryClient],
+    );
+    return { openRoom, pendingRoomAthleteId };
   }
 
   /**
@@ -311,6 +375,30 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
       staleTime: SUBJECT_PLAN_STALE_MS,
     });
     return { read: query.data, dataUpdatedAt: query.dataUpdatedAt, refetch: query.refetch };
+  }
+
+  /**
+   * The plan thread's draft read, from the subject-plan read the draft
+   * controls also judge against. `open` is the coach's open draft of the
+   * thread's athlete — the card to draw, the athlete, and where the draft
+   * stands: a draft reaches a thread on the reply of the turn that saved it,
+   * and one saved anywhere else, or whose thread holds no such reply, is
+   * still the coach's to review, so the thread draws it from here. `null`
+   * while the read is out, when the coach holds no draft, and for an athlete
+   * who stopped sharing. `noDraft` is true only once the read answered for an
+   * athlete still sharing and the coach holds no draft, the one case where
+   * "Draft <name>'s plan" is the thread's next step; false while the read is
+   * out, so the start never shows before the card. A host that is not a
+   * coach's plan thread passes `enabled: false` and gets neither, even when
+   * a draft card in the thread already read that conversation's plan.
+   */
+  function usePlanThreadDraft(conversationId: string | null, enabled: boolean): PlanThreadDraft {
+    const { read } = useSubjectPlan(conversationId, enabled);
+    if (!enabled || read?.status !== 'ok') return { open: null, noDraft: false };
+    const { athlete, draft, draft_state: state } = read.plan;
+    return draft !== null && state !== null
+      ? { open: { subject: athlete, plan: draft, draft: state }, noDraft: false }
+      : { open: null, noDraft: true };
   }
 
   /**
@@ -446,5 +534,5 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     };
   }
 
-  return { useOpenAthleteThread, useAthletePlan, usePlanDraftCard };
+  return { useOpenAthleteThread, useOpenGroupRoom, useAthletePlan, usePlanDraftCard, usePlanThreadDraft };
 }

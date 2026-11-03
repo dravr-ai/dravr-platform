@@ -134,6 +134,13 @@ interface MessageListProps {
    * private stretch.
    */
   liveAudience?: MessageAudience;
+  /**
+   * What an opened thread with nothing in it yet says — a coach's plan
+   * thread or room, in their voice. Gone once a row, a live turn or an error shows.
+   */
+  opening?: ReactNode;
+  /** Drawn after the rows, before a live turn: the coach's open draft no row carries. */
+  tail?: ReactNode;
 }
 
 /** The nearest ancestor that scrolls, which holds the thread's position. */
@@ -182,6 +189,8 @@ export default function MessageList({
   onReachStart,
   privateLane = null,
   liveAudience = 'room',
+  opening = null,
+  tail = null,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -394,6 +403,10 @@ export default function MessageList({
         </div>
       ) : null}
       {rows}
+      {opening !== null && visibleMessages.length === 0 && !hasEarlier && !liveShown && !errorMessage ? (
+        <div className="py-8" data-testid="chat-thread-opening">{opening}</div>
+      ) : null}
+      {tail}
 
       {/* OAuth connection notification */}
       {oauthNotification && (

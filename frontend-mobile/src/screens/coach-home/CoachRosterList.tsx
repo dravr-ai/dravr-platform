@@ -136,9 +136,14 @@ export function CoachRosterList({ athletes, groups, today, onOpen, destinations 
                   <Text className="text-sm font-semibold text-text-primary" numberOfLines={1}>
                     {athlete.name}
                   </Text>
-                  <View className="flex-row items-center gap-2">
-                    <StatusDot tone="neutral" />
-                    <Text className="min-w-0 flex-1 text-xs text-text-secondary">{nonSharerStatusWords(t, language, athlete)}</Text>
+                  {/* The dot sits beside the first word, not midway down a status that wraps. */}
+                  <View className="flex-row items-start gap-2">
+                    <View className="h-4 justify-center">
+                      <StatusDot tone="neutral" />
+                    </View>
+                    <Text className="min-w-0 flex-1 text-xs text-text-secondary" testID={`coach-nonsharer-status-${athlete.user_id}`}>
+                      {nonSharerStatusWords(t, language, athlete)}
+                    </Text>
                   </View>
                 </View>
               </Pressable>
@@ -146,12 +151,18 @@ export function CoachRosterList({ athletes, groups, today, onOpen, destinations 
                 <Pressable
                   accessibilityRole="link"
                   // Every non-sharer row has this link: the name says whose group it opens.
-                  accessibilityLabel={`${t('coachHome.action.writeToAthlete')}, ${athlete.name}`}
-                  hitSlop={8}
+                  accessibilityLabel={`${t('coachHome.action.writeToGroup')}, ${athlete.name}`}
+                  accessibilityState={{ disabled: destinations.pendingRoomAthleteId !== null, busy: destinations.pendingRoomAthleteId === athlete.user_id }}
+                  disabled={destinations.pendingRoomAthleteId !== null}
                   onPress={() => destinations.writeToGroup(athlete, athlete.attention[0] ?? null)}
                   testID={`coach-nonsharer-write-${athlete.user_id}`}
+                  className="min-h-11 justify-center pl-3"
                 >
-                  <Text className="text-sm font-medium text-primary">{t('coachHome.action.writeToAthlete')}</Text>
+                  <Text className="text-sm font-medium text-primary">
+                    {destinations.pendingRoomAthleteId === athlete.user_id
+                      ? t('coachHome.action.openingGroup')
+                      : t('coachHome.action.writeToGroup')}
+                  </Text>
                 </Pressable>
               )}
             </View>

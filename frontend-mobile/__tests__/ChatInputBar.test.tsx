@@ -37,6 +37,7 @@ interface ComposerProps {
   isStopping?: boolean;
   audience?: ComposerAudience;
   quote?: ComposerQuote | null;
+  placeholder?: string;
 }
 
 /** The composer with real value state, so the send flip follows the draft. */
@@ -47,6 +48,7 @@ function Composer({
   isStopping = false,
   audience,
   quote,
+  placeholder,
 }: ComposerProps) {
   const [inputText, setInputText] = useState(initial);
   const inputRef = React.useRef(null);
@@ -65,6 +67,7 @@ function Composer({
       onStopTurn={onStopTurn}
       audience={audience}
       quote={quote}
+      placeholder={placeholder}
     />
   );
 }
@@ -217,6 +220,18 @@ describe('ChatInputBar audience switch', () => {
     expect(screen.queryByTestId('composer-audience-row')).toBeNull();
     expect(screen.queryByTestId('composer-audience-switch')).toBeNull();
     expect(screen.getByTestId('message-input').props.placeholder).toBe('Message Dravr...');
+  });
+
+  it("says whom a coach's line goes to in their own thread, in place of the athlete's words", () => {
+    renderComposer({ placeholder: 'Write to Tri Squad…' });
+    expect(screen.getByTestId('message-input').props.placeholder).toBe('Write to Tri Squad…');
+  });
+
+  it('lets the audience switch word the field over a coach placeholder', () => {
+    renderComposer({ audience: audienceFor('room'), placeholder: 'Write to Tri Squad…' });
+    expect(screen.getByTestId('message-input').props.placeholder).toBe(
+      'Message Camille and Dravr. Type / for commands',
+    );
   });
 
   it('reads Everyone, with the room placeholder and a plain field, while the next line reaches the room', () => {

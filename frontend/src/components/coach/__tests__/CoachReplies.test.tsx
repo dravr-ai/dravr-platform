@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach's Replies page — every group reply with its verdicts, the unmatched-figure line, a flag and a correction
+// ABOUTME: The coach's Replies page — every group reply with its one status line and claims, a flag and a correction
 // ABOUTME: Pins what the page shows from the server's page and what it sends back when the coach flags or corrects (carnet#847)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -86,7 +86,7 @@ describe('CoachReplies', () => {
     weekly.mockResolvedValue({ weeks: [{ week_start: '2026-10-05', flags: 2, corrections: 1 }] });
   });
 
-  it('shows each reply with its verdict chips, the unmatched figure and the week\'s count', async () => {
+  it('shows each reply with its one status line, its claims and the week\'s count', async () => {
     renderPage();
 
     const card = await screen.findByTestId('coach-reply-reply-1');
@@ -97,9 +97,12 @@ describe('CoachReplies', () => {
     expect(within(card).getByTestId('coach-reply-verdict')).toHaveTextContent(
       'unverifiable · your 2:41 marathon in May',
     );
-    expect(within(card).getByTestId('coach-reply-unmatched')).toHaveTextContent(
-      "Figures the checker couldn't match to Alex's activities: 1",
-    );
+    // One status line, a dot beside its words: the unverifiable figure is
+    // what the coach weighs, and no verdict says anything else.
+    const status = within(card).getByTestId('coach-reply-status');
+    expect(status).toHaveTextContent("Figures the checker couldn't match to Alex's activities: 1");
+    expect(status.querySelector('.rounded-full')).not.toBeNull();
+    expect(card.querySelector('.badge')).toBeNull();
     expect(await screen.findByText('This week: 2 flagged · 1 corrected')).toBeInTheDocument();
     // An athlete who does not share is offered, and says so.
     expect(screen.getByRole('option', { name: 'Ben (not shared with you)' })).toBeInTheDocument();
