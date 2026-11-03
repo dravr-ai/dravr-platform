@@ -18,9 +18,11 @@
 //! which both engines accept (`SQLite` stores them as 1/0).
 //!
 //! The refresh token value is never stored: `store_refresh_token` keeps its
-//! HMAC-SHA256 under the blind-index key through
+//! HMAC-SHA256 under the index primary through
 //! [`HasEncryption::hash_token_for_storage`], and every lookup hashes the
-//! presented token the same way. The consume paths are single statements
+//! presented token under each live index key
+//! ([`HasEncryption::blind_index_lookups`]) and matches either, so a token
+//! minted before an index rotation still exchanges. The consume paths are single statements
 //! (`UPDATE … WHERE … RETURNING`), so an authorization code is exchanged at
 //! most once even under concurrent requests (RFC 6749 §4.1.2, §10.5), a
 //! refresh token is rotated at most once, and a CSRF state is redeemed at
@@ -162,7 +164,7 @@ pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
 pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
             SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource
             FROM oauth2_refresh_tokens
-            WHERE token = $1
+            WHERE token IN ($1, $2)
             ";
 
 /// Rotate a refresh token exactly once: live, unexpired at `$3` and owned by
@@ -170,7 +172,7 @@ pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
 pub(crate) const CONSUME_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
             UPDATE oauth2_refresh_tokens
             SET revoked = TRUE
-            WHERE token = $1
+            WHERE token IN ($1, $4)
               AND client_id = $2
               AND revoked = FALSE
               AND expires_at > $3
@@ -184,7 +186,7 @@ pub(crate) const REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL: &str = r"
             SET revoked = TRUE
             WHERE revoked = FALSE
               AND family_id = (
-                  SELECT family_id FROM oauth2_refresh_tokens WHERE token = $1
+                  SELECT family_id FROM oauth2_refresh_tokens WHERE token IN ($1, $2)
               )
             ";
 
@@ -803,12 +805,13 @@ macro_rules! impl_oauth2_server_repository {
                 client_id: &str,
                 now: DateTime<Utc>,
             ) -> AppResult<Option<OAuth2RefreshToken>> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+                let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let row = sqlx::query(CONSUME_OAUTH2_REFRESH_TOKEN_SQL)
-                    .bind(&token_hash)
+                    .bind(&primary)
                     .bind(client_id)
                     .bind(now)
+                    .bind(&other)
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
@@ -820,10 +823,11 @@ macro_rules! impl_oauth2_server_repository {
             }
 
             async fn revoke_refresh_token_family(&self, token: &str) -> AppResult<u64> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+                let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let result = sqlx::query(REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL)
-                    .bind(&token_hash)
+                    .bind(&primary)
+                    .bind(&other)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -858,10 +862,11 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 token: &str,
             ) -> AppResult<Option<OAuth2RefreshToken>> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+                let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let row = sqlx::query(GET_OAUTH2_REFRESH_TOKEN_SQL)
-                    .bind(&token_hash)
+                    .bind(&primary)
+                    .bind(&other)
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {

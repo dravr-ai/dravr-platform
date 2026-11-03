@@ -71,6 +71,7 @@ async fn test_email_validation() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -266,6 +267,7 @@ async fn test_password_validation() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -433,6 +435,7 @@ async fn test_duplicate_user_registration() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -591,6 +594,7 @@ async fn test_login_with_correct_credentials() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -805,6 +809,7 @@ async fn test_login_with_wrong_password() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -971,6 +976,7 @@ async fn test_login_with_non_existent_user() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

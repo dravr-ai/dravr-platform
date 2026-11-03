@@ -8,16 +8,19 @@ use chrono::{DateTime, Utc};
 use pierre_core::admin::AdminJwtManager;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use sqlx::Row;
-use tracing::warn;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::{
     decrypt_rsa_private_key, encrypt_rsa_private_key, is_plaintext_private_key_pem, HasEncryption,
 };
+use crate::backends::shared::key_material::StoredSecretKind;
+use crate::backends::shared::keyring::SealDomain;
 use crate::repositories::security::{
-    impl_security_repository, SecurityRepository, COUNT_ENCRYPTED_ROWS_SQL, GET_SYSTEM_SECRET_SQL,
-    INSERT_SYSTEM_SECRET_IF_ABSENT_SQL, LOAD_RSA_KEYPAIRS_SQL, REWRITE_RSA_PRIVATE_KEY_SQL,
-    SAVE_RSA_KEYPAIR_SQL, UPSERT_SYSTEM_SECRET_SQL,
+    data_tag_pattern, impl_security_repository, index_tag_pattern, sweep_sql, KeyLifecycleEvent,
+    SealedRow, SecurityRepository, COMPARE_AND_SWAP_SYSTEM_SECRET_SQL, COUNT_ENCRYPTED_ROWS_SQL,
+    COUNT_LIVE_INDEX_HASHES_SQL, DELETE_SYSTEM_SECRET_SQL, GET_SYSTEM_SECRET_SQL,
+    INSERT_SYSTEM_SECRET_IF_ABSENT_SQL, LIST_KEY_LIFECYCLE_SQL, LOAD_RSA_KEYPAIRS_SQL,
+    RECORD_KEY_LIFECYCLE_SQL, SAVE_RSA_KEYPAIR_SQL, UPSERT_SYSTEM_SECRET_SQL,
 };
 
 impl_security_repository!(PostgresDatabase);

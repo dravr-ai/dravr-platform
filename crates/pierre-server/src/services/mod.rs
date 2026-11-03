@@ -20,6 +20,8 @@ pub mod archive_import;
 pub mod cloud_tasks;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
+/// Key rotation: the per-instance keyring reload and the rotation controller (carnet#1347)
+pub mod key_rotation;
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.
 pub mod turn_lifecycle;
 /// Where a messaging turn is started: in this process, or as a Cloud Tasks request.

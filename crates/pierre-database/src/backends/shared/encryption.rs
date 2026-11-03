@@ -9,10 +9,13 @@
 //! This module harmonizes encryption across PostgreSQL and SQLite, ensuring
 //! consistent security for sensitive data at rest using AES-256-GCM with AAD binding.
 
+use std::sync::Arc;
+
 use pierre_core::errors::AppResult;
 use uuid::Uuid;
 
 use super::key_material::{decrypt_stored_secret, StoredSecretKind};
+use super::keyring::{KeyringCell, SealDomain};
 
 /// Create AAD (Additional Authenticated Data) context for token encryption
 ///
@@ -59,6 +62,7 @@ pub fn create_token_aad_context(
 ///
 /// # Arguments
 /// * `db` - Database implementing `HasEncryption` trait
+/// * `kind` - Which token column the ciphertext is written to
 /// * `token` - Plain-text OAuth token to encrypt
 /// * `tenant_id` - Tenant ID
 /// * `user_id` - User UUID
@@ -80,6 +84,7 @@ pub fn create_token_aad_context(
 /// ```text
 /// let encrypted = shared::encryption::encrypt_oauth_token(
 ///     db,
+///     StoredSecretKind::OAuthAccessToken,
 ///     "access_token_here",
 ///     "tenant-123",
 ///     user_id,
@@ -88,6 +93,7 @@ pub fn create_token_aad_context(
 /// ```
 pub fn encrypt_oauth_token<D>(
     db: &D,
+    kind: StoredSecretKind,
     token: &str,
     tenant_id: &str,
     user_id: Uuid,
@@ -97,7 +103,7 @@ where
     D: HasEncryption,
 {
     let aad_context = create_token_aad_context(tenant_id, user_id, provider, "user_oauth_tokens");
-    db.encrypt_data_with_aad(token, &aad_context)
+    db.encrypt_data_with_aad(SealDomain::Stored(kind), token, &aad_context)
 }
 
 /// Decrypt OAuth token with AAD binding
@@ -202,7 +208,11 @@ pub fn encrypt_rsa_private_key<D>(db: &D, kid: &str, private_key_pem: &str) -> A
 where
     D: HasEncryption,
 {
-    db.encrypt_data_with_aad(private_key_pem, &create_rsa_key_aad_context(kid))
+    db.encrypt_data_with_aad(
+        SealDomain::Stored(StoredSecretKind::RsaPrivateKey),
+        private_key_pem,
+        &create_rsa_key_aad_context(kid),
+    )
 }
 
 /// Decrypt an RSA private key PEM read from `rsa_keypairs`
@@ -225,74 +235,55 @@ where
     )
 }
 
-/// Trait for databases that support encryption
+/// A database handle that seals, opens and hashes through its process's
+/// [`KeyringCell`].
 ///
-/// Both `PostgreSQL` and `SQLite` must implement this trait to use shared
-/// encryption helpers. This ensures consistent encryption behavior across
-/// database backends.
-///
-/// # Implementation Requirements
-/// - Must use AES-256-GCM (AEAD cipher)
-/// - Must generate unique nonce per encryption
-/// - Must bind AAD to ciphertext (prevents context switching)
-/// - Must encode output as base64 for database storage
-///
-/// # Examples
-/// ```text
-/// impl HasEncryption for Database {
-///     fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> Result<String> {
-///         // AES-256-GCM implementation with ring crate
-///         // See src/database/mod.rs:690 for reference
-///     }
-///
-///     fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> Result<String> {
-///         // Reverse of encrypt_data_with_aad
-///         // See src/database/mod.rs:729 for reference
-///     }
-/// }
-/// ```
+/// Both backends implement only [`Self::keyring`]; every seal, open and hash
+/// goes through the one implementation in [`super::keyring`], so the two
+/// backends cannot drift apart.
 pub trait HasEncryption {
-    /// Encrypt data using AES-256-GCM with Additional Authenticated Data
-    ///
-    /// # Arguments
-    /// * `data` - Plain-text data to encrypt
-    /// * `aad` - Additional Authenticated Data (context binding)
-    ///
-    /// # Returns
-    /// Base64-encoded string containing: nonce (12 bytes) + ciphertext + auth tag
-    ///
-    /// # Errors
-    /// Returns error if encryption fails
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String>;
+    /// The process keyring this handle shares with every clone of it.
+    fn keyring(&self) -> &Arc<KeyringCell>;
 
-    /// Decrypt data using AES-256-GCM with Additional Authenticated Data
-    ///
-    /// # Arguments
-    /// * `encrypted` - Base64-encoded encrypted data (from `encrypt_data_with_aad`)
-    /// * `aad` - Additional Authenticated Data (MUST match encryption AAD)
-    ///
-    /// # Returns
-    /// Decrypted plain-text data
+    /// Seal `data` for `domain` under the data primary, bound to `aad`.
     ///
     /// # Errors
-    /// Returns error if AAD doesn't match or data is tampered/corrupted
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String>;
+    /// When the keyring is stale once adopted, or sealing fails.
+    fn encrypt_data_with_aad(
+        &self,
+        domain: SealDomain,
+        data: &str,
+        aad: &str,
+    ) -> AppResult<String> {
+        self.keyring().seal(domain, data, aad)
+    }
 
-    /// Compute a keyed HMAC-SHA256 hash for secure token storage
-    ///
-    /// Used for refresh tokens where we need deterministic lookups but don't
-    /// need to recover the original value. The HMAC key is the database encryption
-    /// key, so even if the DB is compromised, tokens cannot be verified without it.
-    ///
-    /// # Arguments
-    /// * `token` - The plaintext token to hash
-    ///
-    /// # Returns
-    /// Base64-encoded HMAC-SHA256 digest
+    /// Open a value of `domain` sealed under any loaded data version.
     ///
     /// # Errors
-    /// Returns error if HMAC computation fails
-    fn hash_token_for_storage(&self, token: &str) -> AppResult<String>;
+    /// When its version is not loaded, or it fails to authenticate under `aad`.
+    fn decrypt_data_with_aad(
+        &self,
+        domain: SealDomain,
+        encrypted: &str,
+        aad: &str,
+    ) -> AppResult<String> {
+        self.keyring().open(domain, encrypted, aad)
+    }
+
+    /// The blind index a new refresh-token row stores, under the index
+    /// primary.
+    ///
+    /// # Errors
+    /// When the keyring is stale once adopted.
+    fn hash_token_for_storage(&self, token: &str) -> AppResult<String> {
+        self.keyring().hash_for_storage(token)
+    }
+
+    /// The two hashes a refresh-token lookup binds: one per live index key.
+    fn blind_index_lookups(&self, token: &str) -> [String; 2] {
+        self.keyring().lookup_hashes(token)
+    }
 }
 
 /// DEK version assigned to ciphertext written before DEK versioning existed.

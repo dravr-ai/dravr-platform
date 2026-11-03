@@ -87,6 +87,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -479,6 +480,7 @@ async fn test_set_goal_tool() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -1378,6 +1380,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

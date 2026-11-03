@@ -54,6 +54,7 @@ use pierre_core::models::{
     ApiKey, ApiKeyTier, CreateUserMcpTokenRequest, OAuth2RefreshToken, User, UserStatus,
     FEDERATED_ONLY_PASSWORD_HASH,
 };
+use pierre_database::backends::shared::keyring::SealDomain;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
@@ -957,7 +958,11 @@ fn sealed_transaction(f: &Fixture, state: &str, expires_at: i64, aad: &str) -> S
         .common
         .repos
         .security
-        .encrypt_data_with_aad(&transaction.to_string(), aad)
+        .encrypt_data_with_aad(
+            SealDomain::GoogleSignInTransaction,
+            &transaction.to_string(),
+            aad,
+        )
         .unwrap()
 }
 

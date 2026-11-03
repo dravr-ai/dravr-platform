@@ -16,8 +16,9 @@ use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::shared::key_material::{
-    report_stored_secret_decrypt_failure, StoredSecretKind,
+    llm_credential_aad, report_stored_secret_decrypt_failure, StoredSecretKind,
 };
+use pierre_database::backends::shared::keyring::SealDomain;
 use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 
 /// Environment variable names for LLM provider API keys
@@ -241,8 +242,11 @@ impl TenantLlmManager {
         let aad_context = Self::create_aad_context(tenant_id, user_id, request.provider);
 
         // Encrypt the API key
-        let api_key_encrypted =
-            security.encrypt_data_with_aad(request.api_key.expose_secret(), &aad_context)?;
+        let api_key_encrypted = security.encrypt_data_with_aad(
+            SealDomain::Stored(StoredSecretKind::LlmApiKey),
+            request.api_key.expose_secret(),
+            &aad_context,
+        )?;
 
         let record = LlmCredentialRecord {
             id,
@@ -360,7 +364,11 @@ impl TenantLlmManager {
         security: &dyn SecurityRepository,
     ) -> Option<LlmCredentials> {
         let aad_context = Self::create_aad_context(tenant_id, user_id, provider);
-        match security.decrypt_data_with_aad(&record.api_key_encrypted, &aad_context) {
+        match security.decrypt_data_with_aad(
+            SealDomain::Stored(StoredSecretKind::LlmApiKey),
+            &record.api_key_encrypted,
+            &aad_context,
+        ) {
             Ok(api_key) => Some(LlmCredentials {
                 tenant_id,
                 user_id,
@@ -558,12 +566,10 @@ impl TenantLlmManager {
         user_id: Option<Uuid>,
         provider: LlmProvider,
     ) -> String {
-        let user_part = user_id.map_or_else(|| "tenant-default".to_owned(), |u| u.to_string());
-        format!(
-            "{}|{}|{}|user_llm_credentials",
-            tenant_id,
-            user_part,
-            provider.as_str()
+        llm_credential_aad(
+            &tenant_id.to_string(),
+            user_id.map(|u| u.to_string()).as_deref(),
+            provider.as_str(),
         )
     }
 }

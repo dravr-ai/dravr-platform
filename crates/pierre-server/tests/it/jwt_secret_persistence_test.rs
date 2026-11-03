@@ -28,11 +28,11 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
     // One persistent store, initialised twice: every "restart" bootstraps a
     // fresh KeyManager and re-installs the DEK it loads from that store.
     let (mut key_manager, database_key) = common::bootstrap_keys(mek);
-    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
+    let database = create_test_db_with_key(database_key.to_vec()).await?;
 
     // Step 1: First initialization - simulate pierre-cli
     let jwt_secret_1 = {
-        key_manager.complete_initialization(&mut database).await?;
+        key_manager.complete_initialization(&database).await?;
 
         // Get/create JWT secret (simulating pierre-cli)
         let repos = database.repositories();
@@ -67,7 +67,7 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
     // Step 2: Second initialization - simulate server restart
     let jwt_secret_2 = {
         let (mut key_manager, _) = common::bootstrap_keys(mek);
-        key_manager.complete_initialization(&mut database).await?;
+        key_manager.complete_initialization(&database).await?;
 
         // Get JWT secret again (simulating server restart)
         let repos = database.repositories();
@@ -112,10 +112,10 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
     let mek = [b'a'; 32];
 
     let (mut key_manager, database_key) = common::bootstrap_keys(mek);
-    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
+    let database = create_test_db_with_key(database_key.to_vec()).await?;
 
     let jwt_secret_1 = {
-        key_manager.complete_initialization(&mut database).await?;
+        key_manager.complete_initialization(&database).await?;
         let repos = database.repositories();
         repos
             .security
@@ -125,7 +125,7 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
 
     let jwt_secret_2 = {
         let (mut key_manager, _) = common::bootstrap_keys(mek);
-        key_manager.complete_initialization(&mut database).await?;
+        key_manager.complete_initialization(&database).await?;
         let repos = database.repositories();
         repos
             .security

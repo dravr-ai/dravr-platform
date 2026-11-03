@@ -43,6 +43,8 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"
 
 # Encoding
 base64 = "0.22"
+# The process keyring is swapped whole when the keyset document changes
+arc-swap = "1.9"
 
 # Cryptography (for encryption/decryption of stored data)
 ring = "0.17"

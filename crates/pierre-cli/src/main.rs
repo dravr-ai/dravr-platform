@@ -947,7 +947,7 @@ async fn main() -> Result<()> {
 
     // Initialize database
     info!("Connecting to database: {}", redact_url(&database_url));
-    let mut database = Database::new(
+    let database = Database::new(
         &database_url,
         database_encryption_key.to_vec(),
         #[cfg(feature = "postgresql")]
@@ -956,7 +956,8 @@ async fn main() -> Result<()> {
     .await?;
 
     // Complete key manager initialization (updates database's encryption key with loaded DEK)
-    key_manager.complete_initialization(&mut database).await?;
+    key_manager.complete_initialization(&database).await?;
+    commands::key::keep_keyring_current(&key_manager, &database);
     info!("Two-tier key management system fully initialized for pierre-cli");
 
     // Run database migrations to ensure admin_tokens table exists

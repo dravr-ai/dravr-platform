@@ -55,7 +55,7 @@ macro_rules! consume_token_sql {
             "
             UPDATE session_refresh_tokens
             SET revoked_at = $2
-            WHERE token_hash = $1
+            WHERE token_hash IN ($1, $3)
               AND revoked_at IS NULL
               AND expires_at > $2
             RETURNING family_id, user_id",
@@ -73,7 +73,7 @@ pub(crate) const REVOKE_TOKEN_FAMILY_SQL: &str = r"
             SET revoked_at = $2
             WHERE revoked_at IS NULL
               AND family_id = (
-                  SELECT family_id FROM session_refresh_tokens WHERE token_hash = $1
+                  SELECT family_id FROM session_refresh_tokens WHERE token_hash IN ($1, $3)
               )
             ";
 
@@ -177,11 +177,12 @@ macro_rules! impl_session_refresh_token_repository {
                 token: &str,
                 now: DateTime<Utc>,
             ) -> AppResult<Option<SessionRefreshToken>> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+                let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let row = sqlx::query(consume_token_sql!($text))
-                    .bind(&token_hash)
+                    .bind(&primary)
                     .bind(now)
+                    .bind(&other)
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
@@ -192,11 +193,12 @@ macro_rules! impl_session_refresh_token_repository {
             }
 
             async fn revoke_token_family(&self, token: &str, now: DateTime<Utc>) -> AppResult<u64> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+                let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let result = sqlx::query(REVOKE_TOKEN_FAMILY_SQL)
-                    .bind(&token_hash)
+                    .bind(&primary)
                     .bind(now)
+                    .bind(&other)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

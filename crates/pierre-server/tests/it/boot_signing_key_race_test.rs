@@ -25,7 +25,10 @@ use pierre_auth::auth::AuthManager;
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::backends::shared::key_material::StoredSecretKind;
+use pierre_database::backends::shared::keyring::SealDomain;
 use pierre_database::backends::SecurityRepository;
+use pierre_database::repositories::security::{KeyLifecycleEvent, SealedRow};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
 use tokio::sync::Mutex;
@@ -363,11 +366,83 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
         self.peer_boots_before(PeerBootsBefore::Count).await?;
         self.inner.count_encrypted_rows().await
     }
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-        self.inner.encrypt_data_with_aad(data, aad)
+    async fn compare_and_swap_system_secret(
+        &self,
+        secret_type: &str,
+        expected: &str,
+        new_value: &str,
+    ) -> AppResult<bool> {
+        self.inner
+            .compare_and_swap_system_secret(secret_type, expected, new_value)
+            .await
     }
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-        self.inner.decrypt_data_with_aad(encrypted, aad)
+    async fn delete_system_secret(&self, secret_type: &str) -> AppResult<()> {
+        self.inner.delete_system_secret(secret_type).await
+    }
+    async fn adopt_keyset(
+        &self,
+        keyset_secret: &str,
+        document: &str,
+        legacy_active_version_secret: &str,
+    ) -> AppResult<bool> {
+        self.inner
+            .adopt_keyset(keyset_secret, document, legacy_active_version_secret)
+            .await
+    }
+    async fn sealed_rows_not_under(
+        &self,
+        kind: StoredSecretKind,
+        primary: u32,
+        after: &str,
+        limit: i64,
+    ) -> AppResult<Vec<SealedRow>> {
+        self.inner
+            .sealed_rows_not_under(kind, primary, after, limit)
+            .await
+    }
+    async fn reseal_row(
+        &self,
+        kind: StoredSecretKind,
+        row_key: &str,
+        old_value: &str,
+        new_value: &str,
+    ) -> AppResult<bool> {
+        self.inner
+            .reseal_row(kind, row_key, old_value, new_value)
+            .await
+    }
+    async fn count_sealed_under(&self, kind: StoredSecretKind, version: u32) -> AppResult<u64> {
+        self.inner.count_sealed_under(kind, version).await
+    }
+    async fn count_live_index_hashes(&self, version: u32, now: DateTime<Utc>) -> AppResult<u64> {
+        self.inner.count_live_index_hashes(version, now).await
+    }
+    async fn record_key_lifecycle(
+        &self,
+        message: &str,
+        metadata: serde_json::Value,
+        at: DateTime<Utc>,
+    ) -> AppResult<()> {
+        self.inner.record_key_lifecycle(message, metadata, at).await
+    }
+    async fn list_key_lifecycle(&self, limit: i64) -> AppResult<Vec<KeyLifecycleEvent>> {
+        self.inner.list_key_lifecycle(limit).await
+    }
+    fn encrypt_data_with_aad(
+        &self,
+        domain: SealDomain,
+        data: &str,
+        aad: &str,
+    ) -> AppResult<String> {
+        self.inner.encrypt_data_with_aad(domain, data, aad)
+    }
+    fn decrypt_data_with_aad(
+        &self,
+        domain: SealDomain,
+        encrypted: &str,
+        aad: &str,
+    ) -> AppResult<String> {
+        self.inner.decrypt_data_with_aad(domain, encrypted, aad)
     }
 }
 

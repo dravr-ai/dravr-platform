@@ -21,3 +21,6 @@ pub mod transactions;
 
 /// Key-material failure events and the stored-secret decrypt path that reports them
 pub mod key_material;
+
+/// The loaded keyset shared by every database handle (carnet#1347)
+pub mod keyring;
