@@ -25,7 +25,8 @@ pub struct KeysetLoader {
     kek: Arc<dyn KekProvider>,
     cell: Arc<KeyringCell>,
     /// Keys already unwrapped, by family and version: KMS is called once per
-    /// new version, never per refresh.
+    /// new version, never per refresh. Holds only what the last document
+    /// read loads.
     unwrapped: Mutex<HashMap<(KeyFamily, u32), Vec<u8>>>,
 }
 
@@ -173,14 +174,40 @@ impl KeysetLoader {
                 self.key(security, KeyFamily::Index, version).await?,
             );
         }
-        Keyring::new(
+        let ring = Keyring::new(
             data,
             doc.primary(KeyFamily::Data)?,
             index,
             doc.primary(KeyFamily::Index)?,
             doc.revision,
             true,
-        )
+        )?;
+        // A key the document no longer loads (disabled or destroyed) leaves
+        // this process's memory with the ring that dropped it; `key enable`
+        // unwraps it again.
+        let live: Vec<(KeyFamily, u32)> = KeyFamily::ALL
+            .into_iter()
+            .flat_map(|family| {
+                doc.loaded(family)
+                    .into_iter()
+                    .map(move |version| Self::slot(family, version))
+            })
+            .collect();
+        self.unwrapped
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|slot, _| live.contains(slot));
+        Ok(ring)
+    }
+
+    /// Where `family` `version` is cached: index v1 is the v1 data key, one
+    /// row and one unwrap.
+    const fn slot(family: KeyFamily, version: u32) -> (KeyFamily, u32) {
+        if version == 1 {
+            (KeyFamily::Data, 1)
+        } else {
+            (family, version)
+        }
     }
 
     /// The legacy layout: data `1..=active`, `active` primary, and index v1
@@ -204,12 +231,7 @@ impl KeysetLoader {
         family: KeyFamily,
         version: u32,
     ) -> AppResult<Vec<u8>> {
-        // Index v1 is the v1 data key: one row, one unwrap.
-        let slot = if version == 1 {
-            (KeyFamily::Data, 1)
-        } else {
-            (family, version)
-        };
+        let slot = Self::slot(family, version);
         if let Some(key) = self.cached(slot) {
             return Ok(key);
         }

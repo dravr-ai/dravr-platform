@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeSet;
 use std::env;
 use std::fmt;
 use std::sync::Arc;
@@ -26,7 +27,7 @@ use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
 
 use crate::keyset::secrets::{
-    insert_key_if_absent, load_key, read_legacy_active_version, rewrite_key, V1_SECRET,
+    insert_key_if_absent, load_key, read_legacy_active_version, rewrite_key, secret_name, V1_SECRET,
 };
 use crate::keyset::{read_keyset, KeyState, KeysetDocument, KeysetLoader, KEYSET_SECRET};
 
@@ -582,27 +583,79 @@ impl KeyManager {
     }
 
     /// Every stored key row: each version the keyset has not destroyed, in
-    /// both families (index v1 is the data v1 row, listed once), or before
-    /// adoption the legacy layout's `1..=active`.
+    /// both families ([`document_key_slots`]), or before adoption the legacy
+    /// layout's `1..=active`.
     async fn stored_key_slots(
         security: &dyn SecurityRepository,
     ) -> AppResult<Vec<(KeyFamily, u32)>> {
         Ok(match read_keyset(security).await? {
-            Some((_, doc)) => KeyFamily::ALL
-                .into_iter()
-                .flat_map(|family| {
-                    doc.versions(family)
-                        .into_iter()
-                        .filter(move |(version, key)| {
-                            key.state != KeyState::Destroyed
-                                && !(family == KeyFamily::Index && *version == 1)
-                        })
-                        .map(move |(version, _)| (family, version))
-                })
-                .collect(),
+            Some((_, doc)) => document_key_slots(&doc),
             None => (1..=read_legacy_active_version(security).await?)
                 .map(|version| (KeyFamily::Data, version))
                 .collect(),
         })
+    }
+}
+
+/// The stored key rows of an adopted keyset: each version not destroyed, in
+/// both families. Index v1 is the data v1 row, listed once, and listed while
+/// either family's v1 is not destroyed, since the row is kept until both are.
+fn document_key_slots(doc: &KeysetDocument) -> Vec<(KeyFamily, u32)> {
+    let mut rows = BTreeSet::new();
+    let mut slots = Vec::new();
+    for family in KeyFamily::ALL {
+        for (version, key) in doc.versions(family) {
+            if key.state != KeyState::Destroyed && rows.insert(secret_name(family, version)) {
+                slots.push((family, version));
+            }
+        }
+    }
+    slots
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Duration};
+
+    use super::*;
+
+    fn at(minutes: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(1_800_000_000, 0).unwrap() + Duration::minutes(minutes)
+    }
+
+    #[test]
+    fn the_shared_v1_row_is_rewrapped_once_and_while_either_family_needs_it() {
+        let mut doc = KeysetDocument::fresh(at(0));
+        assert_eq!(
+            document_key_slots(&doc),
+            vec![(KeyFamily::Data, 1)],
+            "data v1 and index v1 are one row, re-wrapped once"
+        );
+
+        doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
+        doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
+        doc.promote_due(at(15));
+        for family in KeyFamily::ALL {
+            doc.record_drain(family, 1, true, at(40));
+            doc.record_drain(family, 1, true, at(45));
+        }
+        let later = at(45 + 60 * 24 * 15);
+        doc.destroy(KeyFamily::Data, 1, later).unwrap();
+        assert_eq!(
+            document_key_slots(&doc),
+            vec![
+                (KeyFamily::Data, 2),
+                (KeyFamily::Index, 1),
+                (KeyFamily::Index, 2)
+            ],
+            "index v1 is disabled, not destroyed, so the shared row is still re-wrapped"
+        );
+
+        doc.destroy(KeyFamily::Index, 1, later).unwrap();
+        assert_eq!(
+            document_key_slots(&doc),
+            vec![(KeyFamily::Data, 2), (KeyFamily::Index, 2)],
+            "once both families destroyed v1 its row is gone"
+        );
     }
 }

@@ -168,12 +168,26 @@ mod tests {
 
     #[test]
     fn v1_is_one_row_for_both_families_and_later_versions_are_apart() {
-        assert_eq!(secret_name(KeyFamily::Data, 1), V1_SECRET);
-        assert_eq!(secret_name(KeyFamily::Index, 1), V1_SECRET);
+        // Persisted values: the row names already written to system_secrets.
+        assert_eq!(
+            secret_name(KeyFamily::Data, 1),
+            V1_SECRET,
+            "data v1 keeps its historical row"
+        );
+        assert_eq!(
+            secret_name(KeyFamily::Index, 1),
+            V1_SECRET,
+            "index v1 is the data v1 row"
+        );
         assert_eq!(
             secret_name(KeyFamily::Data, 2),
-            "database_encryption_key_v2"
+            "database_encryption_key_v2",
+            "a later data version keeps the legacy row name"
         );
-        assert_eq!(secret_name(KeyFamily::Index, 2), "blind_index_key_v2");
+        assert_eq!(
+            secret_name(KeyFamily::Index, 2),
+            "blind_index_key_v2",
+            "a later index version has its own row"
+        );
     }
 }

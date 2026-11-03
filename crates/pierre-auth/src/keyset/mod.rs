@@ -83,7 +83,7 @@ pub mod events {
 #[cfg(test)]
 mod tests {
     use pierre_database::backends::shared::key_material::{
-        KEYRING_STALE, KEYSET_RELOAD_FAILED, SWEEP_ROW_UNREADABLE,
+        DRAIN_COUNT_FAILED, KEYRING_STALE, KEYSET_RELOAD_FAILED, SWEEP_ROW_UNREADABLE,
     };
 
     use super::events;
@@ -94,7 +94,12 @@ mod tests {
             assert!(event.starts_with("key_lifecycle."), "{event}");
             assert!(!event.starts_with("key_material."), "{event}");
         }
-        for event in [KEYRING_STALE, KEYSET_RELOAD_FAILED, SWEEP_ROW_UNREADABLE] {
+        for event in [
+            DRAIN_COUNT_FAILED,
+            KEYRING_STALE,
+            KEYSET_RELOAD_FAILED,
+            SWEEP_ROW_UNREADABLE,
+        ] {
             assert!(event.starts_with("key_material."), "{event}");
         }
     }
