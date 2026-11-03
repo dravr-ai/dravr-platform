@@ -110,8 +110,8 @@ impl KeyManager {
     ///
     /// # Errors
     ///
-    /// When the keyset is not adopted, the version is not disabled, or the
-    /// keyset changed concurrently.
+    /// When the keyset is not adopted, the version is not disabled, its
+    /// stored key does not unwrap, or the keyset changed concurrently.
     pub async fn enable(
         &self,
         database: &Database,
@@ -122,10 +122,11 @@ impl KeyManager {
         let (text, mut doc) = Self::adopted_keyset(database).await?;
         let now = Utc::now();
         let transition = doc.enable(family, version, now)?;
-        Self::write_or_conflict(database, &text, &doc, &[transition], now).await?;
-        // The key must still unwrap; a failure here leaves it enabled but
-        // reported, and the next reload names it.
+        // The key must unwrap before any process is told to load it: an
+        // enabled key that does not would fail every instance's reload, and
+        // after the fleet window every instance would refuse to seal.
         load_key(security, self.kek().as_ref(), family, version).await?;
+        Self::write_or_conflict(database, &text, &doc, &[transition], now).await?;
         self.refresh_keyring(database).await
     }
 
@@ -133,6 +134,10 @@ impl KeyManager {
     /// 14 days, a fresh count of its rows is zero, and (for v1) both
     /// families' v1 are out of use. The document moves to `destroyed`
     /// first; the wrapped key is deleted second.
+    ///
+    /// The count covers the stored rows. External holders were counted when
+    /// the key was disabled, and a disabled key seals nothing new, so they
+    /// cannot have gained a value under it since.
     ///
     /// One-way: a destroyed key is gone.
     ///

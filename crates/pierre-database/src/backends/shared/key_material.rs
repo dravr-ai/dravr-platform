@@ -85,6 +85,10 @@ pub const KEYSET_RELOAD_FAILED: &str = "key_material.keyset_reload_failed";
 /// key it names from being disabled.
 pub const SWEEP_ROW_UNREADABLE: &str = "key_material.sweep_row_unreadable";
 
+/// A retiring key's drain count failed on consecutive controller ticks: the
+/// key stays loaded, and until the count works it never retires.
+pub const DRAIN_COUNT_FAILED: &str = "key_material.drain_count_failed";
+
 /// The database could not serve a boot key-store read before the boot
 /// deadline; [`KeyStoreQueue`] logs it once, when it gives up.
 ///

@@ -474,13 +474,20 @@ impl KeysetDocument {
     ///
     /// # Errors
     ///
-    /// When the version is not disabled.
+    /// When the version is not disabled, or it is an index key while the
+    /// index family already holds two loaded keys: a lookup binds at most
+    /// two, so a third would fail every process's keyring build.
     pub fn enable(
         &mut self,
         family: KeyFamily,
         version: u32,
         now: DateTime<Utc>,
     ) -> AppResult<Transition> {
+        if family == KeyFamily::Index && self.loaded(KeyFamily::Index).len() >= 2 {
+            return Err(AppError::invalid_input(format!(
+                "index v{version} cannot be enabled while two index keys are loaded; a lookup binds at most two, so let the rotation in progress finish first"
+            )));
+        }
         let key = self.key_mut(family, version)?;
         if key.state != KeyState::Disabled {
             return Err(AppError::invalid_input(format!(
@@ -605,41 +612,90 @@ mod tests {
     #[test]
     fn a_fresh_keyset_has_one_primary_per_family_and_round_trips() {
         let doc = KeysetDocument::fresh(at(0));
-        assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 1);
-        assert_eq!(doc.primary(KeyFamily::Index).unwrap(), 1);
+        assert_eq!(
+            doc.primary(KeyFamily::Data).unwrap(),
+            1,
+            "data v1 is primary"
+        );
+        assert_eq!(
+            doc.primary(KeyFamily::Index).unwrap(),
+            1,
+            "index v1 is primary"
+        );
         let back = KeysetDocument::parse(&doc.to_text().unwrap()).unwrap();
-        assert_eq!(back, doc);
+        assert_eq!(
+            back, doc,
+            "the stored form parses back to the same document"
+        );
     }
 
     #[test]
     fn adopting_a_legacy_layout_keeps_older_versions_decrypt_only() {
         let (doc, transitions) = KeysetDocument::adopted(3, at(0));
-        assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 3);
-        assert_eq!(doc.loaded(KeyFamily::Data), vec![1, 2, 3]);
+        assert_eq!(
+            doc.primary(KeyFamily::Data).unwrap(),
+            3,
+            "the legacy active version is the data primary"
+        );
+        assert_eq!(
+            doc.loaded(KeyFamily::Data),
+            vec![1, 2, 3],
+            "every legacy version stays loaded"
+        );
         assert_eq!(
             doc.versions(KeyFamily::Data)[&1].state,
-            KeyState::DecryptOnly
+            KeyState::DecryptOnly,
+            "an older legacy version is decrypt_only"
         );
-        assert_eq!(doc.primary(KeyFamily::Index).unwrap(), 1);
-        assert_eq!(transitions.len(), 4);
-        assert_eq!(transitions[0].message(), "data v1 adopted as decrypt_only");
-        assert_eq!(transitions[2].message(), "data v3 adopted as primary");
+        assert_eq!(
+            doc.primary(KeyFamily::Index).unwrap(),
+            1,
+            "index v1 is the index primary"
+        );
+        assert_eq!(transitions.len(), 4, "three data versions and index v1");
+        assert_eq!(
+            transitions[0].message(),
+            "data v1 adopted as decrypt_only",
+            "the record names an adopted older version"
+        );
+        assert_eq!(
+            transitions[2].message(),
+            "data v3 adopted as primary",
+            "the record names the adopted primary"
+        );
     }
 
     #[test]
     fn a_staged_key_is_promoted_only_after_the_fleet_window() {
         let mut doc = KeysetDocument::fresh(at(0));
         doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
-        assert_eq!(doc.loaded(KeyFamily::Index), vec![1, 2]);
-        assert_eq!(doc.promote_due(at(14)), Vec::new());
+        assert_eq!(
+            doc.loaded(KeyFamily::Index),
+            vec![1, 2],
+            "a staged key is loaded"
+        );
+        assert_eq!(
+            doc.promote_due(at(14)),
+            Vec::new(),
+            "nothing is promoted inside the fleet window"
+        );
         let made = doc.promote_due(at(15));
-        assert_eq!(made.len(), 2);
-        assert_eq!(doc.primary(KeyFamily::Index).unwrap(), 2);
+        assert_eq!(made.len(), 2, "a demotion and a promotion");
+        assert_eq!(
+            doc.primary(KeyFamily::Index).unwrap(),
+            2,
+            "the staged key is primary"
+        );
         assert_eq!(
             doc.versions(KeyFamily::Index)[&1].state,
-            KeyState::DecryptOnly
+            KeyState::DecryptOnly,
+            "the old primary is decrypt_only"
         );
-        assert_eq!(doc.versions(KeyFamily::Index)[&1].demoted_at, Some(at(15)));
+        assert_eq!(
+            doc.versions(KeyFamily::Index)[&1].demoted_at,
+            Some(at(15)),
+            "the demotion is stamped"
+        );
         assert_eq!(
             doc.primary(KeyFamily::Data).unwrap(),
             1,
@@ -677,19 +733,44 @@ mod tests {
         doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
         doc.promote_due(at(15));
         // L + the cookie TTL = 25 minutes after the demotion at 15.
-        assert_eq!(doc.disable_candidates(at(39)), Vec::new());
+        assert_eq!(
+            doc.disable_candidates(at(39)),
+            Vec::new(),
+            "no candidate before the disable wait"
+        );
         assert_eq!(
             doc.disable_candidates(at(40)),
-            vec![(KeyFamily::Data, 1, at(15))]
+            vec![(KeyFamily::Data, 1, at(15))],
+            "v1 is a candidate once the wait has passed"
         );
 
-        assert_eq!(doc.record_drain(KeyFamily::Data, 1, true, at(40)), None);
+        assert_eq!(
+            doc.record_drain(KeyFamily::Data, 1, true, at(40)),
+            None,
+            "a first zero only marks the key drained"
+        );
         // A row reappeared: the mark is cleared, and the count starts over.
-        assert_eq!(doc.record_drain(KeyFamily::Data, 1, false, at(45)), None);
-        assert_eq!(doc.record_drain(KeyFamily::Data, 1, true, at(50)), None);
+        assert_eq!(
+            doc.record_drain(KeyFamily::Data, 1, false, at(45)),
+            None,
+            "a non-zero count clears the mark"
+        );
+        assert_eq!(
+            doc.record_drain(KeyFamily::Data, 1, true, at(50)),
+            None,
+            "the count starts over after a non-zero"
+        );
         let disabled = doc.record_drain(KeyFamily::Data, 1, true, at(55)).unwrap();
-        assert_eq!(disabled.message(), "data v1 disabled");
-        assert_eq!(doc.loaded(KeyFamily::Data), vec![2]);
+        assert_eq!(
+            disabled.message(),
+            "data v1 disabled",
+            "a second consecutive zero disables"
+        );
+        assert_eq!(
+            doc.loaded(KeyFamily::Data),
+            vec![2],
+            "a disabled key is not loaded"
+        );
         assert!(
             doc.next_version(KeyFamily::Data).is_ok(),
             "the rotation is over"
@@ -704,18 +785,69 @@ mod tests {
         doc.record_drain(KeyFamily::Data, 1, true, at(40));
         doc.record_drain(KeyFamily::Data, 1, true, at(45));
 
-        assert!(doc
-            .check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 13))
-            .is_err());
+        assert!(
+            doc.check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 13))
+                .is_err(),
+            "a key disabled for 13 days is not destroyed"
+        );
         // v1 is also index v1, which is still primary.
-        assert!(doc
-            .check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 15))
-            .is_err());
+        assert!(
+            doc.check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 15))
+                .is_err(),
+            "data v1 is not destroyed while index v1 is in use"
+        );
 
         let enabled = doc.enable(KeyFamily::Data, 1, at(50)).unwrap();
-        assert_eq!(enabled.message(), "data v1 enabled");
-        assert_eq!(doc.loaded(KeyFamily::Data), vec![1, 2]);
-        assert!(doc.enable(KeyFamily::Data, 1, at(51)).is_err());
+        assert_eq!(
+            enabled.message(),
+            "data v1 enabled",
+            "the record names the enable"
+        );
+        assert_eq!(
+            doc.loaded(KeyFamily::Data),
+            vec![1, 2],
+            "an enabled key is loaded again"
+        );
+        assert!(
+            doc.enable(KeyFamily::Data, 1, at(51)).is_err(),
+            "only a disabled key is enabled"
+        );
+    }
+
+    #[test]
+    fn an_index_key_is_not_enabled_while_two_index_keys_are_loaded() {
+        let mut doc = KeysetDocument::fresh(at(0));
+        doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
+        doc.promote_due(at(15));
+        doc.record_drain(KeyFamily::Index, 1, true, at(40));
+        doc.record_drain(KeyFamily::Index, 1, true, at(45));
+        doc.stage(KeyFamily::Index, 3, at(50)).unwrap();
+        assert_eq!(
+            doc.loaded(KeyFamily::Index),
+            vec![2, 3],
+            "the test setup leaves k2 primary and k3 staged"
+        );
+        assert!(
+            doc.enable(KeyFamily::Index, 1, at(51)).is_err(),
+            "a third loaded index key is refused"
+        );
+        assert_eq!(
+            doc.versions(KeyFamily::Index)[&1].state,
+            KeyState::Disabled,
+            "a refused enable leaves the key disabled"
+        );
+        doc.promote_due(at(65));
+        doc.record_drain(KeyFamily::Index, 2, true, at(90));
+        doc.record_drain(KeyFamily::Index, 2, true, at(95));
+        assert!(
+            doc.enable(KeyFamily::Index, 1, at(96)).is_ok(),
+            "with one index key loaded, enabling a second is allowed"
+        );
+        assert_eq!(
+            doc.loaded(KeyFamily::Index),
+            vec![1, 3],
+            "the enabled key and the primary are loaded"
+        );
     }
 
     #[test]
@@ -731,7 +863,7 @@ mod tests {
         doc.record_drain(KeyFamily::Data, 2, true, at(95));
         let later = at(95 + 60 * 24 * 14);
         let destroyed = doc.destroy(KeyFamily::Data, 2, later).unwrap();
-        assert_eq!(destroyed.to, KeyState::Destroyed);
+        assert_eq!(destroyed.to, KeyState::Destroyed, "v2 is destroyed");
         assert_eq!(
             doc.next_version(KeyFamily::Data).unwrap(),
             4,
@@ -742,15 +874,24 @@ mod tests {
     #[test]
     fn a_scheduled_rotation_is_due_by_the_primary_age_alone() {
         let doc = KeysetDocument::fresh(at(0));
-        assert!(!doc.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 364)));
-        assert!(doc.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 365)));
+        assert!(
+            !doc.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 364)),
+            "a 364-day-old primary is not due"
+        );
+        assert!(
+            doc.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 365)),
+            "a 365-day-old primary is due"
+        );
         assert!(
             !doc.rotation_due(KeyFamily::Data, 0, at(60 * 24 * 9999)),
             "0 turns it off"
         );
         let mut rotating = doc;
         rotating.stage(KeyFamily::Data, 2, at(0)).unwrap();
-        assert!(!rotating.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 400)));
+        assert!(
+            !rotating.rotation_due(KeyFamily::Data, 365, at(60 * 24 * 400)),
+            "a family already rotating is never due"
+        );
     }
 
     #[test]
@@ -759,6 +900,9 @@ mod tests {
         if let Some(index) = doc.families.get_mut(&KeyFamily::Index) {
             index.insert(2, KeyVersion::new(KeyState::Primary, at(0)));
         }
-        assert!(KeysetDocument::parse(&doc.to_text().unwrap()).is_err());
+        assert!(
+            KeysetDocument::parse(&doc.to_text().unwrap()).is_err(),
+            "a family with two primaries is refused"
+        );
     }
 }

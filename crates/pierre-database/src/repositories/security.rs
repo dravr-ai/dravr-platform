@@ -250,6 +250,12 @@ pub(crate) const DELETE_SYSTEM_SECRET_SQL: &str =
 /// (`$1` new value, `$2` key, `$3` old value) and the count under one
 /// version (`$1` its `v{N}:%` pattern, `$2` whether untagged values count).
 /// Every key and AAD column reads back as text on both drivers.
+///
+/// Deployment-wide with no tenant or user key on purpose, like
+/// [`COUNT_ENCRYPTED_ROWS_SQL`]: the data key is one for every tenant, so
+/// re-sealing under it and counting what is left must reach every row. Each
+/// row's AAD is rebuilt from that row's own tenant and user columns, and the
+/// re-seal addresses one row by its primary key.
 pub(crate) struct SweepSql {
     pub(crate) select: &'static str,
     pub(crate) reseal: &'static str,
@@ -325,6 +331,8 @@ pub(crate) const fn sweep_sql(kind: StoredSecretKind) -> SweepSql {
 
 /// Refresh-token rows unexpired at `$1`, of any status, in both tables,
 /// whose hash is tagged `$2` (`k{N}:%`), or untagged when `$3`.
+/// Deployment-wide with no tenant or user key on purpose: the index key is
+/// one for every tenant, and it is retired only once no tenant's row needs it.
 pub(crate) const COUNT_LIVE_INDEX_HASHES_SQL: &str = r"
             SELECT (SELECT COUNT(*) FROM oauth2_refresh_tokens
                      WHERE expires_at > $1 AND (token LIKE $2 OR ($3 AND token NOT LIKE '%:%')))

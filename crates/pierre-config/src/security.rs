@@ -91,6 +91,18 @@ pub struct SecurityConfig {
     pub key_rotation_days: u32,
 }
 
+/// The rotation age `PIERRE_KEY_ROTATION_DAYS` sets, the default when unset.
+///
+/// A value that is not a number refuses the boot: read as the default it would
+/// silently turn an operator's `0` typo into yearly rotations.
+fn parse_key_rotation_days(value: Option<&str>) -> AppResult<u32> {
+    value.map_or(Ok(DEFAULT_KEY_ROTATION_DAYS), |text| {
+        text.trim().parse::<u32>().map_err(|e| {
+            AppError::invalid_input(format!("Invalid PIERRE_KEY_ROTATION_DAYS value: {e}"))
+        })
+    })
+}
+
 const fn default_key_rotation_days() -> u32 {
     DEFAULT_KEY_ROTATION_DAYS
 }
@@ -122,10 +134,9 @@ impl SecurityConfig {
             )),
             tls: TlsConfig::from_env(),
             headers: SecurityHeadersConfig::from_env(),
-            key_rotation_days: env::var("PIERRE_KEY_ROTATION_DAYS")
-                .ok()
-                .and_then(|s| s.trim().parse::<u32>().ok())
-                .unwrap_or(DEFAULT_KEY_ROTATION_DAYS),
+            key_rotation_days: parse_key_rotation_days(
+                env::var("PIERRE_KEY_ROTATION_DAYS").ok().as_deref(),
+            )?,
         })
     }
 
@@ -224,4 +235,32 @@ pub fn llm_base_url_policy() -> &'static FetchPolicy {
         )))
     });
     &POLICY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rotation_age_defaults_parses_and_refuses_a_typo() {
+        assert_eq!(
+            parse_key_rotation_days(None).unwrap_or_default(),
+            DEFAULT_KEY_ROTATION_DAYS,
+            "unset means the default"
+        );
+        assert_eq!(
+            parse_key_rotation_days(Some(" 90 ")).unwrap_or_default(),
+            90,
+            "a number is read as written"
+        );
+        assert_eq!(
+            parse_key_rotation_days(Some("0")).unwrap_or(1),
+            0,
+            "0 turns scheduled rotation off"
+        );
+        assert!(
+            parse_key_rotation_days(Some("O")).is_err(),
+            "a typo refuses the boot"
+        );
+    }
 }

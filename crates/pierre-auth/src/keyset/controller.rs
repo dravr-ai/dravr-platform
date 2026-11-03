@@ -33,7 +33,9 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::shared::encryption::{
     is_plaintext_private_key_pem, split_dek_version,
 };
-use pierre_database::backends::shared::key_material::{StoredSecretKind, SWEEP_ROW_UNREADABLE};
+use pierre_database::backends::shared::key_material::{
+    StoredSecretKind, DRAIN_COUNT_FAILED, SWEEP_ROW_UNREADABLE,
+};
 use pierre_database::backends::shared::keyring::{
     KeyFamily, Keyring, KeyringCell, SealDomain, FLEET_WINDOW,
 };
@@ -90,6 +92,9 @@ pub struct SweepState {
     pub holders: BTreeMap<String, Option<u64>>,
     /// When the last tick ran.
     pub last_tick_at: Option<DateTime<Utc>>,
+    /// Consecutive ticks on which a drain count failed.
+    #[serde(default)]
+    pub failed_count_ticks: u32,
 }
 
 impl SweepState {
@@ -378,6 +383,7 @@ impl KeysetController {
         now: DateTime<Utc>,
     ) -> Vec<Transition> {
         let mut disabled = Vec::new();
+        let mut count_failed = false;
         for (family, version, demoted_at) in doc.disable_candidates(now) {
             let drained = match count_remaining(
                 security,
@@ -395,7 +401,8 @@ impl KeysetController {
                     remaining == 0
                 }
                 Err(e) => {
-                    warn!(event = events::DRAIN_COUNTED, key_family = %family, key_version = version, error = %e, "drain count failed; the key stays loaded");
+                    count_failed = true;
+                    Self::report_count_failure(state, family, version, &e);
                     false
                 }
             };
@@ -403,7 +410,37 @@ impl KeysetController {
                 disabled.push(transition);
             }
         }
+        state.failed_count_ticks = if count_failed {
+            state.failed_count_ticks.saturating_add(1)
+        } else {
+            0
+        };
         disabled
+    }
+
+    /// One failed count is retried next tick, and its cause is usually a
+    /// database that briefly had no free connection, so it logs `WARN`. A count
+    /// that also failed last tick is broken, and it pages: the key stays loaded
+    /// for as long as it fails, and otherwise nothing says so.
+    fn report_count_failure(state: &SweepState, family: KeyFamily, version: u32, e: &AppError) {
+        if state.failed_count_ticks == 0 {
+            warn!(
+                event = events::DRAIN_COUNTED,
+                key_family = %family,
+                key_version = version,
+                error = %e,
+                "drain count failed; the key stays loaded"
+            );
+        } else {
+            error!(
+                event = DRAIN_COUNT_FAILED,
+                key_family = %family,
+                key_version = version,
+                failed_ticks = state.failed_count_ticks + 1,
+                error = %e,
+                "drain count keeps failing; the key stays loaded until it works"
+            );
+        }
     }
 
     /// Open one row (or take a legacy plaintext key as it is), seal it under

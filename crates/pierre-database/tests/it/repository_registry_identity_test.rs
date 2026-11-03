@@ -104,7 +104,11 @@ async fn installing_a_keyring_reaches_every_clone_taken_before_or_after() {
         Arc::ptr_eq(before.repositories(), db.repositories()),
         "installing a keyring keeps the one registry"
     );
-    assert_eq!(before.keyring().current().data_primary(), 2);
+    assert_eq!(
+        before.keyring().current().data_primary(),
+        2,
+        "the installed keyring reaches the handle"
+    );
 
     let token = UserOAuthToken::new(
         user_id,
