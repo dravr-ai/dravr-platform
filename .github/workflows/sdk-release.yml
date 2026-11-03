@@ -1,4 +1,4 @@
-# ABOUTME: Publishes the TypeScript SDK to npm when a GitHub release is published.
+# ABOUTME: Publishes the TypeScript SDK to npm, and attaches its Claude Desktop bundle (.mcpb), on a GitHub release.
 # ABOUTME: Supports both stable releases and pre-releases (beta/alpha/rc).
 
 name: "Release: TypeScript SDK (npm)"
@@ -148,6 +148,11 @@ jobs:
         working-directory: sdk
         run: bun run test:unit
 
+      # Stages, smokes and packs build/dravr-<version>.mcpb (see sdk/mcpb/build.mjs).
+      - name: Pack Claude Desktop bundle
+        working-directory: sdk
+        run: node mcpb/build.mjs
+
       - name: Verify package contents
         working-directory: sdk
         run: |
@@ -173,6 +178,38 @@ jobs:
           name: sdk-dist
           path: sdk/dist/
           retention-days: 1
+
+      - name: Upload Claude Desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-mcpb
+          path: sdk/build/dravr-${{ needs.validate.outputs.version }}.mcpb
+          if-no-files-found: error
+          retention-days: 1
+
+  attach-mcpb:
+    name: Attach Claude Desktop bundle to the release
+    needs: [validate, build-and-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # one asset upload
+    if: github.event_name == 'release'
+    permissions:
+      contents: write  # gh release upload
+
+    steps:
+      - name: Download Claude Desktop bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-mcpb
+          path: mcpb
+
+      - name: Upload to the release
+        # The tag is release-author input, so it reaches the shell as data, not as script text.
+        run: gh release upload "$RELEASE_TAG" "mcpb/dravr-${VERSION}.mcpb" --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
 
   publish-npm:
     name: Publish to npm
@@ -241,7 +278,7 @@ jobs:
 
   publish-summary:
     name: Release Summary
-    needs: [validate, publish-npm]
+    needs: [validate, publish-npm, attach-mcpb]
     runs-on: ubuntu-latest
     timeout-minutes: 5  # writes the summary
     if: always() && needs.validate.result == 'success'
@@ -272,6 +309,11 @@ jobs:
           echo "| npm Tag | \`${NPM_TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Pre-release | ${IS_PRERELEASE} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.attach-mcpb.result }}" == "success" ]; then
+            echo "🖥️ **Claude Desktop bundle \`dravr-${VERSION}.mcpb\` attached to the release**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
           if [ "${{ needs.publish-npm.result }}" == "success" ]; then
             echo "### Installation" >> $GITHUB_STEP_SUMMARY

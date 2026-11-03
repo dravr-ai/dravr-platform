@@ -752,6 +752,13 @@ jobs:
         working-directory: sdk
         run: bun run test:unit
 
+      # The Claude Desktop bundle (.mcpb) ships with each SDK release; packing it
+      # here smokes the staged tree (entry point runs, keychain loads) on the
+      # change that would break it rather than on release day.
+      - name: Pack Claude Desktop bundle
+        working-directory: sdk
+        run: node mcpb/build.mjs
+
       # The helpers find the server and the CLI through these, the release
       # build above, so no step here compiles anything.
       - name: Run SDK integration tests

@@ -10,6 +10,19 @@ npm install pierre-mcp-client@next
 
 ## Usage
 
+### Claude Desktop (one-click bundle)
+
+Each SDK release attaches `dravr-<version>.mcpb` to its GitHub release. Open it with
+Claude Desktop (double-click, or Settings → Extensions → Install Extension) and it installs
+this client with no config file to edit and no Node.js to install: Claude Desktop runs it on
+its own Node runtime. Until you sign in it offers one tool, `connect_to_dravr`, which opens a
+browser to sign in to Dravr; the session is kept in the OS keychain.
+
+The extension's one setting, **Server URL**, defaults to `https://mcp.dravr.ai`. Build the
+bundle locally with `bun run build:mcpb` (output: `build/dravr-<version>.mcpb`); its manifest
+source is [`mcpb/manifest.json`](mcpb/manifest.json), with the version taken from
+`package.json` at build time.
+
 ### With npx (No Installation)
 
 ```bash

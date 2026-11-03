@@ -12,6 +12,7 @@
     "preinstall": "node -e \"if(process.env.INIT_CWD === process.cwd() && !(process.env.npm_execpath || '').includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
     "build": "node esbuild.config.mjs && tsc --emitDeclarationOnly",
     "build:tsc": "tsc",
+    "build:mcpb": "bun run build && node mcpb/build.mjs",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",
     "dev": "tsx src/cli.ts",
@@ -64,6 +65,7 @@
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@eslint/js": "^9.39.1",
     "@modelcontextprotocol/inspector": "^0.16.6",
     "@types/jest": "^30.0.0",

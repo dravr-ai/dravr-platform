@@ -40,6 +40,9 @@ sdk/*.db
 sdk/*.db-shm
 sdk/*.db-wal
 
+# Claude Desktop bundle staging and output (bun run build:mcpb)
+sdk/build/
+
 # Python
 __pycache__/
 *.py[cod]

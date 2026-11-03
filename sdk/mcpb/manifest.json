@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "dravr",
+  "display_name": "Dravr",
+  "description": "Your training, recovery and nutrition data from Strava, Garmin, Whoop and more, analysed by Dravr.",
+  "long_description": "Connects Claude to your Dravr account. Dravr brings the activities, sleep, recovery and nutrition your providers record (Strava, Garmin, Whoop, Intervals.icu, Wahoo and more) together with training load, recovery and pattern analysis, as MCP tools Claude can call.\n\nOn first use a browser window opens to sign in to Dravr; the session is kept in your operating system's keychain. Point the extension at another Dravr server with the Server URL setting.",
+  "author": {
+    "name": "dravr.ai",
+    "url": "https://dravr.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dravr-ai/dravr-platform"
+  },
+  "homepage": "https://dravr.ai",
+  "documentation": "https://github.com/dravr-ai/dravr-platform/tree/main/sdk#readme",
+  "support": "https://github.com/dravr-ai/dravr-platform/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/cli.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/cli.js", "--server", "${user_config.server_url}"]
+    }
+  },
+  "tools_generated": true,
+  "keywords": ["fitness", "training", "strava", "garmin", "whoop", "recovery", "nutrition"],
+  "license": "MIT",
+  "privacy_policies": ["https://dravr.ai/privacy"],
+  "compatibility": {
+    "runtimes": {
+      "node": ">=24.0.0"
+    }
+  },
+  "user_config": {
+    "server_url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "The Dravr MCP server to connect to. Leave the default unless your organisation runs its own.",
+      "default": "https://mcp.dravr.ai",
+      "required": false
+    }
+  }
+}
