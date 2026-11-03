@@ -338,6 +338,18 @@ async fn break_reads(database: &Database, secret_type: &str) {
     }
 }
 
+/// Whether [`break_reads`] breaks every secret rather than the one named:
+/// `PostgreSQL` cannot corrupt one row of a `TEXT` column, so it hides the
+/// column, and the boot's first read, the keyset document, is the one that
+/// fails and pages.
+const fn breaks_every_secret(database: &Database) -> bool {
+    !matches!(database.backend(), DatabaseBackend::SQLite(_))
+}
+
+/// The page a boot logs when the keyset document itself cannot be read.
+const KEYSET_READ_FAILED: &str =
+    "Failed to read the stored keyset; refusing to initialize key management";
+
 // ── Stored-secret decrypt failures ───────────────────────────────────────────
 
 #[tokio::test]
@@ -566,9 +578,13 @@ async fn dek_read_failure_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(page.message, "Failed to read a stored key version");
-    assert_eq!(page.field("key_family"), "data");
-    assert_eq!(page.field("key_version"), "1");
+    if breaks_every_secret(&database) {
+        assert_eq!(page.message, KEYSET_READ_FAILED);
+    } else {
+        assert_eq!(page.message, "Failed to read a stored key version");
+        assert_eq!(page.field("key_family"), "data");
+        assert_eq!(page.field("key_version"), "1");
+    }
 }
 
 #[tokio::test]
@@ -581,10 +597,12 @@ async fn dek_read_failure_on_the_legacy_layout_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(
-        page.message,
+    let expected = if breaks_every_secret(&database) {
+        KEYSET_READ_FAILED
+    } else {
         "Failed to read the stored DEK; refusing to initialize key management"
-    );
+    };
+    assert_eq!(page.message, expected);
 }
 
 #[tokio::test]

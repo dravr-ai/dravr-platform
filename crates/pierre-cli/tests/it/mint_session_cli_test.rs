@@ -81,7 +81,7 @@ async fn open_database(url: &str) -> Database {
     let (mut key_manager, key) = KeyManager::bootstrap_with(Box::new(LocalKekProvider::from_mek(
         MasterEncryptionKey::from_bytes(MASTER_KEY),
     )));
-    let mut database = Database::new(
+    let database = Database::new(
         url,
         key.to_vec(),
         #[cfg(feature = "postgresql")]
