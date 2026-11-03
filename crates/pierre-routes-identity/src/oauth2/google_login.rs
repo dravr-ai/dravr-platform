@@ -141,7 +141,11 @@ impl GoogleSignIn {
         };
         let Some(transaction) = self
             .security
-            .decrypt_data_with_aad(SealDomain::GoogleSignInTransaction, &sealed, TRANSACTION_AAD)
+            .decrypt_data_with_aad(
+                SealDomain::GoogleSignInTransaction,
+                &sealed,
+                TRANSACTION_AAD,
+            )
             .ok()
             .and_then(|json| serde_json::from_str::<GoogleSignInTransaction>(&json).ok())
         else {
