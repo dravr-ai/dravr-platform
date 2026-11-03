@@ -16,9 +16,11 @@ use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::{encrypt_oauth_token, HasEncryption};
-use crate::backends::shared::key_material::{decrypt_stored_secret, StoredSecretKind};
+use crate::backends::shared::key_material::{
+    decrypt_stored_secret, strava_pool_app_aad, StoredSecretKind,
+};
 use crate::repositories::user_oauth_tokens::{
-    impl_oauth_token_repository, refresh_stamp, strava_pool_app_aad, strava_pool_app_from_row,
+    impl_oauth_token_repository, refresh_stamp, strava_pool_app_from_row,
     strava_seat_holder_from_row, user_oauth_app_from_row, user_oauth_token_from_row,
     COUNT_STRAVA_SEAT_USAGE_BY_APP_SQL, DELETE_STRAVA_POOL_APP_SQL, DELETE_TOKEN_SQL,
     GET_PROVIDER_LAST_SYNC_SQL, GET_STRAVA_POOL_APP_SECRET_SQL, GET_TOKENS_IN_TENANT_SQL,

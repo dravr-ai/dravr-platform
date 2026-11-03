@@ -602,11 +602,6 @@ where
     })
 }
 
-/// The AAD a pool app's secret is bound to.
-pub(crate) fn strava_pool_app_aad(client_id: &str) -> String {
-    format!("strava_oauth_app_pool|{client_id}")
-}
-
 /// Emit the whole [`OAuthTokenRepository`](super::OAuthTokenRepository)
 /// implementation for one backend type.
 ///
@@ -947,9 +942,7 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<()> {
                 let encrypted = HasEncryption::encrypt_data_with_aad(
                     self,
-                    $crate::backends::shared::keyring::SealDomain::Stored(
-                        $crate::backends::shared::key_material::StoredSecretKind::StravaPoolClientSecret,
-                    ),
+                    StoredSecretKind::StravaPoolClientSecret.domain(),
                     client_secret,
                     &strava_pool_app_aad(client_id),
                 )?;
