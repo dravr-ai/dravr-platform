@@ -391,6 +391,7 @@ mod jwt_rate_limiting_simple_test;
 mod jwt_secret_persistence_test;
 mod key_management_test;
 mod key_material_alert_test;
+mod key_rotation_test;
 mod lease_token_fence_test;
 mod link_token_consume_test;
 mod live_incident_eval_test;

@@ -185,6 +185,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["http://localhost:3000".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

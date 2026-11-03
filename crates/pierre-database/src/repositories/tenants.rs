@@ -462,6 +462,9 @@ macro_rules! impl_tenant_repository {
             ) -> AppResult<()> {
                 let encrypted_secret = HasEncryption::encrypt_data_with_aad(
                     self,
+                    $crate::backends::shared::keyring::SealDomain::Stored(
+                        $crate::backends::shared::key_material::StoredSecretKind::TenantOAuthClientSecret,
+                    ),
                     credentials.client_secret.expose_secret(),
                     &tenant_oauth_aad(credentials.tenant_id, &credentials.provider),
                 )?;

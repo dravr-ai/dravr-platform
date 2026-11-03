@@ -24,6 +24,7 @@ use std::str;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::{Scope, SourceKey};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::shared::keyring::SealDomain;
 use pierre_database::repositories::SecurityRepository;
 
 /// The digest of `link`, which logs, errors and the job row carry in its
@@ -58,7 +59,7 @@ pub fn seal(
 ) -> AppResult<Vec<u8>> {
     let aad = associated_data(scope, source, &link_digest(link));
     security
-        .encrypt_data_with_aad(link, &aad)
+        .encrypt_data_with_aad(SealDomain::ArchiveImportLink, link, &aad)
         .map(String::into_bytes)
 }
 
@@ -78,5 +79,9 @@ pub fn open(
 ) -> AppResult<String> {
     let text = str::from_utf8(ciphertext)
         .map_err(|_| AppError::internal("the stored export link is not a ciphertext"))?;
-    security.decrypt_data_with_aad(text, &associated_data(scope, source, digest))
+    security.decrypt_data_with_aad(
+        SealDomain::ArchiveImportLink,
+        text,
+        &associated_data(scope, source, digest),
+    )
 }

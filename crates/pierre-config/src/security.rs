@@ -66,8 +66,12 @@ impl AuthConfig {
     }
 }
 
+/// Days a key family's primary serves before the rotation controller stages
+/// its successor (ADR-017, carnet#1347).
+pub const DEFAULT_KEY_ROTATION_DAYS: u32 = 365;
+
 /// Security configuration including CORS, rate limiting, and TLS
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// CORS allowed origins
     pub cors_origins: Vec<String>,
@@ -80,6 +84,27 @@ pub struct SecurityConfig {
     pub tls: TlsConfig,
     /// Security headers configuration
     pub headers: SecurityHeadersConfig,
+    /// Days each key family's primary serves before the rotation controller
+    /// stages a successor; `0` turns scheduled rotation off. Set via
+    /// `PIERRE_KEY_ROTATION_DAYS`.
+    #[serde(default = "default_key_rotation_days")]
+    pub key_rotation_days: u32,
+}
+
+const fn default_key_rotation_days() -> u32 {
+    DEFAULT_KEY_ROTATION_DAYS
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            cors_origins: Vec::new(),
+            allowed_mobile_redirect_origins: Vec::new(),
+            tls: TlsConfig::default(),
+            headers: SecurityHeadersConfig::default(),
+            key_rotation_days: DEFAULT_KEY_ROTATION_DAYS,
+        }
+    }
 }
 
 impl SecurityConfig {
@@ -97,6 +122,10 @@ impl SecurityConfig {
             )),
             tls: TlsConfig::from_env(),
             headers: SecurityHeadersConfig::from_env(),
+            key_rotation_days: env::var("PIERRE_KEY_ROTATION_DAYS")
+                .ok()
+                .and_then(|s| s.trim().parse::<u32>().ok())
+                .unwrap_or(DEFAULT_KEY_ROTATION_DAYS),
         })
     }
 

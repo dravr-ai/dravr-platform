@@ -419,6 +419,9 @@ pub mod units;
 /// One tick loop for every background worker
 pub mod periodic;
 
+/// Per-instance periodic loops under a supervisor
+pub mod supervised;
+
 /// Agent version diff computation
 pub mod recipes;
 

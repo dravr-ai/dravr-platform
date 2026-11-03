@@ -40,7 +40,14 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use tokio::time::sleep;
 use tracing::{error, warn};
 
-use super::encryption::{split_dek_version, HasEncryption};
+use super::encryption::{
+    create_rsa_key_aad_context, create_token_aad_context, split_dek_version, HasEncryption,
+};
+use super::keyring::SealDomain;
+use crate::repositories::tenants::tenant_oauth_aad;
+use crate::repositories::user_oauth_tokens::strava_pool_app_aad;
+use pierre_core::models::TenantId;
+use uuid::Uuid;
 
 /// A stored secret failed to decrypt: wrong or missing DEK, AAD mismatch, or
 /// tampered ciphertext.
@@ -65,6 +72,19 @@ pub const RSA_KEYPAIR_LOAD_FAILED: &str = "key_material.rsa_keypair_load_failed"
 /// instance refuses to mint one and does not boot.
 pub const RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT: &str =
     "key_material.rsa_keypair_minted_over_ciphertext";
+
+/// The keyring has not been confirmed current within the fleet window, so
+/// the process refuses to seal or write a hash until the keyset reloads.
+pub const KEYRING_STALE: &str = "key_material.keyring_stale";
+
+/// A periodic keyset reload failed; the process keeps its current keyring
+/// and refuses to seal once it goes stale.
+pub const KEYSET_RELOAD_FAILED: &str = "key_material.keyset_reload_failed";
+
+/// The rotation sweep met a stored secret that does not open under any
+/// loaded key: it is skipped, kept in the unreadable set, and blocks the
+/// key it names from being disabled.
+pub const SWEEP_ROW_UNREADABLE: &str = "key_material.sweep_row_unreadable";
 
 /// The database could not serve a boot key-store read before the boot
 /// deadline; [`KeyStoreQueue`] logs it once, when it gives up.
@@ -289,6 +309,71 @@ impl StoredSecretKind {
     }
 }
 
+impl StoredSecretKind {
+    /// Every stored kind: the closed list the rotation sweep, its counts and
+    /// the carnet#703 mint guard iterate.
+    pub const ALL: [Self; 6] = [
+        Self::OAuthAccessToken,
+        Self::OAuthRefreshToken,
+        Self::RsaPrivateKey,
+        Self::TenantOAuthClientSecret,
+        Self::StravaPoolClientSecret,
+        Self::LlmApiKey,
+    ];
+
+    /// The AAD one stored row of this kind is sealed under, from that row's
+    /// own columns as the sweep selects them: its key and up to three parts
+    /// (see [`crate::repositories::security::SealedRow`]).
+    ///
+    /// # Errors
+    ///
+    /// When a part the AAD needs is missing or not of its type.
+    pub fn row_aad(self, row_key: &str, parts: [Option<&str>; 3]) -> AppResult<String> {
+        let part = |index: usize, name: &str| {
+            parts[index].ok_or_else(|| {
+                AppError::internal(format!(
+                    "{} row {row_key} has no {name} for its AAD",
+                    self.as_str()
+                ))
+            })
+        };
+        match self {
+            Self::OAuthAccessToken | Self::OAuthRefreshToken => {
+                let user_id = Uuid::parse_str(part(1, "user_id")?).map_err(|e| {
+                    AppError::internal(format!("{} row {row_key}: user_id: {e}", self.as_str()))
+                })?;
+                Ok(create_token_aad_context(
+                    part(0, "tenant_id")?,
+                    user_id,
+                    part(2, "provider")?,
+                    self.table(),
+                ))
+            }
+            Self::RsaPrivateKey => Ok(create_rsa_key_aad_context(row_key)),
+            Self::TenantOAuthClientSecret => {
+                let tenant_id = TenantId::parse_str(part(0, "tenant_id")?).map_err(|e| {
+                    AppError::internal(format!("{} row {row_key}: tenant_id: {e}", self.as_str()))
+                })?;
+                Ok(tenant_oauth_aad(tenant_id, part(1, "provider")?))
+            }
+            Self::StravaPoolClientSecret => Ok(strava_pool_app_aad(row_key)),
+            Self::LlmApiKey => Ok(llm_credential_aad(
+                part(0, "tenant_id")?,
+                parts[1],
+                part(2, "provider")?,
+            )),
+        }
+    }
+}
+
+/// The AAD a `user_llm_credentials` key is sealed under: a tenant default
+/// (no user) binds `tenant-default` in the user's place.
+#[must_use]
+pub fn llm_credential_aad(tenant_id: &str, user_id: Option<&str>, provider: &str) -> String {
+    let user_part = user_id.unwrap_or("tenant-default");
+    format!("{tenant_id}|{user_part}|{provider}|user_llm_credentials")
+}
+
 /// What the latch decided for one failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Admission {
@@ -457,7 +542,7 @@ pub fn decrypt_stored_secret<D>(
 where
     D: HasEncryption + ?Sized,
 {
-    db.decrypt_data_with_aad(encrypted, aad_context)
+    db.decrypt_data_with_aad(SealDomain::Stored(kind), encrypted, aad_context)
         .inspect_err(|e| report_stored_secret_decrypt_failure(kind, encrypted, aad_context, e))
 }
 

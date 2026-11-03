@@ -47,7 +47,7 @@ async fn open_database(url: &str) -> Database {
     .await
     .unwrap();
     key_manager
-        .complete_initialization(&mut database)
+        .complete_initialization(&database)
         .await
         .unwrap();
     database.migrate().await.unwrap();

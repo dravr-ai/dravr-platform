@@ -8,11 +8,11 @@
 //! This module provides automatic database type detection and creation
 //! based on connection strings.
 
+use super::shared::keyring::KeyringCell;
 use super::DatabaseProvider;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
@@ -65,10 +65,9 @@ impl DatabaseBackend {
 
 /// Database handle: one backend plus the one [`RepositoryRegistry`] built over it.
 ///
-/// The registry is built when the handle is constructed and rebuilt only when
-/// the encryption keys change ([`Database::update_encryption_key`],
-/// [`Database::install_dek_versions`]). Cloning a `Database` clones two `Arc`s,
-/// so every clone shares the same backend and the same registry.
+/// The registry is built once, when the handle is constructed. Cloning a
+/// `Database` clones two `Arc`s, so every clone shares the same backend, the
+/// same registry and the same [`KeyringCell`].
 #[derive(Clone, Debug)]
 pub struct Database {
     /// The concrete backend, shared with every repository in `repositories`
@@ -186,59 +185,16 @@ impl Database {
         }
     }
 
-    /// Update the encryption key used for token encryption/decryption
-    ///
-    /// This is called after the actual DEK is loaded from the database during
-    /// two-tier key management initialization. The database is initially created
-    /// with a temporary key, then updated with the real key once it's loaded.
-    ///
-    /// The backend carries its keys by value, so the backend is copied with the
-    /// new key and the repository registry is rebuilt over the copy. A registry
-    /// `Arc` or a `Database` clone taken before this call keeps the old key.
-    ///
-    /// # Safety
-    /// Only call this once during startup, before any encrypted data operations.
-    pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
-        match &mut self.backend {
-            DatabaseBackend::SQLite(db) => Arc::make_mut(db).update_encryption_key(new_key),
+    /// The process keyring every clone of this handle and every repository
+    /// in its registry seals, opens and hashes through. Installing a new
+    /// keyring into it reaches all of them at once.
+    #[must_use]
+    pub fn keyring(&self) -> &Arc<KeyringCell> {
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.keyring(),
             #[cfg(feature = "postgresql")]
-            DatabaseBackend::PostgreSQL(db) => Arc::make_mut(db).update_encryption_key(new_key),
+            DatabaseBackend::PostgreSQL(db) => db.keyring(),
         }
-        self.repositories = Arc::new(self.backend.build_registry());
-    }
-
-    /// Install a full set of DEK versions (after load-all-versions or a rotation).
-    ///
-    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
-    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
-    /// version 1, falling back to the active key only when v1 is itself active.
-    ///
-    /// The backend carries its keys by value, so the backend is copied with the
-    /// new versions and the repository registry is rebuilt over the copy. A
-    /// registry `Arc` or a `Database` clone taken before this call keeps the
-    /// previous keys.
-    ///
-    /// # Safety
-    /// Call during startup or rotation while holding `&mut self`, before serving
-    /// concurrent encrypted-data operations.
-    pub fn install_dek_versions(
-        &mut self,
-        active_version: u32,
-        active_key: Vec<u8>,
-        prior_versions: HashMap<u32, Vec<u8>>,
-    ) {
-        // Only one arm runs per call, so the owned `active_key`/`prior_versions`
-        // move into the active backend without a double-move.
-        match &mut self.backend {
-            DatabaseBackend::SQLite(db) => {
-                Arc::make_mut(db).install_dek_versions(active_version, active_key, prior_versions);
-            }
-            #[cfg(feature = "postgresql")]
-            DatabaseBackend::PostgreSQL(db) => {
-                Arc::make_mut(db).install_dek_versions(active_version, active_key, prior_versions);
-            }
-        }
-        self.repositories = Arc::new(self.backend.build_registry());
     }
 
     /// Create a new database instance based on the connection string (internal implementation)

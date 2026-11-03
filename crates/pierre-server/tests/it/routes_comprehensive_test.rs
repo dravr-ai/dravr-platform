@@ -220,6 +220,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -508,6 +509,7 @@ async fn test_user_login_success() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -800,6 +802,7 @@ async fn test_token_refresh_success() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -1060,6 +1063,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -1574,6 +1578,7 @@ async fn test_complete_auth_flow() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -1893,6 +1898,7 @@ async fn test_concurrent_logins() -> Result<()> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

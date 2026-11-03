@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.12.1"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.12.1#b488bfa717c5edb3e018e415c7c3aaf62505e883"
+version = "0.13.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.13.0#c943c5cae5e4b6781400776e02188926ac264afd"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3951,6 +3951,7 @@ dependencies = [
 name = "pierre-database"
 version = "0.3.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "base64 0.22.1",
  "chrono",

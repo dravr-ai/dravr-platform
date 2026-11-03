@@ -33,7 +33,7 @@ fn cli_binary() -> String {
 async fn open_database(url: &str) -> Database {
     env::set_var("PIERRE_MASTER_ENCRYPTION_KEY", MASTER_KEY);
     let (mut key_manager, key) = KeyManager::bootstrap().unwrap();
-    let mut database = Database::new(
+    let database = Database::new(
         url,
         key.to_vec(),
         #[cfg(feature = "postgresql")]
@@ -42,7 +42,7 @@ async fn open_database(url: &str) -> Database {
     .await
     .unwrap();
     key_manager
-        .complete_initialization(&mut database)
+        .complete_initialization(&database)
         .await
         .unwrap();
     database.migrate().await.unwrap();

@@ -35,9 +35,9 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use chrono::{Duration as ChronoDuration, Utc};
 use pierre_auth::admin::jwks::load_or_store_first_keypair;
-use pierre_auth::key_management::{
-    DatabaseEncryptionKey, KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey,
-};
+use pierre_auth::key_management::{KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey};
+use pierre_auth::keyset::secrets::{ACTIVE_VERSION_SECRET, V1_SECRET};
+use pierre_auth::keyset::KEYSET_SECRET;
 use pierre_auth::tenant::llm_manager::{LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager};
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
@@ -45,6 +45,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::shared::key_material::KeyStoreQueue;
+use pierre_database::backends::shared::keyring::{Keyring, SealDomain};
 #[cfg(feature = "postgresql")]
 use pierre_test_support::db::create_test_db_url;
 use pierre_test_support::db::create_test_db_with_key;
@@ -228,9 +229,14 @@ fn assert_alert_filter_matches(event: &str) {
 
 /// A handle on the same store holding [`WRONG_KEY`]: every ciphertext the
 /// fixture wrote fails to open through it.
+///
+/// Every clone of a handle shares one keyring, so this replaces the keyring
+/// of `database` too: callers read only through the returned handle after it.
 fn with_wrong_key(database: &Database) -> Database {
-    let mut wrong = database.clone();
-    wrong.install_dek_versions(1, WRONG_KEY.to_vec(), HashMap::new());
+    let wrong = database.clone();
+    wrong
+        .keyring()
+        .install(Keyring::single(WRONG_KEY.to_vec()), Utc::now());
     wrong
 }
 
@@ -289,9 +295,21 @@ fn kek(byte: u8) -> LocalKekProvider {
     LocalKekProvider::from_mek(MasterEncryptionKey::from_bytes([byte; 32]))
 }
 
-/// A key manager as a booting instance builds it.
-fn booting_manager(kek_byte: u8) -> KeyManager {
-    KeyManager::with_provider(Box::new(kek(kek_byte)), DatabaseEncryptionKey::generate())
+/// A key manager as a booting instance builds it, beside the bootstrap key
+/// its database handle opens with.
+fn booting_manager(kek_byte: u8) -> (KeyManager, [u8; 32]) {
+    KeyManager::bootstrap_with(Box::new(kek(kek_byte)))
+}
+
+/// Return a booted database to the legacy key layout: no keyset document, so
+/// the boot reads the active-version secret and the v1 row the way every
+/// database written before the keyset does.
+async fn make_legacy(database: &Database) {
+    database
+        .as_security_repository()
+        .delete_system_secret(KEYSET_SECRET)
+        .await
+        .unwrap();
 }
 
 /// Make reads of the stored `secret_type` row fail while the row stays in
@@ -513,10 +531,13 @@ async fn rsa_private_key_decrypt_failure_pages_and_refuses_the_keypair() {
 #[tokio::test]
 async fn client_presented_ciphertext_that_fails_does_not_page() {
     // The sealed Google sign-in cookie is opened through the same trait
-    // method; a stale or forged cookie is the client's, never key material.
+    // method under its own seal domain: a stale or forged cookie is the
+    // client's, never key material, so the domain — not the AAD — keeps it
+    // off the stored-secret alert.
     let database = create_test_db_with_key(WRITE_KEY.to_vec()).await.unwrap();
     let captured = Captured::start();
     let opened = database.as_security_repository().decrypt_data_with_aad(
+        SealDomain::GoogleSignInTransaction,
         "v1:Zm9yZ2VkLWNvb2tpZS1wYXlsb2Fk",
         "oauth2:google-sign-in:v1",
     );
@@ -536,20 +557,28 @@ async fn client_presented_ciphertext_that_fails_does_not_page() {
 
 #[tokio::test]
 async fn dek_read_failure_pages() {
-    let mut first = booting_manager(7);
-    let mut database = create_test_db_with_key(first.database_key().to_vec())
-        .await
-        .unwrap();
-    first.complete_initialization(&mut database).await.unwrap();
-    break_reads(&database, "database_encryption_key").await;
+    // The adopted layout: the keyset document names v1, whose row the boot
+    // then cannot read.
+    let database = initialized_database().await;
+    break_reads(&database, V1_SECRET).await;
 
     let captured = Captured::start();
-    let mut booting = booting_manager(7);
-    let mut booting_database = database.clone();
-    assert!(booting
-        .complete_initialization(&mut booting_database)
-        .await
-        .is_err());
+    boot_refuses(&database).await;
+
+    let page = captured.page("key_material.dek_read_failed");
+    assert_eq!(page.message, "Failed to read a stored key version");
+    assert_eq!(page.field("key_family"), "data");
+    assert_eq!(page.field("key_version"), "1");
+}
+
+#[tokio::test]
+async fn dek_read_failure_on_the_legacy_layout_pages() {
+    let database = initialized_database().await;
+    make_legacy(&database).await;
+    break_reads(&database, V1_SECRET).await;
+
+    let captured = Captured::start();
+    boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
     assert_eq!(
@@ -560,23 +589,15 @@ async fn dek_read_failure_pages() {
 
 #[tokio::test]
 async fn dek_unwrap_failure_pages() {
-    let mut first = booting_manager(7);
-    let mut database = create_test_db_with_key(first.database_key().to_vec())
-        .await
-        .unwrap();
-    first.complete_initialization(&mut database).await.unwrap();
+    let database = initialized_database().await;
 
     let captured = Captured::start();
     // A different key-encryption key: the stored DEK cannot be unwrapped.
-    let mut booting = booting_manager(8);
-    let mut booting_database = database.clone();
-    assert!(booting
-        .complete_initialization(&mut booting_database)
-        .await
-        .is_err());
+    let (mut booting, _) = booting_manager(8);
+    assert!(booting.complete_initialization(&database).await.is_err());
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(page.field("dek_version"), "1");
+    assert_eq!(page.field("key_version"), "1");
 }
 
 /// The stored Strava access token for `user_id`, read through `database`.
@@ -595,13 +616,13 @@ async fn read_access_token(database: &Database, user_id: Uuid, tenant_id: Tenant
 
 #[tokio::test]
 async fn dek_missing_on_a_database_holding_ciphertext_refuses_the_boot() {
-    let mut manager = booting_manager(7);
-    let mut database = create_test_db_with_key(WRITE_KEY.to_vec()).await.unwrap();
+    let (mut manager, _) = booting_manager(7);
+    let database = create_test_db_with_key(WRITE_KEY.to_vec()).await.unwrap();
     // The DEK row is gone; the ciphertext it sealed is still there.
     let (user_id, tenant_id) = store_oauth_token(&database).await;
 
     let captured = Captured::start();
-    let booted = manager.complete_initialization(&mut database).await;
+    let booted = manager.complete_initialization(&database).await;
 
     assert!(
         booted.is_err(),
@@ -611,12 +632,22 @@ async fn dek_missing_on_a_database_holding_ciphertext_refuses_the_boot() {
     assert_eq!(page.field("encrypted_rows"), "1");
     let stored = database
         .as_security_repository()
-        .get_system_secret("database_encryption_key")
+        .get_system_secret(V1_SECRET)
         .await;
     assert_eq!(
         stored.unwrap_err().code,
         ErrorCode::ResourceNotFound,
         "a refused boot stores no DEK row"
+    );
+    assert_eq!(
+        database
+            .as_security_repository()
+            .get_system_secret(KEYSET_SECRET)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ResourceNotFound,
+        "a refused boot writes no keyset document"
     );
     assert_eq!(
         database
@@ -635,16 +666,13 @@ async fn dek_missing_on_a_database_holding_ciphertext_refuses_the_boot() {
 
 #[tokio::test]
 async fn dek_minted_on_an_empty_database_is_routine() {
-    let mut manager = booting_manager(7);
-    let mut database = create_test_db_with_key(manager.database_key().to_vec())
+    let (mut manager, bootstrap_key) = booting_manager(7);
+    let database = create_test_db_with_key(bootstrap_key.to_vec())
         .await
         .unwrap();
 
     let captured = Captured::start();
-    manager
-        .complete_initialization(&mut database)
-        .await
-        .unwrap();
+    manager.complete_initialization(&database).await.unwrap();
     captured.assert_nothing_paged();
 }
 
@@ -707,33 +735,31 @@ async fn store_system_secret(database: &Database, secret_type: &str, value: &str
         .unwrap();
 }
 
-/// A database whose DEK is stored, then a booting instance on it.
+/// A database whose DEK and keyset document are stored by a first boot.
 async fn initialized_database() -> Database {
-    let mut first = booting_manager(7);
-    let mut database = create_test_db_with_key(first.database_key().to_vec())
+    let (mut first, bootstrap_key) = booting_manager(7);
+    let database = create_test_db_with_key(bootstrap_key.to_vec())
         .await
         .unwrap();
-    first.complete_initialization(&mut database).await.unwrap();
+    first.complete_initialization(&database).await.unwrap();
     database
 }
 
 /// Boot a fresh instance against `database` and expect it to refuse.
 async fn boot_refuses(database: &Database) {
-    let mut booting = booting_manager(7);
-    let mut booting_database = database.clone();
+    let (mut booting, _) = booting_manager(7);
     assert!(
-        booting
-            .complete_initialization(&mut booting_database)
-            .await
-            .is_err(),
+        booting.complete_initialization(database).await.is_err(),
         "a corrupt key row must refuse the boot"
     );
 }
 
 #[tokio::test]
 async fn unparseable_active_dek_version_pages() {
+    // Only the legacy layout reads the active-version secret.
     let database = initialized_database().await;
-    store_system_secret(&database, "database_encryption_key_active_version", "one").await;
+    make_legacy(&database).await;
+    store_system_secret(&database, ACTIVE_VERSION_SECRET, "one").await;
 
     let captured = Captured::start();
     boot_refuses(&database).await;
@@ -743,27 +769,29 @@ async fn unparseable_active_dek_version_pages() {
 
 #[tokio::test]
 async fn active_dek_version_missing_from_the_store_pages() {
+    // Only the legacy layout reads the active-version secret.
     let database = initialized_database().await;
-    // Version 0 parses but names no stored key.
-    store_system_secret(&database, "database_encryption_key_active_version", "0").await;
+    make_legacy(&database).await;
+    // Version 2 parses but names no stored key.
+    store_system_secret(&database, ACTIVE_VERSION_SECRET, "2").await;
 
     let captured = Captured::start();
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(page.field("dek_version"), "0");
+    assert_eq!(page.field("key_version"), "2");
 }
 
 #[tokio::test]
 async fn stored_dek_that_is_not_base64_pages() {
     let database = initialized_database().await;
-    store_system_secret(&database, "database_encryption_key", "not base64 !!").await;
+    store_system_secret(&database, V1_SECRET, "not base64 !!").await;
 
     let captured = Captured::start();
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(page.field("dek_version"), "1");
+    assert_eq!(page.field("key_version"), "1");
 }
 
 #[tokio::test]
@@ -771,18 +799,13 @@ async fn stored_dek_of_the_wrong_length_pages() {
     let database = initialized_database().await;
     // A truncated key that still unwraps: 16 bytes wrapped under the right KEK.
     let truncated = kek(7).wrap(&[5u8; 16]).await.unwrap();
-    store_system_secret(
-        &database,
-        "database_encryption_key",
-        &BASE64_STANDARD.encode(truncated),
-    )
-    .await;
+    store_system_secret(&database, V1_SECRET, &BASE64_STANDARD.encode(truncated)).await;
 
     let captured = Captured::start();
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(page.field("dek_version"), "1");
+    assert_eq!(page.field("key_version"), "1");
 }
 
 #[tokio::test]
@@ -892,11 +915,10 @@ async fn dek_read_on_an_unavailable_database_refuses_the_boot_without_paging_key
     close_pool(&database).await;
 
     let captured = Captured::start();
-    let mut booting = booting_manager(7);
-    let mut booting_database = database.clone();
+    let (mut booting, _) = booting_manager(7);
     let mut queue = KeyStoreQueue::new(Some(Instant::now()), "dek");
     let refused = loop {
-        match booting.complete_initialization(&mut booting_database).await {
+        match booting.complete_initialization(&database).await {
             Err(e) if queue.wait_after(&e).await => {}
             done => break done,
         }
