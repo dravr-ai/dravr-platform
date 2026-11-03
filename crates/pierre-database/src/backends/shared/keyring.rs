@@ -42,7 +42,7 @@ use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, warn};
 
 use super::encryption::{split_dek_version, tag_dek_version};
 use super::key_material::{StoredSecretKind, KEYRING_STALE};
@@ -53,6 +53,9 @@ use super::key_material::{StoredSecretKind, KEYRING_STALE};
 /// already holds the staged key, and disabling waits this long after
 /// demotion, so no instance still seals under the demoted key.
 pub const FLEET_WINDOW: Duration = Duration::from_mins(15);
+
+/// How often a stale keyring's refusals log at `ERROR`.
+const STALE_ALERT_WINDOW: Duration = Duration::from_mins(5);
 
 /// The length of every key in either family.
 pub const KEY_LEN: usize = 32;
@@ -168,6 +171,9 @@ pub struct Keyring {
     data_primary: u32,
     index: BTreeMap<u32, KeyBytes>,
     index_primary: u32,
+    /// The index primary's bytes, held apart so a new hash never depends on
+    /// a lookup that could miss (an empty hash would match every token).
+    index_primary_key: KeyBytes,
     revision: u64,
     adopted: bool,
 }
@@ -181,8 +187,9 @@ impl Keyring {
         Self {
             data: BTreeMap::from([(1, KeyBytes(key.clone()))]),
             data_primary: 1,
-            index: BTreeMap::from([(1, KeyBytes(key))]),
+            index: BTreeMap::from([(1, KeyBytes(key.clone()))]),
             index_primary: 1,
+            index_primary_key: KeyBytes(key),
             revision: 0,
             adopted: false,
         }
@@ -210,11 +217,11 @@ impl Keyring {
                 "the data primary v{data_primary} is not among the loaded data keys"
             )));
         }
-        if !index.contains_key(&index_primary) {
+        let Some(index_primary_key) = index.get(&index_primary).cloned().map(KeyBytes) else {
             return Err(AppError::internal(format!(
                 "the index primary k{index_primary} is not among the loaded index keys"
             )));
-        }
+        };
         if index.len() > 2 {
             return Err(AppError::internal(format!(
                 "{} index keys are loaded; a lookup binds at most two",
@@ -242,6 +249,7 @@ impl Keyring {
             data_primary,
             index: wrap(index),
             index_primary,
+            index_primary_key,
             revision,
             adopted,
         })
@@ -346,7 +354,7 @@ impl Keyring {
     pub fn hash_for_storage(&self, token: &str) -> String {
         tag_index_version(
             self.index_primary,
-            &self.mac(self.index_primary, token).unwrap_or_default(),
+            &Self::mac_with(&self.index_primary_key, token),
         )
     }
 
@@ -362,17 +370,17 @@ impl Keyring {
             .copied()
             .find(|version| *version != self.index_primary)
             .and_then(|version| {
-                self.mac(version, token)
-                    .map(|mac| tag_index_version(version, &mac))
+                self.index
+                    .get(&version)
+                    .map(|key| tag_index_version(version, &Self::mac_with(key, token)))
             })
             .unwrap_or_else(|| primary.clone());
         [primary, other]
     }
 
-    fn mac(&self, version: u32, token: &str) -> Option<String> {
-        let key = self.index.get(&version)?;
+    fn mac_with(key: &KeyBytes, token: &str) -> String {
         let tag = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &key.0), token.as_bytes());
-        Some(STANDARD.encode(tag.as_ref()))
+        STANDARD.encode(tag.as_ref())
     }
 
     fn data_key(&self, domain: SealDomain, version: u32) -> AppResult<LessSafeKey> {
@@ -395,6 +403,8 @@ pub struct KeyringCell {
     /// When the keyring was last confirmed current, in Unix milliseconds:
     /// the moment the keyset read that confirmed it was issued.
     confirmed_at_ms: AtomicI64,
+    /// When a refused seal last logged at `ERROR`, in Unix milliseconds.
+    stale_alerted_at_ms: AtomicI64,
 }
 
 impl fmt::Debug for KeyringCell {
@@ -402,7 +412,7 @@ impl fmt::Debug for KeyringCell {
         f.debug_struct("KeyringCell")
             .field("ring", &self.ring.load())
             .field("confirmed_at_ms", &self.confirmed_at_ms)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -413,6 +423,7 @@ impl KeyringCell {
         Arc::new(Self {
             ring: ArcSwap::from_pointee(ring),
             confirmed_at_ms: AtomicI64::new(Utc::now().timestamp_millis()),
+            stale_alerted_at_ms: AtomicI64::new(0),
         })
     }
 
@@ -479,6 +490,21 @@ impl KeyringCell {
         self.current().lookup_hashes(token)
     }
 
+    /// Whether this refusal logs at `ERROR`: the first in each
+    /// [`STALE_ALERT_WINDOW`]. Every seal refuses while the keyring is stale,
+    /// so the repeats log `WARN` under the same event (the metric still counts
+    /// each one) rather than flooding the error notifier.
+    fn admit_stale_alert(&self) -> bool {
+        let now = Utc::now().timestamp_millis();
+        let window = i64::try_from(STALE_ALERT_WINDOW.as_millis()).unwrap_or(i64::MAX);
+        let last = self.stale_alerted_at_ms.load(Ordering::Acquire);
+        now.saturating_sub(last) >= window
+            && self
+                .stale_alerted_at_ms
+                .compare_exchange(last, now, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
     fn refuse_if_stale(&self, ring: &Keyring, what: &str) -> AppResult<()> {
         if !ring.adopted() {
             return Ok(());
@@ -488,12 +514,21 @@ impl KeyringCell {
         if age <= window {
             return Ok(());
         }
-        error!(
-            event = KEYRING_STALE,
-            revision = ring.revision(),
-            stale_secs = age.num_seconds(),
-            "the keyring has not been confirmed within the fleet window; refusing to {what}"
-        );
+        if self.admit_stale_alert() {
+            error!(
+                event = KEYRING_STALE,
+                revision = ring.revision(),
+                stale_secs = age.num_seconds(),
+                "the keyring has not been confirmed within the fleet window; refusing to {what}"
+            );
+        } else {
+            warn!(
+                event = KEYRING_STALE,
+                revision = ring.revision(),
+                stale_secs = age.num_seconds(),
+                "the keyring has not been confirmed within the fleet window; refusing to {what}"
+            );
+        }
         Err(AppError::internal(format!(
             "the keyring was last confirmed {}s ago, past the {}s fleet window; refusing to {what} until the keyset reloads",
             age.num_seconds(),
@@ -534,14 +569,27 @@ mod tests {
     fn a_value_sealed_under_one_primary_opens_after_the_next() {
         let before = ring(&[1], 1, &[1], 1);
         let sealed = before.seal(DOMAIN, "secret", AAD).unwrap();
-        assert!(sealed.starts_with("v1:"));
+        assert!(
+            sealed.starts_with("v1:"),
+            "a seal is tagged with the primary"
+        );
         let after = ring(&[1, 2], 2, &[1], 1);
-        assert_eq!(after.open(DOMAIN, &sealed, AAD).unwrap(), "secret");
+        assert_eq!(
+            after.open(DOMAIN, &sealed, AAD).unwrap(),
+            "secret",
+            "a value sealed under the old primary still opens"
+        );
         let resealed = after.seal(DOMAIN, "secret", AAD).unwrap();
-        assert!(resealed.starts_with("v2:"));
-        assert!(after.open(DOMAIN, &resealed, "another|context").is_err());
+        assert!(resealed.starts_with("v2:"), "new seals use the new primary");
+        assert!(
+            after.open(DOMAIN, &resealed, "another|context").is_err(),
+            "a seal opens only under its own AAD"
+        );
         let retired = ring(&[2], 2, &[1], 1);
-        assert!(retired.open(DOMAIN, &sealed, AAD).is_err());
+        assert!(
+            retired.open(DOMAIN, &sealed, AAD).is_err(),
+            "a ring without v1 cannot open a v1 value"
+        );
     }
 
     #[test]
@@ -552,7 +600,8 @@ mod tests {
             ring(&[1, 2], 2, &[1], 1)
                 .open(DOMAIN, untagged, AAD)
                 .unwrap(),
-            "secret"
+            "secret",
+            "an untagged value opens as version 1"
         );
     }
 
@@ -560,9 +609,13 @@ mod tests {
     fn version_one_hashes_stay_untagged_and_match_the_single_key_ring() {
         let single = Keyring::single(key(1));
         let hash = single.hash_for_storage("refresh");
-        assert!(!hash.contains(':'));
-        assert_eq!(index_version_of(&hash), 1);
-        assert_eq!(ring(&[1], 1, &[1], 1).hash_for_storage("refresh"), hash);
+        assert!(!hash.contains(':'), "a version-1 hash stays untagged");
+        assert_eq!(index_version_of(&hash), 1, "an untagged hash reads as k1");
+        assert_eq!(
+            ring(&[1], 1, &[1], 1).hash_for_storage("refresh"),
+            hash,
+            "k1 hashes the same as the single-key ring did"
+        );
     }
 
     #[test]
@@ -571,28 +624,47 @@ mod tests {
         // k2 staged: writes stay under k1, lookups also try k2.
         let staged = ring(&[1], 1, &[1, 2], 1);
         let [first, second] = staged.lookup_hashes("refresh");
-        assert_eq!(first, old);
-        assert!(second.starts_with("k2:"));
-        assert_eq!(index_version_of(&second), 2);
+        assert_eq!(first, old, "the first slot is the primary's hash");
+        assert!(
+            second.starts_with("k2:"),
+            "the second slot is the staged key's"
+        );
+        assert_eq!(index_version_of(&second), 2, "a k2 hash reads as k2");
         // k2 promoted: writes move to k2, lookups still find k1 rows.
         let promoted = ring(&[1], 1, &[1, 2], 2);
         let new = promoted.hash_for_storage("refresh");
-        assert_eq!(new, second);
-        assert_eq!(promoted.lookup_hashes("refresh"), [second, old]);
+        assert_eq!(new, second, "after promotion, writes hash under k2");
+        assert_eq!(
+            promoted.lookup_hashes("refresh"),
+            [second, old],
+            "after promotion, lookups still find k1 rows"
+        );
         // One key: both slots carry it.
         let alone = ring(&[1], 1, &[2], 2);
         let [a, b] = alone.lookup_hashes("refresh");
-        assert_eq!(a, b);
+        assert_eq!(a, b, "with one index key, both slots carry its hash");
     }
 
     #[test]
     fn a_ring_refuses_a_missing_primary_a_short_key_and_a_third_index_key() {
         let one = |v: u32| BTreeMap::from([(v, key(1))]);
-        assert!(Keyring::new(one(1), 2, one(1), 1, 1, true).is_err());
-        assert!(Keyring::new(one(1), 1, one(1), 2, 1, true).is_err());
-        assert!(Keyring::new(BTreeMap::from([(1, vec![0; 16])]), 1, one(1), 1, 1, true).is_err());
+        assert!(
+            Keyring::new(one(1), 2, one(1), 1, 1, true).is_err(),
+            "a data primary that is not loaded is refused"
+        );
+        assert!(
+            Keyring::new(one(1), 1, one(1), 2, 1, true).is_err(),
+            "an index primary that is not loaded is refused"
+        );
+        assert!(
+            Keyring::new(BTreeMap::from([(1, vec![0; 16])]), 1, one(1), 1, 1, true).is_err(),
+            "a key that is not 32 bytes is refused"
+        );
         let three = BTreeMap::from([(1, key(1)), (2, key(2)), (3, key(3))]);
-        assert!(Keyring::new(one(1), 1, three, 1, 1, true).is_err());
+        assert!(
+            Keyring::new(one(1), 1, three, 1, 1, true).is_err(),
+            "a third index key is refused"
+        );
     }
 
     #[test]
@@ -603,17 +675,33 @@ mod tests {
         legacy
             .confirmed_at_ms
             .store(long_ago.timestamp_millis(), Ordering::Release);
-        assert!(legacy.seal(DOMAIN, "secret", AAD).is_ok());
-        assert!(legacy.hash_for_storage("refresh").is_ok());
+        assert!(
+            legacy.seal(DOMAIN, "secret", AAD).is_ok(),
+            "before adoption a stale ring still seals"
+        );
+        assert!(
+            legacy.hash_for_storage("refresh").is_ok(),
+            "before adoption a stale ring still hashes"
+        );
 
         let adopted = KeyringCell::new(ring(&[1], 1, &[1], 1));
         let sealed = adopted.seal(DOMAIN, "secret", AAD).unwrap();
         adopted
             .confirmed_at_ms
             .store(long_ago.timestamp_millis(), Ordering::Release);
-        assert!(adopted.seal(DOMAIN, "secret", AAD).is_err());
-        assert!(adopted.hash_for_storage("refresh").is_err());
-        assert_eq!(adopted.open(DOMAIN, &sealed, AAD).unwrap(), "secret");
+        assert!(
+            adopted.seal(DOMAIN, "secret", AAD).is_err(),
+            "once adopted a stale ring refuses to seal"
+        );
+        assert!(
+            adopted.hash_for_storage("refresh").is_err(),
+            "once adopted a stale ring refuses to write a hash"
+        );
+        assert_eq!(
+            adopted.open(DOMAIN, &sealed, AAD).unwrap(),
+            "secret",
+            "a stale ring still opens"
+        );
         let [primary, _] = adopted.lookup_hashes("refresh");
         assert_eq!(
             primary,
@@ -622,7 +710,10 @@ mod tests {
         );
 
         adopted.confirm(Utc::now());
-        assert!(adopted.seal(DOMAIN, "secret", AAD).is_ok());
+        assert!(
+            adopted.seal(DOMAIN, "secret", AAD).is_ok(),
+            "a confirmed ring seals again"
+        );
         adopted.confirm(long_ago);
         assert!(
             adopted.seal(DOMAIN, "secret", AAD).is_ok(),
@@ -631,11 +722,33 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_refusal_alerts_once_per_window() {
+        let cell = KeyringCell::new(ring(&[1], 1, &[1], 1));
+        assert!(cell.admit_stale_alert(), "the first refusal alerts");
+        assert!(
+            !cell.admit_stale_alert(),
+            "a repeat inside the window does not"
+        );
+        cell.stale_alerted_at_ms.store(
+            (Utc::now() - chrono::Duration::minutes(6)).timestamp_millis(),
+            Ordering::Release,
+        );
+        assert!(cell.admit_stale_alert(), "the next window alerts again");
+    }
+
+    #[test]
     fn install_reaches_every_holder_of_the_cell() {
         let cell = KeyringCell::new(Keyring::single(key(1)));
         let other = Arc::clone(&cell);
         cell.install(ring(&[1, 2], 2, &[1], 1), Utc::now());
-        assert_eq!(other.current().data_primary(), 2);
-        assert!(other.seal(DOMAIN, "x", AAD).unwrap().starts_with("v2:"));
+        assert_eq!(
+            other.current().data_primary(),
+            2,
+            "an install reaches every holder of the cell"
+        );
+        assert!(
+            other.seal(DOMAIN, "x", AAD).unwrap().starts_with("v2:"),
+            "every holder seals under the installed primary"
+        );
     }
 }

@@ -35,6 +35,7 @@ use pierre_seeders::verdict_conversation::{
 };
 use tracing::info;
 
+use crate::commands::key::keep_keyring_current;
 use crate::helpers::jwks::initialize_jwks_manager;
 
 #[non_exhaustive]
@@ -143,6 +144,7 @@ async fn keyed_repositories(
     )
     .await?;
     key_manager.complete_initialization(&database).await?;
+    keep_keyring_current(&key_manager, &database);
     let repos = Arc::clone(database.repositories());
     initialize_jwks_manager(&repos).await?;
     Ok(repos)

@@ -25,9 +25,21 @@ use tokio::task::AbortHandle;
 use tokio::time::{interval, sleep};
 use tracing::error;
 
-/// Run `tick` at once and then every `period`, in a spawned task, on this
-/// instance, for as long as the process lives. A panicking tick is logged
-/// under `name` and the loop respawned after one `period`.
+/// Aborts the ticking task when the supervisor holding it is dropped, so
+/// aborting the supervisor stops the loop instead of detaching it.
+struct AbortOnDrop(AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Run `tick` at once and then every `period` on this instance.
+///
+/// It runs in a spawned task until the returned handle is aborted or the
+/// process ends. A panicking tick is logged under `name` and the loop
+/// respawned after one `period`.
 pub fn spawn_supervised_loop<F, Fut>(name: &'static str, period: Duration, tick: F) -> AbortHandle
 where
     F: Fn() -> Fut + Send + Sync + 'static,
@@ -44,9 +56,12 @@ where
                     run().await;
                 }
             });
+            let guard = AbortOnDrop(ticking.abort_handle());
             // The inner loop never returns normally; reaching here means the
             // task died (a panic, or a runtime-cancelled join).
-            if let Err(e) = ticking.await {
+            let died = ticking.await;
+            drop(guard);
+            if let Err(e) = died {
                 error!(
                     worker = name,
                     error = %e,
@@ -87,6 +102,34 @@ mod tests {
         assert!(
             ticks.load(Ordering::SeqCst) >= 3,
             "the loop kept ticking after the panic"
+        );
+    }
+
+    #[tokio::test]
+    async fn aborting_the_handle_stops_the_ticks() {
+        let ticks = Arc::new(AtomicU32::new(0));
+        let counted = Arc::clone(&ticks);
+        let handle = spawn_supervised_loop("test loop", Duration::from_millis(5), move || {
+            let counted = Arc::clone(&counted);
+            async move {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        for _ in 0..200 {
+            if ticks.load(Ordering::SeqCst) >= 2 {
+                break;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+        handle.abort();
+        // Let the abort land, then check that nothing ticks any more.
+        sleep(Duration::from_millis(20)).await;
+        let after_abort = ticks.load(Ordering::SeqCst);
+        sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            ticks.load(Ordering::SeqCst),
+            after_abort,
+            "an aborted loop must not keep ticking in a detached task"
         );
     }
 }

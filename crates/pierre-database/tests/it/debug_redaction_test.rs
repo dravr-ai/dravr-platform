@@ -226,12 +226,16 @@ async fn a_database_handle_never_prints_its_encryption_keys() {
     let database = create_test_db_with_key(vec![0x7f; 32]).await.unwrap();
     let printed = printed_without(&database, &["127, 127, 127, 127"]);
     assert!(
-        printed.contains("encryption_key: \"[REDACTED]\""),
-        "{printed}"
+        printed.contains("data: {1: [REDACTED]}"),
+        "every data key prints redacted: {printed}"
     );
     assert!(
-        printed.contains("blind_index_key: \"[REDACTED]\""),
-        "{printed}"
+        printed.contains("index: {1: [REDACTED]}"),
+        "every index key prints redacted: {printed}"
+    );
+    assert!(
+        printed.contains("index_primary_key: [REDACTED]"),
+        "the index primary's bytes print redacted: {printed}"
     );
 }
 
