@@ -759,6 +759,16 @@ jobs:
         working-directory: sdk
         run: node mcpb/build.mjs
 
+      # Kept so a tester can install the exact bundle this commit was tested with,
+      # from the run's Artifacts, without an SDK release being cut. ~3.5 MB per run.
+      - name: Upload Claude Desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: dravr-mcpb
+          path: sdk/build/dravr-*.mcpb
+          if-no-files-found: error
+          retention-days: 14
+
       # The helpers find the server and the CLI through these, the release
       # build above, so no step here compiles anything.
       - name: Run SDK integration tests
