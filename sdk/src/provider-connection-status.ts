@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Reads a provider's connection state from Dravr's get_connection_status answer
-// ABOUTME: Polls it after a provider authorization opens, until connected, out of budget, or cancelled
+// ABOUTME: Reads provider connection states from Dravr's get_connection_status answer, one or every offered provider
+// ABOUTME: Polls one provider's state after its authorization opens, until connected, out of budget, or cancelled
 
 /** How often connect_provider asks Dravr whether the provider it opened is connected yet. */
 export const PROVIDER_STATUS_POLL_INTERVAL_MS = 2000;
@@ -29,6 +29,38 @@ export function isProviderConnected(result: unknown): boolean {
   }
   const status = structured as { connected?: unknown; needs_reauth?: unknown };
   return status.connected === true && status.needs_reauth !== true;
+}
+
+/** One provider this Dravr deployment offers, and the athlete's state on it. */
+export interface ProviderChoice {
+  /** The name `connect_provider` takes, as Dravr spells it. */
+  name: string;
+  /** Dravr's state in words: `connected`, `disconnected`, `needs_reauth`, ... */
+  status: string;
+}
+
+/**
+ * The providers a `get_connection_status` answer without a provider names, in its order.
+ *
+ * That answer is `{ providers: { <name>: { status, connected, needs_reauth, backend } } }`,
+ * one entry per provider the deployment offers, so the list is the server's and changes
+ * with what it ships. Any answer without that shape names none.
+ */
+export function providerChoices(result: unknown): ProviderChoice[] {
+  const structured = (result as { structuredContent?: unknown } | null)?.structuredContent;
+  const providers = (structured as { providers?: unknown } | null)?.providers;
+  if (typeof providers !== "object" || providers === null) {
+    return [];
+  }
+  return Object.entries(providers as Record<string, unknown>).map(([name, state]) => {
+    const status = (state as { status?: unknown } | null)?.status;
+    return { name, status: typeof status === "string" ? status : "unknown" };
+  });
+}
+
+/** The providers as lines an assistant can read back: `- **garmin** (connected)`. */
+export function describeProviderChoices(choices: ProviderChoice[]): string {
+  return choices.map(({ name, status }) => `- **${name}** (${status.replace(/_/g, " ")})`).join("\n");
 }
 
 /** What one poll gets: its budget, its cadence, the host's cancellation, a log line sink. */

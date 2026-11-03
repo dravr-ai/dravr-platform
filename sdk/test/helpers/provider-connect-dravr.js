@@ -28,6 +28,16 @@ function stravaStatus(state) {
   };
 }
 
+/**
+ * What get_connection_status answers with no provider: every provider the scripted
+ * deployment offers, keyed by the name connect_provider takes.
+ */
+const OFFERED_PROVIDERS = {
+  garmin: { connected: true, status: 'connected', needs_reauth: false, backend: 'oauth' },
+  strava: { connected: false, status: 'disconnected', needs_reauth: false, backend: 'none' },
+  whoop: { connected: true, status: 'needs_reauth', needs_reauth: true, backend: 'oauth' },
+};
+
 /** The sentence Dravr's REST routes refuse a delegated OAuth grant with. */
 const DELEGATION_REFUSAL =
   'This access token was delegated to an application and is accepted only by the MCP and A2A endpoints';
@@ -37,7 +47,8 @@ const DELEGATION_REFUSAL =
  * is. Every REST route refuses it with the delegation 403, the launch routes included.
  * /mcp answers discovery, `connect_provider` with the provider page it mints
  * (`providerPage`), and `get_connection_status`, each read with the next of `states` and
- * the last one after that; a state of 'error' fails that read. Every request is recorded.
+ * the last one after that; a state of 'error' fails that read. Asked with no provider, it
+ * lists OFFERED_PROVIDERS, or fails when `states` holds 'list_error'. Every request is recorded.
  */
 function startDravr(states, providerPage = PROVIDER_PAGE) {
   const seen = [];
@@ -79,6 +90,18 @@ function startDravr(states, providerPage = PROVIDER_PAGE) {
               expires_in_minutes: 10,
               status: 'pending_authorization',
             },
+            isError: false,
+          }));
+          return;
+        }
+        if (rpc.method === 'tools/call' && rpc.params.name === 'get_connection_status' && rpc.params.arguments?.provider === undefined) {
+          if (states.includes('list_error')) {
+            send(500, { jsonrpc: '2.0', id: rpc.id, error: { code: -32603, message: 'status store unavailable' } });
+            return;
+          }
+          send(200, complete(rpc.id, {
+            content: [{ type: 'text', text: 'providers' }],
+            structuredContent: { providers: OFFERED_PROVIDERS },
             isError: false,
           }));
           return;
@@ -181,4 +204,4 @@ function fastPoll(bridge, budgetMs) {
   return waits;
 }
 
-module.exports = { PROVIDER_PAGE, fastPoll, jwtFor, startDravr, wiredBridge };
+module.exports = { OFFERED_PROVIDERS, PROVIDER_PAGE, fastPoll, jwtFor, startDravr, wiredBridge };

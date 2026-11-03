@@ -33,8 +33,11 @@ import { PierreError, PierreErrorCode } from "./errors.js";
 import { startProviderOAuth, type ProviderOAuthStart } from "./provider-oauth-start.js";
 import {
   PROVIDER_STATUS_POLL_INTERVAL_MS,
+  describeProviderChoices,
   isProviderConnected,
   pollProviderConnection,
+  providerChoices,
+  type ProviderChoice,
   type ProviderConnectionWait,
 } from "./provider-connection-status.js";
 import {
@@ -1185,7 +1188,10 @@ export class PierreMcpClient {
           content: [
             {
               type: "text",
-              text: "Already connected to Dravr! You can now use all fitness tools to access your fitness data.",
+              text:
+                toolName === "connect_to_dravr"
+                  ? await this.connectedToDravrMessage("Already connected to Dravr!")
+                  : "Already connected to Dravr!",
             },
           ],
           isError: false,
@@ -1301,16 +1307,16 @@ export class PierreMcpClient {
         }
       }
 
+      // Only connect_to_dravr hands this answer to the host. Signing in on behalf of another
+      // tool goes on to run that tool, so reading the provider list there would be wasted.
       return {
         content: [
           {
             type: "text",
             text:
-              "Successfully connected to Dravr Fitness Server!\n\n" +
-              "**Next step:** Connect to a fitness provider to access your activity data.\n\n" +
-              "Available providers:\n" +
-              "- **Strava** - Connect your Strava account to access activities, stats, and athlete profile\n\n" +
-              'To connect to Strava, say: "Connect to Strava"',
+              toolName === "connect_to_dravr"
+                ? await this.connectedToDravrMessage("Successfully connected to Dravr!")
+                : "Successfully connected to Dravr!",
           },
         ],
         isError: false,
@@ -1346,8 +1352,15 @@ export class PierreMcpClient {
         };
       }
 
-      // Extract provider from request parameters
-      const provider = request.params.arguments?.provider || "strava";
+      // A request that names no provider starts nothing: picking one for the athlete
+      // would open a flow for an account they may not have.
+      const provider: string | undefined = request.params.arguments?.provider;
+      if (!provider) {
+        return {
+          content: [{ type: "text", text: await this.nameAProviderMessage() }],
+          isError: true,
+        };
+      }
       this.log(`Unified flow for provider: ${provider}`);
 
       // Step 1: Ensure Dravr authentication is complete. Signing in is itself an
@@ -1531,6 +1544,55 @@ export class PierreMcpClient {
       { signal },
     );
     return isProviderConnected(status);
+  }
+
+  /**
+   * Every provider this Dravr deployment offers and the athlete's state on each, read from
+   * `get_connection_status` with no provider over the bridge's own MCP session. Empty when
+   * there is no session or the read fails: the list is the server's, never one written here.
+   */
+  private async readProviderChoices(): Promise<ProviderChoice[]> {
+    if (!this.pierreClient) {
+      return [];
+    }
+    try {
+      return providerChoices(
+        await this.pierreClient.callTool({ name: "get_connection_status", arguments: {} }),
+      );
+    } catch (error: any) {
+      this.log(`Could not list providers: ${error?.message ?? error}`);
+      return [];
+    }
+  }
+
+  /**
+   * What connect_to_dravr answers once signed in, whether by this call or an earlier one:
+   * `heading`, then the providers Dravr offers and the athlete's state on each.
+   */
+  private async connectedToDravrMessage(heading: string): Promise<string> {
+    const choices = await this.readProviderChoices();
+    if (choices.length === 0) {
+      return (
+        `${heading}\n\n` +
+        "**Next step:** connect a fitness provider to access your activity data. " +
+        "Call get_connection_status to see the providers Dravr offers, then connect_provider with one of them."
+      );
+    }
+    return (
+      `${heading}\n\n` +
+      "Fitness providers Dravr offers, and their state on your account:\n" +
+      `${describeProviderChoices(choices)}\n\n` +
+      'To connect one, say "Connect to <provider>" (connect_provider takes the name shown).'
+    );
+  }
+
+  /** What connect_provider answers when it is not told which provider to connect. */
+  private async nameAProviderMessage(): Promise<string> {
+    const choices = await this.readProviderChoices();
+    const ask = "Which provider should I connect? connect_provider needs a provider name.";
+    return choices.length === 0
+      ? `${ask} Call get_connection_status to see the providers Dravr offers.`
+      : `${ask} Dravr offers:\n${describeProviderChoices(choices)}`;
   }
 
   /**
