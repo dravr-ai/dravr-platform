@@ -1,5 +1,5 @@
 // ABOUTME: PromptStore impl backed by the GitHub Contents API
-// ABOUTME: Wraps GitHubContentsClient so the read path matches the GCS shape
+// ABOUTME: Wraps GitHubContentsClient behind the read-only PromptStore trait
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,15 +13,10 @@ use super::super::github::GitHubContentsClient;
 use super::super::manifest::Manifest;
 use super::{PromptStore, StoredFile};
 
-/// [`PromptStore`] adapter wrapping the [`GitHubContentsClient`] for
-/// installs that have not enabled the GCS mirror yet (local dev,
-/// pre-rollout test environments).
+/// [`PromptStore`] adapter wrapping the [`GitHubContentsClient`].
 ///
 /// Each [`PromptStore::read_file`] call consumes one slot in the
-/// authenticated GitHub user's 5000/hr core API budget. Production sets
-/// `CONTREMAITRE_GCS_BUCKET` to switch the read path to
-/// [`super::gcs::GcsPromptStore`]; the GitHub backend remains available
-/// as a fallback when the bucket is unreachable.
+/// authenticated GitHub user's 5000/hr core API budget.
 #[derive(Debug)]
 pub struct GitHubPromptStore {
     client: Arc<GitHubContentsClient>,

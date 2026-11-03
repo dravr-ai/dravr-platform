@@ -1,46 +1,27 @@
-// ABOUTME: Read-only abstraction over the contremaitre file source (GitHub or GCS)
-// ABOUTME: GCS path bypasses GitHub's per-user 5000/hr core API rate limit
+// ABOUTME: Read-only abstraction over the contremaitre file source
+// ABOUTME: The sync engine reads manifest and assets through it; tests substitute their own
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Source abstraction for reading contremaitre prompt assets.
 //!
-//! Two backends are supported:
-//!
-//! 1. [`gcs::GcsPromptStore`] — reads from a Google Cloud Storage bucket
-//!    populated by a GitHub Action mirroring the `dravr-contremaitre` repo
-//!    on every push to `main`. **This is the production default.**
-//!    Reads use the Cloud Run instance's service-account access token from
-//!    the metadata server; no GitHub PAT is consumed at runtime, so heavy
-//!    Copilot LLM usage on the same GitHub user (`jfarcand`) cannot starve
-//!    contremaitre off its 5000/hr core-API budget (and vice versa).
-//!
-//! 2. [`github::GitHubPromptStore`] — wraps the existing
-//!    [`super::github::GitHubContentsClient`] for installs that haven't
-//!    enabled the GCS mirror yet, or for local development where running
-//!    a per-developer GCS bucket would be overkill.
-//!
-//! Selection is driven by [`super::ContremaitreConfig::store`]: when
-//! `CONTREMAITRE_GCS_BUCKET` is set, GCS wins; otherwise the GitHub
-//! Contents API path is used. The choice is logged at startup via
-//! [`PromptStore::backend_label`].
+//! The backend is [`github::GitHubPromptStore`], which wraps
+//! [`super::github::GitHubContentsClient`]; [`super::ContremaitreConfig::store`]
+//! builds it. The backend is logged at startup via [`PromptStore::backend_label`].
 
 use async_trait::async_trait;
 
 use super::errors::ContremaitreError;
 use super::manifest::Manifest;
 
-/// GCS-backed [`PromptStore`] implementation (production default).
-pub mod gcs;
-/// GitHub Contents API-backed [`PromptStore`] implementation (used in
-/// local dev or as a fallback when the GCS bucket is unreachable).
+/// GitHub Contents API-backed [`PromptStore`] implementation.
 pub mod github;
 
 /// A file fetched from the prompt store, with its decoded UTF-8 content
 /// and original repository/object path.
 ///
-/// Source-specific identifiers (Git blob SHA, GCS generation number) are
+/// Source-specific identifiers (the Git blob SHA) are
 /// not exposed here — the sync engine validates downloads against the
 /// manifest's `sha256` and recomputes the digest from `content` directly.
 #[derive(Debug, Clone)]
@@ -53,7 +34,7 @@ pub struct StoredFile {
 
 /// Read-only access to the contremaitre prompt asset tree.
 ///
-/// Both backends operate on the same logical layout — `manifest.json` at
+/// The store serves one logical layout — `manifest.json` at
 /// the root, plus per-asset files under `prompts/`, `tools/`, `evidence/`,
 /// `strings/`, and `config/`. The trait intentionally does *not* expose
 /// write operations; admin agent-promotion still goes through GitHub
@@ -79,8 +60,7 @@ pub trait PromptStore: Send + Sync {
     /// or parsed.
     async fn read_manifest(&self) -> Result<Manifest, ContremaitreError>;
 
-    /// Short human-readable label of the underlying backend (`"gcs"` or
-    /// `"github"`). Used in startup logs so the operator can confirm
+    /// Short human-readable label of the underlying backend (`"github"`). Used in startup logs so the operator can confirm
     /// which path is live without grepping env vars.
     fn backend_label(&self) -> &'static str;
 }

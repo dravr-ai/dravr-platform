@@ -12,11 +12,7 @@ use chrono::{DateTime, Utc};
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION,
-    KEY_AGENT_SCOPE_CARVE_OUT_RECIPES, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
-    KEY_TURN_LANGUAGE,
-};
+use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppResult;
@@ -26,11 +22,9 @@ use pierre_core::prompt_fingerprint::CanaryKey;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
-use tracing::error;
 use uuid::Uuid;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
@@ -44,10 +38,12 @@ use super::prompt_builder::{
 };
 use super::subject_athlete::{self, SubjectTurn};
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
-use super::turn_clock::{format_current_date, with_freshness, CURRENT_DATE_POINTER};
+use super::turn_clock::{format_current_date, with_freshness};
 use super::viz_blocks;
 
+mod placeholders;
 mod stable_head;
+use placeholders::interpolate_prompt_placeholders;
 use stable_head::mark_stable_head;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
@@ -265,28 +261,6 @@ pub fn close_with_anchors(assembled_prompt: &str, agent_slug: Option<&str>) -> S
     )
 }
 
-/// Return the [`MessagingStringsRegistry`] key that holds the scope
-/// carve-out for a given agent category, or
-/// `None` when the category does not collide with the generic scope list
-/// in `pierre_system.md`.
-///
-/// Only `Nutrition` and `Recipes` currently need a carve-out: both exist
-/// to answer meal/dinner/snack questions that the generic "food/meal
-/// finders" refusal would otherwise block. Training / Recovery /
-/// Mobility / Analysis / Custom do not collide — adding a carve-out for
-/// them only makes sense once a real refusal surfaces.
-const fn agent_scope_carve_out_key(category: AgentCategory) -> Option<&'static str> {
-    match category {
-        AgentCategory::Nutrition => Some(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION),
-        AgentCategory::Recipes => Some(KEY_AGENT_SCOPE_CARVE_OUT_RECIPES),
-        AgentCategory::Training
-        | AgentCategory::Recovery
-        | AgentCategory::Mobility
-        | AgentCategory::Analysis
-        | AgentCategory::Custom => None,
-    }
-}
-
 /// Whether an agent in this category can prescribe training load, and so needs
 /// the progression guardrails.
 ///
@@ -335,75 +309,6 @@ fn progression_guardrails(
         "appended progression guardrails"
     );
     Some(block)
-}
-
-/// Rewrite the prompt-template placeholders with their runtime values.
-///
-/// Handles five placeholders:
-///
-/// - `{{SCOPE_REFUSAL}}` → canonical off-scope refusal sentence
-/// - `{{CAPABILITY_REFUSAL}}` → canonical missing-capability refusal sentence
-/// - `{{COACH_SCOPE_CARVE_OUT}}` → agent-category-specific relaxation that
-///   counteracts the generic scope list (e.g. Nutrition agents bypass
-///   the "food/meal finders" out-of-scope rule for meal-planning
-///   questions). Empty string when the agent's category does not need a
-///   carve-out or when no agent is attached to the conversation.
-/// - `{{COACHING_PERSONA_RULES}}` → output-format/cadence block keyed off
-///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
-///   the chosen agent personality — it controls structure / citation
-///   density / verbosity, not voice or domain.
-/// - `{{CURRENT_DATE}}` → [`CURRENT_DATE_POINTER`], a fixed sentence naming
-///   the turn-clock message. The clock itself is sent after the cache
-///   breakpoints by [`super::turn_clock`], so this block stays byte-stable.
-///
-/// Returns the prompt unchanged when none of the placeholders are
-/// present.
-fn interpolate_prompt_placeholders(
-    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
-    prompt_registry: &Arc<PromptRegistry>,
-    locale: &str,
-    agent_ctx: Option<&AgentRuntimeContext>,
-    persona: CoachingPersona,
-    prompt: &str,
-) -> String {
-    let has_scope = prompt.contains("{{SCOPE_REFUSAL}}");
-    let has_capability = prompt.contains("{{CAPABILITY_REFUSAL}}");
-    let has_carve_out = prompt.contains("{{COACH_SCOPE_CARVE_OUT}}");
-    let has_persona = prompt.contains("{{COACHING_PERSONA_RULES}}");
-    let has_current_date = prompt.contains("{{CURRENT_DATE}}");
-    let assembled =
-        if !has_scope && !has_capability && !has_carve_out && !has_persona && !has_current_date {
-            prompt.to_owned()
-        } else {
-            let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
-            let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
-            let carve_out = agent_ctx
-                .and_then(|c| agent_scope_carve_out_key(c.category))
-                .map_or_else(String::new, |key| {
-                    messaging_strings_registry.get(key, locale)
-                });
-            // Read the persona block from the prompt registry so a hot-reload
-            // from contremaitre takes effect on the very next turn — no
-            // redeploy needed. The registry seeds itself with the compiled-in
-            // `include_str!()` content at startup, so chat works before the
-            // first sync completes; once contremaitre lands a newer version
-            // via webhook → selective_sync, the same lookup here picks it up.
-            let persona_block = prompt_registry.coaching_persona_prompt(persona, locale);
-            prompt
-                .replace("{{SCOPE_REFUSAL}}", &scope)
-                .replace("{{CAPABILITY_REFUSAL}}", &capability)
-                .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
-                .replace("{{COACHING_PERSONA_RULES}}", &persona_block)
-                .replace("{{CURRENT_DATE}}", CURRENT_DATE_POINTER)
-        };
-    let stray = unsubstituted_placeholders(&assembled);
-    if !stray.is_empty() {
-        error!(
-            ?stray,
-            "prompt assembly produced unsubstituted {{IDENT}} placeholders — contremaitre drift slipped past load-time validation, or this assembler is missing a substitution branch"
-        );
-    }
-    assembled
 }
 
 /// Look up the user's selected coaching persona, falling back to the

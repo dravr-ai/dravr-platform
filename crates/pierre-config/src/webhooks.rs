@@ -1,5 +1,5 @@
 // ABOUTME: The secrets inbound provider and messaging webhooks are verified against, read once at startup
-// ABOUTME: Strava's verify token and subscription ids, Wahoo's and Garmin's webhook tokens and Slack's signing secret
+// ABOUTME: Strava, Wahoo, Garmin and WHOOP webhook secrets, and Slack's signing secret, bot token and allowed bots
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -36,9 +36,24 @@ pub struct WebhookSecrets {
     /// are all a genuine push has that a forger must guess.
     #[serde(skip)]
     pub garmin_token: Option<SecretString>,
+    /// `WHOOP_WEBHOOK_SECRET`: the WHOOP app's client secret its webhooks
+    /// are signed with. dravr-enforme's WHOOP provider reads the same
+    /// variable at startup to key its HMAC; the route refuses every event
+    /// while this is `None`, so a blank one never reaches it.
+    #[serde(skip)]
+    pub whoop_secret: Option<SecretString>,
     /// `SLACK_SIGNING_SECRET`: the key Slack signs interactive actions with.
     #[serde(skip)]
     pub slack_signing_secret: Option<SecretString>,
+    /// `SLACK_BOT_TOKEN`: the token the interactive route redraws the card a
+    /// tap came from with, and answers a command postback with.
+    #[serde(skip)]
+    pub slack_bot_token: Option<SecretString>,
+    /// `SLACK_ALLOWED_BOT_IDS`: comma-separated Slack bot ids whose messages
+    /// pass canot's bot-loop filter as user input (QA drivers, trusted
+    /// integration bots; never the workspace's own Pierre bot). Empty when
+    /// unset.
+    pub slack_allowed_bot_ids: Vec<String>,
 }
 
 impl WebhookSecrets {
@@ -53,9 +68,25 @@ impl WebhookSecrets {
                 .unwrap_or_default(),
             wahoo_token: configured_secret("WAHOO_WEBHOOK_TOKEN").map(SecretString::from),
             garmin_token: configured_secret("GARMIN_WEBHOOK_TOKEN").map(SecretString::from),
+            whoop_secret: configured_secret("WHOOP_WEBHOOK_SECRET").map(SecretString::from),
             slack_signing_secret: configured_secret("SLACK_SIGNING_SECRET").map(SecretString::from),
+            slack_bot_token: configured_secret("SLACK_BOT_TOKEN").map(SecretString::from),
+            slack_allowed_bot_ids: env::var("SLACK_ALLOWED_BOT_IDS")
+                .map(|raw| parse_allowed_bot_ids(&raw))
+                .unwrap_or_default(),
         }
     }
+}
+
+/// The bot ids a comma-separated list names, trimmed, with empty entries
+/// (stray, doubled or trailing commas) dropped.
+#[must_use]
+fn parse_allowed_bot_ids(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The subscription ids a comma-separated list names; an entry that is not a
@@ -65,4 +96,34 @@ fn parse_subscription_ids(raw: &str) -> Vec<u64> {
     raw.split(',')
         .filter_map(|id| id.trim().parse().ok())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_allowed_bot_ids;
+
+    #[test]
+    fn allowed_bot_ids_are_trimmed_and_empty_entries_dropped() {
+        assert_eq!(
+            parse_allowed_bot_ids(" B0ABC123 ,,B0DEF456, "),
+            ["B0ABC123", "B0DEF456"],
+            "bug: padding or a doubled/trailing comma reached the allow-list"
+        );
+        assert_eq!(
+            parse_allowed_bot_ids("B0ABC123"),
+            ["B0ABC123"],
+            "bug: a single id with no comma was not kept"
+        );
+    }
+
+    #[test]
+    fn a_list_of_only_separators_names_no_bot() {
+        for raw in ["", ",,,", "  ,  ,  "] {
+            assert_eq!(
+                parse_allowed_bot_ids(raw),
+                Vec::<String>::new(),
+                "bug: {raw:?} names no bot, yet one was allowed"
+            );
+        }
+    }
 }

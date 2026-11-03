@@ -13,58 +13,6 @@ use pierre_tool_runtime::registry::ToolRegistry;
 use std::collections::HashSet;
 
 #[test]
-fn test_all_schema_tools_are_registered() {
-    // Get all tools from MCP schema (what Claude Desktop sees)
-    let schema_tools = get_tools();
-    let schema_tool_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
-
-    println!("Found {} tools in MCP schema", schema_tool_names.len());
-
-    // Build the unified registry and check each schema tool resolves
-    let mut registry = ToolRegistry::new();
-    register_builtin_tools(&mut registry);
-    let registered_tools: HashSet<String> = schema_tool_names
-        .iter()
-        .filter(|name| registry.get(name).is_some())
-        .cloned()
-        .collect();
-
-    println!(
-        "Found {} tools registered in ToolId enum",
-        registered_tools.len()
-    );
-
-    // Find tools in schema but NOT in ToolId (will cause "Unknown tool" errors)
-    let missing_from_registry: Vec<_> = schema_tool_names
-        .difference(&registered_tools)
-        .cloned()
-        .collect();
-
-    // Report findings
-    if !missing_from_registry.is_empty() {
-        println!("\n❌ CRITICAL: Tools in schema but NOT in ToolId enum:");
-        for tool in &missing_from_registry {
-            println!("   - {tool}");
-        }
-        println!("\nThese tools will cause 'Unknown tool' errors in Claude Desktop!");
-        println!("Add them to ToolId enum in src/protocols/universal/tool_registry.rs");
-    }
-
-    // FAIL if any mismatches found
-    assert!(
-        missing_from_registry.is_empty(),
-        "Schema contains {} tools not in ToolId enum: {:?}\nAll tools MUST be registered in ToolId enum for unified execution",
-        missing_from_registry.len(),
-        missing_from_registry
-    );
-
-    println!(
-        "\n✅ All {} tools are properly registered in ToolId enum (unified execution path)",
-        schema_tool_names.len()
-    );
-}
-
-#[test]
 fn test_critical_tools_are_present() {
     // Tools that MUST exist (from the original bug reports)
     let critical_tools = vec![

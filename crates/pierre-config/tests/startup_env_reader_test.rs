@@ -129,34 +129,7 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     );
     env::remove_var(DEFER_TOOLS_VAR);
 
-    // Webhook secrets: a blank secret configures none, the subscription list
-    // keeps only the ids it can read, and Debug never prints a secret.
-    env::set_var("STRAVA_WEBHOOK_VERIFY_TOKEN", "verify-me");
-    env::set_var(
-        "STRAVA_WEBHOOK_SUBSCRIPTION_ID",
-        "77, PLACEHOLDER_FILL_MANUALLY,78",
-    );
-    env::set_var("WAHOO_WEBHOOK_TOKEN", " \n");
-    env::set_var("SLACK_SIGNING_SECRET", "slack-secret-829");
-    let secrets = WebhookSecrets::from_env();
-    assert_eq!(
-        secrets
-            .strava_verify_token
-            .as_ref()
-            .map(ExposeSecret::expose_secret),
-        Some("verify-me")
-    );
-    assert_eq!(secrets.strava_subscription_ids, [77, 78]);
-    assert!(secrets.wahoo_token.is_none(), "a blank token is no token");
-    assert_eq!(
-        secrets
-            .slack_signing_secret
-            .as_ref()
-            .map(ExposeSecret::expose_secret),
-        Some("slack-secret-829")
-    );
-    let shown = format!("{secrets:?}");
-    assert!(!shown.contains("verify-me") && !shown.contains("slack-secret-829"));
+    assert_webhook_secrets_read_at_startup();
 
     // An empty Graph API base is no override.
     env::set_var("META_GRAPH_API_BASE", "");
@@ -174,6 +147,9 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
         "STRAVA_WEBHOOK_SUBSCRIPTION_ID",
         "WAHOO_WEBHOOK_TOKEN",
         "SLACK_SIGNING_SECRET",
+        "SLACK_BOT_TOKEN",
+        "SLACK_ALLOWED_BOT_IDS",
+        "WHOOP_WEBHOOK_SECRET",
         "META_GRAPH_API_BASE",
     ] {
         env::remove_var(key);
@@ -183,4 +159,70 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     }
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");
     env::remove_var("DRAVR_SCIOTTE_AUDIENCE");
+}
+
+/// Webhook secrets: a blank secret configures none, the subscription list
+/// keeps only the ids it can read, the allowed-bot list drops empty entries,
+/// and Debug never prints a secret. Called from the one env-writing test.
+fn assert_webhook_secrets_read_at_startup() {
+    env::set_var("STRAVA_WEBHOOK_VERIFY_TOKEN", "verify-me");
+    env::set_var(
+        "STRAVA_WEBHOOK_SUBSCRIPTION_ID",
+        "77, PLACEHOLDER_FILL_MANUALLY,78",
+    );
+    env::set_var("WAHOO_WEBHOOK_TOKEN", " \n");
+    env::set_var("SLACK_SIGNING_SECRET", "slack-secret-829");
+    env::set_var("SLACK_BOT_TOKEN", "xoxb-bot-829");
+    env::set_var("SLACK_ALLOWED_BOT_IDS", " B0ABC123 ,,B0DEF456");
+    env::set_var("WHOOP_WEBHOOK_SECRET", "  ");
+    let secrets = WebhookSecrets::from_env();
+    assert_eq!(
+        secrets
+            .strava_verify_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("verify-me")
+    );
+    assert_eq!(secrets.strava_subscription_ids, [77, 78]);
+    assert!(secrets.wahoo_token.is_none(), "a blank token is no token");
+    assert_eq!(
+        secrets
+            .slack_signing_secret
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("slack-secret-829")
+    );
+    assert_eq!(
+        secrets
+            .slack_bot_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("xoxb-bot-829"),
+        "bug: SLACK_BOT_TOKEN was not read at startup"
+    );
+    assert_eq!(
+        secrets.slack_allowed_bot_ids,
+        ["B0ABC123", "B0DEF456"],
+        "bug: SLACK_ALLOWED_BOT_IDS was not read, trimmed and de-blanked at startup"
+    );
+    assert!(
+        secrets.whoop_secret.is_none(),
+        "a blank WHOOP secret is no secret"
+    );
+    env::set_var("WHOOP_WEBHOOK_SECRET", "whoop-829");
+    assert_eq!(
+        WebhookSecrets::from_env()
+            .whoop_secret
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("whoop-829"),
+        "bug: WHOOP_WEBHOOK_SECRET was not read at startup"
+    );
+    let shown = format!("{secrets:?}");
+    assert!(
+        !shown.contains("verify-me")
+            && !shown.contains("slack-secret-829")
+            && !shown.contains("xoxb-bot-829"),
+        "bug: Debug of the webhook secrets printed a secret"
+    );
 }

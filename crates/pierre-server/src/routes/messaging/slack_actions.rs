@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
-use std::env;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -169,14 +168,14 @@ pub(crate) async fn handle_slack_action(
 /// notify layer posts no buttons without `SLACK_BOT_TOKEN`, and a decision
 /// already taken stands whether or not its card can be redrawn.
 fn update_card(resources: &ServerContext, action: &SlackAction, blocks: &Value) {
-    let Ok(bot_token) = env::var("SLACK_BOT_TOKEN") else {
+    let Some(bot_token) = configured_bot_token(resources) else {
         warn!(
             channel_id = %action.channel_id,
             "SLACK_BOT_TOKEN not configured; the Slack card was not updated"
         );
         return;
     };
-    build_slack_client(&bot_token, resources).update_message(
+    build_slack_client(bot_token.expose_secret(), resources).update_message(
         &action.channel_id,
         &action.message_ts,
         blocks,
@@ -215,8 +214,8 @@ async fn handle_command_postback(
     command_text: &str,
 ) -> AppResult<(StatusCode, Json<Value>)> {
     // The bot token updates the card in place once the command has run.
-    let bot_token = env::var("SLACK_BOT_TOKEN")
-        .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
+    let bot_token = configured_bot_token(resources)
+        .ok_or_else(|| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
 
     let response_text = execute_postback_command(
         resources,
@@ -227,7 +226,7 @@ async fn handle_command_postback(
     .await?;
 
     // Send response to Slack channel
-    let slack_client = build_slack_client(&bot_token, resources);
+    let slack_client = build_slack_client(bot_token.expose_secret(), resources);
     let blocks = json!([{
         "type": "section",
         "text": { "type": "mrkdwn", "text": response_text }
@@ -409,6 +408,12 @@ pub(crate) fn configured_signing_secret(resources: &ServerContext) -> Option<&Se
         .webhooks
         .slack_signing_secret
         .as_ref()
+}
+
+/// The Slack bot token, `None` when `SLACK_BOT_TOKEN` was unset or blank at
+/// startup.
+fn configured_bot_token(resources: &ServerContext) -> Option<&SecretString> {
+    resources.common.config.webhooks.slack_bot_token.as_ref()
 }
 
 /// Build a `SlackClient` from a bot token for message updates

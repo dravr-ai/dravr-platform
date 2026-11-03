@@ -94,7 +94,7 @@ pub struct PromptRegistry {
     /// via `{{COACHING_PERSONA_RULES}}`. Initialized with the compiled-in
     /// `include_str!()` blocks from `pierre-llm` so chat works before the
     /// first contremaitre sync completes; replaced by the registry path
-    /// the moment the GCS mirror lands a newer version.
+    /// the moment a contremaitre sync lands a newer version.
     personas: RwLock<HashMap<String, PromptEntry>>,
 }
 

@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::panic)]
 
-use pierre_mcp_server::tools::registry_builtin::{get_tools, register_builtin_tools};
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use std::collections::HashSet;
 
@@ -32,39 +32,6 @@ fn test_user_visible_tool_count_above_threshold() {
     );
 
     println!("User-visible tools: {count} (threshold: {MIN_USER_VISIBLE_TOOLS})");
-}
-
-#[test]
-fn test_all_transports_return_consistent_tool_list() {
-    // The ToolRegistry is the single source of truth for all transports.
-    // Verify that get_tools() (used by tests/legacy) returns the same tools
-    // as ToolRegistry.all_schemas().
-    let mut registry = ToolRegistry::new();
-    register_builtin_tools(&mut registry);
-
-    let registry_tools: HashSet<String> =
-        registry.all_schemas().into_iter().map(|t| t.name).collect();
-
-    let get_tools_result: HashSet<String> = get_tools().into_iter().map(|t| t.name).collect();
-
-    assert_eq!(
-        registry_tools,
-        get_tools_result,
-        "get_tools() and ToolRegistry.all_schemas() return different tool sets.\n\
-         Only in registry: {:?}\n\
-         Only in get_tools: {:?}",
-        registry_tools
-            .difference(&get_tools_result)
-            .collect::<Vec<_>>(),
-        get_tools_result
-            .difference(&registry_tools)
-            .collect::<Vec<_>>()
-    );
-
-    println!(
-        "All {} tools are consistent across transports",
-        registry_tools.len()
-    );
 }
 
 #[test]

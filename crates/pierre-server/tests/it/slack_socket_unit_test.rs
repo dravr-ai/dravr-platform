@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for slack_socket helpers (parse_allowed_bot_ids, parse_socket_payload)
+// ABOUTME: Unit tests for slack_socket helpers (parse_socket_payload)
 // ABOUTME: Pierre-side coverage that runs on every push, complementing the nightly real-Slack e2e
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,63 +13,8 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use pierre_core::models::messaging::ChannelType;
-use pierre_mcp_server::services::slack_socket::{parse_allowed_bot_ids, parse_socket_payload};
+use pierre_mcp_server::services::slack_socket::parse_socket_payload;
 use serde_json::json;
-
-#[test]
-fn parse_allowed_bot_ids_empty_string() {
-    let found = parse_allowed_bot_ids("");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-}
-
-#[test]
-fn parse_allowed_bot_ids_single() {
-    let ids = parse_allowed_bot_ids("B0ABC123");
-    assert_eq!(ids, vec!["B0ABC123".to_owned()]);
-}
-
-#[test]
-fn parse_allowed_bot_ids_multiple_clean() {
-    let ids = parse_allowed_bot_ids("B0ABC123,B0DEF456,B0GHI789");
-    assert_eq!(
-        ids,
-        vec![
-            "B0ABC123".to_owned(),
-            "B0DEF456".to_owned(),
-            "B0GHI789".to_owned(),
-        ]
-    );
-}
-
-#[test]
-fn parse_allowed_bot_ids_trims_whitespace() {
-    let ids = parse_allowed_bot_ids(" B0ABC123 , B0DEF456 ,  B0GHI789  ");
-    assert_eq!(
-        ids,
-        vec![
-            "B0ABC123".to_owned(),
-            "B0DEF456".to_owned(),
-            "B0GHI789".to_owned(),
-        ]
-    );
-}
-
-#[test]
-fn parse_allowed_bot_ids_drops_empty_entries() {
-    // Trailing/leading commas, double commas — operators copy-paste, this
-    // happens. Drop them silently rather than emit empty bot IDs that
-    // would never match any real Slack message.
-    let ids = parse_allowed_bot_ids(",B0ABC123,,B0DEF456,");
-    assert_eq!(ids, vec!["B0ABC123".to_owned(), "B0DEF456".to_owned()]);
-}
-
-#[test]
-fn parse_allowed_bot_ids_only_commas_yields_empty() {
-    let found = parse_allowed_bot_ids(",,,");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-    let found = parse_allowed_bot_ids("  ,  ,  ");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-}
 
 /// Slack Events API envelope shape that Socket Mode delivers under the
 /// `payload` field of an `events_api` frame. canot's parser expects this

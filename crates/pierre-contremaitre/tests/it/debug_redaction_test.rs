@@ -27,7 +27,6 @@ fn the_contremaitre_config_never_prints_its_pat_or_webhook_secret() {
         repo: "dravr-ai/dravr-contremaitre".to_owned(),
         branch: "main".to_owned(),
         github_pat: "github_pat_sentinel-7f3a".to_owned(),
-        gcs_bucket: Some("prompts-bucket".to_owned()),
         webhook_secret: "sentinel-webhook-7f3a".to_owned(),
     };
     let printed = printed_without(

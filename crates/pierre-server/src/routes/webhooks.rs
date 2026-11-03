@@ -24,7 +24,7 @@ use serde::Deserialize;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use pierre_core::constant_time::{configured_secret, matches_configured_secret};
+use pierre_core::constant_time::matches_configured_secret;
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::core::ActivityQueryParams;
@@ -53,13 +53,6 @@ use crate::services::personal_best_seed::strava_provider;
 /// rather than at it. A week bounds the read while still covering every
 /// realistic upload delay.
 const STRAVA_WEBHOOK_LOOKBACK_DAYS: i64 = 7;
-
-/// The variable holding the secret WHOOP signs its webhooks with.
-///
-/// dravr-enforme's WHOOP provider reads the same variable when the server
-/// builds it; the route reads it to refuse a blank value enforme would key
-/// its HMAC with.
-const WHOOP_WEBHOOK_SECRET_ENV: &str = "WHOOP_WEBHOOK_SECRET";
 
 /// Cap on rows a Strava webhook-triggered fetch reads.
 ///
@@ -320,15 +313,15 @@ impl WebhookRoutes {
 /// answers when it cannot verify one at all.
 ///
 /// Both refusals come before the orchestrator runs: no orchestrator is
-/// configured, or `WHOOP_WEBHOOK_SECRET` is unset or blank
-/// ([`configured_secret`]). dravr-enforme's WHOOP provider keys its HMAC with
+/// configured, or `WHOOP_WEBHOOK_SECRET` was unset or blank at startup
+/// (`webhooks.whoop_secret`). dravr-enforme's WHOOP provider keys its HMAC with
 /// whatever the variable holds, so a blank one must never reach it.
 fn whoop_orchestrator(resources: &ServerContext) -> Result<Arc<SyncOrchestrator>, StatusCode> {
     let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
         warn!("WHOOP webhook received but sync orchestrator is not configured");
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
-    if configured_secret(WHOOP_WEBHOOK_SECRET_ENV).is_none() {
+    if resources.common.config.webhooks.whoop_secret.is_none() {
         warn!("WHOOP webhook refused: WHOOP_WEBHOOK_SECRET is unset or blank; nothing synced");
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }

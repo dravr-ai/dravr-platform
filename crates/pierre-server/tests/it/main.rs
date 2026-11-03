@@ -233,7 +233,6 @@ mod connect_hosted_locale_test;
 mod connect_hosted_routes_test;
 mod console_user_management_test;
 mod content_blocks_roundtrip_test;
-mod contremaitre_gcs_store_test;
 mod contremaitre_test;
 mod conversation_compaction_test;
 mod conversation_list_postgresql_test;

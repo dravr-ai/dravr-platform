@@ -292,13 +292,14 @@ module "backend" {
   # the watchdog alone (the earlier 1020s) Cloud Run cut a legitimately slow
   # delivery and the turn died without its hand-off.
   request_timeout = "1260s"
-  # Keep CPU always-allocated at 2 vCPU: this service can't be trimmed cheaply.
-  # cpu_idle=true throttles CPU between requests and kills long-lived subprocesses
-  # — the Copilot ACP LLM runner (chat/insights/coach UI hung, rev 00464) and the
-  # Discord Gateway. cpu=1 can't keep /health alive through the contremaitre boot
-  # sync, so startup probes fail (rev 00465). Real cost fix = split the always-on
-  # LLM/Discord subprocess into its own small service, then let api go request-based.
-  # See ADR-019 (instance-based billing rationale + planned split).
+  # Keep CPU always-allocated at 2 vCPU. cpu_idle=true throttles CPU between
+  # requests and kills long-lived subprocesses — the Copilot ACP LLM runner
+  # (chat/insights/coach UI hung, rev 00464) and the Discord Gateway.
+  # ADR-019 accepts this floor with the Copilot runner as its named owner, and
+  # declined splitting that runner into its own service. Its reopen trigger, the
+  # default LLM moving off the ACP runner, fired on 2026-10-19: PIERRE_LLM_CHAIN
+  # now starts with the Anthropic API and Copilot is a fallback (copilot_sdk,
+  # 4th). Whether the floor still has an owner is owed a measurement.
   cpu_idle                         = false
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances
@@ -1302,8 +1303,8 @@ module "frontend" {
   # Instance-based billing: this nginx service is the always-up reverse-proxy
   # front door — every API, OAuth callback, and Firebase /__/ request flows
   # through it — so allocated-CPU's lower per-second rate beats per-request
-  # (cpu_idle=true) billing. GCP Active Assist measured ~$14/mo cheaper here.
-  # Unlike ADR-019's ACP-runner idle floor, min_instances=0 keeps this at $0 when idle.
+  # (cpu_idle=true) billing. min_instances=0 still keeps it at $0 when idle.
+  # cpu-idle-ok: GCP Active Assist measured allocated CPU ~$14/mo cheaper than per-request billing here.
   cpu_idle          = false
   startup_cpu_boost = false
   min_instances     = var.frontend_min_instances

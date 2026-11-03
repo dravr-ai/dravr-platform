@@ -212,7 +212,6 @@ connect_hosted_locale_test	16.4
 connect_hosted_routes_test	25.6
 console_user_management_test	14.6
 content_blocks_roundtrip_test	0.8
-contremaitre_gcs_store_test	0.0
 contremaitre_test	0.8
 conversation_compaction_test	0.0
 conversation_list_postgresql_test	0.1

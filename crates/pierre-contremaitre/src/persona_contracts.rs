@@ -9,7 +9,7 @@
 //! Source-of-truth file: `config/persona_contracts.yaml` in
 //! dravr-contremaitre, registered under
 //! `manifest.json::config.persona_contracts`. Hot-reloads from
-//! contremaitre over the same GCS-backed pipeline as the prompt files,
+//! contremaitre through the same sync pipeline as the prompt files,
 //! so calibrating "Casual hard cap is 150 words" does not require a
 //! redeploy.
 //!

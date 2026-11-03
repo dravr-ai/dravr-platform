@@ -20,7 +20,6 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, error, field, info, warn, Span};
@@ -460,7 +459,14 @@ async fn parse_and_verify(
     // tenants share an identity+secret and routing would be nondeterministic
     // (a cross-tenant message-leak path) — fail closed rather than route to
     // whichever config the DB happened to return first.
-    let matches = collect_verified_matches(adapters, channel_type, &configs, headers, body)?;
+    let matches = collect_verified_matches(
+        adapters,
+        channel_type,
+        &configs,
+        &resources.common.config.webhooks.slack_allowed_bot_ids,
+        headers,
+        body,
+    )?;
 
     let distinct_tenants: HashSet<TenantId> = matches.iter().map(|(t, _)| *t).collect();
     if distinct_tenants.len() > 1 {
@@ -540,12 +546,13 @@ fn collect_verified_matches(
     adapters: &dyn ChannelAdapterFactory,
     channel_type: ChannelType,
     configs: &[Value],
+    allowed_bot_ids: &[String],
     headers: &HeaderMap,
     body: &Bytes,
 ) -> Result<Vec<VerifiedMatch>, AppError> {
     let mut matches: Vec<VerifiedMatch> = Vec::new();
     for config in configs {
-        let enriched = enrich_slack_bot_allow_list(channel_type, config);
+        let enriched = enrich_slack_bot_allow_list(channel_type, config, allowed_bot_ids);
         let adapter_config = enriched.as_ref().unwrap_or(config);
         let Some(adapter) = adapters.build(channel_type, adapter_config) else {
             continue;
@@ -567,31 +574,25 @@ fn collect_verified_matches(
     Ok(matches)
 }
 
-/// Inject `allowed_bot_ids` from the `SLACK_ALLOWED_BOT_IDS` env var into the
-/// Slack config value so canot's factory exposes it on the transport.
+/// Inject `allowed_bot_ids` (`SLACK_ALLOWED_BOT_IDS`, read at startup into
+/// the webhook config) into the Slack config value so canot's factory
+/// exposes it on the transport.
 ///
-/// The env var is a comma-separated list of Slack bot IDs (e.g.
-/// `"B0ABC123,B0DEF456"`). When set, the listed bots bypass canot's default
+/// When the list is non-empty, the listed bots bypass canot's default
 /// bot-loop filter and their messages flow into the pipeline as real user
 /// input. Intended for QA drivers and trusted integration bots only — see
 /// `dravr-canot::channels::slack::SlackTransport::with_allowed_bot_ids` for
 /// the security contract. Never list the workspace's own Pierre bot ID.
 ///
-/// Returns `None` when the env var is absent, empty, or the channel isn't
-/// Slack, leaving the original config untouched. The caller should fall back
-/// to the original config in that case.
-fn enrich_slack_bot_allow_list(channel_type: ChannelType, config: &Value) -> Option<Value> {
-    if !matches!(channel_type, ChannelType::Slack) {
-        return None;
-    }
-    let raw = env::var("SLACK_ALLOWED_BOT_IDS").ok()?;
-    let ids: Vec<String> = raw
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if ids.is_empty() {
+/// Returns `None` when the list is empty or the channel isn't Slack, leaving
+/// the original config untouched. The caller should fall back to the original
+/// config in that case.
+fn enrich_slack_bot_allow_list(
+    channel_type: ChannelType,
+    config: &Value,
+    ids: &[String],
+) -> Option<Value> {
+    if !matches!(channel_type, ChannelType::Slack) || ids.is_empty() {
         return None;
     }
     let mut cloned = config.clone();

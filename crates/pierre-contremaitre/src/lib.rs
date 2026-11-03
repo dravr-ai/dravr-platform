@@ -1,4 +1,4 @@
-// ABOUTME: Prompt hot-reload system backed by GCS (default) or GitHub Contents API
+// ABOUTME: Prompt hot-reload system read from the dravr-contremaitre repo via the GitHub Contents API
 // ABOUTME: Provides PromptRegistry, sync engine, and webhook-driven updates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,25 +14,17 @@
 //!
 //! ## Read-path source of truth
 //!
-//! Reads do **not** go to GitHub at runtime. A GitHub Action in
-//! dravr-contremaitre mirrors the asset tree to a Google Cloud Storage
-//! bucket on every push to `main`; Pierre reads from that bucket via
-//! [`store::gcs::GcsPromptStore`]. This decouples contremaitre from the
-//! per-GitHub-user 5000/hr core API rate limit, which is shared with the
-//! Copilot LLM provider on the same `jfarcand` account.
-//!
-//! When `CONTREMAITRE_GCS_BUCKET` is unset (local dev / non-GCP installs),
-//! [`store::github::GitHubPromptStore`] takes over and the GitHub
-//! Contents API path runs.
+//! Reads go through [`store::github::GitHubPromptStore`], the GitHub
+//! Contents API, at startup and on each webhook-triggered reload.
 //!
 //! Compiled-in `include_str!()` constants in `pierre-llm` serve as the
-//! ultimate fallback when neither store is reachable.
+//! ultimate fallback when the store is unreachable.
 
 /// Hot-reloadable `IntelligenceConfig` snapshot registry — populated by the sync engine.
 pub mod cageux_config;
 /// Catalogue keys and the registry read for slash-command descriptions.
 pub mod command_descriptions;
-/// Environment-based configuration for repo, GCS bucket, PAT, and webhook secret
+/// Environment-based configuration for repo, branch, PAT, and webhook secret
 pub mod config;
 /// Structured error types mapped to `AppError` via `ErrorCode`
 pub mod errors;
@@ -60,7 +52,7 @@ pub mod notify_routing;
 pub mod persona_contracts;
 /// In-memory prompt registry with compiled-in fallback
 pub mod registry;
-/// Read-only [`store::PromptStore`] trait + GCS / GitHub backends
+/// Read-only [`store::PromptStore`] trait and its GitHub backend
 pub mod store;
 /// Startup and webhook-triggered sync engine
 pub mod sync;
@@ -83,7 +75,6 @@ pub use evidence_registry::EvidenceRegistry;
 pub use manifest::Manifest;
 pub use messaging_strings::MessagingStringsRegistry;
 pub use registry::PromptRegistry;
-pub use store::gcs::GcsPromptStore;
 pub use store::PromptStore;
 pub use tool_descriptions::ToolDescriptionRegistry;
 pub use training_catalogue::TrainingCatalogueRegistry;

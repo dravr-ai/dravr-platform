@@ -12,7 +12,6 @@
 
 use pierre_providers::ai_scope;
 use secrecy::SecretString;
-use std::env;
 use std::sync::Arc;
 
 use axum::{
@@ -771,10 +770,7 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // The per-user schedule cap, for every caller
-        let max_schedules = env::var("NOTIFICATION_MAX_SCHEDULES_PER_USER")
-            .ok()
-            .and_then(|v| v.parse::<i64>().ok())
-            .unwrap_or(notif_constants::MAX_SCHEDULES_PER_USER);
+        let max_schedules = notif_constants::MAX_SCHEDULES_PER_USER;
         if ai_scope::serving_external() {
             return Self::create_external_schedule(
                 &resources,

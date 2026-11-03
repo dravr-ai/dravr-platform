@@ -554,6 +554,7 @@ jobs:
           ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/first-party-sign-in-smoke.test.sh
           ./scripts/ci/check-keep-warm-traffic.test.sh
+          ./scripts/ci/check-cpu-idle-adr.test.sh
           ./scripts/ci/resolve-push-base.test.sh
           ./scripts/ci/server-build-key.test.sh
           ./scripts/ci/proven-on-branch.test.sh

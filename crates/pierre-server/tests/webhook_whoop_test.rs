@@ -57,6 +57,7 @@ use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
 use dravr_equilibre_sync::ContinuousMetricBatch;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
+use pierre_config::environment::WebhookSecrets;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId, UserOAuthToken,
@@ -305,7 +306,13 @@ impl SyncProvider for MockWhoop {
 /// (built inside `ServerContext::new`) and the mock read the secret at
 /// construction, the way production does.
 async fn context_with_mock_whoop() -> (Arc<ServerContext>, Arc<MockWhoop>) {
-    let context = common::create_test_server_resources().await.unwrap();
+    // The webhook secrets are read from the environment the test set, the way
+    // the server reads them once at boot.
+    let mut config = common::test_server_config();
+    config.webhooks = WebhookSecrets::from_env();
+    let context = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let mut context = Arc::try_unwrap(context)
         .map_err(|_| "the fresh context has one owner")
         .unwrap();

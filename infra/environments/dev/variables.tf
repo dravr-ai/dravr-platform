@@ -240,13 +240,13 @@ variable "frontend_previous_origins" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances. The pod runs no Chrome since carnet#978 (scrapes run on the dedicated sciotte service); it holds the always-on Copilot ACP Node singleton and the chat turns. See terraform.tfvars for why the value stands."
+  description = "CPU allocation for backend instances. The pod runs no Chrome since carnet#978 (scrapes run on the dedicated sciotte service); it holds the chat turns and, when the LLM chain falls through to Copilot, the Copilot runtime (ADR-019). See terraform.tfvars for why the value stands."
   type        = string
   default     = "2"
 }
 
 variable "backend_memory" {
-  description = "Memory allocation for backend instances: Pierre's working set, the Copilot ACP Node singleton, and at most two concurrent .fit decodes (~260Mi each at their field cap). No Chrome runs in this pod since carnet#978."
+  description = "Memory allocation for backend instances: Pierre's working set, the Copilot runtime when the LLM chain falls through to it, and at most two concurrent .fit decodes (~260Mi each at their field cap). No Chrome runs in this pod since carnet#978."
   type        = string
   default     = "2Gi"
 }

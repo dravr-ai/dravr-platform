@@ -184,7 +184,6 @@ async fn the_admin_api_context_prints_neither_its_jwt_secret_nor_the_contremaitr
             repo: "dravr-ai/dravr-contremaitre".to_owned(),
             branch: "main".to_owned(),
             github_pat: "github_pat_sentinel-7f3a".to_owned(),
-            gcs_bucket: None,
             webhook_secret: "sentinel-webhook-7f3a".to_owned(),
         }),
         app_behavior: AppBehaviorConfig::default(),

@@ -56,10 +56,10 @@ mcp_resource_url = "https://mcp.dravr.ai"
 # (b) the in-pod headless-Chrome sciotte scrape was CPU-hungry — GONE: the pod
 # runs no Chrome since carnet#978 (scrapes run on the sciotte service, sized on
 # its own below), and the image ships none (db083300b). Neither reason holds
-# now; what remains on this CPU is the always-on Copilot ACP Node singleton and
-# the chat turns. Whether that fits 1 vCPU is unmeasured, so the value stands
-# until a turn-latency check on 1 vCPU says otherwise. cpu_idle stays false
-# (ADR-019).
+# now; what remains on this CPU is the chat turns and, when the LLM chain falls
+# through to Copilot, its runtime. Whether that fits 1 vCPU is unmeasured, so the
+# value stands until a turn-latency check on 1 vCPU says otherwise. cpu_idle stays
+# false (ADR-019, whose reopen trigger fired on 2026-10-19 — see main.tf).
 backend_cpu    = "2"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
