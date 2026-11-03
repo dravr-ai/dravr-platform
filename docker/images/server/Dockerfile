@@ -175,7 +175,11 @@ WORKDIR /app
 # and Debian's nodejs, which runs the Copilot and Claude Code CLIs. Checked in a
 # fresh trixie layer: curl and node both reject
 # dv-g3b-emudhra.we-have-a-problem.com.
-ARG APT_SECURITY_EPOCH=2026-10-23
+# 2026-11-03: chromium 156.0.8078.79-1~deb13u1 closes 40 HIGH still open in the
+# .73 layer (CVE-2026-119260..119271, CVE-2026-76024..76030 among them: use
+# after free and memory corruption in Frames, V8, Skia, Blink, Dawn). The
+# sciotte image gate refused sciotte v1.3.0 on them; mirrored there too.
+ARG APT_SECURITY_EPOCH=2026-11-03
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
