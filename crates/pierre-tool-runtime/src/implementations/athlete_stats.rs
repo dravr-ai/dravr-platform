@@ -106,7 +106,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "Get the athlete profile a connected provider reports: the provider's athlete ID, \
              username, first and last name where public, and profile picture.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Get athlete profile", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -299,7 +299,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
              report them: call get_activities for the period and sum distance across all \
              related sport types.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Get activity totals", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

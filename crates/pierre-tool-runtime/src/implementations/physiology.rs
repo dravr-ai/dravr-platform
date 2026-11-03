@@ -1052,7 +1052,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             "set_physiology",
             "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′ — so load, zones and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Set physiology", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

@@ -513,7 +513,11 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
              platform; their names are never shown. `next_steps` says what linking them takes. \
              Read it from your own conversation, never a group's room.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get coaching platform roster",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         ))
     }
 

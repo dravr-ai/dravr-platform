@@ -146,7 +146,11 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             "Trigger a data refresh from a connected fitness provider when the user's data seems \
              outdated, recent activities are missing, or they ask for a sync.",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
+            annotations(
+                "Refresh provider data",
+                Effect::IdempotentWrite,
+                Reach::OpenWorld,
+            ),
         ))
     }
 
@@ -269,7 +273,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
             "Check how fresh the user's data is per connected provider (last sync time, \
              freshness level), to decide whether to refresh before a data-dependent answer.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get data freshness", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

@@ -778,7 +778,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
              month, quarter or year, optionally for one sport. track_progress measures it \
              against activities recorded after the goal was created.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Set goal", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -852,7 +852,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             "Suggest up to five fitness goals from the athlete's activity history and fitness \
              level; with a known latitude, out-of-season sports are dropped, not replaced.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Suggest goals", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -939,7 +939,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
              whether it is on track, days remaining and projected completion, over activities \
              recorded since the goal was created (only the goal's sport when it names one).",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Track goal progress", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -1085,7 +1085,11 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "Analyze whether a fitness goal is achievable from current fitness and training \
              history.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Analyze goal feasibility",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         )))
     }
 

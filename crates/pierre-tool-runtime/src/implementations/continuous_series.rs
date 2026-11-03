@@ -301,7 +301,7 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
              with none at all, say so rather than estimating values. For daily resting heart \
              rate and overnight HRV use get_recovery_metrics.",
             object_schema_with_format(input_properties(), None),
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get heart rate series", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

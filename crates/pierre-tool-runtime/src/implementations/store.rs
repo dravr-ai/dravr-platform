@@ -234,7 +234,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
              already have. Distinct from `list_agents`, which lists only the agents ALREADY in \
              their library.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Browse agent store", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -319,7 +319,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
              Searches the whole marketplace, unlike `search_agents`, which searches only the \
              athlete's own library. Install a result with `install_agent_from_store`.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Search agent store", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -393,7 +393,11 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
              never as a copy. Call it only once the athlete has asked for that specific agent. \
              After installing, `activate_agent` makes it the agent that answers.",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations(
+                "Install agent from store",
+                Effect::IdempotentWrite,
+                Reach::Internal,
+            ),
         ))
     }
 

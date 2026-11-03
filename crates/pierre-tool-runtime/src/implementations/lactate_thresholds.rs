@@ -370,7 +370,7 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
             "estimate_lactate_thresholds",
             "Locate the athlete's lactate thresholds from a step test they report (stage power or pace, blood lactate, heart rate if worn), e.g. '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each named, with intensity, lactate and heart rate; the 1.0–4.0 mmol/L band table; and power zones on the modified-Dmax LT2 for stages in watts. This only estimates: to keep a threshold, call set_physiology (ftp_watts or threshold_pace_sec_per_km, and threshold_hr) after the athlete confirms it.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Estimate lactate thresholds", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

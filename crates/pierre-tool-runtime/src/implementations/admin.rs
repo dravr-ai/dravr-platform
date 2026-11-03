@@ -132,7 +132,11 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemAgentsTool {
             "admin_list_system_agents",
             "List all system agents in the tenant (admin only)",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "List system agents (admin)",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -279,7 +283,11 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
             "admin_create_system_agent",
             "Create a new system agent visible to all tenant users (admin only)",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations(
+                "Create system agent (admin)",
+                Effect::AdditiveWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -375,7 +383,11 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemAgentTool {
             "admin_get_system_agent",
             "Get detailed information about a system agent (admin only)",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get system agent (admin)",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -498,7 +510,11 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
             "admin_update_system_agent",
             "Update an existing system agent (admin only)",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations(
+                "Update system agent (admin)",
+                Effect::IdempotentWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -626,7 +642,11 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemAgentTool {
             "admin_delete_system_agent",
             "Delete a system agent and remove all assignments (admin only)",
             schema,
-            annotations(Effect::Destructive, Reach::Internal),
+            annotations(
+                "Delete system agent (admin)",
+                Effect::Destructive,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -715,7 +735,11 @@ impl McpTool<dyn ToolRuntime> for AdminAssignAgentTool {
             "admin_assign_agent",
             "Assign a system agent to a specific user (admin only)",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations(
+                "Assign agent to user (admin)",
+                Effect::IdempotentWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -824,7 +848,11 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignAgentTool {
             "admin_unassign_agent",
             "Remove an agent assignment from a user (admin only)",
             schema,
-            annotations(Effect::Destructive, Reach::Internal),
+            annotations(
+                "Unassign agent from user (admin)",
+                Effect::Destructive,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -921,7 +949,11 @@ impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
             "admin_list_agent_assignments",
             "List all assignments for a system agent (admin only)",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "List agent assignments (admin)",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 

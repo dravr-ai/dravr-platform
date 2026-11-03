@@ -228,7 +228,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             "commitment_create",
             "Record a commitment the athlete just made, to be checked against their real activity when the window closes. Call it ONLY once the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both and call it on their answer. Not for your own plans or reminders.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Record commitment", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -378,7 +378,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
             "commitment_cancel",
             "Retract a commitment the athlete no longer wants to be held to; it is never counted or reported. Use when they drop it or circumstances change (injury, travel, a plan revision). Retracting is not failing: never use it to record that they missed it.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Cancel commitment", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

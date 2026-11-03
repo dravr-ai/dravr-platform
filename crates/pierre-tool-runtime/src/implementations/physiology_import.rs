@@ -471,7 +471,11 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
              holds none (sex_recorded). Report only what the result contains.",
             schema,
             // A second import of unchanged settings writes nothing.
-            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
+            annotations(
+                "Import provider thresholds",
+                Effect::IdempotentWrite,
+                Reach::OpenWorld,
+            ),
         ))
     }
 

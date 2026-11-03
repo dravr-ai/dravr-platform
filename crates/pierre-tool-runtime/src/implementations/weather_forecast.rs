@@ -27,7 +27,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
 /// The forecast provider every call shares, behind the bounded in-process
@@ -228,10 +228,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
              the top-ranked match.",
             schema,
             // Hits the Open-Meteo forecast API (external infrastructure).
-            ToolAnnotations {
-                title: Some("Weather forecast".to_owned()),
-                ..annotations(Effect::ReadOnly, Reach::OpenWorld)
-            },
+            annotations("Get weather forecast", Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 

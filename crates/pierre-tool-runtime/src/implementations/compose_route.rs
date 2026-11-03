@@ -142,7 +142,7 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
              tool."
             ),
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Compose route", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

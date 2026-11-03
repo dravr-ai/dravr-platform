@@ -139,7 +139,11 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
              intensity factor and decoupling. An activity without laps returns one interval \
              covering the whole session.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Export activity intervals",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -197,7 +201,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
              mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with \
              Strava-style category. Requires lat/lon and altitude in the activity stream.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Export routes", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -320,7 +324,11 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
              sensor missed is null, never a reading of 0. Use it for a custom analysis that \
              export_intervals / export_routes don't cover.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Extract activity streams",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 

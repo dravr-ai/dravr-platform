@@ -417,7 +417,11 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             "list_stretching_exercises",
             "List stretching exercises matching the given filters.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "List stretching exercises",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -523,7 +527,7 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
             "get_stretching_exercise",
             "Get detailed information about a specific stretching exercise",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get stretching exercise", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -630,7 +634,11 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             "Get stretching recommendations for an activity type, of any kind unless `focus` \
              narrows them.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Suggest stretches for activity",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -790,7 +798,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             "list_yoga_poses",
             "List yoga poses matching the given filters.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List yoga poses", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -903,7 +911,7 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
             "get_yoga_pose",
             "Get detailed information about a specific yoga pose",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get yoga pose", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -1028,7 +1036,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             "suggest_yoga_sequence",
             "Create a recovery yoga sequence for a `purpose`, fitted to the target duration.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Suggest yoga sequence", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

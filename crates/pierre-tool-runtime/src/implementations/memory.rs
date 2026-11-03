@@ -183,7 +183,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
             "agent_note_add",
             "Save a private agent note about the user. Use it when you decide something the user said should be remembered across sessions.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Add agent note", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -302,7 +302,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
             "agent_followup_schedule",
             "Schedule a future check-in, surfaced to the agent in the next conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Schedule agent follow-up", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -452,7 +452,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             "remember_fact",
             "Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Remember fact about user", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -618,7 +618,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             "recall_user_memory",
             "Retrieve the facts remembered about the user, most recently updated first. Use it to confirm what you already know before answering.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Recall user memory", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

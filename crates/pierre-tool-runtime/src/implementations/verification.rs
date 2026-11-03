@@ -139,7 +139,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             "verify_claim",
             "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Verify factual claim", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

@@ -475,7 +475,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             "get_training_plan",
             "Fetch the athlete's active training plan: outline (goal race, flavour, phases and their targets) and day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not the conversation, is the source of truth. It is the athlete's one season whichever agent laid it; `authors` names who laid it and wrote each week, and marks you. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (its prescription_ids are what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means their human coach updates it. A group's human coach reads a consenting athlete's plan with `athlete`; the athlete shares it into a room with `/plan share`. For a human coach, `plan` is what the athlete sees and `draft` their unpublished draft as publishing would leave it, with `draft.state`: weeks the athlete changed since and whether their season was re-laid, which publish_training_plan would refuse.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get training plan", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -703,7 +703,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             "save_training_plan",
             "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their Intervals.icu calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Save training plan", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

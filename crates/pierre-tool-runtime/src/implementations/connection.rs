@@ -468,7 +468,11 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             "connect_provider",
             "Start the OAuth flow to connect a fitness provider (e.g. Strava, Garmin, WHOOP).",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::OpenWorld),
+            annotations(
+                "Connect fitness provider",
+                Effect::AdditiveWrite,
+                Reach::OpenWorld,
+            ),
         ))
     }
 
@@ -672,7 +676,11 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
              disconnected, needs_reauth, or why a provider linked through a human coach reads \
              nothing), whether it must be authorized again, and which backend serves it.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get provider connection status",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -823,7 +831,11 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             "disconnect_provider",
             "Disconnect from a fitness data provider by removing stored OAuth tokens",
             schema,
-            annotations(Effect::Destructive, Reach::OpenWorld),
+            annotations(
+                "Disconnect fitness provider",
+                Effect::Destructive,
+                Reach::OpenWorld,
+            ),
         ))
     }
 

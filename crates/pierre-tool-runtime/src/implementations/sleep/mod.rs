@@ -123,7 +123,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             "Analyze last night's sleep into quality scores and insights, from synced nights \
              (WHOOP, Garmin, intervals.icu) or manual `sleep_data`.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Analyze sleep quality", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -227,7 +227,11 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
              activities itself; CTL, ATL and TSB use the thresholds saved with set_physiology \
              (FTP, threshold, max and resting HR, weight).",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Calculate recovery score",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         )))
     }
 
@@ -331,7 +335,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
              and TSB use the thresholds saved with set_physiology (FTP, threshold, max and \
              resting HR, weight).",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Suggest rest day", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -435,7 +439,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             "Analyze sleep trends over `days` from synced nights (WHOOP, Garmin, intervals.icu) \
              or manual `sleep_history`. Needs at least 7 nights.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Track sleep trends", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -514,7 +518,11 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
              load comes from synced activities against the thresholds saved with \
              set_physiology.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Optimize sleep schedule",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         )))
     }
 

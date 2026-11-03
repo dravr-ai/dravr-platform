@@ -250,7 +250,11 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              as their coach. Only the published plan is pushed, never a coach's unpublished \
              draft (the reply's unpublished_draft says when one exists).",
             schema,
-            annotations(Effect::Destructive, Reach::OpenWorld),
+            annotations(
+                "Push training plan to calendar",
+                Effect::Destructive,
+                Reach::OpenWorld,
+            ),
         )))
     }
 

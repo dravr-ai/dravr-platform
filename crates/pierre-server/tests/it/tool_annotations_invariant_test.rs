@@ -1,4 +1,4 @@
-// ABOUTME: Every registered tool advertises all four MCP behaviour hints, consistent with what it declares elsewhere
+// ABOUTME: Every registered tool advertises a display title and all four MCP behaviour hints, consistent with what it declares elsewhere
 // ABOUTME: Also caps each tool's input schema, since clients trim oversized schemas starting with argument descriptions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -46,6 +46,30 @@ fn every_tool_sets_all_four_behaviour_hints() {
     assert!(
         missing.is_empty(),
         "tools missing a behaviour hint (build them with pierre_tool_runtime::annotations::annotations): {missing:?}"
+    );
+}
+
+#[test]
+fn every_tool_has_a_display_title() {
+    // Hosts show the title in place of the snake_case name, and the Claude
+    // connector directory rejects a server with any untitled tool.
+    let registry = builtin_registry();
+    let mut untitled = Vec::new();
+    for (name, _, _, _) in registry.all_tool_metadata() {
+        let definition = registry.get(&name).expect("listed tool").definition();
+        let titled = definition
+            .annotations
+            .as_ref()
+            .and_then(|a| a.title.as_deref())
+            .is_some_and(|title| !title.trim().is_empty() && title != name);
+        if !titled {
+            untitled.push(name);
+        }
+    }
+    untitled.sort();
+    assert!(
+        untitled.is_empty(),
+        "tools without a display title (pass one to pierre_tool_runtime::annotations::annotations): {untitled:?}"
     );
 }
 

@@ -353,7 +353,11 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
             schema,
             // A second call for the same member is refused: the first
             // proposal holds them.
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations(
+                "Propose athlete link",
+                Effect::AdditiveWrite,
+                Reach::Internal,
+            ),
         ))
     }
 

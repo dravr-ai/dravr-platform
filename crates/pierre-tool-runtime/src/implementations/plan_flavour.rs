@@ -715,7 +715,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             "recommend_plan_flavour",
             "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum; the profile and active plan fill in the rest. Returns the flavours they can run, ranked with reasons and evidence, the ones they cannot with the reason, the rule's confidence, and the season's phases laid backward from the goal. Present the verdict in your own voice, confirm the inputs it echoes, and save through save_training_plan with `verdict` and `inputs` exactly as returned, selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. It writes nothing.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Recommend training flavour", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

@@ -134,7 +134,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             "list_coaching_playbooks",
             "List the coaching playbooks learned for this athlete — trigger→intervention patterns with their success/failure counts and confidence. Use this to tell the athlete what you have learned works for them.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List coaching playbooks", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -235,7 +235,7 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
             "forget_playbook",
             "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",
             schema,
-            annotations(Effect::Destructive, Reach::Internal),
+            annotations("Forget coaching playbook", Effect::Destructive, Reach::Internal),
         ))
     }
 

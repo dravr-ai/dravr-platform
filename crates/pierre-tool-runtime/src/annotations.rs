@@ -1,5 +1,5 @@
-// ABOUTME: The MCP behaviour hints every tool declares, built from two typed choices
-// ABOUTME: One constructor so all four hints are always set and no tool carries a private copy
+// ABOUTME: The MCP annotations every tool declares: its display title and four behaviour hints
+// ABOUTME: One constructor so the title and all four hints are always set and no tool carries a private copy
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,7 +15,9 @@
 //! Every tool therefore answers two questions: what the call does to stored
 //! state ([`Effect`]) and whether it reaches past this server ([`Reach`]).
 //! [`annotations`] turns those into all four hints, so no tool can advertise
-//! a subset of them.
+//! a subset of them. It also takes the tool's display `title`, which hosts show
+//! in place of the snake_case name and which the Claude connector directory
+//! requires on every tool.
 
 use pierre_mcp_schema::ToolAnnotations;
 
@@ -50,9 +52,10 @@ pub enum Reach {
     OpenWorld,
 }
 
-/// Build the annotations for one tool, with every hint set.
+/// Build the annotations for one tool: its display `title`, in sentence case,
+/// and every hint set.
 #[must_use]
-pub const fn annotations(effect: Effect, reach: Reach) -> ToolAnnotations {
+pub fn annotations(title: &str, effect: Effect, reach: Reach) -> ToolAnnotations {
     let (read_only, destructive, idempotent) = match effect {
         Effect::ReadOnly => (true, false, true),
         Effect::IdempotentWrite => (false, false, true),
@@ -60,7 +63,7 @@ pub const fn annotations(effect: Effect, reach: Reach) -> ToolAnnotations {
         Effect::Destructive => (false, true, true),
     };
     ToolAnnotations {
-        title: None,
+        title: Some(title.to_owned()),
         read_only_hint: Some(read_only),
         destructive_hint: Some(destructive),
         idempotent_hint: Some(idempotent),
@@ -81,7 +84,7 @@ mod tests {
             Effect::Destructive,
         ] {
             for reach in [Reach::Internal, Reach::OpenWorld] {
-                let a = annotations(effect, reach);
+                let a = annotations("Test tool", effect, reach);
                 assert!(
                     a.read_only_hint.is_some()
                         && a.destructive_hint.is_some()
@@ -94,8 +97,18 @@ mod tests {
     }
 
     #[test]
+    fn the_title_is_advertised_as_given() {
+        let a = annotations("Get weather forecast", Effect::ReadOnly, Reach::OpenWorld);
+        assert_eq!(
+            a.title.as_deref(),
+            Some("Get weather forecast"),
+            "bug: annotations() must advertise the title it was given"
+        );
+    }
+
+    #[test]
     fn only_a_read_is_read_only_and_only_a_delete_is_destructive() {
-        let read = annotations(Effect::ReadOnly, Reach::Internal);
+        let read = annotations("Test tool", Effect::ReadOnly, Reach::Internal);
         assert_eq!(
             read.read_only_hint,
             Some(true),
@@ -107,7 +120,7 @@ mod tests {
             "bug: a read-only effect must not advertise destructiveHint"
         );
 
-        let delete = annotations(Effect::Destructive, Reach::OpenWorld);
+        let delete = annotations("Test tool", Effect::Destructive, Reach::OpenWorld);
         assert_eq!(
             delete.read_only_hint,
             Some(false),
@@ -124,7 +137,7 @@ mod tests {
             "bug: Reach::OpenWorld must advertise openWorldHint"
         );
 
-        let create = annotations(Effect::AdditiveWrite, Reach::Internal);
+        let create = annotations("Test tool", Effect::AdditiveWrite, Reach::Internal);
         assert_eq!(
             create.idempotent_hint,
             Some(false),

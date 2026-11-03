@@ -60,7 +60,7 @@ impl McpTool<dyn ToolRuntime> for HideAgentTool {
             "hide_agent",
             "Hide an agent from listings",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations("Hide agent", Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -136,7 +136,7 @@ impl McpTool<dyn ToolRuntime> for ShowAgentTool {
             "show_agent",
             "Show a previously hidden agent",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations("Show agent", Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -201,7 +201,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenAgentsTool {
             "list_hidden_agents",
             "List all hidden agents",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List hidden agents", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

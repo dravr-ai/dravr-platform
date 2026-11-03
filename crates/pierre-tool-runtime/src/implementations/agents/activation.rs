@@ -62,7 +62,7 @@ impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
             "activate_agent",
             "Activate an agent for personalized training guidance",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations("Activate agent", Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -125,7 +125,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateAgentTool {
             "deactivate_agent",
             "Deactivate the current agent and return to default AI guidance",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations("Deactivate agent", Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -179,7 +179,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveAgentTool {
             "get_active_agent",
             "Get the currently active agent",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get active agent", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

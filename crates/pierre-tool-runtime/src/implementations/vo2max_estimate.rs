@@ -332,7 +332,7 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
             "estimate_vo2max",
             "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the athlete's stored data when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Estimate VO2max", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

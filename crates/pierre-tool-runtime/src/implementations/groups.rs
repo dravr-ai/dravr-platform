@@ -442,7 +442,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
              with you as the group's coach (joining grants it, `/group consent coach no` \
              revokes it).",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get group member activities",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         )))
     }
 

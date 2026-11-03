@@ -423,7 +423,7 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              covers that group only. Use `get_group_member_activities` for one athlete's full \
              session history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Get roster overview", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

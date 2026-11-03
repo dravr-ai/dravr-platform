@@ -159,7 +159,11 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              state — intensity factor, efficiency factor, variability index, aerobic \
              decoupling and time-in-zone distribution — aggregated over a sliding window.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Export latest training snapshot",
+                Effect::ReadOnly,
+                Reach::OpenWorld,
+            ),
         )))
     }
 
@@ -238,7 +242,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              origin came from a provider: quote it as that provider's estimate ('intervals.icu \
              has your FTP at 285 W'); one not named there is the athlete's own.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Export athlete dossier", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

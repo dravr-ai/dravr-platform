@@ -435,7 +435,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             "list_workout_templates",
             &description,
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List workout templates", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -657,7 +657,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              with `athlete`, through the athlete's Intervals.icu link once they allow \
              calendar writes on it.",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::OpenWorld),
+            annotations("Prescribe workout", Effect::AdditiveWrite, Reach::OpenWorld),
         ))
     }
 
@@ -916,7 +916,11 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              (push_training_plan). A group's human coach passes `athlete` as for \
              prescribe_workout.",
             schema,
-            annotations(Effect::Destructive, Reach::OpenWorld),
+            annotations(
+                "Withdraw prescribed workout",
+                Effect::Destructive,
+                Reach::OpenWorld,
+            ),
         ))
     }
 

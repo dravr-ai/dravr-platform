@@ -240,7 +240,11 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
              first time, after a long gap in syncs, or when the user asks for a specific \
              historical window.",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
+            annotations(
+                "Compute training history",
+                Effect::IdempotentWrite,
+                Reach::OpenWorld,
+            ),
         )))
     }
 
@@ -295,7 +299,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              against the FTP and threshold heart rate saved with set_physiology; a save that \
              changes either recomputes the rows.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get training history", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

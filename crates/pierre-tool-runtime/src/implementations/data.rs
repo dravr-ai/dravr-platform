@@ -225,7 +225,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
              `limit` to reach old data. Use `sort_by` for an explicit ordering request (e.g. \
              longest to shortest).",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Get activities", Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

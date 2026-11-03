@@ -459,7 +459,11 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
              athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and \
              `figures_withheld` instead of any amount: their clinician sets those.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Calculate daily nutrition",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -576,7 +580,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
              medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` \
              instead of any amount: their clinician sets those.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get nutrient timing", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -722,7 +726,7 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
             "search_food",
             "Search USDA FoodData Central for foods.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Search food", Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
@@ -827,7 +831,7 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
             "get_food_details",
             "Get detailed nutritional information for a specific food item",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Get food details", Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
@@ -933,7 +937,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
             "analyze_meal_nutrition",
             "Analyze nutritional content of a meal from its ingredients",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Analyze meal nutrition", Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 

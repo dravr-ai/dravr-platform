@@ -149,7 +149,11 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
             "get_fitness_config",
             "Get fitness configuration for the current user (falls back to tenant default)",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get fitness configuration",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -264,7 +268,11 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
             "set_fitness_config",
             "Save or update fitness configuration for the current user or tenant",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations(
+                "Set fitness configuration",
+                Effect::IdempotentWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -363,7 +371,11 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
             "list_fitness_configs",
             "List all available fitness configuration names for the user and tenant",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "List fitness configurations",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -466,7 +478,11 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
             "delete_fitness_config",
             "Delete a fitness configuration by name",
             schema,
-            annotations(Effect::Destructive, Reach::Internal),
+            annotations(
+                "Delete fitness configuration",
+                Effect::Destructive,
+                Reach::Internal,
+            ),
         ))
     }
 

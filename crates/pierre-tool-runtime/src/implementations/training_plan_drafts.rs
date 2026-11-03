@@ -392,7 +392,11 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
              Publishing does not touch the calendar; push_training_plan does that afterwards. \
              The caller's own plan has no draft: their saves are already live.",
             schema,
-            annotations(Effect::Destructive, Reach::OpenWorld),
+            annotations(
+                "Publish training plan",
+                Effect::Destructive,
+                Reach::OpenWorld,
+            ),
         ))
     }
 

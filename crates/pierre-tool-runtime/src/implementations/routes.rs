@@ -274,7 +274,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              order to `compose_route`, each meeting the next (as `connects_to` lists), and \
              quote the distance it returns.",
             schema,
-            annotations(Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Discover routes", Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 

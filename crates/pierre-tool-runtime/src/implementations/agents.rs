@@ -123,7 +123,7 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
             "list_agents",
             "List available AI agents for personalized training guidance",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List agents", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -256,7 +256,7 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
             "create_agent",
             "Create a custom AI agent with personalized training guidance",
             schema,
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations("Create agent", Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -374,7 +374,7 @@ impl McpTool<dyn ToolRuntime> for GetAgentTool {
             "get_agent",
             "Get detailed information about a specific agent",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get agent", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -481,7 +481,7 @@ impl McpTool<dyn ToolRuntime> for UpdateAgentTool {
             "update_agent",
             "Update an existing agent's settings",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations("Update agent", Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -594,7 +594,7 @@ impl McpTool<dyn ToolRuntime> for DeleteAgentTool {
             "delete_agent",
             "Delete an agent",
             schema,
-            annotations(Effect::Destructive, Reach::Internal),
+            annotations("Delete agent", Effect::Destructive, Reach::Internal),
         ))
     }
 
@@ -670,7 +670,11 @@ impl McpTool<dyn ToolRuntime> for ToggleAgentFavoriteTool {
             "Toggle the favorite status of an agent",
             schema,
             // Flips the stored value, so a repeat call undoes the first.
-            annotations(Effect::AdditiveWrite, Reach::Internal),
+            annotations(
+                "Toggle agent favorite",
+                Effect::AdditiveWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -768,7 +772,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
             "search_agents",
             "Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Search agents", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

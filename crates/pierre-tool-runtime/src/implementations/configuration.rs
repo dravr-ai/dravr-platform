@@ -494,7 +494,11 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
             "get_configuration_catalog",
             "Get the complete catalog of available configuration options",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get configuration catalog",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -543,7 +547,11 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
             "get_configuration_profiles",
             "Get available configuration profile templates",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get configuration profiles",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -603,7 +611,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
             "get_user_configuration",
             "Get your current training configuration settings",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get user configuration", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -694,7 +702,11 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
             "Update your training configuration settings: apply a profile template and set \
              catalogue overrides on top of it",
             schema,
-            annotations(Effect::IdempotentWrite, Reach::Internal),
+            annotations(
+                "Update user configuration",
+                Effect::IdempotentWrite,
+                Reach::Internal,
+            ),
         ))
     }
 
@@ -827,7 +839,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             "calculate_personalized_zones",
             "Calculate training zones from the athlete's own measurements, falling back to their saved physiology for anything not supplied here. Zone families whose inputs are unknown are listed under `unavailable` instead of being estimated; `input_sources` says where each number came from.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Calculate personalized training zones", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -993,7 +1005,7 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
             "validate_configuration",
             "Validate configuration parameters for physiological correctness",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Validate configuration", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

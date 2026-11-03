@@ -251,7 +251,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
             "Whether an athlete you COACH has a published plan: goal race, season, phase, and \
              `where_to_read`. Never the weeks: relay `where_to_read`.",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get group member plan status",
+                Effect::ReadOnly,
+                Reach::Internal,
+            ),
         ))
     }
 

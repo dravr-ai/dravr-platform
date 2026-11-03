@@ -284,7 +284,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             "get_sleep_sessions",
             "Get stored sleep sessions from the database",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get sleep sessions", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -384,7 +384,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             "get_recovery_metrics",
             "Get stored recovery and readiness metrics",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get recovery metrics", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -461,7 +461,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             "get_health_snapshots",
             "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("Get health snapshots", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -550,7 +550,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
             "list_data_sources",
             "List connected data sources (devices and providers)",
             schema,
-            annotations(Effect::ReadOnly, Reach::Internal),
+            annotations("List data sources", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
