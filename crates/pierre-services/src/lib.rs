@@ -41,6 +41,8 @@ pub mod coach_attention;
 pub mod coach_replies;
 /// The human coach's roster from the database: access, members, consent, order (carnet#1251)
 pub mod coach_roster;
+/// The new-user cohort report the admin console and the daily digest read
+pub mod new_user_cohort;
 /// Email to the operators: the super-admin recipients and the pending sign-up alert (carnet#1056)
 pub mod operator_mail;
 

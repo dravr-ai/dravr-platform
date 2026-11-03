@@ -343,7 +343,7 @@ pub(crate) async fn handle_pending_users(
 /// The tenant an admin token acts in: a console session's active tenant, or
 /// the tenant a scoped admin token is bound to. `None` for a platform-wide
 /// token.
-fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
+pub(super) fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
     token
         .tenant_id
         .as_deref()

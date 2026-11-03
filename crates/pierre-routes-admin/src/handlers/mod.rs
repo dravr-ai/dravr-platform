@@ -42,6 +42,8 @@ mod invitations;
 pub mod llm_consumption;
 pub mod memory_worker;
 pub mod myth_busting;
+/// The new-user cohort: accounts created in a window and how far each got.
+pub mod new_users;
 /// Super-admin clone of one account's scrape-session provider connection onto another.
 pub mod provider_clone;
 /// Super-admin termination purge: every row one provider contributed, in every tenant.

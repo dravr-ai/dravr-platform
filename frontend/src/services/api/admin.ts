@@ -138,6 +138,53 @@ export interface MintedSignupCode {
   code: string;
 }
 
+/// How many of the listed accounts reached each activation milestone.
+export interface NewUserFunnel {
+  signed_up: number;
+  approved_or_active: number;
+  email_verified: number;
+  provider_connected: number;
+  first_sync: number;
+  first_turn: number;
+  /// Accounts at least a week old: the denominator of `active_after_day_7`
+  day_7_eligible: number;
+  active_after_day_7: number;
+}
+
+/// One account created in the window and how far it got. Milestones are
+/// RFC 3339 instants, `null` while not reached.
+export interface NewUserRow {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  signed_up_at: string;
+  /// How it signed up: `email`, `google`, `apple`, …
+  signup_source: string;
+  /// `pending`, `active` or `suspended`
+  status: string;
+  approved_at: string | null;
+  email_verified: boolean;
+  provider_connected_at: string | null;
+  first_sync_at: string | null;
+  first_turn_at: string | null;
+  turns_first_week: number;
+  last_active_at: string | null;
+}
+
+/// The new-user report for one window, newest accounts first.
+export interface NewUserCohort {
+  window_days: number;
+  generated_at: string;
+  /// More accounts were created than the report lists
+  truncated: boolean;
+  funnel: NewUserFunnel;
+  users: NewUserRow[];
+}
+
+/// The React Query key for the new-user report, per window. Web-only, like
+/// the signup codes: it lives beside its endpoint.
+export const newUsersQueryKey = (days: number) => ['admin-new-users', days] as const;
+
 /// The fields `PUT /api/admin/settings/signup` changes; an absent one is kept.
 export interface SignupSettingUpdate {
   open?: boolean;
@@ -344,6 +391,14 @@ export const adminApi = {
       removed: response.data.data?.removed ?? false,
       invitation_revoked: response.data.data?.invitation_revoked ?? false,
     };
+  },
+
+  // ==================== NEW USERS ====================
+  // The accounts created in the last `days` days and how far each got, read
+  // from the database (complete whatever the accounts' analytics consent).
+  async getNewUsers(days: number): Promise<NewUserCohort> {
+    const response = await axios.get('/api/admin/analytics/new-users', { params: { days } });
+    return response.data.data;
   },
 
   // ==================== SIGNUP CODES ====================

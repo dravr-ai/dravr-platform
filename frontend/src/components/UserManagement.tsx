@@ -10,16 +10,17 @@ import PendingUsersList from './PendingUsersList';
 import PreApprovedEmails from './PreApprovedEmails';
 import SignupCodes from './SignupCodes';
 import CoachAccessRequests from './CoachAccessRequests';
+import NewUsersView from './NewUsersView';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 
-type UserTab = 'pending' | 'preapproved' | 'signup_codes' | 'coach_access' | 'active' | 'suspended' | 'all';
+type UserTab = 'pending' | 'new_users' | 'preapproved' | 'signup_codes' | 'coach_access' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
-  const { language } = useTranslation();
+  const { t, language } = useTranslation();
   const [activeTab, setActiveTab] = useState<UserTab>('pending');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalAction, setModalAction] = useState<'approve' | 'suspend'>('approve');
@@ -86,6 +87,17 @@ export default function UserManagement() {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      )
+    },
+    {
+      id: 'new_users',
+      name: t('newUsers.tab'),
+      // A report, not a queue: the view shows its own counts.
+      count: 0,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
         </svg>
       )
     },
@@ -227,6 +239,16 @@ export default function UserManagement() {
       <div className="space-y-6">
         {tabNav}
         <PendingUsersList />
+      </div>
+    );
+  }
+
+  // The accounts created in a window and how far each got (Postgres-backed).
+  if (activeTab === 'new_users') {
+    return (
+      <div className="space-y-6">
+        {tabNav}
+        <NewUsersView />
       </div>
     );
   }

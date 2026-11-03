@@ -498,6 +498,7 @@ mod multitenant_integration;
 mod myth_busting_promote_test;
 mod narration_vocab_overlay_test;
 mod native_tool_declarations_test;
+mod new_user_cohort_test;
 mod no_provider_connected_locale_test;
 mod notification_dispatch_test;
 mod notification_event_locale_test;

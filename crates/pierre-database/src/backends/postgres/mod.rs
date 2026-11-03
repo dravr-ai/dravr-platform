@@ -141,6 +141,8 @@ pub mod session_refresh_tokens;
 pub mod short_links;
 /// Admin signup codes and their redemptions (Postgres)
 pub mod signup_codes;
+/// The new-user cohort the admin console and the daily digest read (Postgres)
+pub mod signup_cohort;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
 /// Warnings sent before a Strava seat is reclaimed (`PostgreSQL`)

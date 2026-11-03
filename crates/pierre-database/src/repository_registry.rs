@@ -32,15 +32,15 @@ use crate::repositories::{
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
     ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
     ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository, SleepRepository,
-    StoreListingsRepository, StravaSeatReclaimWarningRepository, SubscriptionsRepository,
-    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
-    TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
-    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserInvitationRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    UserToolOverrideRepository, WeatherCacheRepository, WebsiteSignInTokenRepository,
-    WorkerRunRepository, WorkoutTemplateRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    SignupCohortRepository, SleepRepository, StoreListingsRepository,
+    StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
+    UsageRepository, UseCaseExposureRepository, UserInvitationRepository, UserMcpTokenRepository,
+    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -101,6 +101,8 @@ pub struct RepositoryRegistry {
     pub user_invitations: Arc<dyn UserInvitationRepository>,
     /// Shareable codes an admin mints so whoever enters one is approved
     pub signup_codes: Arc<dyn SignupCodeRepository>,
+    /// The new-user cohort: each account created in a window and its activation milestones
+    pub signup_cohort: Arc<dyn SignupCohortRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Recipe CRUD with nutrition
@@ -317,6 +319,7 @@ impl RepositoryRegistry {
             website_sign_in_tokens: db.clone(),
             user_invitations: db.clone(),
             signup_codes: db.clone(),
+            signup_cohort: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
@@ -423,6 +426,7 @@ impl RepositoryRegistry {
             website_sign_in_tokens: db.clone(),
             user_invitations: db.clone(),
             signup_codes: db.clone(),
+            signup_cohort: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),

@@ -1,0 +1,134 @@
+# ABOUTME: Daily new-user digest — counts from the admin new-user report, posted to the users room
+# ABOUTME: Counts only, never an email, a name or an id: this repository and its Actions logs are public
+
+name: "Monitor: New-User Digest"
+
+# Why a workflow and not a server worker: the api scales to zero, so a
+# `spawn_periodic` worker with a 24 h period never ticks in production (see the
+# vault note on periodic workers under scale-to-zero). The schedule lives here,
+# outside the instance's lifetime, and the server only answers the read.
+#
+# Idle-cost: one request a day wakes the frontend and the api for Cloud Run's
+# ~15-minute idle window — about 30 instance-minutes a day, already dwarfed by
+# capture-refresh-active.yml's three-hourly wake.
+on:
+  schedule:
+    # 13:23 UTC, early morning in Montréal; GitHub's queue lands it later.
+    - cron: '23 13 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: new-users-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    name: Post the new-user digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # A digest that cannot reach the server must say so: a lane that skips on
+      # a missing secret and exits 0 reads green while posting nothing — the
+      # tronc-canary failure (carnet#170). Same credentials as that lane.
+      - name: Require the credentials this lane cannot work without
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          # FRONTEND base on purpose: the api is internal-only and nginx
+          # proxies /admin/ through.
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          # The bot Pierre posts with; it is already in the users room, where
+          # user.pending_approval lands.
+          SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} CANARY_ADMIN_TOKEN"
+          [ -n "${BASE_URL}" ] || MISSING="${MISSING} vars.DEV_PUBLIC_BASE_URL"
+          [ -n "${SLACK_TOKEN}" ] || MISSING="${MISSING} CANARY_SLACK_BOT_TOKEN"
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing:${MISSING} — the new-user digest cannot read the report or post it, and must not report green. These are the tronc-canary credentials; see that workflow for how to mint them."
+            exit 1
+          fi
+          echo "Credentials present."
+
+      - name: Read the new-user report and post its counts
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          SLACK_TOKEN: ${{ secrets.CANARY_SLACK_BOT_TOKEN }}
+          # The users room (#dravr-dev-users), by ID: an ID survives a rename.
+          USERS_CHANNEL: C0ANS7HU3CH
+        run: |
+          set -euo pipefail
+          WORK="$(mktemp -d)"
+
+          # The report carries emails and names. It goes to a file and is read
+          # only through jq filters that yield counts and signup sources; the
+          # body is never printed, not even on failure.
+          fetch() {
+            local days="$1" out="$2" status
+            status=$(curl -sS -o "${out}" -w '%{http_code}' \
+                -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${BASE_URL}/admin/analytics/new-users?days=${days}")
+            if [ "${status}" != "200" ]; then
+              echo "::error::The new-user report for ${days} day(s) answered HTTP ${status} (body withheld: it can carry account details)."
+              exit 1
+            fi
+            if [ "$(jq -r '.success // false' "${out}")" != "true" ]; then
+              echo "::error::The new-user report for ${days} day(s) answered success=false (body withheld)."
+              exit 1
+            fi
+          }
+          fetch 1 "${WORK}/day.json"
+          fetch 7 "${WORK}/week.json"
+
+          # -e plus `numbers`: a body whose funnel lacks a count fails the step
+          # instead of posting "null signed up" and reading green.
+          count() { jq -er ".data.funnel.$2 | numbers" "$1"; }
+          sources() {
+            jq -r '[.data.users[].signup_source] | group_by(.) | map("\(.[0]) \(length)") | join(", ")' "$1"
+          }
+          # Signed up 3 or more days ago and still no provider connected.
+          # chrono writes fractional seconds, which fromdateiso8601 refuses.
+          STALLED=$(jq -r '
+            [.data.users[]
+              | select(.provider_connected_at == null)
+              | select((.signed_up_at | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) <= (now - 259200))
+            ] | length' "${WORK}/week.json")
+
+          # Each count is its own assignment so `set -e` sees a failed read: a
+          # substitution nested in printf's arguments would be swallowed.
+          DAY_SIGNUPS=$(count "${WORK}/day.json" signed_up)
+          DAY_APPROVED=$(count "${WORK}/day.json" approved_or_active)
+          DAY_CONNECTED=$(count "${WORK}/day.json" provider_connected)
+          DAY_FIRST_TURN=$(count "${WORK}/day.json" first_turn)
+          DAY_SOURCES=$(sources "${WORK}/day.json")
+          WEEK_SIGNUPS=$(count "${WORK}/week.json" signed_up)
+          WEEK_APPROVED=$(count "${WORK}/week.json" approved_or_active)
+          WEEK_CONNECTED=$(count "${WORK}/week.json" provider_connected)
+          WEEK_FIRST_TURN=$(count "${WORK}/week.json" first_turn)
+          WEEK_SOURCES=$(sources "${WORK}/week.json")
+
+          TEXT=$(printf '%s\n' \
+            "*New users — last 24 h:* ${DAY_SIGNUPS} signed up${DAY_SOURCES:+ (${DAY_SOURCES})}" \
+            "approved ${DAY_APPROVED} · connected a provider ${DAY_CONNECTED} · first message ${DAY_FIRST_TURN}" \
+            "*Last 7 days:* ${WEEK_SIGNUPS} signed up${WEEK_SOURCES:+ (${WEEK_SOURCES})}" \
+            "approved ${WEEK_APPROVED} · connected a provider ${WEEK_CONNECTED} · first message ${WEEK_FIRST_TURN}" \
+            "*Stalled:* ${STALLED} signed up 3+ days ago with no provider connected" \
+            "<${BASE_URL}/#users|Open Users → New users in the console>")
+
+          PAYLOAD=$(jq -n --arg channel "${USERS_CHANNEL}" --arg text "${TEXT}" \
+            '{channel: $channel, text: $text, unfurl_links: false}')
+          REPLY=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${SLACK_TOKEN}" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              --data "${PAYLOAD}")
+          if [ "$(echo "${REPLY}" | jq -r '.ok')" != "true" ]; then
+            echo "::error::Slack refused the digest: $(echo "${REPLY}" | jq -r '.error')"
+            exit 1
+          fi
+          echo "Digest posted: ${DAY_SIGNUPS} sign-up(s) in 24 h, ${WEEK_SIGNUPS} in 7 days, ${STALLED} stalled."

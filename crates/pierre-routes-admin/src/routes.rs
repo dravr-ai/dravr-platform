@@ -29,8 +29,9 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
-    guardian_config, harness_config, memory_worker, myth_busting, provider_clone, provider_data,
-    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
+    guardian_config, harness_config, memory_worker, myth_busting, new_users, provider_clone,
+    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
+    website,
 };
 
 /// Admin routes implementation (Axum).
@@ -324,6 +325,11 @@ impl AdminRoutes {
     fn user_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route("/admin/users", get(users::handle_list_users))
+            // The new-user cohort the daily digest workflow reads.
+            .route(
+                "/admin/analytics/new-users",
+                get(new_users::handle_new_users),
+            )
             .route(
                 "/admin/users/{user_id}",
                 get(users::handle_get_user).delete(user_removal::handle_delete_user),
@@ -432,6 +438,11 @@ impl AdminRoutes {
         Router::new()
             // The listing pages per status; the console asks for `status=all`.
             .route("/api/admin/users", get(users::handle_list_users))
+            // The console's "New users" view.
+            .route(
+                "/api/admin/analytics/new-users",
+                get(new_users::handle_new_users),
+            )
             .route(
                 "/api/admin/settings/auto-approval",
                 get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),

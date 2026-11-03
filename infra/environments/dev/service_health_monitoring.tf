@@ -59,12 +59,6 @@ locals {
     google_monitoring_alert_policy.instance_never_idle,
   ]
 
-  # Not charted, because an alertChart is not known to draw several
-  # conditions, a PromQL condition or a matched-log condition (and a widget
-  # the API refuses fails the whole dashboard): the 5xx, latency, cost,
-  # database-capacity, key-material and tapped-share policies. Their
-  # incidents show in the incident list, which lists every policy's.
-
   # Dashboard grid: 48 columns; charts are half width, policy tiles a quarter.
   chart_width  = 24
   chart_height = 16
@@ -274,9 +268,12 @@ resource "google_monitoring_dashboard" "service_health" {
             height = local.chart_height
             widget = {
               title = "Open and recent incidents"
-              # No policyNames: the list then shows every policy's incidents,
-              # new policies included. Naming them is capped at 20 (the API
-              # refused 23 on the first apply, run 41697812620).
+              # No policyNames: the list shows every policy's incidents, new
+              # policies included, and the API caps named policies at 20. It
+              # is also where the policies left off the charts below appear:
+              # an alertChart is not known to draw several conditions, a
+              # PromQL condition or a matched-log condition, and one widget
+              # the API refuses fails the whole dashboard.
               incidentList = {}
             }
           },

@@ -179,6 +179,8 @@ pub mod session_refresh_tokens;
 pub mod short_links;
 /// Repository trait, statements and shared body for admin signup codes.
 pub mod signup_codes;
+/// Repository trait and statements for the new-user cohort: each account created in a window and its activation milestones.
+pub mod signup_cohort;
 /// Repository trait for the agent marketplace: review workflow, catalogue browsing, installs, the @handle.
 pub mod store_listings;
 pub(crate) mod store_listings_backend;
@@ -324,6 +326,7 @@ pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
 pub use signup_codes::SignupCodeRepository;
+pub use signup_cohort::{NewUserMilestones, NewUserTurn, SignupCohortRepository};
 pub use store_listings::*;
 pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;
