@@ -20,7 +20,7 @@ use pierre_auth::keyset::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::SessionRefreshToken;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::shared::encryption::create_rsa_key_aad_context;
 use pierre_database::backends::shared::key_material::StoredSecretKind;
 use pierre_database::backends::shared::keyring::{KeyFamily, SealDomain};
@@ -130,47 +130,44 @@ async fn stored_private_key(database: &Database, kid: &str) -> String {
 /// One text column of one row, by a key, on whichever backend is open.
 async fn sql_text(database: &Database, sql: &str, key: &str) -> String {
     use sqlx::Row;
-    if let Some(pool) = database.sqlite_pool() {
-        return sqlx::query(sql)
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(sql)
             .bind(key)
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
             .unwrap()
-            .get("v");
-    }
-    #[cfg(feature = "postgresql")]
-    if let Some(pool) = database.postgres_pool() {
-        return sqlx::query(sql)
+            .get("v"),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(sql)
             .bind(key)
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
             .unwrap()
-            .get("v");
+            .get("v"),
     }
-    panic!("no pool");
 }
 
+/// Run a two-bind statement on whichever backend is open.
 async fn exec(database: &Database, sql: &str, value: &str, key: &str) {
-    if let Some(pool) = database.sqlite_pool() {
-        sqlx::query(sql)
-            .bind(value)
-            .bind(key)
-            .execute(pool)
-            .await
-            .unwrap();
-        return;
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(sql)
+                .bind(value)
+                .bind(key)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(sql)
+                .bind(value)
+                .bind(key)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
     }
-    #[cfg(feature = "postgresql")]
-    if let Some(pool) = database.postgres_pool() {
-        sqlx::query(sql)
-            .bind(value)
-            .bind(key)
-            .execute(pool)
-            .await
-            .unwrap();
-        return;
-    }
-    panic!("no pool");
 }
 
 /// Tick the controller at `now` and return the report.
