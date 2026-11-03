@@ -3672,7 +3672,8 @@
           "unreadable_file": "Son fichier n'a pas pu être lu",
           "file_too_large": "Son fichier est trop volumineux",
           "invalid_row": "Sa ligne dans l'export est incomplète",
-          "zero_elapsed": "Une saisie manuelle sans durée"
+          "zero_elapsed": "Une saisie manuelle sans durée",
+          "deleted_by_athlete": "Vous avez supprimé cette activité : elle reste supprimée"
         },
         "refusal": {
           "link_invalid": "Ce lien ne ressemble pas à un lien d'export. Copiez le lien complet depuis le courriel de Strava.",

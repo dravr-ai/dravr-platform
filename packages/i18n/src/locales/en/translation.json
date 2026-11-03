@@ -3672,7 +3672,8 @@
           "unreadable_file": "Its file could not be read",
           "file_too_large": "Its file is too large",
           "invalid_row": "Its row in the export is incomplete",
-          "zero_elapsed": "A manual entry with no time"
+          "zero_elapsed": "A manual entry with no time",
+          "deleted_by_athlete": "You deleted this activity, so it stays deleted"
         },
         "refusal": {
           "link_invalid": "That doesn't look like an export link. Copy the whole link from Strava's email.",
