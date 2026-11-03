@@ -1236,7 +1236,12 @@
       "hideSteps": "Ocultar os passos",
       "stepDone": "Concluído",
       "stepsLabel": "Passos da resposta",
-      "tabTitle": "({{count}}) {{title}}"
+      "tabTitle": "({{count}}) {{title}}",
+      "failed": {
+        "unavailable": "O Dravr está temporariamente indisponível. A equipa foi notificada.",
+        "timeout": "O tempo de espera esgotou-se.",
+        "offline": "Estás offline. Verifica a tua ligação."
+      }
     },
     "verdictsNone": "Nenhum veredito"
   },
@@ -1317,7 +1322,6 @@
       "hiddenNoSource": "Não conectou nenhuma fonte de dados: não há treino para mostrar aqui."
     },
     "action": {
-      "writeToAthlete": "Enviar mensagem",
       "correctReply": "Corrigir a resposta",
       "openPlanThread": "Abrir a conversa do plano",
       "reviewDraft": "Revisar o rascunho",

@@ -1236,7 +1236,12 @@
       "hideSteps": "Hide steps",
       "stepDone": "Done",
       "stepsLabel": "Reply steps",
-      "tabTitle": "({{count}}) {{title}}"
+      "tabTitle": "({{count}}) {{title}}",
+      "failed": {
+        "unavailable": "Dravr is temporarily unavailable. The team has been notified.",
+        "timeout": "The request timed out.",
+        "offline": "You're offline. Check your connection."
+      }
     },
     "verdictsNone": "No verdicts"
   },
@@ -1317,7 +1322,6 @@
       "hiddenNoSource": "They haven’t connected any data source: there is no training of theirs to show here."
     },
     "action": {
-      "writeToAthlete": "Message them",
       "correctReply": "Correct the reply",
       "openPlanThread": "Open their plan thread",
       "reviewDraft": "Review the draft",

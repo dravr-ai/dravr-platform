@@ -1236,7 +1236,12 @@
       "hideSteps": "Ocultar los pasos",
       "stepDone": "Hecho",
       "stepsLabel": "Pasos de la respuesta",
-      "tabTitle": "({{count}}) {{title}}"
+      "tabTitle": "({{count}}) {{title}}",
+      "failed": {
+        "unavailable": "Dravr no está disponible temporalmente. El equipo ha sido avisado.",
+        "timeout": "Se agotó el tiempo de espera.",
+        "offline": "Estás sin conexión. Comprueba tu conexión."
+      }
     },
     "verdictsNone": "Ningún veredicto"
   },
@@ -1317,7 +1322,6 @@
       "hiddenNoSource": "No ha conectado ninguna fuente de datos: no hay entrenamiento suyo que mostrar aquí."
     },
     "action": {
-      "writeToAthlete": "Escribirle",
       "correctReply": "Corregir la respuesta",
       "openPlanThread": "Abrir su hilo del plan",
       "reviewDraft": "Revisar el borrador",
