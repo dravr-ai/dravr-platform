@@ -636,7 +636,7 @@ fn emit_step_completed(
         target: "notify",
         event = "onboarding.step_completed",
         user_id = %user_id,
-        tenant_id = tenant_id.unwrap_or_default(),
+        tenant_id,
         step_id = step.step_id,
         status = step.status,
         seconds_since_signup,
@@ -655,7 +655,7 @@ fn emit_coach_group_skipped(
         target: "notify",
         event = "onboarding.coach_group_skipped",
         user_id = %user_id,
-        tenant_id = tenant_id.unwrap_or_default(),
+        tenant_id,
         seconds_since_signup,
         "coach skipped the onboarding group step"
     );

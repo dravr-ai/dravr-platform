@@ -11,6 +11,11 @@ import './index.css'
 import App from './App.tsx'
 import { persistLocale } from './i18n/localePersister'
 import { i18nApi } from './services/api'
+import { captureSignupAttribution } from './utils/signupAttribution'
+
+// Before the app mounts: the create-account link's address is rewritten to
+// '/' once the form shows, and the dashboard rewrites the hash as it routes.
+captureSignupAttribution()
 
 // One preference, two owners: i18next renders the chrome, `users.locale`
 // decides the language the agent answers in. Registering the writer here — the

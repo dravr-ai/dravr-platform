@@ -362,6 +362,36 @@ describe('AuthContext', () => {
       expect(authApi.storeAuth).toHaveBeenLastCalledWith('fresh-jwt', 'fresh-csrf', renewedSession.user);
     });
 
+    it('keeps the analytics consent the renewed session carries, the flag the root layout boots PostHog on', async () => {
+      function ConsentConsumer() {
+        const { user } = useAuth();
+        return <Text testID="analytics-consent">{String(user?.analytics_consent)}</Text>;
+      }
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      // A copy stored by a build older than the field: no consent on it.
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(storedUser);
+      (authApi.getSession as jest.Mock).mockResolvedValue({
+        ...renewedSession,
+        user: { ...renewedSession.user, analytics_consent: true },
+      });
+      (authApi.storeAuth as jest.Mock).mockResolvedValue(undefined);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <ConsentConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('analytics-consent').children[0]).toBe('true');
+      });
+      expect(authApi.storeAuth).toHaveBeenCalledWith(
+        'fresh-jwt',
+        'fresh-csrf',
+        expect.objectContaining({ analytics_consent: true }),
+      );
+    });
+
     it('does not subscribe to the foreground while signed out', async () => {
       (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
 

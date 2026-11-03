@@ -55,11 +55,12 @@ use axum::middleware;
 use axum::response::Response;
 use axum::Router;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
+use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER, TRACEPARENT_HEADER};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
     redacted_path, redaction_middleware, request_budget_middleware, request_id_middleware,
-    response_failure_log_middleware, setup_cors, RedactedRequestLine, UsageLedgers,
+    response_failure_log_middleware, setup_cors, RedactedRequestLine, RequestId, UsageLedgers,
 };
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
@@ -82,16 +83,36 @@ use tokio::net::TcpListener;
 /// declares them. `tracing` drops a record on an undeclared field, so these
 /// declarations are what put the user and tenant on every log line and trace
 /// of an authenticated request.
+///
+/// The correlation fields are known up front: `http_request_id` is the id the
+/// request-id middleware (layered outside this span) returns in
+/// `x-request-id`, and `cloud_trace_id` is the trace Cloud Run stamped the
+/// request with, which the GCP formatter writes as `logging.googleapis.com/trace`
+/// so every app line groups with Cloud Run's own line for the request. The
+/// `http_` prefix keeps it from shadowing a domain `request_id` (a
+/// coach-access request's) on the events raised inside the request.
 fn http_request_span(request: &Request<Body>) -> Span {
     let uri = request
         .extensions()
         .get::<RedactedRequestLine>()
         .map_or_else(|| redacted_path(request.uri().path()), ToString::to_string);
+    let http_request_id = request
+        .extensions()
+        .get::<RequestId>()
+        .map(|id| id.0.as_str());
+    let headers = request.headers();
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+    let cloud_trace_id = request_trace::inbound_trace_id(
+        header(TRACEPARENT_HEADER),
+        header(CLOUD_TRACE_CONTEXT_HEADER),
+    );
     info_span!(
         "request",
         method = %request.method(),
         uri = %uri,
         version = ?request.version(),
+        http_request_id,
+        cloud_trace_id = cloud_trace_id.as_deref(),
         user_id = Empty,
         tenant_id = Empty,
         impersonator_id = Empty,
@@ -266,6 +287,9 @@ impl ProviderToolRouter {
         // (low-cardinality route label) is still visible here via Router::layer.
         #[cfg(feature = "telemetry")]
         let app = app.layer(middleware::from_fn(telemetry_middleware));
+        // The single failure logger, applied inside the TraceLayer so its
+        // line carries the request span's user, tenant, request id and trace.
+        let app = app.layer(middleware::from_fn(response_failure_log_middleware));
         app.layer(
             TraceLayer::new_for_http()
                 .make_span_with(http_request_span)
@@ -277,12 +301,11 @@ impl ProviderToolRouter {
                 // Silence tower-http's default failure logger: its event
                 // knows only latency + status, so the forwarded ops alert
                 // never named the failing endpoint. `response_failure_log`
-                // (applied just outside this layer) is the single failure
+                // (applied just inside this layer) is the single failure
                 // logger, carrying method + path and routing designed
                 // backpressure (Retry-After 503) to WARN instead of ERROR.
                 .on_failure(()),
         )
-        .layer(middleware::from_fn(response_failure_log_middleware))
         // PII redaction for HTTP logging. Applied outside both the failure
         // logger and the TraceLayer so the log-safe request line is on the
         // request before either of them reads the endpoint from it.

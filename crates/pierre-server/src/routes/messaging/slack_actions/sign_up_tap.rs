@@ -7,7 +7,7 @@
 use axum::http::StatusCode;
 use axum::Json;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserStatus;
+use pierre_core::models::{Tenant, UserStatus};
 use pierre_middleware::mask_email;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::tenant_admin as tenant_admin_service;
@@ -94,17 +94,18 @@ async fn approve_user(
         .map_err(|e| AppError::internal(format!("Failed to approve user: {e}")))?;
 
     // Create default tenant for the approved user if they don't have one
-    let has_tenants = !resources
+    let tenants = resources
         .common
         .repos
         .tenants
         .list_for_user(user_uuid)
         .await
-        .unwrap_or_default()
-        .is_empty();
+        .unwrap_or_default();
 
-    if !has_tenants {
-        tenant_admin_service::provision_tenant_for_approval(
+    // The tenant user.approved is attributed to, the same one sign-up keyed
+    // its events on, so the two land on one identity.
+    let tenant_id = if tenants.is_empty() {
+        let provisioned = tenant_admin_service::provision_tenant_for_approval(
             &resources.common.repos,
             user_uuid,
             &updated_user.email,
@@ -113,7 +114,10 @@ async fn approve_user(
             None,
         )
         .await?;
-    }
+        Some(provisioned.id)
+    } else {
+        Tenant::attribution_tenant(&tenants, user_uuid)
+    };
 
     info!(
         user_id = %user_uuid,
@@ -129,6 +133,7 @@ async fn approve_user(
         target: "notify",
         event = "user.approved",
         user_id = %user_uuid,
+        tenant_id = tenant_id.map(display),
         approved_by = approved_by,
         "user account approved"
     );

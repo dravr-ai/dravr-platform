@@ -13,7 +13,6 @@
 use axum::{extract::Request, middleware::Next, response::Response};
 use http::HeaderValue;
 use std::fmt::{self, Display, Formatter};
-use tracing::Span;
 use uuid::Uuid;
 
 /// Request ID header name
@@ -24,8 +23,11 @@ pub const REQUEST_ID_HEADER: &str = "x-request-id";
 /// This middleware:
 /// 1. Generates a unique UUID v4 for each request
 /// 2. Adds the request ID to request extensions for handler access
-/// 3. Records the request ID in the current tracing span
-/// 4. Includes the request ID in the response header
+/// 3. Includes the request ID in the response header
+///
+/// It must be layered outside the HTTP trace layer: the request span reads
+/// the [`RequestId`] extension when it is created, which is what puts the id
+/// on every log line the request writes.
 ///
 /// # Example
 ///
@@ -42,11 +44,7 @@ pub async fn request_id_middleware(mut req: Request, next: Next) -> Response {
     // Generate unique request ID
     let request_id = Uuid::new_v4().to_string();
 
-    // Record request ID in current tracing span
-    let span = Span::current();
-    span.record("request_id", &request_id);
-
-    // Add to request extensions for handler access
+    // Add to request extensions for handler access and the request span
     req.extensions_mut().insert(RequestId(request_id.clone()));
 
     // Process request

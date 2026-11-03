@@ -29,9 +29,6 @@ use tracing::{Dispatch, Subscriber};
 use tracing_opentelemetry::get_otel_context;
 use tracing_subscriber::layer::Layer;
 
-/// Environment variable naming the GCP project traces are written to.
-pub(crate) const PROJECT_ENV: &str = "GOOGLE_CLOUD_PROJECT";
-
 /// The trace fields one log line carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TraceFields {

@@ -11,7 +11,7 @@ use dravr_tronc::notify::{AnalyticsProvider, NotifyEnricher};
 use pierre_mcp_server::analytics_sink::{
     event_tier, PierreAnalyticsProvider, PierreNotifyEnricher,
 };
-use pierre_services::analytics::{cache_user_email, EventTier};
+use pierre_services::analytics::{cache_user_email, hash_id, EventTier};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -292,4 +292,77 @@ fn a_coach_access_request_keeps_who_where_and_the_link_off_posthog() {
         props.get("request_id").and_then(Value::as_str),
         Some("req-1")
     );
+}
+
+#[test]
+fn operational_event_is_captured_personless() {
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[("tenant_id", "tenant-abc"), ("model", "m")]);
+    let capture = provider
+        .capture_for("embacle.call_completed", &f)
+        .expect("operational event captures");
+    assert_eq!(
+        capture.properties["$process_person_profile"],
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn instance_lifecycle_events_stay_out_of_posthog() {
+    let provider = PierreAnalyticsProvider;
+    for event in ["server.started", "server.stopping"] {
+        assert!(event_tier(event).is_some(), "{event} is catalogued");
+        assert!(
+            provider.capture_for(event, &fields(&[])).is_none(),
+            "{event}"
+        );
+    }
+}
+
+#[test]
+fn signup_keyed_on_its_tenant_not_the_service_bucket() {
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[
+        ("user_id", "user-1"),
+        ("tenant_id", "tenant-1"),
+        ("source", "web"),
+        ("utm_source", "newsletter"),
+    ]);
+    let capture = provider
+        .capture_for("user.signed_up", &f)
+        .expect("signup is operational and captures");
+    assert_eq!(
+        capture.distinct_id,
+        hash_id("tenant-1"),
+        "sign-up must key on its hashed personal tenant"
+    );
+    // Operational tier: never the user's hash, as identity or as a property.
+    let user_hash = hash_id("user-1");
+    let props = capture.properties.as_object().expect("object properties");
+    assert!(
+        !props
+            .values()
+            .any(|value| value.as_str() == Some(user_hash.as_str())),
+        "an operational event must not carry the user's hash: {props:?}"
+    );
+    assert!(!props.contains_key("user_id"));
+    assert_eq!(capture.properties["utm_source"], "newsletter");
+}
+
+#[test]
+fn request_correlation_ids_are_not_forwarded() {
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[
+        ("tenant_id", "tenant-abc"),
+        ("http_request_id", "http-1"),
+        ("cloud_trace_id", "4bf92f3577b34da6a3ce929d0e0e4736"),
+        ("impersonator_id", "admin-1"),
+    ]);
+    let capture = provider
+        .capture_for("embacle.call_completed", &f)
+        .expect("operational event captures");
+    let props = capture.properties.as_object().expect("object properties");
+    for key in ["http_request_id", "cloud_trace_id", "impersonator_id"] {
+        assert!(!props.contains_key(key), "{key} must be stripped");
+    }
 }

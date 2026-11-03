@@ -4,8 +4,60 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import type { PostHog } from 'posthog-js';
+import type { CaptureResult, PostHog } from 'posthog-js';
 import { analyticsDistinctId, type Sha256Digest } from '@pierre/domain-utils';
+
+/**
+ * `url` without its query strings, before and after the hash route, and
+ * without a fragment that holds parameters instead of a route.
+ *
+ * posthog-js stamps the page address on every event (`$current_url`, the
+ * session's entry address, and the initial and last referrer), and a link the
+ * app opens can carry a secret in its query — an OAuth `state`, a sign-in
+ * `code` — or in its fragment: the mailed confirmation and invitation links
+ * put their single-use token in `#token=…` (`utils/tokenLink.ts`). The route
+ * the user was on is all analytics need, and no dashboard route holds an `=`.
+ */
+export function withoutQuery(url: string): string {
+  const hashAt = url.indexOf('#');
+  const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt);
+  const base = beforeHash.split('?')[0];
+  if (hashAt === -1) {
+    return base;
+  }
+  const route = url.slice(hashAt + 1).split('?')[0];
+  return route.includes('=') ? base : `${base}#${route}`;
+}
+
+/**
+ * Address-bearing properties, as posthog-js sends them on events and persons:
+ * `$current_url`, `$session_entry_url`, `$initial_current_url`, and the
+ * `…referrer` family.
+ */
+const ADDRESS_PROPERTY = /(_url|referrer)$/;
+
+/** Strip query strings from every address property of `bag`, in place. */
+function scrubAddresses(bag: Record<string, unknown> | undefined): void {
+  if (bag === undefined) {
+    return;
+  }
+  for (const [key, value] of Object.entries(bag)) {
+    if (typeof value === 'string' && ADDRESS_PROPERTY.test(key)) {
+      bag[key] = withoutQuery(value);
+    }
+  }
+}
+
+/** posthog-js `before_send`: no event leaves with a query string in an address. */
+export function scrubEventAddresses(event: CaptureResult | null): CaptureResult | null {
+  if (event === null) {
+    return null;
+  }
+  scrubAddresses(event.properties);
+  scrubAddresses(event.$set);
+  scrubAddresses(event.$set_once);
+  return event;
+}
 
 /**
  * The started PostHog client, or `null` while analytics are off.
@@ -22,6 +74,16 @@ let client: PostHog | null = null;
  * boot that finds the count moved on has been overtaken and starts nothing.
  */
 let generation = 0;
+
+/**
+ * The page the user is on, held while PostHog is not running. The dashboard
+ * reports its first route as it mounts, before the boot that follows sign-in
+ * has hashed the id and loaded the library; without this that first
+ * `$pageview` — often the only one of a short visit — would be dropped. Only the
+ * latest page is kept, it never leaves the browser unless the user has
+ * consented, and a shutdown forgets it.
+ */
+let heldPageview: Record<string, unknown> | null = null;
 
 /** The browser's SHA-256. */
 const webSha256: Sha256Digest = (data) => crypto.subtle.digest('SHA-256', data);
@@ -62,20 +124,43 @@ export async function bootAnalytics(userId: string, consent: boolean): Promise<v
   if (booting !== generation) {
     return;
   }
-  posthog.init(token, {
-    api_host: host,
-    capture_pageview: false,
-    persistence: 'localStorage',
-    autocapture: false,
-    disable_session_recording: true,
-  });
+  // posthog-js keeps one instance per page and ignores a second init, so a
+  // boot after a sign-out or a revoke reuses the instance the first one made.
+  if (!posthog.__loaded) {
+    posthog.init(token, {
+      api_host: host,
+      // Page views are sent by `track`, from the dashboard's route, which the
+      // library cannot see: the app routes on the hash.
+      capture_pageview: false,
+      persistence: 'localStorage',
+      autocapture: false,
+      disable_session_recording: true,
+      disable_surveys: true,
+      // The CSP allows scripts from this origin only, so the library must
+      // never inject one from PostHog's CDN (surveys, replay, site apps).
+      disable_external_dependency_loading: true,
+      before_send: scrubEventAddresses,
+    });
+  }
+  // A sign-out or a revoke opts this browser out (`shutdownAnalytics`), and
+  // posthog-js keeps that choice in localStorage across reloads. Starting
+  // again means the user has consented again: without opting back in, every
+  // event after the first sign-out would be dropped.
+  if (posthog.has_opted_out_capturing()) {
+    posthog.opt_in_capturing({ captureEventName: false });
+  }
   posthog.identify(distinctId);
   client = posthog;
+  if (heldPageview !== null) {
+    posthog.capture('$pageview', heldPageview);
+    heldPageview = null;
+  }
 }
 
 /** Force-stop and clear PostHog state — called when consent is revoked. */
 export function shutdownAnalytics(): void {
   generation += 1;
+  heldPageview = null;
   if (client === null) {
     return;
   }
@@ -85,14 +170,31 @@ export function shutdownAnalytics(): void {
 }
 
 export type AnalyticsEvent =
-  | { name: 'page_view'; props: { path: string } }
+  | { name: '$pageview'; props: { path: string } }
   | { name: 'feature_engaged'; props: { feature: string } }
   | { name: 'checkout_started'; props: { tier: 'starter' | 'professional' | 'enterprise' } }
   | { name: 'checkout_completed'; props: { tier: string } }
   | { name: 'tier_changed'; props: { from: string; to: string } };
 
-/** Send a typed event to PostHog. No-op when analytics aren't booted. */
+/**
+ * Send a typed event to PostHog. No-op when analytics aren't booted, except a
+ * `$pageview`: the latest one is held and sent once a consenting boot
+ * completes.
+ *
+ * A `$pageview` is PostHog's own page-view event, so the web analytics views
+ * read it; `$current_url` is the full address, hash route included, as the
+ * user saw it when the page changed.
+ */
 export function track(event: AnalyticsEvent): void {
+  if (event.name === '$pageview') {
+    const props = { ...event.props, $current_url: withoutQuery(window.location.href) };
+    if (client === null) {
+      heldPageview = props;
+      return;
+    }
+    client.capture('$pageview', props);
+    return;
+  }
   if (client === null) {
     return;
   }

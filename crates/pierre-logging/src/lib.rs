@@ -15,6 +15,9 @@ pub mod gcp;
 /// Span-field storage layer feeding ancestor-span context to formatters
 pub mod span_fields;
 
+/// The Cloud Trace id an HTTP request arrived with, for log correlation
+pub mod request_trace;
+
 /// OpenTelemetry OTLP pipeline (traces + metrics), compiled only with the
 /// `telemetry` feature and dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 #[cfg(feature = "telemetry")]
@@ -492,19 +495,26 @@ impl LoggingConfig {
                     &self.environment,
                     self.output.location,
                 );
+                let trace_project = env::var(request_trace::PROJECT_ENV)
+                    .ok()
+                    .filter(|project| !project.is_empty());
+                // Link each line to the trace its request arrived with, which
+                // Cloud Run's own request log line carries too.
+                let formatter = match trace_project.as_deref() {
+                    Some(project) => formatter.with_trace_project(project.to_owned()),
+                    None => formatter,
+                };
                 // Link each line to its Cloud Trace span once traces export
                 // and the project is known; otherwise the line is unchanged.
                 #[cfg(feature = "telemetry")]
-                let (formatter, dispatch_capture) = match env::var(trace_link::PROJECT_ENV)
-                    .ok()
-                    .filter(|project| otel_tracer.is_some() && !project.is_empty())
-                {
-                    Some(project) => {
-                        let (link, capture) = trace_link::TraceLink::new(project);
-                        (formatter.with_trace_link(link), Some(capture))
-                    }
-                    None => (formatter, None),
-                };
+                let (formatter, dispatch_capture) =
+                    match trace_project.filter(|_| otel_tracer.is_some()) {
+                        Some(project) => {
+                            let (link, capture) = trace_link::TraceLink::new(project);
+                            (formatter.with_trace_link(link), Some(capture))
+                        }
+                        None => (formatter, None),
+                    };
                 let gcp_layer = fmt::layer()
                     .with_writer(RedactingMakeWriter::new(io::stdout))
                     .event_format(formatter)
@@ -649,9 +659,8 @@ impl LoggingConfig {
         // Attach the PostHog analytics sink when a project key is set and a
         // provider was registered at startup. The sink captures every
         // catalogued event (tier/consent decided by the provider) independent
-        // of the Slack routing rules. Analytics rides on this layer, so it
-        // currently requires SLACK_BOT_TOKEN (checked above) for the layer to
-        // exist at all.
+        // of the Slack routing rules.
+        // LIMITATION(registre#1367): build_notify_layer needs SLACK_BOT_TOKEN for analytics to exist.
         let posthog = env::var("POSTHOG_API_KEY")
             .ok()
             .filter(|s| !s.is_empty())

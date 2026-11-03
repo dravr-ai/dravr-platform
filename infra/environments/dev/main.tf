@@ -319,6 +319,12 @@ module "backend" {
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
 
+      # The GCP formatter writes each request's inbound trace id as
+      # logging.googleapis.com/trace (projects/<this>/traces/<id>), so app
+      # lines group with Cloud Run's own request line. Cloud Run does not set
+      # the project; the OTel sidecar config sets the same value when on.
+      GOOGLE_CLOUD_PROJECT = var.project_id
+
       # Frontend proxies all traffic to backend (same origin), so CORS is only
       # needed for mobile clients which don't enforce it. Wildcard is safe here.
       CORS_ALLOWED_ORIGINS = "*"

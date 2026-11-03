@@ -15,7 +15,7 @@ import { useTranslation } from '@pierre/i18n';
 
 export default function PrivacySettingsTab() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -27,7 +27,10 @@ export default function PrivacySettingsTab() {
 
   const mutation = useMutation({
     mutationFn: (consent: boolean) => userApi.updateAnalyticsConsent(consent),
-    onSuccess: (data) => {
+    onSuccess: (data, consent) => {
+      // The session's user is what App boots and stops analytics on: a grant
+      // starts PostHog now, a revoke stops it now, not at the next sign-in.
+      updateUser({ analytics_consent: consent });
       setMessage({ type: 'success', text: data.message });
       setTimeout(() => setMessage(null), 3000);
     },

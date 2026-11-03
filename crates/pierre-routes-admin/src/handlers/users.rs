@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_middleware::redaction::mask_email;
@@ -370,10 +370,21 @@ async fn announce_approval(
     approved_by: &str,
 ) {
     cache_user_email(user_id, email);
+    // The tenant sign-up keyed its events on, so user.approved lands on the
+    // same identity instead of the shared `service` one. A failed lookup only
+    // costs the attribution.
+    let tenant_id = ctx
+        .repos
+        .tenants
+        .list_for_user(user_uuid)
+        .await
+        .ok()
+        .and_then(|tenants| Tenant::attribution_tenant(&tenants, user_uuid));
     info!(
         target: "notify",
         event = "user.approved",
         user_id = %user_id,
+        tenant_id = tenant_id.map(display),
         approved_by = %approved_by,
         "user account approved"
     );

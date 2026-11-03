@@ -17,6 +17,7 @@ import {
   takePendingSignIn,
   webPkceCrypto,
 } from '../utils/signIn';
+import { clearSignupAttribution, readSignupAttribution } from '../utils/signupAttribution';
 import { forgetLanguageChoice, i18n } from '@pierre/i18n';
 
 const STORAGE_KEYS = {
@@ -330,7 +331,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearSignInFailure = useCallback(() => setSignInFailure(null), []);
 
   const loginWithFirebase = async (idToken: string) => {
-    const response = await authApi.loginWithFirebase({ idToken });
+    // A Google sign-in creates the account when none exists, so it carries the
+    // campaign the visitor landed with, as a register does. Spent once the
+    // sign-in succeeds: the account exists either way.
+    const attribution = readSignupAttribution();
+    const response = await authApi.loginWithFirebase({ idToken, ...(attribution ? { attribution } : {}) });
+    clearSignupAttribution();
     // The popup sign-in never reloads the page, so a tab that signed out and
     // back in with Google keeps this provider: it must re-arm the logout
     // guard exactly as the hosted sign-in does, or the next Sign out is

@@ -68,7 +68,13 @@ export interface User {
   approved_by?: string;
   /** Approval timestamp */
   approved_at?: string;
-  /** Whether the user consented to anonymized analytics tracking */
+  /**
+   * Whether the user consented to anonymized analytics tracking. The web and
+   * mobile clients start PostHog only when this is `true`. Every response that
+   * hands a client its own user carries it (see `SessionUser`); absent on the
+   * surfaces that build a `User` without reading the column (admin listings),
+   * and on a user cached by a client build older than the field.
+   */
   analytics_consent?: boolean;
   /** When the user last updated their analytics consent preference */
   analytics_consent_at?: string;
@@ -84,6 +90,15 @@ export interface User {
    */
   locale?: string;
 }
+
+/**
+ * The user a sign-in or session restore hands the client — the server's
+ * `UserInfo`, sent by `/oauth/token`, `/api/auth/session` and the Firebase
+ * login. It always carries `analytics_consent`, the flag both clients boot
+ * analytics on, so a client that replaces its user with this copy never
+ * loses the consent the user gave.
+ */
+export type SessionUser = User & { analytics_consent: boolean };
 
 /** Extended user for admin views (deprecated: use User directly) */
 export type AdminUser = User;
@@ -206,6 +221,20 @@ export interface RedeemSignupCodeResponse {
   group_joined: boolean | null;
 }
 
+// ========== SIGNUP ATTRIBUTION ==========
+
+/**
+ * The campaign a sign-up arrived from: the `utm_*` parameters of the link the
+ * person landed on. Sent, when known, in the register body and the Firebase
+ * login body; the server attaches them to the `user.signed_up` event and never
+ * stores them on the user.
+ */
+export interface SignupAttribution {
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+}
+
 // ========== AUTH RESPONSE TYPES ==========
 
 /** Response from login endpoint */
@@ -214,7 +243,7 @@ export interface LoginResponse {
   token_type: string;
   expires_in?: number;
   refresh_token?: string;
-  user: User;
+  user: SessionUser;
   csrf_token: string;
 }
 
@@ -273,13 +302,13 @@ export interface EmailConfirmationResponse {
 export interface FirebaseLoginResponse {
   csrf_token: string;
   jwt_token: string;
-  user: User;
+  user: SessionUser;
   is_new_user: boolean;
 }
 
 /** Response from session restore endpoint */
 export interface SessionResponse {
-  user: User;
+  user: SessionUser;
   access_token: string;
   csrf_token: string;
 }

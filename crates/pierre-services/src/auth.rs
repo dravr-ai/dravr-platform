@@ -232,7 +232,7 @@ impl AuthService {
         let self_activates = self_serve
             && ((code_vouched && !email_held(self.data.repos(), &email).await)
                 || self.activates_on_verified(&email).await);
-        let (user_id, user) = self
+        let (user_id, user, tenant_id) = self
             .create_account(
                 &email,
                 request.password,
@@ -259,6 +259,7 @@ impl AuthService {
             display_name: user.display_name,
             activation,
             message: activation.message().to_owned(),
+            tenant_id,
         })
     }
 
@@ -309,7 +310,7 @@ impl AuthService {
         // leaves the account unattributed rather than failing it.
         let approved_by = self.existing_operator(invitation.invited_by).await;
         let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
-        let (user_id, user) = self
+        let (user_id, user, tenant_id) = self
             .create_account(
                 &invitation.email,
                 SecretString::from(password),
@@ -335,13 +336,15 @@ impl AuthService {
             activation: RegistrationActivation::Active,
             message: "Your account is ready. Sign in with your email and the password you chose."
                 .to_owned(),
+            tenant_id,
         })
     }
 
     /// Create a password account in the given approval state, with its
-    /// personal tenant. Shared by every path that creates one: registration
-    /// and an accepted invitation. `self_activates` says a proven address
-    /// will activate it, so a Pending one is not announced for review.
+    /// personal tenant, and return the user and that tenant. Shared by every
+    /// path that creates one: registration and an accepted invitation.
+    /// `self_activates` says a proven address will activate it, so a Pending
+    /// one is not announced for review.
     ///
     /// # Errors
     ///
@@ -358,7 +361,7 @@ impl AuthService {
             Option<uuid::Uuid>,
         ),
         self_activates: bool,
-    ) -> AppResult<(uuid::Uuid, User)> {
+    ) -> AppResult<(uuid::Uuid, User, TenantId)> {
         let password_hash = Self::hash_password(password).await?;
 
         let mut user = User::new(email.to_owned(), password_hash, display_name);
@@ -396,7 +399,7 @@ impl AuthService {
 
         Self::announce_if_pending(&user, tenant_id, self_activates);
 
-        Ok((user_id, user))
+        Ok((user_id, user, tenant_id))
     }
 
     /// Handle user login with email/password credentials
@@ -1074,6 +1077,7 @@ impl AuthService {
             locale: user.locale.clone(),
             coaching_persona: user.coaching_persona.as_str().to_owned(),
             manages_roster: user.manages_roster,
+            analytics_consent: user.analytics_consent,
         }
     }
 

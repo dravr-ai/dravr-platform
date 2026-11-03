@@ -9,12 +9,14 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the authentication
 //! routes for serialization and deserialization of API requests and responses.
 
-use pierre_core::models::{DelegationStatus, ProviderAccountRole, UserStatus};
+use pierre_core::models::{DelegationStatus, ProviderAccountRole, TenantId, UserStatus};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// User registration request
+///
+/// LIMITATION(registre#1366): `RegisterRequest` carries no `analytics_consent`, so signup never asks for it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegisterRequest {
     /// User's email address
@@ -73,6 +75,11 @@ pub struct RegisterResponse {
     pub activation: RegistrationActivation,
     /// Success message for the registration
     pub message: String,
+    /// The personal tenant created with the account. Never serialized: the
+    /// route handlers read it to attribute the `user.signed_up` event, which
+    /// otherwise falls back to the shared `service` identity.
+    #[serde(skip)]
+    pub tenant_id: TenantId,
 }
 
 /// User login request
@@ -99,6 +106,65 @@ pub struct FirebaseLoginRequest {
     /// Optional IANA timezone — see [`LoginRequest::timezone`].
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Campaign tags the sign-in arrived with, when it creates the account.
+    #[serde(flatten)]
+    pub attribution: SignupAttribution,
+}
+
+/// Longest campaign tag kept; anything longer is dropped, not truncated.
+const MAX_CAMPAIGN_TAG_LEN: usize = 64;
+
+/// The `utm_*` campaign tags a sign-up arrived with, carried by the client
+/// from the landing URL.
+///
+/// They reach the `user.signed_up` notify event through the handler's span
+/// ([`Self::record_on_current_span`]), so a sign-up the service layer
+/// announces (a federated one) carries them without threading them through.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SignupAttribution {
+    /// `utm_source`, e.g. `newsletter`
+    #[serde(default)]
+    pub utm_source: Option<String>,
+    /// `utm_medium`, e.g. `email`
+    #[serde(default)]
+    pub utm_medium: Option<String>,
+    /// `utm_campaign`, e.g. `fall-launch`
+    #[serde(default)]
+    pub utm_campaign: Option<String>,
+}
+
+impl SignupAttribution {
+    /// Record each tag that reads as a campaign tag on the current span,
+    /// which must declare `utm_source`, `utm_medium` and `utm_campaign`.
+    ///
+    /// A value that is not tag-shaped is dropped rather than recorded: the
+    /// span feeds the analytics sink, and a query string is free text a
+    /// visitor controls, so an address or a sentence must never ride along.
+    pub fn record_on_current_span(&self) {
+        let span = tracing::Span::current();
+        for (field, value) in [
+            ("utm_source", &self.utm_source),
+            ("utm_medium", &self.utm_medium),
+            ("utm_campaign", &self.utm_campaign),
+        ] {
+            if let Some(tag) = value.as_deref().and_then(campaign_tag) {
+                span.record(field, tag);
+            }
+        }
+    }
+}
+
+/// `raw` trimmed, when it reads as a campaign tag: 1 to
+/// [`MAX_CAMPAIGN_TAG_LEN`] characters of ASCII letters, digits, `-`, `_`,
+/// `.` and `+`.
+fn campaign_tag(raw: &str) -> Option<&str> {
+    let tag = raw.trim();
+    let shaped = !tag.is_empty()
+        && tag.len() <= MAX_CAMPAIGN_TAG_LEN
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'+'));
+    shaped.then_some(tag)
 }
 
 /// User info for login response
@@ -153,6 +219,10 @@ pub struct UserInfo {
     /// granted the Agent persona tier. Surfaces in the Settings UI to
     /// show/hide roster-management screens.
     pub manages_roster: bool,
+    /// Whether the user opted in to product usage analytics. The web and
+    /// mobile clients start their analytics SDK only when this is true, so
+    /// every response that hands a client its user must carry it.
+    pub analytics_consent: bool,
 }
 
 /// The live tombstone a deleted account left on this account's email.
@@ -620,4 +690,45 @@ pub struct ProviderDelegation {
 pub struct ProvidersStatusResponse {
     /// List of all available providers with their status
     pub providers: Vec<ProviderStatus>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn campaign_tag_keeps_tag_shaped_values() {
+        assert_eq!(campaign_tag("newsletter"), Some("newsletter"));
+        assert_eq!(
+            campaign_tag("  fall-launch_2026.v2+fr "),
+            Some("fall-launch_2026.v2+fr")
+        );
+    }
+
+    #[test]
+    fn campaign_tag_drops_free_text() {
+        assert_eq!(campaign_tag(""), None);
+        assert_eq!(campaign_tag("   "), None);
+        assert_eq!(campaign_tag("jane@example.com"), None);
+        assert_eq!(campaign_tag("two words"), None);
+        assert_eq!(campaign_tag("caf\u{e9}"), None);
+        assert_eq!(campaign_tag(&"a".repeat(MAX_CAMPAIGN_TAG_LEN + 1)), None);
+        assert!(campaign_tag(&"a".repeat(MAX_CAMPAIGN_TAG_LEN)).is_some());
+    }
+
+    #[test]
+    fn firebase_login_reads_flattened_campaign_tags() {
+        let request: FirebaseLoginRequest = serde_json::from_value(serde_json::json!({
+            "id_token": "t",
+            "utm_source": "newsletter",
+            "utm_campaign": "fall"
+        }))
+        .unwrap();
+        assert_eq!(
+            request.attribution.utm_source.as_deref(),
+            Some("newsletter")
+        );
+        assert_eq!(request.attribution.utm_medium, None);
+        assert_eq!(request.attribution.utm_campaign.as_deref(), Some("fall"));
+    }
 }

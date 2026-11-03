@@ -11,6 +11,7 @@ import type { RegistrationSignIn } from '@pierre/api-client';
 import { authApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { signInRedirectUri, webPkceCrypto } from '../utils/signIn';
+import { clearSignupAttribution, readSignupAttribution } from '../utils/signupAttribution';
 import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -91,6 +92,8 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
     const trimmedCode = signupCode.trim();
     try {
       const signIn = await prepareSignIn();
+      // The campaign the visitor landed with, for the server's sign-up event.
+      const attribution = readSignupAttribution();
       const response = await authApi.register({
         email,
         password,
@@ -98,7 +101,9 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
         turnstile_token: turnstileToken ?? undefined,
         ...(trimmedCode ? { signup_code: trimmedCode } : {}),
         ...(signIn ? { sign_in: signIn.request } : {}),
+        ...attribution,
       });
+      clearSignupAttribution();
       if (signIn && response.activation === 'active' && response.sign_in_code) {
         try {
           // The session replaces this screen: App renders the dashboard once

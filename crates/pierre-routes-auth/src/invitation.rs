@@ -10,12 +10,13 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use tracing::{error, field, field::Empty, info, warn, Span};
+use tracing::{error, field::Empty, info, warn, Span};
 
 use pierre_auth::dto::auth::AcceptInvitationRequest;
 use pierre_core::errors::AppError;
 use pierre_services::auth::AuthService;
 
+use crate::login;
 use crate::AuthRoutesContext;
 
 /// `POST /api/auth/accept-invitation` — create the account an invitation was
@@ -52,7 +53,7 @@ pub(crate) async fn handle_accept_invitation(
         .await
     {
         Ok(response) => {
-            Span::current().record("user_id", field::display(&response.user_id));
+            login::record_new_account(&response);
             Span::current().record("success", true);
             info!(
                 target: "notify",

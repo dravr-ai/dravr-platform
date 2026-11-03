@@ -51,6 +51,15 @@ use pierre_services::signup_policy::resolve_signup_policy;
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
 // ---------------------------------------------------------------------------
 
+/// Record a new account's user and personal tenant on the current span, which
+/// must declare `user_id` and `tenant_id`, so the `user.signed_up` event raised
+/// inside it is attributed to that tenant rather than the shared `service` id.
+pub(crate) fn record_new_account(response: &RegisterResponse) {
+    let span = Span::current();
+    span.record("user_id", field::display(&response.user_id));
+    span.record("tenant_id", field::display(response.tenant_id));
+}
+
 /// Handle user registration (admin-authenticated)
 ///
 /// REQUIRES: Admin authentication (Bearer token in Authorization header)
@@ -104,11 +113,10 @@ pub(crate) async fn handle_register(
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
-            // notify: record the new user on the current span so the NotifyLayer can
-            // attribute the user.signed_up event without re-passing the id. The
-            // personal tenant is created inside register() and not exposed on the
-            // response, so tenant_id is recorded at the login/session span instead.
-            Span::current().record("user_id", field::display(&response.user_id));
+            // notify: record the new user and their personal tenant on the current
+            // span so the NotifyLayer attributes the user.signed_up event to that
+            // tenant without re-passing them.
+            record_new_account(&response);
             info!(
                 target: "notify",
                 event = "user.signed_up",
@@ -202,7 +210,16 @@ async fn send_registration_email(
 /// [`pierre_services::auth::AuthService::self_register`].
 #[tracing::instrument(
     skip(resources, headers, body),
-    fields(route = "public_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
+    fields(
+        route = "public_register",
+        user_id = Empty,
+        tenant_id = Empty,
+        source = Empty,
+        success = Empty,
+        utm_source = Empty,
+        utm_medium = Empty,
+        utm_campaign = Empty
+    )
 )]
 pub(crate) async fn handle_public_register(
     State(resources): State<AuthRoutesContext>,
@@ -211,6 +228,7 @@ pub(crate) async fn handle_public_register(
     Json(body): Json<PublicRegisterRequest>,
 ) -> Result<Response, AppError> {
     info!("Public self-registration attempt");
+    body.attribution.record_on_current_span();
 
     let client = client_address(&resources.rate_limiter, peer, &headers);
     meter_sign_up(&resources.rate_limiter, client).await?;
@@ -242,13 +260,13 @@ pub(crate) async fn handle_public_register(
 
     match registered {
         Ok((response, redeemed)) => {
-            // notify: record the new user on the current span so the NotifyLayer can
-            // attribute the user.signed_up event without re-passing the id. The
-            // personal tenant is created inside register() and not exposed on the
-            // response, so tenant_id is recorded at the login/session span instead.
+            // notify: record the new user and their personal tenant on the
+            // current span so the NotifyLayer attributes user.signed_up without
+            // re-passing them. The operational tier keys on the tenant, so
+            // without it the event lands on the shared `service` identity.
             // A sign-up left Pending also raises `user.pending_approval` from
             // inside register(), which is what reaches the admins.
-            Span::current().record("user_id", field::display(&response.user_id));
+            record_new_account(&response);
             info!(
                 target: "notify",
                 event = "user.signed_up",
@@ -318,12 +336,23 @@ pub(crate) async fn handle_public_register(
 /// Authenticates users via Firebase ID tokens (Google Sign-In, Apple, etc.)
 #[tracing::instrument(
     skip(resources, request),
-    fields(route = "firebase_login", user_id = Empty, auth_provider = Empty, success = Empty)
+    fields(
+        route = "firebase_login",
+        user_id = Empty,
+        auth_provider = Empty,
+        success = Empty,
+        utm_source = Empty,
+        utm_medium = Empty,
+        utm_campaign = Empty
+    )
 )]
 pub(crate) async fn handle_firebase_login(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<FirebaseLoginRequest>,
 ) -> Result<Response, AppError> {
+    // A first federated sign-in creates the account inside the service, whose
+    // user.signed_up event inherits these from this span.
+    request.attribution.record_on_current_span();
     // Check if Firebase is configured
     let firebase_auth = resources.firebase_auth.as_ref().ok_or_else(|| {
         AppError::invalid_input("Firebase authentication is not configured on this server")
@@ -520,6 +549,7 @@ pub(crate) async fn handle_session(
             locale: user.locale,
             coaching_persona: user.coaching_persona.as_str().to_owned(),
             manages_roster: user.manages_roster,
+            analytics_consent: user.analytics_consent,
         },
         access_token: SecretString::from(jwt_token),
         csrf_token: SecretString::from(csrf_token),
@@ -588,6 +618,7 @@ pub(crate) async fn handle_update_profile(
             locale: updated_user.locale,
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),
             manages_roster: updated_user.manages_roster,
+            analytics_consent: updated_user.analytics_consent,
         },
     };
 

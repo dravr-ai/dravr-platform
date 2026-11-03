@@ -47,6 +47,8 @@ export type {
   UserTier,
   CoachingPersona,
   User,
+  SessionUser,
+  SignupAttribution,
   AdminUser,
   LoginResponse,
   RegisterResponse,

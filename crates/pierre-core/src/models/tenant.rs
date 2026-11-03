@@ -263,6 +263,21 @@ impl Tenant {
             updated_at: now,
         }
     }
+
+    /// The tenant a user's own lifecycle events are attributed to: the one
+    /// they own (their personal tenant), else the first they belong to.
+    ///
+    /// Sign-up keys its operational events on the personal tenant, so an
+    /// approval that later joins the user to an operator's tenant must still
+    /// pick the personal one, or the two events land on different identities.
+    #[must_use]
+    pub fn attribution_tenant(tenants: &[Self], user_id: Uuid) -> Option<TenantId> {
+        tenants
+            .iter()
+            .find(|tenant| tenant.owner_user_id == user_id)
+            .or_else(|| tenants.first())
+            .map(|tenant| tenant.id)
+    }
 }
 
 /// Persisted record of a user's consent to an MCP OAuth client.
@@ -360,4 +375,44 @@ pub struct TenantOAuthCredentials {
     pub scopes: Vec<String>,
     /// Daily rate limit for this tenant
     pub rate_limit_per_day: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn owned_by(owner: Uuid) -> Tenant {
+        Tenant::new(
+            "t".to_owned(),
+            "t".to_owned(),
+            None,
+            "starter".to_owned(),
+            owner,
+        )
+    }
+
+    #[test]
+    fn attribution_prefers_the_tenant_the_user_owns() {
+        let user = Uuid::new_v4();
+        let operators = owned_by(Uuid::new_v4());
+        let personal = owned_by(user);
+        let tenants = [operators, personal.clone()];
+        assert_eq!(
+            Tenant::attribution_tenant(&tenants, user),
+            Some(personal.id)
+        );
+    }
+
+    #[test]
+    fn attribution_falls_back_to_the_first_tenant() {
+        let user = Uuid::new_v4();
+        let first = owned_by(Uuid::new_v4());
+        let tenants = [first.clone(), owned_by(Uuid::new_v4())];
+        assert_eq!(Tenant::attribution_tenant(&tenants, user), Some(first.id));
+    }
+
+    #[test]
+    fn attribution_is_none_without_tenants() {
+        assert_eq!(Tenant::attribution_tenant(&[], Uuid::new_v4()), None);
+    }
 }

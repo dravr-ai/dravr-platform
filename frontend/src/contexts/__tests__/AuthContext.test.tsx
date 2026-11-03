@@ -11,6 +11,7 @@ import { LANGUAGE_STORAGE_KEY } from '@pierre/i18n'
 import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
 import { PENDING_SIGN_IN_KEY, type PendingSignIn } from '../../utils/signIn'
+import { SIGNUP_ATTRIBUTION_KEY } from '../../utils/signupAttribution'
 
 // vi.hoisted runs before vi.mock hoisting, so these variables are available in the factory
 const { mockAuthStorage } = vi.hoisted(() => ({
@@ -273,6 +274,53 @@ describe('AuthContext', () => {
     })
     expect(authApi.logout).toHaveBeenCalledTimes(2)
     expect(client.getQueryData(['chat', 'conversations'])).toBeUndefined()
+  })
+
+  it('sends the campaign the visitor landed with on a Google sign-in, and spends it once signed in', async () => {
+    const user = userEvent.setup()
+    sessionStorage.setItem(
+      SIGNUP_ATTRIBUTION_KEY,
+      JSON.stringify({ utm_source: 'newsletter', utm_campaign: 'fall-2026' })
+    )
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.loginWithFirebase).mockResolvedValue({
+      csrf_token: 'google-csrf',
+      jwt_token: 'google-jwt',
+      user: { id: '3', email: 'new@example.com', analytics_consent: false },
+      is_new_user: true,
+    } as never)
+    renderWithAuth()
+
+    await user.click(screen.getByTestId('google-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('user-email')).toHaveTextContent('new@example.com')
+    })
+    expect(authApi.loginWithFirebase).toHaveBeenCalledWith({
+      idToken: 'google-id-token',
+      attribution: { utm_source: 'newsletter', utm_campaign: 'fall-2026' },
+    })
+    expect(sessionStorage.getItem(SIGNUP_ATTRIBUTION_KEY)).toBeNull()
+  })
+
+  it('sends no campaign on a Google sign-in when the visitor landed without one', async () => {
+    const user = userEvent.setup()
+    sessionStorage.removeItem(SIGNUP_ATTRIBUTION_KEY)
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.loginWithFirebase).mockResolvedValue({
+      csrf_token: 'google-csrf',
+      jwt_token: 'google-jwt',
+      user: { id: '3', email: 'back@example.com', analytics_consent: true },
+      is_new_user: false,
+    } as never)
+    renderWithAuth()
+
+    await user.click(screen.getByTestId('google-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('user-email')).toHaveTextContent('back@example.com')
+    })
+    expect(vi.mocked(authApi.loginWithFirebase).mock.calls[0][0]).toStrictEqual({ idToken: 'google-id-token' })
   })
 
   it('forgets the language picked in this browser on logout, and keeps the last account\'s', async () => {

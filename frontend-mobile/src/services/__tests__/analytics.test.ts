@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the PostHog distinct id the phone identifies a user with, and that nothing is sent before it is set
-// ABOUTME: The same id the server derives with hash_id, so a coach's phone and server events are one PostHog person (carnet#848)
+// ABOUTME: The same id the server derives with hash_id (carnet#848); screens go out as the SDK's $screen, the first one kept across boot
 
 import PostHog from 'posthog-react-native';
 import * as Crypto from 'expo-crypto';
@@ -11,6 +11,17 @@ import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../an
 const mockIdentify = jest.fn();
 const mockCapture = jest.fn();
 const mockReset = jest.fn();
+const mockScreen = jest.fn().mockResolvedValue(undefined);
+
+/** The client the SDK constructor hands back. */
+function stubClient(): void {
+  PostHogClient.mockImplementation(() => ({
+    identify: mockIdentify,
+    capture: mockCapture,
+    reset: mockReset,
+    screen: mockScreen,
+  }));
+}
 
 jest.mock('posthog-react-native', () => ({
   __esModule: true,
@@ -27,11 +38,7 @@ const DISTINCT_ID = '986c0dc956dc822b5d8f698661b9eb1ef880786ff9043c16744d2a420e9
 describe('mobile analytics identity', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    PostHogClient.mockImplementation(() => ({
-      identify: mockIdentify,
-      capture: mockCapture,
-      reset: mockReset,
-    }));
+    stubClient();
     process.env.EXPO_PUBLIC_POSTHOG_API_KEY = 'phc_test_key';
   });
 
@@ -60,7 +67,7 @@ describe('mobile analytics identity', () => {
   it('creates the client and identifies in one step, so no event goes out anonymously', async () => {
     const booting = bootMobileAnalytics(USER_ID, true);
     // The id is still being hashed: no client exists and a tracked event is dropped.
-    trackMobile({ name: 'screen_view', props: { screen: 'early' } });
+    trackMobile({ name: 'feature_engaged', props: { feature: 'early' } });
     expect(PostHogClient).not.toHaveBeenCalled();
     expect(mockCapture).not.toHaveBeenCalled();
 
@@ -68,9 +75,10 @@ describe('mobile analytics identity', () => {
 
     expect(PostHogClient).toHaveBeenCalledTimes(1);
     expect(PostHogClient.mock.invocationCallOrder[0]).toBeLessThan(mockIdentify.mock.invocationCallOrder[0]);
-    trackMobile({ name: 'screen_view', props: { screen: 'late' } });
+    expect(mockCapture).not.toHaveBeenCalled();
+    trackMobile({ name: 'feature_engaged', props: { feature: 'late' } });
     expect(mockCapture).toHaveBeenCalledTimes(1);
-    expect(mockCapture).toHaveBeenCalledWith('screen_view', { screen: 'late' });
+    expect(mockCapture).toHaveBeenCalledWith('feature_engaged', { feature: 'late' });
   });
 
   it('does not start PostHog when consent is revoked while the id is being hashed', async () => {
@@ -108,5 +116,60 @@ describe('mobile analytics identity', () => {
     expect(logged).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(logged.mock.calls)).not.toContain(USER_ID);
     logged.mockRestore();
+  });
+});
+
+describe('mobile analytics screens', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    stubClient();
+    process.env.EXPO_PUBLIC_POSTHOG_API_KEY = 'phc_test_key';
+  });
+
+  afterEach(() => {
+    shutdownMobileAnalytics();
+    delete process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
+  });
+
+  it("sends a screen through the SDK's screen(), PostHog's own $screen event", async () => {
+    await bootMobileAnalytics(USER_ID, true);
+
+    trackMobile({ name: '$screen', props: { screen: 'chat' } });
+
+    expect(mockScreen).toHaveBeenCalledTimes(1);
+    expect(mockScreen).toHaveBeenCalledWith('chat');
+    expect(mockCapture).not.toHaveBeenCalled();
+  });
+
+  it('keeps the screen reported while the boot is under way and sends it once identified', async () => {
+    const booting = bootMobileAnalytics(USER_ID, true);
+    trackMobile({ name: '$screen', props: { screen: 'index' } });
+    trackMobile({ name: '$screen', props: { screen: 'chat' } });
+    expect(mockScreen).not.toHaveBeenCalled();
+
+    await booting;
+
+    // Only the latest screen is kept: the one the user is on.
+    expect(mockScreen).toHaveBeenCalledTimes(1);
+    expect(mockScreen).toHaveBeenCalledWith('chat');
+    expect(mockIdentify.mock.invocationCallOrder[0]).toBeLessThan(mockScreen.mock.invocationCallOrder[0]);
+  });
+
+  it('forgets the held screen on a shutdown, so a later boot does not send it', async () => {
+    trackMobile({ name: '$screen', props: { screen: 'index' } });
+    shutdownMobileAnalytics();
+
+    await bootMobileAnalytics(USER_ID, true);
+
+    expect(mockScreen).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing for a held screen while consent is off', async () => {
+    trackMobile({ name: '$screen', props: { screen: 'index' } });
+
+    await bootMobileAnalytics(USER_ID, false);
+
+    expect(PostHogClient).not.toHaveBeenCalled();
+    expect(mockScreen).not.toHaveBeenCalled();
   });
 });

@@ -22,7 +22,7 @@ use std::net::IpAddr;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::Json;
-use pierre_auth::dto::auth::RegisterRequest;
+use pierre_auth::dto::auth::{RegisterRequest, SignupAttribution};
 use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict};
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
@@ -67,6 +67,9 @@ pub(crate) struct PublicRegisterRequest {
     /// always has.
     #[serde(default)]
     pub sign_in: Option<RegistrationSignIn>,
+    /// Campaign tags the visitor arrived with, for the `user.signed_up` event.
+    #[serde(flatten)]
+    pub attribution: SignupAttribution,
 }
 
 /// The authorization request an app attaches to its registration: the same

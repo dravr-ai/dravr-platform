@@ -42,7 +42,25 @@ const STRIPPED_KEYS: &[&str] = &[
     "route",
     "id",
     "x-request-id",
+    // Log-correlation ids the HTTP request span carries onto every event
+    // inside a request; one value per request, with no analytics meaning.
+    // (A domain `request_id`, a coach-access request's, is kept.)
+    "http_request_id",
+    "cloud_trace_id",
+    // The operator behind an impersonated request: operator identity.
+    "impersonator_id",
 ];
+
+/// Catalogued events kept out of `PostHog` (Slack still carries them).
+///
+/// Instance start and stop are the deploy and scale-to-zero timeline the
+/// deploys room reads; in `PostHog` they were a third of all events, all on
+/// the one `service` identity, and answered no product question.
+const NOT_MIRRORED_EVENTS: &[&str] = &["server.started", "server.stopping"];
+
+/// `PostHog` property that captures an event without creating or updating a
+/// person profile.
+const PERSON_PROFILE_PROPERTY: &str = "$process_person_profile";
 
 #[derive(Deserialize)]
 struct RawEvent {
@@ -95,6 +113,9 @@ impl AnalyticsProvider for PierreAnalyticsProvider {
         event: &str,
         fields: &HashMap<String, String>,
     ) -> Option<AnalyticsCapture> {
+        if NOT_MIRRORED_EVENTS.contains(&event) {
+            return None;
+        }
         let tier = event_tier(event)?;
         let raw_tenant = fields.get("tenant_id");
 
@@ -162,8 +183,8 @@ pub fn set_person_email(properties: &mut Value, email: &str) {
 /// Build the `PostHog` property bag: every event field except identity, message,
 /// and request plumbing, with values coerced to numbers/bools where possible so
 /// `latency_ms` and `cost_usd` are aggregatable. A hashed `tenant` dimension is
-/// added for product events (operational events already key on the tenant),
-/// plus the `tier` for filtering.
+/// added for product events (operational events already key on the tenant, and
+/// are marked personless), plus the `tier` for filtering.
 fn build_properties(
     fields: &HashMap<String, String>,
     tier: EventTier,
@@ -176,9 +197,16 @@ fn build_properties(
         }
         map.insert(key.clone(), coerce(value));
     }
-    if tier == EventTier::Product {
-        if let Some(tenant) = raw_tenant {
-            map.insert("tenant".to_owned(), Value::String(hash_id(tenant)));
+    match tier {
+        EventTier::Product => {
+            if let Some(tenant) = raw_tenant {
+                map.insert("tenant".to_owned(), Value::String(hash_id(tenant)));
+            }
+        }
+        // An operational event keys on a tenant or on `service`, never on a
+        // person: captured personless, so neither shows up as a fake user.
+        EventTier::Operational => {
+            map.insert(PERSON_PROFILE_PROPERTY.to_owned(), Value::Bool(false));
         }
     }
     map.insert(

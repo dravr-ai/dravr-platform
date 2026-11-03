@@ -393,7 +393,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // browser back button and Android hardware Back walk back through visited
   // tabs AND sub-views instead of exiting the app. A back-driven hashchange
   // updates state, this effect re-runs, `current === route` skips the push —
-  // no loop, no duplicate entry. The route doubles as the page_view path.
+  // no loop, no duplicate entry. The route doubles as the $pageview path.
   const hashSyncedOnce = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -408,7 +408,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     }
     hashSyncedOnce.current = true;
     if (!route.startsWith(FEEDBACK_TAB)) feedbackScreen.current = route;
-    track({ name: 'page_view', props: { path: `/${route}` } });
+    track({ name: '$pageview', props: { path: `/${route}` } });
   }, [route]);
 
   // Parse a `tab[/subview]` route and restore both the active tab and its

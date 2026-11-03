@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the create-account form's straight sign-in (carnet#1147): an active account's code is redeemed with the kept verifier
-// ABOUTME: No code, a refused exchange, or an account that waits on email or review all fall back to the sign-in screen, never an error
+// ABOUTME: Tests the create-account form's straight sign-in (carnet#1147) and the landing campaign (utm_*) its register body carries
+// ABOUTME: No code, a refused exchange, or a waiting account fall back to the sign-in screen; the campaign is forgotten once the account exists
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
@@ -12,6 +12,7 @@ import Register from '../Register'
 import { AuthProvider } from '../../contexts/AuthContext'
 import { useAuth } from '../../hooks/useAuth'
 import { PENDING_SIGN_IN_KEY } from '../../utils/signIn'
+import { SIGNUP_ATTRIBUTION_KEY } from '../../utils/signupAttribution'
 
 const { mockAuthStorage } = vi.hoisted(() => ({
   mockAuthStorage: {
@@ -218,6 +219,61 @@ describe('Register — signed straight in', () => {
     expect(authApi.prepareRegistrationSignIn).toHaveBeenCalledTimes(2)
     expect(vi.mocked(authApi.register).mock.calls[0][0].sign_in?.state).toBe('state-1')
     expect(vi.mocked(authApi.register).mock.calls[1][0].sign_in?.state).toBe('state-2')
+  })
+
+  it('sends the campaign the visitor landed with, and forgets it once the account exists', async () => {
+    sessionStorage.setItem(
+      SIGNUP_ATTRIBUTION_KEY,
+      JSON.stringify({ utm_source: 'strava-club', utm_medium: 'social', utm_campaign: 'fall-2026' }),
+    )
+    vi.mocked(authApi.register).mockResolvedValue(registered('review'))
+    const { container, onRegistrationSuccess } = await renderRegister()
+
+    fillForm(container)
+    await submit(container)
+
+    await waitFor(() => expect(onRegistrationSuccess).toHaveBeenCalled())
+    expect(authApi.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'new@example.com',
+        utm_source: 'strava-club',
+        utm_medium: 'social',
+        utm_campaign: 'fall-2026',
+      }),
+    )
+    expect(sessionStorage.getItem(SIGNUP_ATTRIBUTION_KEY)).toBeNull()
+  })
+
+  it('keeps the campaign for the retry when the registration fails', async () => {
+    sessionStorage.setItem(SIGNUP_ATTRIBUTION_KEY, JSON.stringify({ utm_source: 'strava-club' }))
+    vi.mocked(authApi.register)
+      .mockRejectedValueOnce({ response: { status: 503, data: { message: 'Try again' } } })
+      .mockResolvedValueOnce(registered('review'))
+    const { container, onRegistrationSuccess } = await renderRegister()
+
+    fillForm(container)
+    await submit(container)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Try again')
+    expect(sessionStorage.getItem(SIGNUP_ATTRIBUTION_KEY)).not.toBeNull()
+    await submit(container)
+
+    await waitFor(() => expect(onRegistrationSuccess).toHaveBeenCalled())
+    expect(vi.mocked(authApi.register).mock.calls[1][0].utm_source).toBe('strava-club')
+    expect(sessionStorage.getItem(SIGNUP_ATTRIBUTION_KEY)).toBeNull()
+  })
+
+  it('sends no campaign fields when the visitor landed without one', async () => {
+    vi.mocked(authApi.register).mockResolvedValue(registered('review'))
+    const { container, onRegistrationSuccess } = await renderRegister()
+
+    fillForm(container)
+    await submit(container)
+
+    await waitFor(() => expect(onRegistrationSuccess).toHaveBeenCalled())
+    const body = vi.mocked(authApi.register).mock.calls[0][0]
+    expect(body).not.toHaveProperty('utm_source')
+    expect(body).not.toHaveProperty('utm_medium')
+    expect(body).not.toHaveProperty('utm_campaign')
   })
 
   it('still registers when the browser cannot prepare a sign-in', async () => {

@@ -141,11 +141,12 @@ function RootLayoutNav() {
     };
   }, [user?.id, user?.analytics_consent]);
 
-  // Emit a screen_view whenever the focused route changes. We read the route
+  // Emit a $screen whenever the focused route changes. We read the route
   // name off the navigation container's state listener (the Expo Router
   // equivalent of NavigationContainer's onStateChange) and de-dupe so a
   // re-render that leaves the active screen unchanged doesn't double-fire.
-  // trackMobile() is a no-op until consent boots PostHog, so this is safe to
+  // Until consent boots PostHog, trackMobile() only holds the latest screen
+  // in memory (sent once a consenting boot completes), so this is safe to
   // wire unconditionally.
   React.useEffect(() => {
     let lastScreen: string | null = null;
@@ -158,7 +159,7 @@ function RootLayoutNav() {
       const screen = current?.name;
       if (!screen || screen === lastScreen) return;
       lastScreen = screen;
-      trackMobile({ name: 'screen_view', props: { screen } });
+      trackMobile({ name: '$screen', props: { screen } });
     };
     const unsubscribe = navigationRef.addListener('state', emit);
     // Fire once for the initial route the container lands on.

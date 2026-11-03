@@ -11,6 +11,7 @@ import type {
   RegisterResponse,
   FirebaseLoginResponse,
   SessionResponse,
+  SignupAttribution,
   SignupConfig,
 } from '@pierre/shared-types';
 import type { AuthStorage, PlatformAdapter } from '../types/platform';
@@ -124,7 +125,11 @@ export interface RegistrationSignIn {
   redirectUri: string;
 }
 
-export interface RegisterCredentials {
+/**
+ * The register body. The `utm_*` fields of `SignupAttribution` name the
+ * campaign the person arrived from, when the app knows it.
+ */
+export interface RegisterCredentials extends SignupAttribution {
   email: string;
   password: string;
   display_name?: string;
@@ -146,6 +151,12 @@ export interface RegisterCredentials {
 
 export interface FirebaseLoginData {
   idToken: string;
+  /**
+   * The campaign the person arrived from. A Google sign-in creates the
+   * account when none exists, so it carries the same attribution a register
+   * does; the server uses it only when the sign-in is a sign-up.
+   */
+  attribution?: SignupAttribution;
 }
 
 /**
@@ -265,9 +276,10 @@ export function createAuthApi(
      * Login with Firebase ID token.
      */
     async loginWithFirebase(data: FirebaseLoginData): Promise<FirebaseLoginResponse> {
-      // Backend expects id_token (snake_case)
+      // Backend expects id_token (snake_case); the utm_* fields sit beside it.
       const response = await axios.post<FirebaseLoginResponse>(ENDPOINTS.AUTH.FIREBASE, {
         id_token: data.idToken,
+        ...data.attribution,
       });
       const result = response.data;
 

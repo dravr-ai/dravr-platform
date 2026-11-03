@@ -9,15 +9,21 @@
 //! Shape tests for `GcpFormatter`: verify severity mapping, label placement,
 //! structured-field flattening, and RFC 3339 timestamps.
 
+use crate::common;
+
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
+use axum::body::Body;
+use axum::http::Request;
 use chrono::DateTime;
 use pierre_logging::gcp::GcpFormatter;
 use pierre_logging::span_fields::SpanFieldStorage;
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use serde_json::Value;
+use tower::ServiceExt;
 use tracing::field::Empty;
-use tracing::subscriber::with_default;
+use tracing::subscriber::{set_default, with_default};
 use tracing::{error, info, info_span, warn, Subscriber};
 use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt;
@@ -253,4 +259,117 @@ fn deferred_span_field_recorded_later_propagates() {
     let entry = &buf.lines()[0];
     assert_eq!(entry["user_id"], "user-2");
     assert_eq!(entry["agent_id"], "marathon-coach");
+}
+
+/// Subscriber whose formatter links lines to the request trace under `project`.
+fn make_trace_subscriber(buffer: Buffer, project: &str) -> impl Subscriber + Send + Sync {
+    let layer = fmt::layer().with_writer(buffer).event_format(
+        GcpFormatter::new("pierre-mcp-server", "0.0.0-test", "development", false)
+            .with_trace_project(project.to_owned()),
+    );
+    Registry::default().with(SpanFieldStorage).with(layer)
+}
+
+const TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+#[test]
+fn request_trace_id_becomes_the_cloud_logging_trace() {
+    let buf = Buffer::default();
+    let subscriber = make_trace_subscriber(buf.clone(), "dravr-dev");
+
+    with_default(subscriber, || {
+        let span = info_span!(
+            "request",
+            cloud_trace_id = TRACE_ID,
+            http_request_id = "req-1"
+        );
+        let _guard = span.enter();
+        error!("handler failed");
+    });
+
+    let entry = &buf.lines()[0];
+    assert_eq!(
+        entry["logging.googleapis.com/trace"],
+        format!("projects/dravr-dev/traces/{TRACE_ID}")
+    );
+    assert!(entry.get("cloud_trace_id").is_none());
+    assert_eq!(entry["http_request_id"], "req-1");
+}
+
+#[test]
+fn trace_id_stays_a_plain_field_without_a_project() {
+    let buf = Buffer::default();
+    let subscriber = make_subscriber(buf.clone(), false);
+
+    with_default(subscriber, || {
+        let span = info_span!("request", cloud_trace_id = TRACE_ID);
+        let _guard = span.enter();
+        info!("no project configured");
+    });
+
+    let entry = &buf.lines()[0];
+    assert_eq!(entry["cloud_trace_id"], TRACE_ID);
+    assert!(entry.get("logging.googleapis.com/trace").is_none());
+}
+
+#[test]
+fn line_outside_a_request_carries_no_trace() {
+    let buf = Buffer::default();
+    let subscriber = make_trace_subscriber(buf.clone(), "dravr-dev");
+
+    with_default(subscriber, || {
+        info!("background sweep");
+    });
+
+    let entry = &buf.lines()[0];
+    assert!(entry.get("logging.googleapis.com/trace").is_none());
+}
+
+/// The production HTTP stack serving one request under the GCP formatter. The
+/// request-id middleware sits outside the trace layer, so the request span
+/// carries the id the response returns; the inbound `traceparent` becomes the
+/// line's Cloud Logging trace. A route-order regression drops both silently.
+#[tokio::test]
+async fn a_served_request_logs_its_request_id_and_inbound_trace() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let buf = Buffer::default();
+
+    // An unrouted path: answered by the router's fallback inside every
+    // layer, without a database round trip on another thread.
+    let guard = set_default(make_trace_subscriber(buf.clone(), "dravr-dev"));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/no-such-route")
+                .header("traceparent", format!("00-{TRACE_ID}-00f067aa0ba902b7-01"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    drop(guard);
+
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .expect("the request-id middleware answers with the id")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let lines = buf.lines();
+    let finished = lines
+        .iter()
+        .find(|line| line["message"] == "finished processing request")
+        .unwrap_or_else(|| panic!("no response line was logged: {lines:?}"));
+    assert_eq!(
+        finished["http_request_id"],
+        request_id.as_str(),
+        "the request span must carry the id the response returned"
+    );
+    assert_eq!(
+        finished["logging.googleapis.com/trace"],
+        format!("projects/dravr-dev/traces/{TRACE_ID}"),
+        "the request span must carry the trace Cloud Run stamped"
+    );
 }

@@ -732,6 +732,11 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # PostHog's public project key: without it the bundle never starts
+          # analytics, whatever the user consented to. A consenting user's
+          # browser posts straight to the US ingest host (CSP connect-src https:).
+          VITE_POSTHOG_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          VITE_POSTHOG_HOST: https://us.i.posthog.com
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

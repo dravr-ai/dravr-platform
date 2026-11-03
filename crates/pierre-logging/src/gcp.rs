@@ -23,6 +23,7 @@ use tracing::{field::Field, field::Visit, Event, Level, Subscriber};
 use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
+use crate::request_trace::{self, CLOUD_TRACE_ID_FIELD};
 use crate::span_fields::SpanFields;
 #[cfg(feature = "telemetry")]
 use crate::trace_link::TraceLink;
@@ -36,7 +37,6 @@ const TIME_KEY: &str = "time";
 const SOURCE_LOCATION_KEY: &str = "logging.googleapis.com/sourceLocation";
 const LABELS_KEY: &str = "logging.googleapis.com/labels";
 const SPAN_ID_KEY: &str = "logging.googleapis.com/spanId";
-#[cfg(feature = "telemetry")]
 const TRACE_KEY: &str = "logging.googleapis.com/trace";
 #[cfg(feature = "telemetry")]
 const TRACE_SAMPLED_KEY: &str = "logging.googleapis.com/trace_sampled";
@@ -48,6 +48,8 @@ pub struct GcpFormatter {
     labels: BTreeMap<String, String>,
     /// Include `sourceLocation` for each event when true.
     include_source_location: bool,
+    /// GCP project a request's inbound trace id is linked under, when known.
+    trace_project: Option<String>,
     /// Resolves the Cloud Trace ids of the current span, when tracing is on.
     #[cfg(feature = "telemetry")]
     trace_link: Option<TraceLink>,
@@ -70,9 +72,23 @@ impl GcpFormatter {
         Self {
             labels,
             include_source_location,
+            trace_project: None,
             #[cfg(feature = "telemetry")]
             trace_link: None,
         }
+    }
+
+    /// Link each line logged inside a request to the trace the request
+    /// arrived with, under `project`.
+    ///
+    /// The request span records that id as `cloud_trace_id`; written as
+    /// `logging.googleapis.com/trace`, it groups every app line
+    /// with Cloud Run's own line for the same request. An OpenTelemetry trace
+    /// link, when one is installed, takes precedence.
+    #[must_use]
+    pub fn with_trace_project(mut self, project: String) -> Self {
+        self.trace_project = Some(project);
+        self
     }
 
     /// Stamp each line with the Cloud Trace trace and span it was logged in,
@@ -180,6 +196,19 @@ where
                             entry.insert(k.clone(), v.clone());
                         }
                     }
+                }
+            }
+        }
+
+        // Promote the request's inbound trace id to the field Cloud Logging
+        // links on, unless an OTel trace link already wrote one.
+        if let Some(project) = self.trace_project.as_deref() {
+            if !entry.contains_key(TRACE_KEY) {
+                if let Some(Value::String(trace_id)) = entry.remove(CLOUD_TRACE_ID_FIELD) {
+                    entry.insert(
+                        TRACE_KEY.to_owned(),
+                        Value::String(request_trace::trace_resource(project, &trace_id)),
+                    );
                 }
             }
         }

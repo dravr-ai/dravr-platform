@@ -17,6 +17,15 @@ let client: PostHog | null = null;
  */
 let generation = 0;
 
+/**
+ * The screen the user is on, held while PostHog is not running. The root
+ * layout reports the first screen as soon as navigation is ready, before the
+ * boot that follows the session restore has hashed the id; without this that
+ * first `$screen` would be dropped. Only the latest is kept, it never leaves the
+ * phone unless the user has consented, and a shutdown forgets it.
+ */
+let heldScreen: string | null = null;
+
 /** SHA-256 from expo-crypto: native on both platforms, no WebCrypto in Hermes. */
 const expoSha256: Sha256Digest = (data) => Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, data);
 
@@ -53,23 +62,42 @@ export async function bootMobileAnalytics(userId: string, consent: boolean): Pro
     flushInterval: 30,
   });
   client.identify(distinctId);
+  if (heldScreen !== null) {
+    void client.screen(heldScreen);
+    heldScreen = null;
+  }
 }
 
 /** Force-stop and clear PostHog state on consent revoke. */
 export function shutdownMobileAnalytics(): void {
   generation += 1;
+  heldScreen = null;
   if (!client) return;
   client.reset();
   client = null;
 }
 
 export type MobileAnalyticsEvent =
-  | { name: 'screen_view'; props: { screen: string } }
+  | { name: '$screen'; props: { screen: string } }
   | { name: 'feature_engaged'; props: { feature: string } }
   | { name: 'checkout_started'; props: { tier: 'starter' | 'professional' | 'enterprise' } };
 
-/** Fire a typed event. No-op when analytics aren't booted. */
+/**
+ * Fire a typed event. No-op when analytics aren't booted, except a `$screen`:
+ * the latest one is held and sent once a consenting boot completes.
+ *
+ * A `$screen` goes through the SDK's `screen()`, PostHog's own screen-view
+ * event, which also names the screen on the events that follow it.
+ */
 export function trackMobile(event: MobileAnalyticsEvent): void {
+  if (event.name === '$screen') {
+    if (!client) {
+      heldScreen = event.props.screen;
+      return;
+    }
+    void client.screen(event.props.screen);
+    return;
+  }
   if (!client) return;
   // posthog-react-native's capture() takes any JSON-shaped object;
   // our typed event union is structurally compatible.

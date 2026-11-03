@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::addressing::reply_recipient;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
-use pierre_auth::dto::auth::RegisterRequest;
+use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
     KEY_LINK_EMAIL_PROMPT, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR,
@@ -834,7 +834,7 @@ async fn handle_signup_confirm_step(
         );
     }
 
-    if create_chat_originated_user(resources, email).await.is_err() {
+    let Ok(account) = create_chat_originated_user(resources, email).await else {
         return otp_reply(
             channel_type,
             sender_id,
@@ -843,13 +843,17 @@ async fn handle_signup_confirm_step(
                 .messaging_strings_registry
                 .get(KEY_LINK_SIGNUP_FAILED, DEFAULT_LOCALE),
         );
-    }
+    };
 
     match generate_and_send_otp(resources, channel_type, sender_id, state_id, email).await {
         Ok(masked) => {
+            // The operational tier keys on the tenant: without it the event
+            // lands on the shared `service` identity.
             info!(
                 target: "notify",
                 event = "user.signed_up",
+                user_id = %account.user_id,
+                tenant_id = %account.tenant_id,
                 source = "messaging",
                 "user account created from a chat conversation"
             );
@@ -882,7 +886,7 @@ async fn handle_signup_confirm_step(
 async fn create_chat_originated_user(
     resources: &ServerContext,
     email: &str,
-) -> Result<(), AppError> {
+) -> Result<RegisterResponse, AppError> {
     let auth_service = resources.account_service();
 
     // A random unusable secret: `register` requires one, and nothing may ever
@@ -896,7 +900,6 @@ async fn create_chat_originated_user(
             display_name: None,
         })
         .await
-        .map(|_| ())
         .map_err(|e| {
             if e.is_server_fault() {
                 error!(error = %e, "in-chat signup failed");

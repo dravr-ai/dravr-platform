@@ -32,6 +32,7 @@ const SESSION: LoginResponse = {
     user_status: 'active',
     tier: 'starter',
     created_at: '2026-10-06T00:00:00Z',
+    analytics_consent: false,
   },
 };
 
