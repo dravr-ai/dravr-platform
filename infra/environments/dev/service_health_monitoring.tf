@@ -59,17 +59,11 @@ locals {
     google_monitoring_alert_policy.instance_never_idle,
   ]
 
-  # Policies an alertChart is not known to draw — several conditions, a
-  # PromQL condition, a matched-log condition — listed in the incident list
-  # only, so a widget the API refuses cannot fail the whole dashboard.
-  incident_only_policies = [
-    google_monitoring_alert_policy.service_5xx,
-    google_monitoring_alert_policy.api_slow,
-    google_monitoring_alert_policy.daily_cost,
-    google_monitoring_alert_policy.database_capacity,
-    google_monitoring_alert_policy.key_material_failures,
-    google_monitoring_alert_policy.chat_tapped_share,
-  ]
+  # Not charted, because an alertChart is not known to draw several
+  # conditions, a PromQL condition or a matched-log condition (and a widget
+  # the API refuses fails the whole dashboard): the 5xx, latency, cost,
+  # database-capacity, key-material and tapped-share policies. Their
+  # incidents show in the incident list, which lists every policy's.
 
   # Dashboard grid: 48 columns; charts are half width, policy tiles a quarter.
   chart_width  = 24
@@ -280,14 +274,10 @@ resource "google_monitoring_dashboard" "service_health" {
             height = local.chart_height
             widget = {
               title = "Open and recent incidents"
-              incidentList = {
-                # The incident list names a policy without its project
-                # prefix (`alertPolicies/<id>`), unlike the alert charts below.
-                policyNames = [
-                  for policy in concat(local.incident_only_policies, local.charted_policies) :
-                  regex("alertPolicies/[^/]+$", policy.name)
-                ]
-              }
+              # No policyNames: the list then shows every policy's incidents,
+              # new policies included. Naming them is capped at 20 (the API
+              # refused 23 on the first apply, run 41697812620).
+              incidentList = {}
             }
           },
         ],
