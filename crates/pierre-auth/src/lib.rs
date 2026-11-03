@@ -55,6 +55,9 @@ pub mod google_oidc;
 /// Two-tier key management system
 pub mod key_management;
 
+/// The keyset: key families, lifecycle, loader and rotation controller (carnet#1347)
+pub mod keyset;
+
 /// GCP Cloud KMS-backed `KekProvider` (enabled with the `gcp-kms` feature)
 #[cfg(feature = "gcp-kms")]
 pub mod gcp_kms;

@@ -947,6 +947,9 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<()> {
                 let encrypted = HasEncryption::encrypt_data_with_aad(
                     self,
+                    $crate::backends::shared::keyring::SealDomain::Stored(
+                        $crate::backends::shared::key_material::StoredSecretKind::StravaPoolClientSecret,
+                    ),
                     client_secret,
                     &strava_pool_app_aad(client_id),
                 )?;
@@ -1168,6 +1171,7 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<(String, Option<String>)> {
                 let access = encrypt_oauth_token(
                     self,
+                    StoredSecretKind::OAuthAccessToken,
                     token.access_token.expose_secret(),
                     &token.tenant_id,
                     token.user_id,
@@ -1179,6 +1183,7 @@ macro_rules! impl_oauth_token_repository {
                     .map(|rt| {
                         encrypt_oauth_token(
                             self,
+                            StoredSecretKind::OAuthRefreshToken,
                             rt.expose_secret(),
                             &token.tenant_id,
                             token.user_id,

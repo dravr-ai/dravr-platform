@@ -239,6 +239,7 @@ async fn test_oauth_flow_through_mcp() {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -546,6 +547,7 @@ async fn test_oauth_callback_error_handling() {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -857,6 +859,7 @@ async fn test_oauth_state_csrf_protection() {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
@@ -1033,6 +1036,7 @@ async fn test_connection_status_tracking() {
             ..Default::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

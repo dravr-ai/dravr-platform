@@ -10,6 +10,11 @@
 //!   it has waited `ops::AWAITING_LINK_DAYS` (barrage's
 //!   `ImportJobStore::expire_awaiting`), so a forgotten request does not hold
 //!   the source's one active import for ever.
+//! - **Links held by stuck imports.** An import that has held its export
+//!   link for [`STUCK_LINK_AGE`] without changing stopped after its last
+//!   attempt; it is failed as `link_expired` and its link cleared (barrage's
+//!   `Importer::fail_stuck_holding_link`), so no sealed link outlives the key
+//!   rotation that retires its key.
 //! - **Deleted accounts.** The account delete queues every deleted account in
 //!   `archive_erasures` inside its own transaction; this sweep erases what
 //!   barrage holds for each, in every tenant — records, jobs and their
@@ -39,6 +44,13 @@ pub const EXPIRY_WORKER: &str = "archive import link expiry";
 
 /// The name the erasure sweep's ledger row and log lines carry.
 pub const ERASURE_WORKER: &str = "archive erasure";
+
+/// How long an import may hold its sealed export link without changing
+/// before it is failed and the link cleared: a job that stopped after its
+/// last attempt would otherwise keep a link sealed under a data key for
+/// ever, and the rotation controller waits on every such link before it
+/// disables that key (carnet#1347).
+const STUCK_LINK_AGE: TimeDelta = TimeDelta::days(7);
 
 /// How often links never pasted are expired.
 const EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
@@ -98,7 +110,17 @@ pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<
     if expired > 0 {
         info!(expired, "imports never given their link were cancelled");
     }
-    Ok(expired)
+    let stuck = ops::importer(resources, wiring)
+        .fail_stuck_holding_link(Utc::now() - STUCK_LINK_AGE)
+        .await
+        .map_err(|e| AppError::internal(format!("failing stuck imports: {e}")))?;
+    if stuck > 0 {
+        info!(
+            stuck,
+            "imports stuck holding their link were failed and their link cleared"
+        );
+    }
+    Ok(expired + stuck)
 }
 
 /// Erase what barrage and the originals store hold for each deleted account

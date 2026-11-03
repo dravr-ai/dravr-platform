@@ -4,25 +4,31 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
 use std::env;
 use std::fmt;
+use std::sync::Arc;
 
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as Base64Engine;
+use chrono::Utc;
 use rand::RngCore;
 use tracing::{error, info};
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::shared::key_material::{
-    key_read_event, DEK_MINTED_OVER_CIPHERTEXT, DEK_READ_FAILED, DEK_UNWRAP_FAILED,
+    key_read_event, DEK_MINTED_OVER_CIPHERTEXT, DEK_READ_FAILED,
 };
+use pierre_database::backends::shared::keyring::KeyFamily;
 use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
+
+use crate::keyset::secrets::{
+    insert_key_if_absent, load_key, read_legacy_active_version, rewrite_key, V1_SECRET,
+};
+use crate::keyset::{read_keyset, KeyState, KeysetDocument, KeysetLoader, KEYSET_SECRET};
 
 /// Key Encryption Key provider — the Tier-1 boundary that wraps/unwraps the DEK.
 ///
@@ -287,64 +293,63 @@ impl DatabaseEncryptionKey {
     }
 }
 
-/// Two-tier key management system: a [`KekProvider`] wrapping the [`DatabaseEncryptionKey`].
+/// Two-tier key management: a [`KekProvider`] wrapping every key version of
+/// the keyset (ADR-017, carnet#1347).
 pub struct KeyManager {
-    kek: Box<dyn KekProvider>,
-    dek: DatabaseEncryptionKey,
+    kek: Arc<dyn KekProvider>,
+    /// The key a fresh database stores as v1; unused on any other database.
+    bootstrap: DatabaseEncryptionKey,
+    /// The loader that keeps this process's keyring current, once
+    /// [`Self::complete_initialization`] ran.
+    loader: Option<Arc<KeysetLoader>>,
 }
 
 impl fmt::Debug for KeyManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KeyManager")
-            .field("dek", &self.dek)
+            .field("bootstrap", &self.bootstrap)
             .finish_non_exhaustive()
     }
 }
 
 impl KeyManager {
-    /// Bootstrap initialization: load the KEK and generate a temporary DEK for database initialization
+    /// Bootstrap initialization: load the KEK and generate the key the
+    /// database handle opens with, which a fresh database stores as v1.
     ///
     /// # Errors
     ///
     /// Returns an error if KEK loading fails
     pub fn bootstrap() -> AppResult<(Self, [u8; 32])> {
-        // Select the KEK provider (GCP Cloud KMS when configured, else local).
         Ok(Self::bootstrap_with(Self::configured_kek_provider()?))
     }
 
     /// Bootstrap initialization over an explicit KEK provider: the half of
-    /// [`Self::bootstrap`] that runs after the provider is chosen, for a caller
-    /// that already holds its key material rather than reading it from the
-    /// environment.
+    /// [`Self::bootstrap`] that runs after the provider is chosen.
     #[must_use]
     pub fn bootstrap_with(kek: Box<dyn KekProvider>) -> (Self, [u8; 32]) {
         info!("Bootstrapping two-tier key management system");
-
-        // Generate temporary DEK for database initialization
-        let temp_dek = DatabaseEncryptionKey::generate();
-        let database_key = *temp_dek.as_bytes();
-
-        let manager = Self { kek, dek: temp_dek };
-
-        info!("Bootstrap key management system initialized");
-
-        (manager, database_key)
+        let bootstrap = DatabaseEncryptionKey::generate();
+        let database_key = *bootstrap.as_bytes();
+        (Self::with_provider(kek, bootstrap), database_key)
     }
 
-    /// Construct a manager from an explicit KEK provider and DEK.
+    /// Construct a manager from an explicit KEK provider and bootstrap key.
     ///
     /// Used by KEK-migration tooling (to supply the old/source KEK) and tests.
     #[must_use]
-    pub fn with_provider(kek: Box<dyn KekProvider>, dek: DatabaseEncryptionKey) -> Self {
-        Self { kek, dek }
+    pub fn with_provider(kek: Box<dyn KekProvider>, bootstrap: DatabaseEncryptionKey) -> Self {
+        Self {
+            kek: Arc::from(kek),
+            bootstrap,
+            loader: None,
+        }
     }
 
     /// Select the configured KEK provider.
     ///
-    /// With the `gcp-kms` feature enabled and `PIERRE_KMS_KEY_RESOURCE` set, the
-    /// DEK is wrapped by GCP Cloud KMS. Otherwise the env-backed local provider is
-    /// used (the default for development, CI, and tests). Exposed so migration
-    /// tooling (`rewrap_deks`) can obtain the target provider.
+    /// With the `gcp-kms` feature enabled and `PIERRE_KMS_KEY_RESOURCE` set, keys
+    /// are wrapped by GCP Cloud KMS. Otherwise the env-backed local provider is
+    /// used (the default for development, CI, and tests).
     ///
     /// # Errors
     ///
@@ -362,259 +367,100 @@ impl KeyManager {
         Ok(Box::new(LocalKekProvider::from_env()?))
     }
 
-    /// Decode base64-encoded wrapped DEK
-    fn decode_encrypted_dek(encrypted_dek_base64: &str) -> AppResult<Vec<u8>> {
-        Base64Standard
-            .decode(encrypted_dek_base64)
-            .map_err(|e| AppError::internal(format!("Invalid base64 encoding for stored DEK: {e}")))
+    /// The KEK provider, shared with the loader and the controller.
+    #[must_use]
+    pub fn kek(&self) -> Arc<dyn KekProvider> {
+        Arc::clone(&self.kek)
     }
 
-    /// System-secret holding the active DEK version number.
-    const ACTIVE_VERSION_SECRET: &'static str = "database_encryption_key_active_version";
-    /// System-secret holding the version-1 (legacy) wrapped DEK.
-    const V1_SECRET: &'static str = "database_encryption_key";
+    /// The loader keeping this process's keyring current, once
+    /// [`Self::complete_initialization`] ran: the server and the CLI run its
+    /// refresh every [`crate::keyset::RELOAD_PERIOD`].
+    #[must_use]
+    pub fn keyset_loader(&self) -> Option<Arc<KeysetLoader>> {
+        self.loader.clone()
+    }
 
-    /// Name of the system-secret that stores the wrapped DEK for `version`.
+    /// Complete initialization once the database is open: load the keyset
+    /// into the database handle's keyring.
     ///
-    /// Version 1 keeps its historical name so existing deployments need no migration.
-    fn version_secret_name(version: u32) -> String {
-        if version == 1 {
-            Self::V1_SECRET.to_owned()
-        } else {
-            format!("database_encryption_key_v{version}")
-        }
-    }
-
-    /// Read the active DEK version, defaulting to 1 for pre-versioning deployments.
+    /// - A keyset document: its loaded versions.
+    /// - No document and a v1 key row: the legacy layout (data
+    ///   `1..=active`, index v1), until `pierre-cli key adopt`.
+    /// - No document and no v1 key row on a database that holds no
+    ///   ciphertext: a fresh database. The bootstrap key is stored as v1,
+    ///   insert-if-absent, and the keyset document is written.
     ///
-    /// Only a definite not-found means "pre-versioning"; a failed read is
-    /// returned, since guessing version 1 would hide every newer key.
-    async fn read_active_version(security: &dyn SecurityRepository) -> AppResult<u32> {
-        let value = match security
-            .get_system_secret(Self::ACTIVE_VERSION_SECRET)
-            .await
-        {
-            Ok(value) => value,
-            Err(e) if e.code == ErrorCode::ResourceNotFound => return Ok(1),
-            Err(e) => {
-                if let Some(event) = key_read_event(&e, DEK_READ_FAILED) {
-                    error!(
-                        event,
-                        error_code = ?e.code,
-                        error = %e,
-                        "Failed to read the active DEK version"
-                    );
-                }
-                return Err(e);
-            }
-        };
-        value.trim().parse::<u32>().map_err(|e| {
-            let invalid =
-                AppError::internal(format!("Invalid stored active DEK version '{value}': {e}"));
-            error!(
-                event = DEK_READ_FAILED,
-                error_code = ?invalid.code,
-                error = %invalid,
-                "Stored active DEK version is not a version number"
-            );
-            invalid
-        })
-    }
-
-    /// Load and unwrap every DEK version in `1..=active_version` into a map.
-    async fn load_all_versions(
-        security: &dyn SecurityRepository,
-        kek: &dyn KekProvider,
-        active_version: u32,
-    ) -> AppResult<HashMap<u32, Vec<u8>>> {
-        let mut versions: HashMap<u32, Vec<u8>> = HashMap::new();
-        for version in 1..=active_version {
-            versions.insert(
-                version,
-                Self::load_version_key(security, kek, version).await?,
-            );
-        }
-        Ok(versions)
-    }
-
-    /// Persist the active DEK version number.
-    async fn store_active_version(
-        security: &dyn SecurityRepository,
-        version: u32,
-    ) -> AppResult<()> {
-        security
-            .update_system_secret(Self::ACTIVE_VERSION_SECRET, &version.to_string())
-            .await
-    }
-
-    /// Load and unwrap the DEK key bytes for a specific version.
-    async fn load_version_key(
-        security: &dyn SecurityRepository,
-        kek: &dyn KekProvider,
-        version: u32,
-    ) -> AppResult<Vec<u8>> {
-        let wrapped_base64 = security
-            .get_system_secret(&Self::version_secret_name(version))
-            .await
-            .inspect_err(|e| {
-                if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
-                    error!(
-                        event,
-                        dek_version = version,
-                        error_code = ?e.code,
-                        error = %e,
-                        "Failed to read a stored DEK version"
-                    );
-                }
-            })?;
-        let wrapped = Self::decode_encrypted_dek(&wrapped_base64).inspect_err(|e| {
-            error!(
-                event = DEK_READ_FAILED,
-                dek_version = version,
-                error_code = ?e.code,
-                error = %e,
-                "Stored DEK version is not valid base64"
-            );
-        })?;
-        let unwrapped = kek.unwrap(&wrapped).await.map_err(|e| {
-            error!(
-                event = DEK_UNWRAP_FAILED,
-                dek_version = version,
-                error_code = ?e.code,
-                error = %e,
-                "Stored DEK failed to unwrap with the key-encryption key"
-            );
-            if e.message.contains("Decryption failed") {
-                let database_url =
-                    env::var("DATABASE_URL").unwrap_or_else(|_| "unknown".to_owned());
-                AppError::encryption_key_mismatch(&redact_url(&database_url))
-            } else {
-                e
-            }
-        })?;
-        if unwrapped.len() != 32 {
-            let invalid = AppError::internal(format!(
-                "Decrypted DEK v{version} has invalid length: expected 32 bytes, got {}",
-                unwrapped.len()
-            ));
-            error!(
-                event = DEK_UNWRAP_FAILED,
-                dek_version = version,
-                error_code = ?invalid.code,
-                error = %invalid,
-                "Stored DEK unwrapped to a key of the wrong length"
-            );
-            return Err(invalid);
-        }
-        Ok(unwrapped)
-    }
-
-    /// Persist a wrapped DEK for a version that has none yet, insert-if-absent.
-    ///
-    /// Returns the base64 wrapped DEK the store holds afterwards: the caller's
-    /// when the version was absent, the one another instance stored first
-    /// otherwise. An existing version row is never replaced.
-    async fn insert_version_key_if_absent(
-        security: &dyn SecurityRepository,
-        version: u32,
-        wrapped_dek: &[u8],
-    ) -> AppResult<String> {
-        security
-            .insert_system_secret_if_absent(
-                &Self::version_secret_name(version),
-                &Base64Standard.encode(wrapped_dek),
-            )
-            .await
-    }
-
-    /// Replace the wrapped form of an existing DEK version (KEK rotation only:
-    /// the DEK bytes inside are unchanged).
-    async fn rewrite_version_key(
-        security: &dyn SecurityRepository,
-        version: u32,
-        wrapped_dek: &[u8],
-    ) -> AppResult<()> {
-        security
-            .update_system_secret(
-                &Self::version_secret_name(version),
-                &Base64Standard.encode(wrapped_dek),
-            )
-            .await
-    }
-
-    /// Complete initialization after the database is available.
-    ///
-    /// Only a definite not-found for the version-1 DEK row on a database that
-    /// holds no ciphertext counts as a fresh database: the bootstrap DEK is
-    /// then stored insert-if-absent. A missing row beside ciphertext is a lost
-    /// key, and the instance does not boot (carnet#703). Either way
-    /// every stored DEK version (1..=active) is then read back and installed,
-    /// so racing fresh instances all adopt the one key that landed and the
-    /// active version encrypts new data while prior versions stay available
-    /// for decrypting older ciphertext.
-    ///
-    /// Any other read failure — a pool timeout, a lost connection — is
-    /// returned, so the instance does not boot rather than mint a key over the
-    /// real one (carnet#696).
+    /// A missing v1 row beside ciphertext is a lost key, and the instance
+    /// does not boot (carnet#703). Any other read failure is returned, so the
+    /// instance never mints a key over the real one (carnet#696).
     ///
     /// # Errors
     ///
-    /// Returns an error if database operations or DEK wrap/unwrap fail, or if
-    /// no DEK is stored on a database that holds ciphertext.
-    pub async fn complete_initialization(&mut self, database: &mut Database) -> AppResult<()> {
+    /// Returns an error if database operations or key unwrap fail, or if no
+    /// key is stored on a database that holds ciphertext.
+    pub async fn complete_initialization(&mut self, database: &Database) -> AppResult<()> {
         info!("Completing two-tier key management initialization");
-
         let security = database.as_security_repository();
-        match security.get_system_secret(Self::V1_SECRET).await {
-            Ok(_) => {}
-            Err(e) if e.code == ErrorCode::ResourceNotFound => {
-                self.store_first_dek(security).await?;
+        let keyset = read_keyset(security).await.inspect_err(|e| {
+            if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
+                error!(
+                    event,
+                    error_code = ?e.code,
+                    error = %e,
+                    "Failed to read the stored keyset; refusing to initialize key management"
+                );
             }
-            Err(e) => {
-                Self::report_stored_dek_read_failure(&e);
-                return Err(e);
+        })?;
+        if keyset.is_none() {
+            match security.get_system_secret(V1_SECRET).await {
+                Ok(_) => {}
+                Err(e) if e.code == ErrorCode::ResourceNotFound => {
+                    self.store_first_dek(security).await?;
+                    Self::write_fresh_keyset(security).await?;
+                }
+                Err(e) => {
+                    Self::report_stored_dek_read_failure(&e);
+                    return Err(e);
+                }
             }
         }
-
-        self.load_and_install_existing(database).await
-    }
-
-    /// Load every stored DEK version and install them, with the active version
-    /// encrypting new data and prior versions retained for decryption.
-    async fn load_and_install_existing(&mut self, database: &mut Database) -> AppResult<()> {
-        let (active_version, mut versions) = {
-            let security = database.as_security_repository();
-            let active_version = Self::read_active_version(security).await?;
-            let versions =
-                Self::load_all_versions(security, self.kek.as_ref(), active_version).await?;
-            (active_version, versions)
-        };
-
-        let active_key = versions.remove(&active_version).ok_or_else(|| {
-            let missing = AppError::internal(format!(
-                "Active DEK version {active_version} not found among loaded versions"
-            ));
-            error!(
-                event = DEK_READ_FAILED,
-                dek_version = active_version,
-                error_code = ?missing.code,
-                error = %missing,
-                "Stored active DEK version names no stored key"
-            );
-            missing
-        })?;
-        self.dek = DatabaseEncryptionKey::from_unwrapped(&active_key)?;
-        database.install_dek_versions(active_version, active_key, versions);
-        info!("Two-tier key management initialized at active DEK version {active_version}");
+        let loader = Arc::new(KeysetLoader::new(
+            self.kek(),
+            Arc::clone(database.keyring()),
+        ));
+        loader.load(security).await?;
+        self.loader = Some(loader);
+        let ring = database.keyring().current();
+        info!(
+            data_primary = ring.data_primary(),
+            index_primary = ring.index_primary(),
+            adopted = ring.adopted(),
+            "Two-tier key management initialized"
+        );
         Ok(())
     }
 
-    /// Store the bootstrap DEK as version 1 unless another instance already
+    /// Write a fresh database's keyset document, unless a racing instance
+    /// wrote it first. A legacy active-version secret means the database is
+    /// not fresh after all, and it is left to `key adopt`.
+    async fn write_fresh_keyset(security: &dyn SecurityRepository) -> AppResult<()> {
+        if read_legacy_active_version(security).await? != 1 {
+            return Ok(());
+        }
+        let doc = KeysetDocument::fresh(Utc::now());
+        security
+            .insert_system_secret_if_absent(KEYSET_SECRET, &doc.to_text()?)
+            .await?;
+        Ok(())
+    }
+
+    /// Store the bootstrap key as version 1 unless another instance already
     /// stored one; the caller then loads whichever key the store holds.
     ///
-    /// A database with no DEK row should hold no ciphertext either. When it
-    /// does, either a racing instance stored its DEK and wrote ciphertext
-    /// after this one looked, and that DEK is adopted, or the row was lost
+    /// A database with no key row should hold no ciphertext either. When it
+    /// does, either a racing instance stored its key and wrote ciphertext
+    /// after this one looked, and that key is adopted, or the row was lost
     /// and a key minted here could open none of it: nothing is stored, the
     /// refusal logs at `ERROR` under [`DEK_MINTED_OVER_CIPHERTEXT`] and the
     /// instance does not boot (carnet#703).
@@ -626,13 +472,12 @@ impl KeyManager {
         self.mint_first_dek(security).await
     }
 
-    /// Store this instance's DEK as version 1 on a database that holds no
-    /// ciphertext, insert-if-absent.
+    /// Store this instance's bootstrap key as version 1 on a database that
+    /// holds no ciphertext, insert-if-absent.
     async fn mint_first_dek(&self, security: &dyn SecurityRepository) -> AppResult<()> {
         info!("No existing DEK found, storing the bootstrap Database Encryption Key as version 1");
-        let wrapped_dek = self.kek.wrap(self.dek.as_bytes()).await?;
-        let stored = Self::insert_version_key_if_absent(security, 1, &wrapped_dek).await?;
-        if stored == Base64Standard.encode(&wrapped_dek) {
+        let wrapped = self.kek.wrap(self.bootstrap.as_bytes()).await?;
+        if insert_key_if_absent(security, KeyFamily::Data, 1, &wrapped).await? {
             info!("Database Encryption Key version 1 stored");
         } else {
             info!("Another instance stored DEK version 1 first; adopting the stored key");
@@ -640,14 +485,14 @@ impl KeyManager {
         Ok(())
     }
 
-    /// Read the version-1 DEK row again on a database that holds
+    /// Read the version-1 key row again on a database that holds
     /// `encrypted_rows` ciphertext rows: a racing instance's row is adopted,
     /// a row still missing refuses the boot.
     async fn adopt_racing_dek_or_refuse(
         security: &dyn SecurityRepository,
         encrypted_rows: i64,
     ) -> AppResult<()> {
-        match security.get_system_secret(Self::V1_SECRET).await {
+        match security.get_system_secret(V1_SECRET).await {
             Ok(_) => {
                 info!("Another instance stored DEK version 1 first; adopting the stored key");
                 Ok(())
@@ -672,7 +517,7 @@ impl KeyManager {
         }
     }
 
-    /// Log a failed read of the stored version-1 DEK row, unless the database
+    /// Log a failed read of the stored version-1 key row, unless the database
     /// could not serve it (the boot's key-store queue reports that).
     fn report_stored_dek_read_failure(e: &AppError) {
         if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
@@ -685,7 +530,7 @@ impl KeyManager {
         }
     }
 
-    /// Count the rows holding ciphertext before a DEK is minted; a failed
+    /// Count the rows holding ciphertext before a key is minted; a failed
     /// count refuses the mint, since the answer decides whether it is safe.
     async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
         security.count_encrypted_rows().await.inspect_err(|e| {
@@ -700,57 +545,14 @@ impl KeyManager {
         })
     }
 
-    /// Rotate the Database Encryption Key to a fresh active version.
+    /// Re-wrap every stored key version under a new KEK provider (KEK
+    /// rotation, or a provider migration such as local MEK → Cloud KMS).
     ///
-    /// Generates a new DEK, wraps it with the KEK, persists it as the new active
-    /// version, and retains all prior versions for decrypting existing data. New
-    /// writes use the new version immediately; older ciphertext stays readable via
-    /// the retained versions (lazy rotation — no bulk re-encryption). The blind
-    /// index (refresh-token HMAC) stays pinned to version 1.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operations or DEK wrap/unwrap fail.
-    pub async fn rotate_dek(&mut self, database: &mut Database) -> AppResult<u32> {
-        info!("Rotating Database Encryption Key");
-
-        // Load and retain every existing version (scoped immutable borrow).
-        let (new_version, prior) = {
-            let security = database.as_security_repository();
-            let current_active = Self::read_active_version(security).await?;
-            let prior =
-                Self::load_all_versions(security, self.kek.as_ref(), current_active).await?;
-            (current_active + 1, prior)
-        };
-
-        // Generate, wrap, and persist the new active DEK.
-        let new_dek = DatabaseEncryptionKey::generate();
-        let wrapped = self.kek.wrap(new_dek.as_bytes()).await?;
-        {
-            let security = database.as_security_repository();
-            let stored =
-                Self::insert_version_key_if_absent(security, new_version, &wrapped).await?;
-            if stored != Base64Standard.encode(&wrapped) {
-                return Err(AppError::internal(format!(
-                    "DEK version {new_version} was stored by a concurrent rotation; retry the rotation"
-                )));
-            }
-            Self::store_active_version(security, new_version).await?;
-        }
-
-        let active_key = new_dek.as_bytes().to_vec();
-        self.dek = new_dek;
-        database.install_dek_versions(new_version, active_key, prior);
-        info!("Rotated Database Encryption Key to version {new_version}");
-        Ok(new_version)
-    }
-
-    /// Re-wrap every stored DEK version under a new KEK provider (KEK rotation /
-    /// provider migration, e.g. local MEK → GCP Cloud KMS).
-    ///
-    /// Each version is unwrapped with the current KEK, wrapped with `new_kek`, and
-    /// persisted. The DEK bytes are unchanged, so existing ciphertext stays valid —
-    /// only the at-rest wrapping changes. On success the manager adopts `new_kek`.
+    /// Every version the keyset has not destroyed is re-wrapped, disabled
+    /// ones included, in both families (index v1 is the data v1 row); before
+    /// adoption, the legacy layout's `1..=active`. The keys inside are
+    /// unchanged, so no ciphertext or hash changes. On success the manager
+    /// adopts `new_kek`.
     ///
     /// # Errors
     ///
@@ -758,40 +560,49 @@ impl KeyManager {
     pub async fn rewrap_deks(
         &mut self,
         new_kek: Box<dyn KekProvider>,
-        database: &mut Database,
+        database: &Database,
     ) -> AppResult<()> {
-        info!("Re-wrapping all DEK versions under a new KEK");
-
-        let rewrapped: Vec<(u32, Vec<u8>)> = {
-            let security = database.as_security_repository();
-            let active_version = Self::read_active_version(security).await?;
-            let versions =
-                Self::load_all_versions(security, self.kek.as_ref(), active_version).await?;
-            let mut out = Vec::with_capacity(versions.len());
-            for (version, key) in versions {
-                out.push((version, new_kek.wrap(&key).await?));
-            }
-            out
-        };
-
-        {
-            let security = database.as_security_repository();
-            for (version, wrapped) in &rewrapped {
-                Self::rewrite_version_key(security, *version, wrapped).await?;
-            }
+        info!("Re-wrapping every key version under a new KEK");
+        let security = database.as_security_repository();
+        let slots = Self::stored_key_slots(security).await?;
+        let mut rewrapped = Vec::with_capacity(slots.len());
+        for (family, version) in slots {
+            let key = load_key(security, self.kek.as_ref(), family, version).await?;
+            rewrapped.push((family, version, new_kek.wrap(&key).await?));
         }
-
-        self.kek = new_kek;
+        for (family, version, wrapped) in &rewrapped {
+            rewrite_key(security, *family, *version, wrapped).await?;
+        }
+        self.kek = Arc::from(new_kek);
         info!(
-            "Re-wrapped {} DEK version(s) under the new KEK",
+            "Re-wrapped {} key version(s) under the new KEK",
             rewrapped.len()
         );
         Ok(())
     }
 
-    /// Get the DEK for database operations (what we previously called "encryption key")
-    #[must_use]
-    pub const fn database_key(&self) -> &[u8; 32] {
-        self.dek.as_bytes()
+    /// Every stored key row: each version the keyset has not destroyed, in
+    /// both families (index v1 is the data v1 row, listed once), or before
+    /// adoption the legacy layout's `1..=active`.
+    async fn stored_key_slots(
+        security: &dyn SecurityRepository,
+    ) -> AppResult<Vec<(KeyFamily, u32)>> {
+        Ok(match read_keyset(security).await? {
+            Some((_, doc)) => KeyFamily::ALL
+                .into_iter()
+                .flat_map(|family| {
+                    doc.versions(family)
+                        .into_iter()
+                        .filter(move |(version, key)| {
+                            key.state != KeyState::Destroyed
+                                && !(family == KeyFamily::Index && *version == 1)
+                        })
+                        .map(move |(version, _)| (family, version))
+                })
+                .collect(),
+            None => (1..=read_legacy_active_version(security).await?)
+                .map(|version| (KeyFamily::Data, version))
+                .collect(),
+        })
     }
 }

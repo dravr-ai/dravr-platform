@@ -10,8 +10,9 @@
 //! with its private half enveloped under AES-256-GCM (bound by AAD to the
 //! key id) and its public half in clear for JWKS; and `system_secrets`, the
 //! name → value store the admin JWT secret and the wrapped data-encryption
-//! keys live in. Rows written before the envelope existed are re-encrypted
-//! on read rather than failing, so an upgrade cannot lock every session out.
+//! keys live in. Rows written before the envelope existed read as plaintext
+//! rather than failing, so an upgrade cannot lock every session out, and the
+//! key-rotation sweep seals them.
 //!
 //! Nothing here differs per backend once the binds are chosen: `$n`
 //! placeholders serve both drivers; timestamps bind as [`DateTime<Utc>`]
@@ -23,9 +24,14 @@
 //! [`HasEncryption`](crate::backends::shared::encryption::HasEncryption),
 //! which both backends implement.
 
+use std::fmt;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
+
+use crate::backends::shared::key_material::StoredSecretKind;
+use crate::backends::shared::keyring::SealDomain;
 
 /// Security and secret repository
 #[async_trait]
@@ -79,16 +85,112 @@ pub trait SecurityRepository: Send + Sync {
     /// Key management asks before it mints a key: a fresh key on a database
     /// that already holds ciphertext cannot open any of it (carnet#703).
     async fn count_encrypted_rows(&self) -> AppResult<i64>;
-    /// Encrypt data with AAD (Additional Authenticated Data)
+    /// Replace the secret `secret_type` with `new_value` only while it still
+    /// holds `expected`; whether it did. The keyset document is written only
+    /// this way, so two writers never lose each other's update.
+    async fn compare_and_swap_system_secret(
+        &self,
+        secret_type: &str,
+        expected: &str,
+        new_value: &str,
+    ) -> AppResult<bool>;
+    /// Delete the secret `secret_type`; deleting an absent one succeeds.
+    async fn delete_system_secret(&self, secret_type: &str) -> AppResult<()>;
+    /// Write the keyset document and delete the legacy active-version secret
+    /// in one transaction: the adoption of a legacy key layout. `false` when
+    /// a keyset document already exists, and then nothing is written.
+    async fn adopt_keyset(
+        &self,
+        keyset_secret: &str,
+        document: &str,
+        legacy_active_version_secret: &str,
+    ) -> AppResult<bool>;
+    /// Up to `limit` rows of `kind`, in key order after `after`, whose stored
+    /// value is not sealed under data version `primary`: what the rotation
+    /// sweep re-seals.
+    async fn sealed_rows_not_under(
+        &self,
+        kind: StoredSecretKind,
+        primary: u32,
+        after: &str,
+        limit: i64,
+    ) -> AppResult<Vec<SealedRow>>;
+    /// Replace one row's stored value with `new_value` only while it still
+    /// holds `old_value`, so a concurrent write wins; whether it did.
+    async fn reseal_row(
+        &self,
+        kind: StoredSecretKind,
+        row_key: &str,
+        old_value: &str,
+        new_value: &str,
+    ) -> AppResult<bool>;
+    /// How many rows of `kind` hold a value sealed under data `version`
+    /// (for version 1, untagged values too).
+    async fn count_sealed_under(&self, kind: StoredSecretKind, version: u32) -> AppResult<u64>;
+    /// How many refresh-token rows unexpired at `now`, of any status, in
+    /// both refresh-token tables, carry a hash under index `version`.
+    async fn count_live_index_hashes(&self, version: u32, now: DateTime<Utc>) -> AppResult<u64>;
+    /// Record one key lifecycle transition in `audit_events` (global: no
+    /// tenant, no user), with its family, version and states in `metadata`.
+    async fn record_key_lifecycle(
+        &self,
+        message: &str,
+        metadata: serde_json::Value,
+        at: DateTime<Utc>,
+    ) -> AppResult<()>;
+    /// The latest `limit` key lifecycle transitions, newest first.
+    async fn list_key_lifecycle(&self, limit: i64) -> AppResult<Vec<KeyLifecycleEvent>>;
+    /// Seal `data` for `domain` (see
+    /// [`HasEncryption::encrypt_data_with_aad`](crate::backends::shared::encryption::HasEncryption::encrypt_data_with_aad)).
     ///
     /// # Errors
-    /// Returns an error if encryption fails (invalid key, nonce generation failure)
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String>;
-    /// Decrypt data with AAD
+    /// Returns an error if encryption fails or the keyring is stale
+    fn encrypt_data_with_aad(&self, domain: SealDomain, data: &str, aad: &str)
+        -> AppResult<String>;
+    /// Open a value of `domain` (see
+    /// [`HasEncryption::decrypt_data_with_aad`](crate::backends::shared::encryption::HasEncryption::decrypt_data_with_aad)).
     ///
     /// # Errors
     /// Returns an error if decryption fails (invalid data, AAD mismatch, tampered data)
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String>;
+    fn decrypt_data_with_aad(
+        &self,
+        domain: SealDomain,
+        encrypted: &str,
+        aad: &str,
+    ) -> AppResult<String>;
+}
+
+/// One key lifecycle transition as `audit_events` holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyLifecycleEvent {
+    /// When it happened, by the writer's clock.
+    pub at: DateTime<Utc>,
+    /// What happened, e.g. "data v2 promoted".
+    pub message: String,
+    /// The family, version and from/to states.
+    pub metadata: serde_json::Value,
+}
+
+/// One stored secret as the rotation sweep reads it: the row's key, the
+/// columns its AAD is built from (see [`StoredSecretKind::row_aad`]), and the
+/// stored value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SealedRow {
+    /// The row's unique key, as text.
+    pub row_key: String,
+    /// Up to three AAD columns, as text, in the order the kind's AAD takes.
+    pub parts: [Option<String>; 3],
+    /// The stored value: ciphertext, or a legacy plaintext private key.
+    pub sealed: String,
+}
+
+impl fmt::Debug for SealedRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SealedRow")
+            .field("row_key", &self.row_key)
+            .field("sealed", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Save the keypair under its key id; a row that already carries that id is
@@ -102,11 +204,6 @@ pub(crate) const SAVE_RSA_KEYPAIR_SQL: &str = r"
 /// Every stored keypair, newest first; the key id breaks a timestamp tie so
 /// every instance loads the same order and settles on the same active key.
 pub(crate) const LOAD_RSA_KEYPAIRS_SQL: &str = "SELECT kid, private_key_pem, public_key_pem, created_at, is_active FROM rsa_keypairs ORDER BY created_at DESC, kid DESC";
-
-/// Rewrite one row's private half; the read path uses it to upgrade a
-/// plaintext row to ciphertext.
-pub(crate) const REWRITE_RSA_PRIVATE_KEY_SQL: &str =
-    "UPDATE rsa_keypairs SET private_key_pem = $1 WHERE kid = $2";
 
 /// Create a system secret unless a row already carries the name; an existing
 /// secret is never replaced, so racing creators converge on the first write.
@@ -138,38 +235,132 @@ pub(crate) const COUNT_ENCRYPTED_ROWS_SQL: &str = r"
                  + (SELECT COUNT(*) FROM user_llm_credentials) AS encrypted_rows
             ";
 
+/// Replace a system secret only while it holds the expected value.
+pub(crate) const COMPARE_AND_SWAP_SYSTEM_SECRET_SQL: &str = "UPDATE system_secrets \
+             SET secret_value = $3, updated_at = $4 \
+             WHERE secret_type = $1 AND secret_value = $2";
+
+/// Delete a system secret by name.
+pub(crate) const DELETE_SYSTEM_SECRET_SQL: &str =
+    "DELETE FROM system_secrets WHERE secret_type = $1";
+
+/// The sweep's statements for one [`StoredSecretKind`]: a page of rows not
+/// sealed under the primary (`$1` the primary's `v{N}:%` pattern, `$2` the
+/// key to start after, `$3` the page size), the compare-and-set re-seal
+/// (`$1` new value, `$2` key, `$3` old value) and the count under one
+/// version (`$1` its `v{N}:%` pattern, `$2` whether untagged values count).
+/// Every key and AAD column reads back as text on both drivers.
+pub(crate) struct SweepSql {
+    pub(crate) select: &'static str,
+    pub(crate) reseal: &'static str,
+    pub(crate) count: &'static str,
+}
+
+/// The sweep statements of `kind`.
+pub(crate) const fn sweep_sql(kind: StoredSecretKind) -> SweepSql {
+    match kind {
+        StoredSecretKind::OAuthAccessToken => SweepSql {
+            select: "SELECT id AS row_key, tenant_id AS p1, CAST(user_id AS TEXT) AS p2, \
+                     provider AS p3, access_token AS sealed FROM user_oauth_tokens \
+                     WHERE access_token NOT LIKE $1 AND id > $2 ORDER BY id LIMIT $3",
+            reseal: "UPDATE user_oauth_tokens SET access_token = $1 \
+                     WHERE id = $2 AND access_token = $3",
+            count: "SELECT COUNT(*) AS n FROM user_oauth_tokens \
+                    WHERE access_token LIKE $1 OR ($2 AND access_token NOT LIKE '%:%')",
+        },
+        StoredSecretKind::OAuthRefreshToken => SweepSql {
+            select: "SELECT id AS row_key, tenant_id AS p1, CAST(user_id AS TEXT) AS p2, \
+                     provider AS p3, refresh_token AS sealed FROM user_oauth_tokens \
+                     WHERE refresh_token IS NOT NULL AND refresh_token NOT LIKE $1 AND id > $2 \
+                     ORDER BY id LIMIT $3",
+            reseal: "UPDATE user_oauth_tokens SET refresh_token = $1 \
+                     WHERE id = $2 AND refresh_token = $3",
+            count: "SELECT COUNT(*) AS n FROM user_oauth_tokens WHERE refresh_token IS NOT NULL \
+                    AND (refresh_token LIKE $1 OR ($2 AND refresh_token NOT LIKE '%:%'))",
+        },
+        StoredSecretKind::RsaPrivateKey => SweepSql {
+            select: "SELECT kid AS row_key, CAST(NULL AS TEXT) AS p1, CAST(NULL AS TEXT) AS p2, \
+                     CAST(NULL AS TEXT) AS p3, private_key_pem AS sealed FROM rsa_keypairs \
+                     WHERE private_key_pem NOT LIKE $1 AND kid > $2 ORDER BY kid LIMIT $3",
+            reseal: "UPDATE rsa_keypairs SET private_key_pem = $1 \
+                     WHERE kid = $2 AND private_key_pem = $3",
+            count: "SELECT COUNT(*) AS n FROM rsa_keypairs \
+                    WHERE private_key_pem LIKE $1 OR ($2 AND private_key_pem NOT LIKE '%:%')",
+        },
+        StoredSecretKind::TenantOAuthClientSecret => SweepSql {
+            select: "SELECT CAST(id AS TEXT) AS row_key, CAST(tenant_id AS TEXT) AS p1, \
+                     provider AS p2, CAST(NULL AS TEXT) AS p3, client_secret_encrypted AS sealed \
+                     FROM tenant_oauth_credentials \
+                     WHERE client_secret_encrypted NOT LIKE $1 AND CAST(id AS TEXT) > $2 \
+                     ORDER BY CAST(id AS TEXT) LIMIT $3",
+            reseal: "UPDATE tenant_oauth_credentials SET client_secret_encrypted = $1 \
+                     WHERE CAST(id AS TEXT) = $2 AND client_secret_encrypted = $3",
+            count: "SELECT COUNT(*) AS n FROM tenant_oauth_credentials \
+                    WHERE client_secret_encrypted LIKE $1 \
+                    OR ($2 AND client_secret_encrypted NOT LIKE '%:%')",
+        },
+        StoredSecretKind::StravaPoolClientSecret => SweepSql {
+            select: "SELECT client_id AS row_key, CAST(NULL AS TEXT) AS p1, \
+                     CAST(NULL AS TEXT) AS p2, CAST(NULL AS TEXT) AS p3, \
+                     client_secret_encrypted AS sealed FROM strava_oauth_app_pool \
+                     WHERE client_secret_encrypted NOT LIKE $1 AND client_id > $2 \
+                     ORDER BY client_id LIMIT $3",
+            reseal: "UPDATE strava_oauth_app_pool SET client_secret_encrypted = $1 \
+                     WHERE client_id = $2 AND client_secret_encrypted = $3",
+            count: "SELECT COUNT(*) AS n FROM strava_oauth_app_pool \
+                    WHERE client_secret_encrypted LIKE $1 \
+                    OR ($2 AND client_secret_encrypted NOT LIKE '%:%')",
+        },
+        StoredSecretKind::LlmApiKey => SweepSql {
+            select: "SELECT id AS row_key, tenant_id AS p1, CAST(user_id AS TEXT) AS p2, \
+                     provider AS p3, api_key_encrypted AS sealed FROM user_llm_credentials \
+                     WHERE api_key_encrypted NOT LIKE $1 AND id > $2 ORDER BY id LIMIT $3",
+            reseal: "UPDATE user_llm_credentials SET api_key_encrypted = $1 \
+                     WHERE id = $2 AND api_key_encrypted = $3",
+            count: "SELECT COUNT(*) AS n FROM user_llm_credentials \
+                    WHERE api_key_encrypted LIKE $1 OR ($2 AND api_key_encrypted NOT LIKE '%:%')",
+        },
+    }
+}
+
+/// Refresh-token rows unexpired at `$1`, of any status, in both tables,
+/// whose hash is tagged `$2` (`k{N}:%`), or untagged when `$3`.
+pub(crate) const COUNT_LIVE_INDEX_HASHES_SQL: &str = r"
+            SELECT (SELECT COUNT(*) FROM oauth2_refresh_tokens
+                     WHERE expires_at > $1 AND (token LIKE $2 OR ($3 AND token NOT LIKE '%:%')))
+                 + (SELECT COUNT(*) FROM session_refresh_tokens
+                     WHERE expires_at > $1
+                       AND (token_hash LIKE $2 OR ($3 AND token_hash NOT LIKE '%:%'))) AS n
+            ";
+
+/// A key lifecycle transition: global, so tenant and user stay NULL.
+pub(crate) const RECORD_KEY_LIFECYCLE_SQL: &str = "INSERT INTO audit_events \
+             (id, event_type, severity, message, source, result, tenant_id, user_id, metadata, timestamp) \
+             VALUES ($1, 'key_lifecycle', 'info', $2, 'keyset', 'success', NULL, NULL, $3, $4)";
+
+/// The latest key lifecycle transitions, which are global (no tenant).
+pub(crate) const LIST_KEY_LIFECYCLE_SQL: &str =
+    "SELECT message, metadata, timestamp FROM audit_events \
+             WHERE tenant_id IS NULL AND event_type = 'key_lifecycle' \
+             ORDER BY timestamp DESC, id DESC LIMIT $1";
+
+/// The `LIKE` pattern of values sealed under data `version`.
+pub(crate) fn data_tag_pattern(version: u32) -> String {
+    format!("v{version}:%")
+}
+
+/// The `LIKE` pattern of hashes computed under index `version`.
+pub(crate) fn index_tag_pattern(version: u32) -> String {
+    format!("k{version}:%")
+}
+
 /// Emit the whole [`SecurityRepository`] implementation for one backend
-/// type, plus the private read-time upgrade of a plaintext private key.
+/// type.
 ///
 /// The body is written once here; each backend's shell invokes it with its
 /// own type, and sqlx resolves the driver from `self.pool()` per expansion.
 macro_rules! impl_security_repository {
     ($ty:ty) => {
-        impl $ty {
-            /// Rewrite a plaintext `rsa_keypairs` row as AES-256-GCM ciphertext
-            ///
-            /// Rows written before the column carried ciphertext are upgraded the
-            /// first time they are read. A failure here leaves the row readable, so it
-            /// is logged rather than propagated: signing must keep working.
-            async fn upgrade_rsa_private_key_storage(&self, kid: &str, private_key_pem: &str) {
-                match encrypt_rsa_private_key(self, kid, private_key_pem) {
-                    Ok(encrypted) => {
-                        if let Err(e) = sqlx::query(REWRITE_RSA_PRIVATE_KEY_SQL)
-                            .bind(&encrypted)
-                            .bind(kid)
-                            .execute(self.pool())
-                            .await
-                        {
-                            warn!(
-                                "Failed to store RSA signing key as ciphertext for kid {kid}: {e}"
-                            );
-                        }
-                    }
-                    Err(e) => warn!("Failed to encrypt RSA signing key for kid {kid}: {e}"),
-                }
-            }
-        }
-
         #[async_trait::async_trait]
         impl SecurityRepository for $ty {
             async fn save_rsa_keypair(
@@ -219,9 +410,9 @@ macro_rules! impl_security_repository {
                         row.try_get("private_key_pem").map_err(|e| {
                             AppError::database(format!("Failed to get private_key_pem: {e}"))
                         })?;
+                    // A row written before the column carried ciphertext reads
+                    // as it is; the rotation sweep seals it.
                     let private_key_pem = if is_plaintext_private_key_pem(&stored_private_key) {
-                        self.upgrade_rsa_private_key_storage(&kid, &stored_private_key)
-                            .await;
                         stored_private_key
                     } else {
                         decrypt_rsa_private_key(self, &kid, &stored_private_key)?
@@ -332,12 +523,227 @@ macro_rules! impl_security_repository {
                     .map_err(|e| AppError::database(format!("Failed to get encrypted_rows: {e}")))
             }
 
-            fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-                HasEncryption::encrypt_data_with_aad(self, data, aad)
+            async fn compare_and_swap_system_secret(
+                &self,
+                secret_type: &str,
+                expected: &str,
+                new_value: &str,
+            ) -> AppResult<bool> {
+                let done = sqlx::query(COMPARE_AND_SWAP_SYSTEM_SECRET_SQL)
+                    .bind(secret_type)
+                    .bind(expected)
+                    .bind(new_value)
+                    .bind(Utc::now())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+                Ok(done.rows_affected() == 1)
             }
 
-            fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-                HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
+            async fn delete_system_secret(&self, secret_type: &str) -> AppResult<()> {
+                sqlx::query(DELETE_SYSTEM_SECRET_SQL)
+                    .bind(secret_type)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+                Ok(())
+            }
+
+            async fn adopt_keyset(
+                &self,
+                keyset_secret: &str,
+                document: &str,
+                legacy_active_version_secret: &str,
+            ) -> AppResult<bool> {
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("Failed to adopt the keyset: {e}"));
+                let now = Utc::now();
+                let mut tx = self.pool().begin().await.map_err(failed)?;
+                let inserted = sqlx::query(INSERT_SYSTEM_SECRET_IF_ABSENT_SQL)
+                    .bind(keyset_secret)
+                    .bind(document)
+                    .bind(now)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                if inserted.rows_affected() != 1 {
+                    tx.rollback().await.map_err(failed)?;
+                    return Ok(false);
+                }
+                sqlx::query(DELETE_SYSTEM_SECRET_SQL)
+                    .bind(legacy_active_version_secret)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                tx.commit().await.map_err(failed)?;
+                Ok(true)
+            }
+
+            async fn sealed_rows_not_under(
+                &self,
+                kind: StoredSecretKind,
+                primary: u32,
+                after: &str,
+                limit: i64,
+            ) -> AppResult<Vec<SealedRow>> {
+                let rows = sqlx::query(sweep_sql(kind).select)
+                    .bind(data_tag_pattern(primary))
+                    .bind(after)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read {} rows to re-seal: {e}",
+                            kind.as_str()
+                        ))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        let text = |name: &str| -> AppResult<Option<String>> {
+                            row.try_get(name).map_err(|e| {
+                                AppError::database(format!(
+                                    "Failed to get {name} of a {} row: {e}",
+                                    kind.as_str()
+                                ))
+                            })
+                        };
+                        Ok(SealedRow {
+                            row_key: text("row_key")?.unwrap_or_default(),
+                            parts: [text("p1")?, text("p2")?, text("p3")?],
+                            sealed: text("sealed")?.unwrap_or_default(),
+                        })
+                    })
+                    .collect()
+            }
+
+            async fn reseal_row(
+                &self,
+                kind: StoredSecretKind,
+                row_key: &str,
+                old_value: &str,
+                new_value: &str,
+            ) -> AppResult<bool> {
+                let done = sqlx::query(sweep_sql(kind).reseal)
+                    .bind(new_value)
+                    .bind(row_key)
+                    .bind(old_value)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to re-seal a {} row: {e}",
+                            kind.as_str()
+                        ))
+                    })?;
+                Ok(done.rows_affected() == 1)
+            }
+
+            async fn count_sealed_under(
+                &self,
+                kind: StoredSecretKind,
+                version: u32,
+            ) -> AppResult<u64> {
+                let row = sqlx::query(sweep_sql(kind).count)
+                    .bind(data_tag_pattern(version))
+                    .bind(version == 1)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to count {} rows under v{version}: {e}",
+                            kind.as_str()
+                        ))
+                    })?;
+                let n: i64 = row
+                    .try_get("n")
+                    .map_err(|e| AppError::database(format!("Failed to get the count: {e}")))?;
+                Ok(u64::try_from(n).unwrap_or(0))
+            }
+
+            async fn count_live_index_hashes(
+                &self,
+                version: u32,
+                now: DateTime<Utc>,
+            ) -> AppResult<u64> {
+                let row = sqlx::query(COUNT_LIVE_INDEX_HASHES_SQL)
+                    .bind(now)
+                    .bind(index_tag_pattern(version))
+                    .bind(version == 1)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to count refresh tokens under k{version}: {e}"
+                        ))
+                    })?;
+                let n: i64 = row
+                    .try_get("n")
+                    .map_err(|e| AppError::database(format!("Failed to get the count: {e}")))?;
+                Ok(u64::try_from(n).unwrap_or(0))
+            }
+
+            async fn record_key_lifecycle(
+                &self,
+                message: &str,
+                metadata: serde_json::Value,
+                at: DateTime<Utc>,
+            ) -> AppResult<()> {
+                sqlx::query(RECORD_KEY_LIFECYCLE_SQL)
+                    .bind(uuid::Uuid::new_v4().to_string())
+                    .bind(message)
+                    .bind(metadata)
+                    .bind(at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record a key lifecycle event: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn list_key_lifecycle(&self, limit: i64) -> AppResult<Vec<KeyLifecycleEvent>> {
+                let rows = sqlx::query(LIST_KEY_LIFECYCLE_SQL)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list key lifecycle events: {e}"))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        let column = |e: sqlx::Error| {
+                            AppError::database(format!("Failed to read a key lifecycle event: {e}"))
+                        };
+                        Ok(KeyLifecycleEvent {
+                            at: row.try_get("timestamp").map_err(column)?,
+                            message: row.try_get("message").map_err(column)?,
+                            metadata: row
+                                .try_get::<Option<serde_json::Value>, _>("metadata")
+                                .map_err(column)?
+                                .unwrap_or(serde_json::Value::Null),
+                        })
+                    })
+                    .collect()
+            }
+
+            fn encrypt_data_with_aad(
+                &self,
+                domain: SealDomain,
+                data: &str,
+                aad: &str,
+            ) -> AppResult<String> {
+                HasEncryption::encrypt_data_with_aad(self, domain, data, aad)
+            }
+
+            fn decrypt_data_with_aad(
+                &self,
+                domain: SealDomain,
+                encrypted: &str,
+                aad: &str,
+            ) -> AppResult<String> {
+                HasEncryption::decrypt_data_with_aad(self, domain, encrypted, aad)
             }
         }
     };

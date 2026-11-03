@@ -265,10 +265,10 @@ async fn initialize_cache() -> Result<Cache> {
 /// Initialize core systems (key management, database, auth)
 async fn initialize_core_systems(config: &ServerConfig) -> Result<(Database, AuthManager, String)> {
     let (mut key_manager, database_encryption_key) = bootstrap_key_management()?;
-    let mut database = initialize_database(config, database_encryption_key).await?;
+    let database = initialize_database(config, database_encryption_key).await?;
     let mut queue = KeyStoreQueue::new(database.boot_deadline(), "dek");
     loop {
-        match key_manager.complete_initialization(&mut database).await {
+        match key_manager.complete_initialization(&database).await {
             Err(e) if queue.wait_after(&e).await => {}
             done => break done,
         }
@@ -774,6 +774,14 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     {
         use pierre_mcp_server::start_anchor_promotion;
         start_anchor_promotion(&resources);
+    }
+
+    // Start key rotation (carnet#1347): every instance re-reads the keyset
+    // each minute, and one instance runs the rotation controller, which does
+    // nothing until the keyset is adopted (`pierre-cli key adopt`).
+    {
+        use pierre_mcp_server::start_key_rotation;
+        start_key_rotation(&resources);
     }
 
     // Start the archive import sweeps (carnet#1218): imports never given their

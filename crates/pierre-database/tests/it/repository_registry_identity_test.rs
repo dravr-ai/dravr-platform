@@ -1,23 +1,25 @@
 // ABOUTME: Proves a Database handle builds its RepositoryRegistry once and every clone shares it
-// ABOUTME: Also proves installing DEK versions rebuilds the registry over the backend's new keys
+// ABOUTME: Also proves one keyring install reaches every clone, those taken before it included
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! `Database::repositories()` returns the registry built when the handle was
 //! constructed, so the server resources, the runtime contexts and every call
-//! site read the same repository instances. The backend carries its encryption
-//! keys by value, so installing DEK versions replaces the registry; these tests
-//! pin both halves against a real database from the test factory.
+//! site read the same repository instances. Every clone also shares one keyring
+//! cell, so installing a new keyring reaches clones taken before the install;
+//! these tests pin both halves against a real database from the test factory.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use secrecy::ExposeSecret;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use chrono::Utc;
 use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken};
 use pierre_database::backends::factory::Database;
+use pierre_database::backends::shared::keyring::Keyring;
 use pierre_test_support::db::{create_test_db, create_test_db_with_key};
 use uuid::Uuid;
 
@@ -77,31 +79,32 @@ async fn every_call_and_every_clone_share_one_registry() {
 }
 
 #[tokio::test]
-async fn installing_dek_versions_rebuilds_the_registry_over_the_new_keys() {
+async fn installing_a_keyring_reaches_every_clone_taken_before_or_after() {
     let bootstrap_key = vec![1u8; 32];
     let rotated_key = vec![2u8; 32];
-    let mut db = create_test_db_with_key(bootstrap_key.clone())
+    let db = create_test_db_with_key(bootstrap_key.clone())
         .await
         .expect("factory opens a database under a caller key");
     let (user_id, tenant_id) = seed_user_and_tenant(&db).await;
 
-    // A handle taken before the install keeps the bootstrap key only.
+    // A handle taken before the install shares the one keyring cell.
     let before = db.clone();
-    db.install_dek_versions(2, rotated_key, HashMap::from([(1, bootstrap_key)]));
+    let ring = Keyring::new(
+        BTreeMap::from([(1, bootstrap_key.clone()), (2, rotated_key)]),
+        2,
+        BTreeMap::from([(1, bootstrap_key)]),
+        1,
+        1,
+        true,
+    )
+    .expect("a valid keyring");
+    db.keyring().install(ring, Utc::now());
 
     assert!(
-        !Arc::ptr_eq(before.repositories(), db.repositories()),
-        "installing DEK versions must replace the registry"
+        Arc::ptr_eq(before.repositories(), db.repositories()),
+        "installing a keyring keeps the one registry"
     );
-    let after = db.clone();
-    assert!(
-        Arc::ptr_eq(db.repositories(), after.repositories()),
-        "clones taken after the install share the rebuilt registry"
-    );
-    assert!(
-        Arc::ptr_eq(db.repositories(), db.repositories()),
-        "the rebuilt registry is again one instance per handle"
-    );
+    assert_eq!(before.keyring().current().data_primary(), 2);
 
     let token = UserOAuthToken::new(
         user_id,
@@ -112,18 +115,19 @@ async fn installing_dek_versions_rebuilds_the_registry_over_the_new_keys() {
         None,
         Some("read".to_owned()),
     );
-    db.repositories()
+    before
+        .repositories()
         .oauth_tokens
         .upsert_token(&token)
         .await
-        .expect("store an encrypted token through the rebuilt registry");
+        .expect("an earlier clone seals under the installed primary");
 
-    let stored = after
+    let stored = db
         .repositories()
         .oauth_tokens
         .get_token(user_id, tenant_id, "strava")
         .await
-        .expect("the rebuilt registry decrypts what it encrypted")
+        .expect("the handle opens what the earlier clone sealed")
         .expect("the token row exists");
     assert_eq!(stored.access_token.expose_secret(), "access-token-under-v2");
     assert_eq!(
@@ -132,18 +136,5 @@ async fn installing_dek_versions_rebuilds_the_registry_over_the_new_keys() {
             .as_ref()
             .map(ExposeSecret::expose_secret),
         Some("refresh-token-under-v2")
-    );
-
-    // The pre-install registry has no version-2 key, which proves the rebuilt
-    // registry encrypted under the installed version rather than the bootstrap
-    // key it was constructed with.
-    let stale = before
-        .repositories()
-        .oauth_tokens
-        .get_token(user_id, tenant_id, "strava")
-        .await;
-    assert!(
-        stale.is_err(),
-        "a registry built before the install cannot decrypt version-2 ciphertext"
     );
 }

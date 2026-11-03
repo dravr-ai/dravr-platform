@@ -135,14 +135,14 @@ async fn keyed_repositories(
         redact_url(database_url)
     );
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
-    let mut database = Database::new(
+    let database = Database::new(
         database_url,
         database_encryption_key.to_vec(),
         #[cfg(feature = "postgresql")]
         &PostgresPoolConfig::default(),
     )
     .await?;
-    key_manager.complete_initialization(&mut database).await?;
+    key_manager.complete_initialization(&database).await?;
     let repos = Arc::clone(database.repositories());
     initialize_jwks_manager(&repos).await?;
     Ok(repos)

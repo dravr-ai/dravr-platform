@@ -214,45 +214,30 @@ pub use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
 
+use crate::backends::shared::keyring::{Keyring, KeyringCell};
 use crate::backends::{shared, DatabaseProvider};
 use crate::database::migrations::SQLITE_MIGRATIONS;
-use base64::engine::general_purpose;
-use base64::Engine;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
-use ring::hmac;
-use ring::rand::{SecureRandom, SystemRandom};
 use sqlx::{Pool, Sqlite, SqlitePool};
-use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 use tracing::info;
 
 /// Database connection pool with encryption support
 #[derive(Clone)]
 pub struct Database {
     pool: Pool<Sqlite>,
-    /// Active DEK used to encrypt new data; its version is `active_dek_version`.
-    encryption_key: Vec<u8>,
-    /// Version of the active DEK held in `encryption_key`. New ciphertext is
-    /// tagged with this version; legacy un-prefixed ciphertext is version 1.
-    active_dek_version: u32,
-    /// Retired DEK versions retained for decrypting older ciphertext (version -> key).
-    prior_dek_versions: HashMap<u32, Vec<u8>>,
-    /// Stable key for the refresh-token blind index (HMAC). Pinned to DEK v1 so
-    /// deterministic lookups survive DEK rotation — stored hashes cannot be
-    /// recomputed (the plaintext token is never retained).
-    blind_index_key: Vec<u8>,
+    /// The process keyring, shared by every clone of this handle: one
+    /// install reaches every repository.
+    keyring: Arc<KeyringCell>,
 }
 
 impl fmt::Debug for Database {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Database")
             .field("pool", &self.pool)
-            .field("encryption_key", &"[REDACTED]")
-            .field("active_dek_version", &self.active_dek_version)
-            .field("prior_dek_versions", &"[REDACTED]")
-            .field("blind_index_key", &"[REDACTED]")
+            .field("keyring", &self.keyring)
             .finish()
     }
 }
@@ -291,10 +276,7 @@ impl Database {
     pub async fn from_pool(pool: Pool<Sqlite>, encryption_key: Vec<u8>) -> AppResult<Self> {
         let db = Self {
             pool,
-            blind_index_key: encryption_key.clone(),
-            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
-            prior_dek_versions: HashMap::new(),
-            encryption_key,
+            keyring: KeyringCell::new(Keyring::single(encryption_key)),
         };
 
         db.migrate_impl()
@@ -318,69 +300,16 @@ impl Database {
         Self::new_impl(database_url, encryption_key).await
     }
 
+    /// The process keyring this handle shares with every clone of it.
+    #[must_use]
+    pub const fn keyring(&self) -> &Arc<KeyringCell> {
+        &self.keyring
+    }
+
     /// Get a reference to the database pool for advanced operations
     #[must_use]
     pub const fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
-    }
-
-    /// Update the encryption key used for token encryption/decryption
-    ///
-    /// This is called after the actual DEK is loaded from the database during
-    /// two-tier key management initialization. The database is initially created
-    /// with a temporary key, then updated with the real key once it's loaded.
-    ///
-    /// # Safety
-    /// Only call this once during startup, before any encrypted data operations.
-    pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
-        // At bootstrap the loaded key is DEK v1, which also anchors the blind index.
-        self.blind_index_key.clone_from(&new_key);
-        self.encryption_key = new_key;
-    }
-
-    /// Install a full set of DEK versions (after load-all-versions or a rotation).
-    ///
-    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
-    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
-    /// version 1, falling back to the active key only when v1 is itself active.
-    ///
-    /// # Safety
-    /// Call during startup or rotation while holding `&mut self`, before serving
-    /// concurrent encrypted-data operations.
-    pub fn install_dek_versions(
-        &mut self,
-        active_version: u32,
-        active_key: Vec<u8>,
-        prior_versions: HashMap<u32, Vec<u8>>,
-    ) {
-        self.blind_index_key = prior_versions
-            .get(&shared::encryption::LEGACY_DEK_VERSION)
-            .cloned()
-            .unwrap_or_else(|| active_key.clone());
-        self.active_dek_version = active_version;
-        self.prior_dek_versions = prior_versions;
-        self.encryption_key = active_key;
-    }
-
-    /// Resolve the DEK bytes for a given ciphertext version.
-    ///
-    /// Returns the active DEK for the active version, a retained prior DEK for an
-    /// older version, or an error if no key for that version is held.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no DEK is available for `version`.
-    fn dek_key_for_version(&self, version: u32) -> AppResult<&[u8]> {
-        if version == self.active_dek_version {
-            Ok(&self.encryption_key)
-        } else if let Some(key) = self.prior_dek_versions.get(&version) {
-            Ok(key)
-        } else {
-            Err(AppError::internal(format!(
-                "No DEK available for ciphertext version {version} (active version is {})",
-                self.active_dek_version
-            )))
-        }
     }
 
     /// Run all database migrations (public API)
@@ -393,31 +322,6 @@ impl Database {
     /// - Insufficient database permissions
     pub async fn migrate(&self) -> AppResult<()> {
         self.migrate_impl().await
-    }
-
-    /// Encrypt data using AES-256-GCM with AAD (public API)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if encryption fails
-    pub fn encrypt_data_with_aad(&self, data: &str, aad_context: &str) -> AppResult<String> {
-        Self::encrypt_data_with_aad_impl(self, data, aad_context)
-    }
-
-    /// Decrypt data using AES-256-GCM with AAD (public API)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Decryption fails
-    /// - Data is malformed
-    /// - AAD context does not match
-    pub fn decrypt_data_with_aad(
-        &self,
-        encrypted_data: &str,
-        aad_context: &str,
-    ) -> AppResult<String> {
-        Self::decrypt_data_with_aad_impl(self, encrypted_data, aad_context)
     }
 
     /// Run all database migrations (internal implementation)
@@ -438,111 +342,6 @@ impl Database {
 
         info!("Database migrations completed successfully");
         Ok(())
-    }
-
-    /// Encrypt sensitive data using AES-256-GCM with Additional Authenticated Data (AAD)
-    ///
-    /// AAD binds the encrypted data to a specific context (tenant|user|provider|table)
-    /// preventing ciphertext from being moved between contexts or users.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if encryption fails
-    fn encrypt_data_with_aad_impl(&self, data: &str, aad_context: &str) -> AppResult<String> {
-        let rng = SystemRandom::new();
-
-        // Generate unique nonce
-        let mut nonce_bytes = [0u8; 12];
-        rng.fill(&mut nonce_bytes)
-            .map_err(|e| AppError::internal(format!("Failed to generate nonce: {e}")))?;
-        let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-
-        // Create encryption key
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &self.encryption_key)
-            .map_err(|e| AppError::internal(format!("Failed to create encryption key: {e}")))?;
-        let key = LessSafeKey::new(unbound_key);
-
-        // Encrypt data with AAD binding
-        let mut data_bytes = data.as_bytes().to_vec();
-        let aad = Aad::from(aad_context.as_bytes());
-        key.seal_in_place_append_tag(nonce, aad, &mut data_bytes)
-            .map_err(|e| AppError::internal(format!("Failed to encrypt data: {e}")))?;
-
-        // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
-        let mut combined = nonce_bytes.to_vec();
-        combined.extend(data_bytes);
-
-        Ok(shared::encryption::tag_dek_version(
-            self.active_dek_version,
-            &general_purpose::STANDARD.encode(combined),
-        ))
-    }
-
-    /// Decrypt sensitive data using AES-256-GCM with Additional Authenticated Data (AAD)
-    ///
-    /// The same AAD context used for encryption MUST be provided for successful decryption.
-    /// This prevents ciphertext from being moved between contexts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Decryption fails
-    /// - Data is malformed
-    /// - AAD context does not match (authentication fails)
-    fn decrypt_data_with_aad_impl(
-        &self,
-        encrypted_data: &str,
-        aad_context: &str,
-    ) -> AppResult<String> {
-        // Split the DEK version tag, then decode the base64 payload
-        let (dek_version, payload) = shared::encryption::split_dek_version(encrypted_data);
-        let dek = self.dek_key_for_version(dek_version)?;
-        let combined = general_purpose::STANDARD
-            .decode(payload)
-            .map_err(|e| AppError::internal(format!("Failed to decode base64: {e}")))?;
-
-        if combined.len() < 12 {
-            return Err(AppError::internal("Invalid encrypted data: too short"));
-        }
-
-        // Extract nonce and encrypted data
-        let (nonce_bytes, encrypted_bytes) = combined.split_at(12);
-        let nonce = Nonce::assume_unique_for_key(
-            nonce_bytes
-                .try_into()
-                .map_err(|e| AppError::internal(format!("Invalid nonce size: {e}")))?,
-        );
-
-        // Create decryption key for the resolved DEK version
-        let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
-            .map_err(|e| AppError::internal(format!("Failed to create decryption key: {e}")))?;
-        let key = LessSafeKey::new(unbound_key);
-
-        // Decrypt data with AAD verification
-        let mut decrypted_data = encrypted_bytes.to_vec();
-        let aad = Aad::from(aad_context.as_bytes());
-        let decrypted = key
-            .open_in_place(nonce, aad, &mut decrypted_data)
-            .map_err(|e| {
-                AppError::internal(format!(
-                    "Decryption failed (possible AAD mismatch or tampered data): {e:?}"
-                ))
-            })?;
-
-        String::from_utf8(decrypted.to_vec()).map_err(|e| {
-            AppError::internal(format!("Failed to convert decrypted data to string: {e}"))
-        })
-    }
-
-    /// Compute HMAC-SHA256 of a token for secure storage (internal implementation)
-    ///
-    /// Used for refresh tokens where we need deterministic lookups but don't
-    /// need to recover the original value.
-    fn hash_token_for_storage_impl(&self, token: &str) -> String {
-        // Pinned to the blind-index key (DEK v1) so lookups survive DEK rotation.
-        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.blind_index_key);
-        let tag = hmac::sign(&key, token.as_bytes());
-        general_purpose::STANDARD.encode(tag.as_ref())
     }
 
     /// Get user role for a specific tenant
@@ -568,20 +367,9 @@ impl Database {
     }
 }
 
-// Implement HasEncryption trait for SQLite (delegates to inherent impl methods)
 impl shared::encryption::HasEncryption for Database {
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-        // Call inherent impl directly to avoid infinite recursion
-        Self::encrypt_data_with_aad_impl(self, data, aad)
-    }
-
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-        // Call inherent impl directly to avoid infinite recursion
-        Self::decrypt_data_with_aad_impl(self, encrypted, aad)
-    }
-
-    fn hash_token_for_storage(&self, token: &str) -> AppResult<String> {
-        Ok(Self::hash_token_for_storage_impl(self, token))
+    fn keyring(&self) -> &Arc<KeyringCell> {
+        &self.keyring
     }
 }
 

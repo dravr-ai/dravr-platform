@@ -42,6 +42,7 @@ use pierre_auth::security::cookies::{
 };
 use pierre_core::constant_time::secrets_equal;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_database::backends::shared::keyring::SealDomain;
 use pierre_database::database::repositories::SecurityRepository;
 use pierre_middleware::redaction::mask_email;
 use pierre_services::auth::{FederatedIdentity, SignupSource};
@@ -120,7 +121,11 @@ impl GoogleSignIn {
     fn seal(&self, transaction: &GoogleSignInTransaction) -> AppResult<String> {
         let json = serde_json::to_string(transaction)
             .map_err(|e| AppError::internal(format!("Google sign-in transaction: {e}")))?;
-        self.security.encrypt_data_with_aad(&json, TRANSACTION_AAD)
+        self.security.encrypt_data_with_aad(
+            SealDomain::GoogleSignInTransaction,
+            &json,
+            TRANSACTION_AAD,
+        )
     }
 
     /// Open the transaction cookie `headers` carry under `cookie_name`, and
@@ -136,7 +141,7 @@ impl GoogleSignIn {
         };
         let Some(transaction) = self
             .security
-            .decrypt_data_with_aad(&sealed, TRANSACTION_AAD)
+            .decrypt_data_with_aad(SealDomain::GoogleSignInTransaction, &sealed, TRANSACTION_AAD)
             .ok()
             .and_then(|json| serde_json::from_str::<GoogleSignInTransaction>(&json).ok())
         else {

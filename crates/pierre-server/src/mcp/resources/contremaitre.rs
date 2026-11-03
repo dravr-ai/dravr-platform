@@ -12,11 +12,11 @@ use pierre_contremaitre::{
     ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
     ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
+use pierre_services::supervised::spawn_supervised_loop;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{interval, sleep};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Default interval for the background prompt-reload poll.
 ///
@@ -117,39 +117,20 @@ fn spawn_contremaitre_poll(config: ContremaitreConfig, registries: ContremaitreL
         interval_secs = secs,
         "Contremaitre prompt-reload poll started"
     );
-    // Supervisor: the poll loop runs in its own task whose JoinHandle is
-    // awaited here, so a panicking tick is logged loudly and the loop is
-    // respawned after one interval — a dead poll would otherwise freeze every
-    // registry on its last-synced content for the life of the instance with
-    // only a stderr panic as trace.
-    tokio::spawn(async move {
-        loop {
-            let poll_config = config.clone();
-            let poll_registries = registries.clone();
-            let poll = tokio::spawn(async move {
-                let mut ticker = interval(Duration::from_secs(secs));
-                // `interval`'s first tick fires immediately, so the initial
-                // overlay sync runs here — in the background, off the server's
-                // bind path — and re-runs every `secs` after. Binding no longer
-                // waits on a slow GitHub/GCS fetch, so a single-vCPU instance
-                // still passes the Cloud Run startup probe.
-                loop {
-                    ticker.tick().await;
-                    run_contremaitre_full_sync(&poll_config, &poll_registries).await;
-                }
-            });
-            // The inner loop never returns normally; reaching here means the
-            // task died (panic or runtime-cancelled join).
-            if let Err(e) = poll.await {
-                error!(
-                    error = %e,
-                    is_panic = e.is_panic(),
-                    "Contremaitre poll loop died — respawning after one interval"
-                );
-            }
-            sleep(Duration::from_secs(secs)).await;
-        }
-    });
+    // The first tick runs at once, in the background, off the server's bind
+    // path, and re-runs every `secs` after: binding never waits on a slow
+    // GitHub/GCS fetch, so a single-vCPU instance still passes the Cloud Run
+    // startup probe. A panicking tick is respawned, since a dead poll would
+    // freeze every registry on its last-synced content.
+    spawn_supervised_loop(
+        "contremaitre prompt-reload poll",
+        Duration::from_secs(secs),
+        move || {
+            let config = config.clone();
+            let registries = registries.clone();
+            async move { run_contremaitre_full_sync(&config, &registries).await }
+        },
+    );
 }
 
 /// The registries [`init_contremaitre_registries`] seeds and hands to

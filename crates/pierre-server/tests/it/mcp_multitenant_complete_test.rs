@@ -118,6 +118,7 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
             ..OAuthConfig::default()
         },
         security: SecurityConfig {
+            key_rotation_days: 0,
             cors_origins: vec!["*".to_owned()],
             allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {

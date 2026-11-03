@@ -121,6 +121,7 @@ pub use crate::routes::garmin_webhook::start_garmin_push_worker;
 pub use crate::services::anchor_promotion::start_anchor_promotion;
 pub use crate::services::archive_import::sweeps::start_archive_import_sweeps;
 pub use crate::services::coaching_workers::start_coaching_workers;
+pub use crate::services::key_rotation::start_key_rotation;
 #[cfg(feature = "health-sync")]
 pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::precedence_recompute::start_precedence_recompute;

@@ -49,8 +49,8 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
     // Create database with proper encryption
     let (mut key_manager, database_key) = common::bootstrap_keys([b'c'; 32]);
 
-    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
-    key_manager.complete_initialization(&mut database).await?;
+    let database = create_test_db_with_key(database_key.to_vec()).await?;
+    key_manager.complete_initialization(&database).await?;
 
     // Run migrations
     database.migrate().await?;

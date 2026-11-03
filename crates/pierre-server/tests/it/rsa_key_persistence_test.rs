@@ -11,6 +11,7 @@ use crate::common;
 
 use anyhow::Result;
 use chrono::Utc;
+use pierre_auth::keyset::KeysetController;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::admin::AdminJwtManager;
@@ -489,11 +490,14 @@ async fn test_rsa_private_key_is_encrypted_at_rest() -> Result<()> {
     Ok(())
 }
 
-/// A row still holding plaintext PEM keeps signing, and is rewritten as
-/// ciphertext the first time it is read.
+/// A row still holding plaintext PEM keeps signing; a read leaves it as it
+/// is, and the key-rotation sweep seals it under the data primary.
 #[tokio::test]
-async fn test_plaintext_rsa_private_key_row_loads_and_upgrades() -> Result<()> {
-    let database = create_rsa_test_database().await?;
+async fn test_plaintext_rsa_private_key_row_loads_and_the_sweep_seals_it() -> Result<()> {
+    common::init_test_logging();
+    let (mut key_manager, database_key) = common::bootstrap_keys([b'p'; 32]);
+    let database = create_test_db_with_key(database_key.to_vec()).await?;
+    key_manager.complete_initialization(&database).await?;
     let repos = database.repositories();
 
     let mut jwks = JwksManager::new();
@@ -524,20 +528,38 @@ async fn test_plaintext_rsa_private_key_row_loads_and_upgrades() -> Result<()> {
         keypairs[0].1, private_pem,
         "a plaintext row must still hand back a usable private key"
     );
+    assert_eq!(
+        stored_private_key_column(&database, &kid).await.as_deref(),
+        Some(private_pem.as_str()),
+        "a read never rewrites the row; sealing it is the sweep's job"
+    );
 
-    let upgraded = stored_private_key_column(&database, &kid)
+    // One controller tick sweeps every stored secret not under the data primary.
+    let controller = KeysetController::new(
+        key_manager
+            .keyset_loader()
+            .expect("initialized key management has a loader"),
+        key_manager.kek(),
+        Vec::new(),
+        0,
+    );
+    controller
+        .tick(database.as_security_repository(), Utc::now())
+        .await?;
+
+    let sealed = stored_private_key_column(&database, &kid)
         .await
         .expect("keypair row should exist");
     assert!(
-        !upgraded.contains("-----BEGIN"),
-        "reading a plaintext row must rewrite it as ciphertext, got: {upgraded}"
+        sealed.starts_with("v1:") && !sealed.contains("-----BEGIN"),
+        "the sweep must seal a plaintext row under the data primary, got: {sealed}"
     );
 
-    // And the rewritten ciphertext decrypts to the same key.
-    let after_upgrade = repos.security.load_rsa_keypairs().await?;
+    // And the sealed row decrypts to the same key.
+    let after_sweep = repos.security.load_rsa_keypairs().await?;
     assert_eq!(
-        after_upgrade[0].1, private_pem,
-        "the rewritten row must decrypt to the original private key"
+        after_sweep[0].1, private_pem,
+        "the sealed row must decrypt to the original private key"
     );
 
     Ok(())

@@ -196,7 +196,8 @@ pub mod worker_runs;
 /// Endurance user-authored `workout_templates` repository (Postgres)
 pub mod workout_templates;
 
-use super::{shared, DatabaseProvider};
+use super::shared::keyring::{Keyring, KeyringCell};
+use super::DatabaseProvider;
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use crate::repositories::system_settings::{
     impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
@@ -210,9 +211,9 @@ use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -259,17 +260,9 @@ pub fn migrations_fingerprint() -> String {
 #[derive(Clone)]
 pub struct PostgresDatabase {
     pool: Pool<Postgres>,
-    /// Active DEK used to encrypt new data; its version is `active_dek_version`.
-    encryption_key: Vec<u8>,
-    /// Version of the active DEK held in `encryption_key`. New ciphertext is
-    /// tagged with this version; legacy un-prefixed ciphertext is version 1.
-    active_dek_version: u32,
-    /// Retired DEK versions retained for decrypting older ciphertext (version -> key).
-    prior_dek_versions: HashMap<u32, Vec<u8>>,
-    /// Stable key for the refresh-token blind index (HMAC). Pinned to DEK v1 so
-    /// deterministic lookups survive DEK rotation — stored hashes cannot be
-    /// recomputed (the plaintext token is never retained).
-    blind_index_key: Vec<u8>,
+    /// The process keyring, shared by every clone of this handle: one
+    /// install reaches every repository.
+    keyring: Arc<KeyringCell>,
     /// Until when boot-time key-store reads keep queueing for a free
     /// connection (`PostgresPoolConfig::boot_wait_secs` after the pool opened)
     boot_deadline: Instant,
@@ -279,10 +272,7 @@ impl fmt::Debug for PostgresDatabase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PostgresDatabase")
             .field("pool", &self.pool)
-            .field("encryption_key", &"[REDACTED]")
-            .field("active_dek_version", &self.active_dek_version)
-            .field("prior_dek_versions", &"[REDACTED]")
-            .field("blind_index_key", &"[REDACTED]")
+            .field("keyring", &self.keyring)
             .field("boot_deadline", &self.boot_deadline)
             .finish()
     }
@@ -308,63 +298,10 @@ impl PostgresDatabase {
         self.pool.close().await;
     }
 
-    /// Update the encryption key used for token encryption/decryption
-    ///
-    /// This is called after the actual DEK is loaded from the database during
-    /// two-tier key management initialization. The database is initially created
-    /// with a temporary key, then updated with the real key once it's loaded.
-    ///
-    /// # Safety
-    /// Only call this once during startup, before any encrypted data operations.
-    pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
-        // At bootstrap the loaded key is DEK v1, which also anchors the blind index.
-        self.blind_index_key.clone_from(&new_key);
-        self.encryption_key = new_key;
-    }
-
-    /// Install a full set of DEK versions (after load-all-versions or a rotation).
-    ///
-    /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
-    /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
-    /// version 1, falling back to the active key only when v1 is itself active.
-    ///
-    /// # Safety
-    /// Call during startup or rotation while holding `&mut self`, before serving
-    /// concurrent encrypted-data operations.
-    pub fn install_dek_versions(
-        &mut self,
-        active_version: u32,
-        active_key: Vec<u8>,
-        prior_versions: HashMap<u32, Vec<u8>>,
-    ) {
-        self.blind_index_key = prior_versions
-            .get(&shared::encryption::LEGACY_DEK_VERSION)
-            .cloned()
-            .unwrap_or_else(|| active_key.clone());
-        self.active_dek_version = active_version;
-        self.prior_dek_versions = prior_versions;
-        self.encryption_key = active_key;
-    }
-
-    /// Resolve the DEK bytes for a given ciphertext version.
-    ///
-    /// Returns the active DEK for the active version, a retained prior DEK for an
-    /// older version, or an error if no key for that version is held.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no DEK is available for `version`.
-    fn dek_key_for_version(&self, version: u32) -> AppResult<&[u8]> {
-        if version == self.active_dek_version {
-            Ok(&self.encryption_key)
-        } else if let Some(key) = self.prior_dek_versions.get(&version) {
-            Ok(key)
-        } else {
-            Err(AppError::database(format!(
-                "No DEK available for ciphertext version {version} (active version is {})",
-                self.active_dek_version
-            )))
-        }
+    /// The process keyring this handle shares with every clone of it.
+    #[must_use]
+    pub const fn keyring(&self) -> &Arc<KeyringCell> {
+        &self.keyring
     }
 }
 
@@ -396,10 +333,7 @@ impl PostgresDatabase {
 
         let db = Self {
             pool,
-            blind_index_key: encryption_key.clone(),
-            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
-            prior_dek_versions: HashMap::new(),
-            encryption_key,
+            keyring: KeyringCell::new(Keyring::single(encryption_key)),
             boot_deadline,
         };
 
