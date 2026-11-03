@@ -45,6 +45,10 @@ pub const AWAITING_LINK_DAYS: i64 = 14;
 
 /// The sources an athlete may import today, in the order their screens list
 /// them: the Strava export, then the Garmin Connect export (carnet#1337).
+// LIMITATION(registre#1268): barrage's Garmin export readers for HRV status,
+// blood pressure, sleep SpO2, activity power, multisport legs and multi-part
+// exports are unchecked against a real export. The one real export imported
+// (carnet#1231) held none of those, so a Garmin import may leave them absent.
 pub const OFFERED_SOURCES: &[SourceKey] = &[SourceKey::StravaArchive, SourceKey::GarminArchive];
 
 /// One import as the athlete's screens read it. The link is never part of it.
