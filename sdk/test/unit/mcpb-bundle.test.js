@@ -75,6 +75,16 @@ describe('Claude Desktop bundle manifest', () => {
     expect(manifest.server.mcp_config.env).toBeUndefined();
   });
 
+  test('names no third-party fitness provider anywhere in its listing', () => {
+    // Wire values: the providers Dravr integrates. The listing Claude Desktop shows (and a
+    // directory would publish) speaks of Dravr only; which providers a deployment offers is
+    // the server's answer after sign-in, never the bundle's text.
+    const providers = ['strava', 'garmin', 'whoop', 'intervals', 'wahoo', 'coros', 'polar', 'suunto', 'fitbit', 'oura', 'trainingpeaks'];
+    const listing = JSON.stringify(manifest).toLowerCase();
+
+    expect(providers.filter((name) => listing.includes(name))).toEqual([]);
+  });
+
   test('lists a privacy policy, which the Claude directory requires of a local connector', () => {
     // Wire value: the published policy page the directory links to users.
     expect(manifest.privacy_policies).toEqual(['https://dravr.ai/privacy']);

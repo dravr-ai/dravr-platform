@@ -3,8 +3,8 @@
   "manifest_version": "0.4",
   "name": "dravr",
   "display_name": "Dravr",
-  "description": "Your training, recovery and nutrition data from Strava, Garmin, Whoop and more, analysed by Dravr.",
-  "long_description": "Connects Claude to your Dravr account. Dravr brings the activities, sleep, recovery and nutrition your providers record (Strava, Garmin, Whoop, Intervals.icu, Wahoo and more) together with training load, recovery and pattern analysis, as MCP tools Claude can call.\n\nOn first use a browser window opens to sign in to Dravr; the session is kept in your operating system's keychain. Point the extension at another Dravr server with the Server URL setting.",
+  "description": "Your training, recovery and nutrition data, analysed by Dravr.",
+  "long_description": "Connects Claude to your Dravr account. Dravr brings the activities, sleep, recovery and nutrition your connected fitness services record together with training load, recovery and pattern analysis, as MCP tools Claude can call.\n\nOn first use a browser window opens to sign in to Dravr; the session is kept in your operating system's keychain. Point the extension at another Dravr server with the Server URL setting.",
   "author": {
     "name": "dravr.ai",
     "url": "https://dravr.ai"
@@ -26,7 +26,7 @@
     }
   },
   "tools_generated": true,
-  "keywords": ["fitness", "training", "strava", "garmin", "whoop", "recovery", "nutrition"],
+  "keywords": ["fitness", "training", "recovery", "nutrition", "sleep"],
   "license": "MIT",
   "privacy_policies": ["https://dravr.ai/privacy"],
   "compatibility": {
