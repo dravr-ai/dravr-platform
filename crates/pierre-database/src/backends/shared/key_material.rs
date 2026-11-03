@@ -45,7 +45,6 @@ use super::encryption::{
 };
 use super::keyring::SealDomain;
 use crate::repositories::tenants::tenant_oauth_aad;
-use crate::repositories::user_oauth_tokens::strava_pool_app_aad;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -321,6 +320,12 @@ impl StoredSecretKind {
         Self::LlmApiKey,
     ];
 
+    /// The seal domain of a value stored in this column.
+    #[must_use]
+    pub const fn domain(self) -> SealDomain {
+        SealDomain::Stored(self)
+    }
+
     /// The AAD one stored row of this kind is sealed under, from that row's
     /// own columns as the sweep selects them: its key and up to three parts
     /// (see [`crate::repositories::security::SealedRow`]).
@@ -364,6 +369,12 @@ impl StoredSecretKind {
             )),
         }
     }
+}
+
+/// The AAD a Strava pool app's client secret is bound to.
+#[must_use]
+pub fn strava_pool_app_aad(client_id: &str) -> String {
+    format!("strava_oauth_app_pool|{client_id}")
 }
 
 /// The AAD a `user_llm_credentials` key is sealed under: a tenant default
