@@ -2428,6 +2428,7 @@
       "chatHeading": "Fragen zu dieser Aktivität",
       "askPlaceholder": "Stell deine eigene Frage…",
       "askAbout": "Zu meiner Aktivität „{{name}}“ vom {{date}}: {{question}}",
+      "localTime": "{{time}} Ortszeit",
       "splits": "Zwischenzeiten",
       "laps": "Runden",
       "figure": {

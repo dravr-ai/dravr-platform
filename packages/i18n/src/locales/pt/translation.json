@@ -2428,6 +2428,7 @@
       "chatHeading": "Pergunta sobre esta atividade",
       "askPlaceholder": "Faz a tua própria pergunta…",
       "askAbout": "Sobre a minha atividade «{{name}}» de {{date}}: {{question}}",
+      "localTime": "{{time}} hora local",
       "splits": "Parciais",
       "laps": "Voltas",
       "figure": {
