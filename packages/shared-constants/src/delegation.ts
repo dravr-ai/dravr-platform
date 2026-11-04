@@ -110,6 +110,23 @@ export function delegationRefusalKey(reason: unknown): string {
   return isDelegationRefusal(reason) ? DELEGATION_REFUSAL_KEY[reason] : DELEGATION_ACTION_FAILED_KEY;
 }
 
+/**
+ * The corpus key a refusal reads as for the coach who links roster athletes,
+ * where the shared one addresses the member or stops short of what the coach
+ * can do: an athlete the roster lists with no email is reached once they
+ * connect the platform themselves, and one who already does needs no link.
+ */
+export const DELEGATION_COACH_REFUSAL_KEY: Partial<Record<DelegationRefusalReason, string>> = {
+  athlete_email_missing: 'delegation.athleteEmailMissingNextStep',
+  own_connection: 'delegation.athleteConnectsThemselves',
+};
+
+/** The corpus key a refusal reads as for the coach: theirs where it differs, else the shared one. */
+export function coachDelegationRefusalKey(reason: unknown): string {
+  const coachKey = isDelegationRefusal(reason) ? DELEGATION_COACH_REFUSAL_KEY[reason] : undefined;
+  return coachKey ?? delegationRefusalKey(reason);
+}
+
 // ============================================================================
 // What a member lets their coach do beyond the read
 // ============================================================================

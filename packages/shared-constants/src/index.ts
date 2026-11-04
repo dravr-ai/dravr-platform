@@ -278,6 +278,7 @@ export {
   DELEGATION_CONNECTION_REFUSALS,
   isDelegationRefusal,
   delegationRefusalKey,
+  coachDelegationRefusalKey,
   DELEGATION_CONSENT_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   WELLNESS_READ_SKIP_KEYS,

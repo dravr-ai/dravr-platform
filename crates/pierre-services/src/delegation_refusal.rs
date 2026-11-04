@@ -67,7 +67,9 @@ pub enum Refusal {
     AlreadyProposed,
     /// The athlete is already linked, in this group or another the coach coaches.
     AthleteAlreadyLinked,
-    /// The member reads the platform through a login of their own.
+    /// The member reads the platform through a login of their own: when
+    /// confirming, or, when proposed, through a session of their own that
+    /// carries the roster athlete's id.
     OwnConnection,
 }
 
@@ -132,7 +134,8 @@ impl Refusal {
             ),
             Self::AthleteEmailMissing => format!(
                 "{brand} shares no email for this athlete, so the link cannot be matched to \
-                 the member"
+                 the member. Once the athlete connects {brand} themselves in Dravr, no link is \
+                 needed: their coach reaches their calendar through the coach's own account"
             ),
             Self::AthleteEmailMismatch => {
                 format!("This athlete's {brand} email is not the member's verified Dravr email")
@@ -145,9 +148,10 @@ impl Refusal {
                 format!("This member already has a {brand} link in this group")
             }
             Self::AthleteAlreadyLinked => format!("This {brand} athlete is already linked"),
-            Self::OwnConnection => {
-                format!("You already connect {brand} with your own account")
-            }
+            Self::OwnConnection => format!(
+                "The member already connects {brand} with an account of their own, so no link \
+                 is needed"
+            ),
         }
     }
 

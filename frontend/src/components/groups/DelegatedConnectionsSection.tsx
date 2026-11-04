@@ -16,6 +16,7 @@ import {
   DELEGATION_CONNECTION_REFUSALS,
   DELEGATION_CONSENT_KEYS,
   QUERY_KEYS,
+  coachDelegationRefusalKey,
   coachPlatformName,
   confirmConsents,
   consentNoteKey,
@@ -88,13 +89,17 @@ export default function DelegatedConnectionsSection({
   );
 }
 
-/** Words a failed step from its refusal reason, naming the platform it is about, as a toast. */
-function useRefusalToast() {
+/**
+ * Words a failed step from its refusal reason, naming the platform it is
+ * about, as a toast; `keyOf` picks the words for who reads them, the coach or
+ * the member.
+ */
+function useRefusalToast(keyOf: (reason: unknown) => string) {
   const { t } = useTranslation();
   const showError = useErrorToast();
   return (err: unknown) => {
     const platform = coachPlatformName(refusalProvider(err));
-    showError(t(delegationRefusalKey(refusalReason(err)), { platform }));
+    showError(t(keyOf(refusalReason(err)), { platform }));
   };
 }
 
@@ -111,7 +116,7 @@ function CoachLinks({
   const { t } = useTranslation();
   const { athletes, provider, isLoading, isError, error } = useDelegationRoster(groupId, true);
   const { refreshRoster, isPending: isRefreshing } = useRefreshDelegationRoster(groupId);
-  const showRefusal = useRefusalToast();
+  const showRefusal = useRefusalToast(coachDelegationRefusalKey);
 
   const linkedMemberIds = new Set(connections.map((link) => link.member_user_id));
   const reason = isError ? refusalReason(error) : undefined;
@@ -134,7 +139,7 @@ function CoachLinks({
     body = (
       <div className="space-y-1" data-testid="delegation-roster-refused">
         <p className="text-sm text-on-surface-variant">
-          {refused ? t(delegationRefusalKey(reason), { platform }) : t('delegation.rosterFailed', { platform })}
+          {refused ? t(coachDelegationRefusalKey(reason), { platform }) : t('delegation.rosterFailed', { platform })}
         </p>
         {refused && DELEGATION_CONNECTION_REFUSALS.has(reason) && onOpenConnections && (
           <Button variant="tertiary" size="sm" onClick={onOpenConnections} data-testid="delegation-open-connections">
@@ -204,7 +209,7 @@ function RosterRow({
   const { t } = useTranslation();
   const platform = coachPlatformName(provider);
   const showSuccess = useSuccessToast();
-  const showRefusal = useRefusalToast();
+  const showRefusal = useRefusalToast(coachDelegationRefusalKey);
   const { proposeLink, isPending: isProposing } = useProposeDelegatedConnection(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
   const suggested = members.some((m) => m.user_id === athlete.suggested_member_user_id)
@@ -259,7 +264,7 @@ function RosterRow({
           <div className="mt-1 flex items-center justify-between gap-3">
             {link.read_refused ? (
               <StatusLine tone="warning" testId={`delegation-read-refused-${link.id}`}>
-                {t(delegationRefusalKey(link.read_refused), { platform })}
+                {t(coachDelegationRefusalKey(link.read_refused), { platform })}
               </StatusLine>
             ) : (
               <StatusLine tone="success">{t('delegation.linkedTo', { member: linkedName })}</StatusLine>
@@ -367,7 +372,7 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   const { t } = useTranslation();
   const platform = coachPlatformName(link.provider);
   const showSuccess = useSuccessToast();
-  const showRefusal = useRefusalToast();
+  const showRefusal = useRefusalToast(delegationRefusalKey);
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
   const [confirmUnlink, setConfirmUnlink] = useState(false);

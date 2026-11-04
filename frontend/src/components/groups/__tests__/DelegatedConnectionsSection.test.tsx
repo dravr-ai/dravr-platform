@@ -357,10 +357,65 @@ describe('DelegatedConnectionsSection — coach', () => {
     renderSection();
 
     expect(await screen.findByTestId('delegation-read-refused-dc-1')).toHaveTextContent(
-      'TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member.',
+      'TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member. Once they ' +
+        'connect TrainingPeaks themselves in Dravr, you reach their calendar through your own account, with no ' +
+        'link needed.',
     );
     expect(screen.queryByText(/Linked to/)).toBeNull();
     expect(screen.getByTestId('delegation-unlink-dc-1')).toBeInTheDocument();
+  });
+
+  it('words a propose refused for a missing roster email with what unblocks it', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        { provider_athlete_id: 'i201', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    vi.mocked(groupsApi.proposeDelegatedConnection).mockRejectedValue(
+      refusal(400, 'athlete_email_missing', 'intervals_icu'),
+    );
+    const user = userEvent.setup();
+    renderSection();
+
+    const row = await screen.findByTestId('delegation-roster-row-i201');
+    await user.selectOptions(within(row).getByTestId('delegation-member-select-i201'), 'user-alex');
+    await user.click(within(row).getByTestId('delegation-propose-i201'));
+
+    expect(
+      await screen.findByText(
+        'Intervals.icu shares no email for this athlete, so Dravr cannot match them to a member. Once they ' +
+          'connect Intervals.icu themselves in Dravr, you reach their calendar through your own account, with no ' +
+          'link needed.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('English for an API caller')).toBeNull();
+  });
+
+  it('tells the coach an athlete who connects the platform themselves needs no link', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        { provider_athlete_id: 'i201', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    vi.mocked(groupsApi.proposeDelegatedConnection).mockRejectedValue(
+      refusal(409, 'own_connection', 'intervals_icu'),
+    );
+    const user = userEvent.setup();
+    renderSection();
+
+    const row = await screen.findByTestId('delegation-roster-row-i201');
+    await user.selectOptions(within(row).getByTestId('delegation-member-select-i201'), 'user-alex');
+    await user.click(within(row).getByTestId('delegation-propose-i201'));
+
+    expect(
+      await screen.findByText(
+        'This athlete connects Intervals.icu themselves in Dravr, so there is nothing to link: you reach their ' +
+          'calendar through your own account.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/You already connect/)).toBeNull();
   });
 
   it('says the platform gives the coach no access to an athlete they tried to link', async () => {

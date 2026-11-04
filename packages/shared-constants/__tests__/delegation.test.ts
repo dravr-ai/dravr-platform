@@ -9,12 +9,14 @@ import en from '../../i18n/src/locales/en/translation.json';
 import {
   COACH_CALENDAR_PLATFORM,
   COACH_CONSENTS_KEYS,
+  DELEGATION_COACH_REFUSAL_KEY,
   DELEGATION_CONSENT_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   DELEGATION_REFUSAL_KEY,
   DELEGATION_CONNECTION_REFUSALS,
   DELEGATION_REVOKE_CONFIRM_KEYS,
   WELLNESS_READ_SKIP_KEYS,
+  coachDelegationRefusalKey,
   coachPlatformName,
   confirmConsents,
   consentChangeConfirm,
@@ -49,6 +51,25 @@ describe('delegation refusal vocabulary', () => {
     expect(lookup(delegationRefusalKey('already_linked'))).toBe(
       'Your {{platform}} is already linked through another group.',
     );
+  });
+
+  it('words for the coach the way forward the shared copy leaves out', () => {
+    expect(lookup(coachDelegationRefusalKey('athlete_email_missing'))).toBe(
+      '{{platform}} shares no email for this athlete, so Dravr cannot match them to a member. ' +
+        'Once they connect {{platform}} themselves in Dravr, you reach their calendar through ' +
+        'your own account, with no link needed.',
+    );
+    expect(lookup(coachDelegationRefusalKey('own_connection'))).toBe(
+      'This athlete connects {{platform}} themselves in Dravr, so there is nothing to link: ' +
+        'you reach their calendar through your own account.',
+    );
+    for (const reason of Object.keys(DELEGATION_REFUSAL_KEY)) {
+      if (Object.prototype.hasOwnProperty.call(DELEGATION_COACH_REFUSAL_KEY, reason)) continue;
+      expect(coachDelegationRefusalKey(reason), reason).toBe(delegationRefusalKey(reason));
+    }
+    for (const unknown of ['session_expired', undefined, 'toString', '__proto__']) {
+      expect(coachDelegationRefusalKey(unknown), String(unknown)).toBe('delegation.actionFailed');
+    }
   });
 
   it('reads an unknown or missing reason as the generic failure', () => {

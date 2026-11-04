@@ -138,8 +138,8 @@ fn state_refusal(state: &LinkState, name: &str, brand: &str) -> Option<ProviderR
         LinkState::MemberOwnConnection { .. } => refused(
             Refusal::OwnConnection.as_str(),
             format!(
-                "{name} connects {brand} with an account of their own, so a link through yours \
-                 is refused while they do."
+                "{name} connects {brand} with an account of their own, so there is nothing to \
+                 link: you reach their calendar through your own account."
             ),
         ),
         LinkState::MemberNotSharing { .. } => refused(
@@ -278,12 +278,15 @@ fn choose<'a>(
     }
     if !read.is_empty() {
         let brands: Vec<&str> = read.iter().map(|p| p.brand()).collect();
+        let brands = brands.join(" or ");
         return Err(refused(
             "no_roster_match",
             format!(
-                "No athlete on your {} roster has {name}'s verified Dravr email: the email your \
-                 platform lists for them must be the one they verified on Dravr.",
-                brands.join(" or ")
+                "No athlete on your {brands} roster has {name}'s verified Dravr email: the email \
+                 your platform lists for them must be the one they verified on Dravr. If your \
+                 platform lists no email for them, a link cannot be made: once they connect \
+                 {brands} themselves in Dravr, you reach their calendar through your own \
+                 account, with no link needed."
             ),
         ));
     }

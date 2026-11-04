@@ -9,7 +9,7 @@ import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { DelegatedConnection, GroupMember } from '@pierre/shared-types';
-import { DELEGATION_REFUSAL_KEY } from '@pierre/shared-constants';
+import { DELEGATION_REFUSAL_KEY, coachDelegationRefusalKey } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 
 const mockPropose = jest.fn();
@@ -182,12 +182,13 @@ describe('DelegatedConnectionsSection', () => {
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Error', 'This athlete is already linked.'));
   });
 
-  it('maps every refusal reason to a sentence of its own, never the server text', async () => {
+  it('maps every refusal reason to a sentence of its own for the coach, never the server text', async () => {
     const en = i18n.getFixedT('en');
-    for (const [reason, key] of Object.entries(DELEGATION_REFUSAL_KEY)) {
+    for (const reason of Object.keys(DELEGATION_REFUSAL_KEY)) {
       mockRoster.mockRejectedValueOnce(refusal(reason));
       const view = renderSection({ onOpenConnections: jest.fn() });
       const refused = await view.findByTestId('delegation-roster-refused');
+      const key = coachDelegationRefusalKey(reason);
       expect(refused).toHaveTextContent(en(key, { platform: 'TrainingPeaks' }), { exact: false });
       expect(refused).not.toHaveTextContent(/English for an API caller/);
       view.unmount();
@@ -284,10 +285,37 @@ describe('DelegatedConnectionsSection', () => {
 
     const row = await findByTestId('delegation-roster-row-900001');
     expect(row).toHaveTextContent(
-      /TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member\./,
+      'TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member. Once they ' +
+        'connect TrainingPeaks themselves in Dravr, you reach their calendar through your own account, with no ' +
+        'link needed.',
+      { exact: false },
     );
     expect(row).not.toHaveTextContent(/Linked to/);
     expect(getByTestId('delegation-unlink-dc-1')).toBeTruthy();
+  });
+
+  it('tells the coach an athlete who connects the platform themselves needs no link', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        { provider_athlete_id: 'i201', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    mockPropose.mockRejectedValue(refusal('own_connection', 'intervals_icu'));
+    const { findByTestId, getByTestId } = renderSection();
+
+    fireEvent.press(await findByTestId('delegation-propose-i201'));
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-member-option-user-alex'));
+    });
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Error',
+        'This athlete connects Intervals.icu themselves in Dravr, so there is nothing to link: you reach their ' +
+          'calendar through your own account.',
+      ),
+    );
   });
 
   it('words a propose the platform refuses for want of access, naming the platform', async () => {
