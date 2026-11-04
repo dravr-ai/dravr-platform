@@ -59,7 +59,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   const consentMutation = useMutation({
     mutationFn: (value: boolean) => userApi.updateAnalyticsConsent(value),
     onSuccess: async (_data, value) => {
-      await updateUser({ analytics_consent: value });
+      await updateUser({ analytics_consent: value, analytics_consent_answered: true });
     },
     onError: (err: unknown, value) => {
       setAnalyticsConsent(!value);

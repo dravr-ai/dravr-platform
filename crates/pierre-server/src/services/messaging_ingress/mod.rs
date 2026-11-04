@@ -15,6 +15,8 @@ mod agui;
 /// The consent-gated group transcript a room turn's prompt carries.
 mod ambient_context;
 mod connect;
+/// The one-time usage-analytics question a chat account is asked once linked (carnet#1366).
+pub(crate) mod consent_ask;
 /// Platform-asked intake: profile type then the PAR-Q+, verbatim and strictly parsed.
 mod intake;
 /// Resolves a messaging channel's `SurfaceProfile` from the canot descriptor.
@@ -546,9 +548,27 @@ async fn handle_pre_session_commands(
         otp_response
     };
 
-    reply.thread_id = thread_id;
+    reply.thread_id.clone_from(&thread_id);
     apply_conversation_recipient(&mut reply, message.conversation_id.as_deref());
-    send_channel_response(resources, tenant_id, channel, adapter, reply, None).await;
+    let mut replies = vec![(reply, None)];
+    // A reply that completed the link is followed, once, by the usage-
+    // analytics question for an account that never answered it (carnet#1366).
+    // One send keeps it after the link confirmation.
+    if let Some(mut ask) = consent_ask::consent_ask_after_link(
+        &resources.common.repos,
+        &resources.mcp.messaging_strings_registry,
+        tenant_id,
+        channel,
+        channel_type,
+        &message.sender_id,
+    )
+    .await
+    {
+        ask.thread_id = thread_id;
+        apply_conversation_recipient(&mut ask, message.conversation_id.as_deref());
+        replies.push((ask, None));
+    }
+    send_channel_responses(resources, tenant_id, channel, adapter, replies).await;
     Some(PersistOutcome::HandledNotStored)
 }
 

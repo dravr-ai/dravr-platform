@@ -278,6 +278,7 @@ async fn test_oauth_authorization_url_generation() {
 
     // Register and login user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "oauth_test@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: Some("OAuth Test User".to_owned()),

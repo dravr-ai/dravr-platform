@@ -45,6 +45,9 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     messagingChannelChosen: false,
     messagingChannelDone: false,
     messagingConfigureDone: false,
+    // Answered unless a test says otherwise, so the consent question does not
+    // intercept the journey steps the other tests exercise.
+    analyticsConsentAnswered: true,
     ...overrides,
   };
 }
@@ -705,5 +708,51 @@ describe('coach_group — the coach leaves onboarding with a group', () => {
 
   it('is done once finished or put off', () => {
     expect(currentOnboardingStep(ctx({ coachesOthers: true, coachGroupDone: true }))).toBeNull();
+  });
+});
+
+describe('analytics_consent — asked once of an account no form asked (carnet#1366)', () => {
+  const fresh = { needsProviderConnection: true, profileTypeChosen: false, coachProposalDone: false };
+
+  it('comes first for a new account that was never asked', () => {
+    expect(currentOnboardingStep(ctx({ ...fresh, analyticsConsentAnswered: false }))?.id).toBe(
+      'analytics_consent',
+    );
+  });
+
+  it('is offered once to an onboarded account that was never asked', () => {
+    expect(currentOnboardingStep(ctx({ analyticsConsentAnswered: false }))?.id).toBe(
+      'analytics_consent',
+    );
+  });
+
+  it('is never asked again once answered, yes or no', () => {
+    expect(currentOnboardingStep(ctx())).toBeNull();
+    expect(currentOnboardingStep(ctx(fresh))?.id).toBe('profile_type');
+  });
+
+  it('is not asked of an admin, who is outside the flow', () => {
+    expect(
+      currentOnboardingStep(ctx({ onboardingActive: false, analyticsConsentAnswered: false })),
+    ).toBeNull();
+  });
+
+  it('is never on the progress bar', () => {
+    for (const answered of [true, false]) {
+      expect(
+        onboardingProgress(ctx({ ...fresh, analyticsConsentAnswered: answered })).map((s) => s.id),
+      ).not.toContain('analytics_consent');
+    }
+  });
+
+  it('leaves an onboarded account reading all done while it is asked', () => {
+    const items = onboardingProgress(ctx({ analyticsConsentAnswered: false }));
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((s) => s.status === 'done')).toBe(true);
+  });
+
+  it('leaves a new account on its first stage while it is asked', () => {
+    const items = onboardingProgress(ctx({ ...fresh, analyticsConsentAnswered: false }));
+    expect(items[0]).toMatchObject({ id: 'profile_type', status: 'current' });
   });
 });

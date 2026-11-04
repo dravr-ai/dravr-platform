@@ -32,7 +32,7 @@ use pierre_core::models::{
 use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
-use crate::analytics::cache_user_email;
+use crate::analytics::{analytics, cache_user_email, hash_id};
 use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
 use crate::link_token::split_link_token;
@@ -239,6 +239,7 @@ impl AuthService {
                 request.display_name,
                 approval,
                 self_activates,
+                request.analytics_consent,
             )
             .await?;
 
@@ -282,12 +283,16 @@ impl AuthService {
     /// when an account already exists for the invited address (the invitation
     /// is spent either way); or the repository's error when the account
     /// cannot be created.
+    ///
+    /// `analytics_consent` is the form's answer to the usage-analytics opt-in,
+    /// recorded as a registration records it.
     #[tracing::instrument(skip_all, fields(route = "accept_invitation"))]
     pub async fn accept_invitation(
         &self,
         token: &str,
         password: String,
         display_name: Option<String>,
+        analytics_consent: Option<bool>,
     ) -> AppResult<RegisterResponse> {
         if !Self::is_valid_password(&password) {
             return Err(validation_error(error_messages::PASSWORD_TOO_WEAK));
@@ -317,6 +322,7 @@ impl AuthService {
                 display_name,
                 approval,
                 false,
+                analytics_consent,
             )
             .await?;
 
@@ -344,7 +350,8 @@ impl AuthService {
     /// personal tenant, and return the user and that tenant. Shared by every
     /// path that creates one: registration and an accepted invitation.
     /// `self_activates` says a proven address will activate it, so a Pending
-    /// one is not announced for review.
+    /// one is not announced for review. `analytics_consent` is the form's
+    /// answer to the usage-analytics opt-in, `None` where there was no form.
     ///
     /// # Errors
     ///
@@ -361,6 +368,7 @@ impl AuthService {
             Option<uuid::Uuid>,
         ),
         self_activates: bool,
+        analytics_consent: Option<bool>,
     ) -> AppResult<(uuid::Uuid, User, TenantId)> {
         let password_hash = Self::hash_password(password).await?;
 
@@ -368,6 +376,12 @@ impl AuthService {
         user.user_status = status;
         user.approved_at = approved_at;
         user.approved_by = approved_by;
+        // Written with the row, stamped as the consent route stamps a change,
+        // so the answer is never lost to a second write failing.
+        if let Some(enabled) = analytics_consent {
+            user.analytics_consent = enabled;
+            user.analytics_consent_at = Some(Utc::now());
+        }
 
         // Propagated, not re-wrapped: `create` is insert-only now and reports a
         // duplicate email as `invalid_input`. Wrapping it in `AppError::database`
@@ -375,6 +389,12 @@ impl AuthService {
         // "that address is taken" — arrived as a server fault. The bare `?` is
         // what the Firebase-link branch below already does.
         let user_id = self.data.repos().users.create(&user).await?;
+
+        // The account's first events (its sign-in, its first provider) are
+        // gated on this cache, so it is warm before any of them fire.
+        if let Some(enabled) = analytics_consent {
+            analytics().set_consent(&hash_id(&user_id.to_string()), enabled);
+        }
 
         // Create a personal tenant for the user (required for MCP operations)
         let tenant_name = user
@@ -1078,6 +1098,7 @@ impl AuthService {
             coaching_persona: user.coaching_persona.as_str().to_owned(),
             manages_roster: user.manages_roster,
             analytics_consent: user.analytics_consent,
+            analytics_consent_answered: user.analytics_consent_at.is_some(),
         }
     }
 

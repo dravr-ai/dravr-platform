@@ -634,6 +634,17 @@ pub const KEY_PRIVACY_STATUS_DISABLED: &str = "commands.privacy.status.disabled"
 pub const KEY_PRIVACY_ON_CONFIRMATION: &str = "commands.privacy.on_confirmation";
 /// Key: `/privacy off` confirmation message.
 pub const KEY_PRIVACY_OFF_CONFIRMATION: &str = "commands.privacy.off_confirmation";
+/// Key: title of the one-time usage-analytics question a chat account is
+/// asked when its link completes (carnet#1366).
+pub const KEY_PRIVACY_CONSENT_ASK_TITLE: &str = "commands.privacy.consent_ask_title";
+/// Key: body of that question. `{0}` = the privacy policy's usage-analytics
+/// section.
+pub const KEY_PRIVACY_CONSENT_ASK_BODY: &str = "commands.privacy.consent_ask_body";
+/// Key: its accept button, which runs `/privacy on`. Short: `WhatsApp` cuts a
+/// reply button at 20 characters.
+pub const KEY_PRIVACY_CONSENT_ASK_ACCEPT: &str = "commands.privacy.consent_ask_accept";
+/// Key: its decline button, which runs `/privacy off`.
+pub const KEY_PRIVACY_CONSENT_ASK_DECLINE: &str = "commands.privacy.consent_ask_decline";
 
 // ── /deleteaccount command keys ───────────────────────────────────────────
 

@@ -49,7 +49,12 @@ pub(crate) async fn handle_accept_invitation(
     );
 
     match auth_service
-        .accept_invitation(&request.token, request.password, request.display_name)
+        .accept_invitation(
+            &request.token,
+            request.password,
+            request.display_name,
+            request.analytics_consent,
+        )
         .await
     {
         Ok(response) => {

@@ -15,8 +15,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// User registration request
-///
-/// LIMITATION(registre#1366): `RegisterRequest` carries no `analytics_consent`, so signup never asks for it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegisterRequest {
     /// User's email address
@@ -25,6 +23,13 @@ pub struct RegisterRequest {
     pub password: SecretString,
     /// Optional display name for the user
     pub display_name: Option<String>,
+    /// The answer to the sign-up form's usage-analytics opt-in, recorded with
+    /// its time as `PUT /api/user/analytics-consent` records it. `None` is a
+    /// door that does not ask (the messaging link page, in-chat sign-up): the
+    /// account stays unasked, and the chat or onboarding asks instead
+    /// (carnet#1366).
+    #[serde(default)]
+    pub analytics_consent: Option<bool>,
 }
 
 /// What a new account waits on before it can be used.
@@ -245,6 +250,10 @@ pub struct UserInfo {
     /// mobile clients start their analytics SDK only when this is true, so
     /// every response that hands a client its user must carry it.
     pub analytics_consent: bool,
+    /// Whether the user has answered the analytics question at all, yes or
+    /// no. `false` means never asked, and the clients ask once in onboarding
+    /// (carnet#1366); `analytics_consent` alone cannot tell a "no" from that.
+    pub analytics_consent_answered: bool,
 }
 
 /// The live tombstone a deleted account left on this account's email.
@@ -375,6 +384,10 @@ pub struct AcceptInvitationRequest {
     pub password: String,
     /// Optional display name for the account
     pub display_name: Option<String>,
+    /// The answer to the form's usage-analytics opt-in, as on
+    /// [`RegisterRequest::analytics_consent`]
+    #[serde(default)]
+    pub analytics_consent: Option<bool>,
 }
 
 impl fmt::Debug for AcceptInvitationRequest {
@@ -383,6 +396,7 @@ impl fmt::Debug for AcceptInvitationRequest {
             .field("token", &"[REDACTED]")
             .field("password", &"[REDACTED]")
             .field("display_name", &self.display_name)
+            .field("analytics_consent", &self.analytics_consent)
             .finish()
     }
 }

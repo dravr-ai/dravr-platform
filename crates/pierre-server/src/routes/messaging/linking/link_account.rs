@@ -165,6 +165,8 @@ async fn register_user(
             email: form.email.clone(),
             password: form.password.clone(),
             display_name,
+            // The link page does not ask; the chat asks once linked.
+            analytics_consent: None,
         })
         .await
         .map_err(|e| registration_refusal(&e))?;

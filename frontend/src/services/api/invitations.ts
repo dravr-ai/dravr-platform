@@ -18,11 +18,13 @@ export const invitationsApi = {
     token: string,
     password: string,
     displayName?: string,
+    analyticsConsent?: boolean,
   ): Promise<RegisterResponse> {
     const response = await axios.post<RegisterResponse>('/api/auth/accept-invitation', {
       token,
       password,
       display_name: displayName || null,
+      ...(analyticsConsent === undefined ? {} : { analytics_consent: analyticsConsent }),
     });
     return response.data;
   },

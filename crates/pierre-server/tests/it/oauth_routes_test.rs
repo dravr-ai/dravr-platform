@@ -183,6 +183,7 @@ async fn test_email_validation() {
 
     for email in valid_emails {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: email.to_owned(),
             password: SecretString::from("password123"),
             display_name: None,
@@ -212,6 +213,7 @@ async fn test_email_validation() {
 
     for email in invalid_emails {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: email.to_owned(),
             password: SecretString::from("password123"),
             display_name: None,
@@ -370,6 +372,7 @@ async fn test_password_validation() {
 
     // Test short password
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".to_owned(),
         password: SecretString::from("short"),
         display_name: None,
@@ -384,6 +387,7 @@ async fn test_password_validation() {
 
     // Test valid password
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test2@example.com".to_owned(),
         password: SecretString::from("validpassword123"),
         display_name: None,
@@ -536,6 +540,7 @@ async fn test_duplicate_user_registration() {
     );
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "duplicate@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: Some("Test User".to_owned()),
@@ -695,6 +700,7 @@ async fn test_login_with_correct_credentials() {
 
     // Register user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "login_test@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: Some("Login Test".to_owned()),
@@ -909,6 +915,7 @@ async fn test_login_with_wrong_password() {
 
     // Register user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "wrong_pass@example.com".to_owned(),
         password: SecretString::from("correctpassword"),
         display_name: None,

@@ -33,7 +33,7 @@ use pierre_auth::oauth2_server::first_party::WEB_CLIENT_ID;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
-use pierre_core::models::UserStatus;
+use pierre_core::models::{User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::signup_codes::{self, MintRequest};
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate};
@@ -497,4 +497,109 @@ async fn a_third_party_client_gets_no_code() {
     assert_eq!(status, 201, "{body}");
     assert_eq!(body["activation"], "active", "{body}");
     assert_no_code(&body);
+}
+
+// ── The usage-analytics answer the form carries (carnet#1366) ─────────────────
+
+async fn user_of(resources: &ServerContext, email: &str) -> User {
+    resources
+        .common
+        .repos
+        .users
+        .get_by_email(email)
+        .await
+        .unwrap()
+        .expect("the account was created")
+}
+
+/// A ticked box is stored with the account and its time, and the session the
+/// code buys says the question is answered, so onboarding does not ask again.
+#[tokio::test]
+async fn a_yes_on_the_form_is_stored_and_the_session_reads_it_answered() {
+    let resources = setup().await;
+    let email = preapproved(&resources).await;
+    let pkce = Pkce::generate();
+
+    let (status, body) = register(
+        &resources,
+        &email,
+        json!({
+            "analytics_consent": true,
+            "sign_in": sign_in_for(&resources, FirstPartyClient::Web, &pkce),
+        }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+
+    let user = user_of(&resources, &email).await;
+    assert!(user.analytics_consent);
+    assert!(
+        user.analytics_consent_at.is_some(),
+        "the answer carries its time"
+    );
+
+    let response = redeem_as(
+        &resources,
+        FirstPartyClient::Web,
+        &code_of(&body),
+        &pkce.verifier,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+    let session: Value = response.json();
+    assert_eq!(session["user"]["analytics_consent"], true, "{session}");
+    assert_eq!(
+        session["user"]["analytics_consent_answered"], true,
+        "{session}"
+    );
+}
+
+/// An unticked box is a "no": stored with its time, never asked again.
+#[tokio::test]
+async fn a_no_on_the_form_is_stored_as_an_answer() {
+    let resources = setup().await;
+    let email = unique_email();
+
+    let (status, body) = register(&resources, &email, json!({ "analytics_consent": false })).await;
+    assert_eq!(status, 201, "{body}");
+
+    let user = user_of(&resources, &email).await;
+    assert!(!user.analytics_consent);
+    assert!(user.analytics_consent_at.is_some(), "a no is an answer too");
+}
+
+/// A door that does not ask leaves the account unasked, which is what sends
+/// it to the onboarding question.
+#[tokio::test]
+async fn a_registration_without_the_question_leaves_the_account_unasked() {
+    let resources = setup().await;
+    let email = preapproved(&resources).await;
+    let pkce = Pkce::generate();
+
+    let (status, body) = register_signing_in(
+        &resources,
+        &email,
+        sign_in_for(&resources, FirstPartyClient::Web, &pkce),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+
+    let user = user_of(&resources, &email).await;
+    assert!(!user.analytics_consent);
+    assert!(user.analytics_consent_at.is_none());
+
+    let response = redeem_as(
+        &resources,
+        FirstPartyClient::Web,
+        &code_of(&body),
+        &pkce.verifier,
+        None,
+    )
+    .await;
+    let session: Value = response.json();
+    assert_eq!(
+        session["user"]["analytics_consent_answered"], false,
+        "{session}"
+    );
 }

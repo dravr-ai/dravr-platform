@@ -30,7 +30,7 @@ export default function PrivacySettingsTab() {
     onSuccess: (data, consent) => {
       // The session's user is what App boots and stops analytics on: a grant
       // starts PostHog now, a revoke stops it now, not at the next sign-in.
-      updateUser({ analytics_consent: consent });
+      updateUser({ analytics_consent: consent, analytics_consent_answered: true });
       setMessage({ type: 'success', text: data.message });
       setTimeout(() => setMessage(null), 3000);
     },

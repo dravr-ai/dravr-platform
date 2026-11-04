@@ -116,5 +116,9 @@ pub(crate) async fn create_account(
         .seeder
         .seed_update_user_tenant(user_id, tenant_id)
         .await?;
+    // The sign-up form always sends its usage-analytics answer, unticked by
+    // default; without one the account would meet the onboarding question
+    // that only an unasked account gets (carnet#1366).
+    repos.users.update_analytics_consent(user_id, false).await?;
     Ok(user_id)
 }

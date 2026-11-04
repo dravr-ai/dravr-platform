@@ -142,6 +142,12 @@ export interface RegisterCredentials extends SignupAttribution {
    */
   signup_code?: string;
   /**
+   * The answer to the form's usage-analytics opt-in: its own unticked box,
+   * never bundled with anything else (Law 25 s. 14). Recorded with its time,
+   * so onboarding does not ask again (carnet#1366).
+   */
+  analytics_consent?: boolean;
+  /**
    * Asks for an authorization code when the account is active at once, so
    * the athlete is signed straight in. Prepared fresh for every submit by
    * `prepareRegistrationSignIn`.

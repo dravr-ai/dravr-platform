@@ -66,6 +66,8 @@ initI18n({ persistLocale, catalogue: embeddedCatalogue, fetchBundle: i18nApi.bun
 /** Map an onboarding step id to its `(onboarding)` route (literals for typed routes). */
 function routeForStep(id: OnboardingStepId) {
   switch (id) {
+    case 'analytics_consent':
+      return '/(onboarding)/analytics-consent' as const;
     case 'profile_type':
       return '/(onboarding)/profile-type' as const;
     case 'about_you':

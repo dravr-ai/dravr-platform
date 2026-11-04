@@ -108,6 +108,7 @@ export {
   settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
+  ANALYTICS_POLICY_URL,
   SITE_URL,
   APP_VERSION,
 } from './surfaces';

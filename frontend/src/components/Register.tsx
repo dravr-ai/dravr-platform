@@ -1,4 +1,4 @@
-// ABOUTME: User registration page for new account creation
+// ABOUTME: User registration page for new account creation, with its own unticked usage-analytics opt-in (carnet#1366)
 // ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed; takes an optional signup code
 // ABOUTME: An account active at once comes back with a sign-in code the form redeems, so the athlete lands signed in (carnet#1147)
 //
@@ -16,6 +16,7 @@ import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { TurnstileWidget, type TurnstileWidgetHandle } from './TurnstileWidget';
+import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 import { DravrLogo } from './DravrLogo';
@@ -57,6 +58,9 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
   // none, so the field stays behind a link unless the link carried one.
   const [signupCode, setSignupCode] = useState(initialSignupCode ?? '');
   const [showSignupCode, setShowSignupCode] = useState(Boolean(initialSignupCode));
+  // Unticked until the person ticks it: sent either way, so the account
+  // arrives answered and onboarding does not ask again (carnet#1366).
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
 
   // Whether sign-up is open and which bot check to render. A server that does
@@ -99,6 +103,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
         password,
         display_name: displayName || undefined,
         turnstile_token: turnstileToken ?? undefined,
+        analytics_consent: analyticsConsent,
         ...(trimmedCode ? { signup_code: trimmedCode } : {}),
         ...(signIn ? { sign_in: signIn.request } : {}),
         ...attribution,
@@ -276,6 +281,8 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
                   {t('auth.haveSignupCode')}
                 </button>
               )}
+
+              <AnalyticsConsentOptIn checked={analyticsConsent} onChange={setAnalyticsConsent} />
 
               {turnstileSiteKey && (
                 <TurnstileWidget

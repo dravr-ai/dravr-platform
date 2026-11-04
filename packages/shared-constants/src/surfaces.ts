@@ -480,6 +480,13 @@ export const HELP_URL = 'https://dravr.ai/docs';
 export const LEGAL_URL = 'https://dravr.ai/privacy';
 
 /**
+ * The privacy policy's section that describes usage analytics, linked beside
+ * every place the app asks for that consent (carnet#1366): the policy has no
+ * anchor of its own for the paragraph, so this is the section holding it.
+ */
+export const ANALYTICS_POLICY_URL = `${LEGAL_URL}#what-we-do-with-it`;
+
+/**
  * The marketing site the brand lockups and the sign-in page's website link
  * open. Same reasoning as the two above: one address, read by every placement.
  */

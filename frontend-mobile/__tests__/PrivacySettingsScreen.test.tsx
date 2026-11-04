@@ -89,7 +89,7 @@ describe('PrivacySettingsScreen — analytics consent', () => {
       expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(true);
     });
     await waitFor(() => {
-      expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: true });
+      expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: true, analytics_consent_answered: true });
     });
     expect(getByTestId('analytics-consent-switch').props.value).toBe(true);
   });

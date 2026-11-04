@@ -56,6 +56,8 @@ interface AuthContextType {
     displayName?: string,
     turnstileToken?: string,
     signupCode?: string,
+    /** The form's usage-analytics opt-in, sent either way (carnet#1366). */
+    analyticsConsent?: boolean,
   ) => Promise<RegistrationOutcome>;
   updateUser: (patch: Partial<User>) => Promise<void>;
   /**
@@ -249,6 +251,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     displayName?: string,
     turnstileToken?: string,
     signupCode?: string,
+    analyticsConsent?: boolean,
   ): Promise<RegistrationOutcome> => {
     // A fresh PKCE pair and state for every submit (a state is spent once),
     // on the callback the hosted sign-in uses. Without one the registration
@@ -269,6 +272,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       password,
       display_name: displayName,
       turnstile_token: turnstileToken,
+      ...(analyticsConsent === undefined ? {} : { analytics_consent: analyticsConsent }),
       ...(signupCode ? { signup_code: signupCode } : {}),
       ...(prepared ? { sign_in: prepared.request } : {}),
     });

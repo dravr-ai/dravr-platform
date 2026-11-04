@@ -898,6 +898,8 @@ async fn create_chat_originated_user(
             email: email.to_owned(),
             password: SecretString::from(unusable),
             display_name: None,
+            // Asked in the conversation once the account is linked.
+            analytics_consent: None,
         })
         .await
         .map_err(|e| {

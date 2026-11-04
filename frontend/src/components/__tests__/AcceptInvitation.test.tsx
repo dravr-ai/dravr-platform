@@ -63,7 +63,12 @@ describe('AcceptInvitation', () => {
     await fillAndSubmit('StrongPass1', 'StrongPass1', 'Coach Phil');
 
     await waitFor(() =>
-      expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(TOKEN, 'StrongPass1', 'Coach Phil'),
+      expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(
+        TOKEN,
+        'StrongPass1',
+        'Coach Phil',
+        false,
+      ),
     );
     expect(await screen.findByRole('heading', { name: 'Account created' })).toBeTruthy();
     // The invitee never typed the address: it is named before they sign in with it.
@@ -87,7 +92,36 @@ describe('AcceptInvitation', () => {
     await fillAndSubmit('StrongPass1', 'StrongPass1');
 
     await waitFor(() =>
-      expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(TOKEN, 'StrongPass1', undefined),
+      expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(
+        TOKEN,
+        'StrongPass1',
+        undefined,
+        false,
+      ),
+    );
+  });
+
+  it('asks for usage-analytics consent with its own unticked box, and sends a yes once ticked', async () => {
+    vi.mocked(invitationsApi.acceptInvitation).mockResolvedValue({
+      user_id: 'user-3',
+      email: 'athlete@example.com',
+      user_status: 'active',
+      message: 'Your account is ready.',
+    });
+    renderPage();
+
+    const box = screen.getByRole('checkbox', { name: /Help improve Dravr with usage analytics/ });
+    expect(box).not.toBeChecked();
+    await userEvent.setup().click(box);
+    await fillAndSubmit('StrongPass1', 'StrongPass1');
+
+    await waitFor(() =>
+      expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(
+        TOKEN,
+        'StrongPass1',
+        undefined,
+        true,
+      ),
     );
   });
 

@@ -1,4 +1,4 @@
-// ABOUTME: Registration screen for new user signup
+// ABOUTME: Registration screen for new user signup, with its own unticked usage-analytics opt-in (carnet#1366)
 // ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed; no card shell
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -19,9 +19,10 @@ import {
   isInvalidSignupCode,
   useAsyncAction,
 } from '@pierre/ui-logic';
-import { QUERY_KEYS } from '@pierre/shared-constants';
+import { ANALYTICS_POLICY_URL, QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
-import { Button, FormScrollView, Input } from '../../components/ui';
+import { Button, Checkbox, FormScrollView, Input } from '../../components/ui';
+import { openExternal } from '../../utils/openExternal';
 import { BrandLockup } from '../../components/ui/BrandLockup';
 import { TurnstileWebView, type TurnstileWebViewHandle } from '../../components/auth/TurnstileWebView';
 import { authApi } from '../../services/api';
@@ -59,6 +60,9 @@ export function RegisterScreen() {
   // stays folded behind a link until asked for.
   const [showSignupCode, setShowSignupCode] = useState(false);
   const [signupCode, setSignupCode] = useState('');
+  // Its own box, unticked until ticked, sent either way so the account
+  // arrives answered and onboarding does not ask again (carnet#1366).
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [errors, setErrors] = useState<{
     displayName?: string;
     email?: string;
@@ -122,6 +126,7 @@ export function RegisterScreen() {
         displayName.trim(),
         turnstileToken ?? undefined,
         signupCodeOrUndefined(signupCode),
+        analyticsConsent,
       ),
     onSuccess: ({ response, signedIn }) => {
       // Signed straight in: the root gate routes to onboarding or Home, and a
@@ -290,6 +295,27 @@ export function RegisterScreen() {
                   <Text className="text-sm font-semibold text-primary">{t('auth.haveSignupCode')}</Text>
                 </TouchableOpacity>
               )}
+
+              {/* Its own box, bundled with nothing (Law 25 s. 14). */}
+              <View className="mb-2" testID="register-analytics-consent">
+                <Checkbox
+                  checked={analyticsConsent}
+                  onChange={setAnalyticsConsent}
+                  label={t('auth.analyticsConsentLabel')}
+                  testID="register-analytics-consent-checkbox"
+                />
+                <Text className="ml-7 text-xs text-text-tertiary">{t('auth.analyticsConsentHint')}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    void openExternal(ANALYTICS_POLICY_URL, t);
+                  }}
+                  accessibilityRole="link"
+                  className="ml-7 self-start py-2"
+                  testID="register-analytics-consent-policy"
+                >
+                  <Text className="text-xs font-semibold text-primary">{t('auth.analyticsConsentPolicyLink')}</Text>
+                </TouchableOpacity>
+              </View>
 
               {turnstileSiteKey && (
                 <TurnstileWebView

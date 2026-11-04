@@ -360,6 +360,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
 
     // Test user registration
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "test@multitenant.com".to_owned(),
         password: SecretString::from("securepassword123"),
         display_name: Some("Multi-Tenant User".to_owned()),
@@ -450,6 +451,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
 
     // Test duplicate registration fails
     let duplicate_request = RegisterRequest {
+        analytics_consent: None,
         email: "test@multitenant.com".to_owned(),
         password: SecretString::from("differentpassword"),
         display_name: None,
@@ -862,6 +864,7 @@ async fn test_input_validation() -> Result<()> {
 
     for invalid_email in invalid_emails {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: invalid_email.to_owned(),
             password: SecretString::from("validpassword123"),
             display_name: None,
@@ -884,6 +887,7 @@ async fn test_input_validation() -> Result<()> {
 
     for short_password in short_passwords {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: "test@valid.com".to_owned(),
             password: SecretString::from(short_password.to_string()),
             display_name: None,
@@ -903,6 +907,7 @@ async fn test_input_validation() -> Result<()> {
 
     // Test valid inputs
     let valid_request = RegisterRequest {
+        analytics_consent: None,
         email: "valid@email.com".to_owned(),
         password: SecretString::from("validpassword123"),
         display_name: Some("Valid User".to_owned()),

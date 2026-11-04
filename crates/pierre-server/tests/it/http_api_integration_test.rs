@@ -328,6 +328,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
 
     // Test 1: Register user (should create with pending status)
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "sdk_test@example.com".to_owned(),
         password: SecretString::from("TestPassword123"),
         display_name: Some("SDK Test User".to_owned()),
@@ -470,6 +471,7 @@ async fn test_sdk_error_handling() -> Result<()> {
 
     // Test 1: Invalid email format
     let invalid_email_request = RegisterRequest {
+        analytics_consent: None,
         email: "invalid-email".to_owned(),
         password: SecretString::from("TestPassword123"),
         display_name: Some("Test User".to_owned()),
@@ -484,6 +486,7 @@ async fn test_sdk_error_handling() -> Result<()> {
 
     // Test 2: Password too short
     let short_password_request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".to_owned(),
         password: SecretString::from("short"),
         display_name: Some("Test User".to_owned()),
@@ -498,6 +501,7 @@ async fn test_sdk_error_handling() -> Result<()> {
 
     // Test 3: Duplicate user registration
     let valid_request = RegisterRequest {
+        analytics_consent: None,
         email: "duplicate@example.com".to_owned(),
         password: SecretString::from("TestPassword123"),
         display_name: Some("Test User".to_owned()),
@@ -553,6 +557,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
 
     // Step 1: Register user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "complete_test@example.com".to_owned(),
         password: SecretString::from("CompleteTest123"),
         display_name: Some("Complete Test User".to_owned()),

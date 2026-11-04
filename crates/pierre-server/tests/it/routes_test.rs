@@ -195,6 +195,7 @@ async fn test_register_user() {
     );
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".into(),
         password: "password123".into(),
         display_name: Some("Test User".into()),
@@ -354,6 +355,7 @@ async fn test_register_duplicate_user() {
     );
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".into(),
         password: "password123".into(),
         display_name: Some("Test User".into()),

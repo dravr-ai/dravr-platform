@@ -1135,6 +1135,7 @@ async fn test_connection_status_tracking() {
         server_resources.data(),
     );
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "status_test@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: None,

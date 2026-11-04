@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { invitationsApi } from '../services/api';
 import { Button, Input, RevealButton } from './ui';
 import { DravrLogo } from './DravrLogo';
+import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { useTranslation } from '@pierre/i18n';
 
 type Stage = 'form' | 'invalid' | 'accepted';
@@ -39,6 +40,8 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  // The usage-analytics opt-in, unticked until ticked (carnet#1366).
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
   // The address the account signs in with: the invitee never typed it, so the
   // done screen names it before they reach the sign-in form.
   const [email, setEmail] = useState('');
@@ -65,6 +68,7 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
         token,
         password,
         displayName.trim() || undefined,
+        analyticsConsent,
       );
       setEmail(account.email);
       setStage('accepted');
@@ -202,6 +206,8 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
                   variant="dark"
                 />
               </div>
+
+              <AnalyticsConsentOptIn checked={analyticsConsent} onChange={setAnalyticsConsent} />
 
               <Button size="lg" type="submit" variant="gradient" loading={isLoading} className="w-full">
                 {isLoading ? t('auth.creatingAccount') : t('auth.createAccountButton')}

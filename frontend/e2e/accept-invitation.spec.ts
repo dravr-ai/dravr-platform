@@ -58,7 +58,13 @@ test.describe('Invitation link', () => {
     await page.getByRole('button', { name: 'Create Account' }).click();
 
     await expect(page.locator('h1')).toContainText('Account created');
-    expect(sent).toEqual({ token: TOKEN, password: 'SecurePassword123', display_name: 'Coach Phil' });
+    // The usage-analytics box was left unticked, which the form sends as a no (carnet#1366).
+    expect(sent).toEqual({
+      token: TOKEN,
+      password: 'SecurePassword123',
+      display_name: 'Coach Phil',
+      analytics_consent: false,
+    });
 
     await page.getByRole('button', { name: 'Continue to sign in' }).click();
     await waitForLoginScreen(page, 10000);

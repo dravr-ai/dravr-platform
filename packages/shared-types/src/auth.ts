@@ -78,6 +78,13 @@ export interface User {
   analytics_consent?: boolean;
   /** When the user last updated their analytics consent preference */
   analytics_consent_at?: string;
+  /**
+   * Whether the user has answered the analytics question, yes or no. `false`
+   * means never asked, and onboarding asks once (carnet#1366). Sent with
+   * `analytics_consent` on every response that hands a client its own user;
+   * absent means unknown (an older server or cached user), which never asks.
+   */
+  analytics_consent_answered?: boolean;
   /** Output-format / cadence preference. Defaults to `casual` for new users. */
   coaching_persona?: CoachingPersona;
   /** True when the user has access to the Coach-tier roster UI. */

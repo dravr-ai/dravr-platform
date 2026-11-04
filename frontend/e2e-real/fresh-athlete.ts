@@ -28,8 +28,10 @@ export async function freshAthlete(
   password: string,
   displayName: string,
 ): Promise<{ userId: string; token: string }> {
+  // The sign-up form always sends its usage-analytics answer; an account
+  // registered without one would stop on the onboarding question (carnet#1366).
   const registered = await ctx.post('/api/auth/register', {
-    data: { email, password, display_name: displayName },
+    data: { email, password, display_name: displayName, analytics_consent: false },
   });
   expect(registered.status(), `register failed: ${registered.status()}`).toBe(201);
   const { user_id: userId, user_status: status } = await registered.json();

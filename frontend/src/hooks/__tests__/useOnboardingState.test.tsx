@@ -1,22 +1,28 @@
 // ABOUTME: Tests the web onboarding hook's coach-proposal gate against the server status, as a fresh tab sees it
-// ABOUTME: Pins carnet#1042 (fresh-tab gate) and carnet#1101 (the step's write carries the athlete's lead agent)
+// ABOUTME: Pins carnet#1042 (fresh-tab gate), carnet#1101 (the step's write carries the lead agent), carnet#1366 (the analytics question)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import type { ReactNode } from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { currentOnboardingStep } from '../../onboarding/steps';
 
 const getOnboardingStatus = vi.fn();
 const setOnboardingStep = vi.fn();
+const updateAnalyticsConsent = vi.fn();
+const updateUser = vi.fn();
+
+const SESSION_USER = { user_id: 'u1', role: 'user', user_status: 'active' };
+let sessionUser: Record<string, unknown> = SESSION_USER;
 
 vi.mock('../useAuth', () => ({
   useAuth: () => ({
-    user: { user_id: 'u1', role: 'user', user_status: 'active' },
+    user: sessionUser,
     isAuthenticated: true,
+    updateUser,
   }),
 }));
 vi.mock('../useAvailableChannels', () => ({
@@ -26,6 +32,7 @@ vi.mock('../../services/api', () => ({
   userApi: {
     getOnboardingStatus: (...args: unknown[]) => getOnboardingStatus(...args),
     setOnboardingStep: (...args: unknown[]) => setOnboardingStep(...args),
+    updateAnalyticsConsent: (...args: unknown[]) => updateAnalyticsConsent(...args),
   },
 }));
 
@@ -173,5 +180,60 @@ describe('useOnboardingState — the team step writes the team and waits for it 
     expect([stepId, status]).toEqual(['coach_proposal', 'complete']);
     expect(options?.agentId).toBeUndefined();
     expect(options?.teamAgentIds).toBeUndefined();
+  });
+});
+
+describe('useOnboardingState — the usage-analytics question (carnet#1366)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setOnboardingStep.mockResolvedValue(undefined);
+    updateAnalyticsConsent.mockResolvedValue({ message: 'ok', enabled: true });
+    localStorage.clear();
+    client.clear();
+    getOnboardingStatus.mockResolvedValue(
+      connectedStatus([{ step_id: 'coach_proposal', status: 'complete' }]),
+    );
+  });
+
+  afterEach(() => {
+    sessionUser = SESSION_USER;
+  });
+
+  it('an onboarded account the server says was never asked meets the question', async () => {
+    sessionUser = { ...SESSION_USER, analytics_consent_answered: false };
+
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+    expect(result.current.ctx.analyticsConsentAnswered).toBe(false);
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('analytics_consent');
+  });
+
+  it('a session user that does not say counts as answered, so nothing is asked', async () => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+    expect(result.current.ctx.analyticsConsentAnswered).toBe(true);
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+  });
+
+  it.each([true, false])('an answer of %s is stored, then marks the session user answered', async (enabled) => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await act(() => result.current.answerAnalyticsConsent(enabled));
+
+    expect(updateAnalyticsConsent).toHaveBeenCalledWith(enabled);
+    expect(updateUser).toHaveBeenCalledWith({
+      analytics_consent: enabled,
+      analytics_consent_answered: true,
+    });
+  });
+
+  it('a failed write rejects and leaves the session user unanswered', async () => {
+    updateAnalyticsConsent.mockRejectedValueOnce(new Error('503'));
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await expect(result.current.answerAnalyticsConsent(false)).rejects.toThrow('503');
+    expect(updateUser).not.toHaveBeenCalled();
   });
 });
