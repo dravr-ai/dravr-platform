@@ -461,6 +461,9 @@ const MAX_COPIES_PER_WORKOUT: usize = 4;
 /// written under `sciotte_garmin` while the connection says `garmin`, and a
 /// capture asked of the raw connection slug would page the wrong backend.
 ///
+/// LIMITATION(registre#1388): `resolve_compute_backends` keeps every activity-serving
+/// connection, WHOOP included, so an athlete cannot hold a source to wellness only.
+///
 /// # Errors
 ///
 /// Returns [`AppError`] when the connection read fails.

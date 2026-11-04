@@ -8,9 +8,10 @@
 #![allow(clippy::unwrap_used)]
 
 use chrono::{TimeZone, Utc};
-use pierre_core::constants::oauth_providers::{SCIOTTE, SCIOTTE_GARMIN, STRAVA};
+use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE, SCIOTTE_GARMIN, STRAVA};
 use pierre_core::constants::provider_capture::{
-    current_capture_version, BASELINE_CAPTURE_VERSION, SCIOTTE_STRAVA_CAPTURE_VERSION,
+    current_capture_version, BASELINE_CAPTURE_VERSION, INTERVALS_ICU_CAPTURE_VERSION,
+    SCIOTTE_STRAVA_CAPTURE_VERSION,
 };
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::repositories::{historical_depth_covered, BackfillCoverage};
@@ -224,7 +225,7 @@ fn coverage_at_the_current_capture_is_judged_on_depth_alone() {
 }
 
 #[test]
-fn only_the_corrected_capture_sits_above_the_baseline() {
+fn only_corrected_captures_sit_above_the_baseline() {
     // The version is per provider: bumping sciotte's Strava capture must not
     // send every OAuth athlete back through a backfill their rows never needed.
     assert_eq!(
@@ -239,6 +240,18 @@ fn only_the_corrected_capture_sits_above_the_baseline() {
     assert_eq!(
         current_capture_version(SCIOTTE_GARMIN),
         BASELINE_CAPTURE_VERSION
+    );
+    // Intervals.icu's capture 1 starts an activity at its UTC instant, not at
+    // its wall clock read as UTC: its rows replace every row a baseline
+    // capture backfilled.
+    assert_eq!(
+        current_capture_version(INTERVALS_ICU),
+        INTERVALS_ICU_CAPTURE_VERSION,
+        "bug: an intervals.icu backfill must stamp the intervals.icu capture version"
+    );
+    assert!(
+        current_capture_version(INTERVALS_ICU) > BASELINE_CAPTURE_VERSION,
+        "bug: intervals.icu's corrected capture has to compare above the rows it supersedes"
     );
 }
 

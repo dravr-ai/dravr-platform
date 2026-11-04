@@ -477,7 +477,7 @@ pub mod provider_seats {
 /// ask re-runs the backfill through the corrected capture and its upserts
 /// replace the old rows. Providers absent from this table sit at the baseline.
 pub mod provider_capture {
-    use super::oauth_providers::SCIOTTE;
+    use super::oauth_providers::{INTERVALS_ICU, SCIOTTE};
 
     /// The version every provider starts at.
     ///
@@ -491,13 +491,21 @@ pub mod provider_capture {
     /// service captured before that carry no elevation.
     pub const SCIOTTE_STRAVA_CAPTURE_VERSION: u32 = 1;
 
+    /// Intervals.icu.
+    ///
+    /// 1: an activity starts at the API's `start_date` instant rather than at
+    /// its offset-less `start_date_local` read as UTC. Rows captured before
+    /// sit the athlete's UTC offset away from their Strava or Garmin twin, so
+    /// the merge never ties them and the ride counts twice in training load.
+    pub const INTERVALS_ICU_CAPTURE_VERSION: u32 = 1;
+
     /// The capture version a backfill of `provider` writes today.
     #[must_use]
     pub fn current_capture_version(provider: &str) -> u32 {
-        if provider == SCIOTTE {
-            SCIOTTE_STRAVA_CAPTURE_VERSION
-        } else {
-            BASELINE_CAPTURE_VERSION
+        match provider {
+            SCIOTTE => SCIOTTE_STRAVA_CAPTURE_VERSION,
+            INTERVALS_ICU => INTERVALS_ICU_CAPTURE_VERSION,
+            _ => BASELINE_CAPTURE_VERSION,
         }
     }
 }

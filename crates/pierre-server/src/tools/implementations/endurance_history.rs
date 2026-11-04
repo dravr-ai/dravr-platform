@@ -281,6 +281,10 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
 }
 
 /// `get_training_history` — read the persisted daily rollup.
+///
+/// LIMITATION(registre#1387): `GetTrainingHistoryTool` reads only the caller's rollup
+/// (`context.user_id`, no `athlete` argument), and no coach tool reads an athlete's daily
+/// CTL/ATL/TSB, so a coach gets no fatigue/form analysis from their athlete's data.
 #[derive(Debug)]
 pub struct GetTrainingHistoryTool;
 

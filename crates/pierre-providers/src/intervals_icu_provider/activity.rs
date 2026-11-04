@@ -10,7 +10,8 @@
 //! endpoints and hands it to [`map_activity`]; [`parse_local_dt`] reads the
 //! timestamps back in the same dialect the provider's queries send.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use pierre_core::civil_time;
 use serde::Deserialize;
 
 use super::QUERY_DATETIME_FORMAT;
@@ -34,7 +35,17 @@ pub(super) struct IntervalsIcuActivity {
     name: Option<String>,
     #[serde(default, rename = "type")]
     activity_type: Option<String>,
+    /// The instant the activity started, in UTC: what [`start_instant`] reads
+    /// first.
+    #[serde(default)]
+    start_date: Option<String>,
+    /// The start on the athlete's wall clock, with no offset.
     start_date_local: String,
+    /// The athlete's zone as intervals.icu names it (`America/Toronto`): what
+    /// places [`start_date_local`](Self::start_date_local) on the timeline
+    /// when the payload carries no `start_date`.
+    #[serde(default)]
+    timezone: Option<String>,
     #[serde(default)]
     elapsed_time: Option<u64>,
     #[serde(default)]
@@ -96,7 +107,7 @@ pub(super) fn map_activity(
     streams: Option<TimeSeriesData>,
     comments: Option<Vec<ActivityComment>>,
 ) -> Option<Activity> {
-    let start_date = parse_local_dt(&raw.start_date_local)?;
+    let start_date = start_instant(&raw)?;
     let sport = sport_for(raw.activity_type.as_deref());
     let name = raw
         .name
@@ -163,12 +174,41 @@ pub(super) fn map_activity(
     Some(builder.build())
 }
 
+/// When the activity started, as a UTC instant.
+///
+/// Intervals.icu answers with both `start_date`, the instant, and
+/// `start_date_local`, the athlete's wall clock with no offset. Read as UTC,
+/// the wall clock files an activity the athlete's UTC offset away from its
+/// Strava, Garmin or WHOOP copy (four or five hours in Québec), far outside
+/// the start window `merge_duplicates` ties copies by, and one ride stands as
+/// two sessions in training load. The wall clock is read only for a payload
+/// without `start_date`: in the athlete's `timezone` when it names one, as
+/// UTC when it names none.
+fn start_instant(raw: &IntervalsIcuActivity) -> Option<DateTime<Utc>> {
+    raw.start_date
+        .as_deref()
+        .and_then(parse_local_dt)
+        .or_else(|| wall_clock_in_zone(&raw.start_date_local, raw.timezone.as_deref()))
+        .or_else(|| parse_local_dt(&raw.start_date_local))
+}
+
+/// An offset-less wall clock placed in a named IANA zone; `None` when the
+/// zone is absent or unknown, the clock does not parse, or the clock falls in
+/// the zone's spring-forward gap.
+fn wall_clock_in_zone(wall_clock: &str, zone: Option<&str>) -> Option<DateTime<Utc>> {
+    let zone = civil_time::parse_zone(zone)?;
+    let naive = NaiveDateTime::parse_from_str(wall_clock, QUERY_DATETIME_FORMAT).ok()?;
+    zone.from_local_datetime(&naive)
+        .earliest()
+        .map(|local| local.with_timezone(&Utc))
+}
+
 pub(crate) fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
         .ok()
         .or_else(|| {
-            chrono::NaiveDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
+            NaiveDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
                 .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
                 .ok()
         })
@@ -184,5 +224,107 @@ fn sport_for(label: Option<&str>) -> SportType {
         "weighttraining" | "workout" => SportType::Workout,
         other if !other.is_empty() => SportType::Other(other.to_owned()),
         _ => SportType::Other("intervals_icu".to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, TimeZone, Utc};
+    use serde_json::{json, Value};
+
+    use super::{map_activity, IntervalsIcuActivity};
+    use crate::deduplication::{self, DedupConfig};
+    use crate::models::{Activity, ActivityBuilder, SportType};
+
+    /// A 17:00 ride in Québec on 2026-09-20 (EDT, UTC−4) is 21:00 UTC.
+    fn ride_at_21_utc() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 20, 21, 0, 0).unwrap()
+    }
+
+    fn mapped(payload: Value) -> Activity {
+        let raw: IntervalsIcuActivity = serde_json::from_value(payload).unwrap();
+        map_activity(raw, None, None).unwrap()
+    }
+
+    #[test]
+    fn start_date_is_the_instant_and_wins_over_the_wall_clock() {
+        let activity = mapped(json!({
+            "id": "i1",
+            "type": "Ride",
+            "start_date": "2026-09-20T21:00:00Z",
+            "start_date_local": "2026-09-20T17:00:00",
+            "timezone": "America/Toronto",
+        }));
+        assert_eq!(
+            activity.start_date(),
+            ride_at_21_utc(),
+            "bug: the payload's UTC `start_date` must be the start, not the wall clock"
+        );
+    }
+
+    #[test]
+    fn wall_clock_without_start_date_is_read_in_the_athletes_zone() {
+        let activity = mapped(json!({
+            "id": "i2",
+            "type": "Ride",
+            "start_date_local": "2026-09-20T17:00:00",
+            "timezone": "America/Toronto",
+        }));
+        assert_eq!(
+            activity.start_date(),
+            ride_at_21_utc(),
+            "bug: without `start_date`, the wall clock must be read in the payload's `timezone`"
+        );
+    }
+
+    #[test]
+    fn wall_clock_in_an_unknown_zone_reads_as_utc() {
+        let activity = mapped(json!({
+            "id": "i3",
+            "type": "Ride",
+            "start_date_local": "2026-09-20T17:00:00",
+            "timezone": "Not/AZone",
+        }));
+        assert_eq!(
+            activity.start_date(),
+            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            "bug: a wall clock in a zone that does not parse must still map, read as UTC"
+        );
+    }
+
+    /// Intervals.icu's copy of a ride Strava also holds merges into one
+    /// session, so the ride's training load counts once.
+    #[test]
+    fn intervals_copy_of_a_strava_ride_merges_into_one_session() {
+        let intervals = mapped(json!({
+            "id": "i4",
+            "type": "Ride",
+            "start_date": "2026-09-20T21:00:00Z",
+            "start_date_local": "2026-09-20T17:00:00",
+            "timezone": "America/Toronto",
+            "elapsed_time": 5_400,
+            "distance": 45_000.0,
+            "source": "GARMIN_CONNECT",
+            "device_name": "Garmin Edge 840",
+        }));
+        let strava = ActivityBuilder::new(
+            "s4".to_owned(),
+            "Afternoon Ride".to_owned(),
+            SportType::Ride,
+            ride_at_21_utc(),
+            5_400,
+            "strava".to_owned(),
+        )
+        .distance_meters(45_100.0)
+        .build();
+
+        let (merged, _) =
+            deduplication::merge_duplicates(vec![intervals, strava], &DedupConfig::default());
+
+        assert_eq!(
+            merged.len(),
+            1,
+            "bug: intervals.icu's copy must merge with Strava's, one ride, one session: {merged:?}"
+        );
     }
 }

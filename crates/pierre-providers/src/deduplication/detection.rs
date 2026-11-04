@@ -634,6 +634,9 @@ fn path_rank(activity: &Activity) -> u8 {
 ///
 /// Each step is a total order over its rows, so this is one too: the pick is
 /// deterministic whatever order the copies arrived in.
+///
+/// LIMITATION(registre#1388): `rank_activity_copy` takes no per-athlete source order, so
+/// an athlete cannot stand intervals.icu's copy over Strava's when both relay one recording.
 fn rank_activity_copy(
     (a, a_source): (&Activity, &Source),
     (b, b_source): (&Activity, &Source),
