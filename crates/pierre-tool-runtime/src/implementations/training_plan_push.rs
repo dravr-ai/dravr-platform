@@ -253,7 +253,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             annotations(
                 "Push training plan to calendar",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }

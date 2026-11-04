@@ -51,7 +51,10 @@ pub(crate) fn withhold_from_caller(
         notes.insert(WITHHELD_KEY.to_owned(), withheld.to_note());
     }
     if withheld.off_interface > 0 {
-        notes.insert(UNAVAILABLE_HERE_KEY.to_owned(), withheld.interface_note());
+        notes.insert(
+            UNAVAILABLE_HERE_KEY.to_owned(),
+            withheld.interface_note(lookup),
+        );
     }
     attach_notes(response, notes);
 }
@@ -133,6 +136,10 @@ mod tests {
                 _ => None,
             }
         }
+
+        fn served_over_every_transport(&self) -> Vec<&'static str> {
+            vec!["Uploaded file", "Wahoo"]
+        }
     }
 
     fn activity(id: &str, source: Option<&str>) -> Activity {
@@ -212,8 +219,18 @@ mod tests {
             "one read-side, one at the boundary"
         );
         assert!(
-            !note.to_string().contains("nolio"),
+            !note.to_string().to_ascii_lowercase().contains("nolio"),
             "the note never names the service: {note}"
+        );
+        assert_eq!(
+            note["available_sources"],
+            json!(["Uploaded file", "Wahoo"]),
+            "bug: the note must name the sources the terms serve everywhere: {note}"
+        );
+        let text = note["note"].as_str().expect("a sentence");
+        assert!(
+            text.contains("served over this interface: Uploaded file, Wahoo."),
+            "the caller learns what does work here: {text}"
         );
         assert!(
             result.get(WITHHELD_KEY).is_none(),

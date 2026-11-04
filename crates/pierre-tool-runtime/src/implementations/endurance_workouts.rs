@@ -657,7 +657,11 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              with `athlete`, through the athlete's Intervals.icu link once they allow \
              calendar writes on it.",
             schema,
-            annotations("Prescribe workout", Effect::AdditiveWrite, Reach::OpenWorld),
+            annotations(
+                "Prescribe workout",
+                Effect::AdditiveWrite,
+                Reach::AthleteAccount,
+            ),
         ))
     }
 
@@ -919,7 +923,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
             annotations(
                 "Withdraw prescribed workout",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

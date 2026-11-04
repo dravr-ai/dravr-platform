@@ -102,8 +102,8 @@ pub enum TransportPolicy {
     /// Only to Dravr's own surfaces: never over an external transport, in raw,
     /// derived or aggregated form.
     FirstPartyOnly,
-    /// Over every transport. The default for a provider whose terms set no
-    /// such restriction.
+    /// Over every transport: what a provider's descriptor declares when its
+    /// terms set no such restriction, and what an unstamped row reads as.
     #[default]
     AnyTransport,
 }

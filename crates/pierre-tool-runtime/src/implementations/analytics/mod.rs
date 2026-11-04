@@ -141,7 +141,11 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
              rate, or pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), \
              form as a percentage of CTL with its band, weekly TSS totals and a taper reading.",
             schema,
-            annotations("Analyze training load", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Analyze training load",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -213,7 +217,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             annotations(
                 "Detect training patterns",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -300,7 +304,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             annotations(
                 "Calculate fitness score",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -365,7 +369,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "analyze_activity",
             "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            annotations("Analyze activity", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Analyze activity", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -469,7 +473,11 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
              gain, heart rate and calories, with its performance metrics. An ID that is not \
              found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            annotations("Get activity insights", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get activity insights",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -562,7 +570,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             "calculate_metrics",
             "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
             schema,
-            annotations("Calculate activity metrics", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Calculate activity metrics", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -643,7 +651,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             annotations(
                 "Analyze performance trends",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -731,7 +739,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
             schema,
-            annotations("Compare activities", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Compare activities", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -806,7 +814,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             annotations(
                 "Generate training recommendations",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -875,7 +883,11 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
              fastest-paced recent run of 3 km or more that took under 2 hours, returned under \
              `best_performance`. Running only.",
             schema,
-            annotations("Predict race times", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Predict race times",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 

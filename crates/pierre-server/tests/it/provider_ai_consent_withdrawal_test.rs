@@ -35,6 +35,7 @@ use pierre_core::models::{
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::context::ServerContext;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -270,8 +271,11 @@ async fn model_reads_whoop(
     tenant: TenantId,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    // Dravr's own model, as in the in-app chat: WHOOP's terms keep its data
+    // first-party, so this is the surface where AI consent decides the read.
     let response = UniversalExecutor::new(runtime)
         .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
         .execute_tool(UniversalRequest {
             tool_name: "get_activities".to_owned(),
             parameters: serde_json::json!({ "provider": WHOOP, "limit": 10, "mode": "summary" }),

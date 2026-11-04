@@ -409,10 +409,13 @@ pub trait ProviderDescriptor: Send + Sync {
     }
 
     /// Where this provider's terms let its data be served: only to Dravr's
-    /// own surfaces, or over every transport (the default). The declared
-    /// policies live in [`crate::provider_terms`].
+    /// own surfaces (the default), or over every transport. The default fails
+    /// closed: a provider whose terms nobody has read keeps its data off MCP,
+    /// A2A and API keys until its descriptor declares
+    /// [`TransportPolicy::AnyTransport`]. The declared policies live in
+    /// [`crate::provider_terms`].
     fn transport_policy(&self) -> TransportPolicy {
-        TransportPolicy::AnyTransport
+        TransportPolicy::FirstPartyOnly
     }
 
     /// The relayed sources this provider's terms settle by name, each with

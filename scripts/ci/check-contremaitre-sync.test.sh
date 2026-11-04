@@ -38,11 +38,16 @@ mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/cargo"
 chmod +x "$TMP/bin/cargo"
 
+# served <root> <json> — the admin tools/list fixture: what /mcp serves.
+served() {
+    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+}
+
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
 tree() {
     local root="$TMP/$1"
     mkdir -p "$root/scripts/ci" "$root/crates/demo/src" "$root/crates/pierre-server/tests/it" \
-             "$root/packages/mcp-types/src"
+             "$root/crates/pierre-server/tests/fixtures/mcp_surface" "$root/packages/mcp-types/src"
     cp "$UNDER_TEST" "$root/scripts/ci/check-contremaitre-sync.sh"
     cp "$SCRIPT_DIR/tool_schema_properties.py" "$root/scripts/ci/tool_schema_properties.py"
     cat > "$root/crates/demo/src/tools.rs" <<'RS'
@@ -66,6 +71,7 @@ RS
         > "$root/crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
     printf '// Tool count: 2\nexport type ToolName = "alpha_tool" | "beta_tool";\n' \
         > "$root/packages/mcp-types/src/tools.ts"
+    served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"}]}'
     echo "$root"
 }
 
@@ -91,6 +97,41 @@ echo "==== check-contremaitre-sync.sh fixture test ===="
 root="$(tree baseline)"
 run "$root"
 expect_output "two registered tools match their mirrors" "MCP tool list: 2 tools match EXPECTED_TOOLS"
+
+# 1b. The SDK types mirror what /mcp serves, not every registered tool: a tool
+#     kept to Dravr's own surfaces is registered, unserved and absent from them.
+root="$(tree first_party)"
+served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
+run "$root"
+expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 /mcp serves"
+
+root="$(tree sdk_lists_unserved)"
+served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+run "$root"
+expect_output "SDK types naming an unserved tool fail Check 3" "SDK type drift"
+expect_absent "no clean tool list over SDK types naming an unserved tool" "MCP tool list: 2 tools match"
+
+root="$(tree phantom_served)"
+served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"},{"name":"ghost_tool"}]}'
+run "$root"
+expect_output "a served tool src does not register fails Check 3" "serves tools src does not register"
+
+root="$(tree no_fixture)"
+rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+run "$root"
+expect_output "a missing served fixture fails Check 3" "tools_list_admin.json not found"
+
+root="$(tree bad_fixture)"
+served "$root" 'not json'
+run "$root"
+expect_output "an unreadable served fixture fails Check 3 closed" "Could not read the tool names"
+expect_absent "no clean tool list over an unreadable fixture" "MCP tool list: 2 tools match"
+
+root="$(tree empty_fixture)"
+served "$root" '{"tools":[]}'
+run "$root"
+expect_output "an empty served fixture fails Check 3 closed" "lists no tools"
 
 # 2. A property declared after the final tool_definition. The shared scan
 #    refuses it (its attribution would read the schema as empty), and Check 3

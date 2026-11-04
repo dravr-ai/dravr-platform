@@ -607,11 +607,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // name rather than guess its parameters (carnet#406). It names what
     // `offered_schemas` offers, as the declarations and loopback do: nothing
     // the seat withholds (carnet#742, carnet#1070) or an operator switched off.
-    let tool_names: Vec<String> =
-        chat_catalogue::offered_schemas(&ctx.tool_registry, seat, switched_off)
-            .into_iter()
-            .map(|s| s.name)
-            .collect();
+    let tool_names: Vec<String> = chat_catalogue::offered_schemas(
+        &ctx.tool_registry,
+        seat,
+        switched_off,
+        ai_scope::declared_transport(),
+    )
+    .into_iter()
+    .map(|s| s.name)
+    .collect();
     let base_prompt = format!(
         "{base_prompt}\n\n{TOOL_BOUNDARY}{}",
         render_tool_index(&tool_names, defer_tools)

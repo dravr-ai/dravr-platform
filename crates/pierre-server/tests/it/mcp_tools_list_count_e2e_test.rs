@@ -22,10 +22,12 @@
 use crate::common;
 
 use anyhow::Result;
+use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::{
     mcp::resources::ServerContext, tools::registry_builtin::register_builtin_tools,
 };
+use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -469,7 +471,11 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     // In-process: rebuild a registry and compare.
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
-    let in_process: HashSet<String> = registry.all_schemas().into_iter().map(|s| s.name).collect();
+    // `/mcp` is an external transport: what it lists is the registry less the
+    // tools kept on Dravr's own surfaces.
+    let mut schemas = registry.all_schemas();
+    first_party_tools::retain_served_over(&registry, &mut schemas, Transport::McpHttp);
+    let in_process: HashSet<String> = schemas.into_iter().map(|s| s.name).collect();
 
     let only_wire: Vec<&String> = wire.difference(&in_process).collect();
     let only_reg: Vec<&String> = in_process.difference(&wire).collect();

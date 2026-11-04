@@ -45,10 +45,12 @@ use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::{EffectiveTool, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -696,7 +698,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         record_caller(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
-        let schemas = match (tenant_id, user_id) {
+        let mut schemas = match (tenant_id, user_id) {
             // `tools/call` refuses a caller with no user or no tenant
             // (`run_dispatch`), so such a caller — the stdio transport, which
             // carries no bearer — is offered nothing to invoke.
@@ -708,6 +710,16 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                 self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
             }
         };
+
+        // Every caller of this dispatcher is an MCP client outside Dravr's own
+        // surfaces, whatever its role or credential — the same declaration
+        // `route_tool_call` makes for its calls. A tool kept on Dravr's own
+        // surfaces is left out here and refused if it is called anyway.
+        first_party_tools::retain_served_over(
+            &self.resources.mcp.tool_registry,
+            &mut schemas,
+            Transport::McpHttp,
+        );
 
         // A guided flow does not narrow this listing: it is the same whether or
         // not a walk is running, so the agent's cached prefix survives the walk

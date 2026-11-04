@@ -139,6 +139,15 @@ pub trait ProviderTerms: Send + Sync {
         let _ = (relay, source);
         None
     }
+
+    /// The services whose own data is served over every transport, by the
+    /// name an athlete knows them by, sorted and without repeats: where a
+    /// caller on an external transport is pointed when some of the athlete's
+    /// data is not served to it. Empty (the default) when the terms are not
+    /// enumerable.
+    fn served_over_every_transport(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
 }
 
 /// A provider's terms, with the athlete's AI consent on top.
@@ -184,6 +193,10 @@ impl ProviderTerms for WithConsent<'_> {
 
     fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
         self.terms.relayed_transport_policy(relay, source)
+    }
+
+    fn served_over_every_transport(&self) -> Vec<&'static str> {
+        self.terms.served_over_every_transport()
     }
 }
 
@@ -356,13 +369,26 @@ impl Withheld {
 
     /// The neutral note a caller on an external transport reads in place of
     /// what was dropped for it: that data exists and is not served here —
-    /// never what it is, nor which service it came from.
+    /// never what it is, nor which service it came from — and which services
+    /// `lookup` serves over every transport, so the caller can tell the
+    /// athlete what does work here instead of stopping at a dead end.
     #[must_use]
-    pub fn interface_note(&self) -> Value {
+    pub fn interface_note(&self, lookup: &dyn ProviderTerms) -> Value {
+        const UNAVAILABLE: &str = "Some of this athlete's data is not available over this interface. The athlete can see it in the Dravr app; do not guess its contents.";
+        let available = lookup.served_over_every_transport();
+        let note = if available.is_empty() {
+            UNAVAILABLE.to_owned()
+        } else {
+            format!(
+                "{UNAVAILABLE} Data from these sources is served over this interface: {}. The athlete can connect one of them, or bring their own data in through it, to use it here.",
+                available.join(", ")
+            )
+        };
         serde_json::json!({
             "items_unavailable": self.off_interface,
             "reason": "not_available_over_this_interface",
-            "note": "Some of this athlete's data is not available over this interface. The athlete can see it in the Dravr app; do not guess its contents.",
+            "available_sources": available,
+            "note": note,
         })
     }
 }
@@ -929,7 +955,23 @@ mod tests {
             })
         );
         assert_eq!(withheld.off_interface, 2);
-        assert_eq!(withheld.interface_note()["items_unavailable"], 2);
+        let note = withheld.interface_note(&Lookup);
+        assert_eq!(
+            note["items_unavailable"], 2,
+            "bug: the note must count every item kept off the interface: {note}"
+        );
+        assert_eq!(
+            note["available_sources"],
+            json!([]),
+            "bug: terms that cannot be enumerated must name no source: {note}"
+        );
+        assert!(
+            !note["note"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("served over"),
+            "terms that cannot be enumerated name no source: {note}"
+        );
 
         let mut first_party = payload.clone();
         assert!(filter_json(&Lookup, &mut first_party, MODEL).is_empty());

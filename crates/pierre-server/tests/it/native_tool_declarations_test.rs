@@ -22,6 +22,7 @@
 //! save is pinned in `guided_flow.rs`'s unit tests; the refusal itself in
 //! `training_plan_tools_test.rs`.
 
+use pierre_core::transport::Transport;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::chat_catalogue::{
     self, build_mcp_tools, defer_beyond_core, SwitchedOff, LOADED_CORE,
@@ -414,6 +415,7 @@ fn on_the_coachs_seat_nothing_is_deferred() {
         &registry,
         TurnSeat::Coach,
         &SwitchedOff::default(),
+        Some(Transport::WebApp),
     ));
     assert!(
         tools

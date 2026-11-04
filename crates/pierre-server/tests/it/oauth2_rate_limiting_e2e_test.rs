@@ -736,6 +736,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
             .account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
         rate_limiter: Arc::new(limiter),
     });
     (routes, client_id)

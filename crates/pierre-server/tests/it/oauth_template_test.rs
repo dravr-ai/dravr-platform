@@ -17,6 +17,7 @@
 
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_routes_identity::LoginPageLabels;
 use std::sync::LazyLock;
 
@@ -218,9 +219,16 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         client_label: "<script>alert(1)</script>",
         account_email: "athlete@example.test",
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        first_party_only_sources: &["Strava"],
     });
 
     assert!(!html.contains("<script>"), "{html}");
+    assert!(
+        html.contains(
+            "is not shared with <span class=\"client\">&lt;script&gt;alert(1)&lt;/script&gt;</span>."
+        ),
+        "the provider-terms line escapes the client name too: {html}"
+    );
     assert!(
         html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
         "{html}"
@@ -256,6 +264,7 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             client_label: "Claude",
             account_email: "athlete@example.test",
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+            first_party_only_sources: &[],
         })
     };
 
@@ -282,6 +291,57 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             "{redirect_uri}: {html}"
         );
     }
+}
+
+/// The consent page tells the athlete which services' data stays inside
+/// Dravr and never reaches the client — the registry's first-party-only list,
+/// whatever it holds — and says nothing when that list is empty.
+#[test]
+fn test_consent_page_names_the_data_that_stays_inside_dravr() {
+    let consent = |sources: &[&str]| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id: "mcp_client_1",
+            redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: "Claude",
+            account_email: "athlete@example.test",
+            switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+            first_party_only_sources: sources,
+        })
+    };
+
+    let registered = ProviderRegistry::new().first_party_only_sources();
+    assert!(
+        !registered.is_empty(),
+        "the shipped providers include first-party-only ones"
+    );
+    let html = consent(&registered);
+    let (last, rest) = registered.split_last().expect("a source");
+    let named = if rest.is_empty() {
+        (*last).to_owned()
+    } else {
+        format!("{} and {last}", rest.join(", "))
+    };
+    assert!(
+        html.contains(&format!(
+            "Your data from {named} stays inside Dravr and is not shared with <span class=\"client\">Claude</span>."
+        )),
+        "{html}"
+    );
+
+    assert!(
+        consent(&["WHOOP"]).contains("Your data from WHOOP stays inside Dravr"),
+        "one service is named alone"
+    );
+    let none = consent(&[]);
+    assert!(!none.contains("stays inside Dravr"), "{none}");
+    assert!(!none.contains("{{"), "every placeholder is filled: {none}");
 }
 
 /// Test OAuth login HTML generation with template replacement

@@ -89,6 +89,8 @@ pub mod conversions;
 pub mod decorators;
 /// Holds a thread opened from an activity to that activity's terms (carnet#769)
 pub mod derived_content;
+/// Tools only Dravr's own surfaces list and run, kept off MCP and A2A.
+pub mod first_party_tools;
 /// Stale-while-revalidate activity cache backing the group member snapshots
 #[cfg(feature = "tools-groups")]
 pub mod group_activity_cache;

@@ -20,6 +20,10 @@ use uuid::Uuid;
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::{error_redirect, rejection_response};
 
+/// What a Pending account that waits only on its confirmation link is told
+/// at consent: no operator reviews it, so the link is the next step.
+const AWAITS_EMAIL_PROOF: &str = "Your Dravr account is waiting for you to confirm your email address. Open the confirmation link we emailed you, then connect this app again.";
+
 impl OAuth2Routes {
     /// Handle the OAuth consent form submission (POST /oauth2/consent).
     ///
@@ -102,8 +106,10 @@ impl OAuth2Routes {
     }
 
     /// The signed-in account, when it may authorize a client: it exists and
-    /// is active. A pending account is told it awaits approval and a
-    /// suspended one is refused; neither is shown consent nor given a code.
+    /// is active. A pending account is told what it waits for — its
+    /// confirmation link when proving the address is what activates it, an
+    /// operator's approval otherwise — and a suspended one is refused; neither
+    /// is shown consent nor given a code.
     pub(super) async fn account_gate(
         context: &OAuth2Context,
         user_id: Uuid,
@@ -112,6 +118,10 @@ impl OAuth2Routes {
         let user = Self::signed_in_account(context, user_id)
             .await
             .map_err(refuse)?;
+        if context.accounts.awaits_email_proof(&user).await {
+            warn!(user_id = %user.id, "OAuth authorization refused: the account waits for its email to be confirmed");
+            return Err(refuse(OAuth2Error::access_denied(AWAITS_EMAIL_PROOF)));
+        }
         Self::account_refusal(&user).map_or_else(|| Ok(user), |error| Err(refuse(error)))
     }
 
@@ -161,7 +171,13 @@ impl OAuth2Routes {
 
     /// Why `user` may not authorize a client, if it may not.
     ///
-    /// LIMITATION(registre#1057): `account_refusal` turns away every Pending account, so an athlete signing up through the Claude connector stops at consent.
+    /// A Pending account is the operator's approval policy, not a dead end:
+    /// with sign-up open to verified addresses (`pierre-cli settings signup
+    /// set --activate-on-verified-email true`), a first Google sign-in through
+    /// the connector is Active before it reaches consent, and an account
+    /// still waiting on its email is told so by [`Self::account_gate`]. Only
+    /// an operator who keeps approval manual sees this refusal, and its text
+    /// says when to connect again.
     fn account_refusal(user: &User) -> Option<OAuth2Error> {
         match user.user_status {
             UserStatus::Active => None,

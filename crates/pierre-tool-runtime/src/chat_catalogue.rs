@@ -52,6 +52,7 @@ use std::sync::Arc;
 
 use pierre_core::models::{EffectiveTool, TenantId};
 use pierre_core::tokens::estimate_context_tokens;
+use pierre_core::transport::Transport;
 use pierre_llm::{FunctionDeclaration, Tool};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
@@ -61,6 +62,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
+use crate::first_party_tools;
 use crate::tool_selection::ToolSelectionService;
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 
@@ -295,24 +297,32 @@ impl SwitchedOff {
     }
 }
 
-/// The chat-callable tools one turn offers, in registry order: less those
-/// `seat` withholds and those switched off for the caller.
+/// The chat-callable tools one turn offers, in registry order.
+///
+/// Less those `seat` withholds, those switched off for the caller, and those
+/// kept on Dravr's own surfaces when the turn is served over `transport`
+/// outside them ([`first_party_tools::withholds`]; `None` is external, as at
+/// dispatch).
 ///
 /// The one set a turn's declarations, its names index and its loopback listing
-/// are built from, so the three cannot disagree. Neither input moves within a
-/// conversation turn to turn, so the set stays byte-stable and the provider's
-/// cached prefix survives (carnet#1256).
+/// are built from, so the three cannot disagree, and none offers a tool the
+/// executor would refuse the turn. No input moves within a conversation turn
+/// to turn, so the set stays byte-stable and the provider's cached prefix
+/// survives (carnet#1256).
 #[must_use]
 pub fn offered_schemas(
     registry: &ToolRegistry,
     seat: TurnSeat,
     switched_off: &SwitchedOff,
+    transport: Option<Transport>,
 ) -> Vec<ToolSchema> {
     registry
         .chat_callable_schemas()
         .into_iter()
         .filter(|schema| {
-            !switched_off.contains(&schema.name) && !seat.withholds(registry, &schema.name)
+            !switched_off.contains(&schema.name)
+                && !seat.withholds(registry, &schema.name)
+                && !first_party_tools::withholds(registry, &schema.name, transport)
         })
         .collect()
 }

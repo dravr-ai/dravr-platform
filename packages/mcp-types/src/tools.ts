@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 122
+// Tool count: 117
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -930,41 +930,6 @@ export interface GetFoodDetailsParams {
 
 
 /**
- * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Returns an error (not data), whose `reason` says why, if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it).
- */
-export interface GetGroupMemberActivitiesParams {
-
-  /** Unix epoch-second lower bound; pair with `before` for a specific past race or date range. */
-  after?: number;
-
-  /** Unix epoch-second upper bound. */
-  before?: number;
-
-  /** Id of the coaching group bound to the room the question was asked in; only the member's consent for it applies. Omit to search every group you share. */
-  group_id?: string;
-
-  /** Max activities to return (1-100, default 30). */
-  limit?: number;
-
-  /** The member's display name as the group roster shows it, e.g. 'Raph'. */
-  member: string;
-
-  /** Sport filter, e.g. 'ride'. */
-  sport_type?: string;
-}
-
-
-/**
- * Whether an athlete you COACH has a published plan: goal race, season, phase, and `where_to_read`. Never the weeks: relay `where_to_read`.
- */
-export interface GetGroupMemberPlanStatusParams {
-
-  /** The athlete's roster name. */
-  member: string;
-}
-
-
-/**
  * Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes
  */
 export interface GetHealthSnapshotsParams {
@@ -1041,16 +1006,6 @@ export interface GetPlannedWorkoutsParams {
 
 
 /**
- * Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) and where each athlete on it stands with your Dravr groups. Dravr members it names are listed by Dravr name with a `state`, such as `linked`, `proposed` (awaiting their confirmation in the app), `proposable` (link them with `propose_athlete_link`), `member_not_sharing` (they stopped sharing with you) or `member_own_connection` (no link needed: you reach their calendar through your own account). Every other athlete is only counted, by state and by your access on the platform; their names are never shown. `next_steps` says what linking them takes. Read it from your own conversation, never a group's room.
- */
-export interface GetProviderRosterParams {
-
-  /** Coaching platform to read (`intervals_icu`, `trainingpeaks`); omit to read every one you connected. */
-  provider?: string;
-}
-
-
-/**
  * Get details of a specific recipe
  */
 export interface GetRecipeParams {
@@ -1101,16 +1056,6 @@ export interface GetRecoveryMetricsParams {
 
   /** RFC3339 start; defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
-}
-
-
-/**
- * Review the athletes you COACH across your groups in one call: who trained this week, who has gone quiet, weekly volume, fitness and form, recent sessions and broken sources. Only athletes whose `status` is `shared` carry `training`; `no_coach_consent` means they stopped sharing with you (they can share again with `/group consent coach yes`) — never infer their numbers. In a group's room it covers that group only. Use `get_group_member_activities` for one athlete's full session history, and `get_provider_roster` for your coaching platform's roster.
- */
-export interface GetRosterOverviewParams {
-
-  /** Id of one group you coach, to review only its athletes; omit to review every athlete you coach. */
-  group_id?: string;
 }
 
 
@@ -1500,19 +1445,6 @@ export interface PrescribeWorkoutParams {
 
   /** A stored template's slug: from the workout bank (list_workout_templates) or a session you prescribed this athlete before. Use `session` for anything new. */
   template_slug?: string;
-}
-
-
-/**
- * Propose linking a member of a group you coach to their entry on your coaching platform roster (Intervals.icu, TrainingPeaks), so their workouts there read through your account; the roster entry is the one carrying their verified Dravr email. The member confirms in the Dravr app; nothing is read until they do. Use `get_provider_roster` to see who is `proposable`. Refused in a group's room, for a member who stopped sharing with you, and when the roster does not list their email.
- */
-export interface ProposeAthleteLinkParams {
-
-  /** The member's name, as Dravr shows it, in a group you coach. */
-  athlete: string;
-
-  /** Coaching platform to link on (`intervals_icu`, `trainingpeaks`); omit to use the one roster that lists the member. */
-  provider?: string;
 }
 
 
@@ -2466,17 +2398,13 @@ export const TOOL_NAMES = [
   "get_data_freshness",
   "get_fitness_config",
   "get_food_details",
-  "get_group_member_activities",
-  "get_group_member_plan_status",
   "get_health_snapshots",
   "get_heart_rate_series",
   "get_nutrient_timing",
   "get_planned_workouts",
-  "get_provider_roster",
   "get_recipe",
   "get_recipe_constraints",
   "get_recovery_metrics",
-  "get_roster_overview",
   "get_sleep_sessions",
   "get_stats",
   "get_stretching_exercise",
@@ -2500,7 +2428,6 @@ export const TOOL_NAMES = [
   "optimize_sleep_schedule",
   "predict_performance",
   "prescribe_workout",
-  "propose_athlete_link",
   "publish_training_plan",
   "push_training_plan",
   "recall_user_memory",
@@ -2599,17 +2526,13 @@ export interface ToolParamsMap {
   "get_data_freshness": GetDataFreshnessParams;
   "get_fitness_config": GetFitnessConfigParams;
   "get_food_details": GetFoodDetailsParams;
-  "get_group_member_activities": GetGroupMemberActivitiesParams;
-  "get_group_member_plan_status": GetGroupMemberPlanStatusParams;
   "get_health_snapshots": GetHealthSnapshotsParams;
   "get_heart_rate_series": GetHeartRateSeriesParams;
   "get_nutrient_timing": GetNutrientTimingParams;
   "get_planned_workouts": GetPlannedWorkoutsParams;
-  "get_provider_roster": GetProviderRosterParams;
   "get_recipe": GetRecipeParams;
   "get_recipe_constraints": GetRecipeConstraintsParams;
   "get_recovery_metrics": GetRecoveryMetricsParams;
-  "get_roster_overview": GetRosterOverviewParams;
   "get_sleep_sessions": GetSleepSessionsParams;
   "get_stats": GetStatsParams;
   "get_stretching_exercise": GetStretchingExerciseParams;
@@ -2633,7 +2556,6 @@ export interface ToolParamsMap {
   "optimize_sleep_schedule": OptimizeSleepScheduleParams;
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;
-  "propose_athlete_link": ProposeAthleteLinkParams;
   "publish_training_plan": PublishTrainingPlanParams;
   "push_training_plan": PushTrainingPlanParams;
   "recall_user_memory": RecallUserMemoryParams;

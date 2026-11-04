@@ -231,9 +231,9 @@ resource "google_cloud_run_v2_service" "service" {
           port = var.container_port
         }
         initial_delay_seconds = var.startup_probe_initial_delay
-        period_seconds        = 5
+        period_seconds        = var.startup_probe_period
         failure_threshold     = var.startup_probe_failure_threshold
-        timeout_seconds       = 3
+        timeout_seconds       = min(3, var.startup_probe_period)
       }
 
       liveness_probe {

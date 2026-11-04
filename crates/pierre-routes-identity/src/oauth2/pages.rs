@@ -101,6 +101,10 @@ pub struct ConsentHtmlParams<'a> {
     pub account_email: &'a str,
     /// The login page for this request, to sign in as another account
     pub switch_account_url: &'a str,
+    /// The services whose terms keep their data inside Dravr, which the
+    /// screen tells the athlete the client will not receive; none hides
+    /// the line
+    pub first_party_only_sources: &'a [&'a str],
 }
 
 impl fmt::Debug for ConsentHtmlParams<'_> {
@@ -118,6 +122,7 @@ impl fmt::Debug for ConsentHtmlParams<'_> {
             .field("client_label", &self.client_label)
             .field("account_email", &self.account_email)
             .field("switch_account_url", &"[REDACTED]")
+            .field("first_party_only_sources", &self.first_party_only_sources)
             .finish()
     }
 }
@@ -180,6 +185,7 @@ impl OAuth2Routes {
         csrf_token: &str,
         client_name: Option<&str>,
         account_email: &str,
+        first_party_only_sources: &[&str],
     ) -> Response {
         let client_label = client_name
             .map(str::trim)
@@ -199,6 +205,7 @@ impl OAuth2Routes {
             client_label,
             account_email,
             switch_account_url: &switch_account_url,
+            first_party_only_sources,
         });
         Html(html).into_response()
     }
@@ -318,6 +325,10 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.switch_account_url),
             )
             .replace("{{SCOPE_ITEMS}}", &scope_items)
+            .replace(
+                "{{FIRST_PARTY_ONLY_LINE}}",
+                &first_party_only_line(params.first_party_only_sources, params.client_label),
+            )
     }
 
     /// Render the page a refused hosted sign-in answers with, in the
@@ -390,6 +401,25 @@ impl OAuth2Routes {
 
         (status, Html(error_html)).into_response()
     }
+}
+
+/// The consent screen's line naming the services whose data stays inside
+/// Dravr and so never reaches `client_label`, escaped; empty when `sources`
+/// names none.
+fn first_party_only_line(sources: &[&str], client_label: &str) -> String {
+    let Some((last, rest)) = sources.split_last() else {
+        return String::new();
+    };
+    let named = if rest.is_empty() {
+        (*last).to_owned()
+    } else {
+        format!("{} and {last}", rest.join(", "))
+    };
+    format!(
+        r#"<p class="fineprint">Your data from {} stays inside Dravr and is not shared with <span class="client">{}</span>.</p>"#,
+        escape_html_attribute(&named),
+        escape_html_attribute(client_label),
+    )
 }
 
 /// The host `redirect_uri` returns to, as the consent screen names it: the

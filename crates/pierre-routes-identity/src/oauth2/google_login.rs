@@ -45,6 +45,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::database::repositories::SecurityRepository;
 use pierre_middleware::redaction::mask_email;
 use pierre_services::auth::{FederatedIdentity, SignupSource};
+use pierre_services::signup_policy::{self, SIGNUP_PAUSED};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
@@ -386,9 +387,17 @@ impl OAuth2Routes {
     }
 
     /// The page for a sign-in that failed: a server fault is logged at
-    /// ERROR and shown as such; anything else is a refusal of this account,
-    /// logged at WARN. Neither page carries the reason.
+    /// ERROR and shown as such; a first sign-in the operator's sign-up bounds
+    /// refused (kill switch closed, 24-hour ceiling reached) is told sign-up
+    /// is paused, since nothing about the account is wrong; anything else is
+    /// a refusal of this account, logged at WARN. No page carries the reason.
     fn google_refusal(error: &AppError) -> Response {
+        if signup_policy::is_signup_paused(error) {
+            warn!("Google sign-up refused: the operator's sign-up bounds admit no new account");
+            return Self::render_oauth_error_response(&OAuth2Error::too_many_requests(
+                SIGNUP_PAUSED,
+            ));
+        }
         if error.is_server_fault() {
             error!("Google sign-in could not complete: {error}");
             let shown = if error.code == ErrorCode::ExternalServiceError

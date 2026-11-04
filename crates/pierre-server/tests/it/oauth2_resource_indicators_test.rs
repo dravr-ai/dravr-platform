@@ -105,6 +105,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         accounts: resources.account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_484))))
 }

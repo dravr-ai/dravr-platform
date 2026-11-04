@@ -162,7 +162,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             annotations(
                 "Export latest training snapshot",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }

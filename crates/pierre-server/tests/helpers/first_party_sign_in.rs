@@ -142,6 +142,7 @@ pub(crate) fn first_party_router(resources: &ServerContext, peer: [u8; 4]) -> Ro
         accounts: resources.account_service(),
         google_sign_in: resources.oauth2_google_sign_in(),
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
     };
     OAuth2Routes::routes(oauth2)
         .merge(AuthRoutes::routes(resources.auth_routes_context()))

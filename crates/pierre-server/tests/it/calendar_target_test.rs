@@ -103,6 +103,11 @@ impl ProviderDescriptor for MockDescriptor {
     fn default_scopes(&self) -> &'static [&'static str] {
         &[]
     }
+    /// The mock calendars serve every transport; an undeclared descriptor
+    /// would stay first-party.
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
+    }
 }
 
 /// A second calendar provider: the four calendar methods and nothing else.

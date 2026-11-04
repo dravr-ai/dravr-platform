@@ -13,7 +13,7 @@
 //! possible write.
 //!
 //! Every tool therefore answers two questions: what the call does to stored
-//! state ([`Effect`]) and whether it reaches past this server ([`Reach`]).
+//! state ([`Effect`]) and whose data it touches ([`Reach`]).
 //! [`annotations`] turns those into all four hints, so no tool can advertise
 //! a subset of them. It also takes the tool's display `title`, which hosts show
 //! in place of the snake_case name and which the Claude connector directory
@@ -42,13 +42,25 @@ pub enum Effect {
     Destructive,
 }
 
-/// Whether a call reaches past this server.
+/// Whose data a call touches, in the sense `openWorldHint` carries.
+///
+/// The hint follows the `OpenAI` Apps SDK meaning, which the Claude directory
+/// accepts too: `false` when the call is bounded to the athlete's own data,
+/// even where an outside service hosts it, and `true` only when it reaches
+/// open-ended or public data. Classify from what the call reads or writes,
+/// never from whether it makes a network request: reading the athlete's own
+/// account at a fitness provider is [`Reach::AthleteAccount`], not open world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
     /// Only this server's own database and in-process computation.
     Internal,
-    /// Calls an outside system: a fitness provider, USDA, Overpass, a
-    /// weather service, an OAuth server.
+    /// The athlete's own account at a service they linked: reading its
+    /// activities, writing to its calendar, or linking and unlinking it. The
+    /// set of things the call can touch is bounded by that one account.
+    AthleteAccount,
+    /// Public or open-ended data no athlete owns: a weather service, public
+    /// map data such as Overpass, a public food database such as USDA
+    /// `FoodData` Central.
     OpenWorld,
 }
 
@@ -62,12 +74,16 @@ pub fn annotations(title: &str, effect: Effect, reach: Reach) -> ToolAnnotations
         Effect::AdditiveWrite => (false, false, false),
         Effect::Destructive => (false, true, true),
     };
+    let open_world = match reach {
+        Reach::Internal | Reach::AthleteAccount => false,
+        Reach::OpenWorld => true,
+    };
     ToolAnnotations {
         title: Some(title.to_owned()),
         read_only_hint: Some(read_only),
         destructive_hint: Some(destructive),
         idempotent_hint: Some(idempotent),
-        open_world_hint: Some(matches!(reach, Reach::OpenWorld)),
+        open_world_hint: Some(open_world),
     }
 }
 
@@ -83,7 +99,7 @@ mod tests {
             Effect::AdditiveWrite,
             Effect::Destructive,
         ] {
-            for reach in [Reach::Internal, Reach::OpenWorld] {
+            for reach in [Reach::Internal, Reach::AthleteAccount, Reach::OpenWorld] {
                 let a = annotations("Test tool", effect, reach);
                 assert!(
                     a.read_only_hint.is_some()
@@ -143,5 +159,31 @@ mod tests {
             Some(false),
             "bug: an additive write must not advertise idempotentHint"
         );
+    }
+
+    #[test]
+    fn only_public_data_is_open_world() {
+        for effect in [
+            Effect::ReadOnly,
+            Effect::IdempotentWrite,
+            Effect::AdditiveWrite,
+            Effect::Destructive,
+        ] {
+            assert_eq!(
+                annotations("Test tool", effect, Reach::Internal).open_world_hint,
+                Some(false),
+                "bug: Dravr's own store is bounded, so {effect:?} must not advertise openWorldHint"
+            );
+            assert_eq!(
+                annotations("Test tool", effect, Reach::AthleteAccount).open_world_hint,
+                Some(false),
+                "bug: the athlete's own linked account is bounded, so {effect:?} must not advertise openWorldHint"
+            );
+            assert_eq!(
+                annotations("Test tool", effect, Reach::OpenWorld).open_world_hint,
+                Some(true),
+                "bug: public data must advertise openWorldHint on {effect:?}"
+            );
+        }
     }
 }

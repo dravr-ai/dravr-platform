@@ -445,7 +445,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             annotations(
                 "Get group member activities",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -621,7 +621,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetGroupMemberActivitiesTool => UNTRUSTED_OUTPUT);
+// A coach's tool over other athletes' data: Dravr's own surfaces list and run
+// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+crate::declare_security!(GetGroupMemberActivitiesTool => UNTRUSTED_OUTPUT; first_party_only);
 
 #[cfg(test)]
 mod tests {

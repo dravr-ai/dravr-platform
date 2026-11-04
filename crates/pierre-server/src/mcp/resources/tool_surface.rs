@@ -181,17 +181,24 @@ impl ToolSurface for TurnToolSurface {
     /// starting and ending (carnet#1256). `save_training_plan` refuses the
     /// mid-walk save itself.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        chat_catalogue::offered_schemas(&self.tool_registry, self.seat, &self.switched_off)
-            .into_iter()
-            .map(|s| McpToolDefinition {
-                name: s.name,
-                description: s.description,
-                // Key order is part of the prompt prefix the ACP agent caches;
-                // the properties are a `HashMap`, so sort them like every
-                // other surface does.
-                input_schema: to_canonical_value(&s.input_schema),
-            })
-            .collect()
+        chat_catalogue::offered_schemas(
+            &self.tool_registry,
+            self.seat,
+            &self.switched_off,
+            // The executor's transport, not the task-local: this listing runs
+            // on embacle's host task, where the turn's declaration is gone.
+            self.executor.served_transport(),
+        )
+        .into_iter()
+        .map(|s| McpToolDefinition {
+            name: s.name,
+            description: s.description,
+            // Key order is part of the prompt prefix the ACP agent caches;
+            // the properties are a `HashMap`, so sort them like every
+            // other surface does.
+            input_schema: to_canonical_value(&s.input_schema),
+        })
+        .collect()
     }
 
     /// Run one tool for the agent, or refuse and say why.

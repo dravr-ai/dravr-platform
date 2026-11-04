@@ -474,7 +474,7 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
             annotations(
                 "Import provider thresholds",
                 Effect::IdempotentWrite,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

@@ -243,7 +243,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
             annotations(
                 "Compute training history",
                 Effect::IdempotentWrite,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }

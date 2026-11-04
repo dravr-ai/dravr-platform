@@ -1310,7 +1310,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -1486,7 +1486,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -1820,7 +1820,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -2573,7 +2573,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -3580,7 +3580,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -3866,7 +3866,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -4759,7 +4759,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -5160,7 +5160,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -5335,7 +5335,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -5407,7 +5407,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -6140,7 +6140,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -6191,7 +6191,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -8725,7 +8725,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -9861,7 +9861,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -10529,7 +10529,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -10810,7 +10810,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -11128,7 +11128,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -12389,315 +12389,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_group_member_activities",
-      "description": "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Returns an error (not data), whose `reason` says why, if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it).",
-      "inputSchema": {
-        "properties": {
-          "after": {
-            "description": "Unix epoch-second lower bound; pair with `before` for a specific past race or date range.",
-            "type": "integer"
-          },
-          "before": {
-            "description": "Unix epoch-second upper bound.",
-            "type": "integer"
-          },
-          "group_id": {
-            "description": "Id of the coaching group bound to the room the question was asked in; only the member's consent for it applies. Omit to search every group you share.",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Max activities to return (1-100, default 30).",
-            "type": "integer"
-          },
-          "member": {
-            "description": "The member's display name as the group roster shows it, e.g. 'Raph'.",
-            "type": "string"
-          },
-          "sport_type": {
-            "description": "Sport filter, e.g. 'ride'.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "member"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "GroupMemberActivity": {
-            "description": "One of a group member's activities, as the consent-gated peer read\nreports it.\n\nA deliberately narrow projection: this is another athlete's data, shown\nbecause they consented to share it with the group, so it carries what a\ntraining partner would compare against and nothing more. No GPS track, no\nnotes, no device details.",
-            "properties": {
-              "average_heart_rate": {
-                "description": "Mean heart rate; absent without a strap.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "average_power": {
-                "description": "Mean power in watts; absent without a meter.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "calories": {
-                "description": "Energy in kilocalories, as the provider estimated it.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "distance_km": {
-                "description": "Distance in kilometres; absent for an activity with no distance.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "duration_seconds": {
-                "description": "Moving time in seconds, exact: the agent quotes it and derives pace\nfrom it.",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "elevation_gain_m": {
-                "description": "Elevation gained in metres; absent when the device recorded none.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Provider-scoped activity identifier.",
-                "type": "string"
-              },
-              "max_heart_rate": {
-                "description": "Peak heart rate; absent without a strap.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "max_power": {
-                "description": "Peak power in watts; absent without a meter.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "name": {
-                "description": "The activity's title.",
-                "type": "string"
-              },
-              "provider": {
-                "description": "Which provider the activity came from.",
-                "type": "string"
-              },
-              "sport": {
-                "description": "Sport, as the provider classified it.",
-                "type": "string"
-              },
-              "start_date": {
-                "description": "RFC 3339 start timestamp.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "sport",
-              "start_date",
-              "distance_km",
-              "duration_seconds",
-              "elevation_gain_m",
-              "average_heart_rate",
-              "max_heart_rate",
-              "average_power",
-              "max_power",
-              "calories",
-              "provider"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_group_member_activities` answers with.",
-        "properties": {
-          "activities": {
-            "description": "The activities, newest first.",
-            "items": {
-              "$ref": "#/$defs/GroupMemberActivity"
-            },
-            "type": "array"
-          },
-          "count": {
-            "description": "How many activities came back, after de-duplication and the limit.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "group": {
-            "description": "The group the consent was granted through.",
-            "type": "string"
-          },
-          "member": {
-            "description": "The member whose activities these are, by display name — never their\naccount identifier.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "member",
-          "group",
-          "count",
-          "activities"
-        ],
-        "title": "GroupMemberActivitiesResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get group member activities",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "execution": {
-        "taskSupport": "optional"
-      }
-    },
-    {
-      "name": "get_group_member_plan_status",
-      "description": "Whether an athlete you COACH has a published plan: goal race, season, phase, and `where_to_read`. Never the weeks: relay `where_to_read`.",
-      "inputSchema": {
-        "properties": {
-          "member": {
-            "description": "The athlete's roster name.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "member"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "PlanGoalRace": {
-            "description": "The goal race a published season is aimed at.",
-            "properties": {
-              "date": {
-                "description": "The race day, `YYYY-MM-DD`.",
-                "type": "string"
-              },
-              "days_out": {
-                "description": "Days from the athlete's today to the race; absent when the date does\nnot parse.",
-                "format": "int64",
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "name": {
-                "description": "The race's name.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "date",
-              "days_out"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_group_member_plan_status` answers with.",
-        "properties": {
-          "current_phase": {
-            "description": "The phase the athlete is in today, when one covers it.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "goal_race": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/PlanGoalRace"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The race the season is aimed at; absent without a published plan."
-          },
-          "group": {
-            "description": "The group the caller coaches them in.",
-            "type": "string"
-          },
-          "member": {
-            "description": "The athlete, by roster name — never their account identifier.",
-            "type": "string"
-          },
-          "published": {
-            "description": "Whether the athlete has a published plan, the one they see.",
-            "type": "boolean"
-          },
-          "season_end": {
-            "description": "Day after the season's last, when the plan states one.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "season_start": {
-            "description": "First day of the season, when the plan states one.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "where_to_read": {
-            "description": "Where their coach reads the plan, changes it, or builds one: relay it.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "member",
-          "group",
-          "published",
-          "goal_race",
-          "season_start",
-          "season_end",
-          "current_phase",
-          "where_to_read"
-        ],
-        "title": "GroupMemberPlanStatus",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get group member plan status",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
       }
     },
     {
@@ -14088,292 +13779,10 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
-      }
-    },
-    {
-      "name": "get_provider_roster",
-      "description": "Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) and where each athlete on it stands with your Dravr groups. Dravr members it names are listed by Dravr name with a `state`, such as `linked`, `proposed` (awaiting their confirmation in the app), `proposable` (link them with `propose_athlete_link`), `member_not_sharing` (they stopped sharing with you) or `member_own_connection` (no link needed: you reach their calendar through your own account). Every other athlete is only counted, by state and by your access on the platform; their names are never shown. `next_steps` says what linking them takes. Read it from your own conversation, never a group's room.",
-      "inputSchema": {
-        "properties": {
-          "provider": {
-            "description": "Coaching platform to read (`intervals_icu`, `trainingpeaks`); omit to read every one you connected.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "ProviderRosterAccess": {
-            "description": "The caller's access to a roster athlete, as their platform reports it.",
-            "oneOf": [
-              {
-                "const": "coach",
-                "description": "The platform lets the caller coach the athlete.",
-                "type": "string"
-              },
-              {
-                "const": "follower",
-                "description": "The platform lets the caller follow the athlete: their data reads,\nnothing is written.",
-                "type": "string"
-              },
-              {
-                "const": "no_access",
-                "description": "The platform lists the athlete but gives the caller no access to them.",
-                "type": "string"
-              },
-              {
-                "const": "unknown",
-                "description": "The platform did not say: read as neither coach nor follower.",
-                "type": "string"
-              }
-            ]
-          },
-          "ProviderRosterCount": {
-            "description": "How many roster athletes, of those no Dravr member is named for, share\none state and access.",
-            "properties": {
-              "access": {
-                "$ref": "#/$defs/ProviderRosterAccess",
-                "description": "The caller's access to them on the platform."
-              },
-              "athletes": {
-                "description": "How many athletes.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "state": {
-                "$ref": "#/$defs/ProviderRosterState",
-                "description": "Their state: `not_in_your_groups` or `roster_email_missing`, or a\nlink's state when the group the link was made in is gone."
-              }
-            },
-            "required": [
-              "state",
-              "access",
-              "athletes"
-            ],
-            "type": "object"
-          },
-          "ProviderRosterMember": {
-            "description": "A Dravr member the roster names, and where they stand.",
-            "properties": {
-              "access": {
-                "$ref": "#/$defs/ProviderRosterAccess",
-                "description": "The caller's access to them on the platform."
-              },
-              "group": {
-                "description": "The group of the caller's the member is in, where a link to them is\nmade.",
-                "type": "string"
-              },
-              "name": {
-                "description": "The member's Dravr display name, never the name the platform lists.",
-                "type": "string"
-              },
-              "not_reading_because": {
-                "description": "Why a `linked_not_reading` link reads nothing\n(`athlete_email_missing`, `athlete_email_mismatch`,\n`member_email_unverified`).",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "$ref": "#/$defs/ProviderRosterState",
-                "description": "Where they stand."
-              }
-            },
-            "required": [
-              "name",
-              "group",
-              "state",
-              "access"
-            ],
-            "type": "object"
-          },
-          "ProviderRosterPlatform": {
-            "description": "One coaching platform's roster.",
-            "properties": {
-              "members": {
-                "description": "The Dravr members the roster names, by name.",
-                "items": {
-                  "$ref": "#/$defs/ProviderRosterMember"
-                },
-                "type": "array"
-              },
-              "others": {
-                "description": "Every other roster athlete, as counts by state and access.",
-                "items": {
-                  "$ref": "#/$defs/ProviderRosterCount"
-                },
-                "type": "array"
-              },
-              "provider": {
-                "description": "The platform, as the `provider` argument names it.",
-                "type": "string"
-              },
-              "refusal": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/ProviderRosterRefusal"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Why the roster was not read, when it was not; nothing else is listed\nthen."
-              },
-              "roster_size": {
-                "description": "Athletes the roster lists, the caller's own account not among them;\nabsent when it was not read.",
-                "format": "uint",
-                "minimum": 0,
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "provider",
-              "members",
-              "others"
-            ],
-            "type": "object"
-          },
-          "ProviderRosterRefusal": {
-            "description": "Why a platform's roster was not read, in the refusal shape every tool\nanswers with.",
-            "properties": {
-              "error": {
-                "description": "What to tell the user.",
-                "type": "string"
-              },
-              "reason": {
-                "description": "The reason a caller branches on.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "reason",
-              "error"
-            ],
-            "type": "object"
-          },
-          "ProviderRosterState": {
-            "description": "Where a roster athlete stands with the caller's groups and links.",
-            "oneOf": [
-              {
-                "const": "linked",
-                "description": "Linked: the member's data on the platform reads through the caller's\naccount.",
-                "type": "string"
-              },
-              {
-                "const": "linked_not_reading",
-                "description": "Linked, but the link reads nothing: see `not_reading_because`.",
-                "type": "string"
-              },
-              {
-                "const": "proposed",
-                "description": "A link was proposed; the member has not confirmed it in the app yet.",
-                "type": "string"
-              },
-              {
-                "const": "linked_through_another_coach",
-                "description": "The member reads the platform through another human coach's link.",
-                "type": "string"
-              },
-              {
-                "const": "member_holds_another_link",
-                "description": "The member already holds a link of the caller's for another roster\nentry.",
-                "type": "string"
-              },
-              {
-                "const": "proposable",
-                "description": "The member can be proposed a link with `propose_athlete_link`.",
-                "type": "string"
-              },
-              {
-                "const": "member_email_unverified",
-                "description": "The roster email is the member's, but they have not verified it on\nDravr, so it binds no one yet.",
-                "type": "string"
-              },
-              {
-                "const": "member_own_connection",
-                "description": "The member connects the platform with an account of their own: no\nlink is needed, the coach reaches their calendar through the coach's\nown account.",
-                "type": "string"
-              },
-              {
-                "const": "member_not_sharing",
-                "description": "The member stopped sharing with the caller in every group the caller\ncoaches them in (`/group consent coach yes` restores it).",
-                "type": "string"
-              },
-              {
-                "const": "no_access",
-                "description": "The platform gives the caller no access to the athlete, so no link is\nproposed.",
-                "type": "string"
-              },
-              {
-                "const": "roster_email_missing",
-                "description": "The platform shares no email for the athlete, so no member binds.",
-                "type": "string"
-              },
-              {
-                "const": "not_in_your_groups",
-                "description": "The athlete's roster email is no member's of a group the caller\ncoaches.",
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_provider_roster` answers with.",
-        "properties": {
-          "coach_access": {
-            "description": "Whether the caller holds coach access: what coaching a Dravr group\ntakes.",
-            "type": "boolean"
-          },
-          "coach_access_request_pending": {
-            "description": "Whether a request of the caller's for coach access waits for the\nDravr team to decide: asked in the app, or filed when their\nIntervals.icu account coaches active athletes. Never true for a caller\nwho holds coach access.",
-            "type": "boolean"
-          },
-          "groups_coached": {
-            "description": "Active Dravr groups the caller is the human coach of.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "next_steps": {
-            "description": "What it takes, from the caller's standing, to link the athletes not\nlinked yet.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "platforms": {
-            "description": "Each coaching platform read: the one named, else every one the caller\nconnected.",
-            "items": {
-              "$ref": "#/$defs/ProviderRosterPlatform"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "platforms",
-          "coach_access",
-          "coach_access_request_pending",
-          "groups_coached",
-          "next_steps"
-        ],
-        "title": "ProviderRosterResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get coaching platform roster",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
       }
     },
     {
@@ -15258,282 +14667,6 @@
       }
     },
     {
-      "name": "get_roster_overview",
-      "description": "Review the athletes you COACH across your groups in one call: who trained this week, who has gone quiet, weekly volume, fitness and form, recent sessions and broken sources. Only athletes whose `status` is `shared` carry `training`; `no_coach_consent` means they stopped sharing with you (they can share again with `/group consent coach yes`) — never infer their numbers. In a group's room it covers that group only. Use `get_group_member_activities` for one athlete's full session history, and `get_provider_roster` for your coaching platform's roster.",
-      "inputSchema": {
-        "properties": {
-          "group_id": {
-            "description": "Id of one group you coach, to review only its athletes; omit to review every athlete you coach.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "RosterAthleteStatus": {
-            "description": "One athlete's place on the roster.",
-            "oneOf": [
-              {
-                "const": "shared",
-                "description": "Their training is shared with the coach and listed.",
-                "type": "string"
-              },
-              {
-                "const": "no_coach_consent",
-                "description": "They revoked the coach's read in every group the coach holds them in\n(`/group consent coach no`); `/group consent coach yes` restores it.",
-                "type": "string"
-              },
-              {
-                "const": "no_source",
-                "description": "They share, but no training source is connected.",
-                "type": "string"
-              }
-            ]
-          },
-          "RosterOverviewActivity": {
-            "description": "One session in an athlete's recent list.",
-            "properties": {
-              "date": {
-                "description": "The day the athlete trained, on their own clock (`YYYY-MM-DD`).",
-                "type": "string"
-              },
-              "distance_km": {
-                "description": "Distance in kilometres; absent for a session with no distance.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "duration_seconds": {
-                "description": "Moving time in seconds, exact: the agent quotes it and derives pace\nfrom it.",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "name": {
-                "description": "The session's title, when the provider gave one.",
-                "type": "string"
-              },
-              "sport": {
-                "description": "Sport, as the provider classified it.",
-                "type": "string"
-              },
-              "weekday": {
-                "description": "That day's weekday, on the athlete's clock.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "date",
-              "weekday",
-              "sport",
-              "name",
-              "duration_seconds",
-              "distance_km"
-            ],
-            "type": "object"
-          },
-          "RosterOverviewAthlete": {
-            "description": "One athlete on the coach's roster.",
-            "properties": {
-              "groups": {
-                "description": "The groups, held by the coach, the athlete belongs to.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "name": {
-                "description": "Display name — never their account identifier.",
-                "type": "string"
-              },
-              "status": {
-                "$ref": "#/$defs/RosterAthleteStatus",
-                "description": "Whether their training is listed, and why not when it is not."
-              },
-              "training": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RosterTraining"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Their training; present only when `status` is `shared`."
-              }
-            },
-            "required": [
-              "name",
-              "groups",
-              "status"
-            ],
-            "type": "object"
-          },
-          "RosterOverviewGroup": {
-            "description": "One group the overview covers.",
-            "properties": {
-              "athlete_count": {
-                "description": "Live athletes in the group.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "name": {
-                "description": "The group's name.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "athlete_count"
-            ],
-            "type": "object"
-          },
-          "RosterTraining": {
-            "description": "A shared athlete's training, as the group roster card carries it.",
-            "properties": {
-              "ctl": {
-                "description": "Chronic training load — fitness; absent when it could not be computed.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "days_since_last_activity": {
-                "description": "Days since their last session; absent with none in the lookback.",
-                "format": "int32",
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "form": {
-                "description": "Form, read as a share of this athlete's own fitness with its band.\nNever compare it across athletes as an absolute number.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "km_previous_week": {
-                "description": "Kilometres the week before, for the trend.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "km_this_week": {
-                "description": "Kilometres this week.",
-                "format": "double",
-                "type": "number"
-              },
-              "last_activity_per_source": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "The day each connected source last delivered a session.",
-                "type": "object"
-              },
-              "needs_reconnect": {
-                "description": "Sources whose connection died and must be reconnected by the athlete.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "primary_sport": {
-                "description": "The sport they log most.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "recent_activities": {
-                "description": "Their latest sessions, newest first.",
-                "items": {
-                  "$ref": "#/$defs/RosterOverviewActivity"
-                },
-                "type": "array"
-              },
-              "seconds_this_week": {
-                "description": "Active seconds this week, which covers sources with no distance.",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "sessions_this_week": {
-                "description": "Sessions this week.",
-                "format": "int32",
-                "type": "integer"
-              },
-              "stale": {
-                "description": "True when the data came from a stale cache that could not be refreshed;\nquiet recent days are then not evidence they stopped training.",
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "days_since_last_activity",
-              "sessions_this_week",
-              "seconds_this_week",
-              "km_this_week",
-              "km_previous_week",
-              "primary_sport",
-              "ctl",
-              "form",
-              "recent_activities",
-              "last_activity_per_source",
-              "needs_reconnect",
-              "stale"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_roster_overview` answers with.",
-        "properties": {
-          "athletes": {
-            "description": "Shared athletes first, the longest without a session at the top; then\nthe athletes whose training is not listed, by name.",
-            "items": {
-              "$ref": "#/$defs/RosterOverviewAthlete"
-            },
-            "type": "array"
-          },
-          "groups": {
-            "description": "The groups covered: every one the caller coaches, or the room's own.",
-            "items": {
-              "$ref": "#/$defs/RosterOverviewGroup"
-            },
-            "type": "array"
-          },
-          "truncated": {
-            "description": "True when the roster held more athletes than one call lists.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "groups",
-          "athletes",
-          "truncated"
-        ],
-        "title": "RosterOverviewResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get roster overview",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      },
-      "execution": {
-        "taskSupport": "optional"
-      }
-    },
-    {
       "name": "get_sleep_sessions",
       "description": "Get stored sleep sessions from the database",
       "inputSchema": {
@@ -16185,7 +15318,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -21358,7 +20491,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -24165,7 +23298,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -24419,7 +23552,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -24595,63 +23728,6 @@
       },
       "annotations": {
         "title": "Prescribe workout",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "propose_athlete_link",
-      "description": "Propose linking a member of a group you coach to their entry on your coaching platform roster (Intervals.icu, TrainingPeaks), so their workouts there read through your account; the roster entry is the one carrying their verified Dravr email. The member confirms in the Dravr app; nothing is read until they do. Use `get_provider_roster` to see who is `proposable`. Refused in a group's room, for a member who stopped sharing with you, and when the roster does not list their email.",
-      "inputSchema": {
-        "properties": {
-          "athlete": {
-            "description": "The member's name, as Dravr shows it, in a group you coach.",
-            "type": "string"
-          },
-          "provider": {
-            "description": "Coaching platform to link on (`intervals_icu`, `trainingpeaks`); omit to use the one roster that lists the member.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "athlete"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `propose_athlete_link` answers with.",
-        "properties": {
-          "group": {
-            "description": "The group the link is made in.",
-            "type": "string"
-          },
-          "member": {
-            "description": "The member asked to confirm, by their Dravr display name.",
-            "type": "string"
-          },
-          "next_step": {
-            "description": "What happens next.",
-            "type": "string"
-          },
-          "provider": {
-            "description": "The coaching platform the link reads through, as `provider` names it.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "member",
-          "group",
-          "provider",
-          "next_step"
-        ],
-        "title": "ProposeAthleteLinkResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Propose athlete link",
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
@@ -25193,7 +24269,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -25382,7 +24458,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -26571,7 +25647,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -29840,7 +28916,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -30144,7 +29220,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -30626,7 +29702,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "optional"
@@ -31470,7 +30546,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     }
   ]

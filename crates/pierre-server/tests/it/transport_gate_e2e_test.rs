@@ -2000,3 +2000,233 @@ async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access()
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
     }
 }
+
+/// D3: what the sciotte scraper reads stays on Dravr's own surfaces.
+#[cfg(feature = "provider-sciotte")]
+mod scraped {
+    use super::*;
+    use pierre_core::ai_policy::ProviderTerms;
+    use pierre_core::constants::oauth_providers::SCIOTTE;
+    use pierre_providers::core::ProviderFactory;
+
+    /// What the sciotte scraper read for the athlete: one strava.com session and
+    /// one Garmin Connect session, each stamped `sciotte` with the scraped
+    /// service as `source`, the way every sciotte backend stamps its items.
+    fn scraped_sessions() -> Vec<Activity> {
+        let scraped = |id: &str, name: &str, source: &str, days_ago: i64| {
+            ActivityBuilder::new(
+                id,
+                name,
+                SportType::Run,
+                Utc::now() - Duration::days(days_ago),
+                2_700,
+                SCIOTTE,
+            )
+            .average_heart_rate(152)
+            .source(source)
+            .build()
+        };
+        vec![
+            scraped("s1", "Scraped Strava Tempo", "strava", 1),
+            scraped("s2", "Scraped Garmin Hills", "garmin", 2),
+        ]
+    }
+
+    /// The scraper's reader in place of the live sciotte service: the factory is
+    /// swapped and the registered sciotte descriptors — the terms — are not.
+    struct Scraped {
+        config: ProviderConfig,
+    }
+
+    #[async_trait]
+    impl FitnessProvider for Scraped {
+        fn name(&self) -> &'static str {
+            SCIOTTE
+        }
+
+        fn config(&self) -> &ProviderConfig {
+            &self.config
+        }
+
+        async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn is_authenticated(&self) -> bool {
+            true
+        }
+
+        async fn refresh_token_if_needed(&self) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn get_athlete(&self) -> AppResult<Athlete> {
+            Ok(Athlete {
+                id: "scraped-athlete".to_owned(),
+                username: "scraped_runner".to_owned(),
+                firstname: Some("Scraped".to_owned()),
+                lastname: Some("Runner".to_owned()),
+                profile_picture: None,
+                provider: SCIOTTE.to_owned(),
+                sex: None,
+            })
+        }
+
+        async fn get_activities_with_params(
+            &self,
+            _params: &ActivityQueryParams,
+        ) -> AppResult<Vec<Activity>> {
+            Ok(scraped_sessions())
+        }
+
+        async fn get_activities_cursor(
+            &self,
+            _params: &PaginationParams,
+        ) -> AppResult<CursorPage<Activity>> {
+            Ok(CursorPage::new(scraped_sessions(), None, None, false))
+        }
+
+        async fn get_activity(&self, id: &str) -> AppResult<Activity> {
+            scraped_sessions()
+                .into_iter()
+                .find(|a| a.id() == id)
+                .ok_or_else(|| AppError::not_found(id.to_owned()))
+        }
+
+        async fn get_stats(&self) -> AppResult<Stats> {
+            Ok(Stats {
+                total_activities: 2,
+                total_distance: 20_000.0,
+                total_duration: 5_400,
+                total_elevation_gain: 300.0,
+                coverage: StatsCoverage::Lifetime,
+                year_to_date: None,
+            })
+        }
+    }
+
+    struct ScrapedFactory;
+
+    impl ProviderFactory for ScrapedFactory {
+        fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+            Ok(Box::new(Scraped { config }))
+        }
+
+        fn supported_providers(&self) -> &'static [&'static str] {
+            &[SCIOTTE]
+        }
+    }
+
+    /// D3: an item the sciotte scraper read — strava.com or Garmin Connect — is
+    /// governed by the backend that scraped it, so it never leaves over MCP or
+    /// A2A, while the athlete's own Dravr surfaces still see it. The note the
+    /// external caller reads names none of the withheld services and points it at
+    /// what this interface does serve.
+    #[tokio::test]
+    async fn a_scraped_item_stays_off_mcp_and_a2a_and_the_note_points_elsewhere() {
+        let base = create_test_server_resources().await.unwrap();
+        let mut registry = ProviderRegistry::new();
+        assert_eq!(
+            registry.transport_policy(SCIOTTE),
+            Some(TransportPolicy::FirstPartyOnly),
+            "the real sciotte descriptor governs, not the test's factory"
+        );
+        registry.register_factory(SCIOTTE, Box::new(ScrapedFactory));
+        let mut context = (*base).clone();
+        context.fitness.provider_registry = Arc::new(registry);
+        let resources = Arc::new(context);
+
+        let email = format!("scraped-{}@example.com", Uuid::new_v4());
+        let (user_id, _, tenant) =
+            create_test_user_with_plan(&resources.agent.database, &email, "starter")
+                .await
+                .unwrap();
+        let repos = resources.agent.database.repositories();
+        let token = UserOAuthToken::new(
+            user_id,
+            tenant.to_string(),
+            SCIOTTE.to_owned(),
+            "scraper-session".to_owned(),
+            None,
+            Some(Utc::now() + Duration::hours(6)),
+            None,
+        );
+        repos.oauth_tokens.upsert_token(&token).await.unwrap();
+
+        let call_scraped = |transport: Transport| {
+            let resources = Arc::clone(&resources);
+            async move {
+                let runtime: Arc<dyn ToolRuntime> = resources.clone();
+                UniversalExecutor::new(runtime)
+                    .with_scopes(OAuthScope::self_grant())
+                    .with_transport(transport)
+                    .execute_tool(UniversalRequest {
+                        tool_name: "get_activities".to_owned(),
+                        parameters: serde_json::json!({
+                            "provider": SCIOTTE, "limit": 10, "mode": "summary"
+                        }),
+                        user_id: user_id.to_string(),
+                        protocol: "mcp".to_owned(),
+                        tenant_id: Some(tenant.to_string()),
+                    })
+                    .await
+                    .expect("the tool answers")
+            }
+        };
+
+        let first_party_only = resources
+            .fitness
+            .provider_registry
+            .first_party_only_sources();
+        for transport in [Transport::McpHttp, Transport::A2a] {
+            let external = call_scraped(transport).await;
+            assert!(external.success, "{transport:?}: {:?}", external.error);
+            let text = payload_text(&external);
+            assert!(
+                !text.contains("Scraped Strava Tempo"),
+                "{transport:?}: {text}"
+            );
+            assert!(
+                !text.contains("Scraped Garmin Hills"),
+                "{transport:?}: {text}"
+            );
+            let note = &external.result.as_ref().expect("a payload")[UNAVAILABLE_HERE];
+            assert!(
+                note["items_unavailable"].as_u64().unwrap_or(0) >= 2,
+                "{transport:?}: the caller is told data exists it cannot see: {note}"
+            );
+            assert!(
+                !note.to_string().to_ascii_lowercase().contains("sciotte"),
+                "{transport:?}: the note never names the scraper: {note}"
+            );
+            let available: Vec<&str> = note["available_sources"]
+                .as_array()
+                .expect("the sources this interface serves")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            assert!(
+                available.contains(&"Uploaded file"),
+                "{transport:?}: the athlete's own uploads are served here: {note}"
+            );
+            assert!(
+                available
+                    .iter()
+                    .all(|name| !first_party_only.contains(name)),
+                "{transport:?}: no withheld service is offered as an alternative: {note}"
+            );
+            let sentence = note["note"].as_str().expect("a sentence");
+            assert!(
+                sentence.contains("Uploaded file"),
+                "{transport:?}: the sentence names what works: {sentence}"
+            );
+        }
+
+        let own = call_scraped(Transport::WebApp).await;
+        assert!(own.success, "{:?}", own.error);
+        let text = payload_text(&own);
+        assert!(text.contains("Scraped Strava Tempo"), "{text}");
+        assert!(text.contains("Scraped Garmin Hills"), "{text}");
+        assert!(!text.contains(UNAVAILABLE_HERE), "{text}");
+    }
+}

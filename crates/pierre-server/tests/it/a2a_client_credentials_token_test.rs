@@ -65,6 +65,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         accounts: resources.account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

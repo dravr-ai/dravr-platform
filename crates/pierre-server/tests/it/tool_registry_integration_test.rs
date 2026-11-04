@@ -26,11 +26,13 @@ use pierre_contremaitre::tool_descriptions::{
     FetchedOverlay, ParameterOverlay, ToolDescriptionOverlay,
 };
 use pierre_core::models::TenantId;
+use pierre_core::transport::Transport;
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -820,7 +822,9 @@ async fn test_list_tools_carries_every_declared_output_schema() {
     let state: Arc<dyn ToolRuntime> = resources.clone();
     let tools = dispatcher.list_tools(&state, &context).await;
 
-    // What the registry says is declared, read straight off each tool.
+    // What the registry says is declared, read straight off each tool — less
+    // the tools kept on Dravr's own surfaces, which this external listing
+    // leaves out.
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
     let mut declared: Vec<&str> = registry
@@ -830,6 +834,7 @@ async fn test_list_tools_carries_every_declared_output_schema() {
             registry
                 .get(name)
                 .is_some_and(|tool| tool.definition().output_schema.is_some())
+                && !first_party_tools::withholds(&registry, name, Some(Transport::McpHttp))
         })
         .collect();
     declared.sort_unstable();

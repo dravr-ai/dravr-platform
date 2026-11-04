@@ -32,6 +32,7 @@ use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
+use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use std::fmt;
@@ -407,11 +408,12 @@ impl A2AServer {
         let mut card = AgentCard::with_base_url(resources.ctx.base_url());
         let public_skill_ids: Vec<String> =
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
-        for schema in resources
-            .tool_runtime
-            .tool_registry()
-            .user_visible_schemas()
-        {
+        let registry = resources.tool_runtime.tool_registry();
+        let mut schemas = registry.user_visible_schemas();
+        // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
+        // not offered as a skill, and is refused if the agent names it anyway.
+        first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);
+        for schema in schemas {
             if public_skill_ids.contains(&schema.name) {
                 continue;
             }

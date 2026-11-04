@@ -206,6 +206,7 @@ mod coach_roster_route_test;
 mod coach_roster_scope_test;
 mod coach_seat_tool_surface_test;
 mod coach_setup_timing_test;
+mod coach_tools_external_surface_test;
 mod coaching_persona_endpoint_test;
 mod coaching_persona_test;
 mod coaching_playbooks_test;

@@ -155,9 +155,20 @@ variable "startup_probe_initial_delay" {
 }
 
 variable "startup_probe_failure_threshold" {
-  description = "Failed startup probes (one every 5 s) before Cloud Run kills the booting instance"
+  description = "Failed startup probes (one every startup_probe_period seconds) before Cloud Run kills the booting instance"
   type        = number
   default     = 10
+}
+
+variable "startup_probe_period" {
+  description = "Seconds between startup probes. A cold start is detected at most one period after the server listens, so a short period shortens every scale-from-zero request. The probe timeout is min(3, period), since Cloud Run requires timeout <= period."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.startup_probe_period >= 1 && var.startup_probe_period <= 240
+    error_message = "startup_probe_period must be between 1 and 240 seconds."
+  }
 }
 
 # -----------------------------------------------------------------------------

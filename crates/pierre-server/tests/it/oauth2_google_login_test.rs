@@ -39,7 +39,7 @@ use helpers::google_oidc::{
 use helpers::google_token::{now_secs, unreachable_key_set_url, TestSigner};
 use helpers::notify_capture::{capture_logs, capture_notify, named, only};
 use pierre_auth::config::{GoogleSignInConfig, OAuth2ServerConfig};
-use pierre_auth::dto::auth::LoginRequest;
+use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
 use pierre_auth::google_oidc::google_callback_url;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::first_party::MOBILE_CLIENT_ID;
@@ -58,6 +58,7 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 use pierre_services::auth::{FederatedIdentity, SignupSource};
+use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
@@ -338,6 +339,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         accounts: resources.account_service(),
         google_sign_in: resources.oauth2_google_sign_in(),
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_652))))
 }
@@ -1831,4 +1833,207 @@ async fn the_hosted_login_cookie_signs_in_the_authorize_flow_only() {
         .header("location")
         .unwrap()
         .starts_with("/oauth2/login?"));
+}
+
+// ── K: the operator's sign-up bounds on the connector door (carnet#1057) ────
+
+impl Fixture {
+    async fn signup_policy(&self, update: SignupPolicyUpdate) {
+        set_signup_policy(&self.resources.agent.database, update)
+            .await
+            .unwrap();
+    }
+
+    /// Sign-up open to verified addresses, the posture D1 opens the
+    /// marketplace door with.
+    async fn self_activating(&self) {
+        self.signup_policy(SignupPolicyUpdate {
+            activate_on_verified_email: Some(true),
+            ..Default::default()
+        })
+        .await;
+    }
+
+    async fn subject_owner(&self, subject: &str) -> Option<Uuid> {
+        self.resources
+            .common
+            .repos
+            .federated_identities
+            .user_for_subject("google.com", subject)
+            .await
+            .unwrap()
+    }
+}
+
+/// A first Google sign-in the bounds refused: the page says sign-up is
+/// paused, and nothing was written — no account, no Google link, no session.
+async fn refused_as_paused(f: &Fixture, subject: &str, email: &str) {
+    let callback = f
+        .sign_in(|n| GoogleIdClaims::issued(subject, email, n))
+        .await;
+    assert_eq!(callback.status(), 429, "{}", callback.body_text());
+    assert!(callback.header("location").is_none(), "no redirect");
+    assert!(session(&callback).is_none(), "no session cookie");
+    assert!(clears_transaction(&callback), "the sign-in is spent");
+    let page = callback.body_text();
+    assert!(page.contains(SIGNUP_PAUSED), "{page}");
+    assert!(
+        !page.contains(REFUSED_PAGE),
+        "a pause is not a refusal of the account: {page}"
+    );
+    assert!(f.user(email).await.is_none(), "no user row");
+    assert!(f.subject_owner(subject).await.is_none(), "no Google link");
+}
+
+#[tokio::test]
+async fn with_sign_up_open_to_verified_addresses_a_fresh_google_identity_reaches_consent() {
+    let f = Fixture::new().await;
+    f.self_activating().await;
+
+    let (events, guard) = capture_notify();
+    let callback = f
+        .sign_in(|n| GoogleIdClaims::issued("108000000000001057001", "stranger@gmail.com", n))
+        .await;
+    drop(guard);
+    assert_eq!(callback.status(), 303, "{}", callback.body_text());
+
+    // No allow-list entry, no auto-approval: the proven address activated it.
+    let user = f.user("stranger@gmail.com").await.unwrap();
+    assert_eq!(user.user_status, UserStatus::Active);
+    assert_eq!(
+        user.approved_by, None,
+        "a policy, not a person, admitted it"
+    );
+    assert!(f.verified(user.id).await);
+    assert!(
+        named(&events, "user.pending_approval").is_empty(),
+        "nothing waits for an operator"
+    );
+    assert_eq!(only(&events, "user.signed_up").field("source"), "google");
+
+    let jwt = session(&callback).unwrap();
+    let consent = authorize_page(&f, callback.header("location").unwrap(), &jwt).await;
+    assert_eq!(consent.status(), 200, "{}", consent.body_text());
+    assert!(
+        consent.body_text().contains("csrf_token"),
+        "the consent form"
+    );
+}
+
+#[tokio::test]
+async fn a_closed_kill_switch_refuses_a_first_google_sign_in_before_any_row() {
+    let f = Fixture::new().await;
+    f.signup_policy(SignupPolicyUpdate {
+        open: Some(false),
+        activate_on_verified_email: Some(true),
+        ..Default::default()
+    })
+    .await;
+
+    refused_as_paused(&f, "108000000000001057002", "closed@gmail.com").await;
+
+    // An existing account is a sign-in, not a sign-up: the switch leaves it be.
+    f.account("member@gmail.com", true).await;
+    let member = f
+        .sign_in(|n| GoogleIdClaims::issued("108000000000001057003", "member@gmail.com", n))
+        .await;
+    assert_eq!(member.status(), 303, "{}", member.body_text());
+}
+
+#[tokio::test]
+async fn a_reached_ceiling_refuses_a_first_google_sign_in_before_any_row() {
+    let f = Fixture::new().await;
+    // At least one account in the window, so the ceiling below is not 0
+    // (which sets none).
+    f.account("earlier@gmail.com", true).await;
+    let counted = f
+        .resources
+        .common
+        .repos
+        .users
+        .count_created_since(Utc::now() - Duration::hours(24))
+        .await
+        .unwrap();
+    assert!(counted > 0);
+    f.signup_policy(SignupPolicyUpdate {
+        daily_limit: Some(counted),
+        activate_on_verified_email: Some(true),
+        ..Default::default()
+    })
+    .await;
+
+    refused_as_paused(&f, "108000000000001057004", "over-ceiling@gmail.com").await;
+}
+
+#[tokio::test]
+async fn without_self_activation_a_fresh_google_identity_waits_and_consent_says_for_approval() {
+    let f = Fixture::new().await;
+    f.signup_policy(SignupPolicyUpdate {
+        activate_on_verified_email: Some(false),
+        ..Default::default()
+    })
+    .await;
+
+    let callback = f
+        .sign_in(|n| GoogleIdClaims::issued("108000000000001057005", "reviewed@gmail.com", n))
+        .await;
+    assert_eq!(callback.status(), 303, "{}", callback.body_text());
+    let user = f.user("reviewed@gmail.com").await.unwrap();
+    assert_eq!(user.user_status, UserStatus::Pending);
+    assert!(f.verified(user.id).await, "Google proved the address");
+
+    let jwt = session(&callback).unwrap();
+    let page = authorize_page(&f, callback.header("location").unwrap(), &jwt).await;
+    assert_eq!(page.status(), 400);
+    let text = page.body_text();
+    assert!(
+        text.contains("waiting for approval") && text.contains("once it is approved"),
+        "the next step is an operator's approval: {text}"
+    );
+    assert!(!text.contains("csrf_token"), "no consent form: {text}");
+}
+
+#[tokio::test]
+async fn a_self_activating_account_not_yet_confirmed_is_told_to_confirm_its_email_at_consent() {
+    let f = Fixture::new().await;
+    f.self_activating().await;
+    let registered = f
+        .resources
+        .account_service()
+        .self_register(RegisterRequest {
+            email: "unconfirmed@example.test".to_owned(),
+            password: SecretString::from("unconfirmed-pass-1057".to_owned()),
+            display_name: None,
+            analytics_consent: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(registered.user_status, UserStatus::Pending);
+
+    let challenge = pkce_challenge();
+    let signed_in = AxumTestRequest::post("/oauth2/login")
+        .form(&[
+            ("email", "unconfirmed@example.test"),
+            ("password", "unconfirmed-pass-1057"),
+            ("client_id", f.client_id.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("response_type", "code"),
+            ("state", STATE),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+            ("resource", ""),
+        ])
+        .send(f.routes())
+        .await;
+    assert_eq!(signed_in.status(), 302, "{}", signed_in.body_text());
+    let jwt = session(&signed_in).unwrap();
+    let page = authorize_page(&f, signed_in.header("location").unwrap(), &jwt).await;
+    assert_eq!(page.status(), 400);
+    let text = page.body_text();
+    assert!(
+        text.contains("confirm your email address"),
+        "no operator reviews it, so the link is the next step: {text}"
+    );
+    assert!(!text.contains("waiting for approval"), "{text}");
+    assert!(!text.contains("csrf_token"), "no consent form: {text}");
 }

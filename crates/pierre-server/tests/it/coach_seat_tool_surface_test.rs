@@ -27,9 +27,10 @@ use common::{create_test_server_resources, create_test_user, create_test_user_wi
 use embacle_tool_host::ToolSurface;
 use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::models::{ConversationTurnId, TenantId};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::ai_scope;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::{TurnSeat, ATHLETE_THREAD_ERROR_CODE, COACH_SEAT_ERROR_CODE};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -52,7 +53,9 @@ const OWN_ACCOUNT_WRITES: [&str; 6] = [
 /// Takes `athlete`, which defaults to the thread's athlete: kept there.
 const PLAN_WRITE: &str = "save_training_plan";
 
-fn surface(
+/// The surface an in-app turn opens: built inside the web app's transport
+/// declaration, as the turn service scopes every turn.
+async fn surface(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -60,16 +63,19 @@ fn surface(
 ) -> TurnToolSurface {
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
     let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
-    bridge.turn_surface(ToolSessionTurn {
-        user_id: &user_id.to_string(),
-        tenant_id: tenant,
-        conversation_id: "conv-under-test",
-        turn_id: ConversationTurnId(Uuid::new_v4()),
-        turn_agent_id: None,
-        budget: 64,
-        seat,
-        switched_off: &SwitchedOff::default(),
+    ai_scope::serve_over(Transport::WebApp, async {
+        bridge.turn_surface(ToolSessionTurn {
+            user_id: &user_id.to_string(),
+            tenant_id: tenant,
+            conversation_id: "conv-under-test",
+            turn_id: ConversationTurnId(Uuid::new_v4()),
+            turn_agent_id: None,
+            budget: 64,
+            seat,
+            switched_off: &SwitchedOff::default(),
+        })
     })
+    .await
 }
 
 #[tokio::test]
@@ -79,6 +85,7 @@ async fn the_coach_seat_lists_the_athlete_tool_and_not_the_coachs_own() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let names: Vec<String> = surface(&resources, user_id, tenant, TurnSeat::Coach)
+        .await
         .list_tools()
         .await
         .into_iter()
@@ -102,6 +109,7 @@ async fn a_withheld_tool_called_anyway_is_refused_with_the_redirect() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let outcome = surface(&resources, user_id, tenant, TurnSeat::Coach)
+        .await
         .call(OWN_DATA_TOOL, &json!({}))
         .await;
 
@@ -125,6 +133,7 @@ async fn without_the_seat_the_callers_own_tools_are_listed() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let names: Vec<String> = surface(&resources, user_id, tenant, TurnSeat::Subject)
+        .await
         .list_tools()
         .await
         .into_iter()
@@ -147,6 +156,7 @@ async fn the_athlete_thread_lists_the_plan_tools_and_no_write_on_the_coachs_acco
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let names: Vec<String> = surface(&resources, user_id, tenant, TurnSeat::AthleteThread)
+        .await
         .list_tools()
         .await
         .into_iter()
@@ -187,6 +197,7 @@ async fn a_fact_remembered_in_the_athlete_thread_is_refused_and_filed_nowhere() 
     });
 
     let refused = surface(&resources, user_id, tenant, TurnSeat::AthleteThread)
+        .await
         .call("remember_fact", &fact)
         .await;
 
@@ -211,6 +222,7 @@ async fn a_fact_remembered_in_the_athlete_thread_is_refused_and_filed_nowhere() 
     // The control: the same call from the subject's seat files the fact, so
     // the refusal is the seat's doing and not a malformed call.
     let accepted = surface(&resources, user_id, tenant, TurnSeat::Subject)
+        .await
         .call("remember_fact", &fact)
         .await;
     assert!(!accepted.is_error, "{}", accepted.text);

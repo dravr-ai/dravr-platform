@@ -565,6 +565,11 @@ impl ProviderToolRouter {
                 accounts: resources.account_service(),
                 google_sign_in: resources.oauth2_google_sign_in(),
                 strings: resources.mcp.messaging_strings_registry.clone(),
+                first_party_only_sources: resources
+                    .fitness
+                    .provider_registry
+                    .first_party_only_sources()
+                    .into(),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };

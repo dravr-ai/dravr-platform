@@ -524,6 +524,99 @@ mod tests {
         }
     }
 
+    /// The two lists the athlete is told — what stays in Dravr (the OAuth
+    /// consent screen) and what an external caller is pointed to instead
+    /// (the transport gate's note) — come from the descriptors, never overlap,
+    /// and name a scraper as the service it reads.
+    #[cfg(all(
+        feature = "provider-strava",
+        feature = "provider-garmin",
+        feature = "provider-whoop",
+        feature = "provider-coros",
+        feature = "provider-sciotte",
+        feature = "provider-intervals-icu",
+        feature = "provider-wahoo"
+    ))]
+    #[test]
+    fn the_registry_names_what_stays_first_party_and_what_is_served_everywhere() {
+        let registry = ProviderRegistry::new();
+        let first_party = registry.first_party_only_sources();
+        let mut expected = vec![
+            "COROS",
+            "Garmin Connect",
+            "Strava",
+            "TrainingPeaks",
+            "WHOOP",
+        ];
+        // Terra declares no transport terms, so the fail-closed default keeps
+        // it first-party in the builds that compile it.
+        #[cfg(feature = "provider-terra")]
+        {
+            expected.push("Terra");
+            expected.sort_unstable();
+        }
+        assert_eq!(
+            first_party, expected,
+            "each service once, a scraper under the name of what it reads"
+        );
+        let everywhere = registry.served_over_every_transport();
+        for name in ["Intervals.icu", "Wahoo", "Uploaded file"] {
+            assert!(everywhere.contains(&name), "{name}: {everywhere:?}");
+        }
+        assert!(
+            everywhere.iter().all(|name| !first_party.contains(name)),
+            "a service is never on both lists: {everywhere:?}"
+        );
+        assert!(everywhere.is_sorted(), "{everywhere:?}");
+    }
+
+    /// A provider whose terms nobody has declared keeps its data on Dravr's
+    /// own surfaces: the trait default fails closed, so adding a descriptor
+    /// can never put a new service's data on MCP, A2A or an API key by
+    /// omission.
+    #[test]
+    fn a_descriptor_that_declares_no_transport_terms_stays_first_party() {
+        use crate::spi::{
+            OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
+        };
+
+        /// A descriptor that settles nothing but what the trait requires.
+        struct Undeclared;
+
+        impl ProviderDescriptor for Undeclared {
+            fn name(&self) -> &'static str {
+                "undeclared"
+            }
+            fn display_name(&self) -> &'static str {
+                "Undeclared"
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::empty()
+            }
+            fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+                None
+            }
+            fn oauth_params(&self) -> Option<OAuthParams> {
+                None
+            }
+            fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+                None
+            }
+            fn api_base_url(&self) -> &'static str {
+                "https://undeclared.invalid"
+            }
+            fn default_scopes(&self) -> &'static [&'static str] {
+                &[]
+            }
+        }
+
+        assert_eq!(
+            Undeclared.transport_policy(),
+            TransportPolicy::FirstPartyOnly,
+            "bug: the descriptor default must fail closed to Dravr's own surfaces"
+        );
+    }
+
     /// Pinned on purpose: seven days is fixed by Nolio's API terms §7.1, a
     /// value this codebase does not control.
     #[test]

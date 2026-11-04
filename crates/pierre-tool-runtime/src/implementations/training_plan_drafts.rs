@@ -395,7 +395,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             annotations(
                 "Publish training plan",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

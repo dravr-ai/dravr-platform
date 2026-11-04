@@ -13,7 +13,7 @@ use tracing::warn;
 
 use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserStatus;
+use pierre_core::models::{User, UserStatus};
 
 use super::AuthService;
 use crate::import_tombstones::email_held;
@@ -75,6 +75,38 @@ impl AuthService {
             Ok(verified) => verified,
             Err(e) => {
                 warn!(user_id = %user_id, error = %e, "Could not read the verification state; the account stays pending");
+                false
+            }
+        }
+    }
+
+    /// Whether `user`, still Pending, waits only on proving its address: no
+    /// operator is asked to review it, so the next step is the confirmation
+    /// link, not an approval. That holds while sign-up is open to verified
+    /// addresses (and no tombstone holds the address), or when a signup code
+    /// it redeemed waits for the proof (carnet#1128). A state that cannot be
+    /// read counts as not waiting on the address, so the athlete is told the
+    /// account is in review rather than sent after a link that activates
+    /// nothing.
+    pub async fn awaits_email_proof(&self, user: &User) -> bool {
+        if user.user_status != UserStatus::Pending {
+            return false;
+        }
+        match self.email_already_proven(user).await {
+            Ok(false) => {}
+            Ok(true) => return false,
+            Err(e) => {
+                warn!(user_id = %user.id, error = %e, "Could not read the verification state; reporting the account as in review");
+                return false;
+            }
+        }
+        if self.activates_on_verified(&user.email).await {
+            return true;
+        }
+        match self.data.repos().signup_codes.redemption_for(user.id).await {
+            Ok(redemption) => redemption.is_some_and(|r| r.activated_at.is_none()),
+            Err(e) => {
+                warn!(user_id = %user.id, error = %e, "Could not read the account's signup code; reporting the account as in review");
                 false
             }
         }

@@ -28,6 +28,9 @@ use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::tool::McpTool;
+/// Re-exported so [`declare_security!`] can name it through `$crate` in the
+/// crates that expand it.
+pub use pierre_core::transport::TransportPolicy;
 
 bitflags! {
     /// The Guardian's egress/trust classification for a tool.
@@ -106,6 +109,26 @@ impl SecurityLabels {
 pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
+
+    /// Where the tool may be listed and run: on every transport, or only on
+    /// Dravr's own surfaces ([`Transport::is_first_party`]).
+    ///
+    /// The same [`TransportPolicy`] a provider declares for its data, read the
+    /// same way: a [`TransportPolicy::FirstPartyOnly`] tool is left out of an
+    /// external caller's listing and refused if it calls it anyway
+    /// ([`crate::first_party_tools`]). An MCP client, an A2A agent and an API
+    /// key are external; the web and mobile apps, linked messaging channels
+    /// and platform jobs are not.
+    ///
+    /// Defaults to [`TransportPolicy::AnyTransport`]: a tool is listed and run
+    /// on every transport unless it says otherwise. A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `first_party_only`
+    /// arm, beside its security labels.
+    ///
+    /// [`Transport::is_first_party`]: pierre_core::transport::Transport::is_first_party
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
+    }
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
@@ -115,7 +138,12 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 /// declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
 /// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
 /// declare_security!(SetGoalTool       => empty);
+/// declare_security!(GetRosterOverviewTool => UNTRUSTED_OUTPUT; first_party_only);
 /// ```
+///
+/// The trailing `; first_party_only` also declares the tool
+/// [`TransportPolicy::FirstPartyOnly`] ([`RuntimeTool::transport_policy`]):
+/// listed and run on Dravr's own surfaces only.
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -126,6 +154,17 @@ macro_rules! declare_security {
         impl $crate::security::RuntimeTool for $t {
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
+            }
+        }
+    };
+    ($t:ty => $($flag:ident)|+ ; first_party_only $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $( $crate::security::SecurityLabels::$flag )|+
+            }
+
+            fn transport_policy(&self) -> $crate::security::TransportPolicy {
+                $crate::security::TransportPolicy::FirstPartyOnly
             }
         }
     };

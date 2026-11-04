@@ -516,7 +516,7 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
             annotations(
                 "Get coaching platform roster",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }
@@ -601,7 +601,9 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
 }
 
 // Members' display names and group names are third-party text.
-crate::declare_security!(GetProviderRosterTool => UNTRUSTED_OUTPUT);
+// A coach's tool over other athletes' data: Dravr's own surfaces list and run
+// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+crate::declare_security!(GetProviderRosterTool => UNTRUSTED_OUTPUT; first_party_only);
 
 #[cfg(test)]
 mod tests {

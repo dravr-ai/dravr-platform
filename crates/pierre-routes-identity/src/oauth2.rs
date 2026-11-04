@@ -123,6 +123,9 @@ pub struct OAuth2Context {
     pub google_sign_in: Option<GoogleSignIn>,
     /// The string catalogue the hosted login page speaks from, the apps' own
     pub strings: Arc<MessagingStringsRegistry>,
+    /// Services whose terms keep their data on Dravr's surfaces, named on the
+    /// consent screen; read-only, shared by every clone of this context
+    pub first_party_only_sources: Arc<[&'static str]>,
 }
 
 impl fmt::Debug for OAuth2Context {
@@ -138,6 +141,7 @@ impl fmt::Debug for OAuth2Context {
             .field("accounts", &self.accounts)
             .field("google_sign_in", &self.google_sign_in)
             .field("strings", &self.strings)
+            .field("first_party_only_sources", &self.first_party_only_sources)
             .finish_non_exhaustive()
     }
 }
@@ -399,9 +403,13 @@ impl OAuth2Routes {
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
-            Ok(csrf_token) => {
-                Self::render_consent_page(&request, &csrf_token, client_name, &user.email)
-            }
+            Ok(csrf_token) => Self::render_consent_page(
+                &request,
+                &csrf_token,
+                client_name,
+                &user.email,
+                &context.first_party_only_sources,
+            ),
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");
                 Self::render_oauth_error_response(&OAuth2Error::server_error(

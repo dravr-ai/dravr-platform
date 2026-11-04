@@ -97,25 +97,47 @@ fn read_only_hint_agrees_with_the_write_capability() {
     );
 }
 
+/// The tools that read public or open-ended data, with the service each one
+/// reaches. Everything else is bounded to Dravr's own store or the athlete's
+/// own linked account and must advertise `openWorldHint: false`, the `OpenAI`
+/// Apps SDK meaning both directories accept.
+const OPEN_WORLD_TOOLS: [(&str, &str); 7] = [
+    ("analyze_weather_impact", "weather service"),
+    ("analyze_meal_nutrition", "USDA FoodData Central"),
+    ("discover_routes", "Overpass public map data"),
+    ("get_food_details", "USDA FoodData Central"),
+    ("get_weather_forecast", "weather service and geocoder"),
+    ("search_food", "USDA FoodData Central"),
+    ("validate_recipe", "USDA FoodData Central"),
+];
+
 #[test]
-fn a_task_capable_tool_is_open_world() {
-    // `task_capable` is declared only on a tool whose worst path is an
-    // uncached provider fetch, so it reaches past this server by definition.
+fn only_tools_reaching_public_data_are_open_world() {
+    // A tool that reads or writes the athlete's own provider account is
+    // bounded even though that account lives elsewhere, so a provider fetch
+    // alone never makes a tool open world.
     let registry = builtin_registry();
-    let mut closed = Vec::new();
+    let mut open_world = Vec::new();
+    let mut expected = Vec::new();
     for (name, _, _, _) in registry.all_tool_metadata() {
-        if registry.task_support(&name).is_none() {
-            continue;
-        }
         let definition = registry.get(&name).expect("listed tool").definition();
-        if definition.annotations.and_then(|a| a.open_world_hint) != Some(true) {
-            closed.push(name);
+        if definition.annotations.and_then(|a| a.open_world_hint) == Some(true) {
+            open_world.push(name.clone());
+        }
+        if OPEN_WORLD_TOOLS.iter().any(|(tool, _)| *tool == name) {
+            expected.push(name);
         }
     }
-    closed.sort();
+    open_world.sort();
+    expected.sort();
     assert!(
-        closed.is_empty(),
-        "task-capable tools must declare Reach::OpenWorld: {closed:?}"
+        !expected.is_empty(),
+        "no public-data tool is registered, so this check proves nothing"
+    );
+    assert_eq!(
+        open_world, expected,
+        "openWorldHint must be true exactly on the tools that reach public data \
+         (Reach::OpenWorld); a linked provider account is Reach::AthleteAccount"
     );
 }
 

@@ -14,6 +14,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
+use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff};
@@ -393,6 +394,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         &ctx.tool_registry,
         seat,
         switched_off,
+        ai_scope::declared_transport(),
     ));
     if defer_tools {
         chat_catalogue::defer_beyond_core(&mut tools);

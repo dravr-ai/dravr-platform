@@ -65,6 +65,7 @@ fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
         client_label: "Example Client",
         account_email: "athlete@example.com",
         switch_account_url: "/oauth2/login?state=sentinel-switch-7f3a",
+        first_party_only_sources: &["Strava"],
     };
     let printed = printed_without(
         &params,

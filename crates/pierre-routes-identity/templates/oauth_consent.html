@@ -25,6 +25,7 @@
                 {{SCOPE_ITEMS}}
             </ul>
         </div>
+        {{FIRST_PARTY_ONLY_LINE}}
         <form method="post" action="/oauth2/consent">
             <input type="hidden" name="client_id" value="{{CLIENT_ID}}">
             <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">

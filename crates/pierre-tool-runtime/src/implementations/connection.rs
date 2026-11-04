@@ -471,7 +471,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             annotations(
                 "Connect fitness provider",
                 Effect::AdditiveWrite,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }
@@ -834,7 +834,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             annotations(
                 "Disconnect fitness provider",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

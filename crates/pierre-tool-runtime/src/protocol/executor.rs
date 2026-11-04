@@ -17,6 +17,7 @@ use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID, TURN_LOCALE,
 };
+use crate::first_party_tools;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
@@ -227,6 +228,14 @@ impl UniversalExecutor {
                 .map_or(transport, |inherited| inherited.narrowed_by(transport)),
         );
         self
+    }
+
+    /// The transport this executor's calls are served over, as dispatch
+    /// resolves it: what a listing beside the executor must withhold by, so
+    /// it offers nothing a call would be refused.
+    #[must_use]
+    pub fn served_transport(&self) -> Option<Transport> {
+        ai_scope::effective_transport(self.transport)
     }
 
     /// Bind the turn's seat. The tools it withholds
@@ -529,6 +538,17 @@ impl UniversalExecutor {
         // later refusals would tell them — a tenant's tool-disable config,
         // say — and because the credential's reach is the outermost question.
         scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
+
+        // A tool kept on Dravr's own surfaces is refused to an external caller
+        // before anything it would read is looked up — the same answer its
+        // absence from that caller's listing gives.
+        if let Some(refusal) = first_party_tools::refusal(
+            self.resources.tool_registry(),
+            &tool_name,
+            ai_scope::effective_transport(self.transport),
+        ) {
+            return Ok(refusal);
+        }
 
         // The coach's seats: in a group the caller coaches, their own data is
         // not what the turn is about (carnet#742); in their thread about one

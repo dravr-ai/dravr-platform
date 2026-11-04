@@ -208,7 +208,8 @@ async fn test_tools_include_annotations() {
     assert_eq!(annotations.read_only_hint, Some(false));
     assert_eq!(annotations.destructive_hint, Some(true));
 
-    // Verify open-world tools have correct annotations
+    // Linking the athlete's own provider account is bounded, so it is not
+    // open world; a weather lookup reads public data, so it is.
     let connect_provider = tools
         .iter()
         .find(|t| t.name == "connect_provider")
@@ -217,6 +218,16 @@ async fn test_tools_include_annotations() {
         .annotations
         .as_ref()
         .expect("connect_provider should have annotations");
+    assert_eq!(annotations.open_world_hint, Some(false));
+
+    let weather_impact = tools
+        .iter()
+        .find(|t| t.name == "analyze_weather_impact")
+        .expect("analyze_weather_impact tool should exist");
+    let annotations = weather_impact
+        .annotations
+        .as_ref()
+        .expect("analyze_weather_impact should have annotations");
     assert_eq!(annotations.open_world_hint, Some(true));
 }
 

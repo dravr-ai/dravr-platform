@@ -28,6 +28,7 @@ use crate::security::{RuntimeTool, SecurityLabels};
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
+use pierre_core::transport::TransportPolicy;
 
 /// Build a typed [`ToolSchema`] from a tronc [`Tool`] definition.
 ///
@@ -193,6 +194,16 @@ impl ToolRegistry {
     #[must_use]
     pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {
         self.tools.get(name).map(|tool| tool.security_class())
+    }
+
+    /// Where a tool may be listed and run, as it declares through
+    /// [`RuntimeTool::transport_policy`]. `None` for an unknown tool name.
+    ///
+    /// Read off the tool object like [`Self::security_class`], never from a
+    /// table beside the registry.
+    #[must_use]
+    pub fn transport_policy(&self, name: &str) -> Option<TransportPolicy> {
+        self.tools.get(name).map(|tool| tool.transport_policy())
     }
 
     /// The MCP task support a tool declares on its own definition (SEP-2663).
