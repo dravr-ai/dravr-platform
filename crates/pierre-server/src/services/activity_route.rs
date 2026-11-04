@@ -103,6 +103,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
+use pierre_tool_runtime::reauth_retry::flagged_session;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::sync::oneshot;
 use tokio::time::{sleep, timeout, timeout_at, Instant};
@@ -813,6 +814,12 @@ async fn read_streams(
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
 ) -> AppResult<ActivityRouteOutcome> {
+    // A session already flagged for a reconnect is not signed in to again:
+    // every read of a Home page's burst would fail the same way, each a
+    // headless sign-in attempt on the scraper.
+    if let Some(backend) = flagged_session(runtime, user_id, tenant_id, cached.provider).await {
+        return Err(AppError::provider_auth_required(backend));
+    }
     let tenant = tenant_id.to_string();
     let provider =
         configured_provider(runtime, user_id, cached.provider, Some(tenant.as_str())).await?;

@@ -12,6 +12,7 @@ use super::{
     Utc, Uuid,
 };
 use pierre_providers::backend_resolver::brand_name;
+use pierre_tool_runtime::reauth_retry::claimed_retry;
 
 /// Whether a last successful fetch is past the bands the chat path refreshes
 /// at: the same test `refresh_stale_head` applies per provider.
@@ -142,8 +143,10 @@ pub(super) async fn start_stale_refresh(
         return !providers.is_empty();
     };
     let runtime = into_runtime(resources);
+    let mut retried = Vec::new();
     for provider in flagged {
         if claim_scrape_session_retry(&runtime, user_id, tenant_id, &provider).await {
+            retried.push(provider.clone());
             providers.push(provider);
         }
     }
@@ -154,7 +157,11 @@ pub(super) async fn start_stale_refresh(
         let started_at = Utc::now();
         let bound = revalidation_timeout(&runtime.config().timeouts);
         let mut checked = Vec::with_capacity(providers.len());
-        let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers, &mut checked);
+        let reads = HeadReads {
+            providers: &providers,
+            retried: &retried,
+        };
+        let refresh = refresh_providers(&runtime, user_id, tenant_id, reads, &mut checked);
         if timeout(bound, refresh).await.is_err() {
             warn!(
                 %user_id,
@@ -173,21 +180,37 @@ pub(super) async fn start_stale_refresh(
     true
 }
 
+/// The heads one Home refresh reads.
+#[derive(Clone, Copy)]
+struct HeadReads<'load> {
+    /// Every provider to read, in order.
+    providers: &'load [String],
+    /// The flagged scrape sessions among them whose retry this load claimed.
+    retried: &'load [String],
+}
+
 /// Re-read each provider's recent head, one after the other, naming each in
 /// `checked` once its read has finished — succeeded or failed, it has
 /// recorded its own outcome. The plan has already judged each one due, so
-/// the head is read whatever its freshness ([`refresh_head`]).
+/// the head is read whatever its freshness ([`refresh_head`]). A flagged
+/// session whose retry this load claimed is read as that retry
+/// ([`claimed_retry`]); a flagged session is read no other way.
 async fn refresh_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
-    providers: &[String],
+    reads: HeadReads<'_>,
     checked: &mut Vec<String>,
 ) {
-    for provider in providers {
+    for provider in reads.providers {
         // The refresh writes through to the cache; the rows it returns are
         // what the next request reads, so nothing is kept here.
-        let refreshed = refresh_head(runtime, provider, user_id, tenant_id).await;
+        let read = refresh_head(runtime, provider, user_id, tenant_id);
+        let refreshed = if reads.retried.contains(provider) {
+            claimed_retry(read).await
+        } else {
+            read.await
+        };
         debug!(
             %user_id,
             provider = %provider,

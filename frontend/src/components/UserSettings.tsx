@@ -57,6 +57,7 @@ import {
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
+  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
@@ -867,8 +868,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
                                     {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
                                   </span>
-                                ) : provider.needs_reauth ? (
-                                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+                                ) : provider.needs_reauth || sessionReconnectTarget(provider) ? (
+                                  // A usr/pwd session expired beside a grant that still
+                                  // serves reads the same: the reconnect notice named it.
+                                  <span
+                                    className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
+                                    data-testid={`provider-reconnect-needed-${provider.provider}`}
+                                  >
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
                                     {t('providers.reconnectNeeded')}
                                   </span>
@@ -943,10 +949,27 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     {t(AI_CONSENT_KEYS.withdraw)}
                                   </Button>
                                 )}
+                                {/* A usr/pwd session expired beside the grant that still serves
+                                    the card reconnects through its own login, the flow the
+                                    reconnect notice links to — never the grant's OAuth. */}
+                                {sessionReconnectTarget(provider) && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSciotteConsentRequired(provider.consent_required);
+                                      setSciotteModalTarget(sessionReconnectTarget(provider));
+                                    }}
+                                    data-testid={`provider-session-reconnect-${provider.provider}`}
+                                  >
+                                    {t('settingsUi.reconnect')}
+                                  </Button>
+                                )}
                                 {/* A card connected through an OAuth grant that has received no
                                     activity yet (Garmin before its first push) offers the usr/pwd
-                                    login, which reaches the history (carnet#1302). */}
-                                {historyLoginTarget(provider) && (
+                                    login, which reaches the history (carnet#1302) — unless that
+                                    login is already offered as the reconnect above. */}
+                                {!sessionReconnectTarget(provider) && historyLoginTarget(provider) && (
                                   <Button
                                     variant="outline"
                                     size="sm"

@@ -37,6 +37,7 @@ import {
   intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
+  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
@@ -372,7 +373,13 @@ export function ConnectionsScreen() {
           {label}
         </Text>
       );
-    const reconnect = () => startConnect(provider);
+    // A usr/pwd session expired beside the grant that still serves the row
+    // reconnects through its own login, the flow the reconnect notice links
+    // to — never the grant's OAuth, which `startConnect` would open.
+    const sessionTarget = sessionReconnectTarget(provider);
+    const reconnect = sessionTarget
+      ? () => openCredentialLogin(sessionTarget, [provider])
+      : () => startConnect(provider);
     const disconnect = () => handleDisconnect(id, provider.display_name);
     // A connection the athlete's group coach serves: confirmed, it is read
     // through the coach's account and disconnecting it ends the link;
@@ -426,6 +433,15 @@ export function ConnectionsScreen() {
           {canConnect && action(t('app.reconnect'), reconnect)}
         </>
       );
+    } else if (sessionTarget) {
+      // The grant still syncs, so disconnecting stays in the row's menu; the
+      // row says the session the reconnect notice named is expired.
+      trailing = (
+        <>
+          <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
+          {action(t('app.reconnect'), reconnect)}
+        </>
+      );
     } else if (isConnected) {
       // A row connected through an OAuth grant that has received no activity
       // yet (Garmin before its first push) offers the usr/pwd login for the
@@ -468,7 +484,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: needsReauth || owesAuthorization,
+                    canReconnect: needsReauth || owesAuthorization || sessionTarget !== null,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,

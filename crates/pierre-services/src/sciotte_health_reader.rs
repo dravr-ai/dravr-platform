@@ -25,22 +25,30 @@
 //! a dead session is [`ScraperError::SessionExpired`] (the sync reports expired
 //! credentials instead of an empty day), and a load-shed is
 //! [`ScraperError::Busy`] carrying the service's own wait.
+//!
+//! A session the service refused is not read again in the same sync
+//! ([`RefusedSessionReader`]). enforme reads each data type on its own, so a
+//! dead session was asked once per data type, and once more after the
+//! credential refresh a sync allows, each read a headless sign-in attempt on
+//! the scraper that fails the same way. The refusal is held until the
+//! session's row is handed out to the next sync ([`SessionRows::remember`]).
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
+use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
 };
 use dravr_sciotte::client::SciotteClient;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::UserOAuthToken;
-use pierre_database::repositories::OAuthTokenRepository;
+use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_database::repositories::{OAuthTokenRepository, ProviderConnectionRepository};
 use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
 use pierre_providers::token_writeback::{self, StoredTokenRow};
 use secrecy::ExposeSecret;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tracing::warn;
@@ -57,6 +65,12 @@ use uuid::Uuid;
 pub struct SessionRows {
     tokens: Arc<dyn OAuthTokenRepository>,
     held: Arc<Mutex<HashMap<RowKey, HeldSession>>>,
+    /// The ids of the sessions a read found dead since their row was last
+    /// handed out. A row handed out again forgets its own, so it holds one
+    /// id per session that is dead now, not one per refusal. Shared across
+    /// clones: the credential store records a hand-out and the
+    /// [`RefusedSessionReader`] a refusal, on the same set.
+    refused: Arc<Mutex<HashSet<String>>>,
 }
 
 impl fmt::Debug for SessionRows {
@@ -81,11 +95,16 @@ impl SessionRows {
         Self {
             tokens,
             held: Arc::new(Mutex::new(HashMap::new())),
+            refused: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
     /// Record that `token`'s session is handed out to a sync, when it is a
     /// scrape session; any other token is left out.
+    ///
+    /// A new sync reads the session afresh: a refusal an earlier sync met
+    /// ([`Self::refuse`]) is forgotten, for this session and for the one the
+    /// row carried before.
     pub fn remember(&self, token: &UserOAuthToken) {
         if token.token_type != TOKEN_TYPE_SESSION {
             return;
@@ -102,7 +121,39 @@ impl SessionRows {
             token.tenant_id.clone(),
             token.provider.clone(),
         );
-        self.lock().insert(key, HeldSession { session_id, row });
+        let replaced = self.lock().insert(
+            key,
+            HeldSession {
+                session_id: session_id.clone(),
+                row,
+            },
+        );
+        let mut refused = self.refused_ids();
+        refused.remove(&session_id);
+        if let Some(replaced) = replaced {
+            refused.remove(&replaced.session_id);
+        }
+    }
+
+    /// Record that a read found the session `session_id` dead.
+    fn refuse(&self, session_id: &str) {
+        self.refused_ids().insert(session_id.to_owned());
+    }
+
+    /// Whether a read found the session `session_id` dead since its row was
+    /// last handed out.
+    #[must_use]
+    fn refused(&self, session_id: &str) -> bool {
+        self.refused_ids().contains(session_id)
+    }
+
+    /// Whether a read found the session `token` carries dead since its row
+    /// was last handed out; `false` for a token that is no scrape session.
+    #[must_use]
+    pub(crate) fn refused_token(&self, token: &UserOAuthToken) -> bool {
+        token.token_type == TOKEN_TYPE_SESSION
+            && token_writeback::session_id_of(token.access_token.expose_secret())
+                .is_some_and(|session_id| self.refused(&session_id))
     }
 
     /// Write `rotated` over the row the read was handed, while it stands.
@@ -134,6 +185,61 @@ impl SessionRows {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<RowKey, HeldSession>> {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn refused_ids(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.refused.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A [`DailySummaryReader`] that reads a session the service refused no more
+/// until its row is handed out again ([`SessionRows::remember`]).
+///
+/// The first [`ScraperError::SessionExpired`] or [`ScraperError::Auth`] a
+/// session meets is recorded ([`SessionRows::refuse`]); every later read of
+/// that session answers [`ScraperError::SessionExpired`] without reaching
+/// `inner`. Every health sync reads through it, whichever reader backs it.
+pub(crate) struct RefusedSessionReader {
+    inner: Arc<dyn DailySummaryReader>,
+    rows: SessionRows,
+}
+
+impl fmt::Debug for RefusedSessionReader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RefusedSessionReader")
+            .finish_non_exhaustive()
+    }
+}
+
+impl RefusedSessionReader {
+    /// `inner`, reading no session `rows` records as refused.
+    #[must_use]
+    pub(crate) const fn new(inner: Arc<dyn DailySummaryReader>, rows: SessionRows) -> Self {
+        Self { inner, rows }
+    }
+}
+
+#[async_trait]
+impl DailySummaryReader for RefusedSessionReader {
+    async fn daily_summary(
+        &self,
+        provider: &str,
+        session: &AuthSession,
+        date: NaiveDate,
+    ) -> ScraperResult<DailySummary> {
+        if self.rows.refused(&session.session_id) {
+            return Err(ScraperError::SessionExpired {
+                reason: "the session was refused earlier in this sync; not read again".to_owned(),
+            });
+        }
+        let read = self.inner.daily_summary(provider, session, date).await;
+        if matches!(
+            read,
+            Err(ScraperError::SessionExpired { .. } | ScraperError::Auth { .. })
+        ) {
+            self.rows.refuse(&session.session_id);
+        }
+        read
     }
 }
 
@@ -185,6 +291,32 @@ impl DailySummaryReader for SciotteServiceReader {
         .await
         .map_err(|e| scraper_error(to_app_error(e)))
     }
+}
+
+/// Whether `token` is a scrape session whose connection in `tenant` is
+/// flagged for a reconnect (or revoked).
+///
+/// A sync hands such a session out to no read: it is read again only after a
+/// reconnect or by the throttled retry of the capture sweep and Home
+/// (`pierre_tool_runtime::reauth_retry`), since every read would be a headless
+/// sign-in attempt that fails the same way.
+///
+/// # Errors
+///
+/// A store error when the connections cannot be read.
+pub(crate) async fn session_flagged(
+    connections: &dyn ProviderConnectionRepository,
+    token: &UserOAuthToken,
+    tenant: TenantId,
+) -> EnformeResult<bool> {
+    if token.token_type != TOKEN_TYPE_SESSION {
+        return Ok(false);
+    }
+    let connections = connections
+        .get_for_user(token.user_id, Some(tenant))
+        .await
+        .map_err(|e| EnformeError::store(format!("Failed to read the connection status: {e}")))?;
+    Ok(connection_needs_reauth(&connections, &token.provider))
 }
 
 /// The scraper error a failed remote read is, by what the service answered.

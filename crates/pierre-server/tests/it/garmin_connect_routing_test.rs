@@ -544,13 +544,16 @@ async fn a_garmin_api_user_without_the_health_grant_keeps_the_usr_pwd_wellness_p
         !ids.contains(&granted.to_string()),
         "health granted: the pushes feed their wellness: {ids:?}"
     );
+    // The usr/pwd session stays theirs to pull, but this one is flagged for a
+    // reconnect: a sync hands out no credential for it, so it signs in to
+    // nothing until the athlete reconnects (or the throttled retry re-arms it).
     assert!(
         storage
             .get_credentials(&withheld.to_string(), "garmin")
             .await
             .unwrap()
-            .is_some(),
-        "an on-request pull still finds the usr/pwd session without the health grant"
+            .is_none(),
+        "bug: a sync must not read a usr/pwd session flagged for a reconnect"
     );
     assert!(
         storage
@@ -733,6 +736,10 @@ async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_se
         before["needs_reauth"], true,
         "bug: a dead usr/pwd session must ask for a reconnect: {before}"
     );
+    assert_eq!(
+        before["session_needs_reauth"], false,
+        "bug: the dead session serves the card, so `needs_reauth` alone says it: {before}"
+    );
 
     connect(
         &resources,
@@ -760,6 +767,10 @@ async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_se
     assert_eq!(
         after["needs_reauth"], false,
         "bug: the dead usr/pwd session kept the reconnect up beside a live Garmin OAuth grant: {after}"
+    );
+    assert_eq!(
+        after["session_needs_reauth"], true,
+        "bug: the card must show the dead usr/pwd session beside the live grant: {after}"
     );
 
     mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
@@ -982,6 +993,10 @@ async fn the_garmin_card_follows_the_live_usr_pwd_session_and_offers_it_while_em
         "the live usr/pwd session serves the card: {beside}"
     );
     assert_eq!(beside["oauth_awaiting_activities"], false, "{beside}");
+    assert_eq!(
+        beside["session_needs_reauth"], false,
+        "bug: a live usr/pwd session serving the card is not expired: {beside}"
+    );
 
     let pushed = ActivityBuilder::new(
         "20999999999",
@@ -1029,5 +1044,42 @@ async fn the_garmin_card_follows_the_live_usr_pwd_session_and_offers_it_while_em
     assert_eq!(
         dead["oauth_awaiting_activities"], false,
         "the grant holds an activity, so no login is offered: {dead}"
+    );
+    assert_eq!(
+        dead["needs_reauth"], false,
+        "bug: the grant still serves, so the card keeps syncing: {dead}"
+    );
+    assert_eq!(
+        dead["session_needs_reauth"], true,
+        "bug: a dead usr/pwd session beside a serving grant must show on the card, \
+         or the reconnect notice names a connection the card calls healthy: {dead}"
+    );
+}
+
+/// The rule holds for every mirror pair: a dead Strava usr/pwd session beside
+/// a serving Strava grant shows on the `sciotte` card, the grant still syncing.
+#[tokio::test]
+async fn a_dead_strava_usr_pwd_session_beside_a_serving_grant_shows_on_the_card() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, user, tenant) =
+        user_and_tenant(&resources, "strava-session-reauth@example.com").await;
+    connect(&resources, user_id, tenant, oauth_providers::SCIOTTE, None).await;
+    connect(&resources, user_id, tenant, oauth_providers::STRAVA, None).await;
+    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE).await;
+
+    let cards = cards(&resources, &user).await;
+    let strava = card(&cards, oauth_providers::SCIOTTE);
+    assert_eq!(
+        strava["connected_backend"],
+        oauth_providers::STRAVA,
+        "bug: the live Strava grant must serve the card over the dead session: {strava}"
+    );
+    assert_eq!(
+        strava["needs_reauth"], false,
+        "bug: the grant still serves, so the card keeps syncing: {strava}"
+    );
+    assert_eq!(
+        strava["session_needs_reauth"], true,
+        "bug: the dead Strava session beside the serving grant must show on the card: {strava}"
     );
 }

@@ -10,13 +10,17 @@ use async_trait::async_trait;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ProviderCredentials;
 use dravr_enforme::RequestGateHandle;
+use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_services::delegated_connections::DelegationServices;
 use pierre_services::delegated_wellness::{delegated_wellness_credentials, DelegatedWellness};
 use pierre_services::health_sync::{request_gate, SyncCredentialRefresher};
+use pierre_tool_runtime::capture_sweep::FLAG_REASON;
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
+use pierre_tool_runtime::protocol::reauth_notice::notify_needs_reauth;
 use pierre_tool_runtime::protocol::AuthService;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::ExposeSecret;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -138,6 +142,36 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
             )),
             None => Ok(None),
         }
+    }
+
+    async fn session_refused(&self, token: &UserOAuthToken) {
+        let Some(ctx) = self.runtime.upgrade() else {
+            warn!(provider = %token.provider, "server context dropped; the refused session is not flagged");
+            return;
+        };
+        let flipped = match ctx
+            .common
+            .repos
+            .provider_connections
+            .mark_needs_reauth_if_token_current(token, FLAG_REASON)
+            .await
+        {
+            Ok(flipped) => flipped,
+            Err(e) => {
+                warn!(user_id = %token.user_id, provider = %token.provider, error = %e, "Failed to flag the refused session for a reconnect");
+                return;
+            }
+        };
+        if !flipped {
+            info!(user_id = %token.user_id, provider = %token.provider, "Refused session left as it was: already flagged, or reconnected since the sync read it");
+            return;
+        }
+        let Ok(tenant) = TenantId::parse_str(&token.tenant_id) else {
+            warn!(user_id = %token.user_id, provider = %token.provider, "the refused session's row carries an unparseable tenant; no reconnect notice");
+            return;
+        };
+        let runtime: Arc<dyn ToolRuntime> = ctx;
+        notify_needs_reauth(&runtime, token.user_id, tenant, &token.provider).await;
     }
 
     async fn delegated_credentials(

@@ -283,4 +283,22 @@ describe('ConnectionsScreen — a Garmin grant with nothing pushed yet (carnet#1
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
+
+  it('shows an expired Garmin usr/pwd session beside a serving grant and reconnects it through its login', async () => {
+    // The grant still serves the row (`needs_reauth: false`), but the session
+    // the reconnect notice named is expired: the row says so and reconnects
+    // through the usr/pwd login, never the grant's OAuth.
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...grantedGarmin(true), session_needs_reauth: true }],
+    });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    expect(await screen.findByText('Expired')).toBeTruthy();
+    expect(screen.queryByText('Connected — waiting for activities')).toBeNull();
+    expect(screen.queryByText('Import my history')).toBeNull();
+    fireEvent.press(screen.getByText('Reconnect'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
 });

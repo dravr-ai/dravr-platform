@@ -32,6 +32,7 @@ use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
 use dravr_sciotte::client::SciotteClient;
+use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
 use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
@@ -48,7 +49,7 @@ use crate::delegated_wellness::{
     DelegatedWellness, PrivateWellness,
 };
 use crate::garmin_push;
-use crate::sciotte_health_reader::{SciotteServiceReader, SessionRows};
+use crate::sciotte_health_reader::{self, RefusedSessionReader, SciotteServiceReader, SessionRows};
 use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, WellnessWriteMode};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -158,6 +159,14 @@ pub trait SyncCredentialRefresher: Send + Sync {
         tenant_id: &str,
         provider: &str,
     ) -> EnformeResult<Option<ProviderCredentials>>;
+
+    /// A sync found the scrape session `token` carries dead: flag that
+    /// connection (`token.provider`, the session's own backend, never the
+    /// provider the sync knows it by) for a reconnect and send its reconnect
+    /// notice, while `token` is still the row as stored. A session has no
+    /// refresh grant, so this is what a refresh of it amounts to. Best-effort:
+    /// a failure is logged.
+    async fn session_refused(&self, token: &UserOAuthToken);
 
     /// What `member`'s `provider` wellness syncs with through their human
     /// coach's confirmed link
@@ -305,6 +314,11 @@ impl PierreSyncStorage {
         reader: &Arc<dyn DailySummaryReader>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
+        // A session the scraper refused is read no more in the same sync.
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(RefusedSessionReader::new(
+            Arc::clone(reader),
+            self.session_rows.clone(),
+        ));
         let deps = Arc::new(dravr_enforme::SyncDeps {
             sleep: storage.clone(),
             recovery: storage.clone(),
@@ -318,7 +332,7 @@ impl PierreSyncStorage {
         });
 
         let config = dravr_enforme::SyncConfig::from_env();
-        let providers = build_provider_registry_with_reader(reader)?;
+        let providers = build_provider_registry_with_reader(&reader)?;
 
         Ok(Arc::new(dravr_enforme::SyncOrchestrator::new(
             deps, providers, config,
@@ -879,6 +893,21 @@ impl CredentialStore for PierreSyncStorage {
         };
         let tenant_id = token_tenant_id(&token)?;
         let backend = sync_backend(provider);
+        if sciotte_health_reader::session_flagged(
+            &*self.registry.provider_connections,
+            &token,
+            tenant_id,
+        )
+        .await?
+        {
+            info!(
+                user_id,
+                provider,
+                backend = %token.provider,
+                "The scrape session is flagged for a reconnect; the sync does not read it"
+            );
+            return Ok(None);
+        }
         self.session_rows.remember(&token);
 
         // The injected refresher routes through AuthService::get_valid_token,
@@ -933,6 +962,22 @@ impl CredentialStore for PierreSyncStorage {
         let Some(token) = self.serving_token(user_uuid, provider).await? else {
             return Err(expired());
         };
+        // A scrape session has no refresh grant: the refusal is the verdict,
+        // flagged on the session's own backend while its row still carries it.
+        if token.token_type == TOKEN_TYPE_SESSION {
+            if self.session_rows.refused_token(&token) {
+                warn!(
+                    user_id,
+                    provider,
+                    backend = %token.provider,
+                    "The scrape session was refused; flagging it for a reconnect"
+                );
+                if let Some(refresher) = self.refresher.get() {
+                    refresher.session_refused(&token).await;
+                }
+            }
+            return Err(expired());
+        }
         if let Some(refresher) = self.refresher.get() {
             let tenant_id = token_tenant_id(&token)?;
             return refresher

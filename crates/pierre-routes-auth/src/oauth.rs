@@ -654,15 +654,11 @@ pub(crate) async fn compute_providers_status(
                 &connected_providers,
             )
             .await;
-            // A connected provider whose session died (dead scrape / failed OAuth
-            // refresh) is flagged so the UI prompts a reconnect instead of showing
-            // a healthy "Connected". Only the backend that serves the card counts:
-            // a dead usr/pwd session left beside a live Garmin OAuth grant serves
-            // nothing, and flagging it kept the reconnect banner up after the
-            // athlete had just reconnected through OAuth.
-            let needs_reauth = connected_backend
-                .as_deref()
-                .is_some_and(|backend| reauth_providers.contains(backend));
+            let (needs_reauth, session_needs_reauth) = card_backend::reauth_flags(
+                provider_name,
+                connected_backend.as_deref(),
+                &reauth_providers,
+            );
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {
@@ -696,6 +692,7 @@ pub(crate) async fn compute_providers_status(
                 oauth_awaiting_activities: grant == OAuthGrant::AwaitsActivities,
                 connection_type,
                 needs_reauth,
+                session_needs_reauth,
                 capabilities,
                 recommended_backend,
                 seats_left,
@@ -1157,10 +1154,13 @@ pub(crate) fn spawn_health_backfill(
             .backfill(&user_id, &provider, CONNECT_RECENT_DAYS)
             .await;
         if let Err(e) = &outcome {
+            // `backend` is the connection the sync read: the Garmin grant's
+            // backfill reads the username-and-password session.
             tracing::error!(
                 error = %e,
                 user_id = %user_id,
                 provider = %provider,
+                backend = %backend_resolver::sync_backend(&provider),
                 "Initial health data backfill failed"
             );
         }

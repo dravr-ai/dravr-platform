@@ -478,6 +478,7 @@ async fn sync_single_user(
             warn!(
                 user_id = user.user_id,
                 provider = provider_name,
+                backend = %backend,
                 error = %e,
                 "Scheduled sync failed"
             );

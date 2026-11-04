@@ -64,6 +64,7 @@ function intervalsCard(overrides: Partial<ExtendedProviderStatus>): ExtendedProv
     connected: true,
     needs_reauth: true,
     oauth_awaiting_activities: false,
+    session_needs_reauth: false,
     capabilities: ['activities', 'health'],
     consent_required: false,
     own_app_required: false,

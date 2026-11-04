@@ -222,6 +222,22 @@ export function historyLoginTarget(
 }
 
 /**
+ * The credential-login target that reconnects a card's expired
+ * username-and-password session, or `null` when the card shows no such
+ * reconnect: the session is flagged while the card's OAuth grant keeps
+ * serving it (`session_needs_reauth`). It comes before
+ * [`historyLoginTarget`]: a flagged session leaves an empty grant awaiting
+ * activities, and the card then asks for the reconnect rather than an import.
+ * A dead grant is `needs_reauth`, whose own reconnect the card shows instead.
+ */
+export function sessionReconnectTarget(
+  card: Pick<ExtendedProviderStatus, 'provider' | 'connected' | 'needs_reauth' | 'session_needs_reauth'>,
+): SciotteTarget | null {
+  if (!card.connected || card.needs_reauth || !card.session_needs_reauth) return null;
+  return sciotteTargetForBackend(card.provider);
+}
+
+/**
  * Whether connecting `provider` must first show its notice: the card says the
  * account has not accepted it, and the client carries a notice to show.
  */

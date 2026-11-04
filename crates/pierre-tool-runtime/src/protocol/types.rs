@@ -123,9 +123,15 @@ pub fn auth_required_provider(response: &UniversalResponse) -> Option<String> {
 /// missing OAuth credentials, a transport blip) is not a dead session and
 /// must never flag a connection, so it degrades to a plain external-service
 /// error the sweep treats as transient.
+///
+/// The auth error names the backend the tag names, the connection that
+/// failed, not `provider_slug`: a read asked for `garmin` and served by the
+/// athlete's username-and-password session (`sciotte_garmin`) names that
+/// session, so the flag, the notice and the reconnect link reach it rather
+/// than the Garmin grant beside it, which was fine.
 pub(crate) fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
-    if auth_required_provider(response).is_some() {
-        return AppError::provider_auth_required(provider_slug);
+    if let Some(failed) = auth_required_provider(response) {
+        return AppError::provider_auth_required(failed);
     }
     if is_own_calendar_refusal(response) {
         return coach_account_error(
@@ -201,6 +207,25 @@ mod tests {
             error.provider_auth_required_provider(),
             None,
             "bug: a coach account's refusal is never the re-auth signal"
+        );
+    }
+
+    #[test]
+    fn an_auth_failure_names_the_backend_that_failed_not_the_one_asked_for() {
+        let response = UniversalResponse {
+            success: false,
+            result: None,
+            error: Some("No valid garmin token found.".to_owned()),
+            metadata: Some(HashMap::from([(
+                META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                Value::String("sciotte_garmin".to_owned()),
+            )])),
+        };
+        let error = provider_auth_failure("garmin", &response);
+        assert_eq!(
+            error.provider_auth_required_provider().as_deref(),
+            Some("sciotte_garmin"),
+            "bug: the auth error must name the session that failed, not the Garmin grant"
         );
     }
 

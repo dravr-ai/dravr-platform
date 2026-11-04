@@ -25,16 +25,80 @@
 //! the flag standing without a second notice, since the notice is claimed once
 //! per transition. The interval is what keeps a retry from hammering the
 //! scraper, and the sweep never logs in, so no retry can prompt a 2FA tap.
+//!
+//! Every other on-demand read leaves a flagged session alone
+//! ([`flagged_session`]): a chat turn's list read, a Home page's burst of
+//! route reads. Each scraper call on a dead session is a headless sign-in
+//! attempt that fails the same way, so those reads serve the cache and answer
+//! the reconnect instead. The Home retry claims its attempt first and runs
+//! inside [`claimed_retry`], which is what lets its read through.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use pierre_core::models::TenantId;
-use pierre_providers::backend_resolver::is_mirror_backend;
+use pierre_core::models::{connection_needs_reauth, TenantId};
+use pierre_providers::backend_resolver::{is_mirror_backend, resolve_backend};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::runtime::ToolRuntime;
+
+tokio::task_local! {
+    /// Set while a caller runs the flagged-session retry it claimed.
+    static CLAIMED_RETRY: ();
+}
+
+/// Run `work` as the retry of a flagged scrape session its caller claimed
+/// ([`claim_scrape_session_retry`]): within it, [`flagged_session`] lets the
+/// read through.
+pub async fn claimed_retry<F: Future>(work: F) -> F::Output {
+    CLAIMED_RETRY.scope((), work).await
+}
+
+/// The flagged scrape session a read of `provider` would go to, or `None`
+/// when the read may go ahead.
+///
+/// `Some(backend)` when `provider` resolves to a mirror backend
+/// ([`resolve_backend`]) whose connection in `tenant_id` is `needs_reauth`
+/// (or revoked), outside a [`claimed_retry`]: the caller answers the
+/// reconnect, naming `backend`, without calling the scraper. Only a reconnect
+/// (which re-registers the connection as active) or a claimed retry the
+/// session serves clears the flag. A connection list that cannot be read
+/// reads as not flagged: the read then goes ahead and reports what it finds.
+pub async fn flagged_session(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Option<String> {
+    if CLAIMED_RETRY.try_with(|()| ()).is_ok() {
+        return None;
+    }
+    let repos = runtime.repos();
+    let backend = resolve_backend(repos, user_id, Some(tenant_id), provider).await;
+    if !is_mirror_backend(&backend) {
+        return None;
+    }
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .inspect_err(|e| {
+            warn!(
+                user_id = %user_id,
+                provider = %backend,
+                error = %e,
+                "could not read whether the scrape session is flagged; reading it"
+            );
+        })
+        .ok()?;
+    let flagged = connection_needs_reauth(&connections, &backend);
+    if flagged {
+        debug!(user_id = %user_id, provider = %backend, "the scrape session is flagged; not read");
+    }
+    flagged.then_some(backend)
+}
 
 /// Fewest hours between two attempts of one flagged scrape session.
 ///

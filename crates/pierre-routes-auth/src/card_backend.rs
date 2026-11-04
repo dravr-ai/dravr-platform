@@ -54,3 +54,31 @@ pub(crate) async fn card_backend(
     };
     (backend, grant)
 }
+
+/// The card's two reconnect flags, given `connected_backend`, the backend
+/// serving it, and `reauth_providers`, the backends flagged for reconnect.
+///
+/// The first is whether the serving backend's session died (dead scrape /
+/// failed OAuth refresh), so the UI prompts a reconnect instead of showing a
+/// healthy "Connected". Only the backend that serves the card counts: a dead
+/// usr/pwd session left beside a live Garmin OAuth grant serves nothing, and
+/// flagging it kept the reconnect banner up after the athlete had just
+/// reconnected through OAuth.
+///
+/// The second is whether the card's username-and-password session is flagged
+/// while another backend (the OAuth grant) serves the card: the card keeps
+/// syncing, but the session the reconnect notice named is expired, so the
+/// card offers its reconnect too.
+pub(crate) fn reauth_flags(
+    provider_name: &str,
+    connected_backend: Option<&str>,
+    reauth_providers: &HashSet<String>,
+) -> (bool, bool) {
+    let Some(backend) = connected_backend else {
+        return (false, false);
+    };
+    let session =
+        backend_resolver::mirror_backend_for(backend_resolver::user_facing_name(provider_name))
+            .is_some_and(|mirror| mirror != backend && reauth_providers.contains(mirror));
+    (reauth_providers.contains(backend), session)
+}

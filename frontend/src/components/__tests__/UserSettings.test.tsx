@@ -1229,6 +1229,42 @@ describe('UserSettings Component', () => {
       expect(assign).not.toHaveBeenCalled();
     });
 
+    it('shows an expired Garmin usr/pwd session beside a serving grant and reconnects it through its login', async () => {
+      // The grant still serves the card (`needs_reauth: false`), but the
+      // session the reconnect notice named is expired: the card says so, keeps
+      // its disconnect, and reconnects through the usr/pwd login, never the
+      // grant's OAuth.
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...card('sciotte_garmin', 'Garmin'),
+            connected: true,
+            connected_backend: 'garmin',
+            recommended_backend: 'oauth',
+            needs_reauth: false,
+            session_needs_reauth: true,
+            oauth_awaiting_activities: true,
+          },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      await openProviders();
+
+      expect(await screen.findByTestId('provider-reconnect-needed-sciotte_garmin')).toHaveTextContent(
+        'Reconnect needed',
+      );
+      expect(screen.queryByText('Connected — waiting for activities')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('provider-history-login-sciotte_garmin')).not.toBeInTheDocument();
+      expect(screen.getByTestId('provider-disconnect-sciotte_garmin')).toBeInTheDocument();
+      const reconnect = screen.getByTestId('provider-session-reconnect-sciotte_garmin');
+      expect(reconnect).toHaveTextContent('Reconnect');
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      await userEvent.setup().click(reconnect);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
     it('names a refused grant whose backend no card serves by its capitalised id', async () => {
       leaveResult('wahoo');
       await openProviders();

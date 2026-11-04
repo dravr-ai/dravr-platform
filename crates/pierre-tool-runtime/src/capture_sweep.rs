@@ -92,12 +92,13 @@ pub const DEFAULT_CONNECTION_TIMEOUT_SECS: u64 = 90;
 pub const DEFAULT_SWEEP_BUDGET_SECS: u64 = 480;
 
 /// Reason recorded on a connection this sweep flags, and on one a Home
-/// refresh found refused ([`fetch_provider_activities`](crate::activity_fetch::fetch_provider_activities)).
+/// refresh found refused ([`fetch_provider_activities`](crate::activity_fetch::fetch_provider_activities)),
+/// or the health sync found dead.
 ///
 /// Matches the vocabulary the backfill notifier already writes, so a reader of
 /// `provider_connections.last_error` sees one word for one condition regardless
 /// of which path noticed it.
-pub(crate) const FLAG_REASON: &str = "session_expired";
+pub const FLAG_REASON: &str = "session_expired";
 
 /// Bounds for one refresh sweep.
 #[derive(Debug, Clone, Copy)]

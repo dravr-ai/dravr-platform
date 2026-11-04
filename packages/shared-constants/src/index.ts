@@ -181,6 +181,7 @@ export {
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
+  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from './providers';
 export type {

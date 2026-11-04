@@ -369,6 +369,16 @@ export interface ExtendedProviderStatus {
    * needed" instead of a healthy "Connected".
    */
   needs_reauth: boolean;
+  /**
+   * The card's username-and-password session is flagged for a reconnect while
+   * another of its backends — the provider's OAuth grant — serves the card.
+   * The card still syncs, so `needs_reauth` stays `false`, but the session the
+   * reconnect notice named is expired: the card shows the reconnect and opens
+   * the username-and-password login (`sessionReconnectTarget` in
+   * `@pierre/shared-constants`). A dead grant beside it is `needs_reauth`,
+   * which the card shows first.
+   */
+  session_needs_reauth: boolean;
   capabilities: string[];
   /**
    * For a user-facing provider with more than one auth backend (Strava can be

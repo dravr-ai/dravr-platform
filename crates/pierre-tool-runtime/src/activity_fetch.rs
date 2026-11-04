@@ -31,7 +31,8 @@ use uuid::Uuid;
 use crate::capture_sweep::FLAG_REASON;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
-use crate::protocol::reauth_notice::flag_needs_reauth;
+use crate::protocol::reauth_notice;
+use crate::reauth_retry;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
@@ -696,9 +697,13 @@ pub struct HistoricalServe {
 /// A fetch the provider refused for authentication — a dead scrape session, a
 /// revoked token — is not recorded as a failed sync (see
 /// [`fetch_provider_head`]); it flags the connection `needs_reauth` and sends
-/// the athlete's reconnect notice instead ([`flag_needs_reauth`]). Without
+/// the athlete's reconnect notice instead
+/// ([`flag_needs_reauth`](reauth_notice::flag_needs_reauth)). Without
 /// that, the Home refresh that met a dead session said nothing, recorded no
-/// pause, and scraped the dead session again on every Home load.
+/// pause, and scraped the dead session again on every Home load. The flag
+/// names the connection that refused (`reauth_notice::refused_backend`), and a
+/// session already flagged is served from the cache without a read
+/// ([`reauth_retry::flagged_session`]) until a reconnect or a claimed retry.
 pub async fn fetch_provider_activities(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -707,38 +712,41 @@ pub async fn fetch_provider_activities(
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
     let attempt_started_at = Utc::now();
+    let tenant = TenantId::parse_str(tenant_id).ok();
+    if let Some(tenant) = tenant {
+        if reauth_retry::flagged_session(runtime, user_id, tenant, provider_slug)
+            .await
+            .is_some()
+        {
+            return serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await;
+        }
+    }
     match fetch_provider_head(runtime, provider_slug, user_id, tenant_id, params).await {
         Ok(activities) => Some(activities),
         Err(e) => {
-            let auth_required = e.provider_auth_required_provider().is_some();
+            // The connection that refused is the backend the error names, so a
+            // dead username-and-password session is flagged, not the grant.
+            let refused = reauth_notice::refused_backend(&e, provider_slug);
             warn!(
                 user_id = %user_id,
                 provider = %provider_slug,
+                refused = refused.as_deref(),
                 error = %e,
-                auth_required,
                 "fetch_provider_activities: live fetch failed; serving cache"
             );
             // Live fetch failed — serve the user's cached activities for this
             // window rather than returning nothing.
-            let tenant = TenantId::parse_str(tenant_id).ok()?;
-            if auth_required {
-                if let Err(flag_error) = flag_needs_reauth(
+            let tenant = tenant?;
+            if let Some(refused) = refused {
+                reauth_notice::flag_refused(
                     runtime,
                     user_id,
                     tenant,
-                    provider_slug,
+                    &refused,
                     FLAG_REASON,
                     attempt_started_at,
                 )
-                .await
-                {
-                    warn!(
-                        user_id = %user_id,
-                        provider = %provider_slug,
-                        error = %flag_error,
-                        "fetch_provider_activities: could not flag the refused connection"
-                    );
-                }
+                .await;
             }
             serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await
         }

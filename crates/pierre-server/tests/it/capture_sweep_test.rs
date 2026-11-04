@@ -39,6 +39,7 @@ use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provi
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, RefreshOutcome, SweepBudget, SweepSelection, DEFAULT_CONNECTION_LIMIT,
 };
+use pierre_tool_runtime::reauth_retry::claimed_retry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use tokio::net::TcpListener;
@@ -600,10 +601,12 @@ fn ids(activities: &[Activity]) -> Vec<&str> {
 }
 
 /// The incident end to end. The sweep meets one auth-shaped answer and flags
-/// the connection; the athlete's next read, asked for by the name they know
-/// the provider by, is served through the very same stored session. That read
-/// must put the connection back among the live ones, or the sweep and the Home
-/// page, which act on `active` connections only, never refresh it again.
+/// the connection. An ordinary read of the flagged session does not sign in to
+/// it again (each attempt is a headless sign-in on the scraper); the throttled
+/// retry does, asked for by the name the athlete knows the provider by, and is
+/// served through the very same stored session. That read must put the
+/// connection back among the live ones, or the sweep and the Home page, which
+/// act on `active` connections only, never refresh it again.
 #[tokio::test]
 async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
     let (f, scraper) = athlete_on_the_mirror().await;
@@ -625,15 +628,20 @@ async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
     );
 
     scraper.session_alive.store(true, Ordering::SeqCst);
-    let served = fetch_provider_activities(
-        &f.runtime,
-        "strava",
-        f.user_id,
-        &f.tenant.to_string(),
-        &head_window(),
-    )
-    .await
-    .expect("the stored session serves the read");
+    let (tenant, window) = (f.tenant.to_string(), head_window());
+    let read = || fetch_provider_activities(&f.runtime, "strava", f.user_id, &tenant, &window);
+    assert!(
+        read().await.is_none(),
+        "an ordinary read of a flagged session serves the (empty) cache, not the scraper"
+    );
+    assert_eq!(
+        row_state(&f).await.status,
+        "needs_reauth",
+        "an ordinary read leaves the flag standing"
+    );
+    let served = claimed_retry(read())
+        .await
+        .expect("the stored session serves the claimed retry");
     assert_eq!(ids(&served), vec![RIDE_ID]);
 
     let row = row_state(&f).await;

@@ -44,7 +44,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-notifications")]
 use pierre_core::models::NotificationScreen;
 use pierre_core::models::{ReauthMark, TenantId};
@@ -52,6 +52,7 @@ use pierre_core::models::{ReauthMark, TenantId};
 use pierre_notifications::models::{NotificationCategory, TransportPolicy as PushTransportPolicy};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId};
+use pierre_providers::backend_resolver::backend_pair_for;
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::{brand_name, user_facing_name};
 #[cfg(feature = "client-notifications")]
@@ -263,5 +264,86 @@ async fn suppressed_in_app(
             warn!("Failed to dispatch reauth push for user {user_id} provider {provider}: {e}");
             false
         }
+    }
+}
+
+/// The connection an auth-shaped failure of a `provider_slug` read names, or
+/// `None` when `error` is not one.
+///
+/// The backend the error carries when it is one of `provider_slug`'s own
+/// ([`backend_pair_for`]): a `garmin` read the athlete's username-and-password
+/// session served fails as `sciotte_garmin`, and that is the connection to
+/// flag, not the Garmin grant beside it. Any other slug (the scraper's unnamed
+/// `sciotte`) falls back to `provider_slug`.
+#[must_use]
+pub(crate) fn refused_backend(error: &AppError, provider_slug: &str) -> Option<String> {
+    let named = error.provider_auth_required_provider()?;
+    let own = backend_pair_for(provider_slug).contains(&named);
+    Some(if own { named } else { provider_slug.to_owned() })
+}
+
+/// [`flag_needs_reauth`] for the connection `refused` an attempt found dead,
+/// recording `reason` and when the attempt began.
+///
+/// A flip that cannot be written is logged: the caller serves what it holds
+/// either way.
+pub(crate) async fn flag_refused(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    refused: &str,
+    reason: &str,
+    attempt_started_at: DateTime<Utc>,
+) {
+    if let Err(e) = flag_needs_reauth(
+        runtime,
+        user_id,
+        tenant_id,
+        refused,
+        reason,
+        attempt_started_at,
+    )
+    .await
+    {
+        warn!(
+            user_id = %user_id,
+            provider = %refused,
+            error = %e,
+            "could not flag the refused connection"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::constants::oauth_providers;
+    use pierre_core::errors::AppError;
+
+    use super::refused_backend;
+
+    /// The auth error names the backend that refused, which a `garmin`
+    /// read's caller flags, prompts and mints its reconnect link for.
+    #[test]
+    fn a_garmin_read_the_session_refused_names_the_session() {
+        let refused = AppError::provider_auth_required(oauth_providers::SCIOTTE_GARMIN);
+        assert_eq!(
+            refused_backend(&refused, oauth_providers::GARMIN).as_deref(),
+            Some(oauth_providers::SCIOTTE_GARMIN),
+            "bug: a refusal of Garmin's own session must name that session, not the grant"
+        );
+        // The scraper's unnamed slug is not one of Garmin's: the read's own
+        // name stands.
+        let unnamed = AppError::provider_auth_required("sciotte");
+        assert_eq!(
+            refused_backend(&unnamed, oauth_providers::GARMIN).as_deref(),
+            Some(oauth_providers::GARMIN),
+            "bug: a backend outside Garmin's pair must not be the one flagged"
+        );
+        let other = AppError::internal("boom");
+        assert_eq!(
+            refused_backend(&other, oauth_providers::GARMIN),
+            None,
+            "bug: an error that is no auth refusal must flag nothing"
+        );
     }
 }

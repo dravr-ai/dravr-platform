@@ -390,10 +390,74 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
         .await
         .unwrap()
         .is_none());
-    // Recovery stops at its first refused page and retries it once after the
-    // one credential refresh a sync allows; health stops at its first page:
-    // three pages, not one per day of the window.
-    assert_eq!(fake.asked.lock().unwrap().len(), 3);
+    // Recovery stops at its first refused page. A session has no refresh
+    // grant, so nothing is retried, and the health pass does not ask the
+    // refused session again: one page, not one per data type and refresh.
+    assert_eq!(
+        fake.asked.lock().unwrap().len(),
+        1,
+        "bug: a refused session must not be read again in the same sync"
+    );
+
+    // The next sync hands the row out again and reads it afresh, once.
+    orchestrator
+        .sync_user(&user_id.to_string(), "coros")
+        .await
+        .unwrap();
+    assert_eq!(
+        fake.asked.lock().unwrap().len(),
+        2,
+        "bug: the next sync must read the session afresh, once"
+    );
+}
+
+/// A session flagged for a reconnect is not read by a sync: it is read again
+/// only by a reconnect or by the throttled retry, never by every sync.
+#[tokio::test]
+async fn a_flagged_coros_session_is_not_read_by_a_sync() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            "sciotte_coros",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "sciotte_coros",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(dead_session);
+
+    assert!(
+        storage
+            .get_credentials(&user_id.to_string(), "coros")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a flagged session hands out no credentials"
+    );
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    drop(orchestrator.sync_user(&user_id.to_string(), "coros").await);
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: a sync must not sign in to a flagged session"
+    );
 }
 
 #[tokio::test]

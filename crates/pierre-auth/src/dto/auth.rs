@@ -604,6 +604,15 @@ pub struct ProviderStatus {
     /// refresh failure. Lets the connection screen show "Reconnect needed" instead
     /// of a healthy-looking "Connected" for a session that no longer works.
     pub needs_reauth: bool,
+    /// The card's username-and-password session is flagged for a reconnect
+    /// while another of the card's backends — the provider's OAuth grant —
+    /// serves it. The card still syncs through the grant, so `needs_reauth`
+    /// stays `false` and every "is it syncing" surface reads it healthy, but
+    /// the session it shows beside the grant is expired: a client shows the
+    /// reconnect on the card and starts the username-and-password login, the
+    /// flow the reconnect notice links to. A dead grant beside it is
+    /// `needs_reauth`, which a client shows first.
+    pub session_needs_reauth: bool,
     /// Provider capabilities (e.g., `["activities", "sleep"]`)
     pub capabilities: Vec<String>,
     /// For a user-facing provider with more than one auth backend (Strava and
