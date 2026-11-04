@@ -66,6 +66,8 @@ impl From<FeedbackAbout> for AboutBody {
 }
 
 /// Body of `POST /api/me/feedback`.
+///
+/// LIMITATION(registre#1392): `NewMessageBody` is text only; an athlete cannot attach an image.
 #[derive(Debug, Deserialize)]
 struct NewMessageBody {
     body: String,

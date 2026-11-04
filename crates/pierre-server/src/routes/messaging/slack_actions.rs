@@ -643,6 +643,7 @@ const QUOTA_LIMIT_REACHED_EVENT: &str = "quota.limit_reached";
 /// `user_id`; an event without it gets no buttons, since a tap could not say
 /// what it acts on. A capped athlete a raise could not unlock gets none
 /// either ([`raise_can_lift`]).
+/// LIMITATION(registre#1392): `feedback.recorded` gets no Reply button, so Slack cannot answer it.
 #[derive(Debug)]
 pub struct OpsDecisionActions;
 
