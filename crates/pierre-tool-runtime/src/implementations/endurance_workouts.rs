@@ -647,9 +647,10 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
         let schema = object_schema(properties, Some(vec!["date".to_owned()]));
         answers_with::<PrescribeWorkoutResult>(tool_definition(
             "prescribe_workout",
-            "Write one workout onto the athlete's calendar provider (Intervals.icu \
-             today) for a date and record it; needs a connected provider that writes \
-             a training calendar. Pass EITHER template_slug OR session. Every call \
+            "Write one workout onto the athlete's calendar provider (Intervals.icu, \
+             Wahoo or Garmin) for a date and record it; needs a connected \
+             provider that writes a training calendar. Pass EITHER template_slug OR \
+             session. Every call \
              adds a new calendar entry unless replaces names a prescription_id (from \
              an earlier call or get_training_plan's calendar block), which changes \
              that entry in place on its own provider; withdraw_prescribed_workout \

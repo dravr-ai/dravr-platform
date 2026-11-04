@@ -15705,7 +15705,7 @@
     },
     {
       "name": "get_training_plan",
-      "description": "Fetch the athlete's active training plan: outline (goal race, flavour, phases and their targets) and day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not the conversation, is the source of truth. It is the athlete's one season whichever agent laid it; `authors` names who laid it and wrote each week, and marks you. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (its prescription_ids are what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means their human coach updates it. A group's human coach reads a consenting athlete's plan with `athlete`; the athlete shares it into a room with `/plan share`. For a human coach, `plan` is what the athlete sees and `draft` their unpublished draft as publishing would leave it, with `draft.state`: weeks the athlete changed since and whether their season was re-laid, which publish_training_plan would refuse.",
+      "description": "Fetch the athlete's active training plan: outline (goal race, flavour, phases and their targets) and day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not the conversation, is the source of truth. It is the athlete's one season whichever agent laid it; `authors` names who laid it and wrote each week, and marks you. The calendar block lists what Dravr has on the athlete's calendar (its prescription_ids are what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means their human coach updates it. A group's human coach reads a consenting athlete's plan with `athlete`; the athlete shares it into a room with `/plan share`. For a human coach, `plan` is what the athlete sees and `draft` their unpublished draft as publishing would leave it, with `draft.state`: weeks the athlete changed since and whether their season was re-laid, which publish_training_plan would refuse.",
       "inputSchema": {
         "properties": {
           "all_weeks": {
@@ -23560,7 +23560,7 @@
     },
     {
       "name": "prescribe_workout",
-      "description": "Write one workout onto the athlete's calendar provider (Intervals.icu today) for a date and record it; needs a connected provider that writes a training calendar. Pass EITHER template_slug OR session. Every call adds a new calendar entry unless replaces names a prescription_id (from an earlier call or get_training_plan's calendar block), which changes that entry in place on its own provider; withdraw_prescribed_workout removes one. A group's human coach prescribes for a consenting athlete with `athlete`, through the athlete's Intervals.icu link once they allow calendar writes on it.",
+      "description": "Write one workout onto the athlete's calendar provider (Intervals.icu, Wahoo or Garmin) for a date and record it; needs a connected provider that writes a training calendar. Pass EITHER template_slug OR session. Every call adds a new calendar entry unless replaces names a prescription_id (from an earlier call or get_training_plan's calendar block), which changes that entry in place on its own provider; withdraw_prescribed_workout removes one. A group's human coach prescribes for a consenting athlete with `athlete`, through the athlete's Intervals.icu link once they allow calendar writes on it.",
       "inputSchema": {
         "properties": {
           "agent_id": {
@@ -23576,7 +23576,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Calendar provider to write to (e.g. intervals_icu). Omitted: the athlete's connected provider that writes a training calendar, the first alphabetically when several are.",
+            "description": "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last.",
             "type": "string"
           },
           "replaces": {
@@ -24274,7 +24274,7 @@
     },
     {
       "name": "push_training_plan",
-      "description": "Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring it up to date after the plan changed: creates missing days, updates changed ones, removes ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save. Needs a saved plan and a connected provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan with `athlete`, through the athlete's Intervals.icu link: the athlete must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft says when one exists).",
+      "description": "Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin), or bring it up to date after the plan changed: creates missing days, updates changed ones, removes ones the plan no longer has, and leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save. Needs a saved plan and a connected provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan with `athlete`, through the athlete's Intervals.icu link: the athlete must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft says when one exists).",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -24286,7 +24286,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Calendar provider to write to (e.g. intervals_icu). Omitted: the athlete's connected provider that writes a training calendar, the first alphabetically when several are.",
+            "description": "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last.",
             "type": "string"
           }
         },
@@ -25855,7 +25855,7 @@
     },
     {
       "name": "save_training_plan",
-      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their Intervals.icu calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
       "inputSchema": {
         "properties": {
           "agent_id": {

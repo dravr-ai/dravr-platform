@@ -238,10 +238,11 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
-            "Put the athlete's active training plan on their calendar provider (Intervals.icu \
-             today), or bring it up to date after the plan changed: creates missing days, \
-             updates changed ones, removes ones the plan no longer has, and leaves alone any \
-             the athlete edited on the provider. Never touches dates before today. Call it \
+            "Put the athlete's active training plan on their calendar provider (Intervals.icu, \
+             Wahoo or Garmin), or bring it up to date after the plan changed: creates missing \
+             days, updates changed ones, removes ones the plan no longer has, and leaves alone \
+             any the athlete edited there (Garmin reports no edits). Never touches dates \
+             before today. Call it \
              when the athlete or coach asks to put or update the plan on their calendar — not \
              on your own initiative after a save. Needs a saved plan and a connected provider \
              that writes a training calendar. A group's human coach pushes a consenting \

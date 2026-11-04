@@ -13,7 +13,7 @@ publish = false
 [features]
 default = ["provider-whoop", "provider-strava", "provider-sciotte"]
 provider-strava = []
-provider-garmin = []
+provider-garmin = ["dep:dravr-cageux"]
 provider-terra = []
 provider-whoop = []
 provider-coros = []
@@ -52,7 +52,8 @@ ring = "0.17"
 hex = "0.4"
 # Wahoo plan uploads travel as a base64 data URI (`plan[file]`).
 base64 = { version = "0.22", optional = true }
-# Power-zone bounds the Wahoo plan file states as fractions of FTP.
+# Power-zone bounds the Wahoo plan file states as fractions of FTP, and the
+# neutral step classes the Wahoo and Garmin calendars share.
 dravr-cageux = { workspace = true, optional = true }
 # The one activity FIT decoder (an athlete's uploaded workout, the samples Wahoo
 # serves only as a FIT file, a Garmin push file), lib only: no store backends.

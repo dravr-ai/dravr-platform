@@ -255,7 +255,7 @@ async fn read_untracked(
         (now - Duration::days(RECOVERY_ROWS_WINDOW_DAYS), now),
     )
     .await?;
-    let calendar_writable = resolve_calendar_target(&registry, &own, None).is_ok();
+    let calendar_writable = resolve_calendar_target(&registry, &own, &[], None).is_ok();
 
     // Through the terms filter, as every model-facing read: a session a
     // provider keeps from AI is no ground for "my last workout", and one kept

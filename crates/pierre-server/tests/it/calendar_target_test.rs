@@ -583,7 +583,8 @@ async fn an_athlete_with_no_calendar_capable_connection_is_told_which_capability
     let plan = fx.ok("get_training_plan", json!({})).await?;
     assert_eq!(
         plan["calendar"]["entries"].as_array().map(Vec::len),
-        Some(0)
+        Some(0),
+        "{plan}"
     );
     Ok(())
 }
@@ -670,6 +671,56 @@ fn intervals_icu_declares_the_capability_and_stays_the_target_of_an_athlete_conn
     assert!(registry
         .calendar_write_providers()
         .contains(&"intervals_icu"));
-    let target = resolve_calendar_target(&registry, &["strava", "intervals_icu"], None);
+    let target = resolve_calendar_target(&registry, &["strava", "intervals_icu"], &[], None);
     assert_eq!(target.unwrap(), "intervals_icu");
+}
+
+/// Garmin's API connection writes its calendar (carnet#1385); connecting it
+/// beside a calendar the athlete already pushes to moves nothing, and naming
+/// Garmin while its usr/pwd connection serves the reads still writes through
+/// the API connection.
+#[test]
+fn garmin_writes_its_calendar_without_taking_an_athletes_existing_one() {
+    let registry = ProviderRegistry::new();
+    assert!(registry.calendar_write_providers().contains(&"garmin"));
+    assert!(!registry
+        .calendar_write_providers()
+        .contains(&"sciotte_garmin"));
+
+    let alone = resolve_calendar_target(&registry, &["garmin"], &[], None);
+    assert_eq!(alone.unwrap(), "garmin");
+    for beside in ["intervals_icu", "wahoo"] {
+        let fresh = resolve_calendar_target(&registry, &["garmin", beside], &[], None);
+        assert_eq!(
+            fresh.unwrap(),
+            beside,
+            "an athlete who never pushed lands on the calendar provider, not on Garmin"
+        );
+    }
+    let kept = resolve_calendar_target(
+        &registry,
+        &["garmin", "intervals_icu"],
+        &["intervals_icu"],
+        None,
+    );
+    assert_eq!(
+        kept.unwrap(),
+        "intervals_icu",
+        "the calendar holding Dravr's entries stays the target"
+    );
+    let named = resolve_calendar_target(
+        &registry,
+        &["sciotte_garmin", "garmin", "intervals_icu"],
+        &["intervals_icu"],
+        Some("sciotte_garmin"),
+    );
+    assert_eq!(named.unwrap(), "garmin");
+    let mirror_only =
+        resolve_calendar_target(&registry, &["sciotte_garmin"], &[], Some("sciotte_garmin"))
+            .unwrap_err();
+    assert!(
+        mirror_only.message.contains("(garmin)"),
+        "{}",
+        mirror_only.message
+    );
 }

@@ -26,9 +26,9 @@ pub(super) fn provider_property() -> PropertySchema {
     PropertySchema {
         property_type: "string".to_owned(),
         description: Some(
-            "Calendar provider to write to (e.g. intervals_icu). Omitted: the athlete's \
-             connected provider that writes a training calendar, the first alphabetically \
-             when several are."
+            "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider \
+             that writes a training calendar; of several, the one with Dravr's entries, \
+             else alphabetical, Garmin last."
                 .to_owned(),
         ),
         ..Default::default()
@@ -125,8 +125,63 @@ pub(super) async fn holds_only_through_a_link(
     Ok(only_through_a_link(&rows, backend))
 }
 
+/// What [`ledger_calendars`] looks at when none of the athlete's connections
+/// writes a calendar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WithoutConnection {
+    /// Nothing: a write has no target to choose.
+    Skip,
+    /// Every calendar provider: a read of the ledger still finds what Dravr
+    /// left on a calendar the athlete has since disconnected.
+    EveryCalendar,
+}
+
+/// The calendars the athlete's push ledger holds live entries on, among the
+/// calendar-capable `backends`. Read only when more than one of them writes
+/// a calendar, the one case where the ledger decides the target
+/// ([`resolve_calendar_target`]), or when none does and `without` says to
+/// look at every calendar provider; empty otherwise.
+async fn ledger_calendars<'a>(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    backends: &[&'a str],
+    without: WithoutConnection,
+) -> AppResult<Vec<&'a str>> {
+    let registry = context.resources.provider_registry();
+    let mut writable: Vec<&'a str> = backends
+        .iter()
+        .copied()
+        .filter(|backend| {
+            registry
+                .get_capabilities(backend)
+                .is_some_and(|caps| caps.supports_calendar_write())
+        })
+        .collect();
+    writable.sort_unstable();
+    writable.dedup();
+    let candidates = match (writable.len(), without) {
+        (0, WithoutConnection::EveryCalendar) => registry.calendar_write_providers(),
+        (0 | 1, _) => return Ok(Vec::new()),
+        _ => writable,
+    };
+    let ledger = &context.resources.repos().prescribed_workouts;
+    let mut live = Vec::new();
+    for backend in candidates {
+        if !ledger
+            .list_live_calendar_events(tenant_id, user_id, backend, None)
+            .await?
+            .is_empty()
+        {
+            live.push(backend);
+        }
+    }
+    Ok(live)
+}
+
 /// The backend a calendar write goes to: the one the caller named, else the
-/// athlete's provider among `which` that declares calendar-write.
+/// athlete's provider among `which` that declares calendar-write, the one
+/// their ledger already writes first.
 ///
 /// # Errors
 ///
@@ -147,11 +202,20 @@ pub(super) async fn calendar_target(
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;
-    resolve_calendar_target(
-        registry,
-        &backends_among(&rows, which),
-        requested.as_deref(),
-    )
+    let backends = backends_among(&rows, which);
+    let live = if requested.is_none() {
+        ledger_calendars(
+            context,
+            tenant_id,
+            user_id,
+            &backends,
+            WithoutConnection::Skip,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+    resolve_calendar_target(registry, &backends, &live, requested.as_deref())
 }
 
 /// The calendar a read of the push ledger looks under, and who writes it.
@@ -178,10 +242,16 @@ pub(super) async fn calendar_ledger_target(
     user_id: Uuid,
 ) -> AppResult<LedgerCalendar> {
     let rows = connections(context, tenant_id, user_id).await?;
-    let backend = calendar_read_target(
-        context.resources.provider_registry(),
-        &backends_among(&rows, CalendarConnections::WithLink),
-    )?;
+    let backends = backends_among(&rows, CalendarConnections::WithLink);
+    let live = ledger_calendars(
+        context,
+        tenant_id,
+        user_id,
+        &backends,
+        WithoutConnection::EveryCalendar,
+    )
+    .await?;
+    let backend = calendar_read_target(context.resources.provider_registry(), &backends, &live)?;
     Ok(LedgerCalendar {
         through_link: only_through_a_link(&rows, &backend),
         backend,
