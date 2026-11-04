@@ -577,7 +577,7 @@
     "previewQuestion": "Legs felt heavy on today’s tempo. Should I still do Saturday’s long run?",
     "previewSeeFirst": "See what coaching looks like first",
     "previewSpecifics": "The specifics are read from the service you connect. Without one, an agent can only give you the generic answer.",
-    "privacyAnalyticsBlurb": "Help improve Dravr by sharing anonymized usage data. We track general usage patterns like which features you use and how often — never your personal data, messages, or fitness information. All identifiers are cryptographically hashed before leaving your device.",
+    "privacyAnalyticsBlurb": "Help improve Dravr with usage analytics. With your consent, PostHog records which features you use, tied to your account email. It stays off until you turn it on, and you can turn it off anytime.",
     "privacyAndData": "Privacy & Data",
     "privacyNote": "Privacy Note",
     "privacyNoteBlurb": "Dravr only accesses the data you authorize. We never share your fitness data with third parties. You can disconnect any provider at any time.",
@@ -925,7 +925,10 @@
     "signupCodeAccepted": "Code accepted. Your account is ready.",
     "signupCodeAcceptedConfirmEmail": "Code accepted. Confirm your email address to activate your account.",
     "signupCodeJoinedGroup": "You've also joined the group this code came from.",
-    "signupCodeInvalid": "This code isn't valid. Check it and try again."
+    "signupCodeInvalid": "This code isn't valid. Check it and try again.",
+    "analyticsConsentLabel": "Help improve Dravr with usage analytics",
+    "analyticsConsentHint": "Optional. PostHog records which features you use, tied to your account email. You can change this anytime in Settings.",
+    "analyticsConsentPolicyLink": "How we use usage analytics"
   },
   "chat": {
     "aboutThisClaim": "About this claim",
@@ -1778,14 +1781,18 @@
       "description": "Post your training plan into the room you type it in — goal countdown plus today and tomorrow, the full week, or today alone"
     },
     "privacy": {
+      "consent_ask_accept": "Yes, share",
+      "consent_ask_body": "With your consent, PostHog records which features you use, tied to your account email, so we can see what helps and fix what doesn't. It stays off unless you say yes, and you can change your answer anytime with /privacy.\n\nHow we use it: {0}",
+      "consent_ask_decline": "No thanks",
+      "consent_ask_title": "Help improve Dravr?",
       "description": "View your analytics consent setting",
-      "off_confirmation": "Analytics consent has been **disabled**. No anonymous usage data will be collected.\n\nUse `/privacy on` to opt back in at any time.",
+      "off_confirmation": "Analytics consent has been **disabled**. PostHog no longer records which features you use.\n\nUse `/privacy on` to opt back in at any time.",
       "on_confirmation": "Analytics consent has been **enabled**. Thank you for helping us improve Dravr!\n\nUse `/privacy off` to opt out at any time.",
       "status": {
         "disabled": "disabled",
         "enabled": "enabled"
       },
-      "status_line": "Analytics consent is currently **{0}**.\n\nUse `/privacy on` to enable or `/privacy off` to disable anonymous analytics."
+      "status_line": "Analytics consent is currently **{0}**.\n\nUse `/privacy on` to enable or `/privacy off` to disable usage analytics."
     },
     "privacy-off": {
       "description": "Disable analytics consent"
@@ -3370,7 +3377,12 @@
     "welcomeToDravr": "Welcome to Dravr",
     "stepCheckIn": "Check-ins",
     "checkInHeading": "How often should your agent check in?",
-    "checkInIntro": "Your agent can write first: a short morning note on your recent training, in your own thread. Pick how often — you can change it anytime in Settings."
+    "checkInIntro": "Your agent can write first: a short morning note on your recent training, in your own thread. Pick how often — you can change it anytime in Settings.",
+    "analyticsConsentTitle": "Help improve Dravr?",
+    "analyticsConsentBody": "With your consent, PostHog records which features you use, tied to your account email, so we can see what helps and fix what doesn't. It stays off unless you say yes, and you can change your answer anytime in Settings.",
+    "analyticsConsentAccept": "Yes, share usage analytics",
+    "analyticsConsentDecline": "No thanks",
+    "analyticsConsentSaveFailed": "Your answer wasn't saved. Try again."
   },
   "password": {
     "change": "Change Password",

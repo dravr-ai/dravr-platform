@@ -577,7 +577,7 @@
     "previewQuestion": "Hoy he notado las piernas pesadas en el tempo. ¿Debería hacer igualmente la tirada larga del sábado?",
     "previewSeeFirst": "Mira primero cómo es el coaching",
     "previewSpecifics": "Los detalles se leen del servicio que conectas. Sin él, un agente solo puede darte la respuesta genérica.",
-    "privacyAnalyticsBlurb": "Ayuda a mejorar Dravr compartiendo datos de uso anonimizados. Registramos patrones generales, como qué funciones usas y con qué frecuencia; nunca tus datos personales, mensajes ni información de forma física. Todos los identificadores se cifran con hash antes de salir de tu dispositivo.",
+    "privacyAnalyticsBlurb": "Ayuda a mejorar Dravr con estadísticas de uso. Con tu consentimiento, PostHog registra qué funciones usas, vinculado al correo de tu cuenta. Está desactivado hasta que lo actives, y puedes desactivarlo cuando quieras.",
     "privacyAndData": "Privacidad y datos",
     "privacyNote": "Nota de privacidad",
     "privacyNoteBlurb": "Dravr solo accede a los datos que autorizas. Nunca compartimos tus datos de forma física con terceros. Puedes desconectar cualquier proveedor cuando quieras.",
@@ -925,7 +925,10 @@
     "signupCodeAccepted": "Código aceptado. Tu cuenta está lista.",
     "signupCodeAcceptedConfirmEmail": "Código aceptado. Confirma tu correo electrónico para activar tu cuenta.",
     "signupCodeJoinedGroup": "También te has unido al grupo de este código.",
-    "signupCodeInvalid": "Este código no es válido. Revísalo e inténtalo de nuevo."
+    "signupCodeInvalid": "Este código no es válido. Revísalo e inténtalo de nuevo.",
+    "analyticsConsentLabel": "Ayuda a mejorar Dravr con estadísticas de uso",
+    "analyticsConsentHint": "Opcional. PostHog registra qué funciones usas, vinculado al correo de tu cuenta. Puedes cambiarlo cuando quieras en Ajustes.",
+    "analyticsConsentPolicyLink": "Cómo usamos las estadísticas de uso"
   },
   "chat": {
     "aboutThisClaim": "Sobre esta afirmación",
@@ -1778,8 +1781,12 @@
       "description": "Publicar tu plan de entrenamiento en la sala donde lo escribes — cuenta atrás hacia el objetivo más hoy y mañana, la semana completa, o solo hoy"
     },
     "privacy": {
+      "consent_ask_accept": "Sí, compartir",
+      "consent_ask_body": "Con tu consentimiento, PostHog registra qué funciones usas, vinculado al correo de tu cuenta, para ver qué ayuda y arreglar lo que falla. Está desactivado salvo que digas que sí, y puedes cambiar tu respuesta cuando quieras con /privacy.\n\nCómo lo usamos: {0}",
+      "consent_ask_decline": "No, gracias",
+      "consent_ask_title": "¿Nos ayudas a mejorar Dravr?",
       "description": "Ver tu ajuste de consentimiento a las estadísticas anónimas",
-      "off_confirmation": "El consentimiento de analíticas está ahora **desactivado**. No se recogerán datos de uso anónimos.\n\nUsa `/privacy on` para volver a activarlo cuando quieras.",
+      "off_confirmation": "El consentimiento de analíticas está ahora **desactivado**. PostHog ya no registra qué funciones usas.\n\nUsa `/privacy on` para volver a activarlo cuando quieras.",
       "on_confirmation": "El consentimiento de analíticas está ahora **activado**. ¡Gracias por ayudarnos a mejorar Dravr!\n\nUsa `/privacy off` para darte de baja en cualquier momento.",
       "status": {
         "disabled": "desactivado",
@@ -3370,7 +3377,12 @@
     "welcomeToDravr": "Te damos la bienvenida a Dravr",
     "stepCheckIn": "Seguimiento",
     "checkInHeading": "¿Cada cuánto te escribe tu agente?",
-    "checkInIntro": "Tu agente puede escribirte primero: una nota corta por la mañana sobre tu entrenamiento reciente, en tu propio hilo. Elige cada cuánto — puedes cambiarlo cuando quieras en Ajustes."
+    "checkInIntro": "Tu agente puede escribirte primero: una nota corta por la mañana sobre tu entrenamiento reciente, en tu propio hilo. Elige cada cuánto — puedes cambiarlo cuando quieras en Ajustes.",
+    "analyticsConsentTitle": "¿Nos ayudas a mejorar Dravr?",
+    "analyticsConsentBody": "Con tu consentimiento, PostHog registra qué funciones usas, vinculado al correo de tu cuenta, para ver qué ayuda y arreglar lo que falla. Está desactivado salvo que digas que sí, y puedes cambiar tu respuesta cuando quieras en Ajustes.",
+    "analyticsConsentAccept": "Sí, compartir estadísticas de uso",
+    "analyticsConsentDecline": "No, gracias",
+    "analyticsConsentSaveFailed": "No se guardó tu respuesta. Inténtalo de nuevo."
   },
   "password": {
     "change": "Cambiar contraseña",

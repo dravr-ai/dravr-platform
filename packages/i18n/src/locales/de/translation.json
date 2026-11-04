@@ -577,7 +577,7 @@
     "previewQuestion": "Die Beine fühlten sich beim heutigen Tempolauf schwer an. Soll ich den langen Lauf am Samstag trotzdem machen?",
     "previewSeeFirst": "Sieh dir zuerst an, wie Coaching aussieht",
     "previewSpecifics": "Die Details stammen aus dem Dienst, den du verbindest. Ohne ihn kann ein Agent nur die allgemeine Antwort geben.",
-    "privacyAnalyticsBlurb": "Hilf mit, Dravr zu verbessern, indem du anonymisierte Nutzungsdaten teilst. Wir erfassen allgemeine Nutzungsmuster — welche Funktionen du wie oft verwendest — niemals deine persönlichen Daten, Nachrichten oder Fitnessdaten. Alle Kennungen werden kryptografisch gehasht, bevor sie dein Gerät verlassen.",
+    "privacyAnalyticsBlurb": "Hilf mit, Dravr mit Nutzungsstatistiken zu verbessern. Mit deiner Einwilligung erfasst PostHog, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos. Es bleibt aus, bis du es einschaltest, und du kannst es jederzeit ausschalten.",
     "privacyAndData": "Datenschutz und Daten",
     "privacyNote": "Datenschutzhinweis",
     "privacyNoteBlurb": "Dravr greift nur auf die Daten zu, die du freigibst. Wir geben deine Fitnessdaten nie an Dritte weiter. Du kannst jeden Anbieter jederzeit trennen.",
@@ -925,7 +925,10 @@
     "signupCodeAccepted": "Code akzeptiert. Dein Konto ist bereit.",
     "signupCodeAcceptedConfirmEmail": "Code akzeptiert. Bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren.",
     "signupCodeJoinedGroup": "Du bist außerdem der Gruppe dieses Codes beigetreten.",
-    "signupCodeInvalid": "Dieser Code ist ungültig. Prüfe ihn und versuche es erneut."
+    "signupCodeInvalid": "Dieser Code ist ungültig. Prüfe ihn und versuche es erneut.",
+    "analyticsConsentLabel": "Hilf mit, Dravr mit Nutzungsstatistiken zu verbessern",
+    "analyticsConsentHint": "Optional. PostHog erfasst, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos. Du kannst das jederzeit in den Einstellungen ändern.",
+    "analyticsConsentPolicyLink": "Wie wir Nutzungsstatistiken verwenden"
   },
   "chat": {
     "aboutThisClaim": "Zu dieser Aussage",
@@ -1778,14 +1781,18 @@
       "description": "Deinen Trainingsplan in den Raum posten, in dem du tippst — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute"
     },
     "privacy": {
+      "consent_ask_accept": "Ja, teilen",
+      "consent_ask_body": "Mit deiner Einwilligung erfasst PostHog, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos, damit wir sehen, was hilft, und beheben, was hakt. Es bleibt aus, solange du nicht zustimmst, und mit /privacy kannst du deine Antwort jederzeit ändern.\n\nWie wir es verwenden: {0}",
+      "consent_ask_decline": "Nein, danke",
+      "consent_ask_title": "Hilfst du mit, Dravr zu verbessern?",
       "description": "Deine Einstellung zur Einwilligung in anonyme Statistiken anzeigen",
-      "off_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt **deaktiviert**. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze `/privacy on`, um dich jederzeit wieder anzumelden.",
-      "on_confirmation": "Die Einwilligung zu anonymen Statistiken ist jetzt **aktiviert**. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze `/privacy off`, um dich jederzeit abzumelden.",
+      "off_confirmation": "Die Einwilligung zu Nutzungsstatistiken ist jetzt **deaktiviert**. PostHog erfasst nicht mehr, welche Funktionen du nutzt.\n\nNutze `/privacy on`, um dich jederzeit wieder anzumelden.",
+      "on_confirmation": "Die Einwilligung zu Nutzungsstatistiken ist jetzt **aktiviert**. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze `/privacy off`, um dich jederzeit abzumelden.",
       "status": {
         "disabled": "deaktiviert",
         "enabled": "aktiviert"
       },
-      "status_line": "Die Einwilligung zu anonymen Statistiken ist derzeit **{0}**.\n\nNutze `/privacy on` zum Aktivieren oder `/privacy off` zum Deaktivieren."
+      "status_line": "Die Einwilligung zu Nutzungsstatistiken ist derzeit **{0}**.\n\nNutze `/privacy on` zum Aktivieren oder `/privacy off` zum Deaktivieren."
     },
     "privacy-off": {
       "description": "Die Einwilligung zu anonymen Statistiken zurückziehen"
@@ -3370,7 +3377,12 @@
     "welcomeToDravr": "Willkommen bei Dravr",
     "stepCheckIn": "Check-ins",
     "checkInHeading": "Wie oft soll sich dein Agent melden?",
-    "checkInIntro": "Dein Agent kann sich zuerst melden: morgens eine kurze Notiz zu deinem letzten Training, in deinem eigenen Verlauf. Wähl, wie oft — du kannst es jederzeit in den Einstellungen ändern."
+    "checkInIntro": "Dein Agent kann sich zuerst melden: morgens eine kurze Notiz zu deinem letzten Training, in deinem eigenen Verlauf. Wähl, wie oft — du kannst es jederzeit in den Einstellungen ändern.",
+    "analyticsConsentTitle": "Hilfst du mit, Dravr zu verbessern?",
+    "analyticsConsentBody": "Mit deiner Einwilligung erfasst PostHog, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos, damit wir sehen, was hilft, und beheben, was hakt. Es bleibt aus, solange du nicht zustimmst, und du kannst deine Antwort jederzeit in den Einstellungen ändern.",
+    "analyticsConsentAccept": "Ja, Nutzungsstatistiken teilen",
+    "analyticsConsentDecline": "Nein, danke",
+    "analyticsConsentSaveFailed": "Deine Antwort wurde nicht gespeichert. Versuch es noch einmal."
   },
   "password": {
     "change": "Passwort ändern",
