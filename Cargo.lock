@@ -1545,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "6.5.0"
+version = "6.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74bf885724d7169000ca41d195a14bdda30349b30ff50b78e4d9540d0026a649"
+checksum = "aa96d119d5359d8dc23933154827a567753b90e09fa2692eea028ae181b3a8c5"
 dependencies = [
  "async-trait",
  "axum",
@@ -1574,6 +1574,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -6416,7 +6417,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
