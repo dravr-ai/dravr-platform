@@ -54,6 +54,11 @@ tracing-opentelemetry = { version = "0.33", optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 
+[dev-dependencies]
+# A notify layer with a Slack sink spawns its batch flusher, so the test that
+# builds one needs a runtime.
+tokio = { version = "1.54", features = ["macros", "rt"] }
+
 [lints]
 workspace = true
 

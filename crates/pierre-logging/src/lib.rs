@@ -41,7 +41,9 @@ use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
     SlackConfig,
 };
-use dravr_tronc::notify::{AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer};
+use dravr_tronc::notify::{
+    AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer, NotifyLayerBuilder,
+};
 use dravr_tronc::secrets::{self, RedactingMakeWriter};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
@@ -86,8 +88,8 @@ pub fn set_analytics_provider(provider: Arc<dyn AnalyticsProvider>) {
 /// injects host-derived fields the call sites don't carry — a `user_email`
 /// resolved from the in-process identity cache and a per-event display `emoji`
 /// — into every notify event before it reaches Slack and `PostHog`. Applies to
-/// both sink configurations (with or without the `PostHog` analytics sink), so
-/// Slack identity rendering does not depend on `POSTHOG_API_KEY`.
+/// whichever sinks the layer has (Slack, `PostHog`, or both), so Slack
+/// identity rendering does not depend on `POSTHOG_API_KEY`.
 static NOTIFY_ENRICHER: OnceLock<Arc<dyn NotifyEnricher>> = OnceLock::new();
 
 /// Register the [`NotifyEnricher`] used by the `NotifyLayer`.
@@ -411,9 +413,10 @@ impl LoggingConfig {
             Self::build_error_notification_layer(&self.service_name, &self.environment);
 
         // Build optional NotifyLayer for `target: "notify"` business events.
-        // Returns `None` when SLACK_BOT_TOKEN is unset (local dev), which
-        // makes the layer a no-op via Option<Layer> passthrough — the
-        // events still land in Cloud Logging through the formatter layer.
+        // Returns `None` when neither SLACK_BOT_TOKEN nor POSTHOG_API_KEY is
+        // set (local dev), which makes the layer a no-op via Option<Layer>
+        // passthrough — the events still land in Cloud Logging through the
+        // formatter layer.
         let notify_layer = Self::build_notify_layer(&self.environment);
 
         // Build the OTLP pipeline once (if active) and reuse its tracer across
@@ -615,13 +618,80 @@ impl LoggingConfig {
 
     /// Build the `NotifyLayer` for `target: "notify"` business events.
     ///
-    /// Returns `Some(layer)` when `SLACK_BOT_TOKEN` is set so the layer
-    /// can actually post to Slack. Otherwise returns `None` — every
-    /// notify-target event still lands in Cloud Logging via the
-    /// formatter layer, but the Slack ping path is skipped. The routing
-    /// rules come from the process-wide
+    /// The layer has two independent sinks, and either one alone builds it:
+    /// Slack posts when `SLACK_BOT_TOKEN` is set, and `PostHog` captures every
+    /// catalogued event (tier and consent decided by the provider) when
+    /// `POSTHOG_API_KEY` is set and the binary registered an
+    /// [`AnalyticsProvider`]. With neither it returns `None` — every
+    /// notify-target event still lands in Cloud Logging via the formatter
+    /// layer. The Slack routing rules come from the process-wide
     /// [`NOTIFY_ROUTING_PROVIDER`] which the contremaitre sync engine
-    /// hot-reloads from `config/notify-routing.yaml`.
+    /// hot-reloads from `config/notify-routing.yaml`; they never gate a
+    /// capture.
+    fn build_notify_layer(environment: &str) -> Option<NotifyLayer<ContremaitreRoutingProvider>> {
+        let analytics = ANALYTICS_PROVIDER
+            .get()
+            .cloned()
+            .zip(Self::posthog_client_from_env());
+        let slack = Self::notify_slack_client_from_env()
+            .map(|client| (client, Arc::clone(&NOTIFY_ROUTING_PROVIDER)));
+        Self::assemble_notify_layer(environment, slack, analytics)
+    }
+
+    /// The notify layer for whichever sinks are present: Slack-routed with
+    /// `PostHog` beside it, Slack alone, or `PostHog` alone. `None` when
+    /// neither is. The Slack sink is its client with the routing provider
+    /// whose rules choose its posts. The enricher (`user_email` + emoji)
+    /// feeds both sinks, so it is wired whatever the sinks are.
+    fn assemble_notify_layer(
+        environment: &str,
+        slack: Option<(Arc<SlackClient>, Arc<ContremaitreRoutingProvider>)>,
+        analytics: Option<(Arc<dyn AnalyticsProvider>, Arc<PostHogClient>)>,
+    ) -> Option<NotifyLayer<ContremaitreRoutingProvider>> {
+        let mut builder = match (slack, analytics) {
+            (Some((slack, routing)), analytics) => {
+                Self::slack_notify_builder(environment, slack, routing, analytics)
+            }
+            (None, Some((provider, posthog))) => {
+                info!("NotifyLayer enabled without Slack: notify events reach PostHog only");
+                NotifyLayer::analytics_builder(provider, posthog)
+            }
+            (None, None) => return None,
+        };
+
+        if let Some(enricher) = NOTIFY_ENRICHER.get().cloned() {
+            builder = builder.with_enricher(enricher);
+        }
+
+        Some(builder.build())
+    }
+
+    /// The Slack-routed builder: `routing`'s rules, the buttons an event asks
+    /// an operator to press under its immediate post, and the `PostHog` sink
+    /// beside Slack when one is configured.
+    fn slack_notify_builder(
+        environment: &str,
+        slack: Arc<SlackClient>,
+        routing: Arc<ContremaitreRoutingProvider>,
+        analytics: Option<(Arc<dyn AnalyticsProvider>, Arc<PostHogClient>)>,
+    ) -> NotifyLayerBuilder<ContremaitreRoutingProvider> {
+        info!(
+            environment = environment,
+            "NotifyLayer enabled: target=notify business events route via contremaitre"
+        );
+        let mut builder = NotifyLayer::builder(slack, routing, environment.to_owned());
+        if let Some(actions) = NOTIFY_ACTIONS.get().cloned() {
+            builder = builder.with_actions(actions);
+        }
+        if let Some((provider, posthog)) = analytics {
+            info!("PostHog analytics sink enabled on NotifyLayer");
+            builder = builder.with_analytics(provider, posthog);
+        }
+        builder
+    }
+
+    /// The Slack client the notify layer posts with, when `SLACK_BOT_TOKEN`
+    /// is set.
     ///
     /// `SLACK_ERROR_CHANNEL` is used as a placeholder default channel
     /// for the underlying `SlackClient` — `NotifyLayer` overrides it
@@ -629,7 +699,7 @@ impl LoggingConfig {
     /// placeholder is only relevant when the routing provider has no
     /// rule for the emitted event (in which case the layer drops the
     /// event entirely per its `default_rule = None` configuration).
-    fn build_notify_layer(environment: &str) -> Option<NotifyLayer<ContremaitreRoutingProvider>> {
+    fn notify_slack_client_from_env() -> Option<Arc<SlackClient>> {
         let bot_token = env::var("SLACK_BOT_TOKEN").ok().filter(|s| !s.is_empty())?;
         // Placeholder channel — `NotifyLayer` reads the per-event channel
         // from the routing rule on every dispatch, so this string is only
@@ -642,59 +712,23 @@ impl LoggingConfig {
         let signing_secret = env::var("SLACK_SIGNING_SECRET")
             .ok()
             .filter(|s| !s.is_empty());
-
-        let slack_config = SlackConfig {
+        Some(Arc::new(SlackClient::new(&SlackConfig {
             bot_token,
             error_channel,
             signing_secret,
-        };
-        let slack_client = Arc::new(SlackClient::new(&slack_config));
-        let provider = Arc::clone(&NOTIFY_ROUTING_PROVIDER);
+        })))
+    }
 
-        info!(
-            environment = environment,
-            "NotifyLayer enabled: target=notify business events route via contremaitre"
-        );
-
-        // Attach the PostHog analytics sink when a project key is set and a
-        // provider was registered at startup. The sink captures every
-        // catalogued event (tier/consent decided by the provider) independent
-        // of the Slack routing rules.
-        // LIMITATION(registre#1367): build_notify_layer needs SLACK_BOT_TOKEN for analytics to exist.
-        let posthog = env::var("POSTHOG_API_KEY")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(
-                |key| match env::var("POSTHOG_HOST").ok().filter(|s| !s.is_empty()) {
-                    Some(host) => Arc::new(PostHogClient::with_host(key, host)),
-                    None => Arc::new(PostHogClient::new(key)),
-                },
-            );
-
-        let mut builder = NotifyLayer::builder(slack_client, provider, environment.to_owned());
-
-        // The enricher (user_email + emoji) applies to every notify event for
-        // both sinks, so it is wired regardless of whether PostHog is enabled.
-        if let Some(enricher) = NOTIFY_ENRICHER.get().cloned() {
-            builder = builder.with_enricher(enricher);
-        }
-
-        // The buttons an event asks an operator to press, posted under its
-        // immediate Slack post.
-        if let Some(actions) = NOTIFY_ACTIONS.get().cloned() {
-            builder = builder.with_actions(actions);
-        }
-
-        // Attach the PostHog analytics sink when a project key is set and a
-        // provider was registered at startup. The sink captures every
-        // catalogued event (tier/consent decided by the provider) independent
-        // of the Slack routing rules.
-        if let (Some(analytics), Some(posthog)) = (ANALYTICS_PROVIDER.get().cloned(), posthog) {
-            info!("PostHog analytics sink enabled on NotifyLayer");
-            builder = builder.with_analytics(analytics, posthog);
-        }
-
-        Some(builder.build())
+    /// The `PostHog` transport, when `POSTHOG_API_KEY` is set; `POSTHOG_HOST`
+    /// points it at the EU cloud or a self-hosted instance.
+    fn posthog_client_from_env() -> Option<Arc<PostHogClient>> {
+        let key = env::var("POSTHOG_API_KEY").ok().filter(|s| !s.is_empty())?;
+        Some(Arc::new(
+            match env::var("POSTHOG_HOST").ok().filter(|s| !s.is_empty()) {
+                Some(host) => PostHogClient::with_host(key, host),
+                None => PostHogClient::new(key),
+            },
+        ))
     }
 
     /// Create GCP optimized logging configuration
@@ -730,4 +764,110 @@ impl LoggingConfig {
 /// Returns an error if logging initialization fails
 pub fn init_from_env() -> AppResult<()> {
     LoggingConfig::from_env().init()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use dravr_tronc::notifications::{PostHogClient, SlackClient, SlackConfig};
+    use dravr_tronc::notify::{AnalyticsCapture, AnalyticsProvider, NotifyLayer, NOTIFY_TARGET};
+    use pierre_contremaitre::notify_routing::ContremaitreRoutingProvider;
+    use tracing::{info, subscriber};
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    use super::LoggingConfig;
+
+    /// The event names a [`RecordingProvider`] was asked about.
+    type EventLog = Arc<Mutex<Vec<String>>>;
+
+    /// The analytics sink of a test layer, and the log of events it saw.
+    fn recording_analytics() -> ((Arc<dyn AnalyticsProvider>, Arc<PostHogClient>), EventLog) {
+        // Unroutable host, and the provider declines every event: nothing is
+        // ever sent.
+        let posthog = Arc::new(PostHogClient::with_host("phc_test", "http://127.0.0.1:1"));
+        let events = EventLog::default();
+        let provider: Arc<dyn AnalyticsProvider> = Arc::new(RecordingProvider {
+            events: Arc::clone(&events),
+        });
+        ((provider, posthog), events)
+    }
+
+    /// Emit one `user.signup` notify event through `layer`.
+    fn emit_signup(layer: NotifyLayer<ContremaitreRoutingProvider>) {
+        subscriber::with_default(tracing_subscriber::registry().with(layer), || {
+            info!(target: NOTIFY_TARGET, event = "user.signup", "joined");
+        });
+    }
+
+    /// Records the name of every event the layer asks it about, then declines
+    /// it, so the `PostHog` transport is never handed a capture to send. The
+    /// log is an `Arc` because the test reads it after the layer owns the
+    /// provider.
+    struct RecordingProvider {
+        events: EventLog,
+    }
+
+    impl AnalyticsProvider for RecordingProvider {
+        fn capture_for(
+            &self,
+            event: &str,
+            _fields: &HashMap<String, String>,
+        ) -> Option<AnalyticsCapture> {
+            self.events
+                .lock()
+                .expect("event log lock") // Safe: test assertion
+                .push(event.to_owned());
+            None
+        }
+    }
+
+    #[test]
+    fn without_slack_notify_events_still_reach_posthog() {
+        let (analytics, events) = recording_analytics();
+
+        let layer = LoggingConfig::assemble_notify_layer("test", None, Some(analytics))
+            .expect("analytics alone must build the notify layer"); // Safe: test assertion
+        emit_signup(layer);
+
+        assert_eq!(
+            *events.lock().expect("event log lock"), // Safe: test assertion
+            ["user.signup"],
+            "bug: a layer without Slack must hand every notify event to the analytics provider"
+        );
+    }
+
+    /// The production configuration: Slack and `PostHog` side by side.
+    #[tokio::test]
+    async fn with_slack_notify_events_still_reach_posthog() {
+        let (analytics, events) = recording_analytics();
+        let slack = Arc::new(SlackClient::new(&SlackConfig {
+            bot_token: "xoxb-test".to_owned(),
+            error_channel: "#test".to_owned(),
+            signing_secret: None,
+        }));
+        // An empty routing table is disabled, so no event is ever posted:
+        // the compiled-in table would route every event to a real channel.
+        let routing = Arc::new(ContremaitreRoutingProvider::new_empty());
+
+        let layer =
+            LoggingConfig::assemble_notify_layer("test", Some((slack, routing)), Some(analytics))
+                .expect("Slack and analytics must build the notify layer"); // Safe: test assertion
+        emit_signup(layer);
+
+        assert_eq!(
+            *events.lock().expect("event log lock"), // Safe: test assertion
+            ["user.signup"],
+            "bug: Slack routing must not keep a notify event from the analytics provider"
+        );
+    }
+
+    #[test]
+    fn no_sink_builds_no_layer() {
+        assert!(
+            LoggingConfig::assemble_notify_layer("test", None, None).is_none(),
+            "bug: with neither Slack nor PostHog there is nothing for the layer to do"
+        );
+    }
 }

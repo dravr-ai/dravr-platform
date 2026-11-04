@@ -4110,6 +4110,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rustls",
  "serde_json",
+ "tokio",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
