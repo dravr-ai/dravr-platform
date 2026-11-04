@@ -20,6 +20,7 @@
 use std::collections::BTreeSet;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::Feel;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FilledField, FragmentReport};
@@ -2365,4 +2366,620 @@ fn a_strava_list_row_whose_detail_names_its_app_never_retypes_the_garmin_session
         "Charlevoix-Est Trail",
         "bug: the phone app's title named the Garmin session"
     );
+}
+
+// ============================================================================
+// The start window is for one recording's second clock (carnet#1381): it never
+// joins what one provider's rows or one device's clock say are two workouts
+// ============================================================================
+
+const WATCH: &str = "Garmin fenix 5";
+
+/// A row of one watch's recording, the way a FIT-built row carries it.
+fn watch_row(
+    id: &str,
+    provider: &str,
+    start: DateTime<Utc>,
+    seconds: u64,
+    metres: f64,
+) -> Activity {
+    provider_activity(id, provider, SportType::Ride, start, seconds)
+        .distance_meters(metres)
+        .device_name(WATCH)
+        .build()
+}
+
+/// Two short rides saved apart, six minutes between them, each in the Garmin
+/// export and the Strava export: the 15-minute start window meant for a second
+/// provider's clock joins the two rides.
+#[test]
+fn two_short_rides_in_two_exports_stay_two() {
+    let t = base_time();
+    let second = t + Duration::minutes(14);
+    let (garmin, strava) = (
+        oauth_providers::GARMIN_ARCHIVE,
+        oauth_providers::STRAVA_ARCHIVE,
+    );
+    let (sessions, _) = merge_duplicates(
+        vec![
+            watch_row("g1", garmin, t, 480, 2_500.0),
+            watch_row("s1", strava, t, 480, 2_500.0),
+            watch_row("g2", garmin, second, 480, 2_600.0),
+            watch_row("s2", strava, second, 480, 2_600.0),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(
+        sessions.len(),
+        2,
+        "bug: two rides summed into {:?} m",
+        sessions[0].distance_meters()
+    );
+}
+
+/// The same two rides with one copy each: no second row of one provider says
+/// they are two, only that one clock made both.
+#[test]
+fn one_devices_two_rides_in_two_exports_stay_two() {
+    let t = base_time();
+    let (sessions, _) = merge_duplicates(
+        vec![
+            watch_row("g1", oauth_providers::GARMIN_ARCHIVE, t, 480, 2_500.0),
+            watch_row(
+                "s2",
+                oauth_providers::STRAVA_ARCHIVE,
+                t + Duration::minutes(14),
+                480,
+                2_600.0,
+            ),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(
+        sessions.len(),
+        2,
+        "bug: two rides summed into {:?} m",
+        sessions[0].distance_meters()
+    );
+}
+
+/// The same two rides as live rows naming no device: the two Garmin rows and
+/// the two Strava rows are what say they are two.
+#[test]
+fn two_short_rides_on_two_live_connections_stay_two() {
+    let t = base_time();
+    let second = t + Duration::minutes(14);
+    let row = |id, provider, start, metres| {
+        provider_activity(id, provider, SportType::Ride, start, 480)
+            .distance_meters(metres)
+            .build()
+    };
+    let (sessions, _) = merge_duplicates(
+        vec![
+            row("g1", "garmin", t, 2_500.0),
+            row("s1", "strava", t, 2_500.0),
+            row("g2", "garmin", second, 2_600.0),
+            row("s2", "strava", second, 2_600.0),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(
+        sessions.len(),
+        2,
+        "bug: two rides on two connections folded"
+    );
+}
+
+/// Stopped, saved, restarted four minutes on: touching windows are one session
+/// on one device, and summed. A device says the same of an auto-split and of
+/// two saves, so only a gap past the tolerance tells them apart.
+#[test]
+fn consecutive_saves_on_one_device_within_tolerance_are_summed() {
+    let t = base_time();
+    let (sessions, _) = merge_duplicates(
+        vec![
+            watch_row("g1", oauth_providers::GARMIN_ARCHIVE, t, 1_800, 15_000.0),
+            watch_row(
+                "s2",
+                oauth_providers::STRAVA_ARCHIVE,
+                t + Duration::minutes(34),
+                1_800,
+                14_000.0,
+            ),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(sessions.len(), 1, "bug: touching saves stayed apart");
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(29_000.0),
+        "bug: touching saves were not summed"
+    );
+}
+
+/// A second provider's copy minutes off, the windows not touching: still one
+/// workout when nothing says otherwise. The bike computer names another
+/// device, the live row names none; neither is one clock.
+#[test]
+fn a_short_ride_minutes_off_on_a_second_provider_still_folds() {
+    let t = base_time();
+    let off = t + Duration::minutes(14);
+    let watch = || watch_row("g1", "garmin", t, 480, 2_500.0);
+    let another_device = provider_activity("w1", "wahoo", SportType::Ride, off, 480)
+        .distance_meters(2_500.0)
+        .device_name("Wahoo ELEMNT")
+        .build();
+    let no_device = provider_activity("s1", "strava", SportType::Ride, off, 480)
+        .distance_meters(2_500.0)
+        .build();
+    for copy in [another_device, no_device] {
+        let (sessions, _) =
+            merge_duplicates(vec![watch(), copy], &DedupConfig::with_tolerance(300));
+        assert_eq!(sessions.len(), 1, "bug: a copy minutes off stayed apart");
+    }
+}
+
+/// A date-only capture names the watch it read and carries only the day: the
+/// day and distance are its evidence, and one clock says nothing of a row with
+/// no clock.
+#[test]
+fn a_date_only_row_of_one_device_still_pairs_with_the_timed_row() {
+    let t = base_time();
+    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let (sessions, _) = merge_duplicates(
+        vec![
+            watch_row("g1", "garmin", t, 3_600, 30_000.0),
+            watch_row("c1", "sciotte", day, 3_600, 30_000.0),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(sessions.len(), 1, "bug: a date-only copy stayed apart");
+}
+
+/// One recording on two providers, the second's clock 14 minutes off: the copy
+/// adds no volume and no time. Summed, one 2.5 km ride reads as a 5 km session
+/// stretched over 22 minutes.
+#[test]
+fn a_copy_minutes_off_on_a_second_provider_adds_no_volume() {
+    let t = base_time();
+    let off = t + Duration::minutes(14);
+    let row = |id, provider, start| {
+        provider_activity(id, provider, SportType::Ride, start, 480)
+            .distance_meters(2_500.0)
+            .build()
+    };
+    let (sessions, report) = merge_duplicates(
+        vec![row("g1", "garmin", t), row("s1", "strava", off)],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(
+        ids(&sessions),
+        vec!["g1"],
+        "bug: a clock off was read as a Strava edit"
+    );
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(2_500.0),
+        "bug: a copy added its distance"
+    );
+    assert_eq!(
+        sessions[0].duration_seconds(),
+        480,
+        "bug: a copy stretched the session"
+    );
+    assert_eq!(
+        report.groups[0].providers,
+        vec!["garmin", "strava"],
+        "bug: the report lost a provider of the session"
+    );
+}
+
+/// A leg that touches another row is a leg, whichever provider's clock it sits
+/// on: the Strava leg starts within the window of the first Garmin piece but
+/// follows the second one, so the three are one ride in three parts.
+#[test]
+fn a_leg_touching_the_row_before_it_still_sums_inside_the_start_window() {
+    let t = base_time();
+    let leg = |id, provider, minute, metres| {
+        provider_activity(
+            id,
+            provider,
+            SportType::Ride,
+            t + Duration::minutes(minute),
+            300,
+        )
+        .distance_meters(metres)
+        .build()
+    };
+    let (sessions, _) = merge_duplicates(
+        vec![
+            leg("g1", "garmin", 0, 1_000.0),
+            leg("g2", "garmin", 7, 1_000.0),
+            leg("s3", "strava", 14, 1_000.0),
+        ],
+        &DedupConfig::with_tolerance(120),
+    );
+    assert_eq!(sessions.len(), 1, "bug: touching legs stayed apart");
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(3_000.0),
+        "bug: a touching leg was not summed"
+    );
+}
+
+/// Pieces a stop apart that a whole-session recording ties together are still
+/// the session's pieces, though their starts sit inside the window.
+#[test]
+fn pieces_a_whole_recording_ties_together_still_sum_inside_the_start_window() {
+    let t = base_time();
+    let row = |id, provider, minute, seconds, metres| {
+        provider_activity(
+            id,
+            provider,
+            SportType::Ride,
+            t + Duration::minutes(minute),
+            seconds,
+        )
+        .distance_meters(metres)
+        .build()
+    };
+    let (sessions, _) = merge_duplicates(
+        vec![
+            row("g1", "garmin", 0, 480, 2_500.0),
+            row("w2", "wahoo", 14, 480, 2_500.0),
+            row("s", "strava", 0, 1_320, 5_000.0),
+        ],
+        &DedupConfig::with_tolerance(120),
+    );
+    assert_eq!(
+        ids(&sessions),
+        vec!["g1"],
+        "bug: the first piece must stand"
+    );
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(5_000.0),
+        "bug: tied pieces were not summed"
+    );
+}
+
+/// A copy minutes off of the first row, and a later leg touching that copy: the
+/// copy adds nothing, the leg adds its own volume.
+#[test]
+fn a_copy_minutes_off_does_not_take_the_leg_it_touches_with_it() {
+    let t = base_time();
+    let row = |id, provider, minute, metres| {
+        provider_activity(
+            id,
+            provider,
+            SportType::Ride,
+            t + Duration::minutes(minute),
+            480,
+        )
+        .distance_meters(metres)
+        .build()
+    };
+    let (sessions, _) = merge_duplicates(
+        vec![
+            row("g1", "garmin", 0, 2_500.0),
+            row("s1", "strava", 14, 2_500.0),
+            row("s2", "strava", 23, 5_000.0),
+        ],
+        &DedupConfig::with_tolerance(120),
+    );
+    assert_eq!(sessions.len(), 1, "bug: the copy and the leg stayed apart");
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(7_500.0),
+        "bug: the leg must add its volume and the copy none"
+    );
+}
+
+/// Two short rides, the first on Garmin and Strava, the second only in the
+/// imported Strava export, naming no device. A source and its export are one
+/// provider: Strava's two activity ids are two workouts.
+#[test]
+fn a_source_and_its_export_holding_two_ids_are_two_workouts() {
+    let t = base_time();
+    let row = |id, provider, start, metres| {
+        provider_activity(id, provider, SportType::Ride, start, 480)
+            .distance_meters(metres)
+            .build()
+    };
+    let second = t + Duration::minutes(14);
+    let (sessions, _) = merge_duplicates(
+        vec![
+            row("g1", "garmin", t, 2_500.0),
+            row("s1", "strava", t, 2_500.0),
+            row("a2", "strava_archive", second, 2_600.0),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(sessions.len(), 2, "bug: two ids folded: {sessions:?}");
+
+    // The same pair alone, with nothing but the family to refuse it; likewise
+    // for Garmin and its export.
+    for (live, archive) in [("strava", "strava_archive"), ("garmin", "garmin_archive")] {
+        let (sessions, _) = merge_duplicates(
+            vec![
+                row("l1", live, t, 2_500.0),
+                row("a2", archive, second, 2_600.0),
+            ],
+            &DedupConfig::with_tolerance(300),
+        );
+        assert_eq!(sessions.len(), 2, "bug: {live} and {archive} folded");
+    }
+}
+
+/// The refusal never splits one activity: an export holding Strava's id is a
+/// twin of the live row whatever clock it carries, and a third provider's copy
+/// minutes off joins them; an export row under another id whose window touches
+/// the live row's is another copy of that time.
+#[test]
+fn a_source_and_its_export_holding_one_activity_stay_one_session() {
+    let t = base_time();
+    let row = |id, provider, start| {
+        provider_activity(id, provider, SportType::Ride, start, 480)
+            .distance_meters(2_500.0)
+            .build()
+    };
+    let off = t + Duration::minutes(14);
+    for rows in [
+        // One id, the clocks past the window apart.
+        vec![
+            row("x", "strava", t),
+            row("x", "strava_archive", t + Duration::hours(5)),
+            row("g1", "garmin", off),
+        ],
+        // One id, one clock, a third provider minutes off.
+        vec![
+            row("x", "strava", t),
+            row("x", "strava_archive", t),
+            row("g1", "garmin", off),
+        ],
+        // Two ids, one stretch of time.
+        vec![row("x", "strava", t), row("y", "strava_archive", t)],
+        // A multi-session export file keys each session by its own id, the
+        // live row covering them both.
+        vec![
+            provider_activity("x", "strava", SportType::Ride, t, 1_320)
+                .distance_meters(2_500.0)
+                .build(),
+            row("x.s0", "strava_archive", t),
+            row("x.s1", "strava_archive", off),
+        ],
+    ] {
+        let (sessions, _) = merge_duplicates(rows, &DedupConfig::with_tolerance(300));
+        assert_eq!(sessions.len(), 1, "bug: one activity split: {sessions:?}");
+        assert_eq!(
+            sessions[0].distance_meters(),
+            Some(2_500.0),
+            "bug: copies of one activity were summed"
+        );
+    }
+}
+
+/// A ride of 480 s and the given distance on one provider's clock.
+fn timed_ride(id: &str, provider: &str, start: DateTime<Utc>, metres: f64) -> Activity {
+    provider_activity(id, provider, SportType::Ride, start, 480)
+        .distance_meters(metres)
+        .build()
+}
+
+/// Every order the rows can arrive in.
+fn arrival_orders(rows: Vec<Activity>) -> Vec<Vec<Activity>> {
+    if rows.len() < 2 {
+        return vec![rows];
+    }
+    let mut orders = Vec::new();
+    for first in 0..rows.len() {
+        let mut rest = rows.clone();
+        let head = rest.remove(first);
+        for mut order in arrival_orders(rest) {
+            order.insert(0, head.clone());
+            orders.push(order);
+        }
+    }
+    orders
+}
+
+/// Three copies of one recording, each clock 14 minutes off the last: the first
+/// and the third share no start window, only the middle row ties them. Whichever
+/// provider ranks canonical, the ride is counted once.
+#[test]
+fn a_chain_of_start_windows_adds_no_volume_whichever_copy_stands() {
+    let t = base_time();
+    for (first, second, third) in [
+        ("garmin", "strava", "wahoo"),
+        ("wahoo", "garmin", "strava"),
+        ("strava", "wahoo", "garmin"),
+    ] {
+        let (sessions, _) = merge_duplicates(
+            vec![
+                timed_ride("a", first, t, 2_500.0),
+                timed_ride("b", second, t + Duration::minutes(14), 2_500.0),
+                timed_ride("c", third, t + Duration::minutes(28), 2_500.0),
+            ],
+            &DedupConfig::with_tolerance(300),
+        );
+        assert_eq!(
+            sessions.len(),
+            1,
+            "bug: {first}, {second}, {third} did not fold"
+        );
+        assert_eq!(
+            sessions[0].distance_meters(),
+            Some(2_500.0),
+            "bug: copies summed for {first}, {second}, {third}"
+        );
+        assert_eq!(
+            sessions[0].duration_seconds(),
+            480,
+            "bug: copies stretched the session for {first}, {second}, {third}"
+        );
+    }
+}
+
+/// One Strava id on two clocks hours apart, and a third row beside the far
+/// clock: the API row is that third row's copy through its twin, though it
+/// ranks ahead of the twin and shares no time with the row.
+#[test]
+fn a_twin_on_a_counted_rows_clock_adds_no_volume() {
+    let t = base_time();
+    let far = t + Duration::hours(5);
+    for third in [far, far + Duration::minutes(14)] {
+        let (sessions, _) = merge_duplicates(
+            vec![
+                timed_ride("x", "strava", t, 2_500.0),
+                timed_ride("x", "strava_archive", far, 2_500.0),
+                timed_ride("g1", "garmin_archive", third, 2_500.0),
+            ],
+            &DedupConfig::with_tolerance(300),
+        );
+        assert_eq!(sessions.len(), 1, "bug: one activity left {sessions:?}");
+        assert_eq!(
+            sessions[0].distance_meters(),
+            Some(2_500.0),
+            "bug: a twin of a recording was summed"
+        );
+        assert_eq!(
+            sessions[0].duration_seconds(),
+            480,
+            "bug: a twin of a recording stretched the session"
+        );
+    }
+}
+
+/// The same from the other side: the row beside the far twin ranks between the
+/// canonical row and that twin, so it is tried while the twin is uncounted.
+#[test]
+fn a_row_on_a_counted_rows_twin_clock_adds_no_volume() {
+    let t = base_time();
+    let far = t + Duration::hours(5);
+    let (sessions, _) = merge_duplicates(
+        vec![
+            timed_ride("x", "garmin", t, 2_500.0),
+            timed_ride("x", "garmin_archive", far, 2_500.0),
+            timed_ride("w1", "wahoo", far, 2_500.0),
+        ],
+        &DedupConfig::with_tolerance(300),
+    );
+    assert_eq!(sessions.len(), 1, "bug: one activity left {sessions:?}");
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(2_500.0),
+        "bug: a recording of a twin's time was summed"
+    );
+}
+
+/// A piece keeps its volume though a twin of the canonical row was captured
+/// date-only: a row with no clock says nothing about whose time a piece shares.
+#[test]
+fn a_date_only_twin_leaves_the_pieces_of_a_session() {
+    let t = base_time();
+    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let (sessions, _) = merge_duplicates(
+        vec![
+            timed_ride("g1", "garmin", t, 2_500.0),
+            ActivityBuilder::new(
+                "g1",
+                "Captured",
+                SportType::Ride,
+                day,
+                480,
+                "sciotte_garmin",
+            )
+            .source("garmin")
+            .distance_meters(2_500.0)
+            .build(),
+            timed_ride("g2", "garmin", t + Duration::minutes(9), 2_500.0),
+        ],
+        &DedupConfig::with_tolerance(120),
+    );
+    assert_eq!(sessions.len(), 1, "bug: one session left {sessions:?}");
+    assert_eq!(
+        sessions[0].distance_meters(),
+        Some(5_000.0),
+        "bug: a date-only twin hid a piece"
+    );
+}
+
+/// Two ids of one service are two workouts whichever path each came in by: a
+/// timed capture keys its row by the service's own id, as the API and the export
+/// do. A date-only capture has no clock to tell a ride from a copy, and still
+/// pairs (`a_date_only_scrape_pairs_with_the_timed_record_of_its_day`).
+#[test]
+fn a_timed_capture_under_another_id_is_another_workout() {
+    let t = base_time();
+    let second = t + Duration::minutes(14);
+    let capture = |service| {
+        let backend = if service == "garmin" {
+            "sciotte_garmin"
+        } else {
+            "sciotte"
+        };
+        ActivityBuilder::new("c2", "Captured", SportType::Ride, second, 480, backend)
+            .source(service)
+            .distance_meters(2_600.0)
+            .build()
+    };
+    for (first, service) in [
+        ("strava", "strava"),
+        ("strava_archive", "strava"),
+        ("garmin", "garmin"),
+        ("garmin_archive", "garmin"),
+    ] {
+        let (sessions, _) = merge_duplicates(
+            vec![timed_ride("a1", first, t, 2_500.0), capture(service)],
+            &DedupConfig::with_tolerance(300),
+        );
+        assert_eq!(
+            sessions.len(),
+            2,
+            "bug: {first} and a capture of {service} under two ids folded"
+        );
+    }
+}
+
+/// What the merge yields depends on the rows, never on the order they came in.
+#[test]
+fn the_start_window_rules_do_not_depend_on_arrival_order() {
+    let t = base_time();
+    let minute = |at| t + Duration::minutes(at);
+    let shapes = vec![
+        (
+            vec![
+                timed_ride("g", "garmin", t, 2_500.0),
+                timed_ride("s", "strava", minute(14), 2_500.0),
+                timed_ride("w", "wahoo", minute(28), 2_500.0),
+            ],
+            2_500.0,
+        ),
+        (
+            vec![
+                timed_ride("g1", "garmin", t, 2_500.0),
+                timed_ride("s1", "strava", minute(14), 2_500.0),
+                timed_ride("s2", "strava", minute(23), 5_000.0),
+            ],
+            7_500.0,
+        ),
+        (
+            vec![
+                timed_ride("g1", "garmin", t, 2_500.0),
+                timed_ride("s1", "strava", t, 2_500.0),
+                timed_ride("a2", "strava_archive", minute(14), 2_600.0),
+            ],
+            5_100.0,
+        ),
+    ];
+    for (rows, metres) in shapes {
+        for order in arrival_orders(rows) {
+            let (sessions, _) = merge_duplicates(order, &DedupConfig::with_tolerance(120));
+            let total: f64 = sessions.iter().filter_map(Activity::distance_meters).sum();
+            assert!(
+                (total - metres).abs() < f64::EPSILON,
+                "bug: {total} m, not {metres} m, from {sessions:?}"
+            );
+        }
+    }
 }

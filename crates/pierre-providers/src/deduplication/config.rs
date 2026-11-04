@@ -22,6 +22,8 @@ const DEFAULT_OVERLAP_TOLERANCE_SECS: u64 = 300;
 /// Default window (minutes) between two providers' start times for the same
 /// sport to count as one workout. Wider than the overlap tolerance because a
 /// second provider's clock, or its rounding of the start, can sit minutes off.
+/// It never joins what one provider's rows or one device's clock say are two
+/// workouts (`merge_duplicates`).
 const DEFAULT_TIME_WINDOW_MINUTES: i64 = 15;
 
 /// Default distance tolerance (percent of the longer distance) for two
