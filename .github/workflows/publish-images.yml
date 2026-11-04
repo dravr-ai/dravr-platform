@@ -594,10 +594,20 @@ jobs:
             BINARY_SOURCE=prebuilt
             GIT_COMMIT_SHA=${{ needs.resolve-sha.outputs.sha }}
 
-      - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.3.1
+      # This file runs from main's tip, but the checkout above is the newest
+      # GREEN commit, which can predate install-trivy.sh and would die with
+      # exit 127. Fetch the installer from the commit the workflow itself runs
+      # from, beside the build tree rather than over it.
+      - name: Checkout the Trivy installer
+        uses: actions/checkout@v6
         with:
-          version: v0.70.0
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci/install-trivy.sh
+          sparse-checkout-cone-mode: false
+          path: ci-tools
+
+      - name: Install Trivy
+        run: ci-tools/scripts/ci/install-trivy.sh 0.70.0
 
       # Trivy scans by registry digest, so with an empty cache it downloads every
       # layer of the image it just pushed — the apt, node and CLI layers,
@@ -820,10 +830,20 @@ jobs:
           cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache
           cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
-      - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.3.1
+      # This file runs from main's tip, but the checkout above is the newest
+      # GREEN commit, which can predate install-trivy.sh and would die with
+      # exit 127. Fetch the installer from the commit the workflow itself runs
+      # from, beside the build tree rather than over it.
+      - name: Checkout the Trivy installer
+        uses: actions/checkout@v6
         with:
-          version: v0.70.0
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci/install-trivy.sh
+          sparse-checkout-cone-mode: false
+          path: ci-tools
+
+      - name: Install Trivy
+        run: ci-tools/scripts/ci/install-trivy.sh 0.70.0
 
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see the server job.

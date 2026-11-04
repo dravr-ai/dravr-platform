@@ -134,9 +134,7 @@ jobs:
           cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.3.1
-        with:
-          version: v0.70.0
+        run: platform/scripts/ci/install-trivy.sh 0.70.0
 
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see publish-images.yml's server job.
