@@ -635,7 +635,11 @@ mod tests {
             let query = format!("{name}={address}");
             let out = redact_query(&query, &RedactionConfig::default());
             prop_assert!(!out.contains(&address), "{query} -> {out}");
-            prop_assert!(!out.contains(&local), "the local part is masked: {query} -> {out}");
+            // Only what stands for the local part: the name, a domain or a TLD can
+            // spell the same letters, as `redirect` holds `rec`.
+            let value = out.strip_prefix(&format!("{name}=")).unwrap_or(&out);
+            let shown_local = value.split(['@', '%']).next().unwrap_or(value);
+            prop_assert!(!shown_local.contains(&local), "the local part is masked: {query} -> {out}");
         }
 
         #[test]
