@@ -224,15 +224,24 @@ export interface RedeemSignupCodeResponse {
 // ========== SIGNUP ATTRIBUTION ==========
 
 /**
- * The campaign a sign-up arrived from: the `utm_*` parameters of the link the
- * person landed on. Sent, when known, in the register body and the Firebase
- * login body; the server attaches them to the `user.signed_up` event and never
- * stores them on the user.
+ * Where a sign-up arrived from: the `utm_*` campaign parameters of the link the
+ * person landed on, and the `ref`, `placement` and `lang` a dravr.ai
+ * create-account button adds to it. Sent, when known, in the register body and
+ * the Firebase login body; the server attaches them to the `user.signed_up`
+ * event and never stores them on the user.
  */
 export interface SignupAttribution {
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+  /** The site whose button sent the visitor, e.g. `dravr.ai`. */
+  ref?: string;
+  /** Which button on that site, e.g. `hero`. */
+  placement?: string;
+  /** The language of the page the button was on, e.g. `fr`. */
+  lang?: string;
 }
 
 // ========== AUTH RESPONSE TYPES ==========

@@ -31,7 +31,6 @@
 use crate::common;
 use crate::helpers;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -39,12 +38,11 @@ use axum::Router;
 use common::{create_test_server_resources, create_test_user_with_plan};
 use dravr_tronc::iam::GoogleKeySet;
 use helpers::axum_test::AxumTestRequest;
-use helpers::google_token::{now_secs, TestSigner};
+use helpers::google_token::{FirebaseTokenClaims, TestSigner};
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_config::environment::FirebaseConfig;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
-use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -54,34 +52,10 @@ const PROJECT: &str = "dravr-test-project";
 /// of an invalid credential, naming no account.
 const GENERIC_REFUSAL: &str = "The provided authentication credentials are invalid";
 
-/// The claims of a Firebase ID token for a Google sign-in, as Firebase mints
-/// them.
-#[derive(Debug, Clone, Serialize)]
-struct FirebaseTokenClaims {
-    iss: String,
-    aud: String,
-    sub: String,
-    iat: u64,
-    exp: u64,
-    email: Option<String>,
-    email_verified: Option<bool>,
-    firebase: HashMap<String, Value>,
-}
-
 /// A Google sign-in to `PROJECT` by the Firebase user `uid` with `email`,
 /// valid for an hour, whose address Google verified when `verified`.
 fn google_sign_in(uid: &str, email: &str, verified: Option<bool>) -> FirebaseTokenClaims {
-    let now = now_secs();
-    FirebaseTokenClaims {
-        iss: format!("https://securetoken.google.com/{PROJECT}"),
-        aud: PROJECT.to_owned(),
-        sub: uid.to_owned(),
-        iat: now,
-        exp: now + 3600,
-        email: Some(email.to_owned()),
-        email_verified: verified,
-        firebase: HashMap::from([("sign_in_provider".to_owned(), json!("google.com"))]),
-    }
+    FirebaseTokenClaims::google_sign_in(PROJECT, uid, email, verified)
 }
 
 struct World {

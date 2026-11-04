@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins how the landing campaign (utm_*) is read from either side of the hash, kept in sessionStorage and spent
-// ABOUTME: A blocked storage or a tampered record never throws and never sends anything but the three campaign fields
+// ABOUTME: Pins how the landing attribution (utm_*, dravr.ai button) is read from either side of the hash, kept and spent
+// ABOUTME: A blocked storage or a tampered record never throws and never sends anything but the attribution fields
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   SIGNUP_ATTRIBUTION_KEY,
   captureSignupAttribution,
   clearSignupAttribution,
+  readAttributionParameters,
   readSignupAttribution,
-  readUtmParameters,
 } from '../signupAttribution'
 
-describe('readUtmParameters', () => {
+describe('readAttributionParameters', () => {
   it('reads the query before the hash', () => {
-    expect(readUtmParameters({ search: '?utm_source=newsletter&utm_medium=email&utm_campaign=fall', hash: '#home' })).toEqual({
+    expect(readAttributionParameters({ search: '?utm_source=newsletter&utm_medium=email&utm_campaign=fall', hash: '#home' })).toEqual({
       utm_source: 'newsletter',
       utm_medium: 'email',
       utm_campaign: 'fall',
@@ -23,27 +23,41 @@ describe('readUtmParameters', () => {
   })
 
   it('reads the query after the hash', () => {
-    expect(readUtmParameters({ search: '', hash: '#/signup?utm_source=strava-club&utm_campaign=fall' })).toEqual({
+    expect(readAttributionParameters({ search: '', hash: '#/signup?utm_source=strava-club&utm_campaign=fall' })).toEqual({
       utm_source: 'strava-club',
       utm_campaign: 'fall',
     })
   })
 
   it('takes the query before the hash first, and fills the rest from after it', () => {
-    expect(readUtmParameters({ search: '?utm_source=first', hash: '#home?utm_source=second&utm_medium=social' })).toEqual({
+    expect(readAttributionParameters({ search: '?utm_source=first', hash: '#home?utm_source=second&utm_medium=social' })).toEqual({
       utm_source: 'first',
       utm_medium: 'social',
     })
   })
 
+  it('reads the button a dravr.ai create-account link names, beside the code it may carry', () => {
+    expect(
+      readAttributionParameters({ search: '?ref=dravr.ai&placement=hero&lang=fr&code=abc', hash: '' }),
+    ).toEqual({ ref: 'dravr.ai', placement: 'hero', lang: 'fr' })
+  })
+
+  it('reads the term and content tags a campaign link forwards', () => {
+    expect(readAttributionParameters({ search: '?utm_source=newsletter&utm_content=footer&utm_term=coach', hash: '' })).toEqual({
+      utm_source: 'newsletter',
+      utm_content: 'footer',
+      utm_term: 'coach',
+    })
+  })
+
   it('ignores blank values, other parameters and an address without a campaign', () => {
-    expect(readUtmParameters({ search: '?utm_source=%20%20&code=abc', hash: '#home' })).toBeNull()
-    expect(readUtmParameters({ search: '', hash: '' })).toBeNull()
+    expect(readAttributionParameters({ search: '?utm_source=%20%20&code=abc', hash: '#home' })).toBeNull()
+    expect(readAttributionParameters({ search: '', hash: '' })).toBeNull()
   })
 
   it('trims a value and drops an overlong one rather than cutting it', () => {
     const long = 'x'.repeat(201)
-    const read = readUtmParameters({ search: `?utm_source=%20spaced%20&utm_campaign=${long}`, hash: '' })
+    const read = readAttributionParameters({ search: `?utm_source=%20spaced%20&utm_campaign=${long}`, hash: '' })
     expect(read).toEqual({ utm_source: 'spaced' })
   })
 })
@@ -76,9 +90,20 @@ describe('signup attribution storage', () => {
     expect(readSignupAttribution()).toEqual({ utm_source: 'second' })
   })
 
-  it('reads only the three campaign fields from a stored record, and nothing from a malformed one', () => {
-    sessionStorage.setItem(SIGNUP_ATTRIBUTION_KEY, JSON.stringify({ utm_source: 'x', password: 'nope' }))
-    expect(readSignupAttribution()).toEqual({ utm_source: 'x' })
+  it('keeps a dravr.ai button link the same way, and a newer campaign link replaces it', () => {
+    captureSignupAttribution({ search: '?ref=dravr.ai&placement=cohort&lang=en', hash: '' })
+    expect(readSignupAttribution()).toEqual({ ref: 'dravr.ai', placement: 'cohort', lang: 'en' })
+
+    captureSignupAttribution({ search: '?utm_source=newsletter', hash: '' })
+    expect(readSignupAttribution()).toEqual({ utm_source: 'newsletter' })
+  })
+
+  it('reads only the attribution fields from a stored record, and nothing from a malformed one', () => {
+    sessionStorage.setItem(
+      SIGNUP_ATTRIBUTION_KEY,
+      JSON.stringify({ utm_source: 'x', placement: 'hero', password: 'nope' }),
+    )
+    expect(readSignupAttribution()).toEqual({ utm_source: 'x', placement: 'hero' })
 
     sessionStorage.setItem(SIGNUP_ATTRIBUTION_KEY, JSON.stringify({ utm_source: 42 }))
     expect(readSignupAttribution()).toBeNull()

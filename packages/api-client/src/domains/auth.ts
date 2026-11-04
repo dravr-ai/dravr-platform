@@ -126,8 +126,8 @@ export interface RegistrationSignIn {
 }
 
 /**
- * The register body. The `utm_*` fields of `SignupAttribution` name the
- * campaign the person arrived from, when the app knows it.
+ * The register body. The fields of `SignupAttribution` name the campaign and
+ * the dravr.ai button the person arrived from, when the app knows them.
  */
 export interface RegisterCredentials extends SignupAttribution {
   email: string;
@@ -276,7 +276,7 @@ export function createAuthApi(
      * Login with Firebase ID token.
      */
     async loginWithFirebase(data: FirebaseLoginData): Promise<FirebaseLoginResponse> {
-      // Backend expects id_token (snake_case); the utm_* fields sit beside it.
+      // Backend expects id_token (snake_case); the attribution fields sit beside it.
       const response = await axios.post<FirebaseLoginResponse>(ENDPOINTS.AUTH.FIREBASE, {
         id_token: data.idToken,
         ...data.attribution,

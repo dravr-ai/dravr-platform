@@ -114,8 +114,9 @@ pub struct FirebaseLoginRequest {
 /// Longest campaign tag kept; anything longer is dropped, not truncated.
 const MAX_CAMPAIGN_TAG_LEN: usize = 64;
 
-/// The `utm_*` campaign tags a sign-up arrived with, carried by the client
-/// from the landing URL.
+/// Where a sign-up came from, carried by the client from the landing URL:
+/// the `utm_*` campaign tags, and the `ref`, `placement` and `lang` a
+/// dravr.ai create-account button adds to its link.
 ///
 /// They reach the `user.signed_up` notify event through the handler's span
 /// ([`Self::record_on_current_span`]), so a sign-up the service layer
@@ -131,11 +132,27 @@ pub struct SignupAttribution {
     /// `utm_campaign`, e.g. `fall-launch`
     #[serde(default)]
     pub utm_campaign: Option<String>,
+    /// `utm_term`, e.g. `cycling-coach`
+    #[serde(default)]
+    pub utm_term: Option<String>,
+    /// `utm_content`, e.g. `footer`
+    #[serde(default)]
+    pub utm_content: Option<String>,
+    /// `ref`, the site whose button sent the visitor, e.g. `dravr.ai`
+    #[serde(default, rename = "ref")]
+    pub referring_site: Option<String>,
+    /// `placement`, which button on that site, e.g. `hero`
+    #[serde(default)]
+    pub placement: Option<String>,
+    /// `lang`, the language of the page the button was on, e.g. `fr`
+    #[serde(default)]
+    pub lang: Option<String>,
 }
 
 impl SignupAttribution {
     /// Record each tag that reads as a campaign tag on the current span,
-    /// which must declare `utm_source`, `utm_medium` and `utm_campaign`.
+    /// which must declare `utm_source`, `utm_medium`, `utm_campaign`,
+    /// `utm_term`, `utm_content`, `ref`, `placement` and `lang`.
     ///
     /// A value that is not tag-shaped is dropped rather than recorded: the
     /// span feeds the analytics sink, and a query string is free text a
@@ -146,6 +163,11 @@ impl SignupAttribution {
             ("utm_source", &self.utm_source),
             ("utm_medium", &self.utm_medium),
             ("utm_campaign", &self.utm_campaign),
+            ("utm_term", &self.utm_term),
+            ("utm_content", &self.utm_content),
+            ("ref", &self.referring_site),
+            ("placement", &self.placement),
+            ("lang", &self.lang),
         ] {
             if let Some(tag) = value.as_deref().and_then(campaign_tag) {
                 span.record(field, tag);
@@ -739,5 +761,44 @@ mod tests {
         );
         assert_eq!(request.attribution.utm_medium, None);
         assert_eq!(request.attribution.utm_campaign.as_deref(), Some("fall"));
+    }
+
+    #[test]
+    fn firebase_login_reads_the_dravr_ai_button_and_the_remaining_utm_tags() {
+        let request: FirebaseLoginRequest = serde_json::from_value(serde_json::json!({
+            "id_token": "t",
+            "ref": "dravr.ai",
+            "placement": "hero",
+            "lang": "fr",
+            "utm_term": "cycling-coach",
+            "utm_content": "footer"
+        }))
+        .unwrap();
+        let attribution = request.attribution;
+        assert_eq!(
+            attribution.referring_site.as_deref(),
+            Some("dravr.ai"),
+            "bug: the wire key `ref` must deserialize into `referring_site`"
+        );
+        assert_eq!(
+            attribution.placement.as_deref(),
+            Some("hero"),
+            "bug: `placement` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.lang.as_deref(),
+            Some("fr"),
+            "bug: `lang` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.utm_term.as_deref(),
+            Some("cycling-coach"),
+            "bug: `utm_term` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.utm_content.as_deref(),
+            Some("footer"),
+            "bug: `utm_content` must deserialize from the flattened body"
+        );
     }
 }

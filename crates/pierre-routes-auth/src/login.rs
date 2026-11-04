@@ -218,7 +218,12 @@ async fn send_registration_email(
         success = Empty,
         utm_source = Empty,
         utm_medium = Empty,
-        utm_campaign = Empty
+        utm_campaign = Empty,
+        utm_term = Empty,
+        utm_content = Empty,
+        ref = Empty,
+        placement = Empty,
+        lang = Empty
     )
 )]
 pub(crate) async fn handle_public_register(
@@ -343,7 +348,12 @@ pub(crate) async fn handle_public_register(
         success = Empty,
         utm_source = Empty,
         utm_medium = Empty,
-        utm_campaign = Empty
+        utm_campaign = Empty,
+        utm_term = Empty,
+        utm_content = Empty,
+        ref = Empty,
+        placement = Empty,
+        lang = Empty
     )
 )]
 pub(crate) async fn handle_firebase_login(

@@ -350,6 +350,32 @@ fn signup_keyed_on_its_tenant_not_the_service_bucket() {
 }
 
 #[test]
+fn signup_carries_the_dravr_ai_button_and_every_utm_tag() {
+    let provider = PierreAnalyticsProvider;
+    let tags = [
+        ("ref", "dravr.ai"),
+        ("placement", "hero"),
+        ("lang", "fr"),
+        ("utm_source", "newsletter"),
+        ("utm_medium", "email"),
+        ("utm_campaign", "fall-2026"),
+        ("utm_term", "cycling-coach"),
+        ("utm_content", "footer"),
+    ];
+    let mut f = fields(&[("tenant_id", "tenant-1"), ("source", "web")]);
+    f.extend(fields(&tags));
+    let capture = provider
+        .capture_for("user.signed_up", &f)
+        .expect("signup is operational and captures");
+    for (field, value) in tags {
+        assert_eq!(
+            capture.properties[field], value,
+            "user.signed_up must carry `{field}` to PostHog"
+        );
+    }
+}
+
+#[test]
 fn request_correlation_ids_are_not_forwarded() {
     let provider = PierreAnalyticsProvider;
     let f = fields(&[
