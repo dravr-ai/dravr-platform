@@ -246,7 +246,15 @@ export function importFailureKey(code: string | null, source: ImportSourceCopy):
 
 /** The copy key for one report row's outcome; an unknown one reads as unreadable. */
 export function importOutcomeKey(outcome: string): string {
-  const known = ['strava_export_error', 'missing_file', 'unreadable_file', 'file_too_large', 'invalid_row', 'zero_elapsed'];
+  const known = [
+    'strava_export_error',
+    'missing_file',
+    'unreadable_file',
+    'file_too_large',
+    'invalid_row',
+    'zero_elapsed',
+    'deleted_by_athlete',
+  ];
   return `providers.import.strava.outcome.${known.includes(outcome) ? outcome : 'unreadable_file'}`;
 }
 

@@ -188,6 +188,13 @@ describe('an import, as both clients say it', () => {
     expect(importSize(1_200_000_000)).toBe('1.2 GB');
   });
 
+  it('names a deleted activity\'s row rather than calling it unreadable', () => {
+
+    expect(importOutcomeKey('deleted_by_athlete')).toBe('providers.import.strava.outcome.deleted_by_athlete');
+
+  });
+
+
   it('names only keys every shipped locale carries', () => {
     const keys = [
       ...(['awaiting_link', 'queued', 'downloading', 'importing', 'completed', 'failed'] as ImportStatus[]).map(
@@ -230,9 +237,15 @@ describe('an import, as both clients say it', () => {
         'spool_missing',
         null,
       ].map((code) => importFailureKey(code, STRAVA)),
-      ...['strava_export_error', 'missing_file', 'unreadable_file', 'file_too_large', 'invalid_row', 'zero_elapsed'].map(
-        importOutcomeKey,
-      ),
+      ...[
+        'strava_export_error',
+        'missing_file',
+        'unreadable_file',
+        'file_too_large',
+        'invalid_row',
+        'zero_elapsed',
+        'deleted_by_athlete',
+      ].map(importOutcomeKey),
       'providers.import.strava.inProgress',
     ];
     for (const [locale, catalogue] of Object.entries(LOCALES)) {
