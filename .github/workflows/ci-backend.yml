@@ -983,6 +983,10 @@ jobs:
           # The dev-profile test cache backend-test-binaries saves; restored only.
           shared-key: test-dev
           cache-save: 'false'
+          # Runs 41745934237 and 41749978824 died at the coupling step with
+          # "No space left on device" (runner annotation); the other jobs that
+          # build the workspace reclaim runner disk first, and so does this one.
+          free-disk-space: 'true'
 
       # Runs the doctests AND checks none are ignored, from one invocation.
       #
