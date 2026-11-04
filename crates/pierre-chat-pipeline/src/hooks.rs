@@ -131,8 +131,10 @@ pub struct PipelineHooks<'a> {
     /// [`crate::ReplyBlock::SceneImage`] from what it returns.
     pub scene_publisher: Option<&'a dyn ScenePublisher>,
     /// Optional stop handle. Wired by the surfaces that give the athlete a
-    /// stop control; with it the turn watches its own question for a stopped
-    /// notice and ends on it. Absent, the turn never reads for one.
+    /// stop control; with an armed one the turn watches its own question for
+    /// a stopped notice and ends on it. A recording one only keeps the stored
+    /// question, for the surface to close a failed turn with. Absent, the
+    /// turn never reads for a stop.
     pub stop: Option<Arc<TurnStop>>,
 }
 

@@ -274,7 +274,8 @@ describe('useMessages turn lost while the app was backgrounded', () => {
     expect(rows[2]).toMatchObject({ role: 'user', content: QUESTION });
     expect(rows[3]).toMatchObject({
       isError: true,
-      content: `⚠️ ${i18n.t('errors.network')}\n\n${i18n.t('chat.turnTryAgain')}`,
+      retryable: true,
+      content: `⚠️ ${i18n.t('errors.network')}`,
     });
     expect(result.current.error).toBe(i18n.t('errors.network'));
   });
@@ -295,6 +296,8 @@ describe('useMessages turn lost while the app was backgrounded', () => {
       const note = result.current.messages.find(m => m.isError);
       expect(note?.content).toBe(`⚠️ ${i18n.t('chat.turnIdleAborted')}`);
       expect(note?.content).toContain('Rouvre cette conversation');
+      // The server kept going: a Retry would re-send a question it holds.
+      expect(note?.retryable).toBe(false);
       expect(result.current.error).toBe(i18n.t('chat.turnIdleAborted'));
     } finally {
       await act(async () => {
@@ -303,7 +306,9 @@ describe('useMessages turn lost while the app was backgrounded', () => {
     }
   });
 
-  it('words the try-again suffix of a dropped turn in the athlete\'s language', async () => {
+  // The row's Retry is the one offer of a retry: the sentence does not say
+  // "Réessaie." on top of a "Réessayer" button (carnet#1363).
+  it('words a dropped turn in the athlete\'s language, leaving the retry to its button', async () => {
     await act(async () => {
       await i18n.changeLanguage('fr');
     });
@@ -317,7 +322,8 @@ describe('useMessages turn lost while the app was backgrounded', () => {
         await sending();
       });
       const note = result.current.messages.find(m => m.isError);
-      expect(note?.content).toBe('⚠️ Erreur réseau. Vérifie ta connexion.\n\nRéessaie.');
+      expect(note?.content).toBe('⚠️ Erreur réseau. Vérifie ta connexion.');
+      expect(note?.retryable).toBe(true);
     } finally {
       await act(async () => {
         await i18n.changeLanguage('en');

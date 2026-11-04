@@ -330,8 +330,6 @@ pub async fn run(
         "user asked a question"
     );
 
-    refuse_when_llm_unhealthy(ctx).await?;
-
     // A turn exists to feed a model, so every read its stages make is a read
     // for one: each provider's AI policy governs what the prompt builders see
     // (carnet#723). Tools scope themselves the same way in the executor; a
@@ -532,6 +530,30 @@ async fn turn_tool_offer(
     (switched_off, defer_tools)
 }
 
+/// Stage 2: resolve the prompt the turn answers, record it on the turn's stop
+/// handle, then refuse the turn while the LLM probe reads the provider down.
+///
+/// Refused only once the question is on file: a turn the provider outage stops
+/// still leaves the sender's words on the thread, for the surface to close with
+/// its notice rather than to lose (carnet#1362).
+///
+/// # Errors
+///
+/// Returns the prompt resolution's error, or
+/// [`ErrorCode::ResourceUnavailable`] from [`refuse_when_llm_unhealthy`].
+async fn store_turn_prompt(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    hooks: &PipelineHooks<'_>,
+) -> AppResult<UserMessageResult> {
+    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
+    let msg_result = resolve_turn_prompt(ctx.repos.chat.as_ref(), groups, input, channel).await?;
+    turn_stop::question_stored(hooks, &msg_result.message);
+    refuse_when_llm_unhealthy(ctx).await?;
+    Ok(msg_result)
+}
+
 /// Run the body of a single turn.
 async fn run_turn(
     ctx: &ChatPipelineContext,
@@ -544,10 +566,8 @@ async fn run_turn(
     // Stage 2: Resolve the prompt this turn answers. Persisted as the
     // athlete's message when they sent it, and deliberately not when the
     // platform composed it — see `resolve_turn_prompt`.
-    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
-    let msg_result = resolve_turn_prompt(database, groups, &input, channel).await?;
+    let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
     let user_message = msg_result.message;
-    turn_stop::question_stored(hooks, &user_message);
     let conv = msg_result.conversation;
 
     // Stage 3: Resolve the model this turn runs on.

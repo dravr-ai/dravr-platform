@@ -20,6 +20,10 @@ pub mod archive_import;
 pub mod cloud_tasks;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
+/// The interrupted notice that closes a turn which stored its question and produced no reply.
+// Needs the chat pipeline, which only `client-chat` brings in.
+#[cfg(feature = "client-chat")]
+pub(crate) mod failed_turn_notice;
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.
 pub mod turn_lifecycle;
 /// Where a messaging turn is started: in this process, or as a Cloud Tasks request.

@@ -13,7 +13,7 @@ export type { QuotaBanner, UsageCounter } from './quota';
 // The command-reply normaliser is private to that decoder: the live turn path
 // never called it, and an export nobody reads is a promise nobody keeps.
 // A live turn's streamed blocks take the same verdicts block once its rows are read.
-// A command's answer and an agent's welcome are the platform's rows, not a model's.
+// A command's answer, an agent's welcome and a failed turn's notice are the platform's rows, not a model's.
 export {
   AGENT_WELCOME_FINISH_REASON,
   COMMAND_FINISH_REASON,

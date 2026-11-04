@@ -222,8 +222,10 @@ describe('ChatScreen turn lost while the app was backgrounded', () => {
     });
 
     // The send settling re-runs the screen's focus effect, which reloads the
-    // open thread. That read does not hold the reply, so the note and its
-    // Retry stay — under the question the server now holds.
+    // open thread. That read does not hold the reply, so the note stays —
+    // under the question the server now holds. It offers no Retry: the server
+    // kept going and may already have written the reply, and the note itself
+    // says to wait or send the message again (carnet#1363), as the web does.
     await waitFor(() =>
       expect(mockGetConversationMessages.mock.calls.length).toBeGreaterThan(readsBeforeAbort),
     );
@@ -231,7 +233,7 @@ describe('ChatScreen turn lost while the app was backgrounded', () => {
       await Promise.resolve();
     });
     expect(screen.getByText(`⚠️ ${LOST_NOTE}`)).toBeTruthy();
-    expect(screen.getByTestId('message-retry')).toBeTruthy();
+    expect(screen.queryByTestId('message-retry')).toBeNull();
     expect(screen.getAllByText(QUESTION)).toHaveLength(1);
     expect(screen.queryByText(REPLY)).toBeNull();
 

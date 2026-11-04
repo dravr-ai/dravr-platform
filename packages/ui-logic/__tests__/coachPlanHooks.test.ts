@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useInfiniteQuery, type InfiniteData } from '@tanstack/react-query';
 import type {
   AthletePlanResponse,
   Conversation,
@@ -95,6 +95,56 @@ function setup() {
     createElement(QueryClientProvider, { client }, children);
   const hooks = createCoachPlanHooks({ chatApi: api as unknown as CoachPlanApis['chatApi'] });
   return { api, client, wrapper, hooks };
+}
+
+/** One page of the conversation list, as the server answers it. */
+interface ListPage {
+  conversations: Conversation[];
+  total: number;
+}
+
+/** How long a re-read of the list takes to answer: a real round trip, never a microtask. */
+const LIST_ROUND_TRIP_MS = 20;
+
+/**
+ * Mount the conversation list the clients draw — an active infinite query on
+ * the list key, as the phone's tab badge and both list screens hold it — in
+ * the same client, answering `before` on its first read and `after`, one
+ * round trip later, on every read since.
+ */
+async function mountList(
+  wrapper: (props: { children: ReactNode }) => ReturnType<typeof createElement>,
+  before: Conversation[],
+  after: Conversation[],
+) {
+  const list = vi
+    .fn<() => Promise<ListPage>>()
+    .mockResolvedValueOnce({ conversations: before, total: before.length })
+    .mockImplementation(
+      () =>
+        new Promise<ListPage>((resolve) => {
+          setTimeout(() => resolve({ conversations: after, total: after.length }), LIST_ROUND_TRIP_MS);
+        }),
+    );
+  const rendered = renderHook(
+    () =>
+      useInfiniteQuery({
+        queryKey: ['chat-conversations'],
+        queryFn: () => list(),
+        initialPageParam: 0,
+        getNextPageParam: () => undefined,
+        staleTime: 30_000,
+      }),
+    { wrapper },
+  );
+  await waitFor(() => expect(rendered.result.current.isSuccess).toBe(true));
+  return list;
+}
+
+/** The ids the cached list holds right now, with no render in between. */
+function listedIds(client: QueryClient): string[] {
+  const data = client.getQueryData<InfiniteData<ListPage, number>>(['chat-conversations']);
+  return (data?.pages ?? []).flatMap((page) => page.conversations.map((conversation) => conversation.id));
 }
 
 describe('planRefusalCode', () => {
@@ -248,6 +298,25 @@ describe('useOpenAthleteThread', () => {
     await waitFor(() => expect(result.current.pendingAthleteId).toBeNull());
   });
 
+  it('the opened plan thread is a row of the active conversation list when openThread resolves', async () => {
+    const { api, client, wrapper, hooks } = setup();
+    const thread: Conversation = { id: CONVERSATION_ID, title: 'Alice Runner', message_count: 0, created_at: '', updated_at: '' };
+    const list = await mountList(wrapper, [], [thread]);
+    expect(listedIds(client)).toEqual([]);
+    api.openAthleteThread.mockResolvedValue(thread);
+    const { result } = renderHook(() => hooks.useOpenAthleteThread(), { wrapper });
+
+    let listedAtResolve: string[] = [];
+    await act(async () => {
+      await result.current.openThread(ATHLETE_ID, 'group-1');
+      // Read in the same tick the caller navigates in, before any later render.
+      listedAtResolve = listedIds(client);
+    });
+
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(listedAtResolve).toContain(CONVERSATION_ID);
+  });
+
   it('rejects with the refusal, so Group info can say the thread did not open', async () => {
     const { api, wrapper, hooks } = setup();
     api.openAthleteThread.mockRejectedValue(refusal(403, { error_code: 'not_group_coach' }));
@@ -292,6 +361,24 @@ describe('useOpenGroupRoom', () => {
       await result.current.openRoom(ATHLETE_ID, 'group-2');
     });
     expect(api.openGroupRoom).toHaveBeenLastCalledWith('group-2');
+  });
+
+  it('the opened room is a row of the active conversation list when openRoom resolves', async () => {
+    const { api, client, wrapper, hooks } = setup();
+    const list = await mountList(wrapper, [], [ROOM]);
+    expect(listedIds(client)).toEqual([]);
+    api.openGroupRoom.mockResolvedValue(ROOM);
+    const { result } = renderHook(() => hooks.useOpenGroupRoom(), { wrapper });
+
+    let listedAtResolve: string[] = [];
+    await act(async () => {
+      await result.current.openRoom(ATHLETE_ID, 'group-1');
+      // Read in the same tick the caller navigates in, before any later render.
+      listedAtResolve = listedIds(client);
+    });
+
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(listedAtResolve).toContain('room-tri');
   });
 
   it('rejects with the refusal and frees the next tap', async () => {

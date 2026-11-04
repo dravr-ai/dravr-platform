@@ -245,15 +245,30 @@ pub async fn recent_rows(
 
 /// A running turn's handle on its own stop.
 ///
-/// Built by the surface that lets an athlete stop a turn and handed to the
-/// pipeline on [`PipelineHooks::stop`]; a surface with no stop control leaves
-/// the hook empty and its turns never read for one.
+/// Built by the surface that lets an athlete stop a turn ([`Self::armed`]) and
+/// handed to the pipeline on [`PipelineHooks::stop`]. A surface with no stop
+/// control that still closes a failed turn's question builds one that only
+/// records it ([`Self::recording`]); its turns never read for a stop. A
+/// surface needing neither leaves the hook empty.
 #[derive(Debug, Default)]
 pub struct TurnStop {
     /// The question this turn answers, once the turn has stored it.
     question: OnceLock<MessageRecord>,
     /// Set once the turn has decided to store its reply.
     committed: AtomicBool,
+    /// Whether the turn only records its question or also watches it for a
+    /// stopped notice.
+    mode: StopMode,
+}
+
+/// What a turn does with its [`TurnStop`].
+#[derive(Debug, Default, Clone, Copy)]
+enum StopMode {
+    /// Only records the question the turn stores; never reads for a stop.
+    #[default]
+    Recording,
+    /// Watches the stored question for the athlete's stopped notice.
+    Armed,
 }
 
 /// What a stopped turn needs to describe itself as an envelope.
@@ -271,7 +286,27 @@ impl TurnStop {
     /// A handle for one turn the athlete may stop.
     #[must_use]
     pub fn armed() -> Arc<Self> {
-        Arc::new(Self::default())
+        Arc::new(Self {
+            mode: StopMode::Armed,
+            ..Self::default()
+        })
+    }
+
+    /// A handle that only records the question a turn stores, on a surface
+    /// with no stop control: the turn never reads for a stop, and the surface
+    /// learns whether a failed turn left a question to close (carnet#1362).
+    #[must_use]
+    pub fn recording() -> Arc<Self> {
+        Arc::new(Self {
+            mode: StopMode::Recording,
+            ..Self::default()
+        })
+    }
+
+    /// Whether the turn watches its question for the athlete's stop.
+    #[must_use]
+    pub const fn watches(&self) -> bool {
+        matches!(self.mode, StopMode::Armed)
     }
 
     /// The question and the notice that closed it, when the stop is on file.
@@ -293,6 +328,16 @@ impl TurnStop {
             QuestionState::Stopped(notice) => Some((question.clone(), *notice)),
             QuestionState::Unanswered | QuestionState::Answered => None,
         }
+    }
+
+    /// The question this turn stored, once it has stored one.
+    ///
+    /// `None` after a turn refused before its question was written — a quota,
+    /// a thread that could not be reopened — which leaves nothing on file to
+    /// close.
+    #[must_use]
+    pub fn question(&self) -> Option<&MessageRecord> {
+        self.question.get()
     }
 
     /// Resolve once the athlete has stopped this turn, with the envelope the
@@ -347,7 +392,7 @@ pub(crate) async fn stopped_before_reply(
     profile: &SurfaceProfile,
     input: &TurnInput,
 ) -> AppResult<Option<TurnEnvelope>> {
-    let Some(stop) = &hooks.stop else {
+    let Some(stop) = hooks.stop.as_ref().filter(|stop| stop.watches()) else {
         return Ok(None);
     };
     let scope = StopScope {

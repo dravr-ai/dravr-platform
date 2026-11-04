@@ -471,6 +471,7 @@ mod messaging_push_failure_contract_test;
 mod messaging_push_render_test;
 mod messaging_quota_enforcement_test;
 mod messaging_reaction_feedback_test;
+mod messaging_refused_turn_test;
 mod messaging_registry_test;
 mod messaging_renderer_test;
 mod messaging_rendering_test;

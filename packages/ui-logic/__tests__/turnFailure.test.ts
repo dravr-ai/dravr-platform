@@ -109,6 +109,39 @@ describe('describeTurnFailure', () => {
   });
 });
 
+describe('describeTurnFailure under a Retry button', () => {
+  // The button is the offer: a sentence that also says "réessaie" offers it
+  // twice (carnet#1363).
+  const RETRY_WORD = /r[ée]essai/i;
+
+  it('words a transient outage without its own retry instruction', () => {
+    const failed = new TurnFailedError(ENGLISH, 'ResourceUnavailable');
+    const text = describeTurnFailure(failed, { t: frenchT, retryOffered: true });
+    expect(text).toBe(fr.chat.turn.failed.unavailable);
+    expect(text).not.toMatch(RETRY_WORD);
+    const refused = new TurnRequestError('The server answered 503.', 503, null);
+    expect(describeTurnFailure(refused, { t: frenchT, retryOffered: true })).toBe(
+      fr.chat.turn.failed.unavailable,
+    );
+  });
+
+  it('words a timeout and an offline send without their own retry instruction', () => {
+    const timedOut = Object.assign(new Error('timeout of 30000ms exceeded'), { code: 'ECONNABORTED' });
+    expect(describeTurnFailure(timedOut, { t: frenchT, retryOffered: true })).toBe(fr.chat.turn.failed.timeout);
+    const lost = new TypeError('Network request failed');
+    const offline = describeTurnFailure(lost, { t: frenchT, online: false, retryOffered: true });
+    expect(offline).toBe(fr.chat.turn.failed.offline);
+    expect(offline).not.toMatch(RETRY_WORD);
+  });
+
+  it('keeps the sentence its instruction when no button is drawn', () => {
+    const failed = new TurnFailedError(ENGLISH, 'ResourceUnavailable');
+    expect(describeTurnFailure(failed, { t: frenchT, retryOffered: false })).toBe(fr.errors.generic);
+    const timedOut = Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+    expect(describeTurnFailure(timedOut, { t: frenchT })).toBe(fr.errors.timeout);
+  });
+});
+
 describe('isTurnFailureRetryable', () => {
   it('offers a retry for a transient code, refused or mid-stream', () => {
     for (const code of ['ResourceUnavailable', 'ExternalServiceUnavailable', 'ExternalServiceError', 'ExternalRateLimited', 'RateLimitExceeded']) {

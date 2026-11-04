@@ -40,6 +40,7 @@ import type { ChatRow } from './MessageList';
 import {
   describeApiError,
   describeTurnFailure,
+  isTurnFailureRetryable,
   streamedReplyCallbacks,
   useTurnTrail,
   type PrivateSendOptions,
@@ -221,8 +222,14 @@ export interface MessagesActions {
 interface LostTurnRows {
   /** The question the turn sent, for a transcript that never received it. */
   question: Message;
-  /** The failure's row: the note and its Retry. */
+  /** The failure's row: the note, and its Retry when a retry may get past it. */
   row: Message;
+  /**
+   * The same note for a question a read shows the server holds: no Retry,
+   * which would store the question a second time, and worded with its own
+   * guidance. The read that holds the server's notice or reply takes it down.
+   */
+  storedRow: Message;
   /** The failure's text, which `error` carries while the note stands. */
   failure: string;
 }
@@ -415,10 +422,11 @@ export function useMessages(): MessagesState & MessagesActions {
       setError(null);
     } else if (reading.kind === 'waiting') {
       // Not answered yet. The note sits under the question — the server's
-      // copy when it received the turn, the client's own when it never did —
-      // so its Retry re-sends the right line.
-      const { question, row, failure } = reading.note;
-      setMessages(reading.questionReceived ? [...rows, row] : [...rows, question, row]);
+      // copy when it received the turn, the client's own when it never did.
+      // Only a question the server never got is offered again: one it holds
+      // waits for the notice or reply the server writes under it.
+      const { question, row, storedRow, failure } = reading.note;
+      setMessages(reading.questionReceived ? [...rows, storedRow] : [...rows, question, row]);
       setError(failure);
     } else {
       // The transcript is the thread. When it answers the lost turn, the
@@ -574,18 +582,25 @@ export function useMessages(): MessagesState & MessagesActions {
   /**
    * The row a failed turn leaves in the thread.
    *
-   * A turn the idle stop dropped carries its own guidance — the reply may
-   * still have been written — so it is not told to try again on top of that.
+   * The row's Retry is drawn only for a failure a retry may get past
+   * (`isTurnFailureRetryable` — never the idle stop, a quota or a refusal),
+   * and only for a question the server never stored (`questionStored`: a
+   * read of the thread holds it, so a re-send would store it twice). It is
+   * the one offer: the sentence above it is worded without its own "try
+   * again" (carnet#1363). The idle stop's sentence carries its own guidance
+   * — the reply may still have been written.
    */
-  const failedTurnRow = useCallback((failure: Error, aborted: boolean): Message => ({
-    id: `error-${Date.now()}`,
-    role: 'assistant',
-    content: aborted
-      ? `⚠️ ${turnFailureText(failure)}`
-      : `⚠️ ${turnFailureText(failure)}\n\n${t('chat.turnTryAgain')}`,
-    created_at: new Date().toISOString(),
-    isError: true,
-  }), [t, turnFailureText]);
+  const failedTurnRow = useCallback((failure: Error, questionStored = false): Message => {
+    const retryable = !questionStored && isTurnFailureRetryable(failure);
+    return {
+      id: `error-${Date.now()}`,
+      role: 'assistant',
+      content: `⚠️ ${describeTurnFailure(failure, { t, retryOffered: retryable })}`,
+      created_at: new Date().toISOString(),
+      isError: true,
+      retryable,
+    };
+  }, [t]);
 
   const sendTurn = useCallback(async (
     conversationId: string,
@@ -718,7 +733,8 @@ export function useMessages(): MessagesState & MessagesActions {
           finishTrail(null);
           setError(turnFailureText(sendErr));
           invalidateConversationList();
-          const errorResponse = failedTurnRow(sendErr, signal.aborted);
+          const errorResponse = failedTurnRow(sendErr);
+          const storedRow = { ...failedTurnRow(sendErr, true), id: errorResponse.id };
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
           if (question.content !== messageText) sentByRowRef.current.set(question.id, messageText);
           // Every read of the thread keeps the note until a reply has landed
@@ -733,7 +749,7 @@ export function useMessages(): MessagesState & MessagesActions {
             turn: {
               conversationId,
               heldIds,
-              note: { question, row: errorResponse, failure: turnFailureText(sendErr) },
+              note: { question, row: errorResponse, storedRow, failure: turnFailureText(sendErr) },
             },
           });
           setMessages(prev => [
@@ -957,7 +973,8 @@ export function useMessages(): MessagesState & MessagesActions {
           finishTrail(null);
           setError(turnFailureText(err));
           invalidateConversationList();
-          const errorRow = failedTurnRow(err, signal.aborted);
+          const errorRow = failedTurnRow(err);
+          const storedRow = { ...failedTurnRow(err, true), id: errorRow.id };
           // The re-sent line, as a row of its own: the original stays where
           // it was in the transcript.
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
@@ -972,6 +989,7 @@ export function useMessages(): MessagesState & MessagesActions {
               note: {
                 question,
                 row: errorRow,
+                storedRow,
                 failure: turnFailureText(err),
               },
             },

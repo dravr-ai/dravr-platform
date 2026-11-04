@@ -20,6 +20,14 @@ export const COMMAND_FINISH_REASON = 'command';
 export const AGENT_WELCOME_FINISH_REASON = 'agent_welcome';
 
 /**
+ * The `finish_reason` of the localized `messaging.turn_interrupted` notice the
+ * platform closes a turn with when it fails after its question was stored
+ * (carnet#1362): written by the platform, no model call. The notice itself
+ * says to send the question again, so it offers no second retry (carnet#1363).
+ */
+const INTERRUPTED_FINISH_REASON = 'interrupted';
+
+/**
  * The `finish_reason` of the `system` row that opens a new topic inside the
  * athlete's personal thread — what "+" and `/reset` write there instead of a
  * new conversation. It has no content: each client draws it as a rule with
@@ -35,12 +43,17 @@ export function isDivider(message: Pick<Message, 'finish_reason'>): boolean {
 /**
  * Whether a model wrote this row.
  *
- * A command's answer and an agent's welcome are written by the platform: there
- * is no model reply to rate, regenerate or label with a model, nor an answer
- * to share. Every client offers such a row its copy action only.
+ * A command's answer, an agent's welcome and a failed turn's notice are
+ * written by the platform: there is no model reply to rate, regenerate or
+ * label with a model, nor an answer to share. Every client offers such a row
+ * its copy action only.
  */
 export function isModelReply(finishReason: string | undefined): boolean {
-  return finishReason !== COMMAND_FINISH_REASON && finishReason !== AGENT_WELCOME_FINISH_REASON;
+  return (
+    finishReason !== COMMAND_FINISH_REASON &&
+    finishReason !== AGENT_WELCOME_FINISH_REASON &&
+    finishReason !== INTERRUPTED_FINISH_REASON
+  );
 }
 
 /**

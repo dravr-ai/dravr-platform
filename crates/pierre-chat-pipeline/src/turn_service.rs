@@ -580,7 +580,7 @@ async fn execute_turn(
         Some(profile.locale.clone()),
         crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks),
     );
-    let envelope = match &request.hooks.stop {
+    let envelope = match request.hooks.stop.as_ref().filter(|stop| stop.watches()) {
         None => run.await?,
         Some(stop) => {
             let scope = StopScope {

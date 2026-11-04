@@ -348,8 +348,8 @@ async fn a_stale_client_sending_the_deleted_run_id_field_is_not_refused() {
 /// language instead of printing the server's English description.
 ///
 /// Driven by the fail-fast path: with the LLM probe reporting the provider
-/// down, the turn is refused before it runs, and the refusal rides the stream
-/// the client already opened.
+/// down, the turn is refused once its question is on file, before it reaches
+/// the provider, and the refusal rides the stream the client already opened.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_turn_names_its_error_code_on_the_terminal_frame() {
     let resources = common::create_test_server_resources_with_llm(Arc::new(MockLlmProvider::new()))
@@ -388,4 +388,114 @@ async fn a_failed_turn_names_its_error_code_on_the_terminal_frame() {
         payload["error"], "The resource is temporarily unavailable",
         "the message stays the sanitized description, never the provider's internals: {payload}"
     );
+}
+
+/// A chat server whose LLM probe reads the provider down, so the health gate
+/// refuses every turn: its base URL and a provider-connected user's token.
+async fn refusing_server(email: &str) -> (String, String) {
+    let resources = common::create_test_server_resources_with_llm(Arc::new(MockLlmProvider::new()))
+        .await
+        .expect("server resources");
+    resources
+        .common
+        .llm_health
+        .record_unhealthy("mock", "probe failed")
+        .await;
+    let base_url = spawn_chat_server(&resources).await;
+    let (_user, token) = common::create_test_tenant_with_provider(&resources, email)
+        .await
+        .expect("create user + token + provider");
+    (base_url, token)
+}
+
+/// What a reload reads: the conversation's newest window of messages.
+async fn reload(client: &Client, base_url: &str, token: &str, conversation_id: &str) -> Value {
+    let response = client
+        .get(format!(
+            "{base_url}/api/chat/conversations/{conversation_id}/messages"
+        ))
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .expect("GET messages");
+    assert!(
+        response.status().is_success(),
+        "list messages: {}",
+        response.status()
+    );
+    response.json().await.expect("messages JSON")
+}
+
+/// A reload after a refused turn shows the coach's words, closed by the
+/// platform's "send it again" line, with no reply announced as coming.
+fn assert_refused_turn_on_file(body: &Value, sent: &str) {
+    let messages = body["messages"].as_array().expect("messages array");
+    let questions: Vec<&Value> = messages.iter().filter(|m| m["role"] == "user").collect();
+    assert_eq!(
+        questions.len(),
+        1,
+        "the sent message is on file exactly once: {body}"
+    );
+    assert_eq!(questions[0]["content"], sent, "{body}");
+    let position = messages
+        .iter()
+        .position(|m| m["role"] == "user")
+        .expect("question position");
+    let closing = messages
+        .get(position + 1)
+        .expect("a row closes the question");
+    assert_eq!(closing["role"], "assistant", "{body}");
+    assert_eq!(closing["finish_reason"], "interrupted", "{body}");
+    assert!(
+        body["awaiting_reply"].is_null(),
+        "a refused turn is not a reply on its way: {body}"
+    );
+}
+
+/// A turn the health gate refuses keeps the message the coach sent: a reload
+/// shows it, closed by the interrupted notice, rather than losing it
+/// (carnet#1362).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_streamed_turn_keeps_the_sent_message_on_file() {
+    let (base_url, token) = refusing_server("turn-refused-sse@example.com").await;
+    let client = Client::builder().no_gzip().build().expect("client");
+    let conversation_id = create_conversation(&client, &base_url, &token).await;
+    let sent = "Build Marie's plan for the 10K";
+
+    let frames = send_turn_streaming(&client, &base_url, &token, &conversation_id, sent).await;
+    let terminal = frames.last().expect("stream produced no frames");
+    assert_eq!(terminal.event, "failed", "frames = {frames:?}");
+    assert_eq!(
+        terminal.json().expect("failed frame JSON")["code"],
+        "ResourceUnavailable",
+        "the health gate's refusal names its code on the failed frame: {frames:?}"
+    );
+
+    let body = reload(&client, &base_url, &token, &conversation_id).await;
+    assert_refused_turn_on_file(&body, sent);
+}
+
+/// The same refusal over the blocking JSON branch: a 503, and the message
+/// still on file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_blocking_turn_keeps_the_sent_message_on_file() {
+    let (base_url, token) = refusing_server("turn-refused-json@example.com").await;
+    let client = Client::builder().no_gzip().build().expect("client");
+    let conversation_id = create_conversation(&client, &base_url, &token).await;
+    let sent = "Build Marie's plan for the 10K";
+
+    let response = client
+        .post(format!(
+            "{base_url}/api/chat/conversations/{conversation_id}/messages"
+        ))
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&json!({ "content": sent }))
+        .send()
+        .await
+        .expect("POST send_message");
+    assert_eq!(response.status().as_u16(), 503, "the refusal is a 503");
+
+    let body = reload(&client, &base_url, &token, &conversation_id).await;
+    assert_refused_turn_on_file(&body, sent);
 }

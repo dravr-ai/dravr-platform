@@ -179,6 +179,13 @@ export interface Message {
   /** Error flag for failed message responses */
   isError?: boolean;
   /**
+   * On an error row: sending the same question again may get past the
+   * failure, so the row offers a Retry. False or absent on a failure a retry
+   * would only repeat — a quota, a refusal, a lapsed session, the idle stop —
+   * and on a question the server already stored.
+   */
+  retryable?: boolean;
+  /**
    * Set on a row a group thread shows from the room rather than from the
    * caller's own conversation — another member's words, the agent's reply to
    * them, or an entry the author's sharing consent withholds. Absent on every

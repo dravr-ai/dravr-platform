@@ -214,7 +214,9 @@ pub async fn persist_user_message(
 /// Resolve the prompt a turn answers, persisting it only when the athlete sent it.
 ///
 /// An athlete's message is written before dispatch, so a crash mid-turn still
-/// leaves their question on the thread. A platform-composed prompt is not
+/// leaves their question on the thread. The LLM health gate runs after this
+/// write for the same reason: a turn refused while the provider is down keeps
+/// the sender's words on file (carnet#1362). A platform-composed prompt is not
 /// theirs to write: the row would be attributed to them in their own thread,
 /// advance their read marker past a message they never saw, and fan out to a
 /// group room they never posted in. It reaches the model through the history

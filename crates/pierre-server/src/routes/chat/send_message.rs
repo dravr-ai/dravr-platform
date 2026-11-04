@@ -26,8 +26,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use pierre_contremaitre::messaging_strings::KEY_TURN_INTERRUPTED;
-use pierre_core::models::{AddMessageParams, ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
+use pierre_core::models::{ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -36,14 +35,14 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
+use crate::services::failed_turn_notice::{close_failed_turn, close_unanswered_turn, TurnThread};
 use pierre_auth::auth::AuthMethod;
-use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_core::transport::{Transport, TransportPolicy, CLIENT_PLATFORM_HEADER};
+use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -262,9 +261,10 @@ pub(super) async fn send_message(
 
     let start_time = Instant::now();
     let ctx = resources.chat_pipeline_context();
+    let stop = TurnStop::armed();
     let hooks = pipeline::PipelineHooks {
         // The athlete can stop this turn: `POST …/stop` (see `stop_turn`).
-        stop: Some(TurnStop::armed()),
+        stop: Some(Arc::clone(&stop)),
         ..pipeline::PipelineHooks::none()
     };
     // The thread may be the athlete's personal one, which their messaging DM
@@ -272,6 +272,11 @@ pub(super) async fn send_message(
     let lock = acquire_turn_lock(&egress.conversation.id);
     let held = lock.lock().await;
     let served = pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+    // Closed under the thread's lock, so a messaging turn on the same thread
+    // cannot slip its question in between and take the notice instead.
+    if served.is_err() {
+        close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+    }
     drop(held);
     evict_idle_turn_lock(&egress.conversation.id, &lock);
     let response = egress.into_response_body(served?, &request, start_time);
@@ -299,6 +304,17 @@ struct TurnEgress {
 }
 
 impl TurnEgress {
+    /// The thread this turn runs on, as a failed or interrupted turn's
+    /// closing notice is written into it.
+    fn thread(&self) -> TurnThread<'_> {
+        TurnThread {
+            resources: &self.resources,
+            conversation_id: self.conversation.id.as_str(),
+            user_id: self.user_id.to_string(),
+            tenant_id: self.tenant_id,
+        }
+    }
+
     /// Shape this request as the turn service's input.
     fn turn_request<'a>(
         &'a self,
@@ -536,10 +552,11 @@ fn send_message_sse(inputs: SseInputs) -> Response {
     let turns = Arc::clone(&egress.resources.common.turns);
     let drain = turns.drain_token();
     turns.spawn(async move {
+        let stop = TurnStop::armed();
         let hooks = pipeline::PipelineHooks {
             stream_sink: Some(events_tx),
             // The athlete can stop this turn: `POST …/stop` (see `stop_turn`).
-            stop: Some(TurnStop::armed()),
+            stop: Some(Arc::clone(&stop)),
             ..pipeline::PipelineHooks::none()
         };
         let ctx = egress.resources.chat_pipeline_context();
@@ -554,6 +571,12 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             let held = lock.lock().await;
             let served =
                 pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+            // Closed under the thread's lock, and before the `failed` frame
+            // goes out, so a client that re-reads the thread on it already
+            // finds the notice and a messaging turn cannot take it instead.
+            if served.is_err() {
+                close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+            }
             drop(held);
             served
         });
@@ -620,79 +643,7 @@ async fn close_interrupted_turn(egress: &TurnEgress, locale: &str, start_time: I
         turn_id = %egress.turn_id,
         "messaging turn interrupted before it produced a reply"
     );
-    if turn_already_answered(egress).await {
-        return;
-    }
-    write_interrupted_notice(egress, locale).await;
-}
-
-/// Whether the conversation's latest message is already an assistant reply.
-///
-/// An unreadable conversation counts as unanswered: writing a notice next
-/// to an answer is a duplicate line, leaving a question with nothing is the
-/// silence this exists to end.
-async fn turn_already_answered(egress: &TurnEgress) -> bool {
-    let conversation_id = egress.conversation.id.as_str();
-    match egress
-        .resources
-        .common
-        .repos
-        .chat
-        .get_recent_messages(
-            conversation_id,
-            &egress.user_id.to_string(),
-            egress.tenant_id,
-            1,
-            TransportPolicy::FirstPartyOnly,
-        )
-        .await
-    {
-        Ok(latest) => latest.first().is_some_and(|m| m.role == "assistant"),
-        Err(e) => {
-            warn!(error = %e, conversation_id, "could not read the interrupted turn's conversation; writing the notice anyway");
-            false
-        }
-    }
-}
-
-/// Persist the localized interrupted notice as the assistant's reply.
-async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
-    let repos = &egress.resources.common.repos;
-    let conversation_id = egress.conversation.id.as_str();
-    let user_id = egress.user_id.to_string();
-    let notice = egress
-        .resources
-        .mcp
-        .messaging_strings_registry
-        .get(KEY_TURN_INTERRUPTED, locale);
-    let params = AddMessageParams {
-        tenant_id: egress.tenant_id,
-        conversation_id,
-        user_id: &user_id,
-        role: "assistant",
-        content: &notice,
-        token_count: None,
-        finish_reason: Some("interrupted"),
-        prompt_tokens: None,
-        model: None,
-        content_blocks: None,
-        // Platform text that quotes nothing the turn read.
-        transport_policy: TransportPolicy::AnyTransport,
-        channel_type: None,
-        about_user_id: None,
-    };
-    if let Err(e) = persist_assistant_response(
-        repos.chat.as_ref(),
-        repos.groups.as_ref(),
-        &params,
-        egress.tenant_id,
-        // The notice closes a turn the athlete sent and is waiting on.
-        pipeline::TurnOrigin::Athlete,
-    )
-    .await
-    {
-        warn!(error = %e, conversation_id, "the interrupted-turn notice could not be written; the question stays unanswered on file");
-    }
+    close_unanswered_turn(&egress.thread(), locale).await;
 }
 
 /// The tail of a streamed turn: each reply block in order, then one terminal

@@ -21,6 +21,7 @@ use crate::helpers;
 use secrecy::SecretString;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use chrono::Utc;
@@ -50,6 +51,7 @@ use pierre_tool_runtime::implementations::training_plans::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
+use tokio::time;
 use uuid::Uuid;
 
 const SUBJECT_NAME: &str = "Mira Subject";
@@ -555,6 +557,108 @@ async fn the_list_names_the_athlete_a_thread_is_about() {
     assert_eq!(plain.subject_user_id, None);
     assert_eq!(plain.subject_group_id, None);
     assert_eq!(plain.subject_display_name, None);
+}
+
+/// The ids of the coach's first list page, in the server's order.
+async fn first_page_ids(fx: &Fixture) -> Vec<String> {
+    let resp = AxumTestRequest::get("/api/chat/conversations?limit=50&offset=0")
+        .header("authorization", &fx.coach_auth)
+        .send(fx.router())
+        .await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::OK,
+        "the coach lists their conversations"
+    );
+    let page: ConversationListResponse = resp.json();
+    page.conversations.into_iter().map(|row| row.id).collect()
+}
+
+/// A thread the coach opens is the newest row of the list, where the coach
+/// looks for what they just opened — whether it was live or archived, and not
+/// at the position it held when it went quiet (carnet#1364).
+#[tokio::test]
+async fn an_opened_subject_thread_heads_the_list() {
+    let fx = Fixture::new().await;
+    let id = fx.open_subject().await;
+    let coach = fx.coach.id.to_string();
+    let chat = &fx.repos().chat;
+    // A conversation with later activity than the thread, so the thread is
+    // not the newest row before it is reopened.
+    time::sleep(Duration::from_millis(5)).await;
+    let later = chat
+        .create_conversation(
+            &coach,
+            fx.coach.tenant,
+            "later",
+            "gemini-2.0-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(
+        first_page_ids(&fx).await.first(),
+        Some(&later),
+        "the later conversation heads the list before the reopen"
+    );
+
+    // Opening the live thread again moves it to the top.
+    time::sleep(Duration::from_millis(5)).await;
+    let (status, again) = fx.open_as(&fx.coach_auth, fx.subject.id, fx.group.id).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(
+        again["id"],
+        id.as_str(),
+        "opening again lands in the same thread: {again}"
+    );
+    assert_eq!(
+        first_page_ids(&fx).await.first(),
+        Some(&id),
+        "a live thread opened again heads the list"
+    );
+
+    // Another conversation takes the top before the thread is archived, so
+    // the reopen below has to move it again.
+    time::sleep(Duration::from_millis(5)).await;
+    let latest = chat
+        .create_conversation(
+            &coach,
+            fx.coach.tenant,
+            "latest",
+            "gemini-2.0-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(
+        first_page_ids(&fx).await.first(),
+        Some(&latest),
+        "the latest conversation heads the list before the archive"
+    );
+
+    assert!(
+        chat.archive_conversation(&id, &coach, fx.coach.tenant)
+            .await
+            .unwrap(),
+        "the coach's own thread archives"
+    );
+    time::sleep(Duration::from_millis(5)).await;
+    let (status, reopened) = fx.open_as(&fx.coach_auth, fx.subject.id, fx.group.id).await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert_eq!(
+        reopened["id"],
+        id.as_str(),
+        "the reopen lands in the archived thread: {reopened}"
+    );
+    assert_eq!(
+        first_page_ids(&fx).await.first(),
+        Some(&id),
+        "the reopened thread heads the list"
+    );
 }
 
 #[tokio::test]

@@ -235,8 +235,9 @@ const MessageItem = memo(function MessageItem({
   const room = message.room;
   const fromPeer = room !== undefined && !room.own;
   const isUser = message.role === 'user' && !fromPeer;
-  // A command's answer or an agent's welcome: the platform wrote it, so it
-  // has no model to label, rate or regenerate, and no answer to share.
+  // A command's answer, an agent's welcome or a failed turn's notice: the
+  // platform wrote it, so it has no model to label, rate or regenerate, and no
+  // answer to share.
   const platformRow = !isModelReply(message.finish_reason);
   const agent = assistantLabel ?? t('shell.brandName');
   const peerName = room?.author_name ?? room?.author_user_id ?? '';

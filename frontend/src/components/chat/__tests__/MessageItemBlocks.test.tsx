@@ -233,6 +233,40 @@ describe('MessageItem reply-block switch', () => {
     expect(screen.queryByText('gemini-test-model')).not.toBeInTheDocument();
   });
 
+  it("offers only copy on a failed turn's notice — no regenerate, rating, share or model (carnet#1363)", () => {
+    // The platform closes a turn that failed after its question was stored
+    // with the localized `messaging.turn_interrupted` notice, which already
+    // says to send the question again. Drawn as a model reply it offered retry
+    // a second time as Regenerate — which re-sent the question, a duplicate
+    // user row — and Good/Poor filed feedback against a row no model wrote.
+    const handlers = {
+      onCopy: vi.fn(),
+      onShare: vi.fn(),
+      onThumbsUp: vi.fn(),
+      onThumbsDown: vi.fn(),
+      onRetry: vi.fn(),
+    };
+    const metadata = { model: 'gemini-test-model', executionTimeMs: 0 };
+    const notice: Message = {
+      id: 'notice-1',
+      role: 'assistant',
+      content: "My reply was cut off before it reached you. Send your question again and I'll pick it back up.",
+      finish_reason: 'interrupted',
+      created_at: '2026-11-03T10:00:00Z',
+    };
+
+    render(<MessageItem message={notice} metadata={metadata} {...handlers} />);
+    const controls = screen.getByRole('group').querySelectorAll('button');
+    expect(controls).toHaveLength(1);
+    expect(screen.queryByTitle('Regenerate response')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Good response')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Poor response')).not.toBeInTheDocument();
+    controls[0].click();
+    expect(handlers.onCopy).toHaveBeenCalledTimes(1);
+    expect(handlers.onRetry).not.toHaveBeenCalled();
+    expect(screen.queryByText('gemini-test-model')).not.toBeInTheDocument();
+  });
+
   it('gives each starter chip the coarse-pointer touch target', () => {
     // DESIGN.md §8: 44×44 px under a coarse pointer, which the `touch-target`
     // class supplies; the plain chip was ~32 px tall on a phone browser.
