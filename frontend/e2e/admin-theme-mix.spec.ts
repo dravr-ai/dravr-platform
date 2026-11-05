@@ -30,6 +30,7 @@ const ADMIN_TABS = [
   'activity',
   'engagement',
   'notifications',
+  'audit',
   'connections',
   'analytics',
   'billing',
@@ -122,6 +123,43 @@ async function mockRows(page: Page) {
         ],
         top_agents: [{ agent_id: 'coach-1', unsupported_total: 2, categories: ['recovery'] }],
         top_categories: [{ category: 'recovery', flagged_total: 2, agent_count: 1 }],
+      }),
+    ),
+  );
+  await page.route('**/api/admin/audit-events**', (route) =>
+    route.fulfill(
+      json({
+        success: true,
+        message: '2 audit events',
+        data: {
+          events: [
+            {
+              id: 'a1',
+              occurred_at: NOW,
+              action: 'pre_approval.remove',
+              summary: 'Removed the pre-approval of invited@example.com (no account deleted)',
+              outcome: 'success',
+              source: 'console',
+              actor_user_id: 'admin-1',
+              actor_email: 'admin@test.com',
+              tenant_id: 'tenant-a',
+              metadata: { method: 'DELETE', route: '/api/admin/pre-approved-emails/{email}', status: 200, params: { email: 'invited@example.com' } },
+            },
+            {
+              id: 'a2',
+              occurred_at: NOW,
+              action: 'settings.signup.update',
+              summary: 'Sign-up settings: daily limit 100 → 1000',
+              outcome: 'refused',
+              source: 'cli',
+              actor_user_id: null,
+              actor_email: null,
+              tenant_id: null,
+              metadata: { method: 'PUT', route: '/admin/settings/signup', status: 403, before: { daily_limit: 100 }, after: { daily_limit: 1000 } },
+            },
+          ],
+          next_before: null,
+        },
       }),
     ),
   );
