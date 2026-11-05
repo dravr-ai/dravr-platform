@@ -6,7 +6,10 @@
 
 import type { FeedbackAbout } from '@pierre/shared-types';
 
-/** The tab the feedback thread lives on. */
+/**
+ * The tab the feedback thread lives on.
+ * LIMITATION(registre#1427): `FEEDBACK_TAB` is a tab of its own, so sending feedback takes the athlete off the screen they are reporting and the message carries that screen's route, not what was on it.
+ */
 export const FEEDBACK_TAB = 'feedback';
 
 const REPLY_SEGMENT = 'reply';
