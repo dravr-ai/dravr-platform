@@ -53,6 +53,16 @@ use crate::services::feedback_events::{self, FEEDBACK_RECORDED_EVENT};
 /// The most text one `plain_text` section block holds.
 const SECTION_TEXT_CHARS: usize = 3000;
 
+/// The most characters a Slack `plain_text_input` takes (`max_length`'s
+/// ceiling): a view asking for more is refused whole with `invalid_arguments`.
+const SLACK_INPUT_MAX_CHARS: usize = 3000;
+
+/// The most sections the athlete's words take in a modal. Slack refuses a
+/// view of more than 100 blocks with `invalid_arguments`, and a rating's
+/// reason has no length bound, so a longer text is cut, and says so, rather
+/// than costing the operator the window.
+const MAX_TEXT_SECTIONS: usize = 90;
+
 /// The most characters Slack keeps in a view's `private_metadata`.
 const PRIVATE_METADATA_CHARS: usize = 3000;
 
@@ -290,15 +300,30 @@ impl ReplyOrigin {
 /// plain text, so nothing they wrote is read as a mention or a link.
 fn text_sections(text: &str) -> Vec<Value> {
     let chars: Vec<char> = text.chars().collect();
-    chars
+    let mut sections: Vec<Value> = chars
         .chunks(SECTION_TEXT_CHARS)
+        .take(MAX_TEXT_SECTIONS)
         .map(|chunk| {
             json!({
                 "type": "section",
                 "text": { "type": "plain_text", "text": chunk.iter().collect::<String>() }
             })
         })
-        .collect()
+        .collect();
+    let shown = MAX_TEXT_SECTIONS * SECTION_TEXT_CHARS;
+    if chars.len() > shown {
+        sections.push(json!({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": format!(
+                    "_The message runs to {} characters; Slack shows the first {shown}._",
+                    chars.len()
+                )
+            }]
+        }));
+    }
+    sections
 }
 
 /// What the modals show of the feedback: where it came from, then the
@@ -353,7 +378,9 @@ fn reply_view(given: &GivenFeedback, origin: &ReplyOrigin) -> Value {
             "type": "plain_text_input",
             "action_id": REPLY_ACTION_ID,
             "multiline": true,
-            "max_length": MAX_REPLY_CHARS,
+            // Slack's ceiling, below the thread's own bound: a longer reply
+            // cannot be typed here, and the thread would take it.
+            "max_length": SLACK_INPUT_MAX_CHARS,
         }
     }));
     json!({
@@ -765,6 +792,93 @@ mod tests {
             read_only["blocks"][0]["elements"][0]["text"], "A thumbs down on an agent reply",
             "bug: the modal says what kind of feedback it shows"
         );
+    }
+
+    /// Every limit Slack enforces on a modal, so a view it would refuse with
+    /// `invalid_arguments` fails here instead of on the operator's tap.
+    ///
+    /// The limits are Slack's Block Kit wire values, pinned as literals rather
+    /// than read from this module's constants: a constant raised past Slack's
+    /// ceiling would otherwise still pass.
+    fn assert_within_slack_modal_limits(view: &Value) {
+        for key in ["title", "submit", "close"] {
+            if let Some(text) = view[key]["text"].as_str() {
+                assert!(
+                    text.chars().count() <= 24,
+                    "bug: the modal's {key} {text:?} passes Slack's 24"
+                );
+            }
+        }
+        let metadata = view["private_metadata"].as_str().unwrap_or_default();
+        assert!(
+            metadata.chars().count() <= 3000,
+            "bug: private_metadata passes Slack's 3000"
+        );
+        let blocks = view["blocks"].as_array().expect("bug: a modal has blocks");
+        assert!(blocks.len() <= 100, "bug: a modal holds at most 100 blocks");
+        for block in blocks {
+            if let Some(text) = block["text"]["text"].as_str() {
+                assert!(
+                    text.chars().count() <= 3000,
+                    "bug: a section's text passes Slack's 3000"
+                );
+            }
+            if let Some(max) = block["element"]["max_length"].as_u64() {
+                assert!(
+                    max <= 3000,
+                    "bug: an input's max_length {max} passes Slack's 3000, \
+                     and Slack refuses the whole view with invalid_arguments"
+                );
+            }
+            for key in ["label", "hint"] {
+                if let Some(text) = block[key]["text"].as_str() {
+                    assert!(
+                        text.chars().count() <= 2000,
+                        "bug: an input's {key} passes Slack's 2000"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_text_past_slacks_block_cap_is_cut_and_says_so() {
+        let huge = "x".repeat(400_000);
+        let sections = text_sections(&huge);
+        assert!(
+            sections.len() <= 91,
+            "bug: the words alone must leave room under Slack's 100 blocks"
+        );
+        let last = sections.last().expect("bug: a text has sections");
+        assert_eq!(last["type"], "context", "bug: a cut text says it was cut");
+        assert!(
+            last["elements"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("400000"),
+            "bug: the cut line names the whole length"
+        );
+        let given = GivenFeedback {
+            text: Some(huge),
+            rating: Some("down".to_owned()),
+            rated_reply: None,
+            has_image: true,
+        };
+        assert_within_slack_modal_limits(&reply_view(&given, &origin(a_card())));
+        assert_within_slack_modal_limits(&full_text_view(&given));
+    }
+
+    #[test]
+    fn both_modals_stay_within_what_slack_accepts() {
+        let long = "x".repeat(4000);
+        let given = GivenFeedback {
+            text: Some(long),
+            rating: Some("down".to_owned()),
+            rated_reply: None,
+            has_image: true,
+        };
+        assert_within_slack_modal_limits(&reply_view(&given, &origin(a_card())));
+        assert_within_slack_modal_limits(&full_text_view(&given));
     }
 
     #[test]
