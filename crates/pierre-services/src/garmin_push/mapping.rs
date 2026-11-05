@@ -732,6 +732,7 @@ mod tests {
             (Some(-14_400), Some(-14_400)),
             (Some(19_800), Some(19_800)),
             (Some(50_400), Some(50_400)),
+            (Some(-43_200), Some(-43_200)),
             (Some(50_401), None),
             (Some(-43_201), None),
             (None, None),

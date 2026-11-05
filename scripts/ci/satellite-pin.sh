@@ -370,6 +370,20 @@ cmd_lock_assert() { # $1=name $2=target
 
 # ---------------------------------------------------------------------------
 
+# Which version a run integrates. A run can start long after its trigger, so main
+# may already be past the version it was told to move to, and integrating it then
+# would land a clean downgrade. Only a person naming a version may move a pin back.
+cmd_target() {
+  local pinned="$1" version="$2" may_move_back="$3"
+  local newest
+  newest=$(printf '%s\n%s\n' "${pinned}" "${version}" | sort -V | tail -1)
+  if [ "${newest}" = "${version}" ] || [ "${may_move_back}" = "true" ]; then
+    echo "${version}"
+  else
+    echo "${pinned}"
+  fi
+}
+
 usage() {
   cat <<USAGE
 usage: satellite-pin.sh <command> [args]
@@ -380,6 +394,7 @@ usage: satellite-pin.sh <command> [args]
   rewrite <name> <target>      move every pin site, in place
   verify  <name> <target>      positive verification of every site
   lock-assert <name> <target>  Cargo.lock actually moved
+  target <pinned> <version> <may_move_back>  the version a run integrates
   gates <name>                 workflow files this satellite must gate on
   crates <name>                package names moving on one version
   repo <name> | source <name> | upstream <name> | lane <name> |
@@ -394,6 +409,7 @@ case "${1:-}" in
   rewrite)       cmd_rewrite "${2:?name}" "${3:?target}" ;;
   verify)        cmd_verify  "${2:?name}" "${3:?target}" ;;
   lock-assert)   cmd_lock_assert "${2:?name}" "${3:?target}" ;;
+  target)        cmd_target "${2:?pinned}" "${3:?version}" "${4:?may_move_back}" ;;
   gates)         require_stanza "${2:?name}"; stanza_gates "$2"; echo ;;
   crates)        require_stanza "${2:?name}"; stanza_crates "$2"; echo ;;
   repo)          require_stanza "${2:?name}"; stanza_repo "$2" ;;

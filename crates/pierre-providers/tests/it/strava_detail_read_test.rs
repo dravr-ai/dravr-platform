@@ -68,6 +68,11 @@ fn detail_read_carries_strava_s_stated_offset_and_rejects_a_wild_one() {
         Some(50_400),
         "bug: the last civil offset"
     );
+    assert_eq!(
+        offset_read_from(&json!(-43_200.0)),
+        Some(-43_200),
+        "bug: the first civil offset"
+    );
     assert_eq!(offset_read_from(&json!(50_401.0)), None, "bug: past +14:00");
     assert_eq!(
         offset_read_from(&json!(-43_201.0)),
