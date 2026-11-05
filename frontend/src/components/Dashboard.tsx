@@ -7,7 +7,7 @@
 import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
-import { useFeedbackUnread } from '../hooks/useFeedbackThread';
+import { useFeedbackUnread } from '../hooks/useFeedbackUnread';
 import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import { useComposerFocused } from '../hooks/useComposerFocused';
 import { useConversationScope, usePersonalConversation } from '../hooks/useConversationList';

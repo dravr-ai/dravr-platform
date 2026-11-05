@@ -13,9 +13,6 @@ import { feedbackApi } from '../services/api';
 /** How often an open thread looks for a reply from the team. */
 const THREAD_REFRESH_MS = 60_000;
 
-/** How often the unread dot looks for one: the notification bell's cadence. */
-const UNREAD_REFRESH_MS = 120_000;
-
 /**
  * The thread and the one write it takes. A sent message joins the cached
  * thread as the server answered it, so the thread never re-reads to show
@@ -78,14 +75,4 @@ export function useFeedbackImageUrl(messageId: string): FeedbackImageView {
     return () => URL.revokeObjectURL(objectUrl);
   }, [image.data]);
   return { url, failed: image.isError };
-}
-
-/** How many of the team's replies are waiting unread: the account menu's dot. */
-export function useFeedbackUnread(): number {
-  const unread = useQuery({
-    queryKey: QUERY_KEYS.user.feedbackUnread(),
-    queryFn: () => feedbackApi.getUnread(),
-    refetchInterval: UNREAD_REFRESH_MS,
-  });
-  return unread.data ?? 0;
 }

@@ -19,6 +19,24 @@ const FEEDBACK_UNREAD = '/api/me/feedback/unread';
 const FEEDBACK_READ = '/api/me/feedback/read';
 
 /**
+ * The account menu's unread dot, apart from `feedbackApi`: the dot loads with
+ * the app shell, so the entry bundle takes this one read and the thread's
+ * reads and writes stay in the thread's lazy chunk.
+ */
+// LIMITATION(registre#1241): feedbackUnreadApi is web-only — the phone has no feedback thread to show a dot for.
+export const feedbackUnreadApi = {
+  /** How many of the team's replies the athlete has not opened yet. */
+  async getUnread(): Promise<number> {
+    const response = await axios.get<unknown>(FEEDBACK_UNREAD);
+    const parsed = parseFeedbackUnread(response.data);
+    if (parsed === null) {
+      throw new Error(`Unexpected response shape from ${FEEDBACK_UNREAD}`);
+    }
+    return parsed.unread;
+  },
+};
+
+/**
  * The athlete's thread with the Dravr team. Nothing answers it
  * automatically: the team reads each message where the server reports it
  * and replies from there; a reply waits unread until the thread is opened.
@@ -47,16 +65,6 @@ export const feedbackApi = {
       throw new Error(`Unexpected response shape from ${FEEDBACK_THREAD}`);
     }
     return parsed;
-  },
-
-  /** How many of the team's replies the athlete has not opened yet. */
-  async getUnread(): Promise<number> {
-    const response = await axios.get<unknown>(FEEDBACK_UNREAD);
-    const parsed = parseFeedbackUnread(response.data);
-    if (parsed === null) {
-      throw new Error(`Unexpected response shape from ${FEEDBACK_UNREAD}`);
-    }
-    return parsed.unread;
   },
 
   /** The screenshot one of the athlete's own messages carries. */
