@@ -56,8 +56,9 @@ use crate::plan_fueling::FuelingDisclosure;
 
 mod target;
 pub use target::{
-    calendar_holds_week_notes, calendar_read_target, resolve_calendar_target,
-    CALENDAR_WRITE_CAPABILITY,
+    calendar_holds_week_notes, calendar_read_target, chosen_calendar, connected_calendars,
+    named_calendar, resolve_calendar_target, writes_a_calendar, CalendarCandidates,
+    CalendarResolution, CalendarTarget, CALENDAR_WRITE_CAPABILITY,
 };
 
 /// The entries a calendar can hold: every session, and the week notes only
@@ -448,6 +449,11 @@ pub struct PushReport {
     /// and pushed again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unpublished_draft: Option<String>,
+    /// Present when the calendar the athlete chose for Dravr's pushes was
+    /// passed over for this one — not connected, or not one this write may
+    /// go to — saying where it went instead (carnet#1393).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }
 
 /// Inputs of one push.

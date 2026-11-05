@@ -128,6 +128,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_training_plan_push_tools(registry);
     #[cfg(feature = "tools-memory")]
+    register_calendar_preference_tools(registry);
+    #[cfg(feature = "tools-memory")]
     register_training_plan_publish_tools(registry);
 
     // Coaching playbook GDPR/transparency tools (list / forget)
@@ -203,6 +205,26 @@ fn register_training_plan_push_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered plan-push tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the preferred-calendar tool (`set_preferred_calendar`).
+///
+/// Chat-callable (category `memory`, beside the push it steers): the agent
+/// records the athlete's answer when a push with several calendars connected
+/// asks which one, or when they ask to switch (carnet#1393).
+#[cfg(feature = "tools-memory")]
+fn register_calendar_preference_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::calendar_preference::create_calendar_preference_tools;
+    use std::sync::Arc;
+
+    for tool in create_calendar_preference_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered preferred-calendar tools (registry now has {} tools)",
         registry.len()
     );
 }

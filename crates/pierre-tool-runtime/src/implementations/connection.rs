@@ -23,6 +23,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
+use super::calendar::{calendars_held, recorded_calendar, CalendarConnections};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -413,7 +414,39 @@ pub enum ConnectionStatusResult {
     All {
         /// Each provider's state.
         providers: BTreeMap<String, ProviderConnectionStatus>,
+        /// Which calendar Dravr's plan and workout pushes go to, present when
+        /// the athlete holds several calendars or recorded one (carnet#1393).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        calendar: Option<CalendarChoiceStatus>,
     },
+}
+
+/// The calendar Dravr's pushes go to, as `get_connection_status` reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CalendarChoiceStatus {
+    /// The calendar the athlete chose (`set_preferred_calendar`, or the app's
+    /// Connections settings); absent while they have chosen none, and a push
+    /// with several connected asks which.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chosen: Option<String>,
+    /// The connected calendars that can be chosen, as the push tools'
+    /// `provider` names them. A chosen calendar missing from them is no
+    /// longer connected, and pushes pass it over.
+    pub connected: Vec<String>,
+}
+
+/// The calendar block of `get_connection_status`: `None` for an athlete who
+/// holds at most one calendar and recorded none, where there is nothing to
+/// choose.
+async fn calendar_choice_status(
+    ctx: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: uuid::Uuid,
+) -> AppResult<Option<CalendarChoiceStatus>> {
+    let chosen = recorded_calendar(ctx, tenant_id, user_id).await?;
+    let connected = calendars_held(ctx, tenant_id, user_id, CalendarConnections::Own).await?;
+    Ok((chosen.is_some() || connected.len() > 1)
+        .then_some(CalendarChoiceStatus { chosen, connected }))
 }
 
 /// What `disconnect_provider` answers with.
@@ -789,10 +822,12 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     providers_status.insert(user_facing.to_owned(), state.into());
                 }
 
+                let calendar = calendar_choice_status(&ctx, tenant_id, user_uuid).await?;
                 ok_typed(
                     "get_connection_status",
                     ConnectionStatusResult::All {
                         providers: providers_status,
+                        calendar,
                     },
                 )
             }

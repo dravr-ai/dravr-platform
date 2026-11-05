@@ -11758,6 +11758,29 @@
       },
       "outputSchema": {
         "$defs": {
+          "CalendarChoiceStatus": {
+            "description": "The calendar Dravr's pushes go to, as `get_connection_status` reports it.",
+            "properties": {
+              "chosen": {
+                "description": "The calendar the athlete chose (`set_preferred_calendar`, or the app's\nConnections settings); absent while they have chosen none, and a push\nwith several connected asks which.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "connected": {
+                "description": "The connected calendars that can be chosen, as the push tools'\n`provider` names them. A chosen calendar missing from them is no\nlonger connected, and pushes pass it over.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connected"
+            ],
+            "type": "object"
+          },
           "ProviderConnectionStatus": {
             "description": "One provider's connection state, as reported inside the all-providers map.",
             "properties": {
@@ -11872,6 +11895,17 @@
           {
             "description": "No provider named, so every provider's state, keyed by name.",
             "properties": {
+              "calendar": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CalendarChoiceStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Which calendar Dravr's plan and workout pushes go to, present when\nthe athlete holds several calendars or recorded one (carnet#1393)."
+              },
               "providers": {
                 "additionalProperties": {
                   "$ref": "#/$defs/ProviderConnectionStatus"
@@ -15732,6 +15766,13 @@
           "CalendarBlock": {
             "description": "Dravr's record of what Dravr pushed to the athlete's calendar provider.\n\nNot a view of their calendar. Nothing here reads what the athlete entered\nthemselves, so an empty `entries` says nothing about whether they have a\nrace — which is exactly what `scope` exists to say out loud.",
             "properties": {
+              "calendar_note": {
+                "description": "Present only when the calendar the athlete chose for Dravr's pushes\nwas passed over for this read — not connected, or not one these\npushes write — naming the calendar read instead (carnet#1393).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "entries": {
                 "description": "The live entries, always present — an empty list is a real answer and\ndropping the key would make \"nothing pushed\" indistinguishable from\n\"not asked\".",
                 "items": {
@@ -23583,7 +23624,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last.",
+            "description": "Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks.",
             "type": "string"
           },
           "replaces": {
@@ -23675,6 +23716,13 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "What `prescribe_workout` answers with.\n\nCarries the provider's event id because the workout is on the athlete's\nreal calendar by the time this returns. An agent told only \"it worked\"\ncannot undo it; `withdraw_prescribed_workout` takes the prescription id.",
         "properties": {
+          "calendar_note": {
+            "description": "Present when the calendar the athlete chose for Dravr's pushes was\npassed over for this one, saying where it went instead (carnet#1393).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "duration_minutes": {
             "description": "How long the session runs.",
             "format": "uint32",
@@ -23769,6 +23817,13 @@
           "CalendarPreview": {
             "description": "What a push would change, without the entry list.\n\nThe save reply reports the counts only: the athlete has just written the\nplan and needs to know whether the calendar is behind, not to re-read\nevery entry they already have.",
             "properties": {
+              "calendar_note": {
+                "description": "Present only when the athlete's chosen calendar was passed over (see\n[`CalendarBlock::calendar_note`]).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "pending": {
                 "$ref": "#/$defs/PushPreview",
                 "description": "What a push would change."
@@ -24293,7 +24348,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last.",
+            "description": "Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks.",
             "type": "string"
           }
         },
@@ -24373,6 +24428,13 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "What a push did.",
         "properties": {
+          "calendar_note": {
+            "description": "Present when the calendar the athlete chose for Dravr's pushes was\npassed over for this one — not connected, or not one this write may\ngo to — saying where it went instead (carnet#1393).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cancelled": {
             "description": "Whether a cooperative cancellation stopped the push early. Entries\nalready written stay; the push is convergent, so a re-run reconciles\nthe rest.",
             "type": "boolean"
@@ -26313,6 +26375,13 @@
           "CalendarPreview": {
             "description": "What a push would change, without the entry list.\n\nThe save reply reports the counts only: the athlete has just written the\nplan and needs to know whether the calendar is behind, not to re-read\nevery entry they already have.",
             "properties": {
+              "calendar_note": {
+                "description": "Present only when the athlete's chosen calendar was passed over (see\n[`CalendarBlock::calendar_note`]).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "pending": {
                 "$ref": "#/$defs/PushPreview",
                 "description": "What a push would change."
@@ -28787,6 +28856,65 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "set_preferred_calendar",
+      "description": "Record the connected calendar the athlete chose for Dravr's pushes: their answer to choose_calendar, or a switch. Later pushes naming no provider go there.",
+      "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of a consenting athlete, for their human coach.",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The calendar chosen, e.g. intervals_icu.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `set_preferred_calendar` answers with.",
+        "properties": {
+          "name": {
+            "description": "Its display name, for the reply.",
+            "type": "string"
+          },
+          "note": {
+            "description": "What the choice changes, and what it leaves where it is.",
+            "type": "string"
+          },
+          "previous": {
+            "description": "The calendar recorded before, when there was a different one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "description": "The calendar Dravr's pushes now go to, as the push tools' `provider`\nnames it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "note"
+        ],
+        "title": "SetPreferredCalendarResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Set preferred calendar",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       }
     },

@@ -512,6 +512,11 @@ pub struct CalendarBlock {
     /// updates it and `push_training_plan` is not theirs to call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_by: Option<CalendarPusher>,
+    /// Present only when the calendar the athlete chose for Dravr's pushes
+    /// was passed over for this read — not connected, or not one these
+    /// pushes write — naming the calendar read instead (carnet#1393).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }
 
 /// Who puts Dravr's plan on a calendar when it is not the athlete reading it.
@@ -559,4 +564,8 @@ pub struct CalendarPreview {
     /// this calendar (see [`CalendarBlock::pushed_by`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_by: Option<CalendarPusher>,
+    /// Present only when the athlete's chosen calendar was passed over (see
+    /// [`CalendarBlock::calendar_note`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }

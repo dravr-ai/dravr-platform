@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 117
+// Tool count: 118
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -1396,7 +1396,7 @@ export interface PrescribeWorkoutParams {
   /** Date to schedule it on, YYYY-MM-DD. */
   date: string;
 
-  /** Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last. */
+  /** Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks. */
   provider?: string;
 
   /** prescription_id of an earlier prescription to change in place; the entry keeps its slot. Omit to add a new entry. */
@@ -1475,7 +1475,7 @@ export interface PushTrainingPlanParams {
   /** First date to push, YYYY-MM-DD. Defaults to today in the athlete's calendar and is never earlier. */
   from_date?: string;
 
-  /** Calendar to write to (e.g. intervals_icu). Omitted: the connected provider that writes a training calendar; of several, the one with Dravr's entries, else alphabetical, Garmin last. */
+  /** Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks. */
   provider?: string;
 }
 
@@ -2068,6 +2068,19 @@ export interface SetPhysiologyParams {
 
 
 /**
+ * Record the connected calendar the athlete chose for Dravr's pushes: their answer to choose_calendar, or a switch. Later pushes naming no provider go there.
+ */
+export interface SetPreferredCalendarParams {
+
+  /** Roster name of a consenting athlete, for their human coach. */
+  athlete?: string;
+
+  /** The calendar chosen, e.g. intervals_icu. */
+  provider: string;
+}
+
+
+/**
  * Show a previously hidden agent
  */
 export interface ShowAgentParams {
@@ -2443,6 +2456,7 @@ export const TOOL_NAMES = [
   "set_fitness_config",
   "set_goal",
   "set_physiology",
+  "set_preferred_calendar",
   "show_agent",
   "suggest_goals",
   "suggest_rest_day",
@@ -2571,6 +2585,7 @@ export interface ToolParamsMap {
   "set_fitness_config": SetFitnessConfigParams;
   "set_goal": SetGoalParams;
   "set_physiology": SetPhysiologyParams;
+  "set_preferred_calendar": SetPreferredCalendarParams;
   "show_agent": ShowAgentParams;
   "suggest_goals": SuggestGoalsParams;
   "suggest_rest_day": SuggestRestDayParams;

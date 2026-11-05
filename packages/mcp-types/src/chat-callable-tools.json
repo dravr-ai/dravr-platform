@@ -80,6 +80,7 @@
   "search_recipes",
   "set_goal",
   "set_physiology",
+  "set_preferred_calendar",
   "suggest_goals",
   "suggest_rest_day",
   "suggest_stretches_for_activity",

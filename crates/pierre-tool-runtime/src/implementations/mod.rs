@@ -237,6 +237,8 @@ pub mod provider_roster;
 
 /// Shared helpers for every tool that writes to an athlete's provider calendar.
 pub mod calendar;
+/// `set_preferred_calendar` — the calendar Dravr's plan and workout pushes go to (carnet#1393).
+pub mod calendar_preference;
 /// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
 mod coach_scope;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).

@@ -46,6 +46,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
 pub mod athlete_gear;
+/// Repository trait and shared body for the calendar an athlete chose for Dravr's pushes (carnet#1393).
+pub mod calendar_preferences;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
@@ -280,6 +282,7 @@ pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use archive_erasures::{ArchiveErasureRepository, PendingArchiveErasure};
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
+pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};

@@ -24,7 +24,10 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
 
-use super::calendar::{calendar_ledger_target, provider_arg, provider_property, LedgerCalendar};
+use super::calendar::{
+    calendar_ledger_target, provider_arg, provider_property, CalendarConnections, LedgerCalendar,
+    PassedOver,
+};
 use super::coach_scope::{athlete_property, resolve_calendar_scope};
 use super::plan_scope::PlanScope;
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
@@ -67,8 +70,10 @@ pub(super) async fn calendar_block(
 ) -> AppResult<CalendarBlock> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
-    let ledger = calendar_ledger_target(context, tenant, user_id).await?;
+    let ledger =
+        calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await?;
     let pushed_by = who_pushes(scope, &ledger);
+    let calendar_note = read_note(context, scope, &ledger).await?;
     let target = ledger.backend;
     let mut live = repos
         .prescribed_workouts
@@ -113,6 +118,7 @@ pub(super) async fn calendar_block(
         stale: pending.is_stale(),
         scope: None,
         pushed_by,
+        calendar_note,
     };
     if block.entries.is_empty() {
         // An empty ledger is not an empty calendar, and the difference is the
@@ -154,10 +160,14 @@ pub(super) async fn calendar_preview_after_save(
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
     let ledger = best_effort(
-        calendar_ledger_target(context, tenant, user_id).await,
+        calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await,
         "calendar target unresolved",
     )?;
     let pushed_by = who_pushes(scope, &ledger);
+    let calendar_note = best_effort(
+        read_note(context, scope, &ledger).await,
+        "calendar note unresolved",
+    )?;
     let target = ledger.backend;
     let mut live = best_effort(
         repos
@@ -190,7 +200,41 @@ pub(super) async fn calendar_preview_after_save(
         pending,
         stale: pending.is_stale(),
         pushed_by,
+        calendar_note,
     })
+}
+
+/// The note a read of `ledger` carries when it passed the athlete's chosen
+/// calendar over; `None` when it did not.
+///
+/// # Errors
+///
+/// Returns the repository error when the connections cannot be read.
+async fn read_note(
+    context: &ToolExecutionContext,
+    scope: &PlanScope,
+    ledger: &LedgerCalendar,
+) -> AppResult<Option<String>> {
+    let Some(chosen) = ledger.passed_over.as_deref() else {
+        return Ok(None);
+    };
+    let chooser = scope
+        .acting_for
+        .clone()
+        .unwrap_or_else(|| "the athlete".to_owned());
+    let passed = PassedOver::read(context, scope.tenant, scope.user_id, chooser, chosen).await?;
+    Ok(Some(passed.read_note(context, &ledger.backend)))
+}
+
+/// The connections a read of `scope`'s ledger looks under: the calendars a
+/// coach writes when a group's human coach reads for the athlete, the
+/// athlete's own and their link's otherwise.
+fn ledger_connections(scope: &PlanScope) -> CalendarConnections {
+    if scope.acting_for.is_some() {
+        CalendarConnections::ForCoach
+    } else {
+        CalendarConnections::WithLink
+    }
 }
 
 /// Who pushes `ledger`'s calendar, when it is not the reader: an athlete
@@ -292,7 +336,12 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                     .max(today),
                 None => today,
             };
-            let target = scope.target(&context, provider_arg(&args)).await?;
+            let chosen = match scope.target(&context, provider_arg(&args)).await? {
+                Ok(chosen) => chosen,
+                Err(ask) => return Ok(ask),
+            };
+            let calendar_note = scope.passed_over_note(&context, &chosen).await?;
+            let target = chosen.backend;
             let provider = match scope.calendar_writer(&context, &target).await? {
                 Ok(provider) => provider,
                 Err(refused) => return Ok(refused),
@@ -320,6 +369,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             )
             .await;
             let mut report = scope.reacting(&context, provider.as_ref(), pushed).await?;
+            report.calendar_note = calendar_note;
             if let Some(name) = scope.athlete_name() {
                 // The athlete did not push this: they are told their coach
                 // put workouts on their calendar, when the push wrote any.

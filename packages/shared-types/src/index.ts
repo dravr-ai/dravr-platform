@@ -340,6 +340,10 @@ export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './c
 export type { GettingStartedResponse, GettingStartedRow } from './getting-started.js';
 export { parseGettingStartedResponse } from './getting-started.js';
 
+// The calendar Dravr's plan and workout pushes go to (carnet#1393)
+export type { CalendarOption, PreferredCalendar } from './preferred-calendar.js';
+export { parsePreferredCalendar } from './preferred-calendar.js';
+
 // The athlete's units: metric unless they chose imperial in Settings (carnet#835, carnet#1044)
 export type { UnitPreferences, UnitSystem } from './units.js';
 export { parseUnitPreferences } from './units.js';

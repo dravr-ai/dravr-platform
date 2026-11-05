@@ -45,6 +45,7 @@ import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
+import { PreferredCalendarSection } from './PreferredCalendarSection';
 import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
@@ -535,6 +536,14 @@ export function ConnectionsScreen() {
   // a mirror card covers and coalesces a card's two backends before answering
   // (carnet#255, carnet#574), so no client filters or merges them again.
 
+  // Which providers are connected, in a stable form: the calendar choice reads
+  // its calendars again when a connection is made or removed here.
+  const connectedProviders = providers
+    .filter((provider) => provider.connected)
+    .map((provider) => provider.provider)
+    .sort()
+    .join(',');
+
   return (
     <View className="flex-1 bg-background-primary" testID="connections-screen">
       <PaneScrollView
@@ -579,6 +588,9 @@ export function ConnectionsScreen() {
             {/* Import your own data: below the providers, never one of them */}
             <ImportOwnDataRow />
           </Section>
+
+          {/* Which connected calendar the plan goes on (carnet#1393) */}
+          <PreferredCalendarSection connected={connectedProviders} />
 
           <Section title={t('tokens.connectedApps')} testID="connections-apps-section">
             <EmptyState

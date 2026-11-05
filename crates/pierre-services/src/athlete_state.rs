@@ -17,7 +17,7 @@
 //! Every read is one the product already makes elsewhere, called the same way,
 //! so a starter is offered exactly when the surface it leads to has something
 //! to show: the plan through [`select_active_weeks`] as `/plan` reads it, the
-//! calendar through [`resolve_calendar_target`] as the push tool resolves it,
+//! calendar through [`writes_a_calendar`], the connections the push tool chooses among,
 //! the date through [`athlete_today`]. The dossier read is
 //! [`dossier_coverage`], which `GET /api/me/onboarding-status` reads too.
 //!
@@ -40,7 +40,7 @@ use pierre_providers::registry::global_registry;
 use uuid::Uuid;
 
 use crate::athlete_clock::athlete_today;
-use crate::plan_calendar_push::resolve_calendar_target;
+use crate::plan_calendar_push::writes_a_calendar;
 use crate::stored_health;
 use crate::training_plan_render::select_active_weeks;
 
@@ -255,7 +255,7 @@ async fn read_untracked(
         (now - Duration::days(RECOVERY_ROWS_WINDOW_DAYS), now),
     )
     .await?;
-    let calendar_writable = resolve_calendar_target(&registry, &own, &[], None).is_ok();
+    let calendar_writable = writes_a_calendar(&registry, &own);
 
     // Through the terms filter, as every model-facing read: a session a
     // provider keeps from AI is no ground for "my last workout", and one kept

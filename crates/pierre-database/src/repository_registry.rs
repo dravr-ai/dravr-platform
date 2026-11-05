@@ -16,9 +16,10 @@ use crate::repositories::{
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
     ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
     AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository,
-    AthleteGearRepository, ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
-    CoachAccessRequestRepository, CoachAttentionDismissalRepository, CoachReplyReviewRepository,
-    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
+    AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
+    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
+    CoachAttentionDismissalRepository, CoachReplyReviewRepository, CoachingGroupRepository,
+    CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     FeatureFlagsRepository, FederatedIdentityRepository, FeedbackMessageRepository,
     FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
@@ -105,6 +106,8 @@ pub struct RepositoryRegistry {
     pub signup_cohort: Arc<dyn SignupCohortRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
+    /// The calendar an athlete chose for Dravr's pushes (carnet#1393)
+    pub calendar_preferences: Arc<dyn CalendarPreferenceRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -324,6 +327,7 @@ impl RepositoryRegistry {
             signup_codes: db.clone(),
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
+            calendar_preferences: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -432,6 +436,7 @@ impl RepositoryRegistry {
             signup_codes: db.clone(),
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
+            calendar_preferences: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),

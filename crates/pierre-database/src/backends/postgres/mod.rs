@@ -42,6 +42,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`Postgres`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The calendar an athlete chose for Dravr's pushes (Postgres)
+pub mod calendar_preferences;
 /// Chat repository implementation
 pub mod chat;
 /// The check-in cadence each athlete chose (`PostgreSQL`)

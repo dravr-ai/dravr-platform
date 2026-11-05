@@ -69,6 +69,7 @@ import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import UnitsSettings from './settings/UnitsSettings';
 import CheckInSettings from './settings/CheckInSettings';
+import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -233,6 +234,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The cards render as the server serves them: it withholds the raw rows a
   // mirror card covers and coalesces both backends onto that card.
   const fitnessProviders: ProviderStatus[] = providersResponse?.providers ?? [];
+  // Which providers are connected, in a stable form: the calendar choice reads
+  // its calendars again when a connection is made or removed here.
+  const connectedProviders = fitnessProviders
+    .filter((provider) => provider.connected)
+    .map((provider) => provider.provider)
+    .sort()
+    .join(',');
 
   // The Strava history the athlete imported, shown on the Strava card.
   const { data: importsOverview } = useQuery({
@@ -1064,6 +1072,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   })}
                 </div>
               )}
+
+              {/* Which connected calendar the plan goes on (carnet#1393) */}
+              <PreferredCalendarSettings connected={connectedProviders} />
 
               {/* Privacy note */}
               <p className="mt-4 text-xs text-outline">{t('providers.privacyNote')}</p>

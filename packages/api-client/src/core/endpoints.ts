@@ -375,6 +375,8 @@ export const ENDPOINTS = {
     UNITS: '/api/me/units',
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
+    /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */
+    PREFERRED_CALENDAR: '/api/me/preferred-calendar',
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },

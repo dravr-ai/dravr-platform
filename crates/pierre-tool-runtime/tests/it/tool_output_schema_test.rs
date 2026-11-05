@@ -80,6 +80,9 @@ use pierre_tool_runtime::implementations::athlete_link::{
 use pierre_tool_runtime::implementations::athlete_stats::{
     GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
 };
+use pierre_tool_runtime::implementations::calendar_preference::{
+    SetPreferredCalendarResult, SetPreferredCalendarTool,
+};
 use pierre_tool_runtime::implementations::commitments::{
     CommitmentCancelResult, CommitmentCancelTool, CommitmentCreateResult, CommitmentCreateTool,
 };
@@ -96,8 +99,9 @@ use pierre_tool_runtime::implementations::configuration_output::{
     UpdateUserConfigurationResult, UserConfigurationResult, ValidateConfigurationResult,
 };
 use pierre_tool_runtime::implementations::connection::{
-    ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
-    DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
+    CalendarChoiceStatus, ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult,
+    DisconnectProviderResult, DisconnectProviderTool, GetConnectionStatusTool,
+    ProviderConnectionStatus,
 };
 use pierre_tool_runtime::implementations::continuous_series::{
     GetHeartRateSeriesTool, HeartRateSeriesResult, SeriesWindow,
@@ -1080,6 +1084,10 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
         (
             "all",
             ConnectionStatusResult::All {
+                calendar: Some(CalendarChoiceStatus {
+                    chosen: Some("intervals_icu".to_owned()),
+                    connected: vec!["intervals_icu".to_owned(), "garmin".to_owned()],
+                }),
                 providers: BTreeMap::from([
                     (
                         "strava".to_owned(),
@@ -3630,6 +3638,13 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
         ),
+        (
+            "set_preferred_calendar",
+            <SetPreferredCalendarTool as McpTool<dyn ToolRuntime>>::definition(
+                &SetPreferredCalendarTool,
+            ),
+            output_schema_for::<SetPreferredCalendarResult>(),
+        ),
     ] {
         assert_eq!(
             declared.name, tool_name,
@@ -5708,6 +5723,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
         duration_minutes: 62,
         scheduled_for: "2026-09-10".to_owned(),
         status: "pushed".to_owned(),
+        calendar_note: None,
     })
     .expect("serializes");
     assert!(

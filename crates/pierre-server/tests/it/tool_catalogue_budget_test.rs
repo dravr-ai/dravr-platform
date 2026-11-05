@@ -44,7 +44,12 @@ use crate::common;
 ///
 /// 2026-11-02: 95,100 → 92,950. `format` is withheld from the 27 chat tools
 /// that declared it (carnet#1314); measured 92,914.
-const CATALOGUE_BUDGET_BYTES: usize = 92_950;
+///
+/// 2026-11-05: 92,950 → 93,400 for `set_preferred_calendar` (carnet#1393), the
+/// athlete's answer when a push with several calendars asks which, kept to a
+/// one-line description and two short arguments; the push tools' `provider`
+/// text was tightened to its old length. Measured 93,370 (~456 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 93_400;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

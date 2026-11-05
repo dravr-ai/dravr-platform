@@ -724,17 +724,21 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             // A replaced entry lives on the provider the ledger filed it under;
             // naming another would orphan it.
             let named = provider_arg(&args);
-            let target = match &previous {
-                Some((prev, _)) => {
-                    if let Some(named) = named.filter(|name| *name != prev.provider) {
-                        return Err(AppError::invalid_input(format!(
-                            "prescription {} is on {}, so it cannot be replaced on {named}",
-                            prev.id, prev.provider
-                        )));
-                    }
-                    prev.provider.clone()
+            let (target, calendar_note) = if let Some((prev, _)) = &previous {
+                if let Some(named) = named.filter(|name| *name != prev.provider) {
+                    return Err(AppError::invalid_input(format!(
+                        "prescription {} is on {}, so it cannot be replaced on {named}",
+                        prev.id, prev.provider
+                    )));
                 }
-                None => scope.target(&context, named).await?,
+                (prev.provider.clone(), None)
+            } else {
+                let chosen = match scope.target(&context, named).await? {
+                    Ok(chosen) => chosen,
+                    Err(ask) => return Ok(ask),
+                };
+                let note = scope.passed_over_note(&context, &chosen).await?;
+                (chosen.backend, note)
             };
             let provider = match scope.calendar_writer(&context, &target).await? {
                 Ok(provider) => provider,
@@ -880,6 +884,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     duration_minutes: template.duration_minutes,
                     scheduled_for: date.format("%Y-%m-%d").to_string(),
                     status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
+                    calendar_note,
                 },
             )
         }

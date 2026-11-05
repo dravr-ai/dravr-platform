@@ -43,13 +43,14 @@ use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::core::FitnessProvider;
+use pierre_services::plan_calendar_push::{CalendarResolution, CalendarTarget};
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;
 use uuid::Uuid;
 
 use super::calendar::{
-    calendar_provider, calendar_target, holds_only_through_a_link, CalendarConnections,
+    calendar_provider, calendar_target, holds_only_through_a_link, CalendarConnections, PassedOver,
 };
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest, PlanWriter};
 use super::training_plan_authorship::load_conversation;
@@ -75,6 +76,27 @@ pub(super) fn athlete_property() -> PropertySchema {
 /// A refusal in the tool's error shape, with a machine-readable reason.
 pub(super) fn refusal(reason: &str, message: &str) -> ToolResult {
     ToolResult::error(json!({ "reason": reason, "error": message }))
+}
+
+/// A [`refusal`] that offers `calendars` for the model to put to the athlete,
+/// each as the push tools' `provider` names it and by its display name.
+pub(super) fn calendar_refusal(
+    context: &ToolExecutionContext,
+    reason: &str,
+    message: &str,
+    calendars: &[String],
+) -> ToolResult {
+    let registry = context.resources.provider_registry();
+    let offered: Vec<Value> = calendars
+        .iter()
+        .map(|backend| {
+            json!({
+                "provider": backend,
+                "name": registry.get_display_name(backend).unwrap_or(backend),
+            })
+        })
+        .collect();
+    ToolResult::error(json!({ "reason": reason, "error": message, "calendars": offered }))
 }
 
 /// The refusal of an athlete's own write to their calendar on `backend`,
@@ -256,17 +278,20 @@ impl CalendarScope {
         self.acting_for.as_deref()
     }
 
-    /// The backend this scope's calendar write goes to: the one `requested`
-    /// names, else the athlete's connected calendar. A coach writes the
-    /// calendar the athlete's link reads.
+    /// Where this scope's calendar write goes: the backend `requested`
+    /// names, else the athlete's chosen, ledger or only calendar — or the
+    /// in-band `choose_calendar` refusal when several qualify and none of
+    /// those decides, which offers them so the athlete is asked rather than
+    /// one being guessed (carnet#1393).
     ///
     /// In self scope the athlete's own connections are chosen among first. An
     /// athlete who holds none and names none still has their write aimed at
     /// the calendar they read through a human coach's link, so that
     /// [`Self::calendar_writer`] refuses it in that coach's terms rather than
-    /// asking them to connect a calendar, which would end the link. A named
-    /// provider is resolved whoever's connection holds it: the writer is
-    /// where that is checked.
+    /// asking them to connect a calendar, which would end the link. A coach
+    /// writes among the calendars a coach writes
+    /// ([`CalendarConnections::ForCoach`]). A named provider is resolved
+    /// whoever's connection holds it: the writer is where that is checked.
     ///
     /// # Errors
     ///
@@ -275,38 +300,121 @@ impl CalendarScope {
         &self,
         context: &ToolExecutionContext,
         requested: Option<&str>,
-    ) -> AppResult<String> {
-        if self.acts_for_athlete() {
-            return calendar_target(
+    ) -> AppResult<Result<CalendarTarget, ToolResult>> {
+        let resolution = if self.acts_for_athlete() {
+            calendar_target(
                 context,
                 self.tenant,
                 self.user_id,
                 requested,
-                CalendarConnections::WithLink,
+                CalendarConnections::ForCoach,
             )
-            .await;
-        }
-        match calendar_target(
-            context,
-            self.tenant,
-            self.user_id,
-            requested,
-            CalendarConnections::Own,
-        )
-        .await
-        {
-            Err(own) if requested.is_none() && own.code == ErrorCode::NoProviderConnected => {
-                calendar_target(
-                    context,
-                    self.tenant,
-                    self.user_id,
-                    None,
-                    CalendarConnections::WithLink,
-                )
-                .await
+            .await?
+        } else {
+            match calendar_target(
+                context,
+                self.tenant,
+                self.user_id,
+                requested,
+                CalendarConnections::Own,
+            )
+            .await
+            {
+                Err(own) if requested.is_none() && own.code == ErrorCode::NoProviderConnected => {
+                    calendar_target(
+                        context,
+                        self.tenant,
+                        self.user_id,
+                        None,
+                        CalendarConnections::WithLink,
+                    )
+                    .await?
+                }
+                resolved => resolved?,
             }
-            resolved => resolved,
+        };
+        match resolution {
+            CalendarResolution::Target(target) => Ok(Ok(target)),
+            CalendarResolution::Choose {
+                calendars,
+                passed_over,
+            } => {
+                let passed = match passed_over.as_deref() {
+                    Some(chosen) => Some(self.passed_over(context, chosen).await?.clause()),
+                    None => None,
+                };
+                Ok(Err(self.choose_calendar(context, &calendars, passed)))
+            }
         }
+    }
+
+    /// Who chose the athlete's recorded calendar, as a note says it.
+    fn chooser(&self) -> String {
+        self.athlete_name()
+            .map_or_else(|| "the athlete".to_owned(), ToOwned::to_owned)
+    }
+
+    /// Why the athlete's recorded calendar `chosen` was passed over.
+    async fn passed_over(
+        &self,
+        context: &ToolExecutionContext,
+        chosen: &str,
+    ) -> AppResult<PassedOver> {
+        PassedOver::read(context, self.tenant, self.user_id, self.chooser(), chosen).await
+    }
+
+    /// The note a write's reply carries when the athlete's recorded calendar
+    /// was passed over for `target`, so the model tells them where it went;
+    /// `None` when it was not.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error when the connections cannot be read.
+    pub(super) async fn passed_over_note(
+        &self,
+        context: &ToolExecutionContext,
+        target: &CalendarTarget,
+    ) -> AppResult<Option<String>> {
+        let Some(chosen) = target.passed_over.as_deref() else {
+            return Ok(None);
+        };
+        let passed = self.passed_over(context, chosen).await?;
+        Ok(Some(passed.write_note(context, &target.backend)))
+    }
+
+    /// The `choose_calendar` refusal: several calendars qualify and nothing
+    /// chooses between them, so the model asks which, offering `calendars`.
+    fn choose_calendar(
+        &self,
+        context: &ToolExecutionContext,
+        calendars: &[String],
+        passed_over: Option<String>,
+    ) -> ToolResult {
+        let registry = context.resources.provider_registry();
+        let names = calendars
+            .iter()
+            .map(|backend| registry.get_display_name(backend).unwrap_or(backend))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ask = self.athlete_name().map_or_else(
+            || {
+                format!(
+                    "The athlete holds several calendars Dravr writes — {names} — and has not \
+                     chosen one for Dravr's pushes. Ask them which, offering these; record the \
+                     answer with set_preferred_calendar, then call this again. Never pick one \
+                     for them."
+                )
+            },
+            |name| {
+                format!(
+                    "{name} holds several calendars a coach writes — {names} — and none is \
+                     chosen for Dravr's pushes. Ask which one to write; record it with \
+                     set_preferred_calendar (athlete: {name}), then call this again."
+                )
+            },
+        );
+        let message = passed_over.map_or_else(|| ask.clone(), |clause| format!("{clause}. {ask}"));
+        calendar_refusal(context, "choose_calendar", &message, calendars)
     }
 
     /// The provider this scope's calendar on `backend` is written with: the

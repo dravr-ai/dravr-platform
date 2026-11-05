@@ -11,9 +11,13 @@ use pierre_core::models::{
     ConnectionType, ProviderConnection, RelativeIntensity, TenantId, WorkoutStep,
 };
 use pierre_mcp_schema::PropertySchema;
-use pierre_providers::backend_resolver::resolve_backend;
+use pierre_providers::backend_resolver::{self, resolve_backend};
 use pierre_providers::core::FitnessProvider;
-use pierre_services::plan_calendar_push::{calendar_read_target, resolve_calendar_target};
+use pierre_providers::ProviderRegistry;
+use pierre_services::plan_calendar_push::{
+    calendar_read_target, chosen_calendar, connected_calendars, named_calendar,
+    resolve_calendar_target, CalendarCandidates, CalendarResolution,
+};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -26,9 +30,8 @@ pub(super) fn provider_property() -> PropertySchema {
     PropertySchema {
         property_type: "string".to_owned(),
         description: Some(
-            "Calendar to write to (e.g. intervals_icu). Omitted: the connected provider \
-             that writes a training calendar; of several, the one with Dravr's entries, \
-             else alphabetical, Garmin last."
+            "Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the \
+             athlete chose, else the one with Dravr's entries, else their only one; else asks."
                 .to_owned(),
         ),
         ..Default::default()
@@ -67,9 +70,15 @@ pub(super) enum CalendarConnections {
     /// takes that coach's writes, never theirs.
     Own,
     /// Every one, the delegated connection a human coach's link registers
-    /// included: what a coach's write goes through, and what a read of the
-    /// ledger looks under.
+    /// included: what an athlete's read of the ledger looks under, and what
+    /// their own write falls back to when they hold no calendar themselves.
     WithLink,
+    /// Every one, narrowed to the calendars a coach writes through Dravr when
+    /// the athlete holds any: what a group's human coach writes for the
+    /// athlete, and reads back. A calendar a coach cannot write (Garmin,
+    /// Wahoo) is never the one offered or chosen for them, even when the
+    /// athlete chose it for their own pushes.
+    ForCoach,
 }
 
 /// `user_id`'s provider connections under `tenant_id`.
@@ -87,14 +96,59 @@ async fn connections(
 }
 
 /// The backends `rows` hold a connection to among `which`.
-fn backends_among(rows: &[ProviderConnection], which: CalendarConnections) -> Vec<&str> {
-    rows.iter()
+fn backends_among<'a>(
+    registry: &ProviderRegistry,
+    rows: &'a [ProviderConnection],
+    which: CalendarConnections,
+) -> Vec<&'a str> {
+    let all: Vec<&'a str> = rows
+        .iter()
         .filter(|connection| {
-            which == CalendarConnections::WithLink
+            which != CalendarConnections::Own
                 || connection.connection_type != ConnectionType::Delegated
         })
         .map(|connection| connection.provider.as_str())
-        .collect()
+        .collect();
+    if which != CalendarConnections::ForCoach {
+        return all;
+    }
+    let coach_writes: Vec<&'a str> = all
+        .iter()
+        .copied()
+        .filter(|backend| {
+            registry
+                .get_capabilities(backend)
+                .is_some_and(|caps| caps.supports_coach_calendar_write())
+        })
+        .collect();
+    // An athlete holding no calendar a coach writes keeps every connection,
+    // so the coach's writer refuses the write by name rather than the athlete
+    // being told to connect a calendar.
+    if coach_writes.is_empty() {
+        all
+    } else {
+        coach_writes
+    }
+}
+
+/// The calendar `user_id` chose for Dravr's pushes under `tenant_id`, as
+/// recorded (carnet#1393).
+///
+/// # Errors
+///
+/// Returns the repository error when the preference cannot be read.
+pub(super) async fn recorded_calendar(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<String>> {
+    Ok(context
+        .resources
+        .repos()
+        .calendar_preferences
+        .get_calendar_preference(tenant_id, user_id)
+        .await?
+        .map(|preference| preference.provider))
 }
 
 /// Whether `rows` hold `backend` only through a human coach's link: a
@@ -138,7 +192,8 @@ enum WithoutConnection {
 
 /// The calendars the athlete's push ledger holds live entries on, among the
 /// calendar-capable `backends`. Read only when more than one of them writes
-/// a calendar, the one case where the ledger decides the target
+/// a calendar and the athlete's recorded choice (`preferred`) lands on none
+/// of them, the one case where the ledger decides the target
 /// ([`resolve_calendar_target`]), or when none does and `without` says to
 /// look at every calendar provider; empty otherwise.
 async fn ledger_calendars<'a>(
@@ -146,9 +201,13 @@ async fn ledger_calendars<'a>(
     tenant_id: TenantId,
     user_id: Uuid,
     backends: &[&'a str],
+    preferred: Option<&str>,
     without: WithoutConnection,
 ) -> AppResult<Vec<&'a str>> {
     let registry = context.resources.provider_registry();
+    if chosen_calendar(registry, backends, preferred).is_some() {
+        return Ok(Vec::new());
+    }
     let mut writable: Vec<&'a str> = backends
         .iter()
         .copied()
@@ -179,9 +238,11 @@ async fn ledger_calendars<'a>(
     Ok(live)
 }
 
-/// The backend a calendar write goes to: the one the caller named, else the
-/// athlete's provider among `which` that declares calendar-write, the one
-/// their ledger already writes first.
+/// Where a calendar write goes: the backend the caller named, else, among
+/// the athlete's providers in `which` that declare calendar-write, the one
+/// they chose, the one their ledger already writes, or their only one — or
+/// that they must be asked which, when several qualify and none of those
+/// decides ([`resolve_calendar_target`]).
 ///
 /// # Errors
 ///
@@ -193,7 +254,7 @@ pub(super) async fn calendar_target(
     user_id: Uuid,
     requested: Option<&str>,
     which: CalendarConnections,
-) -> AppResult<String> {
+) -> AppResult<CalendarResolution> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
         Some(name) => {
@@ -202,20 +263,211 @@ pub(super) async fn calendar_target(
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;
-    let backends = backends_among(&rows, which);
-    let live = if requested.is_none() {
-        ledger_calendars(
+    let backends = backends_among(registry, &rows, which);
+    let (preferred, live) = if requested.is_none() {
+        let preferred = recorded_calendar(context, tenant_id, user_id).await?;
+        let live = ledger_calendars(
             context,
             tenant_id,
             user_id,
             &backends,
+            preferred.as_deref(),
             WithoutConnection::Skip,
         )
-        .await?
+        .await?;
+        (preferred, live)
     } else {
-        Vec::new()
+        (None, Vec::new())
     };
-    resolve_calendar_target(registry, &backends, &live, requested.as_deref())
+    resolve_calendar_target(
+        registry,
+        &CalendarCandidates {
+            connected: &backends,
+            live: &live,
+            preferred: preferred.as_deref(),
+        },
+        requested.as_deref(),
+    )
+}
+
+/// Whether any of `user_id`'s connections, of whatever kind, is the one
+/// `backend` names under the name the athlete knows: a recorded calendar
+/// passed over for a write is either no longer connected, or connected and
+/// not one this write may go to.
+///
+/// # Errors
+///
+/// Returns the repository error when the connections cannot be read.
+pub(super) async fn holds_connection_to(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    backend: &str,
+) -> AppResult<bool> {
+    let known_as = backend_resolver::user_facing_name(backend);
+    Ok(connections(context, tenant_id, user_id)
+        .await?
+        .iter()
+        .any(|connection| backend_resolver::user_facing_name(&connection.provider) == known_as))
+}
+
+/// Why the athlete's recorded calendar was passed over, and how a reply
+/// says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PassedOver {
+    /// The recorded calendar's display name.
+    brand: String,
+    /// Who chose it, as a note names them: "the athlete", or their name to
+    /// their human coach.
+    chooser: String,
+    /// Whether the athlete still holds a connection to it: then it is passed
+    /// over because this write or read may not use it, not because it is gone.
+    connected: bool,
+}
+
+impl PassedOver {
+    /// Why `chosen`, the calendar `chooser` recorded for `user_id`, was
+    /// passed over.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error when the connections cannot be read.
+    pub(super) async fn read(
+        context: &ToolExecutionContext,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        chooser: String,
+        chosen: &str,
+    ) -> AppResult<Self> {
+        Ok(Self {
+            brand: brand(context, chosen),
+            chooser,
+            connected: holds_connection_to(context, tenant_id, user_id, chosen).await?,
+        })
+    }
+
+    /// "Wahoo, the calendar the athlete chose for Dravr's pushes, is not
+    /// connected".
+    pub(super) fn clause(&self) -> String {
+        let why = if self.connected {
+            "cannot take this write"
+        } else {
+            "is not connected"
+        };
+        format!(
+            "{}, the calendar {} chose for Dravr's pushes, {why}",
+            self.brand, self.chooser
+        )
+    }
+
+    /// The note on a write that went to `went` instead. Only a calendar that
+    /// is gone is worth reconnecting; one still connected that this write may
+    /// not use keeps taking the pushes it can.
+    pub(super) fn write_note(&self, context: &ToolExecutionContext, went: &str) -> String {
+        let went = brand(context, went);
+        if self.connected {
+            format!("{}, so this went to {went}.", self.clause())
+        } else {
+            format!(
+                "{}, so this went to {went}. Tell them; reconnecting it, or recording another \
+                 calendar with set_preferred_calendar, settles where the next push goes.",
+                self.clause()
+            )
+        }
+    }
+
+    /// The note on a read of the ledger that looks under `read` instead.
+    pub(super) fn read_note(&self, context: &ToolExecutionContext, read: &str) -> String {
+        let read = brand(context, read);
+        let why = if self.connected {
+            "is not one these pushes write"
+        } else {
+            "is not connected"
+        };
+        format!(
+            "{}, the calendar {} chose for Dravr's pushes, {why}, so this reads what Dravr put \
+             on {read}.",
+            self.brand, self.chooser
+        )
+    }
+}
+
+/// `backend`'s display name, for a reply; the backend name when it has none.
+pub(super) fn brand(context: &ToolExecutionContext, backend: &str) -> String {
+    context
+        .resources
+        .provider_registry()
+        .get_display_name(backend)
+        .unwrap_or(backend)
+        .to_owned()
+}
+
+/// What recording a named calendar as the athlete's choice resolves to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CalendarToRecord {
+    /// The backend to record: one of the athlete's connected calendars.
+    Calendar(String),
+    /// A calendar provider the athlete holds no connection to among those
+    /// chosen from.
+    NotConnected {
+        /// The backend that was named, resolved.
+        backend: String,
+        /// The calendars the athlete may record instead, ranked.
+        connected: Vec<String>,
+    },
+}
+
+/// The calendars `user_id` holds among `which`, ranked as they are offered
+/// ([`connected_calendars`]). `get_connection_status` reports them, and that
+/// tool ships with the connection tools.
+///
+/// # Errors
+///
+/// Returns the repository error when the connections cannot be read.
+#[cfg(feature = "tools-connection")]
+pub(super) async fn calendars_held(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    which: CalendarConnections,
+) -> AppResult<Vec<String>> {
+    let registry = context.resources.provider_registry();
+    let rows = connections(context, tenant_id, user_id).await?;
+    let backends = backends_among(registry, &rows, which);
+    Ok(connected_calendars(registry, &backends)
+        .into_iter()
+        .map(str::to_owned)
+        .collect())
+}
+
+/// What recording `name`, as the athlete or their coach names it, as the
+/// athlete's calendar resolves to among `which`.
+///
+/// # Errors
+///
+/// Returns the refusal of a named provider that writes no calendar
+/// ([`named_calendar`]), or a repository error.
+pub(super) async fn calendar_to_record(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    name: &str,
+    which: CalendarConnections,
+) -> AppResult<CalendarToRecord> {
+    let registry = context.resources.provider_registry();
+    let requested =
+        resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await;
+    let rows = connections(context, tenant_id, user_id).await?;
+    let backends = backends_among(registry, &rows, which);
+    let backend = named_calendar(registry, &backends, &requested)?;
+    let connected = connected_calendars(registry, &backends);
+    if connected.contains(&backend.as_str()) {
+        return Ok(CalendarToRecord::Calendar(backend));
+    }
+    Ok(CalendarToRecord::NotConnected {
+        backend,
+        connected: connected.into_iter().map(str::to_owned).collect(),
+    })
 }
 
 /// The calendar a read of the push ledger looks under, and who writes it.
@@ -225,36 +477,55 @@ pub(super) struct LedgerCalendar {
     /// Whether the athlete holds it only through a human coach's link, so
     /// that only the coach pushes to it.
     pub(super) through_link: bool,
+    /// The calendar the athlete chose, when the read passed it over: not
+    /// among the connections read under (carnet#1393).
+    pub(super) passed_over: Option<String>,
 }
 
 /// The calendar a read of the push ledger looks under: the athlete's
 /// connected target, their human coach's link included, falling back to the
 /// first calendar-write provider so an athlete who never connected one reads
-/// an empty ledger, not an error.
+/// an empty ledger, not an error. `which` is whose writes it is read as:
+/// [`CalendarConnections::WithLink`] for the athlete,
+/// [`CalendarConnections::ForCoach`] for their human coach.
 ///
 /// # Errors
 ///
-/// Returns an error when the connections cannot be read or no provider
-/// declares calendar-write at all.
+/// Returns an error when the connections or the recorded calendar cannot be
+/// read, or no provider declares calendar-write at all.
 pub(super) async fn calendar_ledger_target(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
+    which: CalendarConnections,
 ) -> AppResult<LedgerCalendar> {
     let rows = connections(context, tenant_id, user_id).await?;
-    let backends = backends_among(&rows, CalendarConnections::WithLink);
+    let backends = backends_among(context.resources.provider_registry(), &rows, which);
+    let preferred = recorded_calendar(context, tenant_id, user_id).await?;
     let live = ledger_calendars(
         context,
         tenant_id,
         user_id,
         &backends,
+        preferred.as_deref(),
         WithoutConnection::EveryCalendar,
     )
     .await?;
-    let backend = calendar_read_target(context.resources.provider_registry(), &backends, &live)?;
+    let registry = context.resources.provider_registry();
+    let backend = calendar_read_target(
+        registry,
+        &CalendarCandidates {
+            connected: &backends,
+            live: &live,
+            preferred: preferred.as_deref(),
+        },
+    )?;
+    let passed_over = preferred
+        .filter(|chosen| chosen_calendar(registry, &backends, Some(chosen.as_str())).is_none());
     Ok(LedgerCalendar {
         through_link: only_through_a_link(&rows, &backend),
         backend,
+        passed_over,
     })
 }
 
@@ -568,11 +839,15 @@ mod tests {
         let linked = [connection("intervals_icu", ConnectionType::Delegated)];
         assert!(only_through_a_link(&linked, "intervals_icu"));
         assert_eq!(
-            backends_among(&linked, CalendarConnections::Own),
+            backends_among(&ProviderRegistry::new(), &linked, CalendarConnections::Own),
             Vec::<&str>::new()
         );
         assert_eq!(
-            backends_among(&linked, CalendarConnections::WithLink),
+            backends_among(
+                &ProviderRegistry::new(),
+                &linked,
+                CalendarConnections::WithLink
+            ),
             ["intervals_icu"]
         );
     }

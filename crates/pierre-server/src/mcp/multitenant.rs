@@ -44,8 +44,9 @@ use crate::routes::{
     athlete_gear, athlete_home, imports, user_profile::routes as user_profile_routes,
 };
 use crate::routes::{
-    check_in::CheckInRoutes, coach_access::CoachAccessRoutes, coach_replies::CoachReplyRoutes,
-    onboarding::OnboardingRoutes, viz::VizRoutes,
+    calendar_preference::CalendarPreferenceRoutes, check_in::CheckInRoutes,
+    coach_access::CoachAccessRoutes, coach_replies::CoachReplyRoutes, onboarding::OnboardingRoutes,
+    viz::VizRoutes,
 };
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -703,6 +704,8 @@ impl ProviderToolRouter {
         let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
         // The check-in cadence: asked during onboarding, changed in Settings.
         let app = app.merge(CheckInRoutes::routes(Arc::clone(resources)));
+        // The calendar Dravr's pushes go to: chosen in Connections settings.
+        let app = app.merge(CalendarPreferenceRoutes::routes(Arc::clone(resources)));
         // A coach's own coach-access request, decided in the admin console.
         let app = app.merge(CoachAccessRoutes::routes(Arc::clone(resources)));
         // A coach's review of the agent's group replies: flag, correct, count.

@@ -167,6 +167,12 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
 export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+// The calendar Dravr's plan and workout pushes go to: Connections settings and the agent write it (carnet#1393).
+export {
+  type UsePreferredCalendarResult,
+  createPreferredCalendarHook,
+  hasCalendarChoice,
+} from './preferredCalendarHook';
 // How often the coach checks in on its own: the onboarding step and Settings write it (carnet#831).
 export { type UseCheckInResult, CHECK_IN_OPTIONS, createCheckInHook } from './checkInHook';
 // The athlete's units, metric unless Settings chose imperial, and the context every distance a surface prints reads (carnet#835).

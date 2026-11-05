@@ -138,6 +138,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   export_dossier: 'readProfile',
   set_physiology: 'updateProfile',
   import_provider_thresholds: 'updateProfile',
+  set_preferred_calendar: 'updateProfile',
   get_roster_overview: 'readGroup',
   get_provider_roster: 'readGroup',
   propose_athlete_link: 'linkMember',

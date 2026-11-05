@@ -853,6 +853,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "set_fitness_config",
     "set_goal",
     "set_physiology",
+    "set_preferred_calendar",
     "show_agent",
     "suggest_goals",
     "suggest_rest_day",
