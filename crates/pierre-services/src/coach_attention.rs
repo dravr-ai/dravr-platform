@@ -317,7 +317,8 @@ pub struct AttentionInputs<'row> {
     pub now: DateTime<Utc>,
     /// The athlete's own civil today.
     pub today: NaiveDate,
-    /// The zone that today is read in, and every day the evidence names.
+    /// The zone that today is read in, and every session, refusal and join the
+    /// evidence names a day for.
     pub zone: Tz,
     /// Their training; only for a sharer with a reading.
     pub training: Option<TrainingSignals<'row>>,
