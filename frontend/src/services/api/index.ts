@@ -77,3 +77,6 @@ export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pier
 // Export types from shared package
 export type { Agent, StoreAgent } from '@pierre/shared-types';
 export type { ExtendedProviderStatus as ProviderStatus, ProvidersStatusResponse } from '@pierre/shared-types';
+
+// The athlete's data export, as a blob the browser saves.
+export { dataExportApi } from './dataExport';

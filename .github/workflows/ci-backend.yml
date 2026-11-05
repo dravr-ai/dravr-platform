@@ -1613,7 +1613,7 @@ jobs:
           # fails on it instead.
           #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (139), so a branch push that skips this job
+          # scaled to that build (141), so a branch push that skips this job
           # is still sized against it. Move both together.
           MAX_SIZE_MB=115
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no

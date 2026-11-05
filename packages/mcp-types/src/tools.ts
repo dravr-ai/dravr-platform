@@ -530,11 +530,11 @@ export interface ComputeTrainingHistoryParams {
 
 
 /**
- * Start the OAuth flow to connect a fitness provider (e.g. Strava, Garmin, WHOOP).
+ * Start the OAuth flow for the provider the athlete names, from those get_connection_status lists.
  */
 export interface ConnectProviderParams {
 
-  /** Provider to connect (e.g., 'strava', 'garmin', 'whoop') */
+  /** Provider to connect, as get_connection_status names it */
   provider: string;
 
   /** Redirect URL for mobile-app OAuth flows (dravr://, exp://, http://localhost or https://) */
@@ -627,7 +627,7 @@ export interface DetectPatternsParams {
  */
 export interface DisconnectProviderParams {
 
-  /** Provider to disconnect (e.g., 'strava', 'garmin', 'whoop') */
+  /** Provider to disconnect, as get_connection_status names it */
   provider: string;
 }
 
@@ -898,7 +898,7 @@ export interface GetConfigurationProfilesParams {}
  */
 export interface GetConnectionStatusParams {
 
-  /** A specific provider (e.g., 'strava'); omit to check all supported providers. */
+  /** A specific provider, by the name this tool lists; omit to check all supported providers. */
   provider?: string;
 }
 

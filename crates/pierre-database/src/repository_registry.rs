@@ -38,10 +38,11 @@ use crate::repositories::{
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
-    UsageRepository, UseCaseExposureRepository, UserInvitationRepository, UserMcpTokenRepository,
-    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
+    UsageRepository, UseCaseExposureRepository, UserExportRepository, UserInvitationRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    UserToolOverrideRepository, WeatherCacheRepository, WebsiteSignInTokenRepository,
+    WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -229,6 +230,8 @@ pub struct RepositoryRegistry {
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
+    /// An athlete's own rows, a page at a time, for the portable data export
+    pub user_export: Arc<dyn UserExportRepository>,
     /// The unit system each athlete chose in Settings; metric when none (carnet#835, carnet#1044)
     pub unit_preferences: Arc<dyn UnitPreferencesRepository>,
     /// The athlete's gear ledger: declared shoes and per-activity attribution
@@ -384,6 +387,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            user_export: db.clone(),
             unit_preferences: db.clone(),
             athlete_gear: db.clone(),
             user_tool_overrides: db.clone(),
@@ -493,6 +497,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            user_export: db.clone(),
             unit_preferences: db.clone(),
             athlete_gear: db.clone(),
             user_tool_overrides: db.clone(),

@@ -60,7 +60,7 @@ async fn test_protocol_version_negotiation() {
     match response.result {
         Some(result) => {
             assert_eq!(result["protocolVersion"], "2025-06-18");
-            assert_eq!(result["serverInfo"]["name"], "pierre-mcp-server");
+            assert_eq!(result["serverInfo"]["name"], "dravr");
             // The instructions an external agent reads as this server's
             // system layer are the catalogue's `mcp_server_instructions`
             // prompt, not text compiled into the MCP host.

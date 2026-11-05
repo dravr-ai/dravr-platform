@@ -444,6 +444,10 @@ fn test_protocol_version_compliance() {
 
     // Verify function version returns the expected default
     assert_eq!(protocol::mcp_protocol_version(), "2025-11-25");
+
+    // The name a client lists the server under in `serverInfo`.
+    assert_eq!(protocol::server_name(), "dravr");
+    assert_eq!(protocol::server_name_multitenant(), "dravr");
 }
 
 /// Test JSON-RPC version compliance

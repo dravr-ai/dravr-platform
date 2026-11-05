@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isInvalidSignupCode,
+  apiErrorStatus,
   classifyApiError,
   describeApiError,
   describeQuotaRefusal,
@@ -337,5 +338,17 @@ describe('describeSignInFailure', () => {
     expect(describeSignInFailure({ kind: 'exchange', err }, { online: true, t })).toBe('errors.network');
     expect(describeSignInFailure({ kind: 'exchange', err: responded(503) }, { t })).toBe('errors.serverError');
     expect(describeSignInFailure({ kind: 'exchange', err: responded(429) }, { t })).toBe('errors.serverError');
+  });
+});
+
+describe('apiErrorStatus', () => {
+  it('reads the status a failed request carries', () => {
+    expect(apiErrorStatus({ response: { status: 429 } })).toBe(429);
+  });
+
+  it('is undefined when the request never got a response', () => {
+    expect(apiErrorStatus({ code: 'ETIMEDOUT' })).toBeUndefined();
+    expect(apiErrorStatus(new Error('offline'))).toBeUndefined();
+    expect(apiErrorStatus(null)).toBeUndefined();
   });
 });

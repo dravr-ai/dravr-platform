@@ -43,11 +43,15 @@ frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.
 # scripts/ci/first-party-sign-in-smoke.sh, carnet#1152).
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
-# The MCP resource identifier (MCP_RESOURCE_URL). A client that dials
-# mcp.dravr.ai/mcp is told that origin as its RFC 9728 resource; one that dials
-# app.dravr.ai/mcp is told app.dravr.ai, since BASE_URL stays an alias of the
-# same resource server, and tokens bound to either are served (carnet#639).
-mcp_resource_url = "https://mcp.dravr.ai"
+# The MCP resource identifier (MCP_RESOURCE_URL): the URL a user enters in the
+# client, with the MCP endpoint's path, because claude.ai requires the RFC 9728
+# `resource` to equal it. Apply this only once an image that accepts a path is
+# deployed; an older image refuses it at startup. The bare origin
+# (https://mcp.dravr.ai) stays an alias, so tokens issued before the path was
+# published keep working. A client that dials app.dravr.ai/mcp is told
+# app.dravr.ai, since BASE_URL stays an alias of the same resource server, and
+# tokens bound to any of them are served (carnet#639).
+mcp_resource_url = "https://mcp.dravr.ai/mcp"
 
 # 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre
 # boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed

@@ -171,6 +171,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// User and profile repository implementations
 pub mod user;
+/// An athlete's own data, one page at a time, for the portable export (`Postgres`)
+pub mod user_export;
 /// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (Postgres)

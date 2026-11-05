@@ -74,7 +74,7 @@ describe('Dravr over Streamable HTTP', () => {
       const discovery = await client().discover();
 
       expect(discovery.supportedVersions[0]).toBe(MCP_PROTOCOL_VERSION);
-      expect(discovery.serverInfo?.name).toBe('pierre-mcp-server');
+      expect(discovery.serverInfo?.name).toBe('dravr');
       // An array path, not a string: the extension's name contains dots, and
       // `toHaveProperty` splits a string path on them — it went looking for
       // `io` → `modelcontextprotocol/tasks` and reported the key as missing
@@ -175,18 +175,22 @@ describe('Dravr over Streamable HTTP', () => {
     });
 
     /**
-     * A tool that needs data the athlete has not connected fails *in band* —
-     * `isError` on a 200 — never as a JSON-RPC error. The bridge relies on that
-     * distinction: a thrown error is a transport problem, this is an answer.
+     * A tool that needs data the athlete has not connected answers with what the
+     * athlete can connect, as an ordinary result: having nothing connected yet
+     * is the athlete's state, not a failure, and a client that shows a failure
+     * here dead-ends a new athlete. The structured answer is the one the tool's
+     * declared output schema admits, or a strict client refuses the result.
      */
-    test('get_activities without a connected provider is an in-band refusal', async () => {
+    test('get_activities without a connected provider lists what can be connected', async () => {
       const result = await client().callTool({
         name: 'get_activities',
         arguments: { provider: 'strava', limit: 10 },
       });
 
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('No fitness provider connected');
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent?.connected).toBe(false);
+      expect(Array.isArray(result.structuredContent?.providers)).toBe(true);
+      expect(result.structuredContent?.message).toContain("is the athlete's choice");
     });
 
   });

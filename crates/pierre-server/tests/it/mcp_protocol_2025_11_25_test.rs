@@ -167,7 +167,7 @@ async fn test_server_info_includes_metadata() {
     // engine builds serverInfo from name/version only; title/description are
     // optional metadata the engine omits, so assert the identity it does carry.
     assert_eq!(
-        server_info["name"], "pierre-mcp-server",
+        server_info["name"], "dravr",
         "serverInfo.name should be the machine-readable identifier"
     );
     assert!(

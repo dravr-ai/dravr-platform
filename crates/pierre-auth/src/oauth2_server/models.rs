@@ -34,18 +34,47 @@ pub struct ClientRegistrationRequest {
     pub scope: Option<String>,
 }
 
+/// The body of `POST /oauth2/register`: the registration request and the
+/// client authentication method it asks for.
+#[derive(Debug, Deserialize)]
+pub struct ClientRegistrationPayload {
+    /// The registration proper
+    #[serde(flatten)]
+    pub request: ClientRegistrationRequest,
+    /// How the client authenticates at the token endpoint: `none` (a public
+    /// client, held to PKCE), `client_secret_basic` or `client_secret_post`.
+    /// RFC 7591 defaults it to `client_secret_basic`.
+    #[serde(rename = "token_endpoint_auth_method")]
+    pub auth_method: Option<String>,
+}
+
+/// Whether a secret holds nothing, as a public client's does.
+fn secret_is_empty(secret: &SecretString) -> bool {
+    use secrecy::ExposeSecret;
+    secret.expose_secret().is_empty()
+}
+
 /// OAuth 2.0 Client Registration Response (RFC 7591)
 #[derive(Debug, Serialize)]
 pub struct ClientRegistrationResponse {
     /// Unique client identifier
     pub client_id: String,
-    /// Client secret for authentication
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    /// Client secret for authentication; empty, and so left out of the
+    /// response, for a public client (`token_endpoint_auth_method` `none`)
+    #[serde(
+        serialize_with = "pierre_core::secret::serialize_exposed",
+        skip_serializing_if = "secret_is_empty"
+    )]
     pub client_secret: SecretString,
     /// When the client registration expires (optional)
     pub client_id_issued_at: Option<i64>,
-    /// When the client secret expires (optional)
+    /// When the client secret expires (optional); absent for a public client
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret_expires_at: Option<i64>,
+    /// How the client authenticates at the token endpoint, echoed so a client
+    /// that registered without naming one learns the default it was given
+    #[serde(rename = "token_endpoint_auth_method")]
+    pub auth_method: String,
     /// Redirect URIs registered for this client
     pub redirect_uris: Vec<String>,
     /// Grant types allowed for this client

@@ -42,12 +42,13 @@ impl OAuth2Routes {
         // The form echoes the request the consent screen was rendered for, so
         // it is checked again: only a verified client and redirect_uri may be
         // redirected to, whether the user approves or denies.
-        if let Err(rejection) = Self::authorization_server(&context)
-            .check_authorize_request(&request)
-            .await
-        {
-            return rejection_response(rejection, &request);
-        }
+        let server = Self::authorization_server(&context);
+        let checked = match server.check_authorize_request(&request).await {
+            Ok(checked) => checked,
+            Err(rejection) => {
+                return rejection_response(&context.config.issuer_url, rejection, &request)
+            }
+        };
         let redirect_uri = request.redirect_uri.clone();
 
         // The consent decision must belong to the authenticated user.
@@ -63,6 +64,7 @@ impl OAuth2Routes {
             .is_some_and(|decision| decision == "approve");
         if !approved {
             return error_redirect(
+                &context.config.issuer_url,
                 &redirect_uri,
                 request.state.as_deref(),
                 &OAuth2Error::access_denied("The user denied the authorization request"),
@@ -85,24 +87,53 @@ impl OAuth2Routes {
             return *refused;
         }
 
-        // Record the grant; a duplicate active grant is a no-op at the storage layer.
-        let scope = request.scope.clone().unwrap_or_default();
-        if let Some(tid) = Self::resolve_grant_tenant(&context, user_id, tenant_id.clone()).await {
-            let grant = OAuthClientGrant {
-                id: Uuid::new_v4().to_string(),
-                user_id: user_id.to_string(),
-                tenant_id: tid,
-                client_id: request.client_id.clone(),
-                scope,
-                granted_at: Utc::now(),
-                revoked_at: None,
-            };
-            if let Err(e) = context.oauth2_server.store_client_grant(&grant).await {
-                error!("Failed to persist OAuth client grant: {e}");
-            }
+        // A client first seen in this flow gets its row before the grant naming it.
+        if let Err(error) = server.enroll_checked_client(&checked).await {
+            return error_redirect(
+                &context.config.issuer_url,
+                &redirect_uri,
+                request.state.as_deref(),
+                &error,
+            );
         }
 
+        Self::record_consent(
+            &context,
+            &request.client_id,
+            &checked.scope,
+            user_id,
+            tenant_id.clone(),
+        )
+        .await;
+
         Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
+    }
+
+    /// Record the athlete's approval of `scope`, the grant the authorization
+    /// was checked to carry; a duplicate active grant is a no-op at the storage
+    /// layer.
+    async fn record_consent(
+        context: &OAuth2Context,
+        client_id: &str,
+        scope: &str,
+        user_id: Uuid,
+        tenant_id: Option<String>,
+    ) {
+        let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
+            return;
+        };
+        let grant = OAuthClientGrant {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id.to_string(),
+            tenant_id: tid,
+            client_id: client_id.to_owned(),
+            scope: scope.to_owned(),
+            granted_at: Utc::now(),
+            revoked_at: None,
+        };
+        if let Err(e) = context.oauth2_server.store_client_grant(&grant).await {
+            error!("Failed to persist OAuth client grant: {e}");
+        }
     }
 
     /// The signed-in account, when it may authorize a client: it exists and

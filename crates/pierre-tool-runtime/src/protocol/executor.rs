@@ -25,6 +25,9 @@ use crate::guardian::{
 };
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
+use crate::protocol::provider_offer::{
+    connections_page, external_no_provider_response, provider_offers, ConnectRoute,
+};
 use crate::protocol::types::{refused_before_running, UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::reconnect::offer_in_payload;
@@ -37,6 +40,7 @@ use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
+use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -467,7 +471,45 @@ impl UniversalExecutor {
             reason = "no_provider_connected",
             "provider-requiring tool refused at the dispatch chokepoint"
         );
-        Some(no_provider_refusal())
+        // The words differ by who reads them. Dravr's own surfaces, and a call
+        // that declared no transport, send the athlete to the app, and the
+        // pipeline keys on this exact shape. A caller outside them writes its own reply, and "connect X"
+        // would promise data its transport may withhold: it gets the offered
+        // providers, each marked readable or not here, as an ordinary result.
+        match ai_scope::effective_transport(self.transport) {
+            Some(transport) if !transport.is_first_party() => {
+                let offers =
+                    provider_offers(self.resources.as_ref(), user_uuid, tenant_uuid, transport)
+                        .await;
+                Some(external_no_provider_response(
+                    &offers,
+                    &self.connect_route(),
+                ))
+            }
+            _ => Some(no_provider_refusal()),
+        }
+    }
+
+    /// Where this caller's athlete connects a provider: through
+    /// `connect_provider` when the grant covers it, as the tool is otherwise
+    /// not listed to this caller, and in the app when it does not.
+    fn connect_route(&self) -> ConnectRoute {
+        let covered = self
+            .resources
+            .tool_registry()
+            .get(CONNECT_PROVIDER)
+            .is_some_and(|tool| missing_scope(&self.scopes, tool.capabilities()).is_none());
+        if covered {
+            ConnectRoute::Tool
+        } else {
+            ConnectRoute::App(
+                self.resources
+                    .config()
+                    .frontend_url
+                    .as_deref()
+                    .map(connections_page),
+            )
+        }
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.

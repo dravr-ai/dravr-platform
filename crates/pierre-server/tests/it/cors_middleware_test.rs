@@ -169,3 +169,37 @@ async fn test_exposure_names_the_header_instead_of_a_wildcard() -> Result<(), Bo
 
     Ok(())
 }
+
+/// A browser MCP client preflights the headers the 2025-11-25 and 2026-07-28
+/// revisions have it send; a header missing from the answer fails the call
+/// before it leaves the browser.
+#[tokio::test]
+async fn a_preflight_allows_the_mcp_headers() -> Result<(), Box<dyn Error>> {
+    let app = Router::new()
+        .route("/mcp", get(refuse_with_challenge))
+        .layer(setup_cors(BROWSER_ORIGIN));
+    let response = app
+        .oneshot(
+            HttpRequest::builder()
+                .method("OPTIONS")
+                .uri("/mcp")
+                .header(ORIGIN, BROWSER_ORIGIN)
+                .header("access-control-request-method", "POST")
+                .header(
+                    "access-control-request-headers",
+                    "mcp-protocol-version,mcp-method,mcp-name",
+                )
+                .body(Body::empty())?,
+        )
+        .await?;
+    let allowed = response
+        .headers()
+        .get("access-control-allow-headers")
+        .ok_or("a preflight answers with the allowed headers")?
+        .to_str()?
+        .to_ascii_lowercase();
+    for header in ["mcp-protocol-version", "mcp-method", "mcp-name"] {
+        assert!(allowed.contains(header), "{header} missing from {allowed}");
+    }
+    Ok(())
+}

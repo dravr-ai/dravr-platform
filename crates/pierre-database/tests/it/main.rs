@@ -37,6 +37,7 @@ mod test_db_survives_cancelled_query_test;
 mod tool_selection_repository_test;
 mod unit_preferences_test;
 mod usage_repositories_test;
+mod user_export_test;
 mod user_mcp_tokens_repository_test;
 mod user_oauth_tokens_repository_test;
 mod user_preferences_test;

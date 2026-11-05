@@ -1439,6 +1439,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             created_at: Utc::now(),
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
+            family_created_at: None,
             resource: None,
         })
         .await

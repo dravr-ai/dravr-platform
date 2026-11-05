@@ -14,7 +14,8 @@
 //! hostname only.
 
 use pierre_auth::config::{
-    resolve_mcp_resource_aliases, resolve_mcp_resource_url, OAuth2ServerConfig,
+    protected_resource_metadata_url, resolve_mcp_resource_aliases, resolve_mcp_resource_url,
+    OAuth2ServerConfig,
 };
 use pierre_auth::oauth2_server::resource::{bound_audience, token_audience, ResourceServers};
 
@@ -78,9 +79,9 @@ fn an_origin_is_a_valid_resource_identifier() {
 }
 
 #[test]
-fn anything_but_an_origin_is_refused() {
+fn anything_but_an_origin_or_its_endpoint_path_is_refused() {
     for value in [
-        "https://mcp.example.test/mcp",
+        "https://mcp.example.test/mcp?tenant=a",
         "https://mcp.example.test/?tenant=a",
         "https://mcp.example.test/#frag",
         "https://user:pass@mcp.example.test",
@@ -97,6 +98,13 @@ fn anything_but_an_origin_is_refused() {
             error.message
         );
     }
+}
+
+#[test]
+fn an_origin_with_the_endpoint_path_is_a_valid_resource_identifier() {
+    serving("https://mcp.example.test/mcp")
+        .validate_mcp_resource_url(true)
+        .unwrap();
 }
 
 #[test]
@@ -457,4 +465,111 @@ fn a_satellite_under_the_platforms_origin_binds_its_own_identifier() {
             "the platform's own endpoint is still the platform"
         );
     }
+}
+
+const MCP_WITH_PATH: &str = "https://mcp.example.test/mcp";
+
+fn serving_path_and_base() -> OAuth2ServerConfig {
+    OAuth2ServerConfig {
+        mcp_resource_url: MCP_WITH_PATH.to_owned(),
+        mcp_resource_aliases: resolve_mcp_resource_aliases(MCP_WITH_PATH, Some(BASE)),
+        ..OAuth2ServerConfig::default()
+    }
+}
+
+#[test]
+fn a_resource_with_a_path_keeps_its_origin_as_an_alias() {
+    // Tokens minted while the resource was the bare origin carry that origin
+    // as their audience, and the root metadata document a client connected
+    // through still names it.
+    assert_eq!(resolve_mcp_resource_aliases(MCP_WITH_PATH, None), vec![MCP]);
+    assert_eq!(
+        resolve_mcp_resource_aliases(MCP_WITH_PATH, Some(BASE)),
+        vec![MCP, BASE]
+    );
+    assert_eq!(
+        serving_path_and_base().mcp_resources(),
+        vec![MCP_WITH_PATH, MCP, BASE]
+    );
+}
+
+#[test]
+fn the_metadata_url_of_a_resource_follows_rfc_9728_path_insertion() {
+    assert_eq!(
+        protected_resource_metadata_url(MCP_WITH_PATH),
+        "https://mcp.example.test/.well-known/oauth-protected-resource/mcp"
+    );
+    assert_eq!(
+        protected_resource_metadata_url(MCP),
+        "https://mcp.example.test/.well-known/oauth-protected-resource"
+    );
+    assert_eq!(
+        protected_resource_metadata_url("https://mcp.example.test/"),
+        "https://mcp.example.test/.well-known/oauth-protected-resource"
+    );
+}
+
+#[test]
+fn the_path_form_is_what_a_dialing_client_is_given_and_the_root_keeps_the_origin() {
+    let config = serving_path_and_base();
+    assert_eq!(
+        config.mcp_resource_for_host(Some("mcp.example.test")),
+        MCP_WITH_PATH,
+        "the 401 challenge points a client at the path-suffixed document"
+    );
+    assert_eq!(
+        config.mcp_root_resource_for_host(Some("mcp.example.test")),
+        MCP,
+        "the root document keeps naming the origin an existing client holds"
+    );
+    assert_eq!(
+        config.mcp_root_resource_for_host(Some("app.example.test")),
+        BASE
+    );
+}
+
+#[test]
+fn a_path_suffixed_document_exists_only_for_a_published_resource_path() {
+    let config = serving_path_and_base();
+    assert_eq!(
+        config.mcp_resource_at(Some("mcp.example.test"), "mcp"),
+        Some(MCP_WITH_PATH)
+    );
+    assert_eq!(
+        config.mcp_resource_at(Some("mcp.example.test"), "/mcp/"),
+        Some(MCP_WITH_PATH)
+    );
+    assert_eq!(
+        config.mcp_resource_at(Some("mcp.example.test"), "other"),
+        None
+    );
+    assert_eq!(
+        config.mcp_resource_at(Some("app.example.test"), "mcp"),
+        None,
+        "BASE_URL publishes the bare origin only"
+    );
+}
+
+#[test]
+fn tokens_bound_to_the_origin_and_to_the_path_are_both_served() {
+    let config = serving_path_and_base();
+    let resources = config.mcp_resources();
+    assert_eq!(
+        bound_audience(&resources, MCP_WITH_PATH).unwrap(),
+        MCP_WITH_PATH
+    );
+    assert_eq!(bound_audience(&resources, MCP).unwrap(), MCP);
+    assert_eq!(
+        bound_audience(&resources, "https://mcp.example.test/").unwrap(),
+        MCP
+    );
+    let servers = ResourceServers {
+        platform: &resources,
+        satellites: &[],
+    };
+    assert_eq!(
+        token_audience(&servers, Some(MCP_WITH_PATH), Some(MCP)).unwrap(),
+        Some(MCP_WITH_PATH.to_owned()),
+        "a grant made against the origin refreshes into the path-bearing audience"
+    );
 }

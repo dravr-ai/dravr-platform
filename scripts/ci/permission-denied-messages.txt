@@ -60,6 +60,7 @@ crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant ar
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
 crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted from a signed-in session
 crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed by another operator
+crates/pierre-routes-auth/src/data_export.rs:Your data can only be exported from your own signed-in session
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-auth/src/signup_guards.rs:We could not confirm you are not a bot. Complete the check again, then retry.
 crates/pierre-routes-groups/src/delegated_connections.rs:Only a member decides what their coach may do

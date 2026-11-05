@@ -29,6 +29,7 @@ use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::constants::oauth_rate_limiting;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{DatabaseProvider, OAuth2ServerRepository};
 use pierre_database::database::generate_encryption_key;
@@ -83,9 +84,13 @@ fn limiter_with(config: &RateLimitConfig) -> OAuth2RateLimiter {
     OAuth2RateLimiter::new(None, OAuth2RateLimiter::local_window_store(), config)
 }
 
-/// A limiter with no shared store, with the shipped limits and window.
+/// A limiter with no shared store and the shipped window. The token window is
+/// narrowed to 30 so the tests that walk it to its edge stay short.
 fn limiter() -> OAuth2RateLimiter {
-    limiter_with(&RateLimitConfig::default())
+    limiter_with(&RateLimitConfig {
+        oauth_token_rpm: 30,
+        ..RateLimitConfig::default()
+    })
 }
 
 /// The cache key the limiter counts `endpoint`'s window for `ip` under, so a
@@ -161,7 +166,7 @@ async fn test_rate_limit_token_endpoint() {
     let rate_limiter = limiter();
     let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101));
 
-    // Default limit for token endpoint is 30 requests per minute
+    // This limiter holds the token endpoint to 30 requests per minute
     let endpoint = OAuth2Endpoint::Token;
 
     // Make 30 successful requests
@@ -360,7 +365,7 @@ async fn test_retry_after_header() {
     }
     assert_rate_limited(from_address(&app, register(11), addr).await, "register").await;
 
-    // The token endpoint admits thirty per minute from the same address, whose
+    // The token endpoint admits its limit per minute from the same address, whose
     // registration window is spent; a malformed grant still counts, since the
     // limiter runs before the grant is read.
     let token = || {
@@ -369,7 +374,7 @@ async fn test_retry_after_header() {
             .body(Body::from("grant_type=client_credentials"))
             .unwrap()
     };
-    for i in 1..=30 {
+    for i in 1..=oauth_rate_limiting::TOKEN_RPM {
         let response = from_address(&app, token(), addr).await;
         assert_ne!(
             response.status(),
@@ -901,7 +906,7 @@ async fn test_clients_behind_one_proxy_keep_separate_windows() {
     let alice = "198.51.100.41, 169.254.1.1";
     let bob = "198.51.100.42, 169.254.1.1";
 
-    for i in 1..=30 {
+    for i in 1..=oauth_rate_limiting::TOKEN_RPM {
         let response = from_address(&app, forwarded(token_request(), alice), proxy).await;
         assert_ne!(
             response.status(),
@@ -934,8 +939,8 @@ async fn test_clients_behind_one_proxy_keep_separate_windows() {
     // A peer outside the trusted networks is the client: whatever it claims
     // in X-Forwarded-For, it spends its own window.
     let direct = SocketAddr::from(([203, 0, 113, 77], 52_000));
-    for i in 1..=30 {
-        let claim = format!("198.51.100.{i}");
+    for i in 1..=oauth_rate_limiting::TOKEN_RPM {
+        let claim = format!("198.51.100.{}", i % 200);
         let response = from_address(&app, forwarded(token_request(), &claim), direct).await;
         assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS, "{i}");
     }
@@ -977,7 +982,7 @@ async fn test_clients_through_the_deployed_chain_keep_separate_windows() {
     let peer = SocketAddr::from(([169, 254, 169, 126], 51_000));
     let alice = format!("198.51.100.41,{DEPLOYED_TAIL}");
 
-    for i in 1..=30 {
+    for i in 1..=oauth_rate_limiting::TOKEN_RPM {
         let response = from_address(&app, forwarded(token_request(), &alice), peer).await;
         assert_eq!(
             response.status(),
@@ -1039,4 +1044,51 @@ async fn test_ipv6_clients_share_a_window_per_slash_64() {
         .unwrap();
     assert!(!status.is_limited);
     assert_eq!(status.remaining, 10);
+}
+
+/// A connector host refreshes all its athletes from one egress address, so 500
+/// a minute from it across 50 clients meets no 429. Nobody else can spend that
+/// allowance: `client_id` is public, and a stranger naming the same client from
+/// another address fills only that address's window.
+#[tokio::test]
+async fn test_a_stranger_cannot_spend_a_connector_hosts_token_window() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let refresh = |client_id: &str| {
+        Request::post("/oauth2/token")
+            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "grant_type=refresh_token&refresh_token=rt&client_id={client_id}"
+            )))
+            .unwrap()
+    };
+    let public_client = "https://claude.ai/oauth/claude-code-client-metadata";
+
+    let stranger = SocketAddr::from(([203, 0, 113, 66], 40_000));
+    for _ in 1..=oauth_rate_limiting::TOKEN_RPM {
+        from_address(&app, refresh(public_client), stranger).await;
+    }
+    assert_rate_limited(
+        from_address(&app, refresh(public_client), stranger).await,
+        "token",
+    )
+    .await;
+
+    let host = SocketAddr::from(([160, 79, 104, 9], 40_000));
+    assert_ne!(
+        from_address(&app, refresh(public_client), host)
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the same client from another address is untouched"
+    );
+    for i in 0..500 {
+        let client = format!("connector-client-{}", i % 50);
+        assert_ne!(
+            from_address(&app, refresh(&client), host).await.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "refresh {i} for {client} is within the address's window"
+        );
+    }
 }

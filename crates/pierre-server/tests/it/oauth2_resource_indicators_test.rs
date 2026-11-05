@@ -291,9 +291,10 @@ async fn tools_list(resources: &Arc<ServerContext>, bearer: Option<&str>) -> Axu
 fn metadata_challenge(error: Option<&str>) -> String {
     let base =
         format!("Bearer resource_metadata=\"{MCP_RESOURCE}/.well-known/oauth-protected-resource\"");
+    let scope = "scope=\"fitness:read profile:read\"";
     error.map_or_else(
-        || base.clone(),
-        |error| format!("{base}, error=\"{error}\""),
+        || format!("{base}, {scope}"),
+        |error| format!("{base}, error=\"{error}\", {scope}"),
     )
 }
 
@@ -346,8 +347,11 @@ async fn an_unset_mcp_resource_url_publishes_base_url() {
     assert_eq!(
         refused.header("www-authenticate"),
         Some(
-            format!("Bearer resource_metadata=\"{ISSUER}/.well-known/oauth-protected-resource\"")
-                .as_str()
+            format!(
+                "Bearer resource_metadata=\"{ISSUER}/.well-known/oauth-protected-resource\", \
+                 scope=\"fitness:read profile:read\""
+            )
+            .as_str()
         )
     );
 }
@@ -1013,8 +1017,11 @@ async fn the_mcp_401_challenge_names_the_dialed_host() {
     assert_eq!(
         via_app.header("www-authenticate"),
         Some(
-            format!("Bearer resource_metadata=\"{ISSUER}/.well-known/oauth-protected-resource\"")
-                .as_str()
+            format!(
+                "Bearer resource_metadata=\"{ISSUER}/.well-known/oauth-protected-resource\", \
+                 scope=\"fitness:read profile:read\""
+            )
+            .as_str()
         ),
         "a client of app.example.test/mcp is sent to that host's metadata"
     );

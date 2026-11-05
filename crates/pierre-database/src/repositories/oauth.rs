@@ -240,6 +240,21 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// applies. A row stored with no `expires_at` is never touched by
     /// [`delete_stale_clients`](Self::delete_stale_clients).
     async fn store_client(&self, client: &OAuth2Client) -> AppResult<()>;
+    /// Rewrite the metadata of the public client `client.client_id` names —
+    /// redirect URIs, grant and response types, name, URI, scope ceiling and
+    /// expiry — from a client metadata document fetched again. Only a row
+    /// holding no client secret (a public client) is touched, so a
+    /// confidential registration is never rewritten by a URL's content.
+    /// Returns `false` when no such public client is stored.
+    async fn update_public_client_metadata(&self, client: &OAuth2Client) -> AppResult<bool>;
+    /// Move the expiry of `client_id` forward to `expires_at`, never back and
+    /// never onto a row that has none: a registration that expires on
+    /// inactivity stays alive while its users keep authorizing through it.
+    async fn extend_client_expiry(
+        &self,
+        client_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> AppResult<()>;
     /// Delete the client registration `client_id` names, with the codes,
     /// refresh tokens and states issued through it and the consent grants that
     /// name it. Returns `true` when a registration was deleted, `false` when
@@ -351,11 +366,27 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// the caller and still active. Returns `Ok(true)` when a row changed,
     /// `Ok(false)` when nothing matched (unknown id, wrong owner, or already
     /// revoked).
+    ///
+    /// In the same transaction, revokes every live refresh token the user
+    /// holds in that tenant through the grant's client, so the client's next
+    /// refresh is `invalid_grant` rather than a silent extension of a consent
+    /// the user withdrew. Unredeemed authorization codes go with them.
     async fn revoke_client_grant(
         &self,
         id: &str,
         user_id: &str,
         tenant_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Revoke the live refresh tokens a user holds in a tenant through a client
+    /// whose consent they withdrew, and say whether any was. A rotation calls
+    /// this after writing the successor, which a revocation running at that
+    /// moment cannot see.
+    async fn revoke_refresh_tokens_of_withdrawn_grant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
     ) -> AppResult<bool>;
 
     /// Store a new pending device authorization (RFC 8628).

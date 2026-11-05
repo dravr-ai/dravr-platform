@@ -36,6 +36,9 @@ use crate::rate_limiting::headers::{
 /// - Provider headers: x-strava-client-id, x-strava-client-secret
 /// - Tenant headers: x-tenant-name, x-tenant-id
 /// - API key header: x-pierre-api-key
+/// - MCP headers: mcp-protocol-version, mcp-method, mcp-name, mcp-session-id,
+///   last-event-id (the tool-parameter `mcp-param-*` headers are named per tool
+///   and cannot be listed here)
 ///
 /// # Examples
 ///
@@ -91,6 +94,15 @@ pub fn setup_cors(allowed_origins: &str) -> CorsLayer {
             HeaderName::from_static("x-pierre-api-key"),
             HeaderName::from_static("x-tenant-name"),
             HeaderName::from_static("x-tenant-id"),
+            // MCP over streamable HTTP: the revision the client speaks and,
+            // from 2026-07-28, the method and target of the JSON-RPC call
+            // mirrored into headers. `mcp-session-id` and `last-event-id`
+            // are the pre-2026-07-28 session and stream-resume headers.
+            HeaderName::from_static("mcp-protocol-version"),
+            HeaderName::from_static("mcp-method"),
+            HeaderName::from_static("mcp-name"),
+            HeaderName::from_static("mcp-session-id"),
+            HeaderName::from_static("last-event-id"),
         ])
         .allow_methods([
             Method::GET,

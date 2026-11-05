@@ -176,6 +176,11 @@ async fn an_unknown_scope_is_redirected_to_the_client_with_its_state() {
         "the original state, decoded"
     );
     assert_eq!(param(&query, "code"), None, "no code is issued");
+    assert_eq!(
+        param(&query, "iss"),
+        Some(resources.common.config.oauth2_server.issuer_url.as_str()),
+        "RFC 9207: an error response names the issuer too"
+    );
 }
 
 #[tokio::test]

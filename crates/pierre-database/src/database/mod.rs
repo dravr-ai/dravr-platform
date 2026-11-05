@@ -171,6 +171,8 @@ pub mod uploaded_activity_files;
 pub mod usage_counters;
 /// Use-case starters shown to and tapped by each athlete (`SQLite`)
 pub mod use_case_exposures;
+/// An athlete's own data, one page at a time, for the portable export (`SQLite`)
+pub mod user_export;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (`SQLite`)

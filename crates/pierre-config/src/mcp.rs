@@ -9,6 +9,14 @@ use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::env;
 
+/// The protocol revision advertised when `MCP_PROTOCOL_VERSION` is unset: the
+/// one source of the default, read by [`McpConfig`], [`ProtocolConfig`] and the
+/// runtime accessor in `constants::protocol`.
+pub const DEFAULT_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+
+/// The server name advertised in `serverInfo` when `SERVER_NAME` is unset.
+pub const DEFAULT_SERVER_NAME: &str = "dravr";
+
 /// MCP (Model Context Protocol) server configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
@@ -16,8 +24,6 @@ pub struct McpConfig {
     pub protocol_version: String,
     /// MCP server name
     pub server_name: String,
-    /// MCP session cache size
-    pub session_cache_size: usize,
     /// Maximum request size in bytes
     pub max_request_size: usize,
     /// Maximum response size in bytes
@@ -45,12 +51,8 @@ impl McpConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            protocol_version: env_var_or("MCP_PROTOCOL_VERSION", "2025-11-25"),
-            server_name: env_var_or("SERVER_NAME", "pierre-mcp-server"),
-            session_cache_size: env::var("MCP_SESSION_CACHE_SIZE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(100),
+            protocol_version: env_var_or("MCP_PROTOCOL_VERSION", DEFAULT_MCP_PROTOCOL_VERSION),
+            server_name: env_var_or("SERVER_NAME", DEFAULT_SERVER_NAME),
             max_request_size: env::var("MCP_MAX_REQUEST_SIZE")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -102,8 +104,8 @@ impl ProtocolConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            mcp_version: env_var_or("MCP_PROTOCOL_VERSION", "2025-11-25"),
-            server_name: env_var_or("SERVER_NAME", "pierre-mcp-server"),
+            mcp_version: env_var_or("MCP_PROTOCOL_VERSION", DEFAULT_MCP_PROTOCOL_VERSION),
+            server_name: env_var_or("SERVER_NAME", DEFAULT_SERVER_NAME),
             server_version: env!("CARGO_PKG_VERSION").to_owned(),
         }
     }
@@ -233,7 +235,7 @@ fn env_var_or(key: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_origin_list;
+    use super::{parse_origin_list, McpConfig, ProtocolConfig};
 
     /// `MCP_ALLOWED_ORIGINS` is a comma-separated list, read as startup reads
     /// it.
@@ -246,5 +248,17 @@ mod tests {
 
         assert_eq!(parsed, ["https://a.example", "https://b.example"]);
         assert!(parse_origin_list("").is_empty(), "unset is no origin");
+    }
+
+    /// The two structs that carry the protocol version and the server name,
+    /// and the runtime accessors over them, read one default, so a revision
+    /// bump or a rename cannot leave one of them behind.
+    #[test]
+    fn every_reader_of_the_protocol_defaults_agrees() {
+        let mcp = McpConfig::from_env();
+        let protocol = ProtocolConfig::from_env();
+
+        assert_eq!(mcp.protocol_version, protocol.mcp_version);
+        assert_eq!(mcp.server_name, protocol.server_name);
     }
 }

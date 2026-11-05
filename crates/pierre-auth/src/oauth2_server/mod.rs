@@ -6,6 +6,10 @@
 
 /// Apple App Attest: verifying the iOS app's key attestation and assertions
 pub mod app_attest;
+/// Client ID Metadata Documents: a `client_id` that is an https URL
+pub mod cimd;
+/// Client authentication on the token endpoint: Basic, form body, or none
+pub mod client_auth;
 /// RFC 7591 dynamic client registration implementation
 pub mod client_registration;
 /// OAuth 2.0 authorization server endpoints

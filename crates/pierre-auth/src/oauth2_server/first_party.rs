@@ -28,6 +28,7 @@
 //! (`20261006150000_first_party_oauth2_clients`), because the codes they are
 //! issued reference one.
 
+use pierre_core::permissions::scopes::OFFLINE_ACCESS;
 use pierre_core::redaction;
 use serde::{Deserialize, Serialize};
 use std::iter;
@@ -45,7 +46,7 @@ pub const MOBILE_CLIENT_ID: &str = "dravr-mobile";
 /// `OpenID` Connect Core §11's name for "I will need to act while the user is
 /// away", which is exactly what a phone closed for a week is. The mobile app
 /// asks for it on every sign-in; the web app never does.
-pub const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
+pub const OFFLINE_ACCESS_SCOPE: &str = OFFLINE_ACCESS;
 
 /// The App Attest app id of Dravr's iOS app: its Apple Team ID and bundle
 /// id, which every attestation and assertion it signs names (carnet#810).

@@ -137,7 +137,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -529,7 +528,6 @@ async fn test_set_goal_tool() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1428,7 +1426,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {

@@ -51,6 +51,7 @@ use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, lo
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::first_party_tools;
+use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -76,6 +77,7 @@ use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 
 /// RFC 6750 / RFC 9728 challenges and the transport refusal an auth failure maps to
 mod auth_challenge;
+mod scope_listing;
 
 use auth_challenge::{auth_refusal, insufficient_scope_challenge, www_authenticate_challenge};
 
@@ -721,11 +723,32 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             Transport::McpHttp,
         );
 
+        // The credential's grant narrows the listing too: a token holding
+        // `fitness:read` is shown no write tool, because the call path would
+        // refuse it with the very same derivation.
+        scope_listing::retain_granted(&self.resources.mcp.tool_registry, &mut schemas, &ctx.scopes);
+
         // A guided flow does not narrow this listing: it is the same whether or
         // not a walk is running, so the agent's cached prefix survives the walk
         // starting and ending (carnet#1256). `save_training_plan` refuses a
         // mid-walk save on every path, this one included.
-        schemas.into_iter().map(schema_to_tool).collect()
+        let registry = &self.resources.mcp.tool_registry;
+        schemas
+            .into_iter()
+            .map(|schema| {
+                let answers_no_provider = registry.get(&schema.name).is_some_and(|tool| {
+                    tool.capabilities()
+                        .contains(ToolCapabilities::REQUIRES_PROVIDER)
+                });
+                let mut tool = schema_to_tool(schema);
+                if answers_no_provider {
+                    tool.output_schema = tool
+                        .output_schema
+                        .map(|declared| to_canonical_value(&accept_no_provider_answer(declared)));
+                }
+                tool
+            })
+            .collect()
     }
 
     async fn call_tool(

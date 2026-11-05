@@ -82,6 +82,7 @@ mod connect_hosted_import;
 mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
+mod data_export;
 mod email_verification;
 mod first_sync;
 #[cfg(feature = "provider-sciotte")]
@@ -370,6 +371,8 @@ impl AuthRoutes {
                 "/api/user/signup-code/redeem",
                 post(signup_code::handle_redeem_signup_code),
             )
+            // The athlete's own data as one downloadable JSON file (Law 25 s.27).
+            .route("/api/user/export", get(data_export::handle_user_export))
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))
             .route(

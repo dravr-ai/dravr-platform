@@ -18,6 +18,9 @@ use pierre_auth::oauth2_server::{
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use url::Url;
 
+use super::consent_copy::{
+    express_consent_line, health_line, outside_quebec_line, trust_line, ClientTrust,
+};
 use super::login_text::{LoginPageLabels, LoginText};
 use super::OAuth2Routes;
 
@@ -286,7 +289,19 @@ impl OAuth2Routes {
                     acc
                 });
 
+        let trust = ClientTrust::of(params.client_id, params.redirect_uri);
+
         with_hosted_page_css(Self::OAUTH_CONSENT_TEMPLATE)
+            .replace("{{TRUST_LINE}}", &trust_line(&trust))
+            .replace("{{HEALTH_LINE}}", &health_line(params.client_label))
+            .replace(
+                "{{OUTSIDE_QUEBEC_LINE}}",
+                &outside_quebec_line(&trust, params.client_label),
+            )
+            .replace(
+                "{{EXPRESS_CONSENT_LINE}}",
+                &express_consent_line(params.client_label),
+            )
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",

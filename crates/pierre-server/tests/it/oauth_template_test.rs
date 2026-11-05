@@ -344,6 +344,61 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
     assert!(!none.contains("{{"), "every placeholder is filled: {none}");
 }
 
+/// The consent page says who is asking (a known client's badge, or an
+/// unverified warning), that the data is wellness information, that it may
+/// leave Québec and that approving is express consent to share it.
+#[test]
+fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
+    let consent = |client_id: &str, redirect_uri: &str, label: &str| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id,
+            redirect_uri,
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: label,
+            account_email: "athlete@example.test",
+            switch_account_url: "/oauth2/login?client_id=x&state=s",
+            first_party_only_sources: &[],
+        })
+    };
+
+    let verified = consent(
+        "https://chatgpt.com/oauth/client.json",
+        "https://chatgpt.com/connector_platform_oauth_redirect",
+        "ChatGPT",
+    );
+    assert!(
+        verified.contains("Verified: ChatGPT by OpenAI"),
+        "{verified}"
+    );
+    assert!(!verified.contains("Unverified app"), "{verified}");
+
+    // A name a client registers for itself earns no badge.
+    let unverified = consent("dyn-1f3a", "http://localhost:53124/callback", "Claude");
+    assert!(unverified.contains("Unverified app"), "{unverified}");
+    assert!(
+        unverified.contains("program on this device"),
+        "{unverified}"
+    );
+    assert!(!unverified.contains("Verified: "), "{unverified}");
+
+    for html in [&verified, &unverified] {
+        assert!(html.contains("not medical advice"), "{html}");
+        assert!(html.contains("communicated outside Québec"), "{html}");
+        assert!(html.contains("expressly consent"), "{html}");
+        assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+    }
+    assert!(
+        verified.contains("OpenAI") && verified.contains("the United States"),
+        "{verified}"
+    );
+}
+
 /// Test OAuth login HTML generation with template replacement
 #[tokio::test]
 async fn test_generate_login_html() {

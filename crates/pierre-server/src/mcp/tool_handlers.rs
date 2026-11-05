@@ -6,7 +6,7 @@
 
 use super::resources::ServerContext;
 use crate::constants::{
-    errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND, ERROR_RATE_LIMIT_EXCEEDED},
+    errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND, ERROR_TOOL_EXECUTION},
     protocol::JSONRPC_VERSION,
     tools::GET_ACTIVITIES,
 };
@@ -38,7 +38,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::field::Empty;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Default ID for notifications and error responses that don't have a request ID
@@ -400,9 +400,21 @@ impl ToolHandlers {
                 );
                 Some(Self::build_rate_limit_error(request_id, &e))
             }
+            // Fail closed: a quota that cannot be read is not a quota that
+            // allows. The surface is public, so an outage of the counters
+            // must not turn into unmetered tool calls.
             Err(e) => {
-                warn!("Failed to check tool call quota: {e}");
-                None
+                error!(
+                    user_id = %user_id,
+                    tenant_id = %tenant_context.tenant_id,
+                    "Failed to check tool call quota, refusing the call: {e}"
+                );
+                Some(McpResponse::error_with_data(
+                    request_id,
+                    ERROR_INTERNAL_ERROR,
+                    "Usage limits could not be verified right now; try again shortly".to_owned(),
+                    json!({ "error_code": "quota_unavailable" }),
+                ))
             }
         }
     }
@@ -478,7 +490,7 @@ impl ToolHandlers {
             .unwrap_or_else(|| json!({ "message": error.message }));
         McpResponse::error_with_data(
             request_id,
-            ERROR_RATE_LIMIT_EXCEEDED,
+            ERROR_TOOL_EXECUTION,
             "Rate limit exceeded".to_owned(),
             data,
         )

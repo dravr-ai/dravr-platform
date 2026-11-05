@@ -16,7 +16,8 @@
 //! CI alone. This file answers the three requests in-process and compares them
 //! with `tests/fixtures/mcp_surface/`:
 //!
-//! - `initialize`, with the build version redacted;
+//! - `initialize`, with the build version redacted and the instructions held
+//!   to the catalogue's prompt rather than to a copy of its words;
 //! - `tools/list` through the admin path;
 //! - the tool names `tools/list` gives through the catalogue path every
 //!   non-admin caller takes, each schema identical to the admin one.
@@ -41,6 +42,7 @@ use std::{env, fs};
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -114,9 +116,17 @@ async fn admin_and_member(resources: &ServerContext) -> (ToolContext, ToolContex
         .await
         .unwrap()
         .remove(0);
-    let base = ToolContext::new()
+    let mut base = ToolContext::new()
         .with_user(user.id.to_string())
         .with_tenant(tenant.id.to_string());
+    // `tools/list` lists what the credential's grant covers, and the grant an
+    // authenticated request carries is set by the auth hook. This is the
+    // athlete's own full grant, so the fixture is the whole catalogue; the
+    // narrower views are asserted in `mcp_no_provider_external_test`.
+    base.scopes = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
     (base.clone().as_admin(true), base.as_admin(false))
 }
 
@@ -148,6 +158,18 @@ async fn mcp_surface_matches_the_committed_fixtures() {
             *endpoint = json!(format!("<base_url>{}", url.path()));
         }
     }
+    // The instructions are authored and reviewed in contremaitre, and its bump
+    // lane moves them with no platform change, so the surface owes serving them
+    // rather than freezing their words here.
+    assert_eq!(
+        initialize["result"]["instructions"],
+        json!(resources
+            .mcp
+            .prompt_registry
+            .mcp_server_instructions_prompt()
+            .trim())
+    );
+    initialize["result"]["instructions"] = json!(REDACTED);
     assert_matches_fixture("initialize", &initialize["result"]);
 
     let (admin, member) = admin_and_member(&resources).await;

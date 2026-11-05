@@ -26,6 +26,7 @@ use pierre_contremaitre::tool_descriptions::{
     FetchedOverlay, ParameterOverlay, ToolDescriptionOverlay,
 };
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
@@ -93,7 +94,13 @@ async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
         .first()
         .expect("the test user owns a tenant")
         .id;
-    tronc_context(user_id, Some(tenant_id), true)
+    let mut context = tronc_context(user_id, Some(tenant_id), true);
+    // A first-party session's full grant: the listing narrows to the grant.
+    context.scopes = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    context
 }
 
 /// First text content block of a tool response (the in-band error/result text).

@@ -228,7 +228,7 @@ variable "frontend_base_url" {
 }
 
 variable "mcp_resource_url" {
-  description = "Origin MCP clients are given for /mcp (e.g. https://mcp.dravr.ai), set as MCP_RESOURCE_URL: the RFC 9728 resource the protected-resource metadata publishes to a client that dialed it and to one no host names. frontend_base_url keeps serving /mcp as an alias, so its existing clients keep working. Empty = frontend_base_url only."
+  description = "URL MCP clients are given for /mcp, the origin plus the endpoint path (e.g. https://mcp.dravr.ai/mcp; the bare origin stays an accepted alias), set as MCP_RESOURCE_URL: the RFC 9728 resource the protected-resource metadata publishes to a client that dialed it and to one no host names. frontend_base_url keeps serving /mcp as an alias, so its existing clients keep working. Empty = frontend_base_url only."
   type        = string
   default     = ""
 }

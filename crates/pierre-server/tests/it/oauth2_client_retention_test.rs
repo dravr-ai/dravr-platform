@@ -123,6 +123,7 @@ async fn authorize(database: &Database, client_id: &str) -> DateTime<Utc> {
         created_at: issued_at,
         revoked: false,
         family_id: "test-family".to_owned(),
+        family_created_at: None,
         resource: None,
     };
     database

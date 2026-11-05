@@ -314,6 +314,7 @@ fn test_client_registration_response() {
         client_secret: SecretString::from("generated_secret"),
         client_id_issued_at: Some(1_700_000_000),
         client_secret_expires_at: None,
+        auth_method: "client_secret_basic".to_owned(),
         redirect_uris: vec!["https://example.com/cb".to_owned()],
         grant_types: vec!["authorization_code".to_owned()],
         response_types: vec!["code".to_owned()],
@@ -475,6 +476,7 @@ fn test_oauth2_refresh_token_creation() {
         created_at: Utc::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
+        family_created_at: None,
         resource: None,
     };
 
@@ -494,6 +496,7 @@ fn test_oauth2_refresh_token_revoked() {
         created_at: Utc::now(),
         revoked: true,
         family_id: "test-family".to_owned(),
+        family_created_at: None,
         resource: None,
     };
 

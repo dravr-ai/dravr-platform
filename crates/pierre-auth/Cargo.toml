@@ -83,6 +83,9 @@ urlencoding = "2.1"
 tracing = "0.1"
 
 [dev-dependencies]
+# The guarded fetcher's loopback permission, so the metadata-document tests can
+# serve a document from a local listener
+dravr-tronc = { workspace = true, features = ["testkit"] }
 # Async test harness for the KekProvider (wrap/unwrap are async); `net` binds
 # the local siteverify listener the Turnstile unit tests answer from
 tokio = { version = "1.54", features = ["macros", "rt", "rt-multi-thread", "net"] }

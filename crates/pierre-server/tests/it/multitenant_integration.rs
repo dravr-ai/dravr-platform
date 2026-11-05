@@ -286,7 +286,6 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -787,7 +786,6 @@ async fn test_input_validation() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {

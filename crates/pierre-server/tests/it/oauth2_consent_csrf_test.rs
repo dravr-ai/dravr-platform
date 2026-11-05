@@ -28,6 +28,7 @@ use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use sha2::{Digest, Sha256};
@@ -65,15 +66,19 @@ fn challenge() -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER.as_bytes()))
 }
 
-/// The consent page the signed-in athlete is shown, and its form token.
-async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> String {
-    let uri = format!(
+/// The authorization request a client names no scope in.
+fn authorize_uri(client_id: &str) -> String {
+    format!(
         "/oauth2/authorize?response_type=code&client_id={}&redirect_uri={}&state={STATE}&code_challenge={}&code_challenge_method=S256",
         urlencoding::encode(client_id),
         urlencoding::encode(REDIRECT),
         challenge(),
-    );
-    let page = AxumTestRequest::get(&uri)
+    )
+}
+
+/// The consent page the signed-in athlete is shown, and its form token.
+async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> String {
+    let page = AxumTestRequest::get(&authorize_uri(client_id))
         .header("cookie", cookie)
         .send(app(resources))
         .await;
@@ -153,6 +158,53 @@ async fn a_web_app_session_approves_through_the_forms_own_token() {
     assert!(
         redirect_param(&approved, "code").is_some_and(|code| !code.is_empty()),
         "an approved consent redirects with a code"
+    );
+}
+
+/// The grant row holds what the code carries, not the request's absent scope, so
+/// the athlete's list of connected apps says what the client holds, and the
+/// approval is found again on the client's next authorization.
+#[tokio::test]
+async fn an_approval_naming_no_scope_records_the_default_grant_and_is_remembered() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (user, session) = create_test_tenant(&resources, "consent-scope@example.test")
+        .await
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+
+    let token = consent_page(&resources, &client_id, &cookie).await;
+    let approved = submit(&resources, &client_id, &cookie, Some(&token), "approve").await;
+    assert_eq!(approved.status(), 303, "{}", approved.text());
+
+    let repos = &resources.common.repos;
+    let tenant = repos
+        .tenants
+        .first_for_user(user.id)
+        .await
+        .unwrap()
+        .expect("the athlete has a tenant");
+    let grants = repos
+        .oauth2_server
+        .list_client_grants(&user.id.to_string(), &tenant.to_string())
+        .await
+        .unwrap();
+    assert_eq!(grants.len(), 1, "one approval, one grant");
+    assert_eq!(
+        grants[0].scope,
+        OAuthScope::render_granted(&OAuthScope::default_grant())
+    );
+
+    // A new authorization carries a new `state`; the first one is spent.
+    let again = AxumTestRequest::get(&authorize_uri(&client_id).replace(STATE, "second-state"))
+        .header("cookie", &cookie)
+        .send(app(&resources))
+        .await;
+    assert_eq!(again.status(), 303, "a remembered approval asks nothing");
+    assert!(
+        redirect_param(&again, "code").is_some_and(|code| !code.is_empty()),
+        "a remembered approval redirects with a code"
     );
 }
 

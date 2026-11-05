@@ -9,6 +9,7 @@ import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { Section } from './ui';
 import AccountDeletionSection from './AccountDeletionSection';
+import DataExportSection from './DataExportSection';
 import AiConsentSettings from './settings/AiConsentSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
@@ -147,6 +148,7 @@ export default function PrivacySettingsTab() {
           )}
         </div>
       </Section>
+      <DataExportSection />
       <AccountDeletionSection />
     </div>
   );

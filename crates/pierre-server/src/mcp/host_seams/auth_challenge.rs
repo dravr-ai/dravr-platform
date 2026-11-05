@@ -5,25 +5,41 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::mcp::auth::AuthError;
+use pierre_auth::config::protected_resource_metadata_url;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use tracing::{debug, error};
 
-/// The RFC 9728 protected resource metadata document for the resource
-/// `resource_url`: the well-known path on the origin clients dial for MCP.
-fn resource_metadata_url(resource_url: &str) -> String {
-    format!("{resource_url}/.well-known/oauth-protected-resource")
+/// The scopes a 401 challenge asks a client to request: the default grant, the
+/// read-only scopes any member holds without a step-up.
+///
+/// A client that finds no `scope` in the challenge requests every entry of
+/// `scopes_supported`, write scopes included, and the consent screen then asks
+/// the athlete for all of them. Naming the default grant (MCP authorization,
+/// "Scope Selection Strategy") makes the first connection read-only; a write
+/// tool that needs more answers `insufficient_scope` naming the one it lacks.
+fn challenge_scope() -> String {
+    OAuthScope::default_grant()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Build the RFC 9728 `WWW-Authenticate` challenge value pointing clients at the
 /// protected resource metadata document of `resource_url`, the MCP resource
-/// identifier (`MCP_RESOURCE_URL`). `error` carries an optional RFC 6750 error
-/// code (e.g. `invalid_token`).
+/// identifier (`MCP_RESOURCE_URL`), and naming the scopes to request first.
+/// `error` carries an optional RFC 6750 error code (e.g. `invalid_token`).
 pub(super) fn www_authenticate_challenge(resource_url: &str, error: Option<&str>) -> String {
-    let metadata_url = resource_metadata_url(resource_url);
+    let metadata_url = protected_resource_metadata_url(resource_url);
+    let scope = challenge_scope();
     error.map_or_else(
-        || format!("Bearer resource_metadata=\"{metadata_url}\""),
-        |err| format!("Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\""),
+        || format!("Bearer resource_metadata=\"{metadata_url}\", scope=\"{scope}\""),
+        |err| {
+            format!(
+                "Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\", scope=\"{scope}\""
+            )
+        },
     )
 }
 
@@ -35,7 +51,7 @@ pub(super) fn www_authenticate_challenge(resource_url: &str, error: Option<&str>
 /// bare 403 tells it only that it lost. `resource_metadata` rides along so the
 /// client also knows *which* authorization server to ask.
 pub(super) fn insufficient_scope_challenge(resource_url: &str, missing: OAuthScope) -> String {
-    let metadata_url = resource_metadata_url(resource_url);
+    let metadata_url = protected_resource_metadata_url(resource_url);
     format!(
         "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{missing}\""
     )

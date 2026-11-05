@@ -114,6 +114,11 @@ interface AxiosShape {
  */
 const INVALID_GRANT = 'invalid_grant';
 
+/** The HTTP status of a failed request, when the error carries one. */
+export function apiErrorStatus(err: unknown): number | undefined {
+  return ((err ?? {}) as AxiosShape).response?.status;
+}
+
 /**
  * Classify a thrown API error.
  *

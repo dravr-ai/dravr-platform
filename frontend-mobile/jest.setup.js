@@ -190,7 +190,15 @@ jest.mock('expo-file-system', () => {
     delete() {
       delete mockFileContents[this.uri];
     }
+    get exists() {
+      return this.uri in mockFileContents;
+    }
   }
+  // Writes a document to the destination, as a completed download does.
+  MockFile.downloadFileAsync = jest.fn(async (_url, destination) => {
+    mockFileContents[destination.uri] = '{"format":"dravr-user-export"}';
+    return destination;
+  });
   return {
     File: MockFile,
     Paths: { cache: { uri: 'file:///cache' }, document: { uri: 'file:///documents' } },

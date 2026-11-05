@@ -84,6 +84,7 @@ export {
   INVALID_SIGNUP_CODE_REASON,
   isInvalidSignupCode,
   refusalProvider,
+  apiErrorStatus,
 } from './apiError';
 export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';
 

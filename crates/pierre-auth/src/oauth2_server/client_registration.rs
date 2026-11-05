@@ -24,8 +24,86 @@ use secrecy::SecretString;
 use std::env;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
+use url::Url;
 use uuid::Uuid;
+
+/// The `client_secret_hash` of a public client (`token_endpoint_auth_method`
+/// `none`): no secret exists, and the empty string is no valid Argon2 hash, so
+/// no presented secret can ever authenticate the row.
+pub(super) const PUBLIC_CLIENT_SECRET_HASH: &str = "";
+
+/// Days a registration stays valid without being used.
+///
+/// Each refresh token issued through it slides the expiry forward, so a client its users keep
+/// connecting through does not expire, while one nobody uses does.
+pub(super) const INACTIVITY_EXPIRY_DAYS: i64 = 90;
+
+/// The `token_endpoint_auth_method` a registration that names none gets
+/// (RFC 7591 §2).
+const DEFAULT_AUTH_METHOD: &str = "client_secret_basic";
+
+/// Whether `client` is a public client: it holds no secret, authenticates with
+/// nothing, and is held to PKCE instead.
+#[must_use]
+pub(super) fn is_public_client(client: &OAuth2Client) -> bool {
+    client.client_secret_hash == PUBLIC_CLIENT_SECRET_HASH
+}
+
+/// Whether a request's `redirect_uri` is one the client registered.
+///
+/// Exact match (RFC 6749 §3.1.2.3), except for a registered loopback
+/// redirect (`http` on `localhost`, `127.0.0.1` or `[::1]`), whose port the
+/// request may change (RFC 8252 §7.3): a native app binds a free port at
+/// run time. Scheme, host, path and query must still be the registered ones.
+#[must_use]
+pub(super) fn redirect_uri_matches(registered: &[String], requested: &str) -> bool {
+    if registered.iter().any(|uri| uri == requested) {
+        return true;
+    }
+    let Ok(requested) = Url::parse(requested) else {
+        return false;
+    };
+    if requested.scheme() != "http"
+        || !requested.username().is_empty()
+        || requested.password().is_some()
+        || requested.fragment().is_some()
+    {
+        return false;
+    }
+    registered.iter().any(|uri| {
+        let Ok(registered) = Url::parse(uri) else {
+            return false;
+        };
+        registered.scheme() == "http"
+            && is_loopback_host(&registered)
+            && registered.host_str() == requested.host_str()
+            && registered.path() == requested.path()
+            && registered.query() == requested.query()
+    })
+}
+
+/// Whether a code for this request could reach any process on the athlete's machine.
+///
+/// A public client has no secret to prove who redeems the code, and a loopback
+/// redirect's port is the request's to pick. Any local program can name
+/// such a client, so its identity is not assured and a remembered grant must
+/// not mint a code unseen (RFC 8252 §8.6).
+#[must_use]
+pub(super) fn redirects_to_any_local_process(client: &OAuth2Client, redirect_uri: &str) -> bool {
+    is_public_client(client) && redirects_to_loopback(redirect_uri)
+}
+
+/// Whether `redirect_uri` returns to the machine the request came from.
+#[must_use]
+pub fn redirects_to_loopback(redirect_uri: &str) -> bool {
+    Url::parse(redirect_uri).is_ok_and(|url| is_loopback_host(&url))
+}
+
+/// Whether a URL's host is a loopback name or address.
+fn is_loopback_host(url: &Url) -> bool {
+    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+}
 
 /// OAuth 2.0 Client Registration Manager
 pub struct ClientRegistrationManager {
@@ -60,8 +138,26 @@ impl ClientRegistrationManager {
         request: ClientRegistrationRequest,
         max_pending_registrations: u64,
     ) -> Result<ClientRegistrationResponse, OAuth2Error> {
+        self.register_client_with_auth_method(request, None, max_pending_registrations)
+            .await
+    }
+
+    /// Register a client that asked for the token endpoint authentication
+    /// method `auth_method` (`none`, `client_secret_basic` or
+    /// `client_secret_post`; `client_secret_basic` when `None`, RFC 7591 §2).
+    /// A `none` client is public: it is issued no secret and is held to PKCE.
+    ///
+    /// # Errors
+    /// As [`Self::register_client`], and `invalid_client_metadata` for a
+    /// method this server does not support
+    pub async fn register_client_with_auth_method(
+        &self,
+        request: ClientRegistrationRequest,
+        auth_method: Option<String>,
+        max_pending_registrations: u64,
+    ) -> Result<ClientRegistrationResponse, OAuth2Error> {
         // Validate request
-        Self::validate_registration_request(&request)?;
+        Self::validate_registration_request(&request, auth_method.as_deref())?;
 
         // The grant this client may ever be issued, persisted exactly as the
         // response advertises it (RFC 7591 §3.2.1): the scope it asked for,
@@ -69,14 +165,36 @@ impl ClientRegistrationManager {
         // the read-only default when it asked for none. The authorization
         // endpoint checks every request against this row, so what is stored
         // here is the ceiling of every grant the client can obtain.
-        let scope = OAuthScope::requested_grant(request.scope.as_deref())
-            .map(|granted| OAuthScope::render_granted(&granted))
-            .map_err(|e| OAuth2Error::invalid_client_metadata(&e.message))?;
+        // A client that names no scope gets every scope a third party can be
+        // delegated as its ceiling: what each authorization grants is still
+        // what it asks for (defaulting to the read-only grant), and the
+        // consent screen shows it, so a client asking for write scopes is not
+        // refused `invalid_scope` at authorize.
+        let named_scope = request
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let scope = if named_scope.is_some() {
+            OAuthScope::requested_grant(named_scope)
+                .map(|granted| OAuthScope::render_granted(&granted))
+                .map_err(|e| OAuth2Error::invalid_client_metadata(&e.message))?
+        } else {
+            OAuthScope::render_granted(&OAuthScope::delegable_grant())
+        };
 
-        // Generate client credentials
+        // Generate client credentials: a public client (`none`) holds no
+        // secret, and is held to PKCE instead.
+        let auth_method = auth_method.unwrap_or_else(|| DEFAULT_AUTH_METHOD.to_owned());
+        let public = auth_method == "none";
         let client_id = Self::generate_client_id();
-        let client_secret = Self::generate_client_secret()?;
-        let client_secret_hash = Self::hash_client_secret(&client_secret)?;
+        let (client_secret, client_secret_hash) = if public {
+            (String::new(), PUBLIC_CLIENT_SECRET_HASH.to_owned())
+        } else {
+            let secret = Self::generate_client_secret()?;
+            let hash = Self::hash_client_secret(&secret)?;
+            (secret, hash)
+        };
 
         // Set default values - only authorization_code by default for security (RFC 8252 best practices)
         // Clients must explicitly request client_credentials if needed
@@ -93,7 +211,9 @@ impl ClientRegistrationManager {
         // here, and the retention sweep and the pending ceiling touch no other.
         // `check_client_expiry` refuses the client from this instant on; the
         // sweep deletes the row once the configured grace has passed as well.
-        let expires_at = Some(created_at + Duration::days(365)); // 1 year expiry
+        // Expiry is on inactivity: it slides forward whenever a user
+        // authorizes through the client (a refresh token is issued).
+        let expires_at = Some(created_at + Duration::days(INACTIVITY_EXPIRY_DAYS));
 
         // Create client record
         let client = OAuth2Client {
@@ -138,7 +258,12 @@ impl ClientRegistrationManager {
             client_id,
             client_secret: SecretString::from(client_secret),
             client_id_issued_at: Some(created_at.timestamp()),
-            client_secret_expires_at: expires_at.map(|dt| dt.timestamp()),
+            client_secret_expires_at: if public {
+                None
+            } else {
+                expires_at.map(|dt| dt.timestamp())
+            },
+            auth_method,
             redirect_uris: request.redirect_uris,
             grant_types,
             response_types,
@@ -160,7 +285,7 @@ impl ClientRegistrationManager {
     ///
     /// The secret is generated and Argon2-hashed exactly as a dynamic
     /// registration's is, so `/oauth2/token` verifies it through
-    /// [`Self::validate_client`] like any other. The registration may use no
+    /// [`Self::authenticate_client`] like any other. The registration may use no
     /// other grant and has no redirect URI, and its scope ceiling is the
     /// read-only default a client that asks for nothing is given. It carries
     /// no `expires_at`: it lives as long as the client that owns it, which
@@ -253,32 +378,57 @@ impl ClientRegistrationManager {
         Ok(())
     }
 
-    /// Validate client credentials
+    /// Authenticate the client of a token request.
+    ///
+    /// A confidential client proves its secret. A public client has none and
+    /// must present none: a secret sent for it is refused as it is for an
+    /// unknown client, so a public client cannot be made to look
+    /// authenticated. Expiry is checked either way.
     ///
     /// # Errors
-    /// Returns an error if client is not found, credentials are invalid, or client is expired
-    pub async fn validate_client(
+    /// Returns an error if the client is unknown or expired, or its
+    /// credentials do not match what it registered with
+    pub async fn authenticate_client(
         &self,
         client_id: &str,
         client_secret: &str,
     ) -> Result<OAuth2Client, OAuth2Error> {
-        debug!("Validating OAuth client: {}", client_id);
-
         let client = self.get_client(client_id).await.map_err(|e| {
             Self::log_lookup_failure(client_id, &e);
             Self::lookup_refusal(&e)
         })?;
-
-        debug!("OAuth client {} found, validating secret", client_id);
-
-        // Verify client secret using constant-time comparison via Argon2
+        if is_public_client(&client) {
+            if !client_secret.is_empty() {
+                warn!("OAuth public client {} presented a secret", client_id);
+                return Err(OAuth2Error::invalid_client());
+            }
+            Self::check_client_expiry(client_id, client.expires_at)?;
+            return Ok(client);
+        }
+        if client_secret.is_empty() {
+            warn!("OAuth client {} presented no secret", client_id);
+            return Err(OAuth2Error::invalid_client());
+        }
         Self::verify_client_secret(client_id, client_secret, &client.client_secret_hash)?;
-
-        // Check if client is expired
         Self::check_client_expiry(client_id, client.expires_at)?;
-
-        info!("OAuth client {} validated successfully", client_id);
         Ok(client)
+    }
+
+    /// Slide the expiry of a registration forward after a user authorized
+    /// through it, so an active client does not expire. A failure is logged
+    /// and not returned: the grant it follows has already been issued.
+    pub(super) async fn record_activity(&self, client: &OAuth2Client) {
+        if client.expires_at.is_none() {
+            return;
+        }
+        let expires_at = Utc::now() + Duration::days(INACTIVITY_EXPIRY_DAYS);
+        if let Err(e) = self
+            .oauth2
+            .extend_client_expiry(&client.client_id, expires_at)
+            .await
+        {
+            warn!(client_id = %client.client_id, error = %e, "Could not slide the OAuth client expiry");
+        }
     }
 
     /// Get client by `client_id`
@@ -351,6 +501,7 @@ impl ClientRegistrationManager {
     /// Validate registration request
     fn validate_registration_request(
         request: &ClientRegistrationRequest,
+        auth_method: Option<&str>,
     ) -> Result<(), OAuth2Error> {
         // Validate redirect URIs
         if request.redirect_uris.is_empty() {
@@ -364,6 +515,18 @@ impl ClientRegistrationManager {
                 return Err(OAuth2Error::invalid_request(&format!(
                     "Invalid redirect_uri: {uri}"
                 )));
+            }
+        }
+
+        // Validate the client authentication method (RFC 7591 §2)
+        if let Some(method) = auth_method {
+            if !matches!(
+                method,
+                "none" | "client_secret_basic" | "client_secret_post"
+            ) {
+                return Err(OAuth2Error::invalid_client_metadata(
+                    "token_endpoint_auth_method must be none, client_secret_basic or client_secret_post",
+                ));
             }
         }
 
@@ -410,7 +573,7 @@ impl ClientRegistrationManager {
     }
 
     /// Check if redirect URI is valid
-    fn is_valid_redirect_uri(uri: &str) -> bool {
+    pub(super) fn is_valid_redirect_uri(uri: &str) -> bool {
         // OAuth 2.0 Security Best Practices (RFC 6749 Section 3.1.2.2)
         // - MUST be absolute URI
         // - MUST NOT include fragment component
@@ -420,11 +583,9 @@ impl ClientRegistrationManager {
             return false;
         }
 
-        // Allow out-of-band URN for native apps (RFC 8252)
-        if uri == "urn:ietf:wg:oauth:2.0:oob" {
-            return true;
-        }
-
+        // The out-of-band URN (`urn:ietf:wg:oauth:2.0:oob`) is refused: OAuth
+        // 2.1 drops it, and it is not an http(s) URI, so it fails the scheme
+        // check below.
         // Parse and validate HTTP(S) URIs
         Self::validate_http_uri(uri)
     }
@@ -468,7 +629,7 @@ impl ClientRegistrationManager {
 
     /// Validate HTTP(S) URI scheme and host
     fn validate_http_uri(uri: &str) -> bool {
-        let Ok(parsed_uri) = url::Url::parse(uri) else {
+        let Ok(parsed_uri) = Url::parse(uri) else {
             warn!("Rejected malformed redirect_uri: {}", redact_url(uri));
             return false;
         };
@@ -481,8 +642,7 @@ impl ClientRegistrationManager {
         }
 
         let scheme = parsed_uri.scheme();
-        let is_localhost = parsed_uri.host_str() == Some("localhost")
-            || parsed_uri.host_str() == Some("127.0.0.1");
+        let is_localhost = is_loopback_host(&parsed_uri);
 
         if scheme == "https" {
             // HTTPS is always allowed
@@ -501,12 +661,14 @@ impl ClientRegistrationManager {
         false
     }
 
-    /// Check if grant type is supported
+    /// Check if grant type is supported by self-service registration.
+    ///
+    /// `client_credentials` is not: it mints a token bound to no user, and an
+    /// anonymous endpoint has no business issuing one. A machine client is
+    /// provisioned by the server through its own surface
+    /// ([`Self::register_client_credentials_client`]).
     fn is_supported_grant_type(grant_type: &str) -> bool {
-        matches!(
-            grant_type,
-            "authorization_code" | "client_credentials" | "refresh_token"
-        )
+        matches!(grant_type, "authorization_code" | "refresh_token")
     }
 
     /// Check if response type is supported

@@ -30,19 +30,29 @@ fn client_redirect_url(redirect_uri: &str, params: &[(&str, &str)]) -> String {
 }
 
 /// The authorization code, redirected to the client's verified
-/// `redirect_uri` with the request's `state` (RFC 6749 Section 4.1.2).
-pub(crate) fn code_redirect(redirect_uri: &str, code: &str, state: Option<&str>) -> Response {
+/// `redirect_uri` with the request's `state` (RFC 6749 Section 4.1.2) and the
+/// `issuer` that issued it (RFC 9207), which lets a client that talks to more
+/// than one authorization server refuse a response from the wrong one.
+pub(crate) fn code_redirect(
+    issuer: &str,
+    redirect_uri: &str,
+    code: &str,
+    state: Option<&str>,
+) -> Response {
     let mut params = vec![("code", code)];
     if let Some(state) = state {
         params.push(("state", state));
     }
+    params.push(("iss", issuer));
     Redirect::to(&client_redirect_url(redirect_uri, &params)).into_response()
 }
 
 /// An authorization error, redirected to the client's verified
-/// `redirect_uri` with `error`, `error_description` and the request's
-/// `state` (RFC 6749 Section 4.1.2.1).
+/// `redirect_uri` with `error`, `error_description`, the request's `state`
+/// (RFC 6749 Section 4.1.2.1) and the `issuer` (RFC 9207), which the error
+/// responses carry as the success ones do.
 pub(crate) fn error_redirect(
+    issuer: &str,
     redirect_uri: &str,
     state: Option<&str>,
     error: &OAuth2Error,
@@ -54,6 +64,7 @@ pub(crate) fn error_redirect(
     if let Some(state) = state {
         params.push(("state", state));
     }
+    params.push(("iss", issuer));
     info!(
         error = %error.error,
         "OAuth authorization refused, returning the error to the client"
@@ -65,13 +76,65 @@ pub(crate) fn error_redirect(
 /// sends it: an unknown client or unregistered `redirect_uri` to the user as
 /// the error page, anything else back to the client's `redirect_uri`.
 pub(crate) fn rejection_response(
+    issuer: &str,
     rejection: AuthorizeRejection,
     request: &AuthorizeRequest,
 ) -> Response {
     match rejection {
         AuthorizeRejection::ShownToUser(error) => OAuth2Routes::render_oauth_error_response(&error),
-        AuthorizeRejection::RedirectedToClient(error) => {
-            error_redirect(&request.redirect_uri, request.state.as_deref(), &error)
-        }
+        AuthorizeRejection::RedirectedToClient(error) => error_redirect(
+            issuer,
+            &request.redirect_uri,
+            request.state.as_deref(),
+            &error,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::header::LOCATION;
+
+    use super::*;
+
+    const ISSUER: &str = "https://app.dravr.ai";
+
+    fn location(response: &Response) -> String {
+        response
+            .headers()
+            .get(LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    #[test]
+    fn a_code_response_names_its_issuer() {
+        let response = code_redirect(
+            ISSUER,
+            "https://client.example/cb?tenant=a",
+            "the-code",
+            Some("st ate"),
+        );
+        assert_eq!(
+            location(&response),
+            "https://client.example/cb?tenant=a&code=the-code&state=st%20ate\
+             &iss=https%3A%2F%2Fapp.dravr.ai"
+        );
+    }
+
+    #[test]
+    fn an_error_response_names_its_issuer() {
+        let response = error_redirect(
+            ISSUER,
+            "https://client.example/cb",
+            Some("s"),
+            &OAuth2Error::access_denied("no"),
+        );
+        assert_eq!(
+            location(&response),
+            "https://client.example/cb?error=access_denied&error_description=no&state=s\
+             &iss=https%3A%2F%2Fapp.dravr.ai"
+        );
     }
 }

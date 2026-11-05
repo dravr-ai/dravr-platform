@@ -61,8 +61,10 @@ CLIENT_SUPPLIED_ADDRESS="198.51.100.77"
 # nginx fails this check.
 BACKEND_PATHS=(
     "POST /mcp"                                       # MCP JSON-RPC (the regression)
+    "GET /api/user/export"                            # the athlete's data export (its own location)
     "GET /mcp/tools"                                  # MCP tool discovery
     "GET /.well-known/oauth-protected-resource"       # MCP client OAuth discovery
+    "GET /.well-known/oauth-protected-resource/mcp"   # RFC 9728 path-suffixed form (claude.ai)
     "GET /.well-known/oauth-authorization-server"
     "GET /.well-known/agent-card.json"                # A2A
     "POST /oauth2/register"                           # RFC 7591 dynamic client registration

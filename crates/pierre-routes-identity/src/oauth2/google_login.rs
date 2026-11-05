@@ -181,7 +181,11 @@ impl OAuth2Routes {
             .check_authorize_request(&request)
             .await
         {
-            return no_store(rejection_response(rejection, &request));
+            return no_store(rejection_response(
+                &context.config.issuer_url,
+                rejection,
+                &request,
+            ));
         }
 
         let redirect_uri = google_callback_url(&context.config.issuer_url);
@@ -295,7 +299,7 @@ impl OAuth2Routes {
             .check_authorize_request(request)
             .await
         {
-            return rejection_response(rejection, request);
+            return rejection_response(&context.config.issuer_url, rejection, request);
         }
 
         let redirect_uri = google_callback_url(&context.config.issuer_url);

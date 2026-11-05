@@ -169,6 +169,11 @@ pub struct OAuth2RefreshToken {
     /// RFC 8707 resource the grant was bound to — every access token minted
     /// from this refresh token carries it as its audience. `None` when unbound.
     pub resource: Option<String>,
+    /// When the rotation chain began. Every successor carries its
+    /// predecessor's value, so the exchange can refuse a family older than
+    /// the absolute family lifetime. `None` is a legacy family issued before
+    /// the column existed: no absolute limit.
+    pub family_created_at: Option<DateTime<Utc>>,
 }
 
 /// OAuth 2.0 State for CSRF Protection

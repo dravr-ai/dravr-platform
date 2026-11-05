@@ -16,16 +16,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
+use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::oauth::OAuth2ServerConfig;
 use pierre_auth::dto::auth::LoginResponse;
 use pierre_auth::oauth2_server::{
+    client_auth::{is_basic_authorization, resolve_client_credentials},
     client_registration::ClientRegistrationManager,
-    endpoints::OAuth2AuthorizationServer,
+    endpoints::{CheckedAuthorization, OAuth2AuthorizationServer},
     first_party::is_first_party,
     models::{
-        AuthorizeRequest, ClientRegistrationRequest, OAuth2Error, TokenRequest,
+        AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
         ValidateRefreshRequest,
     },
     rate_limiting::OAuth2RateLimiter,
@@ -42,7 +43,6 @@ use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_services::auth::AuthService;
 use secrecy::{ExposeSecret, SecretString};
-use sha2::{Digest, Sha256};
 use std::fmt;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
@@ -53,14 +53,20 @@ use crate::oauth2_rate_limited::{page_refusal, refusal};
 
 /// The consent form's submission: the user's decision on an authorization
 mod consent;
+/// What the consent screen says about who is asking and where the data goes
+mod consent_copy;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
+/// The JWKS endpoint serving the RS256 public keys
+mod jwks;
 /// The hosted login form's submission: a metered password sign-in
 mod login_form;
 /// The hosted login page's text, in the athlete's language
 mod login_text;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
+/// RFC 7009 token revocation
+mod revoke;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
@@ -150,6 +156,13 @@ impl fmt::Debug for OAuth2Context {
 #[derive(Debug)]
 pub struct OAuth2Routes;
 
+/// The `Authorization` header of a token or revocation request, when it is text.
+fn authorization_header(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+}
+
 impl OAuth2Routes {
     /// Create all OAuth 2.0 routes with context
     pub fn routes(context: OAuth2Context) -> Router {
@@ -164,6 +177,12 @@ impl OAuth2Routes {
                 "/.well-known/oauth-protected-resource",
                 get(Self::handle_protected_resource_metadata),
             )
+            // RFC 9728 §3.1: the document of a path-bearing resource
+            // (`/mcp`) sits beneath the well-known path
+            .route(
+                "/.well-known/oauth-protected-resource/{*path}",
+                get(Self::handle_protected_resource_metadata_at),
+            )
             // RFC 7517: JWKS endpoint
             .route("/.well-known/jwks.json", get(Self::handle_jwks))
             // RFC 7591: Dynamic Client Registration
@@ -172,6 +191,8 @@ impl OAuth2Routes {
             .route("/oauth2/authorize", get(Self::handle_authorization))
             // OAuth 2.0 Token endpoint
             .route("/oauth2/token", post(Self::handle_token))
+            // RFC 7009: Token Revocation
+            .route("/oauth2/revoke", post(Self::handle_revoke))
             // Login page and submission
             .route("/oauth2/login", get(Self::handle_oauth_login_page))
             .route("/oauth2/login", post(Self::handle_oauth_login_submit))
@@ -197,7 +218,7 @@ impl OAuth2Routes {
         State(context): State<OAuth2Context>,
         ConnectInfo(addr): ConnectInfo<SocketAddr>,
         headers: HeaderMap,
-        Json(request): Json<ClientRegistrationRequest>,
+        Json(payload): Json<ClientRegistrationPayload>,
     ) -> Response {
         let limiter = &context.rate_limiter;
         if let Some(refused) = refusal(limiter, OAuth2Endpoint::Register, addr, &headers).await {
@@ -209,7 +230,10 @@ impl OAuth2Routes {
         let ceiling = context.config.client_retention.max_pending_registrations;
         let client_manager = ClientRegistrationManager::new(context.oauth2_server.clone());
 
-        match client_manager.register_client(request, ceiling).await {
+        match client_manager
+            .register_client_with_auth_method(payload.request, payload.auth_method, ceiling)
+            .await
+        {
             Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
             Err(error) => (error.http_status(), Json(error)).into_response(),
         }
@@ -241,7 +265,9 @@ impl OAuth2Routes {
             .await
         {
             Ok(checked) => checked,
-            Err(rejection) => return rejection_response(rejection, &request),
+            Err(rejection) => {
+                return rejection_response(&context.config.issuer_url, rejection, &request)
+            }
         };
 
         let redirect_uri = request.redirect_uri.clone();
@@ -278,7 +304,7 @@ impl OAuth2Routes {
             authenticated_user_id,
             tenant_id,
             redirect_uri,
-            checked.client_name.as_deref(),
+            &checked,
         )
         .await
     }
@@ -344,7 +370,7 @@ impl OAuth2Routes {
         authenticated_user_id: uuid::Uuid,
         tenant_id: Option<String>,
         redirect_uri: String,
-        client_name: Option<&str>,
+        checked: &CheckedAuthorization,
     ) -> Response {
         // Dravr's own app is signing the athlete in, not asking for access:
         // no consent screen (carnet#787).
@@ -368,7 +394,6 @@ impl OAuth2Routes {
 
         // Skip the consent screen only when the user has already approved this client
         // for the requested scope; otherwise show consent before any code is minted.
-        let scope = request.scope.clone().unwrap_or_default();
         let grant_tenant =
             Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
         let has_grant = match &grant_tenant {
@@ -378,7 +403,7 @@ impl OAuth2Routes {
                     &authenticated_user_id.to_string(),
                     tid,
                     &request.client_id,
-                    &scope,
+                    &checked.scope,
                 )
                 .await
                 .unwrap_or_else(|e| {
@@ -389,7 +414,7 @@ impl OAuth2Routes {
             None => false,
         };
 
-        if has_grant {
+        if has_grant && !checked.consent_every_time {
             return Self::mint_authorization_code(
                 context,
                 request,
@@ -406,7 +431,7 @@ impl OAuth2Routes {
             Ok(csrf_token) => Self::render_consent_page(
                 &request,
                 &csrf_token,
-                client_name,
+                checked.client_name.as_deref(),
                 &user.email,
                 &context.first_party_only_sources,
             ),
@@ -477,14 +502,24 @@ impl OAuth2Routes {
                     "OAuth authorization successful for user {}, redirecting with code",
                     authenticated_user_id
                 );
-                code_redirect(&redirect_uri, &response.code, response.state.as_deref())
+                code_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    &response.code,
+                    response.state.as_deref(),
+                )
             }
             Err(error) => {
                 warn!(
                     "OAuth authorization failed for user {}: {:?}",
                     authenticated_user_id, error
                 );
-                error_redirect(&redirect_uri, state.as_deref(), &error)
+                error_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    state.as_deref(),
+                    &error,
+                )
             }
         }
     }
@@ -497,22 +532,25 @@ impl OAuth2Routes {
         Form(form): Form<HashMap<String, String>>,
     ) -> Response {
         let limiter = &context.rate_limiter;
+
         if let Some(refused) = refusal(limiter, OAuth2Endpoint::Token, addr, &headers).await {
             return refused;
         }
 
-        let request = match Self::parse_and_log_token_request(&form) {
+        let basic = is_basic_authorization(authorization_header(&headers));
+        let request = match Self::parse_and_log_token_request(&form, &headers) {
             Ok(req) => req,
-            Err(error) => return (StatusCode::BAD_REQUEST, Json(error)).into_response(),
+            Err(error) => return Self::token_error_response(&error, basic),
         };
 
         let auth_server = Self::authorization_server(&context);
 
-        Self::execute_token_exchange(auth_server, request, &form).await
+        Self::execute_token_exchange(auth_server, request, basic).await
     }
 
     fn parse_and_log_token_request(
         form: &HashMap<String, String>,
+        headers: &HeaderMap,
     ) -> Result<TokenRequest, OAuth2Error> {
         debug!(
             "OAuth token request received with grant_type: {:?}, client_id: {:?}",
@@ -520,7 +558,7 @@ impl OAuth2Routes {
             form.get("client_id")
         );
 
-        Self::parse_token_request(form).map_err(|error| {
+        Self::parse_token_request(form, headers).map_err(|error| {
             warn!("OAuth token request parsing failed: {:?}", error);
             error
         })
@@ -529,25 +567,39 @@ impl OAuth2Routes {
     async fn execute_token_exchange(
         auth_server: OAuth2AuthorizationServer,
         request: TokenRequest,
-        form: &HashMap<String, String>,
+        basic: bool,
     ) -> Response {
+        let client_id = request.client_id.clone();
         match auth_server.token(request).await {
             Ok(response) => {
-                info!(
-                    "OAuth token exchange successful for client: {}",
-                    form.get("client_id").map_or("unknown", |v| v)
-                );
+                info!("OAuth token exchange successful for client: {}", client_id);
                 (StatusCode::OK, Json(response)).into_response()
             }
             Err(error) => {
                 warn!(
                     "OAuth token exchange failed for client {}: {:?}",
-                    form.get("client_id").map_or("unknown", |v| v),
-                    error
+                    client_id, error
                 );
-                (error.http_status(), Json(error)).into_response()
+                Self::token_error_response(&error, basic)
             }
         }
+    }
+
+    /// The token endpoint's error response. A client that authenticated with
+    /// an `Authorization` header and failed is answered 401 with the scheme it
+    /// should retry with (RFC 6749 §5.2); every other refusal keeps the status
+    /// the error carries.
+    fn token_error_response(error: &OAuth2Error, basic: bool) -> Response {
+        let body = Json(error);
+        if basic && error.error == "invalid_client" {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Basic realm=\"oauth2\"")],
+                body,
+            )
+                .into_response();
+        }
+        (error.http_status(), body).into_response()
     }
 
     /// Handle validate and refresh request (POST /oauth2/validate-and-refresh)
@@ -777,97 +829,6 @@ impl OAuth2Routes {
         Html(html)
     }
 
-    /// Handle JWKS endpoint (GET /oauth2/jwks or GET /.well-known/jwks.json)
-    async fn handle_jwks(State(context): State<OAuth2Context>, headers: HeaderMap) -> Response {
-        // Return JWKS with RS256 public keys for token validation
-        let jwks = match context.jwks_manager.get_jwks() {
-            Ok(jwks) => jwks,
-            Err(e) => {
-                error!("Failed to generate JWKS: {}", e);
-                // Return empty JWKS on error (graceful degradation)
-                return (
-                    StatusCode::OK,
-                    [(header::CACHE_CONTROL, "public, max-age=3600")],
-                    Json(serde_json::json!({ "keys": [] })),
-                )
-                    .into_response();
-            }
-        };
-
-        debug!("JWKS endpoint accessed, returning {} keys", jwks.keys.len());
-
-        // Calculate ETag from JWKS content for efficient caching
-        let (_jwks_json, etag) = match Self::compute_jwks_etag(jwks.clone()).await {
-            Ok(result) => result,
-            Err(response) => return *response,
-        };
-
-        // Check if client's cached version matches current version
-        if Self::check_etag_match(&headers, &etag) {
-            debug!("JWKS ETag match, returning 304 Not Modified");
-            return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response();
-        }
-
-        // Return JWKS with ETag and Cache-Control headers
-        (
-            StatusCode::OK,
-            [
-                (header::CACHE_CONTROL, "public, max-age=3600".to_owned()),
-                (header::ETAG, etag),
-            ],
-            Json(jwks),
-        )
-            .into_response()
-    }
-
-    // ============================================================================
-    // Helper Functions
-    // ============================================================================
-
-    /// Compute JWKS `ETag` from JSON content
-    async fn compute_jwks_etag(jwks: JsonWebKeySet) -> Result<(String, String), Box<Response>> {
-        let etag_result = spawn_blocking(move || {
-            let jwks_json = serde_json::to_string(&jwks)?;
-            let mut hasher = Sha256::new();
-            hasher.update(jwks_json.as_bytes());
-            let hash = hasher.finalize();
-            let etag = format!(r#""{}""#, hex::encode(&hash[..16]));
-            Ok::<(String, String), serde_json::Error>((jwks_json, etag))
-        })
-        .await;
-
-        match etag_result {
-            Ok(Ok((json, tag))) => Ok((json, tag)),
-            Ok(Err(_)) => {
-                error!("Failed to serialize JWKS for ETag calculation");
-                Err(Box::new(Self::jwks_error_response()))
-            }
-            Err(_) => {
-                error!("Spawn blocking task panicked during JWKS serialization");
-                Err(Box::new(Self::jwks_error_response()))
-            }
-        }
-    }
-
-    /// Create error response for JWKS endpoint
-    fn jwks_error_response() -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "keys": []
-            })),
-        )
-            .into_response()
-    }
-
-    /// Check if client has current JWKS version (`ETag` match)
-    fn check_etag_match(headers: &HeaderMap, etag: &str) -> bool {
-        headers
-            .get(header::IF_NONE_MATCH)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|client_etag| client_etag == etag)
-    }
-
     /// Extract Bearer token from Authorization header
     fn extract_bearer_token(headers: &HeaderMap) -> Result<String, Box<Response>> {
         let header = headers.get(header::AUTHORIZATION).ok_or_else(|| {
@@ -1073,24 +1034,27 @@ impl OAuth2Routes {
     }
 
     /// Parse form data into `TokenRequest`
-    fn parse_token_request(form: &HashMap<String, String>) -> Result<TokenRequest, OAuth2Error> {
+    fn parse_token_request(
+        form: &HashMap<String, String>,
+        headers: &HeaderMap,
+    ) -> Result<TokenRequest, OAuth2Error> {
         let grant_type = form
             .get("grant_type")
             .ok_or_else(|| OAuth2Error::invalid_request("Missing grant_type parameter"))?
             .clone(); // Safe: String ownership required for OAuth2 request struct
 
-        // Client credentials are REQUIRED for all grant types.
-        // Pierre MCP clients are confidential clients (RFC 6749 Section 2.1),
-        // so client authentication is mandatory including for refresh_token grants.
-        let client_id = form
-            .get("client_id")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id parameter"))?
-            .clone(); // Safe: String ownership for OAuth validation
-
-        let client_secret = form
-            .get("client_secret")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing client_secret parameter"))?
-            .replace(' ', "+");
+        // The client identifies itself on every grant type: by an
+        // `Authorization: Basic` header (`client_secret_basic`), by the form
+        // body (`client_secret_post`), or, for a public client, by its
+        // `client_id` alone (`none`, held to PKCE). Whether the client may
+        // authenticate the way it did is decided against what it registered.
+        let credentials = resolve_client_credentials(
+            authorization_header(headers),
+            form.get("client_id").map(String::as_str),
+            form.get("client_secret").map(String::as_str),
+        )?;
+        let client_id = credentials.client_id;
+        let client_secret = credentials.client_secret;
 
         let code = form.get("code").cloned();
         let redirect_uri = form.get("redirect_uri").cloned();
@@ -1104,7 +1068,7 @@ impl OAuth2Routes {
             code,
             redirect_uri,
             client_id,
-            client_secret: SecretString::from(client_secret),
+            client_secret,
             scope,
             refresh_token: refresh_token.map(SecretString::from),
             code_verifier,

@@ -160,15 +160,20 @@ fn token_grant(env: &Env, access_token: &str) -> Vec<OAuthScope> {
 // ============================================================================
 
 #[tokio::test]
-async fn registration_without_a_scope_persists_the_default_it_advertises() {
+async fn registration_without_a_scope_persists_every_delegable_scope_as_its_ceiling() {
     let env = env().await;
     let client = register(&env, None).await;
 
-    assert_eq!(client.scope.as_deref(), Some("fitness:read profile:read"));
+    let every = "fitness:read fitness:write profile:read profile:write";
+    assert_eq!(client.scope.as_deref(), Some(every));
     assert_eq!(
         stored_scope(&env, &client.client_id).await.as_deref(),
-        Some("fitness:read profile:read"),
+        Some(every),
         "the row holds what the response promised, not NULL"
+    );
+    assert!(
+        !every.contains("admin"),
+        "the unscoped ceiling never holds admin"
     );
 }
 
@@ -182,6 +187,48 @@ async fn registration_stores_a_requested_scope_in_canonical_form() {
         stored_scope(&env, &client.client_id).await.as_deref(),
         Some("fitness:read profile:write")
     );
+}
+
+/// A spec-following client asks for everything `scopes_supported` lists plus
+/// `offline_access`, the OIDC name for "I will refresh". The name is accepted
+/// and grants nothing: the stored and minted grant is the four real scopes.
+#[tokio::test]
+async fn a_client_asking_for_every_published_scope_is_granted_the_real_ones() {
+    let env = env().await;
+    let user = athlete(&env, "offline-access@example.com").await;
+    let everything = "fitness:read fitness:write profile:read profile:write offline_access";
+
+    let client = register(&env, Some(everything)).await;
+    let real = "fitness:read fitness:write profile:read profile:write";
+    assert_eq!(client.scope.as_deref(), Some(real));
+
+    let code = env
+        .server
+        .authorize(
+            authorize_request(&client.client_id, Some(everything)),
+            Some(user.id),
+            None,
+        )
+        .await
+        .unwrap()
+        .code;
+    let token = env
+        .server
+        .token(TokenRequest {
+            grant_type: "authorization_code".to_owned(),
+            code: Some(code),
+            redirect_uri: Some(REDIRECT.to_owned()),
+            client_id: client.client_id,
+            client_secret: client.client_secret,
+            scope: None,
+            refresh_token: None,
+            code_verifier: Some(VERIFIER.to_owned()),
+            resource: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(token.scope.as_deref(), Some(real));
+    assert!(token.refresh_token.is_some(), "a refresh token is issued");
 }
 
 #[tokio::test]
@@ -211,10 +258,26 @@ async fn registration_refuses_admin_and_names_outside_the_vocabulary() {
 // ============================================================================
 
 #[tokio::test]
-async fn a_default_client_is_refused_a_grant_it_never_registered() {
+async fn an_unscoped_client_may_be_authorized_for_a_write_scope_it_asks_for() {
+    let env = env().await;
+    let user = athlete(&env, "scope-unscoped@example.com").await;
+    let client = register(&env, None).await;
+
+    env.server
+        .authorize(
+            authorize_request(&client.client_id, Some("fitness:read fitness:write")),
+            Some(user.id),
+            None,
+        )
+        .await
+        .expect("an unscoped client's ceiling covers every delegable scope");
+}
+
+#[tokio::test]
+async fn a_client_is_refused_a_grant_outside_the_scope_it_registered() {
     let env = env().await;
     let user = athlete(&env, "scope-default@example.com").await;
-    let client = register(&env, None).await;
+    let client = register(&env, Some("fitness:read")).await;
 
     let refused = env
         .server
@@ -224,7 +287,7 @@ async fn a_default_client_is_refused_a_grant_it_never_registered() {
             None,
         )
         .await
-        .expect_err("fitness:write is outside the default grant");
+        .expect_err("fitness:write is outside the registered scope");
     assert_eq!(refused.error, "invalid_scope");
     assert!(refused
         .error_description
@@ -362,6 +425,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             created_at: Utc::now(),
             revoked: false,
             family_id: "test-family".to_owned(),
+            family_created_at: None,
             resource: None,
         })
         .await
@@ -396,14 +460,49 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
 // Client credentials
 // ============================================================================
 
-/// A client registered for the `client_credentials` grant with `scope`.
+/// A client the server provisioned for the `client_credentials` grant with
+/// `scope`. Self-service registration refuses that grant, so the row is stored
+/// the way the server stores its own machine clients.
 async fn machine_client(env: &Env, scope: &str) -> ClientRegistrationResponse {
-    let mut request = registration_request(Some(scope));
-    request.grant_types = Some(vec!["client_credentials".to_owned()]);
-    env.registration
-        .register_client(request, MAX_PENDING_REGISTRATIONS)
-        .await
+    use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
+
+    let secret = "machine-client-secret";
+    let hash = argon2::Argon2::default()
+        .hash_password(secret.as_bytes(), &SaltString::generate(&mut OsRng))
         .unwrap()
+        .to_string();
+    let client_id = format!("machine_{}", uuid::Uuid::new_v4().simple());
+    env.database
+        .repositories()
+        .oauth2_server
+        .store_client(&OAuth2Client {
+            id: uuid::Uuid::new_v4().to_string(),
+            client_id: client_id.clone(),
+            client_secret_hash: hash,
+            redirect_uris: Vec::new(),
+            grant_types: vec!["client_credentials".to_owned()],
+            response_types: Vec::new(),
+            client_name: Some("Machine".to_owned()),
+            client_uri: None,
+            scope: Some(scope.to_owned()),
+            created_at: Utc::now(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    ClientRegistrationResponse {
+        client_id,
+        client_secret: SecretString::from(secret),
+        client_id_issued_at: None,
+        client_secret_expires_at: None,
+        auth_method: "client_secret_post".to_owned(),
+        redirect_uris: Vec::new(),
+        grant_types: vec!["client_credentials".to_owned()],
+        response_types: Vec::new(),
+        client_name: None,
+        client_uri: None,
+        scope: Some(scope.to_owned()),
+    }
 }
 
 fn client_credentials_request(
@@ -501,12 +600,13 @@ fn scopes_supported_publishes_only_what_a_client_can_be_granted() {
     // A spec-following MCP client registers and authorizes with exactly this
     // list, so a name the server refuses here would fail every connection.
     assert_eq!(
-        OAuth2AuthorizationServer::supported_scopes(),
+        OAuthScope::advertised_as_str(),
         vec![
             "fitness:read",
             "fitness:write",
             "profile:read",
-            "profile:write"
+            "profile:write",
+            "offline_access"
         ]
     );
 }

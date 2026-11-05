@@ -22,6 +22,10 @@ pub mod executor;
 pub mod format;
 /// Shared provider helper functions (tenant-aware credential resolution, provider creation)
 pub mod provider_helpers;
+/// The no-provider answer an external caller (MCP, A2A) reads: the providers on offer and which are readable there
+pub mod provider_offer;
+/// Every provider a deployment offers with the athlete's state on each, shared by the status tool and the no-provider answer
+pub(crate) mod provider_states;
 /// The one reconnect notice a flagged connection owes its athlete, whichever path flagged it
 pub mod reauth_notice;
 /// Classification of a failed token refresh: a refusal of the grant or client, or transient

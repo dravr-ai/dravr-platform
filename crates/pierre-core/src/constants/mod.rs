@@ -654,8 +654,12 @@ pub mod system_monitoring {
 pub mod oauth_rate_limiting {
     /// Authorization endpoint rate limit (requests per minute)
     pub const AUTHORIZE_RPM: u32 = 60;
-    /// Token endpoint rate limit (requests per minute)
-    pub const TOKEN_RPM: u32 = 30;
+    /// Token and revocation endpoint rate limit (requests per minute per address).
+    ///
+    /// Wide because a connector host refreshes all its athletes from a few
+    /// egress addresses; a window keyed on `client_id` instead would let anyone
+    /// exhaust a public client's window, since that identifier is public.
+    pub const TOKEN_RPM: u32 = 600;
     /// Registration endpoint rate limit (requests per minute)
     pub const REGISTER_RPM: u32 = 10;
     /// Password re-confirmations a signed-in account may attempt per window
@@ -701,7 +705,7 @@ pub mod oauth_rate_limiting {
 pub mod oauth2_client_retention {
     /// How long an expired registration is kept before the sweep deletes it: 30 days.
     ///
-    /// `validate_client` already refuses it the moment it expires; the grace
+    /// `authenticate_client` already refuses it the moment it expires; the grace
     /// keeps the row readable to an operator asking why a client stopped
     /// working, without holding it for another year.
     pub const EXPIRED_GRACE_SECS: u64 = 30 * 24 * 60 * 60;
