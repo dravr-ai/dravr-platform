@@ -10,6 +10,7 @@ import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTim
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 import type { ChartData, ChartOptions, TimeSeriesPoint, TopTool } from '../types/chart';
 import '../utils/registerChartJs';
+import { tint, useChartTheme } from '../hooks/useChartTheme';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 
 export default function UsageAnalytics() {
@@ -17,15 +18,7 @@ export default function UsageAnalytics() {
 
   const { data: analytics, isLoading } = useQuery(usageAnalyticsQuery(timeRange));
 
-  // Pierre Design System colors for charts
-  const pierreColors = {
-    violet: '#00241a',
-    cyan: '#0d3b2e',
-    activity: '#3c6658',
-    nutrition: '#8f6a2e',
-    recovery: '#5e7a82',
-    red: '#EF4444',
-  };
+  const chart = useChartTheme();
 
   // Helper to safely parse dates from various formats
   const formatDateLabel = (dateString: string): string => {
@@ -54,8 +47,8 @@ export default function UsageAnalytics() {
       {
         label: 'API Requests',
         data: analytics?.time_series?.map((point: TimeSeriesPoint) => point.request_count) || [],
-        borderColor: pierreColors.violet,
-        backgroundColor: `${pierreColors.violet}1A`,
+        borderColor: chart.series[0],
+        backgroundColor: tint(chart.series[0], 0.1),
         tension: 0.4,
         fill: true,
       },
@@ -68,20 +61,8 @@ export default function UsageAnalytics() {
       {
         label: 'Request Count',
         data: analytics?.top_tools?.map((tool: TopTool) => tool.request_count) || [],
-        backgroundColor: [
-          `${pierreColors.violet}CC`,
-          `${pierreColors.activity}CC`,
-          `${pierreColors.nutrition}CC`,
-          `${pierreColors.cyan}CC`,
-          `${pierreColors.recovery}CC`,
-        ],
-        borderColor: [
-          pierreColors.violet,
-          pierreColors.activity,
-          pierreColors.nutrition,
-          pierreColors.cyan,
-          pierreColors.recovery,
-        ],
+        backgroundColor: chart.series.map((color) => tint(color, 0.8)),
+        borderColor: chart.series,
         borderWidth: 1,
       },
     ],
@@ -93,8 +74,8 @@ export default function UsageAnalytics() {
       {
         label: 'Average Response Time (ms)',
         data: analytics?.top_tools?.map((tool: TopTool) => tool.average_response_time || 0) || [],
-        backgroundColor: `${pierreColors.activity}99`,
-        borderColor: pierreColors.activity,
+        backgroundColor: tint(chart.series[5], 0.6),
+        borderColor: chart.series[5],
         borderWidth: 1,
       },
     ],
@@ -105,18 +86,18 @@ export default function UsageAnalytics() {
     plugins: {
       legend: {
         position: 'top',
-        labels: { color: '#a1a1aa' },
+        labels: { color: chart.text },
       },
     },
     scales: {
       x: {
-        ticks: { color: '#71717a' },
-        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+        ticks: { color: chart.text },
+        grid: { color: chart.grid },
       },
       y: {
         beginAtZero: true,
-        ticks: { color: '#71717a' },
-        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+        ticks: { color: chart.text },
+        grid: { color: chart.grid },
       },
     },
   };
@@ -198,7 +179,7 @@ export default function UsageAnalytics() {
                     plugins: {
                       legend: {
                         position: 'bottom' as const,
-                        labels: { color: '#a1a1aa' },
+                        labels: { color: chart.text },
                       },
                     },
                   }}

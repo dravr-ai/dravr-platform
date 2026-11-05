@@ -121,7 +121,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
           <div className="max-w-lg w-full">
             {/* Error Card */}
-            <div className="bg-surface-container-low rounded-xl overflow-hidden border border-on-surface">
+            <div className="bg-surface-container-low rounded-xl overflow-hidden border ghost-border">
               {/* Header with gradient */}
               <div className="h-1.5 w-full bg-error" />
 
@@ -149,7 +149,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                     <summary className="px-4 py-3 text-sm text-outline cursor-pointer hover:bg-surface-container-highest/70 transition-colors">
                       {i18n.t('shell.errorTechnicalDetails')}
                     </summary>
-                    <div className="px-4 py-3 border-t border-on-surface">
+                    <div className="px-4 py-3 border-t ghost-border">
                       <p className="text-sm font-mono text-error mb-2">
                         {error.name}: {error.message}
                       </p>
@@ -185,7 +185,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </div>
 
               {/* Footer */}
-              <div className="px-8 py-4 bg-surface-container-highest/30 border-t border-on-surface">
+              <div className="px-8 py-4 bg-surface-container-highest/30 border-t ghost-border">
                 <p className="text-xs text-on-surface-variant text-center">
                   {i18n.t('shell.errorPersistHint')}
                 </p>

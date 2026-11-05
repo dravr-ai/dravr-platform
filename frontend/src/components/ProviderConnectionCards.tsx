@@ -354,7 +354,7 @@ export default function ProviderConnectionCards({
             type="button"
             onClick={() => handleConnect(provider)}
             disabled={provider.connected && !owesAuthorization && !offersHistory}
-            className={`${ROW_CLASS} disabled:cursor-default`}
+            className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
             aria-label={
               owesAuthorization
                 ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
@@ -375,13 +375,13 @@ export default function ProviderConnectionCards({
             >
               <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
             </span>
-            <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${isNonOAuth ? 'opacity-60' : ''}`}>
+            <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
               <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
               <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
             </span>
             {owesAuthorization && (
               <span
-                className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant"
+                className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0"
                 data-testid={`provider-authorization-owed-${provider.provider}`}
               >
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -389,7 +389,7 @@ export default function ProviderConnectionCards({
               </span>
             )}
             {provider.connected && !owesAuthorization && (
-              <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant">
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
                 {offersHistory ? t('providers.awaitingActivities') : t('providers.connected')}
               </span>

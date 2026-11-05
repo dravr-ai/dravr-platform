@@ -214,7 +214,7 @@ export default function EvalHarnessTab() {
                 onClick={() =>
                   setExpandedFixture(isExpanded ? null : fixture.name)
                 }
-                className="flex w-full items-center justify-between gap-4 border-b border-outline-variant px-6 py-3 text-left hover:bg-surface-container dark:hover:bg-surface-container"
+                className="flex w-full items-center justify-between gap-4 border-b border-outline-variant px-6 py-3 text-left hover:bg-surface-container"
                 aria-expanded={isExpanded}
                 aria-label={`Toggle ${fixture.name} fixture`}
               >
@@ -400,7 +400,7 @@ function FixtureEditorModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       data-testid="fixture-editor-modal"
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white">
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg border ghost-border bg-surface-container-low">
         <div className="border-b border-outline-variant px-6 py-4">
           <h3 className="text-lg font-semibold text-on-surface">
             {state.mode === 'create' ? 'New fixture' : `Edit ${state.name}`}
@@ -621,7 +621,7 @@ function StatusPill({ label, count, tone }: StatusPillProps) {
   };
   return (
     <div
-      className={`rounded-lg border bg-white px-3 py-2 ${toneClasses[tone]}`}
+      className={`rounded-lg border bg-surface-container-lowest px-3 py-2 ${toneClasses[tone]}`}
     >
       <div className="text-xs">{label}</div>
       <div className="text-lg font-semibold">{count}</div>

@@ -153,7 +153,7 @@ export default function CoachGradingTab() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-outline-variant bg-white">
+              <tbody className="divide-y divide-outline-variant">
                 {data.grades.map((g: AgentGrade) => (
                   <tr key={g.agent_id}>
                     <td className="px-4 py-3">

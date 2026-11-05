@@ -562,12 +562,12 @@ export default function ClaimVerdictsTab() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-outline-variant bg-white">
+              <tbody className="divide-y divide-outline-variant">
                 {verdicts.map((v) => (
                   <tr
                     key={v.id}
                     className={clsx(
-                      'cursor-pointer hover:bg-surface-container dark:hover:bg-surface-container',
+                      'cursor-pointer hover:bg-surface-container',
                       drawerVerdicts.some((d) => d.id === v.id) && 'bg-primary/10',
                     )}
                     onClick={() => setDrawerVerdicts([v])}

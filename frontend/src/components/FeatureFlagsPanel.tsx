@@ -109,9 +109,9 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
               key={flag.key}
               className="flex items-start justify-between gap-4 p-3 rounded-lg bg-surface-container-low"
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <code className="font-mono text-sm text-on-surface">{flag.key}</code>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <code className="min-w-0 break-all font-mono text-sm text-on-surface">{flag.key}</code>
                   <span
                     className={
                       'text-xs px-2 py-0.5 rounded-full ' +

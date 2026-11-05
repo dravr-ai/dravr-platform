@@ -167,7 +167,7 @@ export default function MemberList({
           offers never widen the panel. It shares its state with the headers. */}
       <div className="flex items-center justify-end gap-2 px-3 pb-2" data-testid="member-sort">
         <span className="text-xs text-on-surface-variant whitespace-nowrap">{t('groups.sortBy')}</span>
-        <div className="w-36">
+        <div className="w-44">
           <Select
             size="sm"
             aria-label={t('groups.sortBy')}
@@ -253,14 +253,14 @@ export default function MemberList({
                       className="flex flex-wrap gap-x-1.5 text-xs text-on-surface-variant"
                       data-testid={`member-detail-${member.user_id}`}
                     >
-                      <span className="whitespace-nowrap">
+                      <span>
                         {t('groups.colJoined')}{' '}
                         {formatDate(member.joined_at, i18n.language)}
                       </span>
                       {member.peer_sharing_consent ? (
-                        <span className="whitespace-nowrap text-activity font-medium">{t('groups.sharingOn')}</span>
+                        <span className="text-activity font-medium">{t('groups.sharingOn')}</span>
                       ) : (
-                        <span className="whitespace-nowrap text-outline">{t('groups.sharingOff')}</span>
+                        <span className="text-outline">{t('groups.sharingOff')}</span>
                       )}
                     </span>
                   </td>

@@ -87,9 +87,10 @@ function DesktopRows({
               <span className="flex min-w-0 flex-col">
                 <button
                   type="button"
+                  title={row.athlete.name}
                   data-testid={`coach-season-open-${row.athlete.user_id}`}
                   onClick={() => onOpen(row.athlete.user_id)}
-                  className="whitespace-nowrap rounded text-left text-sm font-semibold text-on-surface hover:underline focus-ring-visible"
+                  className="truncate rounded text-left text-sm font-semibold text-on-surface hover:underline focus-ring-visible"
                 >
                   {row.athlete.name}
                 </button>
@@ -282,7 +283,7 @@ export function CoachSeasonView({ athletes, today, onOpen }: CoachSeasonViewProp
             className={clsx(!isMobile && 'min-w-[1120px]')}
           >
             {!isMobile && (
-              <div role="row" className="grid h-10 border-b ghost-border" style={{ gridTemplateColumns: '260px minmax(0, 1fr)' }}>
+              <div role="row" className="grid h-12 border-b ghost-border" style={{ gridTemplateColumns: '260px minmax(0, 1fr)' }}>
                 <div role="columnheader" className="flex items-center text-xs font-medium text-on-surface-variant">
                   {t('coachHome.seasonView.athleteHeader')}
                 </div>

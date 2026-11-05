@@ -323,7 +323,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">
-                <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                 Approving...
               </span>
             ) : (

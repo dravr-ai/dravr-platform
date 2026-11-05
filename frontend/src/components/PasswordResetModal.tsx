@@ -134,7 +134,7 @@ export default function PasswordResetModal({
                 >
                   {resetMutation.isPending ? (
                     <div className="flex items-center justify-center">
-                      <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                      <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                       Resetting...
                     </div>
                   ) : (
@@ -194,7 +194,7 @@ export default function PasswordResetModal({
 
               <Button
                 onClick={handleClose}
-                className="w-full bg-surface-container-high hover:bg-white/15 text-on-surface"
+                className="w-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface"
               >
                 Done
               </Button>

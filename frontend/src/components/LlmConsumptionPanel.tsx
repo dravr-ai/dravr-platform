@@ -12,18 +12,7 @@ import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTim
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 import type { ConsumptionBreakdownItem } from '../services/api/usage';
 import { formatCost } from '../utils/formatCost';
-
-// Pierre brand colors for charts
-const CHART_COLORS = [
-  '#00241a', // pierre-violet
-  '#0d3b2e', // pierre-cyan
-  '#3c6658', // pierre-activity
-  '#8f6a2e', // pierre-nutrition
-  '#EF4444', // pierre-red
-  '#A78BFA', // light violet
-  '#FB923C', // orange
-  '#5e7a82', // indigo
-];
+import { tint, useChartTheme } from '../hooks/useChartTheme';
 
 /** Format a token count for display (e.g., 1,234,567 -> "1.23M") */
 function formatTokens(count: number): string {
@@ -69,6 +58,7 @@ function groupBreakdown(
 }
 
 export default function LlmConsumptionPanel() {
+  const chart = useChartTheme();
   const { timeRange, setTimeRange } = useAdminTimeRange();
 
   const days = timeRange;
@@ -118,8 +108,8 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Tokens',
         data: daily_series.map((p) => p.tokens),
-        borderColor: '#00241a',
-        backgroundColor: 'rgba(0, 36, 26, 0.1)',
+        borderColor: chart.series[0],
+        backgroundColor: tint(chart.series[0], 0.1),
         fill: true,
         tension: 0.4,
         pointRadius: daily_series.length > 30 ? 0 : 3,
@@ -128,8 +118,8 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Cost (USD)',
         data: daily_series.map((p) => p.cost_usd),
-        borderColor: '#0d3b2e',
-        backgroundColor: 'rgba(13, 59, 46, 0.1)',
+        borderColor: chart.series[1],
+        backgroundColor: tint(chart.series[1], 0.1),
         fill: false,
         tension: 0.4,
         pointRadius: daily_series.length > 30 ? 0 : 3,
@@ -144,26 +134,26 @@ export default function LlmConsumptionPanel() {
     maintainAspectRatio: false,
     interaction: { mode: 'index' as const, intersect: false },
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: '#a1a1aa' } },
+      legend: { position: 'bottom' as const, labels: { color: chart.text } },
     },
     scales: {
       y: {
         type: 'linear' as const,
         position: 'left' as const,
-        title: { display: true, text: 'Tokens', color: '#a1a1aa' },
-        ticks: { color: '#a1a1aa' },
-        grid: { color: 'rgba(255,255,255,0.1)' },
+        title: { display: true, text: 'Tokens', color: chart.text },
+        ticks: { color: chart.text },
+        grid: { color: chart.grid },
       },
       y1: {
         type: 'linear' as const,
         position: 'right' as const,
-        title: { display: true, text: 'Cost (USD)', color: '#a1a1aa' },
-        ticks: { color: '#a1a1aa', callback: (v: string | number) => `$${v}` },
+        title: { display: true, text: 'Cost (USD)', color: chart.text },
+        ticks: { color: chart.text, callback: (v: string | number) => `$${v}` },
         grid: { drawOnChartArea: false },
       },
       x: {
-        ticks: { color: '#a1a1aa', maxRotation: 45 },
-        grid: { color: 'rgba(255,255,255,0.1)' },
+        ticks: { color: chart.text, maxRotation: 45 },
+        grid: { color: chart.grid },
       },
     },
   };
@@ -174,8 +164,8 @@ export default function LlmConsumptionPanel() {
     datasets: [
       {
         data: byProvider.tokens,
-        backgroundColor: CHART_COLORS.slice(0, byProvider.labels.length),
-        borderColor: CHART_COLORS.slice(0, byProvider.labels.length),
+        backgroundColor: chart.series,
+        borderColor: chart.series,
         borderWidth: 2,
       },
     ],
@@ -185,7 +175,7 @@ export default function LlmConsumptionPanel() {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: '#a1a1aa' } },
+      legend: { position: 'bottom' as const, labels: { color: chart.text } },
       tooltip: {
         callbacks: {
           label: (ctx: { label: string; raw: unknown }) => {
@@ -208,15 +198,15 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Tokens',
         data: byCallType.tokens,
-        backgroundColor: 'rgba(0, 36, 26, 0.6)',
-        borderColor: '#00241a',
+        backgroundColor: tint(chart.series[0], 0.6),
+        borderColor: chart.series[0],
         borderWidth: 1,
       },
       {
         label: 'Calls',
         data: byCallType.calls,
-        backgroundColor: 'rgba(13, 59, 46, 0.6)',
-        borderColor: '#0d3b2e',
+        backgroundColor: tint(chart.series[1], 0.6),
+        borderColor: chart.series[1],
         borderWidth: 1,
       },
     ],
@@ -226,17 +216,17 @@ export default function LlmConsumptionPanel() {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: '#a1a1aa' } },
+      legend: { position: 'bottom' as const, labels: { color: chart.text } },
     },
     scales: {
       y: {
         beginAtZero: true,
-        ticks: { color: '#a1a1aa' },
-        grid: { color: 'rgba(255,255,255,0.1)' },
+        ticks: { color: chart.text },
+        grid: { color: chart.grid },
       },
       x: {
-        ticks: { color: '#a1a1aa', maxRotation: 45 },
-        grid: { color: 'rgba(255,255,255,0.1)' },
+        ticks: { color: chart.text, maxRotation: 45 },
+        grid: { color: chart.grid },
       },
     },
   };
@@ -324,7 +314,7 @@ export default function LlmConsumptionPanel() {
         <div className="card-dark">
           <h3 className="text-lg font-medium mb-4 text-on-surface">Consumption Details</h3>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-white/10">
+            <table className="min-w-full divide-y divide-outline-variant">
               <thead className="bg-surface-container-low">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant">
@@ -347,7 +337,7 @@ export default function LlmConsumptionPanel() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/10">
+              <tbody className="divide-y divide-outline-variant">
                 {breakdown.map((item, i) => (
                   <tr key={`${item.provider}-${item.model}-${item.call_type}-${i}`} className="hover:bg-surface-container-low">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">

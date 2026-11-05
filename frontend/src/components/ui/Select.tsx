@@ -33,7 +33,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     };
 
     // The underline chrome lives in .boreal-underline-input — see Textarea for
-    // why it cannot be an inline style.
+    // why it cannot be an inline style. So does the chevron's gutter: that class
+    // zeroes the side padding, and a utility here would lose to it.
     const baseClasses =
       'w-full bg-transparent text-on-surface font-sans appearance-none cursor-pointer ' +
       'focus:outline-none transition-colors duration-base disabled:cursor-not-allowed disabled:opacity-50';
@@ -53,7 +54,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             aria-invalid={error ? true : undefined}
-            className={`${baseClasses} ${sizeClasses[size]} pr-8 ${className} boreal-underline-input${
+            className={`${baseClasses} ${sizeClasses[size]} ${className} boreal-underline-input${
               error ? ' boreal-underline-input--error' : ''
             }`}
             {...props}

@@ -247,8 +247,8 @@ export default function ActivityTab() {
                     </div>
 
                     {/* Category badge */}
-                    <div className="col-span-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
+                    <div className="col-span-2 min-w-0">
+                      <span title={entry.category} className={`inline-block max-w-full truncate align-middle text-xs px-2 py-1 rounded-full ${
                         entry.type === 'llm'
                           ? 'bg-primary/20 text-primary'
                           : 'bg-primary-container text-on-primary-container'

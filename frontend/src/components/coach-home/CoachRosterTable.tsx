@@ -32,8 +32,15 @@ import type { CoachDestinations } from './useCoachDestinations';
 
 // Nine columns that fit the ~1110px a 1280px screen leaves beside the rail, the
 // gutters and a scrollbar; narrower than that, the table scrolls in its own box.
-const COLUMNS = '160px 170px 44px 140px 84px 130px 160px 120px minmax(96px, 1fr)';
+// A track holds what it was sized for: a longer value takes a second line or an
+// ellipsis with its whole text on hover, never the next column. A wider screen
+// gives its room to the columns whose words get cut: the name and the agent.
+const COLUMNS = 'minmax(160px, 2fr) 170px 44px 140px 84px 130px 160px minmax(120px, 2fr) minmax(96px, 1fr)';
 const TABLE_MIN_WIDTH = 'min-w-[1104px]';
+// The source track fits three chips, so a fourth folds them into a count.
+const MAX_SOURCE_SLOTS = 3;
+// Up to two lines of words in a 48px row, the rest behind an ellipsis.
+const TWO_LINES = 'line-clamp-2 min-w-0 leading-tight';
 
 interface CoachRosterTableProps {
   athletes: CoachRosterAthlete[];
@@ -88,20 +95,34 @@ function GroupTabs({ groups, total, groupId, onGroup }: Pick<CoachRosterTablePro
 
 function SourceChips({ athlete }: { athlete: CoachRosterAthlete }) {
   const { t, language } = useTranslation();
+  const all = sourceChips(athlete);
+  // Rows keep one order so a letter can be compared down the column; only a cell
+  // too full to show everything leads with the source to reconnect, so that one
+  // is never the one folded away.
+  const chips = all.length > MAX_SOURCE_SLOTS ? [...all].sort((a, b) => Number(a.state === 'ok') - Number(b.state === 'ok')) : all;
+  const shown = chips.length > MAX_SOURCE_SLOTS ? chips.slice(0, MAX_SOURCE_SLOTS - 1) : chips;
+  const folded = chips.slice(shown.length);
+  const chipClass = 'relative flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-md bg-surface-container-high px-1 text-xs font-semibold text-on-surface';
+  const describe = (chip: (typeof chips)[number]) => `${providerName(chip.provider)} — ${sourceChipWords(t, language, chip)}`;
   return (
     <>
-      {sourceChips(athlete).map((chip) => (
-        <span
-          key={chip.provider}
-          role="img"
-          aria-label={`${providerName(chip.provider)} — ${sourceChipWords(t, language, chip)}`}
-          title={providerName(chip.provider)}
-          className="relative flex h-[22px] min-w-[22px] items-center justify-center rounded-md bg-surface-container-high px-1 text-xs font-semibold text-on-surface"
-        >
+      {shown.map((chip) => (
+        <span key={chip.provider} role="img" aria-label={describe(chip)} title={providerName(chip.provider)} className={chipClass}>
           {providerLetter(chip.provider)}
           <StatusDot tone={chip.state === 'ok' ? 'ok' : 'bad'} className="absolute -right-[3px] -top-[3px]" />
         </span>
       ))}
+      {folded.length > 0 && (
+        <span
+          role="img"
+          aria-label={folded.map(describe).join(', ')}
+          title={folded.map((chip) => providerName(chip.provider)).join(', ')}
+          className={chipClass}
+        >
+          +{folded.length}
+          {folded.some((chip) => chip.state !== 'ok') && <StatusDot tone="bad" className="absolute -right-[3px] -top-[3px]" />}
+        </span>
+      )}
     </>
   );
 }
@@ -117,6 +138,7 @@ function TableRow({ athlete, today, onOpen }: { athlete: CoachRosterAthlete; tod
   const race = athlete.season?.state === 'a_race_ahead' ? athlete.season.race : null;
   const cell = agentCell(athlete);
   const thread = words.threadWords(athlete);
+  const agent = words.agentWords(athlete);
   const cellClass = 'flex min-w-0 items-center gap-1.5 border-b ghost-border-faint px-2';
   return (
     <div role="row" className="grid h-12" style={{ gridTemplateColumns: COLUMNS }} data-testid={`coach-row-${athlete.user_id}`}>
@@ -129,14 +151,14 @@ function TableRow({ athlete, today, onOpen }: { athlete: CoachRosterAthlete; tod
         >
           <AthleteAvatar userId={athlete.user_id} name={athlete.name} size="sm" />
           <span className="flex min-w-0 flex-col">
-            <span className="whitespace-nowrap text-sm font-semibold text-on-surface">{athlete.name}</span>
+            <span className="truncate text-sm font-semibold text-on-surface" title={athlete.name}>{athlete.name}</span>
             <span className="truncate text-xs text-on-surface-variant">{athlete.groups.map((g) => g.name).join(' · ')}</span>
           </span>
         </button>
       </div>
       <div role="cell" className={cellClass} title={form.asOf ?? undefined}>
         <FormStrip band={training?.form?.band ?? 'insufficient_history'} size="sm" muted={form.cut} />
-        <span className={clsx('whitespace-nowrap text-sm', form.cut ? 'text-on-surface-variant' : 'text-on-surface')} aria-hidden={form.asOf !== null || undefined}>
+        <span className={clsx(TWO_LINES, 'text-sm', form.cut ? 'text-on-surface-variant' : 'text-on-surface')} aria-hidden={form.asOf !== null || undefined}>
           {form.text}
         </span>
         {form.asOf !== null && <span className="sr-only">{form.asOf}</span>}
@@ -145,29 +167,28 @@ function TableRow({ athlete, today, onOpen }: { athlete: CoachRosterAthlete; tod
         {training?.ctl === null || training?.ctl === undefined ? '—' : training.ctl}
       </div>
       <div role="cell" className={clsx(cellClass, 'whitespace-nowrap')}>
-        <span className={clsx('shrink-0', last.recent && 'font-semibold')}>{last.text}</span>
+        <span className={clsx('max-w-full shrink-0 truncate', last.recent && 'font-semibold')} title={last.text}>{last.text}</span>
         {words.lastWhat(athlete) !== '' && <span className="truncate text-on-surface-variant" title={words.lastWhat(athlete)}>· {words.lastWhat(athlete)}</span>}
       </div>
-      <div role="cell" className={clsx(cellClass, 'gap-1')}>
+      <div role="cell" className={clsx(cellClass, 'gap-1 pr-0')}>
         <SourceChips athlete={athlete} />
       </div>
-      <div role="cell" className={clsx(cellClass, 'whitespace-nowrap')}>
-        {plan.phase}
-        <span className="text-on-surface-variant">{plan.week}</span>
+      <div role="cell" className={cellClass}>
+        <span className={TWO_LINES} title={`${plan.phase}${plan.week}`}>
+          {plan.phase}
+          <span className="text-on-surface-variant">{plan.week}</span>
+        </span>
       </div>
       <div role="cell" className={clsx(cellClass, 'whitespace-nowrap')}>
-        <span className="truncate">{race?.name ?? '—'}</span>
-        {toRace !== null && <span className="font-mono text-xs text-on-surface-variant">{t('coachHome.detail.countdown', { days: toRace })}</span>}
+        <span className="truncate" title={race?.name}>{race?.name ?? '—'}</span>
+        {toRace !== null && <span className="shrink-0 font-mono text-xs text-on-surface-variant">{t('coachHome.detail.countdown', { days: toRace })}</span>}
       </div>
-      <div role="cell" className={clsx(cellClass, 'whitespace-nowrap')}>
+      <div role="cell" className={cellClass}>
         <StatusDot tone={agentCellNeedsLook(cell) ? 'warn' : cell.kind === 'none' ? 'none' : 'ok'} />
-        {words.agentWords(athlete)}
+        <span className={TWO_LINES} title={agent}>{agent}</span>
       </div>
-      <div
-        role="cell"
-        className={clsx(cellClass, 'whitespace-nowrap', thread.strong ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}
-      >
-        {thread.text}
+      <div role="cell" className={clsx(cellClass, thread.strong ? 'font-semibold text-on-surface' : 'text-on-surface-variant')}>
+        <span className={TWO_LINES} title={thread.text}>{thread.text}</span>
       </div>
     </div>
   );

@@ -212,7 +212,7 @@ export default function CoachStoreManagement() {
                 'flex items-center gap-2 px-1 py-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === tab.id
                   ? 'border-primary text-primary'
-                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-white/30'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline'
               )}
             >
               {tab.icon}

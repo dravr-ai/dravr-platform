@@ -112,7 +112,7 @@ export default function MemoryPanel() {
                   aria-pressed={active}
                   data-testid={`memory-kind-chip-${opt.value === '' ? 'all' : opt.value}`}
                   onClick={() => setKindFilter(opt.value)}
-                  className={`-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors ${
+                  className={`-mb-px flex shrink-0 touch-target items-center justify-center whitespace-nowrap border-b-2 pb-2.5 pt-2 text-sm font-medium transition-colors ${
                     active
                       ? 'border-primary text-on-surface'
                       : 'border-transparent text-on-surface-variant hover:text-on-surface'

@@ -11,6 +11,7 @@ import type {
   GroupWeeklyReportResponse,
 } from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard, openGroups } from './test-helpers';
+import { expectNoCollidingText, useFrench } from './text-collision';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // ============================================================================
@@ -1062,5 +1063,26 @@ test.describe('Group info — layout', () => {
     await openGroups(page);
 
     expect(describeLayoutFailures('chat/group', await measurePageLayout(page))).toEqual([]);
+  });
+
+  test('a member row holds its join date and role apart on a phone', async ({ page }) => {
+    // French, where the join line is longest, so the English-labelled helper cannot open it.
+    await useFrench(page);
+    await setupDashboardMocks(page, { role: 'user', language: 'fr' });
+    await setupGroupMocks(page, { userGroupRole: 'owner' });
+    await loginToDashboard(page);
+    await page.evaluate(() => {
+      window.location.hash = 'chat';
+    });
+    await page
+      .locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' })
+      .getByRole('button')
+      .first()
+      .click();
+    await page.getByTestId('conversation-header-title').click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const panel = page.getByTestId('group-info-panel');
+    await expect(panel.getByTestId('member-detail-user-2')).toBeVisible({ timeout: 10000 });
+    await expectNoCollidingText(page, 'member list', '[data-testid="member-list"]', 6);
   });
 });

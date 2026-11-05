@@ -60,7 +60,7 @@ export default function ImpersonationBanner() {
           variant="secondary"
           size="sm"
           onClick={handleEndImpersonation}
-          className="bg-white text-warning hover:bg-warning border-0"
+          className="bg-surface-container-lowest text-on-surface hover:bg-surface-container border-0"
         >
           {t('shell.impersonationEnd')}
         </Button>

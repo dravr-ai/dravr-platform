@@ -394,7 +394,7 @@ export default function HarnessConfigTab() {
                   className={`rounded px-3 py-1 text-xs font-medium ${
                     activeLocale === loc
                       ? 'bg-primary text-on-primary'
-                      : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container'
+                      : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
                   }`}
                 >
                   {LOCALE_LABELS[loc] ?? loc}
@@ -544,7 +544,7 @@ function CsvField({ label, help, value, onChange }: CsvFieldProps) {
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-outline-variant bg-white px-3 py-2 text-sm"
+        className="w-full rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm text-on-surface"
       />
       {help ? (
         <span className="mt-1 block text-xs text-on-surface-variant">{help}</span>

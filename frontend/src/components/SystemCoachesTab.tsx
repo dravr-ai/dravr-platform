@@ -585,7 +585,7 @@ export default function SystemCoachesTab() {
             No users assigned to this agent yet. Click "Assign Users" to add access.
           </p>
         ) : (
-          <div className="divide-y divide-white/10">
+          <div className="divide-y divide-outline-variant">
             {assignments.map((assignment) => (
               <div key={assignment.user_id} className="flex items-center justify-between py-3">
                 <div>

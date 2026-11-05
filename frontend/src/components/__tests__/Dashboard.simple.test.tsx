@@ -6,6 +6,7 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 // Mock dashboard barrel via explicit /index path to avoid macOS case-insensitive
 // collision between ../dashboard (resolves to Dashboard.tsx) and dashboard/ directory
@@ -92,7 +93,9 @@ function renderDashboard() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <Dashboard />
+      <ThemeProvider>
+        <Dashboard />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

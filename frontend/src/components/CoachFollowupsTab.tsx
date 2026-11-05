@@ -214,7 +214,7 @@ export default function CoachFollowupsTab() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-outline-variant bg-white">
+              <tbody className="divide-y divide-outline-variant">
                 {filtered.map((f) => {
                   const overdue = isOverdue(f.due_at);
                   return (

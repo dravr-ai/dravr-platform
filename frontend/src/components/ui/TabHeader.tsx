@@ -28,7 +28,7 @@ export function TabHeader({ title, description, actions }: TabHeaderProps) {
   return (
     <div className="flex h-[52px] flex-shrink-0 items-center justify-between gap-6 border-b ghost-border px-5 md:px-6">
       <div className="flex min-w-0 items-baseline gap-2.5">
-        <h2 className="font-display text-xl font-semibold text-on-surface">{title}</h2>
+        <h2 className="max-w-full shrink-0 truncate font-display text-xl font-semibold text-on-surface">{title}</h2>
         {description && (
           <p data-testid="tab-header-description" className="min-w-0 truncate text-xs text-on-surface-variant">
             {description}

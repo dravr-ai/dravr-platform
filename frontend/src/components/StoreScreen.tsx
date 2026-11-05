@@ -482,7 +482,7 @@ export default function StoreScreen({
               />
             )}
             <SearchField
-              className="w-56 md:w-72"
+              className="w-36 sm:w-56 md:w-72"
               placeholder={t('discover.searchAgentsPlaceholder')}
               aria-label={t('discover.searchAgentsLabel')}
               value={searchQuery}
@@ -509,7 +509,7 @@ export default function StoreScreen({
               key={filter.key}
               onClick={() => setSelectedCategory(filter.key)}
               className={clsx(
-                '-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
+                '-mb-px flex shrink-0 touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
                 selectedCategory === filter.key
                   ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface'
@@ -950,7 +950,7 @@ function CoachDetailView({
                 className="btn-base btn-secondary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isInstalling ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
@@ -966,7 +966,7 @@ function CoachDetailView({
               className="btn-base btn-primary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isInstalling ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
                   <Plus className="w-4 h-4" />

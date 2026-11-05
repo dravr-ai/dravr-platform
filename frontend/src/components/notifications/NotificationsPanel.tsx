@@ -125,7 +125,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
               key={key}
               onClick={() => setSelectedCategory(key)}
               className={clsx(
-                '-mb-px flex touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
+                '-mb-px flex shrink-0 touch-target items-center justify-center whitespace-nowrap border-b-2 pt-1 text-sm font-medium transition-colors',
                 isActive
                   ? 'border-primary text-on-surface'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface',
@@ -168,7 +168,8 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
                   key={item.id}
                   data-testid={`notification-row-${item.id}`}
                   className={clsx(
-                    'group flex min-h-[48px] items-start gap-3 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-4 sm:px-6',
+                    'group flex min-h-[48px] flex-wrap items-start gap-x-3 gap-y-1 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-x-4 sm:px-6',
+                    !embedded && 'lg:flex-nowrap',
                     route && 'cursor-pointer',
                   )}
                   onClick={() => openNotification(item, route)}
@@ -188,8 +189,16 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
                   )}
 
                   {/* Category — its pillar as a dot beside the word, never a coloured chip.
-                      The word beside the dot takes its ink from the theme. */}
-                  <div className="inline-flex flex-shrink-0 items-center gap-1.5 pt-0.5 text-xs text-on-surface-variant whitespace-nowrap">
+                      The word beside the dot takes its ink from the theme. A narrow
+                      row gives it a line of its own, or the message gets what is left;
+                      the sheet is narrow on every screen, so only the full page ever
+                      sets it inline. The indent is the unread dot plus the row's gap. */}
+                  <div
+                    className={clsx(
+                      'order-first inline-flex basis-full items-center gap-1.5 pl-5 pt-0.5 text-xs text-on-surface-variant whitespace-nowrap sm:pl-6',
+                      !embedded && 'lg:order-none lg:flex-shrink-0 lg:basis-auto lg:pl-0',
+                    )}
+                  >
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 rounded-full"
@@ -208,7 +217,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
                         <span className="whitespace-nowrap font-mono text-xs text-outline">{collapsedLabel}</span>
                       )}
                     </div>
-                    <p className="text-xs text-outline mt-0.5 line-clamp-2">{item.body}</p>
+                    <p className="text-xs text-outline mt-0.5 line-clamp-2 break-words">{item.body}</p>
 
                     {/* Action buttons — each opens the notification's own destination,
                         so a notification with none shows no button that leads nowhere. */}

@@ -137,7 +137,7 @@ export default function UserApprovalModal({
             >
               {approvalMutation.isPending ? (
                 <div className="flex items-center justify-center">
-                  <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                  <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                   {action === 'approve' ? 'Approving...' : 'Suspending...'}
                 </div>
               ) : (

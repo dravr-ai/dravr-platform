@@ -51,7 +51,7 @@ function FunnelTile({
 }) {
   return (
     <div data-testid={testId} className="p-4 rounded-lg bg-surface-container-low border ghost-border">
-      <p className="text-xs font-medium text-on-surface-variant">{label}</p>
+      <p className="break-words text-xs font-medium text-on-surface-variant">{label}</p>
       <p className="mt-1 font-mono text-xl text-on-surface" data-testid={`${testId}-count`}>
         {count}
       </p>
@@ -81,7 +81,7 @@ function Funnel({ cohort, t }: { cohort: NewUserCohort; t: TFunction }) {
   };
   const returnedPercent = percentOf(funnel.active_after_day_7, funnel.day_7_eligible);
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3" data-testid="new-users-funnel">
+    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3" data-testid="new-users-funnel">
       <FunnelTile testId="funnel-signed-up" label={t('newUsers.signedUp')} count={funnel.signed_up} percent={null} />
       <FunnelTile
         testId="funnel-approved"

@@ -151,7 +151,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-white/10">
+              <table className="min-w-full divide-y divide-outline-variant">
                 <thead className="bg-surface-container-low">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant">#</th>
@@ -160,7 +160,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                     <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant" title="Agent system-prompt size (chars), proxy for setup cost — not real per-agent consumption">Prompt Size</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10">
+                <tbody className="divide-y divide-outline-variant">
                   {sortedCoaches.map((coach, index) => (
                     <tr key={coach.id} className="hover:bg-surface-container-low">
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-outline">
