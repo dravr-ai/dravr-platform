@@ -11,7 +11,7 @@ import type { HomeActivity } from '@pierre/shared-types';
 import { decodePolyline, type LatLon } from '@pierre/domain-utils';
 import {
   activityRowFigures,
-  formatInstant,
+  formatActivityDay,
   formatSyncTime,
   ROW_DATE,
   sportLabel,
@@ -66,7 +66,7 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
     <span className="block min-w-0 flex-1">
       <span className="flex min-w-0 items-baseline gap-2">
         <span className="shrink-0 font-mono text-xs text-on-surface-variant">
-          {formatInstant(activity.start_date, language, ROW_DATE)}
+          {formatActivityDay(activity.start_date, language, ROW_DATE)}
         </span>
         <span className="truncate text-sm font-medium text-on-surface">{activity.name || sport}</span>
       </span>

@@ -245,6 +245,7 @@ export {
   activityNaming,
   activityRowFigures,
   activityStartLine,
+  formatActivityDay,
   calendarDayLabel,
   civilDayMonth,
   civilDayOfMonth,

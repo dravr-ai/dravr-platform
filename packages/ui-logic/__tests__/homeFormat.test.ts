@@ -15,6 +15,7 @@ import {
   activityNaming,
   activityRowFigures,
   activityStartLine,
+  formatActivityDay,
   calendarDayLabel,
   civilDayOfMonth,
   civilWeekdayNarrow,
@@ -248,6 +249,43 @@ describe('volumeReadoutShown', () => {
   it('reads out any week the athlete points at, an empty one included', () => {
     expect(volumeReadoutShown(0, { activities: 0 })).toBe(true);
     expect(volumeReadoutShown(11, { activities: 0 })).toBe(true);
+  });
+});
+
+describe('formatActivityDay', () => {
+  const zoneBefore = process.env.TZ;
+  const DATE_ONLY = '2026-05-28T00:00:00Z';
+
+  afterEach(() => {
+    process.env.TZ = zoneBefore;
+  });
+
+  function day(zone: string, start: string, options: Intl.DateTimeFormatOptions = ROW_DATE): string {
+    process.env.TZ = zone;
+    return formatActivityDay(start, 'en-US', options);
+  }
+
+  it('names the day a date-only row means in every zone, west of Greenwich above all', () => {
+    expect(day('America/Montreal', DATE_ONLY)).toBe('Thu, May 28');
+    expect(day('America/Vancouver', DATE_ONLY)).toBe('Thu, May 28');
+    expect(day('UTC', DATE_ONLY)).toBe('Thu, May 28');
+    expect(day('Asia/Kolkata', DATE_ONLY)).toBe('Thu, May 28');
+    expect(day('America/Montreal', DATE_ONLY, DRAFT_DATE)).toBe('Thursday, May 28');
+  });
+
+  it('reads a real clock in the device zone, a second past midnight included', () => {
+    expect(day('America/Montreal', '2026-05-28T00:00:01Z')).toBe('Wed, May 27');
+    expect(day('America/Montreal', '2026-05-28T23:30:00Z')).toBe('Thu, May 28');
+    expect(day('Asia/Kolkata', '2026-05-28T23:30:00Z')).toBe('Fri, May 29');
+  });
+
+  it('gives back a string that is no instant', () => {
+    expect(day('UTC', 'not-a-date')).toBe('not-a-date');
+  });
+
+  it('prints the same day on the start line when the row states no clock', () => {
+    process.env.TZ = 'America/Montreal';
+    expect(activityStartLine(t, { start_date: DATE_ONLY }, null, 'en-US')).toBe('Thu, May 28');
   });
 });
 

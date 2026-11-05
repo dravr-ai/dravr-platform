@@ -14,7 +14,7 @@ import {
   activityFirstLine,
   activityStartLine,
   DRAFT_DATE,
-  formatInstant,
+  formatActivityDay,
   isDeletableActivity,
   lapsTable,
   type SegmentTable,
@@ -186,7 +186,7 @@ function ActivityChat({
   const [action, setAction] = useState<PendingComposerAction | null>(null);
   const naming = {
     name: detail.activity.name.trim() || sportLabel(t, detail.activity.sport_type),
-    date: formatInstant(detail.activity.start_date, language, DRAFT_DATE),
+    date: formatActivityDay(detail.activity.start_date, language, DRAFT_DATE),
   };
   const send = (text: string) => setAction({ kind: 'send', text });
   const sendChip = (text: string) => setAction({ kind: 'send', text, origin: 'chip' });

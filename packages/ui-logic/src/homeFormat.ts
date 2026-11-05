@@ -16,6 +16,7 @@ export type Translate = (key: string, options?: Record<string, unknown>) => stri
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAYS_PER_WEEK = 7;
+const MS_PER_DAY = 86_400_000;
 
 /** The weekday, day and month a chat draft names a day by — "Tuesday 23 September", "mardi 23 septembre". */
 export const DRAFT_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' };
@@ -97,6 +98,19 @@ export function formatInstant(instant: string, language: string, options: Intl.D
 }
 
 /**
+ * The day an activity is listed under, in the app's language. A start at exactly
+ * midnight UTC is a date-only provider row (`civil_time::is_date_only` on the
+ * server): it names a day, not a moment, so it is drawn in UTC. In the device's
+ * zone it would read as the day before everywhere west of Greenwich, while the
+ * week strip, which the server buckets by the same rule, marks the right one.
+ */
+export function formatActivityDay(start: string, language: string, options: Intl.DateTimeFormatOptions): string {
+  const ms = instantMs(start);
+  if (Number.isNaN(ms) || ms % MS_PER_DAY !== 0) return formatInstant(start, language, options);
+  return new Intl.DateTimeFormat(language, { ...options, timeZone: 'UTC' }).format(new Date(ms));
+}
+
+/**
  * An activity's start line: the date as every row prints it, or, when its
  * recording's clock is not the one this device reads at that instant, the date
  * and time on that clock ("Tue 23 Sep, 07:04 local time").
@@ -116,7 +130,7 @@ export function activityStartLine(
   const ms = instantMs(activity.start_date);
   const deviceOffsetSeconds = -new Date(ms).getTimezoneOffset() * SECONDS_PER_MINUTE;
   if (Number.isNaN(ms) || utcOffsetSeconds === null || utcOffsetSeconds === deviceOffsetSeconds) {
-    return formatInstant(activity.start_date, language, ROW_DATE);
+    return formatActivityDay(activity.start_date, language, ROW_DATE);
   }
   const time = new Intl.DateTimeFormat(language, { ...ROW_DATE_TIME, timeZone: 'UTC' }).format(
     new Date(ms + utcOffsetSeconds * MS_PER_SECOND),
@@ -200,7 +214,7 @@ export function activityNaming(
 ): { name: string; date: string } {
   return {
     name: activity.name.trim() || sportLabel(t, activity.sport_type),
-    date: formatInstant(activity.start_date, language, DRAFT_DATE),
+    date: formatActivityDay(activity.start_date, language, DRAFT_DATE),
   };
 }
 
