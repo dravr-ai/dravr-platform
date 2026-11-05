@@ -191,7 +191,6 @@ fn dead_intervals_turn() -> ToolLoopResult {
         pending_provider_auth_required: Some(INTERVALS_ICU.to_owned()),
         served_without_provider: None,
         guardian_denied: None,
-        guardian_confirm: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),
     }

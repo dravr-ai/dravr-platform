@@ -282,7 +282,10 @@ fn test_settings_guardian_help_shows_verbs() {
     assert!(stdout.contains("show"), "should list the 'show' verb");
     assert!(stdout.contains("set"), "should list the 'set' verb");
     assert!(stdout.contains("history"), "should list the 'history' verb");
-    assert!(stdout.contains("pending"), "should list the 'pending' verb");
+    assert!(
+        !stdout.contains("pending"),
+        "the parked-call verbs are gone"
+    );
 }
 
 #[test]
@@ -309,61 +312,22 @@ fn test_settings_guardian_history_help_lists_the_limit() {
 }
 
 #[test]
-fn test_settings_guardian_pending_list_help_lists_its_filters() {
-    let (exit_code, stdout, _stderr) =
-        run_cli(&["settings", "guardian", "pending", "list", "--help"]);
-
-    assert_eq!(
-        exit_code, 0,
-        "Guardian pending list help should exit with 0"
-    );
-    assert!(stdout.contains("--tenant"), "should list --tenant");
-    assert!(stdout.contains("--status"), "should list --status");
-}
-
-#[test]
-fn test_settings_guardian_pending_offers_deny_and_no_way_to_approve() {
-    let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "pending", "--help"]);
-
-    assert_eq!(exit_code, 0, "Guardian pending help should exit with 0");
-    assert!(stdout.contains("deny"), "should list the 'deny' verb");
-
-    let (exit_code, _stdout, stderr) =
-        run_cli(&["settings", "guardian", "pending", "approve", "abc"]);
-    assert_ne!(exit_code, 0, "there is no approve verb");
-    assert!(stderr.contains("approve"), "{stderr}");
-}
-
-#[test]
-fn test_settings_guardian_pending_refuses_a_status_that_does_not_exist() {
-    let (exit_code, _stdout, stderr) = run_cli(&[
-        "settings", "guardian", "pending", "list", "--status", "approved",
-    ]);
-
-    assert_ne!(
-        exit_code, 0,
-        "an unknown status must fail before any network"
-    );
-    assert!(stderr.contains("approved"), "{stderr}");
-}
-
-#[test]
 fn test_settings_guardian_set_help_lists_every_policy_flag() {
     let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "set", "--help"]);
 
     assert_eq!(exit_code, 0, "Guardian set help should exit with 0");
     for flag in [
         "--mode",
-        "--tainted-destructive",
-        "--plan-mode",
         "--max-destructive-per-turn",
         "--max-writes-per-turn",
-        "--external-send",
         "--clear",
         "--acknowledge-impact",
         "--dry-run",
     ] {
         assert!(stdout.contains(flag), "set help should list {flag}");
+    }
+    for removed in ["--tainted-destructive", "--plan-mode", "--external-send"] {
+        assert!(!stdout.contains(removed), "{removed} went with its rule");
     }
 }
 

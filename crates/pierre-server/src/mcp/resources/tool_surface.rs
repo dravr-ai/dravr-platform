@@ -96,7 +96,7 @@ const LOOPBACK_TOOL_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct TurnToolSurface {
     tool_registry: Arc<ToolRegistry>,
     /// Carries this turn's conversation and Guardian turn token, so a tool that
-    /// starts detached work can route its result back and taint accumulates
+    /// starts detached work can route its result back and budgets accumulate
     /// against the right turn.
     executor: Arc<UniversalToolExecutor>,
     user_id: String,
@@ -423,8 +423,8 @@ impl HostedToolBridge {
     /// Separate from [`McpBridgeProvider::open_tool_session`] because that one
     /// hands the surface to embacle's host and returns only a session guard,
     /// which puts the binding out of reach of anything that does not speak
-    /// MCP. The binding is what per-turn taint and the blast-radius budgets
-    /// are keyed on, so it is reachable on its own.
+    /// MCP. The binding is what the blast-radius budgets are keyed on,
+    /// so it is reachable on its own.
     #[must_use]
     pub fn turn_surface(&self, turn: ToolSessionTurn<'_>) -> TurnToolSurface {
         // The turn's own executor, carrying its conversation and Guardian turn
@@ -435,7 +435,7 @@ impl HostedToolBridge {
         // here: `UniversalToolExecutor::new` reads it from the task-local that
         // is only scoped around a tool body, and this runs in the pipeline
         // task. Without it every loopback call would mint its own turn key and
-        // start from a virgin budget with no taint carried over.
+        // start from a virgin budget.
         // A chat turn is the athlete acting on their own data through their own
         // session, not a third party acting for them, so it carries the self
         // grant. Scopes exist to narrow a THIRD PARTY's reach, and that

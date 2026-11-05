@@ -53,11 +53,8 @@ pub mod deterministic_reply;
 pub mod followups;
 /// Whether a group turn's sender is the group's coach, not an athlete in it.
 pub(crate) mod group_subject;
-/// Guardian confirm-required recovery: short-circuit a turn with the
-/// localized confirmation ask when the Guardian parked a destructive call.
-pub(crate) mod guardian_confirm;
-/// Guardian-denied recovery: short-circuit a turn with a localized "blocked
-/// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
+/// Guardian-denied recovery: short-circuit a turn with a localized reply saying
+/// what went through when the runtime Guardian blocked a tool in enforce mode.
 pub(crate) mod guardian_denied;
 /// Admin-configured text guardrails applied to the assistant reply.
 pub(crate) mod guardrails;

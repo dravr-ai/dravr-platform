@@ -1,4 +1,4 @@
-// ABOUTME: `pierre-cli settings guardian` — show, set, history and parked calls over /admin/settings/guardian
+// ABOUTME: `pierre-cli settings guardian` — show, set and history over /admin/settings/guardian
 // ABOUTME: A save is read-modify-write with the token it read; a refused one lists why and exits non-zero
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -20,28 +20,18 @@ use clap::Subcommand;
 use pierre_cli::remote::RemoteClient;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_tool_runtime::guardian::{
-    high_impact_changes, validate_document, validate_plan_mode_arming, ExternalSendAllowlist,
-    GuardianConfigDocument,
+    high_impact_changes, validate_document, GuardianConfigDocument,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use uuid::Uuid;
 
 use super::settings::{client, display_value};
 
 const GUARDIAN_PATH: &str = "/admin/settings/guardian";
-const GUARDIAN_PENDING_PATH: &str = "/admin/settings/guardian/pending";
 
-/// The six guardian document fields, in display order. `--clear` values are
+/// The guardian document fields, in display order. `--clear` values are
 /// validated against this list so a typo errors instead of silently no-oping.
-const GUARDIAN_FIELDS: [&str; 6] = [
-    "mode",
-    "max_destructive_per_turn",
-    "max_writes_per_turn",
-    "external_send",
-    "tainted_destructive",
-    "plan_mode",
-];
+const GUARDIAN_FIELDS: [&str; 3] = ["mode", "max_destructive_per_turn", "max_writes_per_turn"];
 
 /// The audit-trail actions `settings guardian history` lists.
 const HISTORY_ACTION_PREFIX: &str = "guardian.";
@@ -68,24 +58,15 @@ pub(crate) enum GuardianAction {
     },
     /// Update fields; unset flags leave their fields unchanged
     Set {
-        /// How denials are applied: off | observe | enforce
+        /// How denials are applied: observe | enforce
         #[arg(long)]
         mode: Option<String>,
-        /// Severity for a destructive tool in a tainted turn: log | confirm | deny
-        #[arg(long)]
-        tainted_destructive: Option<String>,
-        /// Plan-then-verify posture: off | enforce
-        #[arg(long)]
-        plan_mode: Option<String>,
         /// Max `IRREVERSIBLE` tool executions per turn
         #[arg(long)]
         max_destructive_per_turn: Option<u16>,
         /// Max `WRITES_DATA` tool executions per turn (>= 1)
         #[arg(long)]
         max_writes_per_turn: Option<u16>,
-        /// External-send tenant allowlist: none | all | comma-separated tenant UUIDs
-        #[arg(long)]
-        external_send: Option<String>,
         /// Reset a field to follow the compiled-in default (repeatable)
         #[arg(long, value_name = "FIELD")]
         clear: Vec<String>,
@@ -104,32 +85,6 @@ pub(crate) enum GuardianAction {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
-    /// Tool calls the Guardian parked for an athlete's `/confirm`
-    Pending {
-        /// Verb to run against the parked calls
-        #[command(subcommand)]
-        action: GuardianPendingAction,
-    },
-}
-
-/// Verbs for `settings guardian pending`.
-#[non_exhaustive]
-#[derive(Subcommand)]
-pub(crate) enum GuardianPendingAction {
-    /// List parked calls, newest first, without their arguments or agent drafts
-    List {
-        /// One tenant's calls, by UUID; every tenant's when absent
-        #[arg(long)]
-        tenant: Option<String>,
-        /// Which calls to list; `pending` when absent
-        #[arg(long, value_parser = ["pending", "confirmed", "denied", "expired"])]
-        status: Option<String>,
-    },
-    /// Deny a parked call. Super admins cannot approve one: only its athlete can
-    Deny {
-        /// The parked call's id, from `pending list`
-        id: String,
-    },
 }
 
 /// Dispatch a `settings guardian` verb.
@@ -142,22 +97,16 @@ pub(super) async fn dispatch(action: GuardianAction) -> AppResult<()> {
         GuardianAction::Show { json } => guardian_show(json).await,
         GuardianAction::Set {
             mode,
-            tainted_destructive,
-            plan_mode,
             max_destructive_per_turn,
             max_writes_per_turn,
-            external_send,
             clear,
             acknowledge_impact,
             dry_run,
         } => {
             guardian_set(GuardianSetArgs {
                 mode,
-                tainted_destructive,
-                plan_mode,
                 max_destructive_per_turn,
                 max_writes_per_turn,
-                external_send,
                 clear,
                 acknowledge_impact,
                 dry_run,
@@ -165,12 +114,6 @@ pub(super) async fn dispatch(action: GuardianAction) -> AppResult<()> {
             .await
         }
         GuardianAction::History { limit } => guardian_history(limit).await,
-        GuardianAction::Pending { action } => match action {
-            GuardianPendingAction::List { tenant, status } => {
-                guardian_pending_list(tenant.as_deref(), status.as_deref()).await
-            }
-            GuardianPendingAction::Deny { id } => guardian_pending_deny(&id).await,
-        },
     }
 }
 
@@ -198,11 +141,8 @@ fn print_lines(lines: &[String]) {
 #[derive(Default)]
 struct GuardianSetArgs {
     mode: Option<String>,
-    tainted_destructive: Option<String>,
-    plan_mode: Option<String>,
     max_destructive_per_turn: Option<u16>,
     max_writes_per_turn: Option<u16>,
-    external_send: Option<String>,
     clear: Vec<String>,
     acknowledge_impact: bool,
     dry_run: bool,
@@ -211,11 +151,8 @@ struct GuardianSetArgs {
 impl GuardianSetArgs {
     fn is_empty(&self) -> bool {
         self.mode.is_none()
-            && self.tainted_destructive.is_none()
-            && self.plan_mode.is_none()
             && self.max_destructive_per_turn.is_none()
             && self.max_writes_per_turn.is_none()
-            && self.external_send.is_none()
             && self.clear.is_empty()
     }
 
@@ -245,20 +182,11 @@ impl GuardianSetArgs {
         if let Some(raw) = &self.mode {
             document.mode = Some(parse_wire("mode", raw)?);
         }
-        if let Some(raw) = &self.tainted_destructive {
-            document.tainted_destructive = Some(parse_wire("tainted_destructive", raw)?);
-        }
-        if let Some(raw) = &self.plan_mode {
-            document.plan_mode = Some(parse_wire("plan_mode", raw)?);
-        }
         if let Some(n) = self.max_destructive_per_turn {
             document.max_destructive_per_turn = Some(n);
         }
         if let Some(n) = self.max_writes_per_turn {
             document.max_writes_per_turn = Some(n);
-        }
-        if let Some(raw) = &self.external_send {
-            document.external_send = Some(parse_external_send(raw)?);
         }
         for field in &self.clear {
             clear_field(&mut document, field);
@@ -287,7 +215,7 @@ async fn guardian_set(args: GuardianSetArgs) -> AppResult<()> {
 
     if args.dry_run {
         print_lines(&dry_run_lines(&stored, &document, &current)?);
-        return check_save_allowed(&document, &current);
+        return validate_document(&document);
     }
 
     let body = guardian_put_body(
@@ -397,17 +325,6 @@ fn dry_run_lines(
     Ok(lines)
 }
 
-/// The refusals a dry run can predict, so one that would fail exits non-zero. The
-/// server still judges the real save; a stale base is only known then.
-fn check_save_allowed(document: &GuardianConfigDocument, current: &Value) -> AppResult<()> {
-    validate_document(document)?;
-    let armable = current
-        .get("plan_mode_armable")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    validate_plan_mode_arming(document, armable)
-}
-
 /// One field a change moves.
 struct FieldChange {
     field: &'static str,
@@ -471,9 +388,6 @@ fn clear_field(document: &mut GuardianConfigDocument, field: &str) {
         "mode" => document.mode = None,
         "max_destructive_per_turn" => document.max_destructive_per_turn = None,
         "max_writes_per_turn" => document.max_writes_per_turn = None,
-        "external_send" => document.external_send = None,
-        "tainted_destructive" => document.tainted_destructive = None,
-        "plan_mode" => document.plan_mode = None,
         // Unreachable: names are validated against GUARDIAN_FIELDS above.
         _ => {}
     }
@@ -484,25 +398,6 @@ fn clear_field(document: &mut GuardianConfigDocument, field: &str) {
 fn parse_wire<T: DeserializeOwned>(field: &str, raw: &str) -> AppResult<T> {
     serde_json::from_value(Value::String(raw.trim().to_ascii_lowercase()))
         .map_err(|e| AppError::invalid_input(format!("--{field} {raw}: {e}")))
-}
-
-fn parse_external_send(raw: &str) -> AppResult<ExternalSendAllowlist> {
-    let trimmed = raw.trim();
-    let value = if trimmed.eq_ignore_ascii_case("none") || trimmed.eq_ignore_ascii_case("all") {
-        Value::String(trimmed.to_ascii_lowercase())
-    } else {
-        Value::Array(
-            trimmed
-                .split(',')
-                .map(|s| Value::String(s.trim().to_owned()))
-                .collect(),
-        )
-    };
-    serde_json::from_value(value).map_err(|e| {
-        AppError::invalid_input(format!(
-            "--external-send {raw}: {e} (expected none, all, or comma-separated tenant UUIDs)"
-        ))
-    })
 }
 
 /// The `show` view: each field stored, in force and why, then which instance
@@ -564,13 +459,6 @@ fn guardian_lines(response: &Value) -> Vec<String> {
         (Some(true), Some(Value::String(reason))) => format!("  Degraded: YES, {reason}"),
         (Some(true), _) => "  Degraded: YES".to_owned(),
         (None, _) => "  Degraded: ?".to_owned(),
-    });
-    lines.push(match flag("plan_mode_armable") {
-        Some(true) => "  Plan mode armable: yes".to_owned(),
-        Some(false) => {
-            "  Plan mode armable: no (GUARDIAN_PLAN_MODE_ARMABLE is not set here)".to_owned()
-        }
-        None => "  Plan mode armable: ?".to_owned(),
     });
     if let Some(version) = response
         .get("stored_schema_version")
@@ -649,115 +537,24 @@ fn history_event_lines(event: &Value) -> Vec<String> {
     lines
 }
 
-async fn guardian_pending_list(tenant: Option<&str>, status: Option<&str>) -> AppResult<()> {
-    let path = pending_list_path(tenant, status)?;
-    let response = client()?.get_json(&path).await?;
-    print_lines(&pending_lines(&response));
-    Ok(())
-}
-
-/// The list route's path. The tenant must be a UUID and clap has limited the status
-/// to its four words, so nothing here needs escaping.
-fn pending_list_path(tenant: Option<&str>, status: Option<&str>) -> AppResult<String> {
-    let mut query = Vec::new();
-    if let Some(raw) = tenant {
-        let tenant = Uuid::parse_str(raw.trim())
-            .map_err(|e| AppError::invalid_input(format!("--tenant {raw}: {e}")))?;
-        query.push(format!("tenant={tenant}"));
-    }
-    if let Some(status) = status {
-        query.push(format!("status={status}"));
-    }
-    Ok(if query.is_empty() {
-        GUARDIAN_PENDING_PATH.to_owned()
-    } else {
-        format!("{GUARDIAN_PENDING_PATH}?{}", query.join("&"))
-    })
-}
-
-/// The deny route's path. An id is a uuid-simple token, so anything else is refused
-/// here rather than interpolated into the path.
-fn pending_deny_path(id: &str) -> AppResult<String> {
-    let id = id.trim();
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err(AppError::invalid_input(format!(
-            "'{id}' is not a parked call's id"
-        )));
-    }
-    Ok(format!("{GUARDIAN_PENDING_PATH}/{id}/deny"))
-}
-
-fn pending_lines(response: &Value) -> Vec<String> {
-    let entries = response
-        .get("entries")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice);
-    let status = response
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("?");
-    if entries.is_empty() {
-        return vec![format!("  No parked calls with status {status}.")];
-    }
-    let mut lines = vec![format!(
-        "  {:<32}  {:<28}  {:<36}  {:<36}  {:<9}  {:<25}  REASON",
-        "ID", "TOOL", "TENANT", "USER", "STATUS", "EXPIRES"
-    )];
-    lines.extend(entries.iter().map(pending_line));
-    lines
-}
-
-fn pending_line(entry: &Value) -> String {
-    let text = |key: &str| entry.get(key).and_then(Value::as_str).unwrap_or("?");
-    format!(
-        "  {:<32}  {:<28}  {:<36}  {:<36}  {:<9}  {:<25}  {}",
-        text("id"),
-        text("tool_name"),
-        text("tenant_id"),
-        text("user_id"),
-        text("status"),
-        text("expires_at"),
-        text("deny_reason"),
-    )
-}
-
-async fn guardian_pending_deny(id: &str) -> AppResult<()> {
-    let path = pending_deny_path(id)?;
-    let response = client()?.post_json(&path, &serde_json::json!({})).await?;
-    println!("  Parked call denied. It will not run.");
-    if let Some(entry) = response.get("entry") {
-        println!("{}", pending_line(entry));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_tool_runtime::guardian::{GuardianMode, PlanMode, TaintedDestructive};
+    use pierre_tool_runtime::guardian::GuardianMode;
     use serde_json::json;
-
-    const TENANT_A: &str = "11111111-1111-4111-8111-111111111111";
-    const TENANT_B: &str = "22222222-2222-4222-8222-222222222222";
 
     fn sample_response() -> Value {
         json!({
-            "config": {"schema_version": 1, "mode": "observe", "external_send": [TENANT_A, TENANT_B]},
+            "config": {"schema_version": 2, "mode": "observe"},
             "effective": {
                 "mode": "enforce",
-                "max_destructive_per_turn": 1,
-                "max_writes_per_turn": 50,
-                "external_send": [TENANT_A, TENANT_B],
-                "tainted_destructive": "log",
-                "plan_mode": "off"
+                "max_destructive_per_turn": 3,
+                "max_writes_per_turn": 50
             },
             "sources": {
                 "mode": "env",
                 "max_destructive_per_turn": "default",
-                "max_writes_per_turn": "default",
-                "external_send": "database",
-                "tainted_destructive": "default",
-                "plan_mode": "default"
+                "max_writes_per_turn": "default"
             },
             "env_pinned": ["mode"],
             "source": "persisted",
@@ -766,8 +563,7 @@ mod tests {
             "instance_id": "rev-7:abc",
             "in_sync": false,
             "degraded": true,
-            "degraded_reason": "plan_mode enforce is not armed",
-            "plan_mode_armable": false,
+            "degraded_reason": "max_writes_per_turn=0 is refused",
             "stored_schema_version": 0,
             "stored_unknown_fields": ["future_field"]
         })
@@ -781,38 +577,12 @@ mod tests {
     }
 
     #[test]
-    fn external_send_parses_its_keywords_and_a_tenant_list_and_refuses_the_rest() {
-        assert_eq!(
-            parse_external_send(" NONE ").unwrap(),
-            ExternalSendAllowlist::None
-        );
-        assert_eq!(
-            parse_external_send("All").unwrap(),
-            ExternalSendAllowlist::All
-        );
-        let ExternalSendAllowlist::Only(tenants) =
-            parse_external_send(&format!("{TENANT_A}, {TENANT_B}")).unwrap()
-        else {
-            panic!("a list of tenants");
-        };
-        assert_eq!(tenants.len(), 2);
-
-        let refused = parse_external_send("nobody").unwrap_err().to_string();
-        assert!(refused.contains("--external-send nobody"), "{refused}");
-        assert!(refused.contains("comma-separated"), "{refused}");
-        assert!(parse_external_send(&format!("{TENANT_A},nope")).is_err());
-    }
-
-    #[test]
     fn clearing_a_field_unsets_that_field_alone() {
         for field in GUARDIAN_FIELDS {
             let mut document = GuardianConfigDocument {
                 mode: Some(GuardianMode::Observe),
                 max_destructive_per_turn: Some(2),
                 max_writes_per_turn: Some(3),
-                external_send: Some(ExternalSendAllowlist::All),
-                tainted_destructive: Some(TaintedDestructive::Deny),
-                plan_mode: Some(PlanMode::Off),
                 ..GuardianConfigDocument::default()
             };
             clear_field(&mut document, field);
@@ -836,7 +606,6 @@ mod tests {
             ..GuardianConfigDocument::default()
         };
         let edited = GuardianSetArgs {
-            tainted_destructive: Some("CONFIRM".to_owned()),
             max_destructive_per_turn: Some(0),
             max_writes_per_turn: Some(4),
             clear: vec!["max_writes_per_turn".to_owned()],
@@ -846,10 +615,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(edited.mode, Some(GuardianMode::Observe), "left alone");
-        assert_eq!(
-            edited.tainted_destructive,
-            Some(TaintedDestructive::Confirm)
-        );
         assert_eq!(edited.max_destructive_per_turn, Some(0));
         assert_eq!(edited.max_writes_per_turn, None, "--clear wins");
         assert_eq!(
@@ -881,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn show_prints_the_persisted_value_a_pin_shadows_and_every_tenant() {
+    fn show_prints_the_persisted_value_a_pin_shadows() {
         let lines = guardian_lines(&sample_response());
 
         let mode = line_of(&lines, "mode ");
@@ -893,17 +658,12 @@ mod tests {
         assert!(writes.contains(UNSET), "{writes}");
         assert!(writes.contains("50"), "{writes}");
 
-        let external = line_of(&lines, "external_send");
-        assert!(external.contains(TENANT_A), "{external}");
-        assert!(external.contains(TENANT_B), "{external}");
-
         assert!(line_of(&lines, "NOTE").contains("mode"));
         let instance = line_of(&lines, "Answered by");
         assert!(instance.contains("rev-7:abc"), "{instance}");
         assert!(instance.contains("2026-11-04T12:00:30"), "{instance}");
         assert!(line_of(&lines, "In sync").contains("NO"));
-        assert!(line_of(&lines, "Degraded").contains("plan_mode enforce is not armed"));
-        assert!(line_of(&lines, "Plan mode armable").contains("no"));
+        assert!(line_of(&lines, "Degraded").contains("max_writes_per_turn=0 is refused"));
         assert!(line_of(&lines, "Stored schema version").contains('0'));
         assert!(line_of(&lines, "Stored fields").contains("future_field"));
     }
@@ -914,7 +674,6 @@ mod tests {
         response["in_sync"] = json!(true);
         response["degraded"] = json!(false);
         response["degraded_reason"] = Value::Null;
-        response["plan_mode_armable"] = json!(true);
         response["env_pinned"] = json!([]);
         let fields = response.as_object_mut().unwrap();
         fields.remove("stored_schema_version");
@@ -923,10 +682,6 @@ mod tests {
         let lines = guardian_lines(&response);
         assert_eq!(line_of(&lines, "In sync").trim(), "In sync: yes");
         assert_eq!(line_of(&lines, "Degraded").trim(), "Degraded: no");
-        assert_eq!(
-            line_of(&lines, "Plan mode armable").trim(),
-            "Plan mode armable: yes"
-        );
         for absent in ["NOTE", "Stored schema", "Stored fields"] {
             assert!(
                 !lines
@@ -954,7 +709,7 @@ mod tests {
             "message": "ignored in favour of the list",
             "impacted_fields": [
                 {"field": "mode", "from": "enforce", "to": "observe", "effect": "Stops blocking."},
-                {"field": "external_send", "from": "none", "to": "all", "effect": "Reaches out."}
+                {"field": "max_destructive_per_turn", "from": "3", "to": "0", "effect": "Refuses them."}
             ]
         }));
         assert!(
@@ -962,7 +717,7 @@ mod tests {
             "{message}"
         );
         assert!(
-            message.contains("external_send: none -> all. Reaches out."),
+            message.contains("max_destructive_per_turn: 3 -> 0. Refuses them."),
             "{message}"
         );
         assert!(message.contains("--acknowledge-impact"), "{message}");
@@ -1014,22 +769,6 @@ mod tests {
     }
 
     #[test]
-    fn a_dry_run_exits_non_zero_on_what_the_server_would_refuse() {
-        let response = sample_response();
-        let armed = GuardianConfigDocument {
-            plan_mode: Some(PlanMode::Enforce),
-            ..GuardianConfigDocument::default()
-        };
-        assert!(check_save_allowed(&armed, &response).is_err());
-        assert!(check_save_allowed(&armed, &json!({"plan_mode_armable": true})).is_ok());
-        let zero = GuardianConfigDocument {
-            max_writes_per_turn: Some(0),
-            ..GuardianConfigDocument::default()
-        };
-        assert!(check_save_allowed(&zero, &response).is_err());
-    }
-
-    #[test]
     fn history_names_who_acted_and_what_moved() {
         let event = |at: &str, before: Value, after: Value| {
             json!({
@@ -1062,10 +801,10 @@ mod tests {
                 "occurred_at": "2026-11-04T10:00:00+00:00",
                 "actor_email": null,
                 "source": "service",
-                "action": "guardian.pending.deny",
-                "outcome": "success",
-                "summary": "Denied the parked call of push_workout in tenant t",
-                "metadata": {"target": {"pending_id": "abc"}}
+                "action": "guardian.config.update",
+                "outcome": "failure",
+                "summary": "A save with no document",
+                "metadata": {}
             },
             {
                 "occurred_at": "2026-11-04T09:00:00+00:00",
@@ -1088,58 +827,13 @@ mod tests {
         line_of(&lines, "mode: (unset) -> observe");
         line_of(&lines, "previous row was not a document: {broken");
         assert!(line_of(&lines, "2026-11-04T10:00:00").contains("service"));
-        line_of(&lines, "Denied the parked call of push_workout");
+        line_of(&lines, "A save with no document");
         assert!(line_of(&lines, "2026-11-04T09:00:00").contains("refused"));
         line_of(&lines, "Refused a Guardian policy save (409)");
 
         assert_eq!(
             history_lines(&json!({"data": {"events": [], "next_before": null}})),
             ["  No recorded Guardian actions."]
-        );
-    }
-
-    #[test]
-    fn the_pending_paths_carry_only_what_was_checked() {
-        assert_eq!(
-            pending_list_path(None, None).unwrap(),
-            GUARDIAN_PENDING_PATH
-        );
-        assert_eq!(
-            pending_list_path(Some(TENANT_A), Some("expired")).unwrap(),
-            format!("{GUARDIAN_PENDING_PATH}?tenant={TENANT_A}&status=expired")
-        );
-        assert!(pending_list_path(Some("a&status=denied"), None).is_err());
-
-        assert_eq!(
-            pending_deny_path(" abc123 ").unwrap(),
-            format!("{GUARDIAN_PENDING_PATH}/abc123/deny")
-        );
-        for bad in ["", "../../users", "a/b", "a?b"] {
-            assert!(pending_deny_path(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn the_pending_view_lists_rows_and_says_when_there_are_none() {
-        let lines = pending_lines(&json!({
-            "status": "pending",
-            "entries": [{
-                "id": "abc123",
-                "tool_name": "disconnect_provider",
-                "tenant_id": TENANT_A,
-                "user_id": TENANT_B,
-                "status": "pending",
-                "expires_at": "2026-11-04T12:05:00Z",
-                "deny_reason": "tainted_sink"
-            }]
-        }));
-        let row = line_of(&lines, "abc123");
-        for cell in ["disconnect_provider", TENANT_A, TENANT_B, "tainted_sink"] {
-            assert!(row.contains(cell), "{row}");
-        }
-        assert_eq!(
-            pending_lines(&json!({"status": "denied", "entries": []})),
-            ["  No parked calls with status denied."]
         );
     }
 

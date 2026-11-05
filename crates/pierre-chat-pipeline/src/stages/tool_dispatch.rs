@@ -190,7 +190,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_agent(turn_agent_id.map(ToOwned::to_owned))
-            // Guardian turn key = the per-utterance turn_id, so taint/budget
+            // Guardian turn key = the per-utterance turn_id, so budgets
             // accumulate across THIS message's ReAct loop and reset next message
             // (not across the whole conversation). conversation_id stays above,
             // for routing detached work back to the thread.

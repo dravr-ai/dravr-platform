@@ -106,7 +106,6 @@ pub(crate) async fn run_api_tool_loop(
                     responses: function_responses,
                     auth_required_provider,
                     guardian_denied,
-                    guardian_confirm,
                     executed,
                     members_read,
                 } = execute_function_calls(
@@ -143,13 +142,6 @@ pub(crate) async fn run_api_tool_loop(
                 // block takes precedence over re-auth (carnet#1411).
                 if let Some(denial) = guardian_denied {
                     return Ok(tally.guardian_denied(Some(spend.usage), denial));
-                }
-
-                // Guardian confirm-required short-circuit (enforce mode): the
-                // chokepoint parked a destructive call; exit so the chat
-                // pipeline renders the deterministic confirmation ask.
-                if let Some(confirm) = guardian_confirm {
-                    return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
                 }
 
                 // Auth-required short-circuit: if any tool failed with
@@ -229,7 +221,6 @@ pub(crate) async fn run_api_tool_loop(
                 responses: function_responses,
                 auth_required_provider,
                 guardian_denied,
-                guardian_confirm,
                 executed,
                 members_read,
             } = execute_function_calls(
@@ -252,9 +243,6 @@ pub(crate) async fn run_api_tool_loop(
             }
             if let Some(denial) = guardian_denied {
                 return Ok(tally.guardian_denied(Some(spend.usage), denial));
-            }
-            if let Some(confirm) = guardian_confirm {
-                return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
             }
             // Keep the siblings' work on the way out, as in the structured
             // branch above.
@@ -424,7 +412,6 @@ pub async fn run_cli_tool_loop(
             responses: function_responses,
             auth_required_provider,
             guardian_denied,
-            guardian_confirm,
             executed,
             members_read,
         } = execute_function_calls(
@@ -455,11 +442,6 @@ pub async fn run_cli_tool_loop(
         // safety" reply.
         if let Some(denial) = guardian_denied {
             return Ok(tally.guardian_denied(response.usage, denial));
-        }
-
-        // Guardian confirm-required short-circuit (mirror of the API loop).
-        if let Some(confirm) = guardian_confirm {
-            return Ok(tally.guardian_confirm(response.usage, confirm));
         }
 
         // Auth-required short-circuit (mirror of the API loop): exit early so
@@ -507,7 +489,6 @@ pub async fn run_cli_tool_loop(
 }
 
 pub use crate::headless_finalize::finalize_headless_turn;
-pub use crate::planned_loop::run_planned_tool_loop;
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
 pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
@@ -707,19 +688,7 @@ pub async fn run_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    // Plan-then-verify (Phase 3): when armed, the LLM emits a verified up-front
-    // plan instead of the interleaved ReAct loop — for EVERY provider class,
-    // including SDK-tool-calling (Copilot ACP). The planner and synthesis calls
-    // are plain completions every provider serves, and a verified plan's steps
-    // dispatch through the UniversalExecutor chokepoint directly, so the ACP
-    // subprocess loop is simply bypassed while the mode is armed.
-    use crate::guardian::PlanMode;
-    let plan_mode = params.executor.resources.guardian().policy().plan_mode;
-    let mut result = if matches!(plan_mode, PlanMode::Enforce) {
-        run_planned_tool_loop(params, llm_messages).await?
-    } else {
-        run_react_tool_loop(params, llm_messages).await?
-    };
+    let mut result = run_react_tool_loop(params, llm_messages).await?;
     // Every path ends here, so the turn's first block reaches the reply however
     // the turn got here, and no entry outlives a turn that returned.
     settle_turn_signals(params, &mut result);
@@ -728,11 +697,8 @@ pub async fn run_tool_loop(
 
 /// Route one `ReAct` turn by provider capability: native function calling →
 /// API loop; SDK tool calling → headless (Copilot ACP) loop with retryable
-/// fallback; otherwise the text-simulation CLI loop. Also the degrade target
-/// when an armed planner emits an unparseable plan, so that fallback keeps
-/// the capability routing instead of forcing the API loop onto a provider
-/// that cannot serve it.
-pub(crate) async fn run_react_tool_loop(
+/// fallback; otherwise the text-simulation CLI loop.
+async fn run_react_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {

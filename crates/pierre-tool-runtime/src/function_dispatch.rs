@@ -10,7 +10,7 @@
 //! separates three things the loops used to conflate: the responses the model
 //! is owed (one per request, including failures, so it can see its own
 //! mistake), the out-of-band control signals that short-circuit the turn
-//! (auth-required, Guardian denial, Guardian confirm), and the names of the
+//! (auth-required, Guardian denial), and the names of the
 //! tools that actually succeeded.
 //!
 //! That last one is a security surface, not bookkeeping. It is the evidence
@@ -20,7 +20,7 @@
 //! A turn the athlete watches also sees each call here as a step: a progress
 //! frame when the call starts and another when it ends, in the ACP words the
 //! Copilot turn reports its own calls in, so a client draws one trail
-//! whichever loop ran. A call the Guardian blocked or parked never ran, and
+//! whichever loop ran. A call the Guardian blocked never ran, and
 //! its closing frame says so ([`TOOL_STATUS_NOT_RUN`]) instead of checking it
 //! off.
 
@@ -41,7 +41,7 @@ use crate::protocol::types::{
 };
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::tool_execution::{build_function_response, log_tool_response_size};
-use crate::tool_loop_io::{GuardianConfirmRequest, GuardianDenial};
+use crate::tool_loop_io::GuardianDenial;
 use crate::tool_progress::{closing_status, report_call};
 
 /// Output of [`execute_function_calls`].
@@ -65,10 +65,6 @@ pub struct ExecutedFunctionCalls {
     /// Travels separately from `responses` because the in-band denial would
     /// otherwise be fed back to the LLM as an ordinary failed tool result.
     pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation, or
-    /// `None`. Same out-of-band contract as `guardian_denied`; the chat
-    /// pipeline renders the localized confirmation ask.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
     /// Names of the tools that actually ran and succeeded, in call order.
     ///
     /// NOT the requested `function_calls`: a denial, a refusal, an error and a
@@ -157,28 +153,17 @@ async fn execute_mcp_tool(
 fn capture_guardian_block(
     tool_name: &str,
     tool_response: &UniversalResponse,
-) -> (Option<GuardianDenial>, Option<GuardianConfirmRequest>) {
-    let meta_str = |key: &str| metadata_str(tool_response, key);
-    match guardian_block_reason(tool_response) {
-        Some("guardian") => {
-            let reason = meta_str("guardian_reason").unwrap_or("denied").to_owned();
-            (
-                Some(GuardianDenial {
-                    tool_name: tool_name.to_owned(),
-                    reason,
-                }),
-                None,
-            )
-        }
-        Some("guardian_confirm") => (
-            None,
-            meta_str("pending_id").map(|pending_id| GuardianConfirmRequest {
-                tool_name: tool_name.to_owned(),
-                pending_id: pending_id.to_owned(),
-            }),
-        ),
-        _ => (None, None),
-    }
+) -> Option<GuardianDenial> {
+    guardian_block_reason(tool_response)?;
+    Some(GuardianDenial {
+        tool_name: tool_name.to_owned(),
+        reason: metadata_str(tool_response, "guardian_reason")
+            .unwrap_or("denied")
+            .to_owned(),
+        // The turn's store holds these: `settle_turn_signals` reads them when the
+        // loop returns, for this denial's own block record.
+        committed: Vec::new(),
+    })
 }
 
 /// Execute a batch of function calls via the MCP executor and return responses.
@@ -224,7 +209,6 @@ async fn run_function_calls(
     let mut executed: Vec<String> = Vec::new();
     let mut dead_provider: Option<String> = None;
     let mut guardian_denied: Option<GuardianDenial> = None;
-    let mut guardian_confirm: Option<GuardianConfirmRequest> = None;
     for function_call in function_calls {
         info!(
             tool_name = %function_call.name,
@@ -249,13 +233,11 @@ async fn run_function_calls(
             dead_provider = auth_required_provider(&tool_response);
         }
 
-        // Capture the first Guardian denial or parked confirmation (enforce
-        // mode) before `build_function_response` reshapes the payload. First
-        // to trip wins across the batch.
-        if guardian_denied.is_none() && guardian_confirm.is_none() {
-            let (denied, confirm) = capture_guardian_block(&function_call.name, &tool_response);
-            guardian_denied = denied;
-            guardian_confirm = confirm;
+        // Capture the first Guardian denial (enforce mode) before
+        // `build_function_response` reshapes the payload. First to trip wins
+        // across the batch.
+        if guardian_denied.is_none() {
+            guardian_denied = capture_guardian_block(&function_call.name, &tool_response);
         }
 
         let func_response = build_function_response(function_call, &tool_response);
@@ -285,11 +267,10 @@ async fn run_function_calls(
 
         responses.push(func_response);
 
-        // P4: once the Guardian denies or parks a tool in this batch, stop —
-        // do not execute the remaining siblings (they would commit side
-        // effects while the user is shown a "blocked"/"confirm" reply). The
-        // turn short-circuits anyway.
-        if guardian_denied.is_some() || guardian_confirm.is_some() {
+        // P4: once the Guardian denies a tool in this batch, stop — do not
+        // execute the remaining siblings (they would commit side effects while
+        // the user is shown a "blocked" reply). The turn short-circuits anyway.
+        if guardian_denied.is_some() {
             break;
         }
     }
@@ -297,7 +278,6 @@ async fn run_function_calls(
         responses,
         auth_required_provider: dead_provider,
         guardian_denied,
-        guardian_confirm,
         executed,
         members_read: BTreeSet::new(),
     })

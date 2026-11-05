@@ -268,27 +268,18 @@ pub(crate) async fn run_recovery_and_post_process(
         streamed_to,
     } = inputs;
     let mut draft = StreamedDraft { sink: streamed_to };
-    // Guardian short-circuits take precedence over re-auth: a tool blocked by
-    // the runtime Guardian (enforce mode) renders the deterministic "blocked
-    // for safety" reply, and a parked confirm-required call renders the
-    // deterministic confirmation ask — both bypassing LLM post-processing and
-    // the re-auth mint below. Every tool loop checks the Guardian's signals
-    // before the auth trip, so a batch that raised both returns the block, and
-    // the turn carries one block at most: its first
-    // (`headless_finalize::settle_turn_signals`).
-    let guardian_denied = stages::guardian_denied::apply_guardian_denied(
+    // A Guardian block takes precedence over re-auth: a tool blocked by the
+    // runtime Guardian (enforce mode) renders the deterministic reply saying what
+    // went through, bypassing LLM post-processing and the re-auth mint below.
+    // Every tool loop checks the Guardian's signal before the auth trip, so a
+    // batch that raised both returns the block, and the turn carries one block at
+    // most: its first (`headless_finalize::settle_turn_signals`).
+    if stages::guardian_denied::apply_guardian_denied(
         &ctx.messaging_strings_registry,
+        ctx.tool_runtime.tool_registry(),
         &profile.locale,
         result,
-    );
-    let guardian_confirm = !guardian_denied
-        && stages::guardian_confirm::apply_guardian_confirm(
-            &ctx.messaging_strings_registry,
-            ctx.tool_runtime.tool_registry(),
-            &profile.locale,
-            result,
-        );
-    if guardian_denied || guardian_confirm {
+    ) {
         draft.take_back();
         return (
             stages::post_process::PostProcessedReply {
@@ -512,7 +503,6 @@ mod tests {
             pending_provider_auth_required: None,
             served_without_provider: None,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),
         }

@@ -29,7 +29,9 @@ use pierre_core::llm::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::{NewConversation, PendingGuardianAction};
+use pierre_database::repositories::{
+    NewConversation, PendingGuardianAction, AGENT_PROPOSAL_ACTION,
+};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
@@ -792,13 +794,9 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
                 id: Uuid::new_v4().simple().to_string(),
                 tenant_id: tenant.to_string(),
                 user_id: user.clone(),
-                conversation_id: Some(archived.clone()),
-                tool_name: "disconnect_provider".to_owned(),
-                arguments: json!({ "provider": "strava" }),
-                deny_reason: "tainted_sink".to_owned(),
-                turn_agent_id: None,
-                seat: None,
-                turn_provenance: None,
+                tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
+                arguments: json!({ "title": "Hill Agent" }),
+                deny_reason: "awaiting_confirmation".to_owned(),
             };
             resources
                 .common

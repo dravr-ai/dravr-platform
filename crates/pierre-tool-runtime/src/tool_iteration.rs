@@ -241,7 +241,6 @@ fn first_write<'tools>(
     params: &ToolLoopParams<'_>,
     tools: &'tools [String],
 ) -> Option<&'tools str> {
-    use crate::guardian::ToolLabels;
     let registry = params.executor.resources.tool_registry();
     tools
         .iter()

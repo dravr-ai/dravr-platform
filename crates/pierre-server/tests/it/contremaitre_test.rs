@@ -206,7 +206,6 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "claim_judge",
     "coach_generation",
     "conversation_summary",
-    "guardian_planner",
     "insight_generation",
     "insight_validation",
     "language_classification",

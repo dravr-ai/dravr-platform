@@ -13,8 +13,8 @@
 //! `ToolLoopTally` is the running half of that contract: the activity list,
 //! reconnect offer, tool count and tool names a loop accumulates as it runs.
 //! Each of its constructors stamps one exit shape — an auth trip, a Guardian
-//! block, a Guardian confirmation, an answer, or an exhausted iteration budget
-//! — onto that accounting, so the five shapes are written once instead of once
+//! block, an answer, or an exhausted iteration budget
+//! — onto that accounting, so the four shapes are written once instead of once
 //! per loop.
 
 use std::collections::BTreeSet;
@@ -24,14 +24,10 @@ use std::sync::Arc;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
-use tracing::warn;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::is_llm_provider_fault;
-use pierre_core::models::{
-    TenantId, GUARDIAN_CONFIRM_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON,
-    GUARDIAN_PLAN_REJECTED_FINISH_REASON,
-};
+use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use uuid::Uuid;
 
 use crate::protocol::UniversalExecutor;
@@ -172,17 +168,19 @@ impl fmt::Debug for ToolLoopParams<'_> {
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// The chokepoint raises one in `enforce` mode (the default); `off` and `observe`
-/// log and fall through to execution. A plan the Guardian refused sets one in
-/// every mode: plan-then-verify is its own switch, and a refused plan never runs.
+/// The chokepoint raises one in `enforce` mode (the default); `observe` logs and
+/// falls through to execution.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
     pub tool_name: String,
     /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
-    /// `budget_exceeded`, `tainted_sink`, `egress_forbidden`. Used for
-    /// structured logging — never shown verbatim to the user.
+    /// `budget_exceeded`, `egress_forbidden`. Used for structured logging — never
+    /// shown verbatim to the user.
     pub reason: String,
+    /// Registry names of the consequential calls that succeeded before the
+    /// block, in order, repeats kept. The reply has to say these went through.
+    pub committed: Vec<String>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -219,17 +217,10 @@ pub struct ToolLoopResult {
     /// carrying both blanks: it did not answer what the athlete asked, and the
     /// provider that blanked it is the one to offer.
     pub served_without_provider: Option<String>,
-    /// The first tool the runtime Guardian blocked this turn (`enforce` mode),
-    /// or the plan it refused (in any mode, once plan-then-verify is armed).
-    /// The chat pipeline detects this and short-circuits with a localized
-    /// "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None` when nothing
-    /// was denied.
+    /// The first tool the runtime Guardian blocked this turn (`enforce` mode).
+    /// The chat pipeline detects this and short-circuits with a localized reply
+    /// saying what went through before the block. `None` when nothing was denied.
     pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation this turn
-    /// (`TaintedDestructive::Confirm`, `enforce` mode only). The chat pipeline
-    /// short-circuits with the localized confirmation prompt
-    /// (`KEY_GUARDIAN_CONFIRM_PROMPT`) carrying the claim token.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
     /// Set by the capability-recovery stage when the delivered reply carries a
     /// data-access claim the platform could not stand behind — either an
     /// unrefuted "I can't reach your data" or the reconnect message that
@@ -244,20 +235,6 @@ pub struct ToolLoopResult {
     /// an image it could not see. Deduplicated, in first-seen order: a loop
     /// re-sends the same request shape every iteration.
     pub provider_warnings: Vec<String>,
-}
-
-/// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
-///
-/// Surfaced out of the tool loop as an out-of-band signal (parallel to
-/// [`GuardianDenial`]) so the chat pipeline renders a deterministic,
-/// localized confirmation ask instead of letting the LLM paraphrase it.
-#[derive(Debug, Clone)]
-pub struct GuardianConfirmRequest {
-    /// Name of the parked tool (a static registry identifier — shown to the
-    /// user so consent is meaningful; arguments are never echoed).
-    pub tool_name: String,
-    /// Opaque claim token resolving the parked row.
-    pub pending_id: String,
 }
 
 /// The accounting a tool loop carries from iteration to iteration.
@@ -307,7 +284,6 @@ impl ToolLoopTally {
             pending_provider_auth_required: Some(provider),
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -329,57 +305,6 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: Some(denial),
-            guardian_confirm: None,
-            capability_claim_unverified: false,
-            provider_warnings: self.provider_warnings,
-        }
-    }
-
-    /// Exit carrying a plan the Guardian refused before running it: over the
-    /// step cap, or failed static verification.
-    ///
-    /// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
-    /// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
-    /// post-processing as if it were model output. `reason` is the slug this
-    /// rejection is told apart by in logs: the athlete reads one reply for all.
-    pub(crate) fn guardian_plan_denied(
-        self,
-        usage: Option<TokenUsage>,
-        reason: &str,
-    ) -> ToolLoopResult {
-        warn!(
-            guardian.reason = reason,
-            "guardian plan: refused the plan; rendering the block reply"
-        );
-        ToolLoopResult {
-            finish_reason: Some(GUARDIAN_PLAN_REJECTED_FINISH_REASON.to_owned()),
-            ..self.guardian_denied(
-                usage,
-                GuardianDenial {
-                    tool_name: "(plan)".to_owned(),
-                    reason: reason.to_owned(),
-                },
-            )
-        }
-    }
-
-    /// Exit carrying the tool call the Guardian parked pending confirmation.
-    pub(crate) fn guardian_confirm(
-        self,
-        usage: Option<TokenUsage>,
-        confirm: GuardianConfirmRequest,
-    ) -> ToolLoopResult {
-        ToolLoopResult {
-            content: String::new(),
-            usage,
-            finish_reason: Some(GUARDIAN_CONFIRM_FINISH_REASON.to_owned()),
-            activity_list: self.activity_list,
-            tool_calls_count: self.tool_calls_count,
-            tools_called: self.tools_called,
-            pending_provider_auth_required: None,
-            served_without_provider: self.served_without_provider,
-            guardian_denied: None,
-            guardian_confirm: Some(confirm),
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -402,7 +327,6 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -420,7 +344,6 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -490,8 +413,8 @@ impl ToolLoopResult {
     ///
     /// The short-circuit signals are excluded deliberately. Empty `content`
     /// alongside any of them is not a lost turn but a *deliberate* one: the chat
-    /// pipeline is about to replace the reply with a hosted re-auth URL, a
-    /// Guardian refusal, or a confirmation prompt. Falling those back to a second
+    /// pipeline is about to replace the reply with a hosted re-auth URL or a
+    /// Guardian refusal. Falling those back to a second
     /// provider would spend money to overwrite an answer the platform has already
     /// decided to give, and would read to the athlete as the refusal not sticking.
     #[must_use]
@@ -500,7 +423,6 @@ impl ToolLoopResult {
             && self.activity_list.is_none()
             && self.pending_provider_auth_required.is_none()
             && self.guardian_denied.is_none()
-            && self.guardian_confirm.is_none()
     }
 
     /// The error describing a lost turn, for the fallback's log line.
@@ -650,7 +572,6 @@ mod tests {
             pending_provider_auth_required: None,
             served_without_provider: None,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),
         }

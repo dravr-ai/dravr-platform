@@ -1054,14 +1054,10 @@ pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
 crate::declare_security!(AdminDeleteSystemAgentTool => IRREVERSIBLE);
 crate::declare_security!(AdminAssignAgentTool => empty);
 crate::declare_security!(AdminCreateSystemAgentTool => empty);
-// Return agent persona / system-prompt content (agent-authored free text) —
-// the same source class as agents.rs GetCoach/ListCoaches (UNTRUSTED_OUTPUT).
-// ADMIN_ONLY keeps them off the chat loop today, but the label must be right so
-// the compile-time "must classify" net doesn't hide a present-but-wrong label.
-crate::declare_security!(AdminGetSystemAgentTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminGetSystemAgentTool => empty);
 crate::declare_security!(AdminListAgentAssignmentsTool => empty);
-crate::declare_security!(AdminListSystemAgentsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminListSystemAgentsTool => empty);
 // Annotated destructive: the assignment is gone and nothing restores it, so it
-// answers to the same per-turn cap and taint policy as every other such tool.
+// answers to the same per-turn cap as every other such tool.
 crate::declare_security!(AdminUnassignAgentTool => IRREVERSIBLE);
 crate::declare_security!(AdminUpdateSystemAgentTool => empty);

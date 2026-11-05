@@ -31,15 +31,9 @@ use common::{
 use dravr_tronc::mcp::schema::{Tool as McpToolDefinition, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use futures_util::stream;
-use pierre_chat_pipeline::stages::prefetch::{
-    agentless_activity_window, prefetch_activity_context,
-};
 use pierre_config::environment::GuardianSettings;
 use pierre_core::errors::AppError;
-use pierre_core::models::{
-    ConnectionType, TenantId, GUARDIAN_CONFIRM_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON,
-};
-use pierre_core::transport::Transport;
+use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, FunctionCall,
     LlmCapabilities, LlmProvider, StreamChunk, Tool,
@@ -295,9 +289,9 @@ async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
 
 /// The MCP annotation a super admin reads and the label the Guardian enforces say
 /// the same thing about every registered tool, in both directions. A tool
-/// annotated destructive but unlabelled escapes the per-turn cap and the taint
-/// policy; one labelled irreversible but annotated otherwise tells a client it
-/// is safe to run without asking.
+/// annotated destructive but unlabelled escapes the per-turn cap; one labelled
+/// irreversible but annotated otherwise tells a client it is safe to run without
+/// asking.
 #[tokio::test]
 async fn every_destructive_annotation_and_irreversible_label_agree() {
     common::init_server_config();
@@ -331,77 +325,6 @@ async fn every_destructive_annotation_and_irreversible_label_agree() {
         "the sweep must see the admin tools it pins"
     );
     assert!(disagreements.is_empty(), "{disagreements:#?}");
-}
-
-/// The two tools whose effect leaves the platform carry the outbound label, and
-/// through the real chokepoint a tainted turn's outbound write answers to the
-/// taint policy. A plain internal write in the same turn does not.
-#[tokio::test]
-async fn a_tainted_outbound_write_answers_to_the_taint_policy_at_the_chokepoint() {
-    common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            tainted_destructive: Some("deny".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
-    let registry = resources.mcp.tool_registry.clone();
-    for outbound in ["prescribe_workout", "propose_athlete_link"] {
-        let labels = registry.security_class(outbound).expect("registered");
-        assert!(labels.is_outbound_write(), "{outbound}: {labels:?}");
-        assert!(!labels.is_irreversible(), "{outbound}: {labels:?}");
-    }
-
-    let (user_id, _) = create_test_user(&resources.agent.database)
-        .await
-        .expect("test user");
-    let tenant = TenantId::from_uuid(Uuid::new_v4());
-    let executor = UniversalToolExecutor::new(resources.clone())
-        .with_scopes(OAuthScope::self_grant())
-        // The link proposal is a first-party tool.
-        .with_transport(Transport::WebApp)
-        .with_turn_token("outbound-turn".to_owned());
-
-    let before_taint = executor
-        .execute_tool(request(
-            "propose_athlete_link",
-            json!({ "athlete": "nobody" }),
-            user_id,
-            tenant,
-        ))
-        .await;
-    assert_ne!(
-        before_taint
-            .ok()
-            .as_ref()
-            .and_then(guardian_error_code)
-            .as_deref(),
-        Some("guardian_denied"),
-        "an untainted outbound write is an ordinary write"
-    );
-
-    executor
-        .execute_tool(request("list_agents", json!({}), user_id, tenant))
-        .await
-        .expect("an untrusted read dispatches");
-    let denied = executor
-        .execute_tool(request(
-            "propose_athlete_link",
-            json!({ "athlete": "nobody" }),
-            user_id,
-            tenant,
-        ))
-        .await
-        .expect("a denial is an in-band response");
-    assert_eq!(
-        guardian_error_code(&denied).as_deref(),
-        Some("guardian_denied"),
-        "{denied:?}"
-    );
-    assert_eq!(denied.result.as_ref().unwrap()["reason"], "tainted_sink");
 }
 
 /// A server whose destructive budget is spent before the first call, so a
@@ -456,7 +379,7 @@ async fn a_denied_call_stops_later_writes_through_the_executor() {
     let key = TurnKey::new(Some(tenant.as_uuid()), "latched-executor-turn");
     assert_eq!(
         resources.guardian_turns().take_block(&key),
-        Some(HeadlessBlock::Denied {
+        Some(HeadlessBlock {
             tool_name: "disconnect_provider".to_owned(),
             reason: DenyReason::BudgetExceeded,
         }),
@@ -604,7 +527,7 @@ async fn a_block_stays_with_its_turn_whatever_else_the_athlete_runs() {
 /// carnet#1398 on the path production runs. A block raised on the tool host
 /// reaches the loop only through the store, on a turn whose model finished with
 /// `stop`. The stamp is what `push_history_row` replays the row by, so without it
-/// the block reply and the claim token read back as the agent's own words.
+/// the block reply reads back as the agent's own words.
 #[tokio::test]
 async fn a_block_from_the_tool_host_stamps_the_row_it_replays_as() {
     let resources = enforcing_with_no_destructive_budget().await;
@@ -629,22 +552,6 @@ async fn a_block_from_the_tool_host_stamps_the_row_it_replays_as() {
         finished.finish_reason.as_deref(),
         Some(GUARDIAN_DENIED_FINISH_REASON),
         "the model's own stop must not stand on a row holding the block reply"
-    );
-
-    let parked_turn = "stamped-park-turn";
-    resources.guardian_turns().record_block(
-        &TurnKey::new(Some(tenant.as_uuid()), parked_turn),
-        HeadlessBlock::ConfirmRequired {
-            tool_name: "disconnect_provider".to_owned(),
-            pending_id: "claim-token".to_owned(),
-        },
-    );
-    let finished = finish_turn(&resources, user_id, tenant, parked_turn).await;
-    assert!(finished.guardian_confirm.is_some());
-    assert_eq!(
-        finished.finish_reason.as_deref(),
-        Some(GUARDIAN_CONFIRM_FINISH_REASON),
-        "the ask must not replay as something the agent said"
     );
 
     let quiet = finish_turn(&resources, user_id, tenant, "stamped-quiet-turn").await;
@@ -717,7 +624,6 @@ async fn abandoning_a_running_destructive_call_leaves_its_destructive_charge_spe
             .guardian_turns()
             .decide_and_reserve(
                 &key,
-                "peek",
                 SecurityLabels::empty(),
                 false,
                 |state: &TurnState| (state.destructive_count(), state.write_count()),
@@ -802,7 +708,6 @@ async fn a_destructive_call_that_returns_a_failure_refunds_both_counts() {
         .guardian_turns()
         .decide_and_reserve(
             &key,
-            "peek",
             SecurityLabels::empty(),
             false,
             |state: &TurnState| (state.destructive_count(), state.write_count()),
@@ -812,67 +717,141 @@ async fn a_destructive_call_that_returns_a_failure_refunds_both_counts() {
     assert_eq!(spent, (0, 0), "the call said it did nothing");
 }
 
-/// carnet#1402 through the real stage: the prefetch taints the turn, and only the
-/// telemetry field says the platform decided that read.
+/// A destructive write that runs and succeeds, for a turn's spend to accumulate.
+struct CommitsAnAction;
+
+#[async_trait]
+impl McpTool<dyn ToolRuntime> for CommitsAnAction {
+    fn definition(&self) -> McpToolDefinition {
+        McpToolDefinition {
+            name: "commits_an_action".to_owned(),
+            description: "Runs and reports success".to_owned(),
+            input_schema: json!({ "type": "object" }),
+            annotations: None,
+            output_schema: None,
+            execution: None,
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    }
+
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &ToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        ToolResponse::text("done".to_owned())
+    }
+}
+
+pierre_tool_runtime::declare_security!(CommitsAnAction => IRREVERSIBLE);
+
+/// The default budget through the real chokepoint: one message gets three
+/// irreversible calls and the fourth is denied. What the turn committed is what the
+/// reply will name, so it lists the three that ran, and a call that failed is not in
+/// it, nor did it spend any of the budget.
 #[tokio::test]
-async fn a_prefetched_read_taints_the_turn_and_is_named_as_prefetched() {
-    common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings::default(),
-    ))
-    .await
-    .expect("server resources");
+async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
+    let tools: Vec<Arc<dyn RuntimeTool>> =
+        vec![Arc::new(CommitsAnAction), Arc::new(ReturnsAFailure)];
+    let provider = Arc::new(AnswersPlainly {
+        models: vec!["plain-model".to_owned()],
+    });
+    let resources = create_test_server_resources_with_llm_and_tools(provider, tools)
+        .await
+        .expect("server resources");
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
-    // A connection row is what reaches the gate; the read's own outcome is not
-    // under test, since taint folds when the call is cleared to run.
-    resources
-        .common
-        .repos
-        .provider_connections
-        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+    let turn = "three-commits-turn";
+    let key = TurnKey::new(Some(tenant.as_uuid()), turn);
+    let executor = turn_executor(&resources, turn);
+    let run = |tool: &'static str| {
+        let call = executor.execute_tool(request(tool, json!({}), user_id, tenant));
+        async move { call.await.expect("an in-band response") }
+    };
+
+    let failed = run("returns_a_failure").await;
+    assert!(!failed.success, "the tool reported a failure");
+    assert_eq!(guardian_reason(&failed), None, "it was not the Guardian's");
+    assert_eq!(
+        resources.guardian_turns().committed(&key),
+        Vec::<String>::new(),
+        "a failed call is not something the turn did"
+    );
+
+    for call in 1..=3 {
+        let committed = run("commits_an_action").await;
+        assert!(committed.success, "call {call} is in budget: {committed:?}");
+    }
+    assert_eq!(
+        resources.guardian_turns().committed(&key),
+        ["commits_an_action"; 3],
+        "the failure is not something the turn did"
+    );
+
+    let fourth = run("commits_an_action").await;
+    assert!(!fourth.success, "the fourth is past the budget: {fourth:?}");
+    assert_eq!(
+        guardian_error_code(&fourth).as_deref(),
+        Some("guardian_denied")
+    );
+    assert_eq!(guardian_reason(&fourth), Some("budget_exceeded"));
+    assert_eq!(
+        resources.guardian_turns().committed(&key).len(),
+        3,
+        "a denied call never ran"
+    );
+
+    // What the loop hands the reply stage: the block, and the three that ran.
+    let denial = finish_turn(&resources, user_id, tenant, turn)
         .await
-        .expect("connection row");
-    let key = TurnKey::new(Some(tenant.as_uuid()), "prefetched-turn");
-    let origin = || {
+        .guardian_denied
+        .expect("the turn's block reaches the loop's result");
+    assert_eq!(
+        denial.tool_name, "commits_an_action",
+        "the block names the denied call"
+    );
+    assert_eq!(
+        denial.reason,
+        DenyReason::BudgetExceeded.as_str(),
+        "the block carries why it was denied"
+    );
+    assert_eq!(
+        denial.committed, ["commits_an_action"; 3],
+        "the reply must be able to say what went through"
+    );
+    assert_eq!(
+        resources.guardian_turns().take_block(&key),
+        None,
+        "the loop took the entry when it returned"
+    );
+
+    // The next message gets a fresh budget and a clean list.
+    let next_turn = "the-next-message";
+    let fresh = turn_executor(&resources, next_turn)
+        .execute_tool(request("commits_an_action", json!({}), user_id, tenant))
+        .await
+        .expect("an in-band response");
+    assert!(fresh.success, "{fresh:?}");
+    assert_eq!(
         resources
             .guardian_turns()
-            .decide_and_reserve(
-                &key,
-                "peek",
-                SecurityLabels::empty(),
-                false,
-                |state: &TurnState| (state.is_tainted(), state.taint_origin()),
-                |_| CallFate::Unchanged,
-            )
-            .0
-    };
-    let executor = Arc::new(turn_executor(&resources, "prefetched-turn"));
-
-    prefetch_activity_context(
-        &executor,
-        &user_id.to_string(),
-        tenant,
-        &agentless_activity_window(),
-    )
-    .await;
-    assert_eq!(origin(), (true, Some("prefetch")));
-
-    drop(
-        executor
-            .execute_tool(request("get_activities", json!({}), user_id, tenant))
-            .await,
+            .committed(&TurnKey::new(Some(tenant.as_uuid()), next_turn))
+            .len(),
+        1
     );
-    assert_eq!(origin(), (true, Some("both")));
 }
 
-/// carnet#1403: with the default destructive budget of one, a publish then a push
-/// in one turn lands the publish and denies the push. The model is told so in both
-/// tools' own descriptions, on every surface that lists them.
+/// carnet#1403: both tools' own descriptions, on every surface that lists them, say
+/// the push is a separate step the coach asks for, and neither repeats a budget a
+/// super admin can change.
 #[tokio::test]
-async fn both_plan_tools_say_the_push_waits_for_the_next_message() {
+async fn both_plan_tools_say_the_push_is_a_separate_step() {
     common::init_server_config();
     let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
         GuardianSettings::default(),
@@ -888,13 +867,9 @@ async fn both_plan_tools_say_the_push_waits_for_the_next_message() {
             .definition()
             .description;
         assert!(
-            description.contains("one destructive action runs per turn")
-                || description.contains("One destructive action runs per turn"),
+            description.contains("separate step") || description.contains("does not push"),
             "{tool}: {description}"
         );
-        assert!(
-            description.contains("next message"),
-            "{tool}: {description}"
-        );
+        assert!(!description.contains("per turn"), "{tool}: {description}");
     }
 }

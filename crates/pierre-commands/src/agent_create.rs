@@ -1,5 +1,5 @@
 // ABOUTME: Handler for /agent create — drafts an agent from the conversation, parks it, and creates it on confirm
-// ABOUTME: The draft lives in the Guardian pending-action store so /deny and the expiry come from the one claim path
+// ABOUTME: The draft lives in the pending-action store so /deny and the expiry come from the one claim path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 //! The last messages of the conversation are handed to the model, which
 //! proposes a persona, and nothing exists until the athlete confirms it.
 //!
-//! The proposal is parked in the Guardian pending-action store under a
+//! The proposal is parked in the pending-action store under a
 //! single-use claim token, the same store `/confirm` and `/deny` resolve.
 //! That buys the whole confirmation grammar for free — `/deny <token>`
 //! discards a draft, a token can be confirmed once, and an old draft expires
@@ -37,14 +37,13 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::agent::{bind_agent, AgentBinding};
-use crate::guardian_confirm::resolve_pending;
+use crate::pending_confirm::resolve_pending;
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// How long a draft waits for its confirmation.
 ///
-/// Longer than the Guardian's five minutes for a destructive call: reading a
-/// proposed persona takes a moment, and a stale draft creates nothing on its
-/// own.
+/// Reading a proposed persona takes a moment, and a stale draft creates nothing
+/// on its own.
 const PROPOSAL_TTL_MINUTES: i64 = 10;
 
 /// The parked row's `deny_reason` — the store's column names why a row is
@@ -193,13 +192,9 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
         id: token.clone(),
         tenant_id: ctx.tenant_id.to_string(),
         user_id: ctx.user_id.to_string(),
-        conversation_id: ctx.conversation_id.clone(),
         tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
         arguments,
         deny_reason: PROPOSAL_PARK_REASON.to_owned(),
-        turn_agent_id: None,
-        turn_provenance: None,
-        seat: None,
     };
     ctx.ctx
         .repos()

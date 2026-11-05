@@ -88,10 +88,6 @@ impl ToolRuntime for ServerContext {
         Self::agents_manager(self)
     }
 
-    fn guardian_planner_prompt(&self) -> String {
-        Self::guardian_planner_prompt(self)
-    }
-
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>> {
         self.common.llm_provider.as_ref()
     }

@@ -456,11 +456,9 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
     }
 }
 
-// Guardian security classifications (see `crate::security`). The two reads echo
-// agent-author-written titles, descriptions and sample prompts back into the
-// LLM context, which is third-party text and therefore a taint source. Install
+// Guardian security classifications (see `crate::security`). Install
 // adds a reversible team membership (or, for another tenant's agent, a
 // reversible copy), so it carries no label of its own.
-crate::declare_security!(BrowseAgentStoreTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(SearchAgentStoreTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(BrowseAgentStoreTool => empty);
+crate::declare_security!(SearchAgentStoreTool => empty);
 crate::declare_security!(InstallAgentFromStoreTool => empty);

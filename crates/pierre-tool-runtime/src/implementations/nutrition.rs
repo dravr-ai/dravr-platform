@@ -1062,8 +1062,8 @@ pub fn create_nutrition_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(SearchFoodTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetFoodDetailsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(SearchFoodTool => empty);
+crate::declare_security!(GetFoodDetailsTool => empty);
 crate::declare_security!(GetNutrientTimingTool => empty);
 crate::declare_security!(AnalyzeMealNutritionTool => empty);
 crate::declare_security!(CalculateDailyNutritionTool => empty);

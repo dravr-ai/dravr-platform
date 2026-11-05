@@ -286,9 +286,8 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              Wahoo or Garmin), or update it after a change: creates missing days, updates \
              changed ones, removes dropped ones, leaves alone any the athlete edited there \
              (Garmin reports no edits). Never touches dates before today. Call it when the \
-             athlete or coach asks, not on your own after a save. One destructive action runs \
-             per turn, so after publish_training_plan it waits for the coach's next message. \
-             Needs a saved plan and a connected calendar-writing provider. A group's human \
+             athlete or coach asks, not on your own after a save. Publishing does not push: \
+             after publish_training_plan, call it only if the coach asks. Needs a saved plan and a connected calendar-writing provider. A group's human \
              coach pushes a consenting athlete's plan with `athlete`, through their \
              Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must \
              list the coach as their coach. Only the published plan is pushed, never a coach's \
@@ -438,6 +437,5 @@ pub fn create_training_plan_push_tools() -> Vec<Box<dyn RuntimeTool>> {
 
 // A push deletes calendar entries the plan no longer wants, and a delete on
 // the provider cannot be undone from here — re-pushing recreates the entry,
-// but as a new one. Destructive, so at most one per turn under the Guardian's
-// default budget, and the confirm path applies to it when armed.
+// but as a new one. Destructive, so it spends the Guardian's per-turn destructive budget.
 crate::declare_security!(PushTrainingPlanTool => IRREVERSIBLE);

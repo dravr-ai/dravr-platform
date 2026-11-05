@@ -51,11 +51,6 @@ pub struct UniversalResponse {
 /// [`provider_helpers`](super::provider_helpers).
 pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 
-/// Metadata key the chokepoint sets (to `true`) on a refusal it gives before the
-/// tool's body runs: a disabled tool, a withheld seat, an unconnected provider.
-/// Metadata is the platform's channel, out of a tool body's reach.
-const META_REFUSED_BEFORE_RUNNING: &str = "refused_before_running";
-
 /// Metadata key set (to `true`) on the refusal a tool returns when the athlete
 /// has no fitness provider connected at all.
 ///
@@ -123,6 +118,7 @@ pub fn auth_required_provider(response: &UniversalResponse) -> Option<String> {
 /// under [`META_AUTH_REQUIRED_PROVIDER`]: a tool loop scans for that key and
 /// exits early, and the chat pipeline mints a hosted-login URL and surfaces it
 /// deterministically. The error text travels to the model, which adapts to it.
+#[cfg(feature = "client-chat")]
 #[must_use]
 pub(crate) fn failed_dispatch(error: &ProtocolError) -> UniversalResponse {
     let metadata = error.provider_auth_required_provider().map(|provider| {
@@ -139,37 +135,8 @@ pub(crate) fn failed_dispatch(error: &ProtocolError) -> UniversalResponse {
     }
 }
 
-/// Stamp `response` as a refusal the chokepoint gave before the tool's body ran.
-#[must_use]
-pub(crate) fn refused_before_running(mut response: UniversalResponse) -> UniversalResponse {
-    response
-        .metadata
-        .get_or_insert_with(HashMap::new)
-        .insert(META_REFUSED_BEFORE_RUNNING.to_owned(), Value::Bool(true));
-    response
-}
-
-/// Whether the tool's body never ran for this response: the Guardian stopped it,
-/// or the chokepoint refused it first.
-///
-/// Reads the chokepoint's own metadata stamps and never `result`, which a tool
-/// can write ([`guardian_block_reason`] gives the reason). A call that claims
-/// otherwise would tell a caller an action did not happen when it did.
-#[must_use]
-pub fn never_ran(response: &UniversalResponse) -> bool {
-    !response.success
-        && (guardian_block_reason(response).is_some()
-            || response
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.get(META_REFUSED_BEFORE_RUNNING))
-                .and_then(Value::as_bool)
-                .unwrap_or(false))
-}
-
-/// Why the Guardian stopped this call before it ran (`"guardian"` for a denial,
-/// `"guardian_confirm"` for a call parked for confirmation), or `None` when the
-/// call was dispatched.
+/// Why the Guardian stopped this call before it ran (`"guardian"`), or `None`
+/// when the call was dispatched.
 ///
 /// Keys on the chokepoint-stamped `metadata.blocked_reason` (set ONLY by the
 /// chokepoint's refusals, never emittable by a tool body) AND requires
@@ -181,8 +148,7 @@ pub fn guardian_block_reason(response: &UniversalResponse) -> Option<&str> {
     if response.success {
         return None;
     }
-    metadata_str(response, "blocked_reason")
-        .filter(|reason| matches!(*reason, "guardian" | "guardian_confirm"))
+    metadata_str(response, "blocked_reason").filter(|reason| *reason == "guardian")
 }
 
 /// A string `key` of the response's chokepoint-stamped metadata, if one is there.

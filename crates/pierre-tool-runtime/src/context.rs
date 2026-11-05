@@ -25,7 +25,6 @@ use dravr_tronc::mcp::tool::ToolContext as TroncToolContext;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::guardian::TaintOrigin;
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
 use pierre_cache::Cache;
@@ -105,9 +104,8 @@ tokio::task_local! {
     /// (e.g. an analytics tool that internally reads `get_activities`) builds its
     /// child [`crate::protocol::executor::UniversalExecutor`] on the SAME turn
     /// key. Without this, a nested `UniversalExecutor::new` (which does not call
-    /// `with_turn_token`) would key on a throwaway per-call nonce and the child's
-    /// `UNTRUSTED_OUTPUT` sub-read would fail to taint the real turn — severing
-    /// the runtime taint backstop for transitively-pulled untrusted content.
+    /// `with_turn_token`) would key on a throwaway per-call nonce, and a write it
+    /// makes would escape the real turn's budget.
     /// Constant for the executor's per-turn lifetime; absent for a top-level
     /// executor built outside any tool body (which sets its token explicitly).
     pub static GUARDIAN_TURN_TOKEN: Option<String>;
@@ -125,13 +123,31 @@ tokio::task_local! {
     /// cannot reach further by calling a tool that calls another tool.
     pub static GRANTED_SCOPES: Vec<OAuthScope>;
 
-    /// Who decided the in-flight tool call should run, for the Guardian's taint
-    /// telemetry. Scoped by the chat pipeline around a read it runs on the
-    /// athlete's behalf before the model has said anything; absent everywhere
-    /// else, which means the model asked ([`TaintOrigin`]).
+    /// Who decided the in-flight tool call should run. Scoped by the chat
+    /// pipeline around a read it runs on the athlete's behalf before the model
+    /// has said anything; absent everywhere else, which means the model asked.
     /// Inherited by a nested dispatch on the same task, so what a prefetched tool
     /// reads through another counts as prefetched too.
-    pub static GUARDIAN_TAINT_ORIGIN: TaintOrigin;
+    pub static DISPATCH_ORIGIN: DispatchOrigin;
+}
+
+/// Who decided a tool call should run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DispatchOrigin {
+    /// The model asked for it (the default).
+    #[default]
+    Model,
+    /// The chat pipeline ran it before the model said anything.
+    Prefetch,
+}
+
+impl DispatchOrigin {
+    /// The origin of the dispatch running on this task.
+    pub(crate) fn current() -> Self {
+        DISPATCH_ORIGIN
+            .try_with(|origin| *origin)
+            .unwrap_or_default()
+    }
 }
 
 /// The conversation the in-flight tool call runs in, read from

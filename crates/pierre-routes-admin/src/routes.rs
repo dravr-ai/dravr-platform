@@ -29,9 +29,9 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys, audit_trail,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
-    guardian_config, guardian_pending, harness_config, memory_worker, myth_busting, new_users,
-    provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
-    user_removal, users, website,
+    guardian_config, harness_config, memory_worker, myth_busting, new_users, provider_clone,
+    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
+    website,
 };
 
 /// Admin routes implementation (Axum).
@@ -134,10 +134,10 @@ impl AdminRoutes {
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
     /// (users, auto-approval, admin tokens, Claim Verdicts, Agent Grades, Myth
     /// Busting, Memory Worker, Agent Followups, Agent Notes Audit, Harness
-    /// Config, Guardian Config, and optionally Eval Harness when
+    /// Config, and optionally Eval Harness when
     /// `tools-verification` is enabled). Every handler here is the one handler
-    /// for its operation: users, auto-approval, tokens, harness and guardian
-    /// are also mounted under `/admin` for `pierre-cli`'s bearer token
+    /// for its operation: users, auto-approval, tokens and harness are also
+    /// mounted under `/admin` for `pierre-cli`'s bearer token
     /// ([`Self::console_user_routes`], [`Self::console_token_routes`],
     /// [`Self::settings_routes`]).
     ///
@@ -161,7 +161,6 @@ impl AdminRoutes {
         let myth_busting_routes = Self::myth_busting_routes(context.clone());
         let agent_grading_routes = Self::agent_grading_routes(context.clone());
         let harness_config_routes = Self::harness_config_routes(context.clone());
-        let guardian_config_routes = Self::guardian_config_routes(context.clone());
         let feature_flag_admin_routes = Self::feature_flag_admin_routes(context.clone());
         let rate_limit_override_routes = Self::rate_limit_override_routes(Arc::clone(&context));
         let user_management_routes = Self::console_user_routes(Arc::clone(&context));
@@ -175,7 +174,6 @@ impl AdminRoutes {
             .merge(myth_busting_routes)
             .merge(agent_grading_routes)
             .merge(harness_config_routes)
-            .merge(guardian_config_routes)
             .merge(feature_flag_admin_routes)
             .merge(rate_limit_override_routes)
             .merge(user_management_routes)
@@ -531,10 +529,10 @@ impl AdminRoutes {
     }
 
     /// System settings routes — admin-token mounts of the auto-approval, sign-up,
-    /// harness, and guardian handlers, which the console reaches through
-    /// [`Self::console_user_routes`], [`Self::harness_config_routes`] and
-    /// [`Self::guardian_config_routes`]. These are what `pierre-cli settings`
-    /// reaches with its device-login token.
+    /// harness, and guardian handlers. The console reaches the first three through
+    /// [`Self::console_user_routes`] and [`Self::harness_config_routes`]; the guardian
+    /// policy has no console page. These are what `pierre-cli settings` reaches with
+    /// its device-login token.
     fn settings_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -568,14 +566,6 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/guardian",
                 put(guardian_config::handle_put_guardian_config),
-            )
-            .route(
-                "/admin/settings/guardian/pending",
-                get(guardian_pending::handle_list_guardian_pending),
-            )
-            .route(
-                "/admin/settings/guardian/pending/{id}/deny",
-                post(guardian_pending::handle_deny_guardian_pending),
             )
             .with_state(context)
     }
@@ -631,28 +621,6 @@ impl AdminRoutes {
             .route(
                 "/api/admin/settings/harness",
                 put(harness_config::handle_put_harness_config),
-            )
-            .with_state(context)
-    }
-
-    /// Guardian config routes (cookie auth, mounted at `/api/admin/...`).
-    fn guardian_config_routes(context: Arc<AdminApiContext>) -> Router {
-        Router::new()
-            .route(
-                "/api/admin/settings/guardian",
-                get(guardian_config::handle_get_guardian_config),
-            )
-            .route(
-                "/api/admin/settings/guardian",
-                put(guardian_config::handle_put_guardian_config),
-            )
-            .route(
-                "/api/admin/settings/guardian/pending",
-                get(guardian_pending::handle_list_guardian_pending),
-            )
-            .route(
-                "/api/admin/settings/guardian/pending/{id}/deny",
-                post(guardian_pending::handle_deny_guardian_pending),
             )
             .with_state(context)
     }

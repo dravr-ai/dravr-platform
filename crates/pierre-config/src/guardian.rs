@@ -16,22 +16,12 @@ use std::env;
 /// operator's input without knowing the policy's types.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct GuardianSettings {
-    /// `GUARDIAN_MODE`: `off` | `observe` | `enforce`
+    /// `GUARDIAN_MODE`: `observe` | `enforce`
     pub mode: Option<String>,
     /// `GUARDIAN_MAX_DESTRUCTIVE_PER_TURN`
     pub max_destructive_per_turn: Option<String>,
     /// `GUARDIAN_MAX_WRITES_PER_TURN`
     pub max_writes_per_turn: Option<String>,
-    /// `GUARDIAN_EXTERNAL_SEND_TENANTS`: `none` | `all` | comma-separated tenant UUIDs
-    pub external_send_tenants: Option<String>,
-    /// `GUARDIAN_TAINTED_DESTRUCTIVE`: `log` | `confirm` | `deny`
-    pub tainted_destructive: Option<String>,
-    /// `GUARDIAN_PLAN_MODE`: `off` | `enforce`
-    pub plan_mode: Option<String>,
-    /// `GUARDIAN_PLAN_MODE_ARMABLE`: `true` | `false`. Whether an admin edit may
-    /// arm `plan_mode=enforce` at runtime. Unset refuses it: `GUARDIAN_PLAN_MODE`
-    /// is the deploy-time arming path and does not need this.
-    pub plan_mode_armable: Option<String>,
 }
 
 impl GuardianSettings {
@@ -44,10 +34,6 @@ impl GuardianSettings {
             mode: read("GUARDIAN_MODE"),
             max_destructive_per_turn: read("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN"),
             max_writes_per_turn: read("GUARDIAN_MAX_WRITES_PER_TURN"),
-            external_send_tenants: read("GUARDIAN_EXTERNAL_SEND_TENANTS"),
-            tainted_destructive: read("GUARDIAN_TAINTED_DESTRUCTIVE"),
-            plan_mode: read("GUARDIAN_PLAN_MODE"),
-            plan_mode_armable: read("GUARDIAN_PLAN_MODE_ARMABLE"),
         }
     }
 }

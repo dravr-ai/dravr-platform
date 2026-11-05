@@ -1,4 +1,4 @@
-// ABOUTME: Guardian security classification — the egress/trust axis every tool declares for the dispatch-time guard.
+// ABOUTME: Guardian security classification — the egress and blast-radius axis every tool declares for the dispatch-time guard.
 // ABOUTME: SecurityLabels bitflags + the RuntimeTool supertrait that forces every registered tool to classify itself.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,10 +9,8 @@
 //! The [`Guardian`](crate::guardian::Guardian) gates tool dispatch on a
 //! security axis that is **orthogonal** to [`ToolCapabilities`](crate::ToolCapabilities)
 //! (auth/tenant/admin/read/write) and to the registry's string categories
-//! (domain taxonomy). `READS_DATA` is not "produces untrusted content"
-//! (reading your own goal is a trusted read) and `WRITES_DATA` is not
-//! "irreversible" (`set_goal` is a reversible internal write), so the taint
-//! axis needs its own flags.
+//! (domain taxonomy). `WRITES_DATA` is not "irreversible" (`set_goal` is a
+//! reversible internal write), so this axis needs its own flags.
 //!
 //! Labels are declared per tool via the [`RuntimeTool`] supertrait, which has
 //! **no default** `security_class` — a tool will not compile into the registry
@@ -33,45 +31,23 @@ use dravr_tronc::mcp::tool::McpTool;
 pub use pierre_core::transport::TransportPolicy;
 
 bitflags! {
-    /// The Guardian's egress/trust classification for a tool.
+    /// The Guardian's egress and blast-radius classification for a tool.
     ///
-    /// Empty (the common case) = a trusted, internal, reversible tool that the
-    /// Guardian never gates on taint grounds. Flags are additive.
+    /// Empty (the common case) = an internal, reversible tool that costs no
+    /// destructive budget. Flags are additive.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct SecurityLabels: u8 {
-        /// The tool echoes third-party / external text back into the LLM
-        /// context (provider scrapes, peer data, external API bodies,
-        /// agent-authored notes). This is the prompt-injection *source*: its
-        /// output is untrusted data that re-enters the instruction channel.
-        const UNTRUSTED_OUTPUT = 0b0000_0001;
         /// The tool sends data outbound to a third party (messaging / email /
-        /// push). The exfiltration *sink*, hard-denied in a tainted turn and
-        /// gated by the egress allowlist in every turn. None exist today; the
-        /// label is armed for the messaging epic so the guard is in place before
-        /// the tools are. A write that lands somewhere the athlete chose, with
-        /// content this platform shaped, is [`Self::OUTBOUND_WRITE`] instead.
+        /// push). Refused in every turn. None exist today; the label is armed so
+        /// the guard is in place before the tools are.
         const EXTERNAL_SEND = 0b0000_0010;
         /// The tool performs an irreversible / destructive effect (deletes,
-        /// disconnects). The Guardian caps these per turn and can require
-        /// confirmation when the turn is tainted.
+        /// disconnects). The Guardian caps these per turn.
         const IRREVERSIBLE = 0b0000_0100;
-        /// The tool's effect lands outside this platform or in front of another
-        /// person: a workout on the athlete's provider calendar, a link proposal
-        /// in a group member's inbox. Reversible, and additive, so it costs no
-        /// destructive budget. In a tainted turn it answers to the
-        /// `tainted_destructive` policy exactly as an irreversible call does,
-        /// because an injected instruction would reach the same audience.
-        const OUTBOUND_WRITE = 0b0000_1000;
     }
 }
 
 impl SecurityLabels {
-    /// The tool's output is untrusted third-party content (a taint source).
-    #[must_use]
-    pub const fn is_untrusted_output(self) -> bool {
-        self.contains(Self::UNTRUSTED_OUTPUT)
-    }
-
     /// The tool sends data outbound to a third party (an egress sink).
     #[must_use]
     pub const fn is_external_send(self) -> bool {
@@ -82,20 +58,6 @@ impl SecurityLabels {
     #[must_use]
     pub const fn is_irreversible(self) -> bool {
         self.contains(Self::IRREVERSIBLE)
-    }
-
-    /// The tool's effect lands outside this platform or in front of another
-    /// person (see [`Self::OUTBOUND_WRITE`]).
-    #[must_use]
-    pub const fn is_outbound_write(self) -> bool {
-        self.contains(Self::OUTBOUND_WRITE)
-    }
-
-    /// Whether a call with these labels answers to the `tainted_destructive`
-    /// policy when the turn is tainted.
-    #[must_use]
-    pub const fn answers_to_taint_policy(self) -> bool {
-        self.is_irreversible() || self.is_outbound_write()
     }
 }
 
@@ -140,10 +102,10 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 /// `McpTool` impl (and therefore under the same `#[cfg(feature = ...)]`).
 ///
 /// ```ignore
-/// declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
+/// declare_security!(GetActivitiesTool => empty);
 /// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
 /// declare_security!(SetGoalTool       => empty);
-/// declare_security!(GetRosterOverviewTool => UNTRUSTED_OUTPUT; first_party_only);
+/// declare_security!(GetRosterOverviewTool => empty; first_party_only);
 /// ```
 ///
 /// The trailing `; first_party_only` also declares the tool
@@ -159,6 +121,17 @@ macro_rules! declare_security {
         impl $crate::security::RuntimeTool for $t {
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
+            }
+        }
+    };
+    ($t:ty => empty ; first_party_only $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn transport_policy(&self) -> $crate::security::TransportPolicy {
+                $crate::security::TransportPolicy::FirstPartyOnly
             }
         }
     };

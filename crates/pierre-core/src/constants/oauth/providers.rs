@@ -256,13 +256,6 @@ pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
 /// carry the same duty for `source=garmin`.
 pub const GARMIN_ATTRIBUTION: &str = "Garmin";
 
-/// The attribution `stored` names, as the constant a derivation records: `None`
-/// for text no derivation can have recorded.
-#[must_use]
-pub fn known_attribution(stored: &str) -> Option<&'static str> {
-    (stored == GARMIN_ATTRIBUTION).then_some(GARMIN_ATTRIBUTION)
-}
-
 /// The attribution an activity must be shown with, by its upstream `source`:
 /// [`GARMIN_ATTRIBUTION`] for Garmin-sourced data, `None` otherwise.
 #[must_use]

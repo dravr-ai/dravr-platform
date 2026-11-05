@@ -20,7 +20,6 @@ const ADMIN_TABS = [
   'platform-settings',
   'claim-verdicts',
   'harness-config',
-  'guardian-config',
   'memory-worker',
   'agent-followups',
   'agent-notes-audit',
@@ -52,15 +51,6 @@ const json = (body: unknown) => ({
   contentType: 'application/json',
   body: JSON.stringify(body),
 });
-
-const GUARDIAN_POLICY = {
-  mode: 'enforce',
-  max_destructive_per_turn: 1,
-  max_writes_per_turn: 50,
-  external_send: 'none',
-  tainted_destructive: 'log',
-  plan_mode: 'off',
-};
 
 const VERDICT = {
   id: 'v1',
@@ -171,33 +161,6 @@ async function mockRows(page: Page) {
         },
       }),
     ),
-  );
-  await page.route('**/api/admin/settings/guardian', (route) =>
-    route.fulfill(json({
-      config: { schema_version: 1 },
-      effective: GUARDIAN_POLICY,
-      defaults: GUARDIAN_POLICY,
-      sources: {
-        mode: 'default',
-        max_destructive_per_turn: 'default',
-        max_writes_per_turn: 'default',
-        external_send: 'default',
-        tainted_destructive: 'default',
-        plan_mode: 'default',
-      },
-      env_pinned: [],
-      source: 'default',
-      updated_at: null,
-      loaded_at: NOW,
-      instance_id: 'dravr-00042-abc',
-      in_sync: true,
-      degraded: false,
-      degraded_reason: null,
-      plan_mode_armable: false,
-    })),
-  );
-  await page.route('**/api/admin/settings/guardian/pending**', (route) =>
-    route.fulfill(json({ entries: [] })),
   );
   await page.route('**/api/admin/impersonate/sessions', (route) =>
     route.fulfill(

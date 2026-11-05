@@ -25,8 +25,7 @@ use std::sync::Arc;
 
 use pierre_core::models::{MemberFitnessSnapshot, TenantId};
 use pierre_llm::ChatMessage;
-use pierre_tool_runtime::context::GUARDIAN_TAINT_ORIGIN;
-use pierre_tool_runtime::guardian::TaintOrigin;
+use pierre_tool_runtime::context::{DispatchOrigin, DISPATCH_ORIGIN};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use serde_json::json;
 use tracing::{info, warn};
@@ -214,10 +213,10 @@ pub async fn fetch_peer_activities_outcome(
         protocol: "chat".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
     };
-    // The platform decided this read, not the model, so the Guardian's telemetry
-    // says so; it taints the turn the same either way.
-    match GUARDIAN_TAINT_ORIGIN
-        .scope(TaintOrigin::Prefetch, executor.execute_tool(request))
+    // The platform decided this read, not the model, so a dead connection it finds
+    // offers no reconnect.
+    match DISPATCH_ORIGIN
+        .scope(DispatchOrigin::Prefetch, executor.execute_tool(request))
         .await
     {
         Ok(response) if response.success => response

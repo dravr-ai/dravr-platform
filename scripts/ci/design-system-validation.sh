@@ -53,7 +53,7 @@ BASELINE_WEB_HERO_GRADIENT=4
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=124
+BASELINE_WEB_CARD_SITES=116
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
 BASELINE_WEB_LARGE_TEXT=60
 

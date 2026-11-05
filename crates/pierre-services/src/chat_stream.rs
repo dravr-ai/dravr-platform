@@ -103,7 +103,7 @@ pub const TOOL_STATUS_COMPLETED: &str = "Completed";
 /// Status a tool call reports when it ran and failed (ACP's word).
 pub const TOOL_STATUS_FAILED: &str = "Failed";
 /// Status a started tool call reports when it never ran after all: the
-/// runtime Guardian blocked it, or parked it for the athlete to confirm.
+/// runtime Guardian blocked it.
 ///
 /// Not an ACP state — ACP has none for a call withdrawn before it ran — so
 /// the platform names its own, and a client takes the step off the trail

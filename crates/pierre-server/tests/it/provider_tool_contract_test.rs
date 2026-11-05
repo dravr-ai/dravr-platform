@@ -255,10 +255,9 @@ async fn a_contract_provider_completes_a_tool_round_trip_through_the_generic_loo
         "the advertised tools must reach the provider on the wire"
     );
 
-    // 5. Nothing vendor-specific was consulted: no Guardian block, no parked
-    //    confirmation, no provider-auth handoff.
+    // 5. Nothing vendor-specific was consulted: no Guardian block, no
+    //    provider-auth handoff.
     assert!(result.guardian_denied.is_none());
-    assert!(result.guardian_confirm.is_none());
     assert!(result.pending_provider_auth_required.is_none());
 }
 

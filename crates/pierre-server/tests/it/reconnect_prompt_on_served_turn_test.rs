@@ -115,7 +115,6 @@ fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
         pending_provider_auth_required: blank.map(str::to_owned),
         served_without_provider: served.map(str::to_owned),
         guardian_denied: None,
-        guardian_confirm: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),
     }

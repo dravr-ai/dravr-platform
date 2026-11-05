@@ -131,12 +131,6 @@ impl ServerContext {
         self.mcp.prompt_registry.messaging_context_prompt()
     }
 
-    /// Get the plan-then-verify planner's workflow grammar.
-    #[must_use]
-    pub fn guardian_planner_prompt(&self) -> String {
-        self.mcp.prompt_registry.guardian_planner_prompt()
-    }
-
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
     #[must_use]
     pub fn tool_discipline_prompt(&self) -> String {

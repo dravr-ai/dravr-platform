@@ -36,8 +36,6 @@ pub mod eval_harness;
 pub mod feature_flags;
 /// Admin endpoints for the Guardian security-policy configuration.
 pub mod guardian_config;
-/// Admin endpoints listing and denying the tool calls the Guardian parked.
-pub mod guardian_pending;
 pub mod harness_config;
 pub mod impersonation;
 /// The single-use invitation a pre-approval allow can mail: issue the link,

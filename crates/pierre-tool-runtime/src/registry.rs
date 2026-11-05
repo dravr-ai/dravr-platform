@@ -239,6 +239,18 @@ impl ToolRegistry {
             .unwrap_or_else(|| name.to_owned())
     }
 
+    /// Whether `tool` declares the `WRITES_DATA` capability, or `None` for a name
+    /// the registry does not hold.
+    #[cfg(feature = "client-chat")]
+    #[must_use]
+    pub(crate) fn writes_data(&self, tool: &str) -> Option<bool> {
+        self.tools.get(tool).map(|registered| {
+            registered
+                .capabilities()
+                .contains(ToolCapabilities::WRITES_DATA)
+        })
+    }
+
     /// Check if a tool is registered
     #[must_use]
     pub fn contains(&self, name: &str) -> bool {

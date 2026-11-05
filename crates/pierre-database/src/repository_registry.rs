@@ -263,8 +263,7 @@ pub struct RepositoryRegistry {
     /// Tombstones of deleted accounts' provider accounts and emails: written
     /// by the account deletion, read by every door that would import them.
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
-    /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
-    /// claimed single-use by the `/confirm` and `/deny` slash commands.
+    /// Parked actions awaiting their owner: the agent drafts of `/agent create`.
     pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
     /// The admin audit trail: one row per operator write through the admin
     /// API, or `pierre-cli` straight to the database (carnet#1391).

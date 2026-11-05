@@ -428,7 +428,6 @@ pub fn create_commitment_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-// Neither tool returns provider-derived data, so neither taints the turn.
 // Cancelling is a reversible status flip — the athlete can make the promise
 // again — so it is not IRREVERSIBLE, which would spend the turn's single
 // destructive budget slot.

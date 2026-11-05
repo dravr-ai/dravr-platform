@@ -248,7 +248,7 @@ mod tests {
     fn in_band_failure_records_its_code() {
         let result = Ok(response(
             false,
-            Some(json!({ "error_code": "guardian_denied", "reason": "taint" })),
+            Some(json!({ "error_code": "guardian_denied", "reason": "budget_exceeded" })),
         ));
         let fields = fields_after(&request(Some("t")), &result);
         assert_eq!(

@@ -31,22 +31,20 @@ use pierre_tool_runtime::guardian::{
 };
 use pierre_tool_runtime::SecurityLabels;
 
-/// The production default policy (enforce, budgets 1/50) — what actually ships.
+/// The production default policy (enforce, budgets 3/50) — what actually ships.
 fn policy() -> GuardianPolicy {
     GuardianPolicy::default()
 }
 
-/// One representative dispatch: an `UNTRUSTED_OUTPUT` read (the common taint
-/// source), which exercises the decide + atomic taint-fold + reserve path.
+/// One representative dispatch: a read, which exercises the decide + reserve path.
 fn one_gate(guardian: &Guardian, turns: &GuardianTurns, key: &TurnKey) {
     black_box(guardian_gate(
         black_box(guardian),
         black_box(turns),
         black_box(key),
         black_box("get_activities"),
-        black_box(SecurityLabels::UNTRUSTED_OUTPUT),
+        black_box(SecurityLabels::empty()),
         black_box(false),
-        black_box(None),
     ));
 }
 

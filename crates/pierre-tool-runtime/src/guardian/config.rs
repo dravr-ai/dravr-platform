@@ -28,10 +28,9 @@
 //! it. A read failure or a row that does not parse keeps the policy in force:
 //! a poll never reverts an instance to defaults because of a fault.
 //!
-//! Two field values resolve away at load rather than taking effect, each logged
-//! at `error!` and reported as degraded: `max_writes_per_turn: 0`, which would
-//! deny every write-tool dispatch, and `plan_mode: enforce` where the deployment
-//! has not set `GUARDIAN_PLAN_MODE_ARMABLE`.
+//! `max_writes_per_turn: 0`, which would deny every write-tool dispatch, resolves
+//! away at load rather than taking effect, logged at `error!` and reported as
+//! degraded.
 
 use std::sync::Arc;
 
@@ -44,28 +43,22 @@ use serde_json::{Error as JsonError, Map, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use super::policy::{
-    ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy, PlanMode,
-    TaintedDestructive,
-};
+use super::policy::{GuardianEnvOverrides, GuardianMode, GuardianPolicy};
 use super::Guardian;
 
 /// `system_settings` key holding the persisted [`GuardianConfigDocument`].
 pub const GUARDIAN_CONFIG_SETTING_KEY: &str = "guardian_config";
 
 /// Current document schema version. Bump when fields are removed or renamed.
-pub const GUARDIAN_CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const GUARDIAN_CONFIG_SCHEMA_VERSION: u32 = 2;
 
 /// The fields [`GuardianConfigDocument`] reads; any other key in a stored row
 /// is semantics this binary would drop.
-const DOCUMENT_FIELDS: [&str; 7] = [
+const DOCUMENT_FIELDS: [&str; 4] = [
     "schema_version",
     "mode",
     "max_destructive_per_turn",
     "max_writes_per_turn",
-    "external_send",
-    "tainted_destructive",
-    "plan_mode",
 ];
 
 const fn default_schema_version() -> u32 {
@@ -77,9 +70,7 @@ const fn default_schema_version() -> u32 {
 /// Every policy field is optional: an unset field follows the compiled-in
 /// default, so a document written today does not freeze today's defaults —
 /// when a default hardens in a later release, undocumented fields harden with
-/// it. Enum values use the same lowercase wire form as the `GUARDIAN_*` env
-/// vars (`"enforce"`, `"log"`, …); `external_send` is `"none"`, `"all"`, or an
-/// array of tenant UUIDs.
+/// it. `mode` uses the same lowercase wire form as `GUARDIAN_MODE`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardianConfigDocument {
     /// Document schema version.
@@ -94,15 +85,6 @@ pub struct GuardianConfigDocument {
     /// Override for [`GuardianPolicy::max_writes_per_turn`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_writes_per_turn: Option<u16>,
-    /// Override for [`GuardianPolicy::external_send`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_send: Option<ExternalSendAllowlist>,
-    /// Override for [`GuardianPolicy::tainted_destructive`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tainted_destructive: Option<TaintedDestructive>,
-    /// Override for [`GuardianPolicy::plan_mode`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan_mode: Option<PlanMode>,
 }
 
 impl Default for GuardianConfigDocument {
@@ -112,9 +94,6 @@ impl Default for GuardianConfigDocument {
             mode: None,
             max_destructive_per_turn: None,
             max_writes_per_turn: None,
-            external_send: None,
-            tainted_destructive: None,
-            plan_mode: None,
         }
     }
 }
@@ -143,29 +122,6 @@ pub fn validate_document(doc: &GuardianConfigDocument) -> AppResult<()> {
             "max_writes_per_turn must be >= 1 (0 would deny every write-tool dispatch)",
         )
     })
-}
-
-/// Refuse a document that arms plan mode on a deployment whose configuration has not
-/// allowed that.
-///
-/// Plan mode replaces the tool loop for every athlete's turn, so arming it is a
-/// deployment decision: `GUARDIAN_PLAN_MODE_ARMABLE=true` lets an admin edit do
-/// it, and `GUARDIAN_PLAN_MODE=enforce` is the deploy-time form, which needs
-/// nothing further.
-///
-/// # Errors
-///
-/// Returns [`AppError::invalid_input`] when the document sets
-/// `plan_mode: enforce` and `armable` is false.
-pub fn validate_plan_mode_arming(doc: &GuardianConfigDocument, armable: bool) -> AppResult<()> {
-    if doc.plan_mode == Some(PlanMode::Enforce) && !armable {
-        return Err(AppError::invalid_input(
-            "plan_mode=enforce replaces the tool loop for every athlete's turn and cannot be \
-             armed from the admin API on this deployment. Set GUARDIAN_PLAN_MODE_ARMABLE=true \
-             on the server first, or deploy GUARDIAN_PLAN_MODE=enforce.",
-        ));
-    }
-    Ok(())
 }
 
 /// A stored `guardian_config` row, read as this binary understands it.
@@ -227,12 +183,6 @@ pub struct GuardianFieldSources {
     pub max_destructive_per_turn: GuardianFieldSource,
     /// Source of [`GuardianPolicy::max_writes_per_turn`].
     pub max_writes_per_turn: GuardianFieldSource,
-    /// Source of [`GuardianPolicy::external_send`].
-    pub external_send: GuardianFieldSource,
-    /// Source of [`GuardianPolicy::tainted_destructive`].
-    pub tainted_destructive: GuardianFieldSource,
-    /// Source of [`GuardianPolicy::plan_mode`].
-    pub plan_mode: GuardianFieldSource,
 }
 
 impl GuardianFieldSources {
@@ -244,9 +194,6 @@ impl GuardianFieldSources {
             ("mode", self.mode),
             ("max_destructive_per_turn", self.max_destructive_per_turn),
             ("max_writes_per_turn", self.max_writes_per_turn),
-            ("external_send", self.external_send),
-            ("tainted_destructive", self.tainted_destructive),
-            ("plan_mode", self.plan_mode),
         ] {
             if source == GuardianFieldSource::Env {
                 pinned.push(name);
@@ -486,9 +433,6 @@ impl GuardianConfigRegistry {
             mode = policy.mode.as_str(),
             max_destructive_per_turn = policy.max_destructive_per_turn,
             max_writes_per_turn = policy.max_writes_per_turn,
-            external_send = ?policy.external_send,
-            tainted_destructive = ?policy.tainted_destructive,
-            plan_mode = policy.plan_mode.as_str(),
             "guardian_config poll installed a changed row"
         );
         GuardianReloadOutcome::Installed
@@ -520,13 +464,6 @@ impl GuardianConfigRegistry {
     #[must_use]
     pub fn current_guardian(&self) -> Arc<Guardian> {
         Arc::clone(&self.snapshot.load().guardian)
-    }
-
-    /// Whether the deployment set `GUARDIAN_PLAN_MODE_ARMABLE`, so an admin edit
-    /// may arm plan mode.
-    #[must_use]
-    pub const fn plan_mode_armable(&self) -> bool {
-        self.env.plan_mode_armable
     }
 
     /// Unique to this registry, and so to this process: the part of an instance
@@ -606,29 +543,6 @@ fn usable_write_budget(doc: &GuardianConfigDocument, refused: &mut Vec<String>) 
     doc.max_writes_per_turn
 }
 
-/// The document's plan mode, or `None` when it arms plan mode without the
-/// deployment having allowed that. An env pin decides the field either way, so a
-/// row it shadows is not refused.
-fn usable_plan_mode(
-    doc: &GuardianConfigDocument,
-    env: &GuardianEnvOverrides,
-    refused: &mut Vec<String>,
-) -> Option<PlanMode> {
-    if doc.plan_mode == Some(PlanMode::Enforce) && !env.plan_mode_armable && env.plan_mode.is_none()
-    {
-        error!(
-            "guardian_config arms plan_mode=enforce but GUARDIAN_PLAN_MODE_ARMABLE is not set; \
-             resolving plan mode to off"
-        );
-        refused.push(
-            "plan_mode=enforce is refused without GUARDIAN_PLAN_MODE_ARMABLE and resolves to off"
-                .to_owned(),
-        );
-        return None;
-    }
-    doc.plan_mode
-}
-
 /// A destructive budget of 0 stays legal, since refusing every irreversible tool
 /// is a posture someone can mean, and it is also what a slip looks like. So it is
 /// never refused and never quiet: logged whichever layer set it, each time a
@@ -663,7 +577,6 @@ fn resolve(
     let defaults = GuardianPolicy::default();
     let mut refused = Vec::new();
     let doc_writes = usable_write_budget(doc, &mut refused);
-    let doc_plan_mode = usable_plan_mode(doc, env, &mut refused);
     let (mode, mode_src) = pick(defaults.mode, doc.mode.as_ref(), env.mode.as_ref());
     let (max_destructive_per_turn, destructive_src) = pick(
         defaults.max_destructive_per_turn,
@@ -676,37 +589,16 @@ fn resolve(
         doc_writes.as_ref(),
         env.max_writes_per_turn.as_ref(),
     );
-    let (external_send, external_src) = pick(
-        defaults.external_send,
-        doc.external_send.as_ref(),
-        env.external_send.as_ref(),
-    );
-    let (tainted_destructive, tainted_src) = pick(
-        defaults.tainted_destructive,
-        doc.tainted_destructive.as_ref(),
-        env.tainted_destructive.as_ref(),
-    );
-    let (plan_mode, plan_src) = pick(
-        defaults.plan_mode,
-        doc_plan_mode.as_ref(),
-        env.plan_mode.as_ref(),
-    );
     (
         GuardianPolicy {
             mode,
             max_destructive_per_turn,
             max_writes_per_turn,
-            external_send,
-            tainted_destructive,
-            plan_mode,
         },
         GuardianFieldSources {
             mode: mode_src,
             max_destructive_per_turn: destructive_src,
             max_writes_per_turn: writes_src,
-            external_send: external_src,
-            tainted_destructive: tainted_src,
-            plan_mode: plan_src,
         },
         refused,
     )
@@ -714,11 +606,35 @@ fn resolve(
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Result as IoResult, Write};
+    use std::sync::Mutex;
+
     use tracing::subscriber::with_default;
-    use tracing_subscriber::fmt::fmt as log_fmt;
+    use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
 
     use super::*;
-    use crate::guardian::tests::LogSink;
+
+    /// In-memory sink for the lines one call logs. The `Arc` is shared by every
+    /// writer the subscriber makes and by the test that reads it back.
+    #[derive(Clone, Default)]
+    struct LogSink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+            self.0.lock().expect("sink lock").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for LogSink {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
 
     /// What building a registry from `env` and `document` logged.
     fn logged_building(env: GuardianEnvOverrides, document: GuardianConfigDocument) -> String {
@@ -789,7 +705,7 @@ mod tests {
         registry.install(saved.clone(), GuardianConfigSource::AdminUpdate);
 
         let row_the_tick_read = GuardianConfigDocument {
-            mode: Some(GuardianMode::Off),
+            max_writes_per_turn: Some(9),
             ..GuardianConfigDocument::default()
         };
         assert_eq!(

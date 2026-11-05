@@ -710,7 +710,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 // A coach's tool over other athletes' data: Dravr's own surfaces list and run
 // it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetGroupMemberActivitiesTool => UNTRUSTED_OUTPUT; first_party_only);
+crate::declare_security!(GetGroupMemberActivitiesTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {

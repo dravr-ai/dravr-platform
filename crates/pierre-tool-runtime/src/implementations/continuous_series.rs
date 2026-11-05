@@ -385,6 +385,4 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
     }
 }
 
-// Provider-synced samples, with the provenance of the other stored health
-// reads: a taint SOURCE, so a later consequential sink in the turn is gated.
-crate::declare_security!(GetHeartRateSeriesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetHeartRateSeriesTool => empty);

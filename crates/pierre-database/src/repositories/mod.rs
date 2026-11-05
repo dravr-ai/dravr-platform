@@ -103,7 +103,7 @@ pub mod garmin_push_inbox;
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
-/// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
+/// Repository trait for the pending-action store behind `/confirm` and `/deny`.
 pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
 pub mod harness_memory;

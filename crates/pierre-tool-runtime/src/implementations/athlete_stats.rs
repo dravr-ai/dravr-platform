@@ -471,7 +471,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetAthleteTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetAthleteTool => empty);
 crate::declare_security!(GetStatsTool => empty);
 
 // ============================================================================

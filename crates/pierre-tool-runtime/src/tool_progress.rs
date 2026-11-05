@@ -7,16 +7,18 @@
 //! Reports a tool call to the turn's sink as a step, whichever loop ran it.
 //!
 //! A turn the athlete watches sees each tool call as a step, in the ACP words
-//! the Copilot turn reports its own calls in. A call the Guardian blocked or
-//! parked never ran, and its closing frame says so ([`TOOL_STATUS_NOT_RUN`])
+//! the Copilot turn reports its own calls in. A call the Guardian blocked
+//! never ran, and its closing frame says so ([`TOOL_STATUS_NOT_RUN`])
 //! instead of checking it off.
 
+use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
+#[cfg(feature = "client-chat")]
 use pierre_services::chat_stream::{
-    TurnEvent, TurnEventSink, TurnProgress, TOOL_STATUS_COMPLETED, TOOL_STATUS_FAILED,
-    TOOL_STATUS_NOT_RUN,
+    TurnProgress, TOOL_STATUS_COMPLETED, TOOL_STATUS_FAILED, TOOL_STATUS_NOT_RUN,
 };
 use tracing::trace;
 
+#[cfg(feature = "client-chat")]
 use crate::protocol::types::{guardian_block_reason, UniversalResponse};
 
 /// Send one event, tracing a receiver that has gone away.
@@ -32,6 +34,7 @@ pub fn deliver(sink: &TurnEventSink, event: TurnEvent) {
 
 /// The status a call's closing progress frame reports: it ran and succeeded,
 /// it ran and failed, or the Guardian stopped it before it ran.
+#[cfg(feature = "client-chat")]
 #[must_use]
 pub(crate) fn closing_status(tool_response: &UniversalResponse) -> &'static str {
     if guardian_block_reason(tool_response).is_some() {
@@ -46,6 +49,7 @@ pub(crate) fn closing_status(tool_response: &UniversalResponse) -> &'static str 
 /// Report call `call_id` of `tool_name` in `status` to the turn's sink, when
 /// the turn has one. The title is the tool's name: the client maps it to the
 /// step's words, never shows it raw.
+#[cfg(feature = "client-chat")]
 pub(crate) fn report_call(
     sink: Option<&TurnEventSink>,
     call_id: &str,
@@ -64,7 +68,7 @@ pub(crate) fn report_call(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "client-chat"))]
 mod tests {
     use std::collections::HashMap;
 
@@ -104,11 +108,6 @@ mod tests {
             closing_status(&response(false, Some("guardian"))),
             TOOL_STATUS_NOT_RUN,
             "a denied call never ran"
-        );
-        assert_eq!(
-            closing_status(&response(false, Some("guardian_confirm"))),
-            TOOL_STATUS_NOT_RUN,
-            "a call parked for confirmation has not run yet"
         );
     }
 

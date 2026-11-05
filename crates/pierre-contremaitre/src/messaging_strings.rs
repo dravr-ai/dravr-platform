@@ -88,18 +88,9 @@ pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 /// Key: a tool action was blocked by the security guardian, user-facing denial.
 pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
 
-/// Key: the guardian parked a destructive action pending user confirmation.
-/// Args: `{0}` tool name, `{1}` claim token.
-pub const KEY_GUARDIAN_CONFIRM_PROMPT: &str = "messaging.guardian.confirm_prompt";
-
-/// Key: a confirmed action executed successfully. Args: `{0}` tool name.
-pub const KEY_GUARDIAN_CONFIRM_DONE: &str = "messaging.guardian.confirm_done";
-
-/// Key: a confirmed action failed to execute. Args: `{0}` tool name.
-pub const KEY_GUARDIAN_CONFIRM_FAILED: &str = "messaging.guardian.confirm_failed";
-
-/// Key: the user denied a parked action. No format placeholders.
-pub const KEY_GUARDIAN_CONFIRM_DENIED: &str = "messaging.guardian.confirm_denied";
+/// Reply when a Guardian block stopped a turn that had already committed actions:
+/// `{0}` lists them by their display titles.
+pub const KEY_GUARDIAN_DENIED_AFTER_ACTIONS: &str = "messaging.guardian.denied_after_actions";
 
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";

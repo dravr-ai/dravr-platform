@@ -1,5 +1,5 @@
 // ABOUTME: Admin route surfacing the Guardian security-policy configuration (system_settings.guardian_config)
-// ABOUTME: GET the row with the effective policy, and a compare-and-set PUT with arming and impact gates, recorded on the audit trail
+// ABOUTME: GET the row with the effective policy, and a compare-and-set PUT with an impact gate, recorded on the audit trail
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,8 @@
 //! # Admin Guardian Configuration
 //!
 //! Exposes the [`GuardianConfigDocument`] the Guardian resolves its runtime
-//! policy from. Mounted twice with the same handlers: under cookie auth at
-//! `/api/admin/settings/guardian` (web console) and under admin-token auth at
-//! `/admin/settings/guardian` (pierre-cli) — the auto-approval dual-mount
-//! precedent. The policy is global, so a token scoped to one tenant is refused.
+//! policy from, under admin-token auth at `/admin/settings/guardian`, for
+//! `pierre-cli`. The policy is global, so a token scoped to one tenant is refused.
 //!
 //! GET answers two questions that can differ: `config` and `updated_at` are the
 //! stored row, which is what an editor must start from, and `effective`,
@@ -21,8 +19,8 @@
 //!
 //! PUT is a compare-and-set ([`super::setting_revision`]), so an instance that
 //! booted on defaults cannot write them over the row either. A high-impact edit
-//! also needs `acknowledge_impact`, and `plan_mode=enforce` needs
-//! `GUARDIAN_PLAN_MODE_ARMABLE`.
+//! also needs `acknowledge_impact`. A body with a field this policy does not read
+//! is refused, so a misspelled or misplaced field never saves as "unset".
 //!
 //! The registry install swaps THIS instance's snapshot; every other instance
 //! picks the row up on its poll.
@@ -44,9 +42,9 @@ use axum::{
 use pierre_database::database::system_settings::SystemSetting;
 use pierre_logging::host_identity;
 use pierre_tool_runtime::guardian::{
-    high_impact_changes, parse_persisted_document, validate_document, validate_plan_mode_arming,
-    GuardianConfigDocument, GuardianConfigSource, GuardianFieldSources, GuardianPolicy,
-    GUARDIAN_CONFIG_SETTING_KEY,
+    high_impact_changes, parse_persisted_document, validate_document, GuardianConfigDocument,
+    GuardianConfigSource, GuardianFieldSources, GuardianMode, GuardianPolicy,
+    GUARDIAN_CONFIG_SCHEMA_VERSION, GUARDIAN_CONFIG_SETTING_KEY,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,17 +102,33 @@ pub struct GuardianConfigResponse {
     /// Keys in the row this binary does not read, and which a save would drop.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stored_unknown_fields: Vec<String>,
-    /// Whether an admin edit may arm `plan_mode=enforce` on this deployment.
-    pub plan_mode_armable: bool,
 }
 
-/// Body of a `PUT`: the document, flattened, and the save's two assertions. Only
-/// the document is persisted.
+const fn current_schema_version() -> u32 {
+    GUARDIAN_CONFIG_SCHEMA_VERSION
+}
+
+/// Body of a `PUT`: the document's fields and the save's two assertions. Only the
+/// document is persisted.
+///
+/// Spelled out rather than flattened from the document, because serde cannot deny
+/// unknown fields through a flatten, and an unknown field that saved silently is
+/// how a wrapped body once wrote an empty document over the policy.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GuardianConfigPutRequest {
-    /// The document to store.
-    #[serde(flatten)]
-    pub document: GuardianConfigDocument,
+    /// The document's schema version.
+    #[serde(default = "current_schema_version")]
+    pub schema_version: u32,
+    /// Override for [`GuardianPolicy::mode`].
+    #[serde(default)]
+    pub mode: Option<GuardianMode>,
+    /// Override for [`GuardianPolicy::max_destructive_per_turn`].
+    #[serde(default)]
+    pub max_destructive_per_turn: Option<u16>,
+    /// Override for [`GuardianPolicy::max_writes_per_turn`].
+    #[serde(default)]
+    pub max_writes_per_turn: Option<u16>,
     /// The version the editor read.
     #[serde(default)]
     pub expected_updated_at: ExpectedRevision,
@@ -210,11 +224,10 @@ fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> Guard
         degraded_reason,
         stored_schema_version,
         stored_unknown_fields,
-        plan_mode_armable: registry.plan_mode_armable(),
     }
 }
 
-/// Handle `GET /admin/settings/guardian` (and its console mount).
+/// Handle `GET /admin/settings/guardian`.
 ///
 /// Reads the row, and a failed read is an error rather than a default document,
 /// so nobody edits from an empty form that a save would write over the policy.
@@ -239,7 +252,7 @@ pub async fn handle_get_guardian_config(
     Ok((StatusCode::OK, Json(response_for(&context, row.as_ref()))))
 }
 
-/// Handle `PUT /admin/settings/guardian` (and its console mount).
+/// Handle `PUT /admin/settings/guardian`.
 ///
 /// Validates, compare-and-sets the row, then installs the new snapshot
 /// (write-then-install, so a DB failure leaves both stores on the previous
@@ -252,10 +265,10 @@ pub async fn handle_get_guardian_config(
 /// Returns an error when the caller lacks `ManageConfiguration`, the token is
 /// scoped to one tenant, or the `system_settings` access fails. The refusals of a
 /// save are responses, so each one reaches the audit trail under this policy's
-/// action: a document that fails validation or arms plan mode where that is not
-/// allowed is a 400, a stale or missing token and an unacknowledged high-impact
-/// edit are 409s, and a body that does not parse has the 409's shape, so its
-/// message reaches the page.
+/// action: a document that fails validation is a 400, a stale or missing token and
+/// an unacknowledged high-impact edit are 409s, and a body that does not parse,
+/// or names a field this policy does not read, has the 409's shape, so its message
+/// reaches the client.
 pub async fn handle_put_guardian_config(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -275,18 +288,22 @@ pub async fn handle_put_guardian_config(
         }
     };
     let GuardianConfigPutRequest {
-        document,
+        schema_version,
+        mode,
+        max_destructive_per_turn,
+        max_writes_per_turn,
         expected_updated_at,
         acknowledge_impact,
     } = request;
+    let document = GuardianConfigDocument {
+        schema_version,
+        mode,
+        max_destructive_per_turn,
+        max_writes_per_turn,
+    };
     // Answered here rather than with `?`, so the refusal carries the action the
     // policy's own trail lists.
-    if let Err(refused) = validate_document(&document).and_then(|()| {
-        validate_plan_mode_arming(
-            &document,
-            context.guardian_config_registry.plan_mode_armable(),
-        )
-    }) {
+    if let Err(refused) = validate_document(&document) {
         return Ok(refused_save(refused.into_response()));
     }
 
@@ -423,9 +440,6 @@ fn log_save(admin_token: &ValidatedAdminToken, response: &GuardianConfigResponse
         mode = effective.mode.as_str(),
         max_destructive_per_turn = effective.max_destructive_per_turn,
         max_writes_per_turn = effective.max_writes_per_turn,
-        external_send = ?effective.external_send,
-        tainted_destructive = ?effective.tainted_destructive,
-        plan_mode = effective.plan_mode.as_str(),
         env_pinned = ?response.env_pinned,
         "admin updated guardian config"
     );

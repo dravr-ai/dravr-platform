@@ -41,8 +41,8 @@ use pierre_llm::{ChatMessage, ChatRequest, MessageRole};
 /// The invariant: exactly one `System`, at index 0.
 ///
 /// Every injected block the platform adds after prompt assembly — activity
-/// pre-load, Stage 12b refresh, compaction replay, compaction splice, guardian
-/// planner — must ride as `User` text in position.
+/// pre-load, Stage 12b refresh, compaction replay, compaction splice — must ride
+/// as `User` text in position.
 fn system_positions(messages: &[ChatMessage]) -> Vec<usize> {
     messages
         .iter()

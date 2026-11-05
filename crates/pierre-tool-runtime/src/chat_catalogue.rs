@@ -118,8 +118,7 @@ pub(crate) fn withhold_chat_parameters(schema: &mut JsonSchema) {
 /// A chat tool call's arguments, less [`CHAT_WITHHELD_PARAMETERS`].
 ///
 /// Every path a chat model's call reaches a tool through goes through this:
-/// the API tool loop, the loopback MCP surface an agent CLI calls, and the
-/// Guardian's plan runner.
+/// the API tool loop and the loopback MCP surface an agent CLI calls.
 #[must_use]
 pub fn chat_arguments(mut arguments: Value) -> Value {
     if let Some(object) = arguments.as_object_mut() {

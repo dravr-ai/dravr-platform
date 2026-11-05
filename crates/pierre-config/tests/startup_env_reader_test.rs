@@ -21,14 +21,10 @@ use pierre_config::environment::{
 };
 use secrecy::ExposeSecret;
 
-const GUARDIAN_VARS: [&str; 7] = [
+const GUARDIAN_VARS: [&str; 3] = [
     "GUARDIAN_MODE",
     "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
     "GUARDIAN_MAX_WRITES_PER_TURN",
-    "GUARDIAN_EXTERNAL_SEND_TENANTS",
-    "GUARDIAN_TAINTED_DESTRUCTIVE",
-    "GUARDIAN_PLAN_MODE",
-    "GUARDIAN_PLAN_MODE_ARMABLE",
 ];
 
 const TIMEOUT_VARS: [&str; 6] = [
@@ -56,16 +52,13 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     // Guardian values are kept as written; the tool runtime parses them.
     env::set_var("GUARDIAN_MODE", " observe ");
     env::set_var("GUARDIAN_MAX_WRITES_PER_TURN", "7");
-    env::set_var("GUARDIAN_PLAN_MODE", "enforce");
-    env::set_var("GUARDIAN_PLAN_MODE_ARMABLE", "true");
+    env::set_var("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN", "4");
     assert_eq!(
         GuardianSettings::from_env(),
         GuardianSettings {
             mode: Some(" observe ".to_owned()),
+            max_destructive_per_turn: Some("4".to_owned()),
             max_writes_per_turn: Some("7".to_owned()),
-            plan_mode: Some("enforce".to_owned()),
-            plan_mode_armable: Some("true".to_owned()),
-            ..GuardianSettings::default()
         }
     );
 

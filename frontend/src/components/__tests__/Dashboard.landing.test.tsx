@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the Home landing for regular users, the logo's way back to it, and the retired Coach and Groups tabs
-// ABOUTME: A stale #insights, #my-coaches or #groups hash lands on Home; the athlete's nav has neither
+// ABOUTME: Locks the Home landing for regular users, the logo's way back to it, and the retired Coach, Groups and Guardian tabs
+// ABOUTME: A stale #insights, #my-coaches, #groups or #guardian-config hash lands on Home; the athlete's nav has none
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
@@ -113,7 +113,7 @@ describe('Dashboard landing — regular user', () => {
     await waitFor(() => expect(window.location.hash).toBe('#home'));
   });
 
-  it.each(['#insights', '#insights/friends', '#my-coaches', '#groups', '#groups/group-1'])(
+  it.each(['#insights', '#insights/friends', '#my-coaches', '#groups', '#groups/group-1', '#guardian-config'])(
     'resolves a stale %s deep link to Home on first load',
     async (hash) => {
       window.history.replaceState(null, '', `/${hash}`);

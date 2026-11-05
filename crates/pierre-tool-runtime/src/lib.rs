@@ -97,7 +97,7 @@ pub mod group_activity_cache;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
-/// The Guardian: dispatch-time taint/budget/egress guard + the absorbed tenant
+/// The Guardian: dispatch-time budget/egress guard + the absorbed tenant
 /// tool-disable allowlist, interposed at the universal execution chokepoint.
 pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
@@ -157,9 +157,6 @@ mod head_stream;
 /// loop, a degenerate reply retried once, the loopback's signals drained
 #[cfg(feature = "client-chat")]
 mod headless_finalize;
-/// The plan-then-verify tool loop a super admin can arm in place of `ReAct`
-#[cfg(feature = "client-chat")]
-mod planned_loop;
 #[cfg(feature = "client-chat")]
 mod prompt_projection;
 #[cfg(feature = "client-chat")]

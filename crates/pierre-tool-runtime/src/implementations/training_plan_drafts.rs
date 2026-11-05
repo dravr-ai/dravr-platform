@@ -389,8 +389,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
              week or re-laid the season since, publish is refused with status `conflict` and \
              nothing changes: tell the coach which weeks, and publish again with \
              overwrite_athlete_changes only if they choose. Publishing leaves the calendar \
-             alone; one destructive action runs per turn, so push_training_plan waits for the \
-             coach's next message: say so. The caller's own plan has no draft: their saves are \
+             alone: push_training_plan is a separate step, so say so. The caller's own plan has no draft: their saves are \
              already live.",
             schema,
             annotations(
@@ -566,9 +565,8 @@ async fn publish(
     };
     let message = format!(
         "Your draft is {name}'s live plan now. The weeks you did not draft keep {name}'s own \
-         version. {told}{room} Putting it on the calendar with push_training_plan happens on \
-         the coach's next message, because one destructive action runs per turn: offer that, \
-         do not call it in this turn."
+         version. {told}{room} Putting it on the calendar with push_training_plan is a \
+         separate step: offer that, and call it only if the coach asks."
     );
     ok_typed(
         PUBLISH_TOOL,
@@ -597,7 +595,6 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 
 // Publishing replaces the athlete's live season and weeks — the athlete's own
 // changes too, under overwrite — and discarding throws the coach's draft
-// away; neither can be undone from here. Irreversible, so at most one per
-// turn under the Guardian's default budget, as push_training_plan is, and
-// the confirm path applies to it when armed.
+// away; neither can be undone from here. Irreversible, so it spends the Guardian's
+// per-turn destructive budget, as push_training_plan does.
 crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE);

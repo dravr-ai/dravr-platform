@@ -24,7 +24,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    subject_hash, AuditEventFilter, AuditEventRecord, AuditOutcome, PendingGuardianAction,
+    subject_hash, AuditEventFilter, AuditEventRecord, AuditOutcome,
 };
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -540,9 +540,10 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
         UserRole::SuperAdmin,
     )
     .await?;
+    let device_login = cli_token(&resources, &operator).await?;
 
-    let saved = AxumTestRequest::put("/api/admin/settings/guardian")
-        .header("Authorization", &operator.auth)
+    let saved = AxumTestRequest::put("/admin/settings/guardian")
+        .header("Authorization", &device_login)
         .json(&json!({ "max_writes_per_turn": 12, "expected_updated_at": null }))
         .send(app.clone())
         .await;
@@ -560,8 +561,8 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
     assert_eq!(rows[0].metadata["before"], Value::Null);
     assert_eq!(rows[0].metadata["after"]["max_writes_per_turn"], 12);
 
-    let moved = AxumTestRequest::put("/api/admin/settings/guardian")
-        .header("Authorization", &operator.auth)
+    let moved = AxumTestRequest::put("/admin/settings/guardian")
+        .header("Authorization", &device_login)
         .json(&json!({ "max_writes_per_turn": 13, "expected_updated_at": saved["updated_at"] }))
         .send(app.clone())
         .await;
@@ -577,8 +578,8 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
     );
 
     // The base it names is the first save's, which the second replaced.
-    let stale = AxumTestRequest::put("/api/admin/settings/guardian")
-        .header("Authorization", &operator.auth)
+    let stale = AxumTestRequest::put("/admin/settings/guardian")
+        .header("Authorization", &device_login)
         .json(&json!({ "max_writes_per_turn": 14, "expected_updated_at": saved["updated_at"] }))
         .send(app.clone())
         .await;
@@ -591,8 +592,8 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
     assert!(rows[0].metadata.get("after").is_none(), "nothing landed");
 
     // A document the validator refuses is on the same trail, not under the route.
-    let invalid = AxumTestRequest::put("/api/admin/settings/guardian")
-        .header("Authorization", &operator.auth)
+    let invalid = AxumTestRequest::put("/admin/settings/guardian")
+        .header("Authorization", &device_login)
         .json(&json!({ "max_writes_per_turn": 0, "expected_updated_at": saved["updated_at"] }))
         .send(app.clone())
         .await;
@@ -654,56 +655,5 @@ async fn a_service_token_guardian_write_names_the_token() -> Result<()> {
     assert_eq!(rows[0].actor_user_id, None);
     assert_eq!(rows[0].metadata["service"], "guardian-canary");
     assert!(rows[0].metadata["token_id"].is_string());
-    Ok(())
-}
-
-/// A denial names the call, the tool and the tenant, and never what the call carried.
-#[tokio::test]
-#[serial]
-async fn a_guardian_denial_names_the_call_and_not_its_arguments() -> Result<()> {
-    const ARGUMENTS_MARKER: &str = "IGNORE-PREVIOUS-INSTRUCTIONS";
-    let resources = create_test_server_resources().await?;
-    let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-deny@example.com", UserRole::SuperAdmin).await?;
-    resources
-        .common
-        .repos
-        .guardian_actions
-        .create_pending_action(
-            &PendingGuardianAction {
-                id: "call-a".to_owned(),
-                tenant_id: "tenant-a".to_owned(),
-                user_id: "athlete-1".to_owned(),
-                conversation_id: None,
-                tool_name: "disconnect_provider".to_owned(),
-                arguments: json!({ "note": ARGUMENTS_MARKER }),
-                deny_reason: "tainted_sink".to_owned(),
-                turn_agent_id: None,
-                seat: Some("athlete".to_owned()),
-                turn_provenance: None,
-            },
-            chrono::Utc::now() + chrono::Duration::minutes(5),
-        )
-        .await?;
-
-    let denied = AxumTestRequest::post("/api/admin/settings/guardian/pending/call-a/deny")
-        .header("Authorization", &operator.auth)
-        .send(app.clone())
-        .await;
-    assert_eq!(denied.status(), 200, "{}", denied.body_text());
-
-    let rows = trail(&resources).await?;
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].action, "guardian.pending.deny");
-    assert_eq!(
-        rows[0].metadata["target"],
-        json!({
-            "pending_id": "call-a",
-            "tool_name": "disconnect_provider",
-            "tenant_id": "tenant-a",
-        })
-    );
-    assert!(!format!("{:?}", rows[0]).contains(ARGUMENTS_MARKER));
-    assert_eq!(config_audit_row_count(&resources).await?, 0);
     Ok(())
 }

@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::tool_simulation;
-use pierre_core::models::{GUARDIAN_CONFIRM_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON};
+use pierre_core::models::GUARDIAN_DENIED_FINISH_REASON;
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
@@ -17,9 +17,7 @@ use tracing::{info, warn};
 
 use crate::guardian::HeadlessBlock;
 use crate::tool_execution::{headless_turn_key, parse_lenient_tool_call_blocks, run_cli_tool_loop};
-use crate::tool_loop_io::{
-    observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
-};
+use crate::tool_loop_io::{observed_tool_name, GuardianDenial, ToolLoopParams, ToolLoopResult};
 use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_progress;
 
@@ -166,7 +164,6 @@ pub async fn finalize_headless_turn(
         // `settle_turn_signals` below, so the headless path surfaces the same
         // deterministic refusal every other transport does.
         guardian_denied: None,
-        guardian_confirm: None,
         // Set downstream by the capability-recovery stage, which runs after
         // every loop variant returns.
         capability_claim_unverified: false,
@@ -190,10 +187,9 @@ pub async fn finalize_headless_turn(
 ///   the same control every other transport does. An offer the loop already read
 ///   off a payload stands.
 /// - #10: the turn's first Guardian block, which becomes a deterministic reply
-///   (the chat pipeline renders the localized `KEY_GUARDIAN_DENIED` or
-///   `KEY_GUARDIAN_CONFIRM_PROMPT`) instead of the model's paraphrase. It replaces
-///   whatever block `result` carries, since a later refusal in the same turn is
-///   only a consequence of it, and what the athlete has to answer is the first.
+///   (the chat pipeline renders the localized reply) instead of the model's
+///   paraphrase. It replaces whatever block `result` carries, since a later refusal
+///   in the same turn is only a consequence of it.
 ///   It stamps the finish reason too: the reply is about to become the platform's
 ///   text, and the row is replayed by that stamp, so a model's `stop` left on it
 ///   would read back as the agent's own words (carnet#1398).
@@ -210,27 +206,14 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
     if let Some(offer) = resources.reconnect_offers().take_offer(&turn_key) {
         result.served_without_provider = result.served_without_provider.take().or(Some(offer));
     }
-    match resources.guardian_turns().take_block(&turn_key) {
-        Some(HeadlessBlock::Denied { tool_name, reason }) => {
-            result.guardian_denied = Some(GuardianDenial {
-                tool_name,
-                reason: reason.as_str().to_owned(),
-            });
-            result.guardian_confirm = None;
-            result.finish_reason = Some(GUARDIAN_DENIED_FINISH_REASON.to_owned());
-        }
-        Some(HeadlessBlock::ConfirmRequired {
+    let turns = resources.guardian_turns();
+    if let Some(HeadlessBlock { tool_name, reason }) = turns.take_block(&turn_key) {
+        result.guardian_denied = Some(GuardianDenial {
             tool_name,
-            pending_id,
-        }) => {
-            result.guardian_denied = None;
-            result.guardian_confirm = Some(GuardianConfirmRequest {
-                tool_name,
-                pending_id,
-            });
-            result.finish_reason = Some(GUARDIAN_CONFIRM_FINISH_REASON.to_owned());
-        }
-        None => {}
+            reason: reason.as_str().to_owned(),
+            committed: turns.committed(&turn_key),
+        });
+        result.finish_reason = Some(GUARDIAN_DENIED_FINISH_REASON.to_owned());
     }
 }
 

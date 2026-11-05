@@ -16,25 +16,22 @@ use super::tool_response::{
 use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
-    AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
-    TURN_AGENT_ID, TURN_DIRECT_MESSAGE, TURN_LOCALE,
+    AuthMethod, DispatchOrigin, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES,
+    GUARDIAN_TURN_TOKEN, TURN_AGENT_ID, TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
-use crate::guardian::{
-    self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TaintOrigin, TurnKey,
-};
+use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::provider_offer::{
     connections_page, external_no_provider_response, provider_offers, ConnectRoute,
 };
-use crate::protocol::types::{refused_before_running, UniversalRequest, UniversalResponse};
+use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::reconnect::offer_in_payload;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
@@ -45,7 +42,6 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
-use pierre_database::repositories::PendingGuardianAction;
 use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
@@ -104,11 +100,10 @@ pub struct UniversalExecutor {
     turn_locale: Option<String>,
     /// Whether the turn was a direct message, read from
     /// [`crate::context::TURN_DIRECT_MESSAGE`] when the executor is built
-    /// inside a turn, or bound with [`Self::with_direct_message`], and scoped
-    /// back around each tool body. `None` outside a chat turn.
+    /// inside a turn, and scoped back around each tool body. `None` outside a chat turn.
     turn_direct_message: Option<bool>,
-    /// Per-**utterance** token used solely as the Guardian's turn key so taint
-    /// and per-turn budgets accumulate over one user message's `ReAct` loop and
+    /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
+    /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
     /// used for routing): the chat pipeline and an ACP agent's tool-host session
     /// both set this to `TurnInput.turn_id`. `None` (MCP-direct / A2A)
@@ -200,8 +195,8 @@ impl UniversalExecutor {
             // way.
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
-            // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
-            // taints the SAME turn as its caller. Absent outside any tool scope
+            // a tool body (nested dispatch), so a nested write is charged to the
+            // SAME turn as its caller. Absent outside any tool scope
             // (top-level executors set their token explicitly via
             // `with_turn_token`).
             turn_token: GUARDIAN_TURN_TOKEN.try_with(Clone::clone).ok().flatten(),
@@ -265,7 +260,7 @@ impl UniversalExecutor {
     }
 
     /// Bind the per-utterance Guardian turn token (`TurnInput.turn_id`, for the
-    /// chat loop and an ACP agent's tool-host session). Keeps taint/budget scoped to
+    /// chat loop and an ACP agent's tool-host session). Keeps budgets scoped to
     /// one user message rather than the whole conversation. See the field docs.
     #[must_use]
     pub fn with_turn_token(mut self, turn_token: String) -> Self {
@@ -322,15 +317,6 @@ impl UniversalExecutor {
         self
     }
 
-    /// Bind whether the turn was a direct message, for an executor built
-    /// outside the chat pipeline's scope — the `/confirm` re-dispatch of a
-    /// parked call, which runs from the command that confirmed it.
-    #[must_use]
-    pub const fn with_direct_message(mut self, is_direct_message: bool) -> Self {
-        self.turn_direct_message = Some(is_direct_message);
-        self
-    }
-
     /// Return a cheap clone of the current cageux intelligence config
     /// snapshot from the server's hot-reloadable registry.
     ///
@@ -348,7 +334,7 @@ impl UniversalExecutor {
     /// genuine lookup error)
     /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
-    /// abandons the turn), or `None` to proceed to the Guardian taint/budget check.
+    /// abandons the turn), or `None` to proceed to the Guardian budget check.
     async fn authorization_refusal(
         &self,
         tool_name: &str,
@@ -563,7 +549,7 @@ impl UniversalExecutor {
         let args = request.parameters;
         let tool_name = request.tool_name;
 
-        // ── Guardian: dispatch-time taint/budget/egress + tenant allowlist ──
+        // ── Guardian: dispatch-time budget/egress + tenant allowlist ──
         // Every transport funnels through here, so this single check covers the
         // chat ReAct loop, MCP-direct, A2A, and an ACP agent's tool-host session
         // with no bypass.
@@ -611,7 +597,7 @@ impl UniversalExecutor {
             &tool_name,
             ai_scope::effective_transport(self.transport),
         ) {
-            return Ok(refused_before_running(refusal));
+            return Ok(refusal);
         }
 
         // The coach's seats: in a group the caller coaches, their own data is
@@ -621,7 +607,7 @@ impl UniversalExecutor {
             .seat
             .refusal(self.resources.tool_registry(), &tool_name)
         {
-            return Ok(refused_before_running(refusal));
+            return Ok(refusal);
         }
 
         if let Some(refusal) = self
@@ -635,11 +621,11 @@ impl UniversalExecutor {
             )
             .await?
         {
-            return Ok(refused_before_running(refusal));
+            return Ok(refusal);
         }
 
         // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
-        // agent's tool-host session), so taint + budgets accumulate across ONE user
+        // agent's tool-host session), so budgets accumulate across ONE user
         // message's tool calls and reset on the next — NOT across the whole
         // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
         // each its own bucket (no cross-call accumulation — correct).
@@ -649,7 +635,7 @@ impl UniversalExecutor {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let turn_key = TurnKey::new(tenant_uuid, resolved_turn_token.clone());
 
-        // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
+        // Budget / egress — mode-gated (observe logs, enforce blocks).
         // The decision + atomic budget-reserve is the shared `guardian_gate`
         // so no dispatch path can bypass it. decide + reserve run under one store lock so
         // concurrent same-turn dispatch (an ACP tool-host session / A2A pipelining
@@ -662,7 +648,6 @@ impl UniversalExecutor {
             &tool_name,
             labels,
             writes_data,
-            tenant_uuid,
         );
         match outcome {
             GateOutcome::Proceed => {}
@@ -675,7 +660,7 @@ impl UniversalExecutor {
                 if reason != DenyReason::TurnBlocked {
                     self.record_turn_block(
                         &turn_key,
-                        HeadlessBlock::Denied {
+                        HeadlessBlock {
                             tool_name: tool_name.clone(),
                             reason,
                         },
@@ -685,19 +670,6 @@ impl UniversalExecutor {
                 return Ok(refusal_response::guardian_denied_response(
                     &tool_name, reason,
                 ));
-            }
-            GateOutcome::ConfirmRequired => {
-                // `args` owns the parameters (moved out of `request` above);
-                // clone them into the parked row — the tool will not run now.
-                return Ok(self
-                    .park_for_confirmation(
-                        args.clone(),
-                        request.user_id.clone(),
-                        &tool_name,
-                        tenant_uuid,
-                        &turn_key,
-                    )
-                    .await);
             }
         }
 
@@ -797,14 +769,11 @@ impl UniversalExecutor {
             provenance.mark_provider_data();
         }
 
-        // Guardian POST. Taint was folded atomically with the dispatch decision
-        // in `decide_and_reserve` above (before the body ran), so it is already
-        // recorded here on success OR error — a failed `UNTRUSTED_OUTPUT` tool
-        // still surfaced its content to the LLM (the S1 error-path escape) and
-        // stays tainted. The budget was reserved pre-execution; it is refunded if
+        // Guardian POST. The budget was reserved pre-execution; it is refunded if
         // the call returned a failure, so only *successful* consequential actions
-        // consume budget (taint is intentionally NOT refunded). A call abandoned
-        // while running never gets here, and its destructive charge stays spent.
+        // consume budget, and only those are what the turn says it did. A call
+        // abandoned while running never gets here, and its destructive charge stays
+        // spent.
         if response.is_error {
             if let Some(reservation) = reservation {
                 reservation.refund();
@@ -812,6 +781,9 @@ impl UniversalExecutor {
         } else {
             if let Some(reservation) = reservation {
                 reservation.keep();
+            }
+            if writes_data || labels.is_irreversible() {
+                turns.record_committed(&turn_key, &tool_name);
             }
             repeated_read::remember(turns, &turn_key, read, writes_data);
         }
@@ -898,7 +870,7 @@ impl UniversalExecutor {
         // window the pipeline prefetched offers nothing: the model never asked
         // for it, and most turns prefetch, so it would ask an athlete with one
         // dead connection to reconnect on every message.
-        if self.turn_token.is_some() && TaintOrigin::current() != TaintOrigin::Prefetch {
+        if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
             if let Some(slug) = universal
                 .result
                 .as_ref()
@@ -1024,11 +996,6 @@ struct DispatchRecord<'a> {
     started: Instant,
 }
 
-/// Confirmation TTL for a parked destructive call. Short by design: the
-/// prompt and the resolution normally happen within the same conversation
-/// exchange, and a stale consent to a destructive action must not linger.
-const CONFIRM_TTL_MINUTES: i64 = 5;
-
 impl UniversalExecutor {
     /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
     /// call: such a call mints a nonce that no later reader could ever name.
@@ -1046,75 +1013,6 @@ impl UniversalExecutor {
                 .guardian_turns()
                 .record_block(turn_key, block);
         }
-    }
-
-    /// Park a confirm-required call and build the in-band confirmation ask.
-    ///
-    /// On a storage failure this FAILS CLOSED as a denial: an unparkable call
-    /// must not execute, and must not pretend a confirmation is pending.
-    async fn park_for_confirmation(
-        &self,
-        parameters: serde_json::Value,
-        user_id: String,
-        tool_name: &str,
-        tenant_uuid: Option<Uuid>,
-        turn_key: &TurnKey,
-    ) -> UniversalResponse {
-        let pending_id = Uuid::new_v4().simple().to_string();
-        let action = PendingGuardianAction {
-            id: pending_id.clone(),
-            tenant_id: tenant_uuid.map(|t| t.to_string()).unwrap_or_default(),
-            user_id,
-            conversation_id: self.conversation_id.clone(),
-            tool_name: tool_name.to_owned(),
-            arguments: parameters,
-            deny_reason: DenyReason::TaintedSink.as_str().to_owned(),
-            turn_agent_id: self.turn_agent_id.clone(),
-            seat: Some(self.seat.as_stored().to_owned()),
-            // No enclosing derivation means nothing was served yet: a clear record,
-            // which is not the NULL that `/confirm` reads as first-party-only.
-            turn_provenance: self.provenance.clone().unwrap_or_default().to_stored(),
-        };
-        let expires_at = Utc::now() + Duration::minutes(CONFIRM_TTL_MINUTES);
-
-        if let Err(e) = self
-            .resources
-            .repos()
-            .guardian_actions
-            .create_pending_action(&action, expires_at)
-            .await
-        {
-            warn!(
-                tool_name = %tool_name,
-                error = %e,
-                "guardian confirm: failed to park the call; failing closed as a denial"
-            );
-            self.record_turn_block(
-                turn_key,
-                HeadlessBlock::Denied {
-                    tool_name: tool_name.to_owned(),
-                    reason: DenyReason::TaintedSink,
-                },
-            );
-            return refusal_response::guardian_denied_response(tool_name, DenyReason::TaintedSink);
-        }
-
-        warn!(
-            tool_name = %tool_name,
-            pending_id = %pending_id,
-            "guardian confirm: parked tool call pending user confirmation"
-        );
-        // #10 analog: a park that fires inside the ACP subprocess's tool-host
-        // session surfaces through the turn's block channel so the ask is rendered
-        // deterministically, never paraphrased by the model.
-        self.record_turn_block(
-            turn_key,
-            HeadlessBlock::ConfirmRequired {
-                tool_name: tool_name.to_owned(),
-                pending_id: pending_id.clone(),
-            },
-        );
-        refusal_response::guardian_confirm_response(tool_name, &pending_id)
     }
 }
 

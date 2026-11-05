@@ -437,7 +437,6 @@ mod messaging_welcome {
                     id: token.clone(),
                     tenant_id: owner.home_tenant.to_string(),
                     user_id: owner.user_id.to_string(),
-                    conversation_id: None,
                     tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
                     arguments: json!({
                         "title": "Hill Agent",
@@ -447,9 +446,6 @@ mod messaging_welcome {
                         "tags": [],
                     }),
                     deny_reason: "awaiting_confirmation".to_owned(),
-                    turn_agent_id: None,
-                    seat: None,
-                    turn_provenance: None,
                 },
                 Utc::now() + Duration::minutes(10),
             )

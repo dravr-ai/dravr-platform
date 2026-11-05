@@ -296,4 +296,4 @@ fn unknown_route_ref(route_ref: &str) -> AppError {
 
 // Guardian security classification (see `crate::security`): the answer carries
 // the stretches' names, which volunteers typed into OpenStreetMap.
-crate::declare_security!(ComposeRouteTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(ComposeRouteTool => empty);

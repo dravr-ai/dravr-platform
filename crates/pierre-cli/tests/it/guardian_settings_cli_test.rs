@@ -145,22 +145,16 @@ const STAMP: &str = "2026-11-04T12:00:00.123456+00:00";
 
 fn current_policy() -> Value {
     json!({
-        "config": {"schema_version": 1, "max_writes_per_turn": 9},
+        "config": {"schema_version": 2, "max_writes_per_turn": 9},
         "effective": {
             "mode": "enforce",
-            "max_destructive_per_turn": 1,
-            "max_writes_per_turn": 9,
-            "external_send": "none",
-            "tainted_destructive": "log",
-            "plan_mode": "off"
+            "max_destructive_per_turn": 3,
+            "max_writes_per_turn": 9
         },
         "sources": {
             "mode": "default",
             "max_destructive_per_turn": "default",
-            "max_writes_per_turn": "database",
-            "external_send": "default",
-            "tainted_destructive": "default",
-            "plan_mode": "default"
+            "max_writes_per_turn": "database"
         },
         "env_pinned": [],
         "source": "persisted",
@@ -169,8 +163,7 @@ fn current_policy() -> Value {
         "instance_id": "rev:abc",
         "in_sync": true,
         "degraded": false,
-        "degraded_reason": null,
-        "plan_mode_armable": false
+        "degraded_reason": null
     })
 }
 
@@ -314,14 +307,14 @@ fn a_dry_run_exits_non_zero_when_the_server_would_refuse_the_document() {
         "settings",
         "guardian",
         "set",
-        "--plan-mode",
-        "enforce",
+        "--max-writes-per-turn",
+        "0",
         "--dry-run",
     ]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(stdout_of(&output).contains("plan_mode: (unset) -> enforce"));
-    assert!(stderr_of(&output).contains("GUARDIAN_PLAN_MODE_ARMABLE"));
+    assert!(stdout_of(&output).contains("max_writes_per_turn: 9 -> 0"));
+    assert!(stderr_of(&output).contains("max_writes_per_turn must be >= 1"));
     drop(server.sent());
 }
 
@@ -339,7 +332,7 @@ fn show_json_prints_the_raw_response() {
 }
 
 #[test]
-fn history_and_pending_ask_the_routes_they_name() {
+fn history_asks_the_route_it_names() {
     let server = ServerStandIn::serve(vec![(
         200,
         json!({"success": true, "message": "0 audit events",
@@ -353,54 +346,18 @@ fn history_and_pending_ask_the_routes_they_name() {
         server.sent()[0].request_line,
         "GET /admin/audit-events?action=guardian.&limit=3 HTTP/1.1"
     );
-
-    let tenant = "11111111-1111-4111-8111-111111111111";
-    let server = ServerStandIn::serve(vec![(
-        200,
-        json!({"entries": [], "status": "denied", "limit": 50}),
-    )]);
-    let home = CliHome::for_server(&server.base_url);
-    let output = home.run(&[
-        "settings", "guardian", "pending", "list", "--tenant", tenant, "--status", "denied",
-    ]);
-    assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert!(stdout_of(&output).contains("No parked calls with status denied."));
-    assert_eq!(
-        server.sent()[0].request_line,
-        format!("GET /admin/settings/guardian/pending?tenant={tenant}&status=denied HTTP/1.1")
-    );
 }
 
+/// The parked-call verbs went with the parked calls.
 #[test]
-fn deny_posts_to_the_call_and_a_miss_exits_non_zero() {
-    let entry = json!({"entry": {
-        "id": "abc123",
-        "tool_name": "disconnect_provider",
-        "tenant_id": "t",
-        "user_id": "u",
-        "status": "denied",
-        "expires_at": STAMP,
-        "deny_reason": "tainted_sink"
-    }});
-    let server = ServerStandIn::serve(vec![(200, entry)]);
-    let home = CliHome::for_server(&server.base_url);
-    let output = home.run(&["settings", "guardian", "pending", "deny", "abc123"]);
-    assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert!(stdout_of(&output).contains("It will not run."));
-    assert_eq!(
-        server.sent()[0].request_line,
-        "POST /admin/settings/guardian/pending/abc123/deny HTTP/1.1"
+fn the_pending_verb_is_gone() {
+    let output =
+        CliHome::for_server("http://127.0.0.1:9").run(&["settings", "guardian", "pending", "list"]);
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        stderr_of(&output).contains("unrecognized subcommand"),
+        "{output:?}"
     );
-
-    let server = ServerStandIn::serve(vec![(
-        404,
-        json!({"message": "A parked call waiting for its athlete with that id not found"}),
-    )]);
-    let home = CliHome::for_server(&server.base_url);
-    let output = home.run(&["settings", "guardian", "pending", "deny", "abc123"]);
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(stderr_of(&output).contains("not found"), "{output:?}");
-    drop(server.sent());
 }
 
 /// carnet#1418: a harness save names the version the operator read, verbatim,

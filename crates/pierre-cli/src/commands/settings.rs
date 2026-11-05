@@ -33,7 +33,7 @@ const SIGNUP_PATH: &str = "/admin/settings/signup";
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SettingsCommand {
-    /// Guardian security policy (mode, budgets, taint severity, plan mode)
+    /// Guardian security policy (mode and per-turn budgets)
     Guardian {
         /// Verb to run against the guardian settings
         #[command(subcommand)]

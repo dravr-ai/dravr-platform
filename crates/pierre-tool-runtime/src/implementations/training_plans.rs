@@ -1126,10 +1126,7 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-// A stored plan is conversation-derived text (agent/LLM-authored strategy,
-// block intents, day workouts) re-entering the LLM context — the same
-// untrusted-content class as recalled memory, so a read taints the turn.
-crate::declare_security!(GetTrainingPlanTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetTrainingPlanTool => empty);
 crate::declare_security!(SaveTrainingPlanTool => empty);
 
 #[cfg(test)]

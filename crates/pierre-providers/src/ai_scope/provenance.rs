@@ -15,10 +15,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pierre_core::constants::oauth_providers::known_attribution;
 use pierre_core::transport::TransportPolicy;
-use serde::{Deserialize, Serialize};
-use tracing::warn;
 use uuid::Uuid;
 
 use super::{current_provenance, PROVENANCE};
@@ -60,76 +57,11 @@ pub struct Provenance {
     members_read: Arc<Mutex<BTreeSet<Uuid>>>,
 }
 
-/// What a [`Provenance`] had accumulated, as a parked call stores it to answer
-/// for it in a later request (carnet#1398).
-#[derive(Debug, Serialize, Deserialize)]
-struct StoredProvenance {
-    first_party_only: bool,
-    attributions: Vec<String>,
-    served_provider_data: bool,
-    members_read: Vec<Uuid>,
-}
-
 impl Provenance {
     /// A clear accumulator.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// What was served so far, in the form [`Self::from_stored`] reads back.
-    ///
-    /// `None` when it cannot be serialized, which reads back as first-party-only.
-    #[must_use]
-    pub fn to_stored(&self) -> Option<String> {
-        serde_json::to_string(&StoredProvenance {
-            first_party_only: self.policy().is_first_party_only(),
-            attributions: self.attributions().into_iter().map(str::to_owned).collect(),
-            served_provider_data: self.served_provider_data(),
-            members_read: self.members_read().into_iter().collect(),
-        })
-        .ok()
-    }
-
-    /// The accumulator [`Self::to_stored`] recorded, ready to go on accumulating.
-    ///
-    /// Fails closed: what cannot be read may have been anything, so a missing or
-    /// unreadable record, or an attribution this binary does not know, restores as
-    /// first-party-only served, and never as clear.
-    #[must_use]
-    pub fn from_stored(stored: Option<&str>) -> Self {
-        let provenance = Self::new();
-        let Some(record) =
-            stored.and_then(|raw| serde_json::from_str::<StoredProvenance>(raw).ok())
-        else {
-            warn!(
-                recorded = stored.is_some(),
-                "stored provenance is missing or unreadable; treating it as first-party-only"
-            );
-            provenance.mark();
-            return provenance;
-        };
-        if record.first_party_only {
-            provenance.mark();
-        }
-        if record.served_provider_data {
-            provenance.mark_provider_data();
-        }
-        for raw in &record.attributions {
-            if let Some(attribution) = known_attribution(raw) {
-                provenance.attribute(attribution);
-            } else {
-                warn!(
-                    attribution = %raw,
-                    "stored provenance names an unknown attribution; treating it as first-party-only"
-                );
-                provenance.mark();
-            }
-        }
-        for member in record.members_read {
-            provenance.note_member(member);
-        }
-        provenance
     }
 
     /// Record that first-party-only data was served.
@@ -245,7 +177,6 @@ pub fn derived_member() -> Option<Uuid> {
 mod tests {
     use super::*;
     use crate::ai_scope::{derived, tracking};
-    use pierre_core::constants::oauth_providers::GARMIN_ATTRIBUTION;
 
     // carnet#1174: a round's rows name the members its own calls read, while
     // the turn, which the reply is stamped from, keeps every member read.
@@ -301,54 +232,6 @@ mod tests {
             Some(member),
             "a member a nested derivation read is the turn's too"
         );
-    }
-
-    #[test]
-    fn a_stored_provenance_restores_everything_it_recorded() {
-        let member = Uuid::new_v4();
-        let turn = Provenance::new();
-        turn.mark();
-        turn.attribute(GARMIN_ATTRIBUTION);
-        turn.mark_provider_data();
-        turn.note_member(member);
-
-        let restored = Provenance::from_stored(turn.to_stored().as_deref());
-
-        assert!(restored.policy().is_first_party_only());
-        assert_eq!(
-            restored.attributions(),
-            BTreeSet::from([GARMIN_ATTRIBUTION])
-        );
-        assert!(restored.served_provider_data());
-        assert_eq!(restored.sole_member(), Some(member));
-    }
-
-    #[test]
-    fn a_clear_turn_restores_clear() {
-        let restored = Provenance::from_stored(Provenance::new().to_stored().as_deref());
-        assert!(
-            !restored.policy().is_first_party_only(),
-            "a turn that served nothing owes nothing"
-        );
-        assert!(!restored.served_provider_data());
-    }
-
-    #[test]
-    fn what_cannot_be_read_restores_as_first_party_only() {
-        let unknown_attribution = r#"{"first_party_only":false,"attributions":["Polar"],"served_provider_data":false,"members_read":[]}"#;
-        for (stored, why) in [
-            (None, "a NULL column"),
-            (Some("{not json"), "an unreadable column"),
-            (Some("{}"), "a record missing its fields"),
-            (Some(unknown_attribution), "an attribution nobody knows"),
-        ] {
-            assert!(
-                Provenance::from_stored(stored)
-                    .policy()
-                    .is_first_party_only(),
-                "{why} must fail closed"
-            );
-        }
     }
 
     #[tokio::test]

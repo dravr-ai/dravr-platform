@@ -457,8 +457,6 @@ enum Answered {
 const PLATFORM_AUTHORED_FINISH_REASONS: &[&str] = &[
     "provider_auth_required",
     "guardian_denied",
-    "guardian_confirm",
-    "guardian_plan_rejected",
     "max_iterations",
     WITHHELD_REPLY_FINISH_REASON,
 ];

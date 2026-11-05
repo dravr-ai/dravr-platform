@@ -37,7 +37,7 @@ import {
  */
 const ADMIN_ONLY_TABS = new Set([
   'users', 'agents', 'agent-store', 'configuration', 'user-tools', 'prompts',
-  'platform-settings', 'claim-verdicts', 'harness-config', 'guardian-config',
+  'platform-settings', 'claim-verdicts', 'harness-config',
   'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
   'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
   'analytics', 'admin-tokens', 'billing', 'impersonation-log', 'audit',
@@ -53,22 +53,22 @@ const ADMIN_ONLY_TABS = new Set([
  * notification persisted before those days can still carry the hash. Left to
  * the render switch it would select a tab nothing draws — a blank main pane
  * with a working sidebar — so it resolves to the role's default instead.
+ * `guardian-config` followed when `pierre-cli` became the Guardian's only control
+ * surface.
  */
-const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
+const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups', 'guardian-config']);
 
 /**
  * Tabs only a super admin may open: the sidebar offers them to no other role,
  * and every endpoint behind them refuses a plain admin. A typed or bookmarked
  * `#impersonation-log` would otherwise mount the pane for an admin and show
- * the server's refusal where the page should be. The harness and Guardian
- * settings are here because they need `ViewConfiguration`, which a console
- * admin does not hold.
+ * the server's refusal where the page should be. The harness settings are here
+ * because they need `ViewConfiguration`, which a console admin does not hold.
  */
 const SUPER_ADMIN_ONLY_TABS = new Set([
   'admin-tokens',
   'impersonation-log',
   'harness-config',
-  'guardian-config',
 ]);
 
 /**
@@ -114,7 +114,6 @@ const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
 const SystemPromptsTab = lazy(() => import('./SystemPromptsTab'));
 const ClaimVerdictsTab = lazy(() => import('./ClaimVerdictsTab'));
 const HarnessConfigTab = lazy(() => import('./HarnessConfigTab'));
-const GuardianConfigTab = lazy(() => import('./GuardianConfigTab'));
 const MemoryExtractionMonitorTab = lazy(() => import('./MemoryExtractionMonitorTab'));
 const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
 const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
@@ -611,12 +610,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-      </svg>
-    ) },
-    { id: 'guardian-config', name: t('shell.navGuardianConfig'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 3v5c0 5.25-3.4 9.74-7 11-3.6-1.26-7-5.75-7-11V6l7-3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.5 12l1.8 1.8 3.2-3.6" />
       </svg>
     ) },
     { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
@@ -1161,11 +1154,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'harness-config' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <HarnessConfigTab />
-          </Suspense>
-        )}
-        {activeTab === 'guardian-config' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <GuardianConfigTab />
           </Suspense>
         )}
         {activeTab === 'memory-worker' && (

@@ -13,7 +13,7 @@
 //! model asking again after the pointer no longer has the result (its context
 //! was compacted) or wants a fresh read (a progress check).
 //!
-//! The memory lives in the Guardian turn store, keyed like taint, so the chat
+//! The memory lives in the Guardian turn store, keyed like the budgets, so the chat
 //! loops and the Copilot-headless loopback (its tool host's own executor) share
 //! it. A one-shot `/mcp` or A2A call runs under a nonce turn and so never
 //! repeats: the 2026-07-28 MCP revision is stateless, and a client session

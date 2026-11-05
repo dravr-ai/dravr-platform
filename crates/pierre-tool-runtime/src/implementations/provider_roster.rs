@@ -600,10 +600,9 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
     }
 }
 
-// Members' display names and group names are third-party text.
 // A coach's tool over other athletes' data: Dravr's own surfaces list and run
 // it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetProviderRosterTool => UNTRUSTED_OUTPUT; first_party_only);
+crate::declare_security!(GetProviderRosterTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {

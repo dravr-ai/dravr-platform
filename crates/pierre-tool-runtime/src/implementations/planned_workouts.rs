@@ -66,9 +66,7 @@
 //!   like a comment author: flattened to one line, defanged so they cannot
 //!   open markdown or HTML of their own, and capped. A fence around every
 //!   label would put the tag into the replies the agent writes from them,
-//!   and the cap bounds what a label can carry. The tool is also classified
-//!   `UNTRUSTED_OUTPUT`, so the Guardian treats every turn that read it as
-//!   tainted.
+//!   and the cap bounds what a label can carry.
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
@@ -968,6 +966,4 @@ fn neutralized(workout: &PlannedWorkout) -> PlannedWorkout {
     .build()
 }
 
-// Guardian security classification (see `crate::security`): the plan's text
-// is written by a third party and re-enters the model's context.
-crate::declare_security!(GetPlannedWorkoutsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetPlannedWorkoutsTool => empty);

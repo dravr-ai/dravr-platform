@@ -596,14 +596,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-//
-// Provider-synced health records: the same third-party-scrape provenance as
-// GetActivities/GetAthlete (Whoop/Garmin/Terra), carrying
-// provider-controlled free-text fields (device/source names, data_source_id —
-// cf. the garmin data_source_id blob leak). A taint SOURCE, so a later
-// consequential sink in the same turn is gated.
-crate::declare_security!(GetSleepSessionsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetRecoveryMetricsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetHealthSnapshotsTool => UNTRUSTED_OUTPUT);
-// Surfaces provider/source names synced from third parties as free text.
-crate::declare_security!(ListDataSourcesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetSleepSessionsTool => empty);
+crate::declare_security!(GetRecoveryMetricsTool => empty);
+crate::declare_security!(GetHealthSnapshotsTool => empty);
+crate::declare_security!(ListDataSourcesTool => empty);

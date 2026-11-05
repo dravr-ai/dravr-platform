@@ -57,28 +57,6 @@ pub enum TurnSeat {
 }
 
 impl TurnSeat {
-    /// The word a seat is stored under on a parked call, read back by
-    /// [`Self::from_stored`].
-    #[must_use]
-    pub const fn as_stored(self) -> &'static str {
-        match self {
-            Self::Subject => "subject",
-            Self::Coach => "coach",
-            Self::AthleteThread => "athlete_thread",
-        }
-    }
-
-    /// The seat stored under `word`, or `None` for a word no seat writes.
-    #[must_use]
-    pub fn from_stored(word: &str) -> Option<Self> {
-        match word {
-            "subject" => Some(Self::Subject),
-            "coach" => Some(Self::Coach),
-            "athlete_thread" => Some(Self::AthleteThread),
-            _ => None,
-        }
-    }
-
     /// Whether the caller is the turn's subject — the one seat on which their
     /// own data is what the turn is about.
     ///

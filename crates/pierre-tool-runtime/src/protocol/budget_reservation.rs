@@ -114,7 +114,6 @@ mod tests {
     fn reserve(turns: &GuardianTurns, key: &TurnKey) {
         let ((), reserved) = turns.decide_and_reserve(
             key,
-            "tool",
             SecurityLabels::IRREVERSIBLE,
             true,
             |_| (),
@@ -127,7 +126,6 @@ mod tests {
         turns
             .decide_and_reserve(
                 key,
-                "peek",
                 SecurityLabels::empty(),
                 false,
                 |state: &TurnState| (state.destructive_count(), state.write_count()),
@@ -172,7 +170,6 @@ mod tests {
         let key = TurnKey::new(None, "turn");
         let ((), reserved) = turns.decide_and_reserve(
             &key,
-            "tool",
             SecurityLabels::empty(),
             true,
             |_| (),

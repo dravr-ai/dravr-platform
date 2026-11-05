@@ -22,7 +22,6 @@ use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
 use tracing::info;
 
-use crate::guardian::StepOutput;
 use crate::prompt_projection;
 use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY};
 use crate::reply_budget::REPLY_BUDGET_KEY;
@@ -260,14 +259,6 @@ pub fn reconnect_offer_in_responses(responses: &[FunctionResponse]) -> Option<St
     responses
         .iter()
         .find_map(|resp| offer_in_payload(&resp.name, &resp.response))
-}
-
-/// The same signal read off a verified plan's executed steps, so a planned turn
-/// carries the reconnect offer the `ReAct` loops carry.
-pub(crate) fn reconnect_offer_in_steps(outputs: &[StepOutput]) -> Option<String> {
-    outputs
-        .iter()
-        .find_map(|output| offer_in_payload(&output.tool_name, &output.result))
 }
 
 // ============================================================================

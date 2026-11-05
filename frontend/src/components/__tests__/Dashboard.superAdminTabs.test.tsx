@@ -66,7 +66,7 @@ describe('Dashboard super-admin tabs', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it.each(['#impersonation-log', '#admin-tokens', '#guardian-config', '#harness-config'])(
+  it.each(['#impersonation-log', '#admin-tokens', '#harness-config'])(
     'resolves a plain admin %s deep link to Users on first load',
     async (hash) => {
       auth.role = 'admin';
@@ -86,9 +86,7 @@ describe('Dashboard super-admin tabs', () => {
     auth.role = 'admin';
     const adminView = await act(async () => renderDashboard());
     expect(await screen.findByTestId('users-tab')).toBeInTheDocument();
-    expect(screen.queryByText('shell.navGuardianConfig')).toBeNull();
     expect(screen.queryByText('shell.navHarnessConfig')).toBeNull();
-    expect(screen.queryByText('Guardian Config')).toBeNull();
     expect(screen.queryByText('Harness Config')).toBeNull();
     adminView.unmount();
 
@@ -97,9 +95,8 @@ describe('Dashboard super-admin tabs', () => {
       renderDashboard();
     });
     await waitFor(() =>
-      expect(screen.queryByText('Guardian Config') ?? screen.queryByText('shell.navGuardianConfig')).not.toBeNull(),
+      expect(screen.queryByText('Harness Config') ?? screen.queryByText('shell.navHarnessConfig')).not.toBeNull(),
     );
-    expect(screen.queryByText('Harness Config') ?? screen.queryByText('shell.navHarnessConfig')).not.toBeNull();
   });
 
   it('resolves a plain admin #impersonation-log typed after load to Users', async () => {
