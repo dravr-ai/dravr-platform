@@ -134,7 +134,13 @@ jobs:
       source: ${{ steps.v.outputs.source }}
       companions: ${{ steps.c.outputs.companions }}
     steps:
+      # The branch's tip, not github.sha: that sha is fixed when the run is
+      # triggered, and a run queued behind another release of this satellite
+      # would read the pins from before that release landed, then stall on a
+      # conflict at the squash (carnet#1417).
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Validate the gate timeout against this workflow's own limit
         env:
@@ -362,9 +368,11 @@ jobs:
       sha: ${{ steps.push.outputs.sha }}
       state: ${{ steps.state.outputs.state }}
     steps:
+      # The tip here too, or the branch is cut from the tree resolve did not read.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - uses: dtolnay/rust-toolchain@1.99.1
 

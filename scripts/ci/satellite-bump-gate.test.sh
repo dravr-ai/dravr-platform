@@ -137,6 +137,25 @@ else
   fail "default run budget '${DEFAULT_RUN}' must exceed ci-backend's longest job timeout '${LONGEST}' (empty means the lookup broke)"
 fi
 
+# A run queued behind another release of this satellite starts long after its
+# trigger, so the two jobs that read pins and cut the branch must take the
+# branch's tip. github.sha would be the tree from before that release landed
+# (carnet#1416: conflicts at the squash after a 27-minute gate).
+for job in resolve bump; do
+  CHECKOUT_REF=$(awk -v job="  ${job}:" '
+    $0 == job { in_job = 1; next }
+    in_job && /^  [a-z_-]+:$/ { exit }
+    in_job && /uses: actions\/checkout/ { in_checkout = 1; next }
+    in_checkout && /^ *ref:/ { sub(/^ *ref: */, ""); print; exit }
+    in_checkout && /^ *- / { exit }
+  ' "${WORKFLOW}")
+  if [ "${CHECKOUT_REF}" = '${{ github.ref_name }}' ]; then
+    pass "${job} checks out the branch's tip, not the trigger's sha"
+  else
+    fail "${job} checkout ref is '${CHECKOUT_REF}', want the branch's tip"
+  fi
+done
+
 echo
 [ "${FAILURES}" -eq 0 ] && { echo "all satellite-bump gate scenarios pass"; exit 0; }
 echo "${FAILURES} scenario(s) failed"; exit 1
