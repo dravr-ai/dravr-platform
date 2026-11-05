@@ -2909,7 +2909,8 @@
       "confirm_failed": "L'action {0} a été confirmée mais son exécution a échoué. Reformule ta demande pour réessayer.",
       "confirm_not_found": "Aucune action en attente ne correspond à ce code. Elle a peut-être déjà été traitée.",
       "confirm_prompt": "Par sécurité, l'action {0} doit être confirmée avant de s'exécuter. Réponds /confirm {1} pour l'approuver ou /deny {1} pour l'annuler (expire dans 5 minutes).",
-      "denied": "Cette action a été bloquée par sécurité. Reformule ta demande ou réessaie sans le contexte précédent."
+      "denied": "Cette action a été bloquée par sécurité. Reformule ta demande ou réessaie sans le contexte précédent.",
+      "denied_after_actions": "Déjà fait : {0}. L'action suivante a été bloquée par sécurité, alors je me suis arrêté là. Si tu la veux toujours, demande-la dans un nouveau message."
     },
     "guardrail": {
       "blocked_topic": "Je préfère ne pas aborder ce sujet ici. Restons concentrés sur ton entraînement et ta récupération. Y a-t-il quelque chose de précis sur lequel je peux t'aider?",

@@ -2909,7 +2909,8 @@
       "confirm_failed": "La acción {0} fue confirmada pero su ejecución falló. Reformula tu solicitud para intentarlo de nuevo.",
       "confirm_not_found": "Ninguna acción pendiente coincide con ese código. Puede que ya se haya resuelto.",
       "confirm_prompt": "Por seguridad, la acción {0} necesita tu confirmación antes de ejecutarse. Responde /confirm {1} para aprobarla o /deny {1} para cancelarla (caduca en 5 minutos).",
-      "denied": "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior."
+      "denied": "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior.",
+      "denied_after_actions": "Ya hecho: {0}. La siguiente acción fue bloqueada por seguridad, así que me detuve ahí. Si todavía la quieres, pídela en un mensaje nuevo."
     },
     "guardrail": {
       "blocked_topic": "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?",

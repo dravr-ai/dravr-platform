@@ -2909,7 +2909,8 @@
       "confirm_failed": "Die Aktion {0} wurde bestätigt, aber die Ausführung ist fehlgeschlagen. Formuliere deine Anfrage neu, um es erneut zu versuchen.",
       "confirm_not_found": "Keine ausstehende Aktion passt zu diesem Code. Möglicherweise wurde sie bereits bearbeitet.",
       "confirm_prompt": "Aus Sicherheitsgründen muss die Aktion {0} bestätigt werden, bevor sie ausgeführt wird. Antworte /confirm {1} zum Bestätigen oder /deny {1} zum Abbrechen (läuft in 5 Minuten ab).",
-      "denied": "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut."
+      "denied": "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut.",
+      "denied_after_actions": "Bereits erledigt: {0}. Die nächste Aktion wurde aus Sicherheitsgründen blockiert, deshalb habe ich dort aufgehört. Wenn du sie weiterhin möchtest, bitte in einer neuen Nachricht darum."
     },
     "guardrail": {
       "blocked_topic": "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?",

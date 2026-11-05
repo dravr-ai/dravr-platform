@@ -2909,7 +2909,8 @@
       "confirm_failed": "The action {0} was confirmed but failed to execute. Rephrase your request to try again.",
       "confirm_not_found": "No pending action matches that code. It may already have been resolved.",
       "confirm_prompt": "For safety, the action {0} needs your confirmation before it runs. Reply /confirm {1} to approve or /deny {1} to cancel (expires in 5 minutes).",
-      "denied": "That action was blocked for safety. Try rephrasing your request, or retry without the earlier context."
+      "denied": "That action was blocked for safety. Try rephrasing your request, or retry without the earlier context.",
+      "denied_after_actions": "Already done: {0}. The next action was blocked for safety, so I stopped there. If you still want it, ask in a new message."
     },
     "guardrail": {
       "blocked_topic": "I'd rather not get into that here. Let's stay focused on your training and recovery. Is there something specific I can help with?",
