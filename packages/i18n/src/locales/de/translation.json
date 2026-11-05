@@ -2117,6 +2117,8 @@
     "contextNotice": "Jede Nachricht enthält außerdem den Bildschirm, von dem du kommst, die App-Version und deine Sprache.",
     "delivered": "Zugestellt",
     "imageAlt": "Dein gesendeter Screenshot",
+    "imageLoadFailed": "Dieser Screenshot konnte nicht geladen werden.",
+    "imageReadFailed": "Diese Datei konnte nicht gelesen werden. Versuch eine andere.",
     "imageTooLarge": "Dieses Bild ist größer als 5 MB. Wähl ein kleineres.",
     "imageWrongType": "Häng ein PNG-, JPEG-, WebP- oder GIF-Bild an.",
     "loadFailed": "Wir konnten deine Nachrichten nicht laden.",

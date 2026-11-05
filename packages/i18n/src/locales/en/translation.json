@@ -2117,6 +2117,8 @@
     "contextNotice": "Each message also carries the screen you came from, the app version and your language.",
     "delivered": "Delivered",
     "imageAlt": "Screenshot you sent",
+    "imageLoadFailed": "We couldn't load this screenshot.",
+    "imageReadFailed": "We couldn't read that file. Try another.",
     "imageTooLarge": "That image is over 5 MB. Pick a smaller one.",
     "imageWrongType": "Attach a PNG, JPEG, WebP or GIF image.",
     "loadFailed": "We couldn't load your messages.",

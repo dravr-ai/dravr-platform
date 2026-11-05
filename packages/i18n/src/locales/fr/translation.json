@@ -2117,6 +2117,8 @@
     "contextNotice": "Chaque message inclut aussi l’écran d’où tu viens, la version de l’application et ta langue.",
     "delivered": "Envoyé",
     "imageAlt": "Capture d’écran que tu as envoyée",
+    "imageLoadFailed": "Impossible de charger cette capture d’écran.",
+    "imageReadFailed": "Impossible de lire ce fichier. Essaie un autre.",
     "imageTooLarge": "Cette image dépasse 5 Mo. Choisis-en une plus petite.",
     "imageWrongType": "Joins une image PNG, JPEG, WebP ou GIF.",
     "loadFailed": "Impossible de charger tes messages.",

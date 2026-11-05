@@ -2117,6 +2117,8 @@
     "contextNotice": "Cada mensaje incluye también la pantalla de la que vienes, la versión de la app y tu idioma.",
     "delivered": "Entregado",
     "imageAlt": "Captura de pantalla que enviaste",
+    "imageLoadFailed": "No se pudo cargar esta captura de pantalla.",
+    "imageReadFailed": "No se pudo leer ese archivo. Prueba con otro.",
     "imageTooLarge": "Esa imagen supera los 5 MB. Elige una más pequeña.",
     "imageWrongType": "Adjunta una imagen PNG, JPEG, WebP o GIF.",
     "loadFailed": "No pudimos cargar tus mensajes.",
