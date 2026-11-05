@@ -296,7 +296,7 @@ async fn record_rating(
         // The same event the web and mobile thumbs emit: a reaction is the
         // same act on a third surface, and the team reads all three in one
         // place.
-        Ok(_) => {
+        Ok(record) => {
             let agent_id = feedback_events::conversation_agent(
                 resources,
                 &target.conversation_id,
@@ -307,6 +307,7 @@ async fn record_rating(
             feedback_events::emit_feedback_recorded(&FeedbackRecorded {
                 tenant_id: target.tenant_id,
                 user_id: &target.user_id,
+                feedback_id: &record.id,
                 source: FeedbackSource::Reaction,
                 surface: &reaction.channel_type.to_string(),
                 rating: Some(rating),
@@ -314,6 +315,7 @@ async fn record_rating(
                 message_id: Some(&target.chat_message_id),
                 agent_id: agent_id.as_deref(),
                 comment: None,
+                has_image: false,
             });
         }
         Err(e) => warn!(error = %e, "reaction feedback write failed"),

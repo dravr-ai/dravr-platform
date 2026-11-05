@@ -26,6 +26,11 @@
 //! - A deleted account's files are erased with everything else it holds in
 //!   the blob store ([`OriginalsStore::erase_user`]), from the erasure queue
 //!   the account deletion writes in its own transaction.
+//! - A screenshot an athlete attaches to a feedback message is a file they
+//!   uploaded too, kept under the same upload key
+//!   ([`OriginalsStore::put_feedback_image`]); the `feedback_messages` row
+//!   names it and scopes its read, as `uploaded_activity_files` does for an
+//!   activity file (carnet#1392). The erasure takes it with the rest.
 //!
 //! The table held the bytes of the files uploaded before this store kept
 //! them; a drain copied each out, verified, and the column was dropped
@@ -112,7 +117,15 @@ impl OriginalsStore {
     ) -> AppResult<bool> {
         let blobs = self.blobs()?;
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        put_verified(blobs, tenant_id, user_id, file_sha256, bytes).await?;
+        put_verified(
+            blobs,
+            tenant_id,
+            user_id,
+            file_sha256,
+            FIT_MEDIA_TYPE,
+            bytes,
+        )
+        .await?;
         self.files
             .record_uploaded_file(tenant_id, user_id, file_sha256, size, UPLOAD_ORIGIN)
             .await
@@ -184,6 +197,54 @@ impl OriginalsStore {
             .await
     }
 
+    /// Keep a screenshot the athlete attached to a feedback message in this
+    /// tenant, under the upload key its digest names. The caller writes the
+    /// `feedback_messages` row that names it once this returns.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::resource_unavailable`] when no blob store is placed here,
+    /// before anything is written; [`AppError::invalid_input`] when the hash
+    /// is not 64 lowercase hex characters; an internal error when the blob
+    /// store reports other bytes than the hash names.
+    pub async fn put_feedback_image(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        image_sha256: &str,
+        media_type: &str,
+        bytes: Bytes,
+    ) -> AppResult<()> {
+        put_verified(
+            self.blobs()?,
+            tenant_id,
+            user_id,
+            image_sha256,
+            media_type,
+            bytes,
+        )
+        .await
+    }
+
+    /// The bytes of a screenshot the athlete attached in this tenant, whose
+    /// `feedback_messages` row the caller has already read; `None` when the
+    /// blob store no longer holds them.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::resource_unavailable`] when no blob store is placed here;
+    /// [`AppError::invalid_input`] for a malformed hash; the blob store's
+    /// error.
+    pub async fn get_feedback_image(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        image_sha256: &str,
+    ) -> AppResult<Option<Bytes>> {
+        let key = upload_key(tenant_id, user_id, image_sha256)?;
+        self.blobs()?.get(&key).await.map_err(|e| blob_error(&e))
+    }
+
     /// Erase every file the account `user_id` uploaded, in every tenant,
     /// with everything else the blob store keeps for it. Returns how many
     /// blobs were removed: none where no blob store is placed, as nothing
@@ -213,20 +274,22 @@ impl OriginalsStore {
     }
 }
 
-/// Store `bytes` under the upload key `file_sha256` names, and refuse unless
-/// the blob store reports it stored exactly those bytes: the digest the key
-/// names and their length. A write that stored anything else is removed.
+/// Store `bytes` as `media_type` under the upload key `file_sha256` names,
+/// and refuse unless the blob store reports it stored exactly those bytes:
+/// the digest the key names and their length. A write that stored anything
+/// else is removed.
 async fn put_verified(
     blobs: &Arc<dyn BlobStore>,
     tenant_id: &TenantId,
     user_id: Uuid,
     file_sha256: &str,
+    media_type: &str,
     bytes: Bytes,
 ) -> AppResult<()> {
     let key = upload_key(tenant_id, user_id, file_sha256)?;
     let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let stat = blobs
-        .put(&key, bytes, &BlobMeta::new(FIT_MEDIA_TYPE))
+        .put(&key, bytes, &BlobMeta::new(media_type))
         .await
         .map_err(|e| blob_error(&e))?;
     if stat.sha256.to_hex() == file_sha256 && stat.size == size {

@@ -252,10 +252,25 @@ async fn a_rating_reaction_tells_the_team_and_any_other_emoji_does_not() {
     .await;
     drop(guard);
 
+    let rating = delivered
+        .resources
+        .common
+        .repos
+        .chat
+        .get_conversation_feedback(
+            &delivered.conversation_id,
+            &delivered.user_id,
+            delivered.tenant_id,
+        )
+        .await
+        .expect("read the rating")
+        .pop()
+        .expect("the reaction wrote a rating");
     let event = only(&events, "feedback.recorded");
     for (field, expected) in [
         ("user_id", delivered.user_id.clone()),
         ("tenant_id", delivered.tenant_id.to_string()),
+        ("feedback_id", rating.id),
         ("source", "reaction".to_owned()),
         ("surface", "telegram".to_owned()),
         ("rating", "down".to_owned()),

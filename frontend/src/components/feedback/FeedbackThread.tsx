@@ -1,19 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete's thread with the Dravr team — read by people, answered by no LLM, opened from the account menu
-// ABOUTME: Opened from a thumbs-down it carries that reply; each message also sends the screen, app version and language
+// ABOUTME: The athlete's thread with the Dravr team — read and answered by people, never an LLM, opened from the account menu
+// ABOUTME: The team's replies show as the team's bubble; a message sent from a thumbs-down carries that reply (carnet#1392)
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { ImagePlus, X } from 'lucide-react';
 import { dayLabelFor, formatMessageTime, localDayKey } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { APP_VERSION } from '@pierre/shared-constants';
-import { FEEDBACK_MESSAGE_MAX_CHARS, type FeedbackAbout } from '@pierre/shared-types';
+import {
+  FEEDBACK_IMAGE_MAX_BYTES,
+  FEEDBACK_IMAGE_TYPES,
+  FEEDBACK_MESSAGE_MAX_CHARS,
+  isFeedbackImageType,
+  type FeedbackAbout,
+  type FeedbackImageUpload,
+  type FeedbackMessage,
+} from '@pierre/shared-types';
 import { DravrLogo } from '../DravrLogo';
+import { FilePickerButton } from '../ui';
 import MessageBubble from '../chat/MessageBubble';
 import DaySeparator from '../chat/DaySeparator';
-import { useFeedbackThread } from '../../hooks/useFeedbackThread';
+import { useFeedbackImageUrl, useFeedbackThread } from '../../hooks/useFeedbackThread';
 
 interface FeedbackThreadProps {
   /** The agent reply the next message is about, when opened from a thumbs-down. */
@@ -33,15 +42,34 @@ function AboutChip({ children }: { children: ReactNode }) {
   );
 }
 
+/** The screenshot on one of the athlete's own messages once it has loaded, or a line saying it could not be. */
+function SentImage({ messageId }: { messageId: string }) {
+  const { t } = useTranslation();
+  const { url, failed } = useFeedbackImageUrl(messageId);
+  if (failed) return <p className="mb-1 text-sm text-error">{t('feedback.imageLoadFailed')}</p>;
+  if (!url) return null;
+  return <img src={url} alt={t('feedback.imageAlt')} className="mb-1 max-h-64 max-w-full rounded-lg" />;
+}
+
+/** A screenshot picked for the next message: what is sent, and what the composer shows. */
+interface PickedImage {
+  upload: FeedbackImageUpload;
+  preview: string;
+}
+
 /**
  * A messenger thread with one other side: the Dravr team. Its first row is
- * the team's standing welcome, drawn as any agent row would be; the rest are
- * the athlete's own messages. Only the athlete writes to it, so nothing polls.
+ * the team's standing welcome, drawn as any agent row would be; then the
+ * athlete's messages and the team's replies, each reply signed "Dravr team"
+ * whoever sent it. The team replies from Slack, so the thread re-reads while
+ * it is open (useFeedbackThread).
  */
 export default function FeedbackThread({ about, openedFrom, onClearAbout }: FeedbackThreadProps) {
   const { t, language } = useTranslation();
   const { thread, send } = useFeedbackThread();
   const [draft, setDraft] = useState('');
+  const [image, setImage] = useState<PickedImage | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const messages = thread.data?.messages ?? [];
 
@@ -50,7 +78,7 @@ export default function FeedbackThread({ about, openedFrom, onClearAbout }: Feed
   }, [messages.length]);
 
   const body = draft.trim();
-  const canSend = body.length > 0 && !send.isPending;
+  const canSend = (body.length > 0 || image !== null) && !send.isPending;
   const submit = () => {
     if (!canSend) return;
     send.mutate(
@@ -60,36 +88,75 @@ export default function FeedbackThread({ about, openedFrom, onClearAbout }: Feed
         app_version: APP_VERSION,
         locale: language,
         ...(about ? { about } : {}),
+        ...(image ? { image: image.upload } : {}),
       },
       {
         onSuccess: () => {
           setDraft('');
+          setImage(null);
+          setImageError(null);
           if (about) onClearAbout();
         },
       },
     );
   };
 
+  // A screenshot is checked here as the server checks it, so a refusal is
+  // said before anything is sent; the server still reads its own bytes.
+  const pickImage = (file: File) => {
+    setImageError(null);
+    const mediaType = file.type;
+    if (!isFeedbackImageType(mediaType)) {
+      setImageError(t('feedback.imageWrongType'));
+      return;
+    }
+    if (file.size > FEEDBACK_IMAGE_MAX_BYTES) {
+      setImageError(t('feedback.imageTooLarge'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setImageError(t('feedback.imageReadFailed'));
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      const preview = reader.result;
+      setImage({ preview, upload: { media_type: mediaType, data: preview.slice(preview.indexOf(',') + 1) } });
+    };
+    reader.readAsDataURL(file);
+  };
+
   const rows: ReactNode[] = [];
   let previousDay = '';
+  let previousAuthor: FeedbackMessage['author'] | null = null;
   for (const message of messages) {
     const day = localDayKey(message.created_at);
-    if (day && day !== previousDay) {
+    const newDay = Boolean(day) && day !== previousDay;
+    if (newDay) {
       rows.push(<DaySeparator key={`day-${day}`} day={dayLabelFor(message.created_at, language)} />);
       previousDay = day;
     }
+    const team = message.author === 'team';
+    const time = formatMessageTime(message.created_at, language);
+    // A run of team replies carries the team's name and mark once, as an
+    // agent's run does; the athlete's own rows say they were delivered.
+    const bubbleProps = team
+      ? {
+          side: 'assistant' as const,
+          authorLabel: t('feedback.title'),
+          avatar: <DravrLogo size={24} />,
+          groupStart: newDay || previousAuthor !== 'team',
+          timestamp: time,
+        }
+      : { side: 'user' as const, timestamp: `${time} · ${t('feedback.delivered')}` };
+    previousAuthor = message.author;
     rows.push(
-      <MessageBubble
-        key={message.id}
-        side="user"
-        timestamp={`${formatMessageTime(message.created_at, language)} · ${t('feedback.delivered')}`}
-      >
+      <MessageBubble key={message.id} {...bubbleProps}>
         {message.about ? (
           <div className="mb-1">
             <AboutChip>{t('feedback.aboutReply')}</AboutChip>
           </div>
         ) : null}
-        <p className="whitespace-pre-wrap break-words">{message.body}</p>
+        {message.has_image ? <SentImage messageId={message.id} /> : null}
+        {message.body ? <p className="whitespace-pre-wrap break-words">{message.body}</p> : null}
       </MessageBubble>,
     );
   }
@@ -143,12 +210,39 @@ export default function FeedbackThread({ about, openedFrom, onClearAbout }: Feed
             </AboutChip>
           </div>
         ) : null}
+        {image ? (
+          <div className="mb-2 flex items-center gap-2" data-testid="feedback-image-preview">
+            <img src={image.preview} alt="" className="h-16 w-16 rounded-lg object-cover" />
+            <button
+              type="button"
+              onClick={() => setImage(null)}
+              aria-label={t('feedback.removeImage')}
+              className="rounded-full p-1 text-outline hover:text-on-surface focus-ring"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+        {imageError ? (
+          <p role="alert" className="mb-2 text-sm text-error">
+            {imageError}
+          </p>
+        ) : null}
         {send.isError ? (
           <p role="alert" className="mb-2 text-sm text-error">
             {t('feedback.sendFailed')}
           </p>
         ) : null}
         <div className="flex items-end gap-2">
+          <FilePickerButton
+            accept={FEEDBACK_IMAGE_TYPES.join(',')}
+            onPick={pickImage}
+            aria-label={t('feedback.attachImage')}
+            data-testid="feedback-image"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface focus-ring [@media(pointer:coarse)]:h-12 [@media(pointer:coarse)]:w-12"
+          >
+            <ImagePlus className="h-5 w-5" aria-hidden="true" />
+          </FilePickerButton>
           <label htmlFor="feedback-composer" className="sr-only">
             {t('feedback.placeholder')}
           </label>

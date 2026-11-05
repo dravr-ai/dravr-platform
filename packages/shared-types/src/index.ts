@@ -311,14 +311,26 @@ export { parseTrainingVolumeResponse } from './training-volume.js';
 // What Garmin-sourced data contributed to a Home figure, which decides the line beneath its title (carnet#1154)
 export type { GarminContribution } from './garmin-attribution.js';
 
-// The athlete's in-app feedback thread with the Dravr team (carnet#1235)
+// The athlete's in-app feedback thread with the Dravr team, and its unread replies (carnet#1235, #1392)
 export type {
   FeedbackAbout,
+  FeedbackAuthor,
+  FeedbackImageType,
+  FeedbackImageUpload,
   FeedbackMessage,
   FeedbackThreadResponse,
+  FeedbackUnreadResponse,
   SendFeedbackRequest,
 } from './feedback.js';
-export { FEEDBACK_MESSAGE_MAX_CHARS, parseFeedbackCreated, parseFeedbackThread } from './feedback.js';
+export {
+  FEEDBACK_IMAGE_MAX_BYTES,
+  FEEDBACK_IMAGE_TYPES,
+  FEEDBACK_MESSAGE_MAX_CHARS,
+  isFeedbackImageType,
+  parseFeedbackCreated,
+  parseFeedbackThread,
+  parseFeedbackUnread,
+} from './feedback.js';
 
 // How often the coach checks in on its own: daily, three a week, weekly or off (carnet#831)
 export type { CheckInCadence, CheckInPreference } from './check-in.js';

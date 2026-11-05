@@ -2,14 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the rail's account menu — the avatar opens Settings, Send feedback and Sign out under the athlete's name
-// ABOUTME: Escape and a click outside close it, and a choice made in it closes it too (carnet#1235)
+// ABOUTME: Escape, a click outside or a choice closes it; a waiting team reply dots the avatar and counts on Send feedback (carnet#1392)
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IconRail } from '../IconRail';
 
-function renderRail() {
+function renderRail(feedbackUnread = 0) {
   const handlers = {
     onSelect: vi.fn(),
     onOpenSettings: vi.fn(),
@@ -24,6 +24,7 @@ function renderRail() {
       settingsActive={false}
       userInitial="A"
       userLabel="Alex Rider"
+      feedbackUnread={feedbackUnread}
       {...handlers}
     />,
   );
@@ -31,6 +32,22 @@ function renderRail() {
 }
 
 describe('IconRail account menu', () => {
+  it('shows no dot while no team reply waits', () => {
+    renderRail();
+    expect(screen.queryByTestId('feedback-unread-dot')).not.toBeInTheDocument();
+  });
+
+  it('dots the avatar and counts the waiting team replies on Send feedback', async () => {
+    const user = userEvent.setup();
+    renderRail(2);
+    expect(screen.getByTestId('feedback-unread-dot')).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'Account menu, 2 unread' });
+
+    await user.click(toggle);
+    expect(screen.getByRole('button', { name: 'Send feedback 2 unread' })).toBeInTheDocument();
+    expect(screen.getByTestId('feedback-unread-count')).toHaveTextContent('2');
+  });
+
   it('opens under the avatar with the athlete’s name and three choices', async () => {
     const user = userEvent.setup();
     renderRail();

@@ -125,7 +125,8 @@ fn refused_card(posted: &[Value], reason: &str) -> Option<Value> {
     Some(Value::Array(blocks))
 }
 
-fn is_refusal(block: &Value) -> bool {
+/// Whether `block` is the line a refused tap added under a card's buttons.
+pub(super) fn is_refusal(block: &Value) -> bool {
     block.get("block_id").and_then(Value::as_str) == Some(REFUSAL_BLOCK_ID)
 }
 

@@ -369,6 +369,15 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<MessageFeedbackRecord>>;
+
+    /// One feedback row by its id, for the athlete who gave it in this
+    /// tenant: what the team answers when it replies to a rating from Slack.
+    async fn get_message_feedback(
+        &self,
+        feedback_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<MessageFeedbackRecord>>;
     /// Count the active conversations a user *owns* in a tenant. Owner
     /// semantics on purpose: this sizes the `max_active_conversations` quota,
     /// and a thread someone else opened must not count against the athlete

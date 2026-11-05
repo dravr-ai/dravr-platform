@@ -295,7 +295,8 @@ pub use delegated_connections::*;
 pub use feature_flags::*;
 pub use federated_identities::FederatedIdentityRepository;
 pub use feedback_messages::{
-    FeedbackAbout, FeedbackMessage, FeedbackMessageRepository, NewFeedbackMessage,
+    FeedbackAbout, FeedbackAuthor, FeedbackImage, FeedbackMessage, FeedbackMessageRepository,
+    FeedbackWriter, NewFeedbackMessage,
 };
 pub use firebase_identity_deletions::{
     FirebaseIdentityDeletionRepository, PendingFirebaseDeletion,

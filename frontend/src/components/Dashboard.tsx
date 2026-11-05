@@ -7,6 +7,7 @@
 import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
+import { useFeedbackUnread } from '../hooks/useFeedbackThread';
 import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import { useComposerFocused } from '../hooks/useComposerFocused';
 import { useConversationScope, usePersonalConversation } from '../hooks/useConversationList';
@@ -286,6 +287,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const pendingUsersCount = usePendingUsersCount(isAdminUser);
   const storeStatsPendingCount = useStoreStatsPendingCount(isAdminUser);
   const { unreadCount: notificationUnreadCount } = useUnreadCount();
+  // The Dravr team's replies in the feedback thread the athlete has not opened.
+  const feedbackUnread = useFeedbackUnread();
   // Unread rows, one badge per side of the app: Groups counts the rooms, Home
   // the athlete's own threads. An operator has neither tab, so the list is
   // never fetched for them.
@@ -752,8 +755,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       .map((t) => ({ id: t.id, name: t.name, icon: t.icon, badge: t.badge }));
   }, [primaryTabIds, tabs]);
   const drawerHasBadge = useMemo(
-    () => secondaryMobileTabs.some((t) => t.badge !== undefined && t.badge > 0),
-    [secondaryMobileTabs],
+    () => feedbackUnread > 0 || secondaryMobileTabs.some((t) => t.badge !== undefined && t.badge > 0),
+    [feedbackUnread, secondaryMobileTabs],
   );
 
   // Close the drawer whenever the user picks a tab (selection handles it
@@ -827,6 +830,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           settingsActive={activeTab === 'settings'}
           userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
           userLabel={user?.display_name || user?.email || ''}
+          feedbackUnread={feedbackUnread}
         />
       )}
       {/* Vertical Sidebar - Dark.
@@ -1354,6 +1358,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             onOpenSettings={() => setActiveTab('settings')}
             onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
             onSignOut={logout}
+            feedbackUnread={feedbackUnread}
           />
           {!composing && (
             <BottomTabBar

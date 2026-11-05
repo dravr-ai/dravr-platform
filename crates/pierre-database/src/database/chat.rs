@@ -36,7 +36,8 @@ use crate::repositories::chat::{
 };
 use crate::repositories::chat_backend::impl_chat_repository;
 use crate::repositories::chat_feedback::{
-    CONVERSATION_FEEDBACK_SQL, DELETE_FEEDBACK_SQL, GET_FEEDBACK_SQL, UPSERT_FEEDBACK_SQL,
+    CONVERSATION_FEEDBACK_SQL, DELETE_FEEDBACK_SQL, FEEDBACK_BY_ID_SQL, GET_FEEDBACK_SQL,
+    UPSERT_FEEDBACK_SQL,
 };
 use crate::repositories::chat_member_rows::{recent_prompt_messages_sql, MESSAGE_SUBJECTS_SQL};
 use crate::repositories::chat_participants::{

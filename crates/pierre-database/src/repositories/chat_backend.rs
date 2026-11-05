@@ -657,6 +657,15 @@ macro_rules! impl_chat_repository {
                     .await
             }
 
+            async fn get_message_feedback(
+                &self,
+                feedback_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<MessageFeedbackRecord>> {
+                self.feedback_by_id(feedback_id, user_id, tenant_id).await
+            }
+
             async fn count_conversations(
                 &self,
                 user_id: &str,

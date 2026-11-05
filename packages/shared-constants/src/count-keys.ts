@@ -27,6 +27,12 @@ export const NOTIFICATIONS_BELL_UNREAD_KEYS: CountKeys = {
   many: 'shell.notificationsBellUnreadN',
 };
 
+/** The account menu's spoken label while team replies wait: « Menu du compte, 2 non lues ». */
+export const FEEDBACK_ACCOUNT_MENU_UNREAD_KEYS: CountKeys = {
+  one: 'feedback.accountMenuUnreadOne',
+  many: 'feedback.accountMenuUnreadN',
+};
+
 /** The notification panel's unread line. */
 export const NOTIFICATIONS_UNREAD_KEYS: CountKeys = {
   one: 'shell.notificationsUnreadOne',
