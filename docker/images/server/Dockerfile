@@ -179,7 +179,9 @@ WORKDIR /app
 # .73 layer (CVE-2026-119260..119271, CVE-2026-76024..76030 among them: use
 # after free and memory corruption in Frames, V8, Skia, Blink, Dawn). The
 # sciotte image gate refused sciotte v1.3.0 on them; mirrored there too.
-ARG APT_SECURITY_EPOCH=2026-11-03
+# 2026-11-04: apt 3.0.3 -> 3.0.4 (CVE-2026-109518, HIGH, fixed in trixie):
+# the dev deploys of 892a6c569 and 9c335e371 were gated on it.
+ARG APT_SECURITY_EPOCH=2026-11-04
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
