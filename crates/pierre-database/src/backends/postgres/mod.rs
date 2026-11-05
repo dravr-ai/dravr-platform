@@ -203,10 +203,12 @@ pub mod workout_templates;
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use crate::repositories::system_settings::{
-    impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
+    impl_system_settings, next_setting_stamp, system_setting_from_row, GET_SYSTEM_SETTING_SQL,
+    INSERT_SYSTEM_SETTING_IF_ABSENT_SQL, SET_SYSTEM_SETTING_SQL,
+    UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};

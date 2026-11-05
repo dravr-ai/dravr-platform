@@ -25,6 +25,7 @@ use dravr_tronc::mcp::tool::ToolContext as TroncToolContext;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::guardian::TaintOrigin;
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
 use pierre_cache::Cache;
@@ -110,6 +111,14 @@ tokio::task_local! {
     /// exactly what authorized the outer one, so a narrowly-granted third party
     /// cannot reach further by calling a tool that calls another tool.
     pub static GRANTED_SCOPES: Vec<OAuthScope>;
+
+    /// Who decided the in-flight tool call should run, for the Guardian's taint
+    /// telemetry. Scoped by the chat pipeline around a read it runs on the
+    /// athlete's behalf before the model has said anything; absent everywhere
+    /// else, which means the model asked ([`TaintOrigin`]).
+    /// Inherited by a nested dispatch on the same task, so what a prefetched tool
+    /// reads through another counts as prefetched too.
+    pub static GUARDIAN_TAINT_ORIGIN: TaintOrigin;
 }
 
 /// The conversation the in-flight tool call runs in, read from

@@ -105,14 +105,15 @@ struct ProposedFields {
 
 /// Whether a persisted row is coaching the athlete actually read.
 ///
-/// Tool rows are not turns; a slash-command turn is the platform talking; a
-/// withheld reply never reached the athlete; an unverified claim must never
-/// re-enter a prompt; a stopped notice is the platform closing a question the
+/// Tool rows are not turns; a slash-command turn and the Guardian's reply to a
+/// tool call it parked or blocked are the platform talking; a withheld reply
+/// never reached the athlete; an unverified claim must never re-enter a prompt; a stopped notice is the platform closing a question the
 /// agent never answered; an agent's welcome is its canned opening, not a reply
 /// to anything. Each is recognised by its stamp, never by its prose.
 fn is_coaching_turn(row: &MessageRecord) -> bool {
     matches!(row.role.as_str(), "user" | "assistant")
         && !row.is_command_turn()
+        && !row.is_guardian_reply()
         && !row.is_agent_welcome()
         && !matches!(
             row.finish_reason.as_deref(),

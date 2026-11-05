@@ -1046,5 +1046,8 @@ pub fn create_endurance_workout_tools() -> Vec<Box<dyn RuntimeTool>> {
 // the ledger row it superseded, so it is a plain write; a withdrawal deletes
 // the calendar entry on the provider and is the destructive one.
 crate::declare_security!(ListWorkoutTemplatesTool => empty);
-crate::declare_security!(PrescribeWorkoutTool => empty);
+// Lands on the athlete's provider calendar, outside this platform, so a tainted
+// turn's call answers to the taint policy. Replaceable and withdrawable, so it
+// charges no destructive budget.
+crate::declare_security!(PrescribeWorkoutTool => OUTBOUND_WRITE);
 crate::declare_security!(WithdrawPrescribedWorkoutTool => IRREVERSIBLE);

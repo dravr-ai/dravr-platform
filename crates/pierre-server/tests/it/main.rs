@@ -348,6 +348,7 @@ mod guardian_config_admin_test;
 mod guardian_config_registry_test;
 mod guardian_confirm_flow_test;
 mod guardian_e2e_test;
+mod guardian_plan_loop_test;
 mod guardian_plan_routing_test;
 mod guardian_plan_verify_test;
 mod guardian_test;

@@ -29,9 +29,9 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys, audit_trail,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
-    guardian_config, harness_config, memory_worker, myth_busting, new_users, provider_clone,
-    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
-    website,
+    guardian_config, guardian_pending, harness_config, memory_worker, myth_busting, new_users,
+    provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
+    user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -569,6 +569,14 @@ impl AdminRoutes {
                 "/admin/settings/guardian",
                 put(guardian_config::handle_put_guardian_config),
             )
+            .route(
+                "/admin/settings/guardian/pending",
+                get(guardian_pending::handle_list_guardian_pending),
+            )
+            .route(
+                "/admin/settings/guardian/pending/{id}/deny",
+                post(guardian_pending::handle_deny_guardian_pending),
+            )
             .with_state(context)
     }
 
@@ -637,6 +645,14 @@ impl AdminRoutes {
             .route(
                 "/api/admin/settings/guardian",
                 put(guardian_config::handle_put_guardian_config),
+            )
+            .route(
+                "/api/admin/settings/guardian/pending",
+                get(guardian_pending::handle_list_guardian_pending),
+            )
+            .route(
+                "/api/admin/settings/guardian/pending/{id}/deny",
+                post(guardian_pending::handle_deny_guardian_pending),
             )
             .with_state(context)
     }

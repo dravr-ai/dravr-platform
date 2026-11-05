@@ -14,10 +14,11 @@
 //!
 //! State lives in a process-wide [`GuardianTurns`] store keyed by
 //! [`TurnKey`] = `(tenant_id, turn_id)` rather than on the executor, because
-//! the production Copilot-headless loopback builds a fresh executor per `/mcp`
-//! tool call — only a shared store keyed by a stable turn token accumulates
-//! across that path. The key is tenant-scoped so two tenants never share a
-//! taint bucket.
+//! one turn runs on more than one: an ACP agent's tools arrive through the
+//! tool host's surface and its own executor, while the pipeline's prefetches
+//! and the text loop use another. Only a shared store keyed by a stable turn
+//! token accumulates across them. The key is tenant-scoped so two tenants never
+//! share a taint bucket.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -29,12 +30,13 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::DenyReason;
+use crate::context::GUARDIAN_TAINT_ORIGIN;
 use crate::security::SecurityLabels;
 
 /// How long a turn's state is retained before it is eligible for eviction.
 /// Generous relative to a turn (seconds-to-minutes) so accumulation is never
 /// lost mid-turn, tight enough that abandoned turns do not pile up.
-const TURN_TTL: Duration = Duration::from_mins(30);
+pub(crate) const TURN_TTL: Duration = Duration::from_mins(30);
 
 /// Soft cap on retained turns; a stale-sweep runs once the map grows past it.
 const SWEEP_THRESHOLD: usize = 50_000;
@@ -51,16 +53,17 @@ const HARD_CAP: usize = 40_000;
 /// within one interval of expiring.
 const SWEEP_MIN_INTERVAL: Duration = Duration::from_mins(5);
 
-/// Hard cap on retained unconsumed headless denial-flag entries (#10). Only the
-/// headless loop consumes them, so a chat/direct block for a user who never runs
-/// a headless turn would otherwise linger; blocks are rare enough that this is
-/// unreachable in practice, and overflow simply drops the abandoned entries.
+/// Hard cap on retained unconsumed turn blocks (#10). The tool loop takes a
+/// turn's block when it returns, so an entry outlives its turn only when the
+/// loop failed or a stage dispatched after it; blocks are rare enough that this
+/// is unreachable in practice, and overflow drops the entries past [`TURN_TTL`]
+/// first, every entry only if that was not enough.
 const DENIAL_CAP: usize = 10_000;
 
 /// Identifies one logical turn for taint accumulation.
 ///
-/// `turn_id` is the Pierre conversation id (chat loops), the ACP `turn_id`
-/// claim (Copilot headless loopback), or a per-request nonce (one-shot
+/// `turn_id` is the utterance's turn id (every path of a chat turn, an ACP
+/// agent's tool-host session included), or a per-request nonce (one-shot
 /// MCP-direct / A2A calls — which then accumulate nothing, correctly, since they
 /// are independent calls). `tenant_id` scopes the key for tenant isolation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -80,6 +83,31 @@ impl TurnKey {
     }
 }
 
+/// Who decided a taint-bearing read should run.
+///
+/// Prefetched activities really are untrusted text in the model's context, so
+/// they taint exactly as a read the model asked for does; this only keeps the two
+/// apart in the telemetry, so the base rate behind arming `TaintedDestructive`
+/// can tell "the model read this and then acted" from "the platform grounded the
+/// turn and the model acted".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TaintOrigin {
+    /// The model asked for the read (the default).
+    #[default]
+    Model,
+    /// The chat pipeline ran it before the model said anything.
+    Prefetch,
+}
+
+impl TaintOrigin {
+    /// The origin of the dispatch running on this task.
+    pub(crate) fn current() -> Self {
+        GUARDIAN_TAINT_ORIGIN
+            .try_with(|origin| *origin)
+            .unwrap_or_default()
+    }
+}
+
 /// Mutable taint + budget accumulator for one turn.
 #[derive(Debug, Clone, Default)]
 pub struct TurnState {
@@ -93,9 +121,17 @@ pub struct TurnState {
     /// Tool names that introduced taint — for human-readable deny reasons and
     /// telemetry. Never contains arguments or PII, only registered tool names.
     sources: Vec<String>,
+    /// Whether a read the platform prefetched tainted the turn.
+    tainted_by_prefetch: bool,
+    /// Whether a read the model asked for tainted the turn.
+    tainted_by_model: bool,
     /// Reads that succeeded this turn, by [`ReadFingerprint`], and whether
     /// their one repeat has been answered with a pointer back to them.
     reads: HashMap<ReadFingerprint, ReadSeen>,
+    /// Whether enforce mode has already denied or parked a call this turn. Once
+    /// it has, the reply the athlete gets is about that call, so nothing further
+    /// may commit behind it ([`super::DenyReason::TurnBlocked`]).
+    blocked: bool,
 }
 
 /// A read-only call's tool name and canonical arguments, hashed. Only the
@@ -165,10 +201,28 @@ impl TurnState {
         self.writes
     }
 
+    /// Whether enforce mode has already denied or parked a call this turn.
+    #[must_use]
+    pub const fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+
     /// Tool names that introduced taint this turn (for deny reasons / logs).
     #[must_use]
     pub fn taint_sources(&self) -> &[String] {
         &self.sources
+    }
+
+    /// Who put the turn's taint there, as logged: `prefetch`, `model` or `both`.
+    /// `None` for an untainted turn.
+    #[must_use]
+    pub const fn taint_origin(&self) -> Option<&'static str> {
+        match (self.tainted_by_prefetch, self.tainted_by_model) {
+            (true, true) => Some("both"),
+            (true, false) => Some("prefetch"),
+            (false, true) => Some("model"),
+            (false, false) => None,
+        }
     }
 
     /// Fold a successfully executed tool into the turn's taint + budget counts.
@@ -212,6 +266,10 @@ impl TurnState {
     pub fn add_taint(&mut self, tool_name: &str, labels: SecurityLabels) {
         if labels.is_untrusted_output() {
             self.taint |= SecurityLabels::UNTRUSTED_OUTPUT;
+            match TaintOrigin::current() {
+                TaintOrigin::Prefetch => self.tainted_by_prefetch = true,
+                TaintOrigin::Model => self.tainted_by_model = true,
+            }
             if !self.sources.iter().any(|s| s == tool_name) {
                 self.sources.push(tool_name.to_owned());
             }
@@ -221,31 +279,52 @@ impl TurnState {
 
 /// Process-wide, tenant-scoped store of per-turn Guardian state.
 ///
-/// Shared via the runtime so every dispatch path (api/cli chat loops and the
-/// per-request Copilot-headless loopback executors) reaches the same turn
-/// bucket. Entries are evicted by TTL with an opportunistic sweep once the map
-/// grows past [`SWEEP_THRESHOLD`], bounding memory without an O(n) sweep on
+/// Shared via the runtime so every dispatch path (api/cli chat loops and an ACP
+/// agent's tool-host surface) reaches the same turn bucket. Entries are evicted
+/// by TTL with an opportunistic sweep once the map grows past [`SWEEP_THRESHOLD`], bounding memory without an O(n) sweep on
 /// every call.
 #[derive(Debug)]
 pub struct GuardianTurns {
     inner: Mutex<Store>,
-    /// Most-recent enforce-mode block per `(tenant, user)` headless key, set by
-    /// the dispatch chokepoint and consumed by the headless loop. A block that
-    /// fires inside the Copilot ACP subprocess's `/mcp` loopback (a separate HTTP
-    /// task) can't surface back through the subprocess, so the loop reads this to
-    /// render a deterministic refusal or confirmation ask instead of letting the
-    /// model paraphrase it (#10). Separate lock from `inner` — it is touched only
-    /// on the rare block path and the headless turn boundaries, never on the hot
-    /// allow path.
-    blocks: Mutex<HashMap<TurnKey, HeadlessBlock>>,
+    /// The first enforce-mode block of each real turn, set by the dispatch
+    /// chokepoint and taken when the turn's tool loop returns. A block that fires
+    /// inside an ACP agent's tool-host session (a separate task) can't surface
+    /// back through the subprocess, so the loop reads this to render a
+    /// deterministic refusal or confirmation ask instead of letting the model
+    /// paraphrase it (#10).
+    ///
+    /// Keyed by the turn, so overlapping turns of one athlete neither erase nor
+    /// take each other's block, and a one-shot MCP or A2A denial, which has no
+    /// turn to report to, is never recorded (carnet#1404). Separate lock from
+    /// `inner` — it is touched only on the rare block path and the turn
+    /// boundaries, never on the hot allow path.
+    blocks: Mutex<HashMap<TurnKey, (Instant, HeadlessBlock)>>,
 }
 
-/// A block the dispatch chokepoint recorded for the headless loop to render
+/// What the gate makes of a call it decided, applied under the same lock as the
+/// decision so a concurrent same-turn call cannot slip between the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallFate {
+    /// The call runs: budget is reserved and its taint folded.
+    Runs,
+    /// Enforce mode denied or parked it: nothing is reserved, and the turn
+    /// stops committing ([`TurnState::is_blocked`]).
+    Blocked,
+    /// The caller only read the state; nothing changes.
+    Unchanged,
+}
+
+/// A block the dispatch chokepoint recorded for the turn's tool loop to render
 /// deterministically instead of the model's paraphrase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeadlessBlock {
     /// An enforce-mode denial (rendered as the localized denied reply).
-    Denied(DenyReason),
+    Denied {
+        /// Registry identifier of the denied tool, for the server log.
+        tool_name: String,
+        /// Why it was denied.
+        reason: DenyReason,
+    },
     /// A parked confirm-required call (rendered as the confirmation prompt).
     ConfirmRequired {
         /// Registry identifier of the parked tool.
@@ -318,47 +397,43 @@ impl GuardianTurns {
         }
     }
 
-    /// Record an enforce-mode block under `key` (a `(tenant, user)` headless
-    /// key), so the headless loop can detect one that occurred inside the ACP
-    /// subprocess's loopback (#10). Overwrites any prior unconsumed block for the
-    /// key. A poisoned lock is skipped — the turn then falls back to the model's
-    /// paraphrase (today's behaviour), never a panic.
+    /// Record an enforce-mode block under `key`, the turn it fired in, so the
+    /// turn's tool loop can render one that occurred inside an ACP agent's
+    /// tool-host session (#10). The turn's FIRST block stands: it is what the
+    /// athlete was asked, and everything after it was refused because of it. A
+    /// poisoned lock is skipped — the turn then falls back to the model's
+    /// paraphrase, never a panic.
     pub fn record_block(&self, key: &TurnKey, block: HeadlessBlock) {
         if let Ok(mut blocks) = self.blocks.lock() {
-            // Bound memory: only the headless loop consumes/clears entries, so a
-            // chat/direct block whose user never runs a headless turn would linger.
-            // Blocks are rare, so this cap is effectively unreachable; if it is hit
-            // the entries are abandoned anyway, and a dropped pending block just
-            // falls back to the model's paraphrase (safe).
+            let now = Instant::now();
+            // Bound memory. A turn whose loop failed never takes its entry, so
+            // past the cap the abandoned ones go first; a dropped pending block
+            // just falls back to the model's paraphrase (safe), and the turn
+            // still commits nothing further.
             if blocks.len() >= DENIAL_CAP {
-                blocks.clear();
+                blocks.retain(|_, (at, _)| now.duration_since(*at) < TURN_TTL);
+                if blocks.len() >= DENIAL_CAP {
+                    blocks.clear();
+                }
             }
-            blocks.insert(key.clone(), block);
+            blocks.entry(key.clone()).or_insert((now, block));
         }
     }
 
     /// Consume and return the block recorded under `key`, if any.
     #[must_use]
     pub fn take_block(&self, key: &TurnKey) -> Option<HeadlessBlock> {
-        self.blocks.lock().ok()?.remove(key)
-    }
-
-    /// Drop any stale block for `key` before a headless turn starts, so only a
-    /// block raised during *this* turn's subprocess is later taken.
-    pub fn clear_block(&self, key: &TurnKey) {
-        if let Ok(mut blocks) = self.blocks.lock() {
-            blocks.remove(key);
-        }
+        self.blocks.lock().ok()?.remove(key).map(|(_, block)| block)
     }
 
     /// Atomically evaluate `decide` against the live turn state and, under the
-    /// same lock, reserve the action's budget if it will execute — so a
-    /// concurrent same-key dispatch cannot also pass a cap (the E2 TOCTOU fix).
+    /// same lock, apply what becomes of the call — so a concurrent same-key
+    /// dispatch cannot also pass a cap (the E2 TOCTOU fix), nor run behind a
+    /// block it decided a moment before.
     ///
-    /// `decide` runs against the current turn state; `will_execute(&decision)`
-    /// says whether to reserve (true for an allow, and for a deny in a
-    /// non-blocking mode that executes anyway). Returns `(decision, reserved)`;
-    /// call [`Self::refund`] with the same labels if the execution then fails.
+    /// `decide` runs against the current turn state; `fate(&decision)` says what
+    /// follows from it ([`CallFate`]). Returns `(decision, reserved)`; call
+    /// [`Self::refund`] with the same labels if the execution then fails.
     pub fn decide_and_reserve<D>(
         &self,
         key: &TurnKey,
@@ -366,7 +441,7 @@ impl GuardianTurns {
         labels: SecurityLabels,
         writes_data: bool,
         decide: impl FnOnce(&TurnState) -> D,
-        will_execute: impl FnOnce(&D) -> bool,
+        fate: impl FnOnce(&D) -> CallFate,
     ) -> (D, bool) {
         let now = Instant::now();
         let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -377,7 +452,11 @@ impl GuardianTurns {
             .or_insert_with(|| (now, TurnState::default()));
         entry.0 = now;
         let decision = decide(&entry.1);
-        let reserved = will_execute(&decision);
+        let call_fate = fate(&decision);
+        let reserved = call_fate == CallFate::Runs;
+        if call_fate == CallFate::Blocked {
+            entry.1.blocked = true;
+        }
         if reserved {
             entry.1.reserve(labels, writes_data);
             // Fold taint atomically with the decision (S1 + E2). The taint label
@@ -477,5 +556,123 @@ impl GuardianTurns {
 impl Default for GuardianTurns {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn denied(reason: DenyReason) -> HeadlessBlock {
+        HeadlessBlock::Denied {
+            tool_name: "disconnect_provider".to_owned(),
+            reason,
+        }
+    }
+
+    #[test]
+    fn a_turn_keeps_its_first_block_and_overlapping_turns_keep_their_own() {
+        let store = GuardianTurns::new();
+        let first_turn = TurnKey::new(None, "turn-a");
+        let second_turn = TurnKey::new(None, "turn-b");
+
+        store.record_block(&first_turn, denied(DenyReason::TaintedSink));
+        store.record_block(&first_turn, denied(DenyReason::BudgetExceeded));
+        store.record_block(&second_turn, denied(DenyReason::EgressForbidden));
+
+        assert_eq!(
+            store.take_block(&second_turn),
+            Some(denied(DenyReason::EgressForbidden)),
+            "taking one turn's block leaves the other's"
+        );
+        assert_eq!(
+            store.take_block(&first_turn),
+            Some(denied(DenyReason::TaintedSink)),
+            "a later block never replaces the one the athlete was asked about"
+        );
+        assert_eq!(store.take_block(&first_turn), None, "taken once");
+    }
+
+    #[test]
+    fn unconsumed_blocks_stay_bounded_and_a_new_block_still_lands() {
+        let store = GuardianTurns::new();
+        for turn in 0..DENIAL_CAP {
+            store.record_block(
+                &TurnKey::new(None, format!("turn-{turn}")),
+                denied(DenyReason::BudgetExceeded),
+            );
+        }
+        let past_the_cap = TurnKey::new(None, "turn-past-the-cap");
+        store.record_block(&past_the_cap, denied(DenyReason::TaintedSink));
+        assert!(store.blocks.lock().expect("lock").len() <= DENIAL_CAP);
+        assert_eq!(
+            store.take_block(&past_the_cap),
+            Some(denied(DenyReason::TaintedSink))
+        );
+    }
+
+    #[test]
+    fn taint_origin_names_who_decided_the_read() {
+        let mut turn = TurnState::default();
+        assert_eq!(turn.taint_origin(), None);
+
+        GUARDIAN_TAINT_ORIGIN.sync_scope(TaintOrigin::Prefetch, || {
+            turn.add_taint("get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+        });
+        assert_eq!(turn.taint_origin(), Some("prefetch"));
+        assert!(turn.is_tainted(), "a prefetched read taints like any other");
+        assert_eq!(turn.taint_sources(), ["get_activities"]);
+
+        turn.add_taint("get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+        assert_eq!(turn.taint_origin(), Some("both"));
+
+        let mut model_only = TurnState::default();
+        model_only.add_taint("list_agents", SecurityLabels::UNTRUSTED_OUTPUT);
+        assert_eq!(model_only.taint_origin(), Some("model"));
+
+        GUARDIAN_TAINT_ORIGIN.sync_scope(TaintOrigin::Prefetch, || {
+            let mut trusted = TurnState::default();
+            trusted.add_taint("set_goal", SecurityLabels::empty());
+            assert_eq!(trusted.taint_origin(), None, "no taint, no origin");
+        });
+    }
+
+    #[test]
+    fn only_a_blocked_fate_latches_the_turn() {
+        let store = GuardianTurns::new();
+        let key = TurnKey::new(None, "turn");
+        let is_blocked = |store: &GuardianTurns| {
+            store
+                .decide_and_reserve(
+                    &key,
+                    "peek",
+                    SecurityLabels::empty(),
+                    false,
+                    TurnState::is_blocked,
+                    |_| CallFate::Unchanged,
+                )
+                .0
+        };
+
+        store.decide_and_reserve(
+            &key,
+            "write",
+            SecurityLabels::empty(),
+            true,
+            |_| (),
+            |()| CallFate::Runs,
+        );
+        assert!(!is_blocked(&store));
+
+        let ((), reserved) = store.decide_and_reserve(
+            &key,
+            "delete",
+            SecurityLabels::IRREVERSIBLE,
+            false,
+            |_| (),
+            |()| CallFate::Blocked,
+        );
+        assert!(!reserved, "a blocked call reserves nothing");
+        assert!(is_blocked(&store));
     }
 }

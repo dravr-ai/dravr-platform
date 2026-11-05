@@ -17,11 +17,14 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use pierre_core::admin::models::{CreateAdminTokenRequest, DEVICE_CLI_SERVICE_PREFIX};
+use pierre_core::admin::models::{
+    AdminPermission, CreateAdminTokenRequest, DEVICE_CLI_SERVICE_PREFIX,
+};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    subject_hash, AuditEventFilter, AuditEventRecord, AuditOutcome,
+    subject_hash, AuditEventFilter, AuditEventRecord, AuditOutcome, PendingGuardianAction,
 };
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -484,5 +487,223 @@ async fn a_cli_config_write_is_recorded_as_its_operator() -> Result<()> {
         rows[0].actor_user_id.as_deref(),
         Some(operator.user_id.to_string().as_str())
     );
+    Ok(())
+}
+
+/// `admin_config_audit` rows name an account and block its deletion, so nothing about
+/// a Guardian write may land there.
+async fn config_audit_row_count(resources: &Arc<ServerContext>) -> Result<i64> {
+    const COUNT: &str = "SELECT COUNT(*) FROM admin_config_audit";
+    Ok(match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_scalar(COUNT).fetch_one(db.pool()).await?,
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(COUNT).fetch_one(db.pool()).await?,
+    })
+}
+
+/// A service token: global, with every permission the Guardian routes ask, and no
+/// operator behind it.
+async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
+    let generated = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "guardian-canary".to_owned(),
+                service_description: None,
+                permissions: Some(vec![
+                    AdminPermission::ViewConfiguration,
+                    AdminPermission::ManageConfiguration,
+                ]),
+                expires_in_days: Some(1),
+                is_super_admin: false,
+                tenant_id: None,
+                operator_user_id: None,
+            },
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?;
+    Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
+}
+
+/// carnet#1400, carnet#1414: `audit_events` is the one trail of a Guardian save.
+#[tokio::test]
+#[serial]
+async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let operator = admin(
+        &resources,
+        "audit-guardian@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+
+    let saved = AxumTestRequest::put("/api/admin/settings/guardian")
+        .header("Authorization", &operator.auth)
+        .json(&json!({ "max_writes_per_turn": 12, "expected_updated_at": null }))
+        .send(app.clone())
+        .await;
+    assert_eq!(saved.status(), 200, "{}", saved.body_text());
+    let saved: Value = saved.json();
+
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 1, "exactly one row: {rows:?}");
+    assert_eq!(rows[0].action, "guardian.config.update");
+    assert_eq!(rows[0].outcome, "success");
+    assert_eq!(
+        rows[0].actor_user_id.as_deref(),
+        Some(operator.user_id.to_string().as_str())
+    );
+    assert_eq!(rows[0].metadata["before"], Value::Null);
+    assert_eq!(rows[0].metadata["after"]["max_writes_per_turn"], 12);
+
+    let moved = AxumTestRequest::put("/api/admin/settings/guardian")
+        .header("Authorization", &operator.auth)
+        .json(&json!({ "max_writes_per_turn": 13, "expected_updated_at": saved["updated_at"] }))
+        .send(app.clone())
+        .await;
+    assert_eq!(moved.status(), 200, "{}", moved.body_text());
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0].metadata["before"]["max_writes_per_turn"], 12);
+    assert_eq!(rows[0].metadata["after"]["max_writes_per_turn"], 13);
+    assert!(
+        rows[0].summary.contains("max_writes_per_turn: 12 → 13"),
+        "the sentence names the change: {}",
+        rows[0].summary
+    );
+
+    // The base it names is the first save's, which the second replaced.
+    let stale = AxumTestRequest::put("/api/admin/settings/guardian")
+        .header("Authorization", &operator.auth)
+        .json(&json!({ "max_writes_per_turn": 14, "expected_updated_at": saved["updated_at"] }))
+        .send(app.clone())
+        .await;
+    assert_eq!(stale.status(), 409);
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    assert_eq!(rows[0].action, "guardian.config.update");
+    assert_eq!(rows[0].outcome, "refused");
+    assert_eq!(rows[0].metadata["status"], 409);
+    assert!(rows[0].metadata.get("after").is_none(), "nothing landed");
+
+    // A document the validator refuses is on the same trail, not under the route.
+    let invalid = AxumTestRequest::put("/api/admin/settings/guardian")
+        .header("Authorization", &operator.auth)
+        .json(&json!({ "max_writes_per_turn": 0, "expected_updated_at": saved["updated_at"] }))
+        .send(app.clone())
+        .await;
+    assert_eq!(invalid.status(), 400, "{}", invalid.body_text());
+    assert!(
+        invalid.body_text().contains("max_writes_per_turn"),
+        "the validator's reason reaches the client: {}",
+        invalid.body_text()
+    );
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 4, "{rows:?}");
+    assert_eq!(rows[0].action, "guardian.config.update");
+    assert_eq!(rows[0].outcome, "refused");
+    assert_eq!(rows[0].metadata["status"], 400);
+    assert!(rows[0].metadata.get("after").is_none(), "nothing landed");
+
+    assert_eq!(
+        config_audit_row_count(&resources).await?,
+        0,
+        "the second trail is gone"
+    );
+
+    // Both clients read it here, with the prefix each one filters on.
+    let read = AxumTestRequest::get("/api/admin/audit-events?action=guardian.config&limit=3")
+        .header("Authorization", &operator.auth)
+        .send(app.clone())
+        .await;
+    assert_eq!(read.status(), 200);
+    let read: Value = read.json();
+    assert_eq!(read["data"]["events"][0]["outcome"], "refused");
+    assert_eq!(read["data"]["events"][0]["metadata"]["status"], 400);
+    assert_eq!(read["data"]["events"][1]["metadata"]["status"], 409);
+    assert_eq!(
+        read["data"]["events"][2]["metadata"]["after"]["max_writes_per_turn"],
+        13
+    );
+    Ok(())
+}
+
+/// A token with no operator acts again, and its row says which token it was.
+#[tokio::test]
+#[serial]
+async fn a_service_token_guardian_write_names_the_token() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let service = service_token(&resources).await?;
+
+    let saved = AxumTestRequest::put("/admin/settings/guardian")
+        .header("Authorization", &service)
+        .json(&json!({ "max_writes_per_turn": 12, "expected_updated_at": null }))
+        .send(app.clone())
+        .await;
+    assert_eq!(saved.status(), 200, "{}", saved.body_text());
+
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].action, "guardian.config.update");
+    assert_eq!(rows[0].source, "service");
+    assert_eq!(rows[0].actor_user_id, None);
+    assert_eq!(rows[0].metadata["service"], "guardian-canary");
+    assert!(rows[0].metadata["token_id"].is_string());
+    Ok(())
+}
+
+/// A denial names the call, the tool and the tenant, and never what the call carried.
+#[tokio::test]
+#[serial]
+async fn a_guardian_denial_names_the_call_and_not_its_arguments() -> Result<()> {
+    const ARGUMENTS_MARKER: &str = "IGNORE-PREVIOUS-INSTRUCTIONS";
+    let resources = create_test_server_resources().await?;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let operator = admin(&resources, "audit-deny@example.com", UserRole::SuperAdmin).await?;
+    resources
+        .common
+        .repos
+        .guardian_actions
+        .create_pending_action(
+            &PendingGuardianAction {
+                id: "call-a".to_owned(),
+                tenant_id: "tenant-a".to_owned(),
+                user_id: "athlete-1".to_owned(),
+                conversation_id: None,
+                tool_name: "disconnect_provider".to_owned(),
+                arguments: json!({ "note": ARGUMENTS_MARKER }),
+                deny_reason: "tainted_sink".to_owned(),
+                turn_agent_id: None,
+                seat: Some("athlete".to_owned()),
+                turn_provenance: None,
+            },
+            chrono::Utc::now() + chrono::Duration::minutes(5),
+        )
+        .await?;
+
+    let denied = AxumTestRequest::post("/api/admin/settings/guardian/pending/call-a/deny")
+        .header("Authorization", &operator.auth)
+        .send(app.clone())
+        .await;
+    assert_eq!(denied.status(), 200, "{}", denied.body_text());
+
+    let rows = trail(&resources).await?;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].action, "guardian.pending.deny");
+    assert_eq!(
+        rows[0].metadata["target"],
+        json!({
+            "pending_id": "call-a",
+            "tool_name": "disconnect_provider",
+            "tenant_id": "tenant-a",
+        })
+    );
+    assert!(!format!("{:?}", rows[0]).contains(ARGUMENTS_MARKER));
+    assert_eq!(config_audit_row_count(&resources).await?, 0);
     Ok(())
 }

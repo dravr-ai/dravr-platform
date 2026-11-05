@@ -8,7 +8,8 @@ use pierre_core::errors::AppError;
 use pierre_llm::ChatRequest;
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink, TurnProgress};
 
-use crate::prose_stream::{deliver, request_canary, StreamedProse};
+use crate::prose_stream::{request_canary, StreamedProse};
+use crate::tool_progress;
 
 /// One streamed ACP turn, drained: the response the non-streaming `converse()`
 /// would have produced, and whether any of its prose reached the sink.
@@ -86,7 +87,7 @@ pub async fn forward_headless_stream(
         match event {
             HeadlessStreamEvent::TextDelta(delta) => prose.push(&delta),
             HeadlessStreamEvent::ToolCall(tc) => {
-                deliver(
+                tool_progress::deliver(
                     sink,
                     TurnEvent::Progress(TurnProgress::tool(tc.id, tc.title, tc.status)),
                 );

@@ -30,7 +30,7 @@ pub const HARNESS_CONFIG_SETTING_KEY: &str = "harness_config";
 
 /// Compaction tunables that the dispatch path reads from
 /// `pierre_core::config::CompactionConfig`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessCompactionConfig {
     /// Target context window size in tokens (default `1_000_000`, Claude Opus
     /// 4.8's real window).
@@ -148,7 +148,7 @@ impl Default for HarnessVerificationConfig {
 /// cannot merge two different facts. A paraphrase is decided by the extractor,
 /// which is shown the athlete's facts and answers which one a new fact
 /// restates, so the only thing tuned here is how many it is shown.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarnessMemoryConfig {
     /// How many of the athlete's facts are compared, and how many the
     /// extractor is shown.
@@ -174,7 +174,7 @@ impl Default for HarnessMemoryConfig {
 /// Round-tripped to JSON in `system_settings.value`. Versioned via the
 /// `schema_version` field so future migrations can reject documents that
 /// predate breaking changes without losing operator data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessConfigDocument {
     /// Document schema version. Bump when fields are removed or renamed.
     pub schema_version: u32,

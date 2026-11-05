@@ -45,6 +45,10 @@ impl FakeLabels {
 }
 
 impl ToolLabels for FakeLabels {
+    fn offered(&self, _tool: &str) -> bool {
+        true
+    }
+
     fn labels(&self, tool: &str) -> Option<SecurityLabels> {
         self.labels.get(tool).copied()
     }
@@ -172,6 +176,56 @@ fn tainted_irreversible_respects_policy() {
             &wf,
             &fake_registry(),
             &policy(TaintedDestructive::Confirm, ExternalSendAllowlist::None),
+            None
+        ),
+        VerifyOutcome::Accept
+    );
+}
+
+#[test]
+fn tainted_outbound_write_is_rejected_under_deny_and_charges_no_destructive_budget() {
+    let labels = fake_registry().with("prescribe_workout", SecurityLabels::OUTBOUND_WRITE, true);
+    let tainted = parse(
+        r#"{ "steps": [
+            { "id": 0, "tool": "get_activities", "args": { "limit": 5 } },
+            { "id": 1, "tool": "prescribe_workout",
+              "args": { "date": { "$ref": { "step": 0, "path": "/activities/0/date" } } } }
+        ] }"#,
+    );
+    assert!(matches!(
+        verify(
+            &tainted,
+            &labels,
+            &policy(TaintedDestructive::Deny, ExternalSendAllowlist::None),
+            None
+        ),
+        VerifyOutcome::Reject(VerifyError::TaintedSink { .. })
+    ));
+    for lenient in [TaintedDestructive::Log, TaintedDestructive::Confirm] {
+        assert_eq!(
+            verify(
+                &tainted,
+                &labels,
+                &policy(lenient, ExternalSendAllowlist::None),
+                None
+            ),
+            VerifyOutcome::Accept
+        );
+    }
+
+    // Two outbound writes beside the one destructive call the budget allows.
+    let within_budget = parse(
+        r#"{ "steps": [
+            { "id": 0, "tool": "prescribe_workout", "args": { "date": "2026-11-04" } },
+            { "id": 1, "tool": "prescribe_workout", "args": { "date": "2026-11-05" } },
+            { "id": 2, "tool": "delete_agent", "args": { "agent_id": "a" } }
+        ] }"#,
+    );
+    assert_eq!(
+        verify(
+            &within_budget,
+            &labels,
+            &policy(TaintedDestructive::Deny, ExternalSendAllowlist::None),
             None
         ),
         VerifyOutcome::Accept

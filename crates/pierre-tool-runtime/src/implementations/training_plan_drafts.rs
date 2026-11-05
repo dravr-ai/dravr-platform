@@ -383,14 +383,15 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
         answers_with::<PublishTrainingPlanResult>(tool_definition(
             "publish_training_plan",
             "Publish or discard a group's human coach's draft of a coached athlete's training \
-             plan (a coach's save_training_plan for an athlete writes that unseen draft). \
-             publish makes it their live plan in one step — weeks the coach did not draft keep \
-             the athlete's version. Call it only when the coach asks. When the athlete's own \
-             agent changed a drafted week or re-laid the season since, publish is refused with \
-             status `conflict` and nothing changes: tell the coach which weeks, and publish \
-             again with overwrite_athlete_changes only if they choose to replace them. \
-             Publishing does not touch the calendar; push_training_plan does that afterwards. \
-             The caller's own plan has no draft: their saves are already live.",
+             plan (their save_training_plan for an athlete writes that unseen draft). publish \
+             makes it the live plan in one step; weeks not drafted keep the athlete's version. \
+             Call it only when the coach asks. If the athlete's own agent changed a drafted \
+             week or re-laid the season since, publish is refused with status `conflict` and \
+             nothing changes: tell the coach which weeks, and publish again with \
+             overwrite_athlete_changes only if they choose. Publishing leaves the calendar \
+             alone; one destructive action runs per turn, so push_training_plan waits for the \
+             coach's next message: say so. The caller's own plan has no draft: their saves are \
+             already live.",
             schema,
             annotations(
                 "Publish training plan",
@@ -559,7 +560,9 @@ async fn publish(
     };
     let message = format!(
         "Your draft is {name}'s live plan now. The weeks you did not draft keep {name}'s own \
-         version. {told}{room}"
+         version. {told}{room} Putting it on the calendar with push_training_plan happens on \
+         the coach's next message, because one destructive action runs per turn: offer that, \
+         do not call it in this turn."
     );
     ok_typed(
         PUBLISH_TOOL,

@@ -1,5 +1,5 @@
 // ABOUTME: Operator-tunable time bounds on request paths, read from the environment once at startup
-// ABOUTME: MCP task fast path, messaging turn watchdog, Home route reads and background revalidation
+// ABOUTME: MCP task fast path, messaging turn watchdog, Home route reads, background revalidation, settings poll
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,6 +30,9 @@ pub struct ServerTimeouts {
     /// `PIERRE_REVALIDATION_TIMEOUT_SECS`: the bound a background revalidation
     /// runs under (positive).
     pub revalidation_timeout_secs: Option<u64>,
+    /// `PIERRE_SETTINGS_POLL_INTERVAL_SECS`: how often each instance re-reads the
+    /// runtime policy rows an admin edit changes (positive).
+    pub settings_poll_interval_secs: Option<u64>,
 }
 
 impl ServerTimeouts {
@@ -42,6 +45,7 @@ impl ServerTimeouts {
             home_route_answer_secs: positive("PIERRE_HOME_ROUTE_ANSWER_SECS"),
             home_route_provider_read_secs: positive("PIERRE_HOME_ROUTE_PROVIDER_READ_SECS"),
             revalidation_timeout_secs: positive("PIERRE_REVALIDATION_TIMEOUT_SECS"),
+            settings_poll_interval_secs: positive("PIERRE_SETTINGS_POLL_INTERVAL_SECS"),
         }
     }
 }

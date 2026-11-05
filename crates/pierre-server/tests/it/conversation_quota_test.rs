@@ -796,6 +796,9 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
                 tool_name: "disconnect_provider".to_owned(),
                 arguments: json!({ "provider": "strava" }),
                 deny_reason: "tainted_sink".to_owned(),
+                turn_agent_id: None,
+                seat: None,
+                turn_provenance: None,
             };
             resources
                 .common

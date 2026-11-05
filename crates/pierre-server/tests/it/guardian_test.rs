@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 
 use pierre_tool_runtime::guardian::{
-    guardian_gate, Decision, DenyReason, ExternalSendAllowlist, GateOutcome, Guardian,
+    guardian_gate, CallFate, Decision, DenyReason, ExternalSendAllowlist, GateOutcome, Guardian,
     GuardianMode, GuardianPolicy, GuardianTurns, HeadlessBlock, PlanMode, TaintedDestructive,
     TurnKey, TurnState,
 };
@@ -164,14 +164,19 @@ fn tainted_ordinary_write_is_allowed() {
 }
 
 #[test]
-fn security_labels_describe_is_stable() {
-    assert_eq!(SecurityLabels::empty().describe(), "none");
+fn enforce_denies_a_tainted_outbound_write_under_deny_only() {
+    // A plain tainted write stays ungated; the outbound flag is what opts in.
+    let guardian = Guardian::new(enforce_policy());
+    let mut turn = TurnState::default();
+    turn.add_taint("get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
     assert_eq!(
-        SecurityLabels::UNTRUSTED_OUTPUT.describe(),
-        "untrusted_output"
+        guardian.decide(SecurityLabels::OUTBOUND_WRITE, true, None, &turn),
+        Decision::Deny(DenyReason::TaintedSink)
     );
-    assert_eq!(SecurityLabels::EXTERNAL_SEND.describe(), "external_send");
-    assert_eq!(SecurityLabels::IRREVERSIBLE.describe(), "irreversible");
+    assert_eq!(
+        guardian.decide(SecurityLabels::empty(), true, None, &turn),
+        Decision::Allow
+    );
 }
 
 #[test]
@@ -201,7 +206,7 @@ fn peek<T>(store: &GuardianTurns, key: &TurnKey, read: impl Fn(&TurnState) -> T)
         SecurityLabels::empty(),
         false,
         |state| read(state),
-        |_| false, // never reserve
+        |_| CallFate::Unchanged,
     );
     value
 }
@@ -217,7 +222,7 @@ fn reserve_increments_and_is_visible_to_the_next_decide() {
         SecurityLabels::IRREVERSIBLE,
         false,
         |_| true,
-        |_| true,
+        |_| CallFate::Runs,
     );
     assert!(reserved);
     assert_eq!(peek(&store, &key, TurnState::destructive_count), 1);
@@ -235,7 +240,7 @@ fn no_reserve_when_will_not_execute() {
         SecurityLabels::IRREVERSIBLE,
         false,
         |_| true,
-        |_| false,
+        |_| CallFate::Blocked,
     );
     assert!(!reserved);
     assert_eq!(peek(&store, &key, TurnState::destructive_count), 0);
@@ -251,7 +256,7 @@ fn refund_releases_a_reserved_slot_on_failure() {
         SecurityLabels::IRREVERSIBLE,
         false,
         |_| true,
-        |_| true,
+        |_| CallFate::Runs,
     );
     store.refund(&key, SecurityLabels::IRREVERSIBLE, false);
     assert_eq!(peek(&store, &key, TurnState::destructive_count), 0);
@@ -271,7 +276,7 @@ fn decide_and_reserve_folds_taint_atomically_for_untrusted_sources() {
         SecurityLabels::UNTRUSTED_OUTPUT,
         false,
         |_| true,
-        |_| true, // will execute
+        |_| CallFate::Runs,
     );
     assert!(reserved);
     assert!(
@@ -292,7 +297,7 @@ fn decide_and_reserve_does_not_taint_a_blocked_source() {
         SecurityLabels::UNTRUSTED_OUTPUT,
         false,
         |_| true,
-        |_| false, // blocked → will NOT execute
+        |_| CallFate::Blocked,
     );
     assert!(!reserved);
     assert!(!peek(&store, &key, TurnState::is_tainted));
@@ -322,7 +327,7 @@ fn per_turn_keys_do_not_share_budget_or_taint() {
         SecurityLabels::IRREVERSIBLE,
         false,
         |_| true,
-        |_| true,
+        |_| CallFate::Runs,
     );
     store.record_taint(&k1, "get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
     assert_eq!(peek(&store, &k2, TurnState::destructive_count), 0);
@@ -399,30 +404,25 @@ fn guardian_gate_observe_reports_but_proceeds() {
     assert!(reserved);
 }
 
-// #10: the denial flag the chokepoint sets and the Copilot-headless loop consumes
-// so a block that fired inside the ACP subprocess loopback surfaces as a
-// deterministic refusal. Recorded under the headless key, taken exactly once,
-// and clearable so a stale denial can't leak into the next turn.
+// #10: the block the chokepoint records and the turn's tool loop consumes so one
+// that fired inside an ACP agent's tool-host session surfaces as a deterministic
+// refusal. Taken exactly once.
 #[test]
-fn headless_block_flag_records_takes_once_and_clears() {
+fn turn_block_records_and_takes_once() {
     let store = GuardianTurns::new();
-    let key = TurnKey::new(None, "tenant:user");
+    let key = TurnKey::new(None, "turn");
+    let denied = HeadlessBlock::Denied {
+        tool_name: "disconnect_provider".to_owned(),
+        reason: DenyReason::BudgetExceeded,
+    };
 
     // Nothing recorded yet.
     assert_eq!(store.take_block(&key), None);
 
-    // The chokepoint records a block; the headless loop takes it once.
-    store.record_block(&key, HeadlessBlock::Denied(DenyReason::BudgetExceeded));
-    assert_eq!(
-        store.take_block(&key),
-        Some(HeadlessBlock::Denied(DenyReason::BudgetExceeded))
-    );
+    // The chokepoint records a block; the tool loop takes it once.
+    store.record_block(&key, denied.clone());
+    assert_eq!(store.take_block(&key), Some(denied));
     // Single consumption — a second take sees nothing.
-    assert_eq!(store.take_block(&key), None);
-
-    // Clearing (before a turn) drops a stale block so it can't leak.
-    store.record_block(&key, HeadlessBlock::Denied(DenyReason::TaintedSink));
-    store.clear_block(&key);
     assert_eq!(store.take_block(&key), None);
 
     // A confirm-required park travels the same channel with its claim token.
@@ -440,6 +440,114 @@ fn headless_block_flag_records_takes_once_and_clears() {
             pending_id: "abc123".to_owned(),
         })
     );
+}
+
+/// After a call in the turn is denied or parked, nothing further commits behind
+/// the reply, whichever path it arrives on. Reads carry on so the model finishes.
+#[test]
+fn a_block_stops_the_turn_committing_through_the_real_gate_and_store() {
+    let guardian = Guardian::new(GuardianPolicy {
+        max_destructive_per_turn: 0,
+        ..enforce_policy()
+    });
+    let turns = GuardianTurns::new();
+    let key = TurnKey::new(None, "latched-turn");
+    let gate = |tool: &str, labels: SecurityLabels, writes: bool| {
+        guardian_gate(&guardian, &turns, &key, tool, labels, writes, None)
+    };
+
+    // A write before the block: nothing is latched yet.
+    assert_eq!(
+        gate("set_goal", SecurityLabels::empty(), true),
+        (GateOutcome::Proceed, true)
+    );
+    // The first block keeps its own reason.
+    assert_eq!(
+        gate("disconnect_provider", SecurityLabels::IRREVERSIBLE, true),
+        (GateOutcome::Blocked(DenyReason::BudgetExceeded), false)
+    );
+    // Every kind of consequential call after it is refused for that reason, none
+    // reserving budget, including one the budgets alone would have let through.
+    for (tool, labels, writes) in [
+        ("set_goal", SecurityLabels::empty(), true),
+        ("disconnect_provider", SecurityLabels::IRREVERSIBLE, false),
+        ("send_email", SecurityLabels::EXTERNAL_SEND, false),
+        ("prescribe_workout", SecurityLabels::OUTBOUND_WRITE, false),
+    ] {
+        assert_eq!(
+            gate(tool, labels, writes),
+            (GateOutcome::Blocked(DenyReason::TurnBlocked), false),
+            "{tool}"
+        );
+    }
+    assert_eq!(peek(&turns, &key, TurnState::write_count), 1);
+    // Reads stay allowed, tainting ones too.
+    assert_eq!(
+        gate("get_connection_status", SecurityLabels::empty(), false),
+        (GateOutcome::Proceed, true)
+    );
+    assert_eq!(
+        gate("get_activities", SecurityLabels::UNTRUSTED_OUTPUT, false),
+        (GateOutcome::Proceed, true)
+    );
+}
+
+#[test]
+fn a_parked_call_stops_the_turn_committing_too() {
+    let guardian = Guardian::new(GuardianPolicy {
+        tainted_destructive: TaintedDestructive::Confirm,
+        ..enforce_policy()
+    });
+    let turns = GuardianTurns::new();
+    let key = TurnKey::new(None, "parked-turn");
+    turns.record_taint(&key, "get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+    let (parked, _) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    assert_eq!(parked, GateOutcome::ConfirmRequired);
+    let (next, reserved) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "set_goal",
+        SecurityLabels::empty(),
+        true,
+        None,
+    );
+    assert_eq!(next, GateOutcome::Blocked(DenyReason::TurnBlocked));
+    assert!(!reserved);
+}
+
+/// Observe and off log the would-deny and run the call, so they never latch: the
+/// next call gets the same answer it would have had with no earlier flag.
+#[test]
+fn observe_and_off_never_latch_a_turn() {
+    for mode in [GuardianMode::Observe, GuardianMode::Off] {
+        let guardian = Guardian::new(GuardianPolicy {
+            mode,
+            max_destructive_per_turn: 0,
+            ..enforce_policy()
+        });
+        let turns = GuardianTurns::new();
+        let key = TurnKey::new(None, "unlatched-turn");
+        let (flagged, _) = guardian_gate(
+            &guardian,
+            &turns,
+            &key,
+            "disconnect_provider",
+            SecurityLabels::IRREVERSIBLE,
+            false,
+            None,
+        );
+        assert_eq!(flagged, GateOutcome::Proceed, "{mode:?}");
+        assert!(!peek(&turns, &key, TurnState::is_blocked), "{mode:?}");
+    }
 }
 
 /// Every `GateOutcome` a caller can see must be one it explicitly handles.

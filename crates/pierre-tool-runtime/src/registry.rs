@@ -224,6 +224,21 @@ impl ToolRegistry {
             .map(|execution| execution.task_support)
     }
 
+    /// The name a tool goes by in front of a person: the title its annotations
+    /// declare, read off the tool object like [`Self::security_class`].
+    ///
+    /// The registry id is for machines and logs. Consent worded around
+    /// `disconnect_provider` asks the athlete to approve an identifier. An
+    /// unknown tool, or one that declared no title, reads as its id.
+    #[must_use]
+    pub fn display_name(&self, name: &str) -> String {
+        self.tools
+            .get(name)
+            .and_then(|tool| tool.definition().annotations)
+            .and_then(|annotations| annotations.title)
+            .unwrap_or_else(|| name.to_owned())
+    }
+
     /// Check if a tool is registered
     #[must_use]
     pub fn contains(&self, name: &str) -> bool {

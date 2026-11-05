@@ -181,3 +181,62 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         "a new turn must not inherit the previous turn's taint"
     );
 }
+
+/// carnet#1397, on the path it happened on: the agent's loop runs on in its own
+/// subprocess after a refusal, so a write it makes next must not commit behind
+/// the blocked reply the athlete is about to get. A read still runs, so the agent
+/// can finish its answer.
+#[tokio::test]
+async fn a_denied_call_stops_the_agents_later_writes_in_the_same_turn() {
+    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
+        GuardianSettings {
+            mode: Some("enforce".to_owned()),
+            max_destructive_per_turn: Some("0".to_owned()),
+            ..GuardianSettings::default()
+        },
+    ))
+    .await
+    .expect("server resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
+    let surface = bridge.turn_surface(ToolSessionTurn {
+        user_id: &user_id.to_string(),
+        tenant_id: tenant,
+        conversation_id: "conv-under-test",
+        turn_id: ConversationTurnId(Uuid::new_v4()),
+        turn_agent_id: None,
+        budget: AMPLE_BUDGET,
+        seat: TurnSeat::Subject,
+        switched_off: &SwitchedOff::default(),
+    });
+
+    let denied = surface
+        .call(DESTRUCTIVE, &json!({ "provider": "strava" }))
+        .await;
+    assert_eq!(guardian_reason(&denied).as_deref(), Some("budget_exceeded"));
+
+    let write = surface
+        .call(
+            "set_goal",
+            &json!({ "goal_type": "distance", "target_value": 100 }),
+        )
+        .await;
+    assert_eq!(
+        guardian_reason(&write).as_deref(),
+        Some("turn_blocked"),
+        "a write after the block must be refused; got {}",
+        write.text
+    );
+
+    let read = surface.call("get_connection_status", &json!({})).await;
+    assert_ne!(
+        guardian_error_code(&read).as_deref(),
+        Some("guardian_denied"),
+        "a read still runs; got {}",
+        read.text
+    );
+}

@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::tool_simulation;
+use pierre_core::models::{GUARDIAN_CONFIRM_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON};
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
@@ -15,12 +16,12 @@ use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
 use tracing::{info, warn};
 
 use crate::guardian::HeadlessBlock;
-use crate::prose_stream;
 use crate::tool_execution::{headless_turn_key, parse_lenient_tool_call_blocks, run_cli_tool_loop};
 use crate::tool_loop_io::{
     observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
 };
 use crate::tool_loop_telemetry::millis_elapsed;
+use crate::tool_progress;
 
 /// Strip the headless reply, retry once if the turn was degenerate, and
 /// assemble the [`ToolLoopResult`].
@@ -45,12 +46,12 @@ use crate::tool_loop_telemetry::millis_elapsed;
 /// and asks again with their results, as the native path and the CLI tiers
 /// already do.
 ///
-/// Either way, drains what the ACP subprocess's `/mcp` loopback left under this
-/// turn's `(tenant, user)` key: the Guardian block, and the
-/// served-without-a-provider offer. Both are the platform's own record of what
-/// happened inside the subprocess, which is the only way this path learns of
-/// either — and the text loop's own asks carry the same MCP servers, so a model
-/// that calls a tool natively there raises them the same way.
+/// Either way, drains what the ACP subprocess's tool-host session left under this
+/// turn's key: the Guardian block, and the served-without-a-provider offer. Both
+/// are the platform's own record of what happened inside the subprocess, which is
+/// the only way this path learns of either — and the text loop's own asks carry
+/// the same MCP servers, so a model that calls a tool natively there raises them
+/// the same way.
 ///
 /// `streamed_to` is the sink the reply's prose reached, `None` when none did
 /// (a turn that did not stream, or one that wrote only `<tool_call>` blocks):
@@ -99,16 +100,7 @@ pub async fn finalize_headless_turn(
             // the agent read from a tool result as unsupported, and its re-ask
             // had the agent retract it (carnet#1038).
             let mut result = run_cli_tool_loop(params, llm_messages, Some(first_reply)).await?;
-            // What the text loop's own executor raised stands; the loopback's
-            // record fills only what it left unset.
-            let signals = take_loopback_signals(params);
-            result.served_without_provider = result
-                .served_without_provider
-                .or(signals.served_without_provider);
-            if result.guardian_denied.is_none() && result.guardian_confirm.is_none() {
-                result.guardian_denied = signals.guardian_denied;
-                result.guardian_confirm = signals.guardian_confirm;
-            }
+            settle_turn_signals(params, &mut result);
             // Still a headless turn: its tools were asked for over the turn's
             // MCP servers, and a headless turn folds no deterministic activity
             // list. The text loop extracts one from a `get_activities` result,
@@ -148,15 +140,7 @@ pub async fn finalize_headless_turn(
         tools_called.extend(retry.tool_calls);
     }
 
-    // Consumed after any degenerate-turn retry, so a retried turn keeps what
-    // its first pass raised.
-    let LoopbackSignals {
-        served_without_provider,
-        guardian_denied,
-        guardian_confirm,
-    } = take_loopback_signals(params);
-
-    Ok(ToolLoopResult {
+    let mut result = ToolLoopResult {
         content,
         usage,
         finish_reason,
@@ -175,79 +159,78 @@ pub async fn finalize_headless_turn(
         pending_provider_auth_required: None,
         // The soft offer is a SUCCESSFUL payload instead, so the chokepoint
         // reads it on the way past and stamps it under this turn's key; taken
-        // from the shared store by `take_loopback_signals`.
-        served_without_provider,
+        // from the shared store by `settle_turn_signals` below.
+        served_without_provider: None,
         // #10: a block that fired at the platform chokepoint during the ACP
-        // subprocess's loopback calls is recovered from the shared Guardian store
-        // (keyed by this turn's (tenant, user)), so the headless path surfaces
-        // the same deterministic refusal every other transport does.
-        guardian_denied,
-        guardian_confirm,
+        // subprocess's tool calls is recovered from the shared Guardian store by
+        // `settle_turn_signals` below, so the headless path surfaces the same
+        // deterministic refusal every other transport does.
+        guardian_denied: None,
+        guardian_confirm: None,
         // Set downstream by the capability-recovery stage, which runs after
         // every loop variant returns.
         capability_claim_unverified: false,
         // The ACP session reports no parameter warnings: the subprocess owns
         // the request, so there is no platform-built request to check.
         provider_warnings: Vec::new(),
-    })
+    };
+    // After any degenerate-turn retry, so a retried turn keeps what its first
+    // pass raised.
+    settle_turn_signals(params, &mut result);
+    Ok(result)
 }
 
-/// What the ACP subprocess's `/mcp` loopback recorded under a headless turn's
-/// key: signals raised on a separate task, which the turn reads only here.
-struct LoopbackSignals {
-    /// The backend key of a provider a loopback `get_activities` served the
-    /// window WITHOUT. `auth_recovery` mints a reconnect URL from it and
-    /// appends the offer to the agent's answer, so an ACP turn a sibling
-    /// connection served hands the athlete the same control every other
-    /// transport does.
-    served_without_provider: Option<String>,
-    guardian_denied: Option<GuardianDenial>,
-    guardian_confirm: Option<GuardianConfirmRequest>,
-}
-
-/// Take both out-of-band signals the loopback left under this turn's
-/// [`headless_turn_key`], once, at the end of the turn.
+/// Fold what the chokepoint recorded under this turn into `result`, once.
 ///
-/// #10: a Guardian block that fired inside the loopback becomes a
-/// deterministic reply (the chat pipeline renders the localized
-/// `KEY_GUARDIAN_DENIED` or `KEY_GUARDIAN_CONFIRM_PROMPT`) instead of the
-/// model's paraphrase.
-fn take_loopback_signals(params: &ToolLoopParams<'_>) -> LoopbackSignals {
-    let turn_key = headless_turn_key(params);
-    let served_without_provider = params
-        .executor
-        .resources
-        .reconnect_offers()
-        .take_offer(&turn_key);
-    let (guardian_denied, guardian_confirm) = match params
-        .executor
-        .resources
-        .guardian_turns()
-        .take_block(&turn_key)
-    {
-        Some(HeadlessBlock::Denied(reason)) => (
-            Some(GuardianDenial {
-                tool_name: "(headless)".to_owned(),
+/// Two signals raised on the tool host's task, which the turn reads only here:
+///
+/// - The backend key of a provider a `get_activities` served the window WITHOUT.
+///   `auth_recovery` mints a reconnect URL from it and appends the offer to the
+///   agent's answer, so an ACP turn a sibling connection served hands the athlete
+///   the same control every other transport does. An offer the loop already read
+///   off a payload stands.
+/// - #10: the turn's first Guardian block, which becomes a deterministic reply
+///   (the chat pipeline renders the localized `KEY_GUARDIAN_DENIED` or
+///   `KEY_GUARDIAN_CONFIRM_PROMPT`) instead of the model's paraphrase. It replaces
+///   whatever block `result` carries, since a later refusal in the same turn is
+///   only a consequence of it, and what the athlete has to answer is the first.
+///   It stamps the finish reason too: the reply is about to become the platform's
+///   text, and the row is replayed by that stamp, so a model's `stop` left on it
+///   would read back as the agent's own words (carnet#1398).
+///
+/// Called when the headless path assembles its result, so `is_lost_turn` reads
+/// the block, and again where every loop returns: a head that faulted after its
+/// block hands the turn to a tail that knows nothing of it. A turn with no token
+/// recorded nothing.
+pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut ToolLoopResult) {
+    let Some(turn_key) = headless_turn_key(params) else {
+        return;
+    };
+    let resources = &params.executor.resources;
+    if let Some(offer) = resources.reconnect_offers().take_offer(&turn_key) {
+        result.served_without_provider = result.served_without_provider.take().or(Some(offer));
+    }
+    match resources.guardian_turns().take_block(&turn_key) {
+        Some(HeadlessBlock::Denied { tool_name, reason }) => {
+            result.guardian_denied = Some(GuardianDenial {
+                tool_name,
                 reason: reason.as_str().to_owned(),
-            }),
-            None,
-        ),
+            });
+            result.guardian_confirm = None;
+            result.finish_reason = Some(GUARDIAN_DENIED_FINISH_REASON.to_owned());
+        }
         Some(HeadlessBlock::ConfirmRequired {
             tool_name,
             pending_id,
-        }) => (
-            None,
-            Some(GuardianConfirmRequest {
+        }) => {
+            result.guardian_denied = None;
+            result.guardian_confirm = Some(GuardianConfirmRequest {
                 tool_name,
                 pending_id,
-            }),
-        ),
-        None => (None, None),
-    };
-    LoopbackSignals {
-        served_without_provider,
-        guardian_denied,
-        guardian_confirm,
+            });
+            result.finish_reason = Some(GUARDIAN_CONFIRM_FINISH_REASON.to_owned());
+        }
+        None => {}
     }
 }
 
@@ -262,7 +245,7 @@ fn take_loopback_signals(params: &ToolLoopParams<'_>) -> LoopbackSignals {
 /// and sends no retraction.
 fn take_back_streamed_reply(streamed_to: Option<&TurnEventSink>) {
     if let Some(sink) = streamed_to {
-        prose_stream::deliver(sink, TurnEvent::ProseRetract);
+        tool_progress::deliver(sink, TurnEvent::ProseRetract);
     }
 }
 

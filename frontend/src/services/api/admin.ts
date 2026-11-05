@@ -1215,8 +1215,18 @@ export const adminApi = {
     return response.data;
   },
 
-  async putHarnessConfig(config: HarnessConfigDocument): Promise<HarnessConfigResponse> {
-    const response = await axios.put('/api/admin/settings/harness', config);
+  /**
+   * `expectedUpdatedAt` is the `updated_at` of the response the edit started from,
+   * verbatim, or `null` when no row existed. The server refuses a stale one.
+   */
+  async putHarnessConfig(
+    config: HarnessConfigDocument,
+    expectedUpdatedAt: string | null,
+  ): Promise<HarnessConfigResponse> {
+    const response = await axios.put('/api/admin/settings/harness', {
+      ...config,
+      expected_updated_at: expectedUpdatedAt,
+    });
     return response.data;
   },
 
@@ -1226,8 +1236,34 @@ export const adminApi = {
     return response.data;
   },
 
-  async putGuardianConfig(config: GuardianConfigDocument): Promise<GuardianConfigResponse> {
-    const response = await axios.put('/api/admin/settings/guardian', config);
+  /**
+   * `expectedUpdatedAt` is the `updated_at` of the response the edit started
+   * from, verbatim (a `Date` would drop the sub-millisecond digits the server
+   * compares), or `null` when no row existed. The server refuses a stale one.
+   */
+  async putGuardianConfig(
+    config: GuardianConfigDocument,
+    expectedUpdatedAt: string | null,
+    acknowledgeImpact: boolean,
+  ): Promise<GuardianConfigResponse> {
+    const response = await axios.put('/api/admin/settings/guardian', {
+      ...config,
+      expected_updated_at: expectedUpdatedAt,
+      acknowledge_impact: acknowledgeImpact,
+    });
+    return response.data;
+  },
+
+  async listGuardianPendingActions(): Promise<GuardianPendingListResponse> {
+    const response = await axios.get('/api/admin/settings/guardian/pending');
+    return response.data;
+  },
+
+  /** Deny a parked call. A super admin can only deny; approving is the athlete's. */
+  async denyGuardianPendingAction(id: string): Promise<{ entry: GuardianPendingAction }> {
+    const response = await axios.post(
+      `/api/admin/settings/guardian/pending/${encodeURIComponent(id)}/deny`,
+    );
     return response.data;
   },
 
@@ -1687,6 +1723,8 @@ export interface HarnessConfigResponse {
   config: HarnessConfigDocument;
   source: 'persisted' | 'default';
   updated_at: string | null;
+  /** Why `config` is not the stored row: it does not parse, and a save replaces it. */
+  degraded_reason?: string;
 }
 
 /** Guardian enforcement mode wire form. */
@@ -1747,10 +1785,91 @@ export interface GuardianConfigResponse {
   config: GuardianConfigDocument;
   effective: GuardianEffectivePolicy;
   sources: GuardianFieldSources;
+  /** The compiled-in defaults: what an unset field follows when no env var pins it. */
+  defaults: GuardianEffectivePolicy;
   /** Fields pinned by GUARDIAN_* env vars — edits persist but stay shadowed. */
   env_pinned: string[];
   source: 'persisted' | 'default';
+  /** The save's concurrency token: echo it verbatim, never through a `Date`. */
   updated_at: string | null;
+  /** When the instance that answered installed the policy it enforces. */
+  loaded_at: string;
+  /** Which instance answered. */
+  instance_id: string;
+  /** False until this instance enforces the stored row. */
+  in_sync: boolean;
+  degraded: boolean;
+  degraded_reason: string | null;
+  /** The version the row carries, when it is not the current one. */
+  stored_schema_version?: number;
+  /** Keys in the row this binary does not read, which a save drops. */
+  stored_unknown_fields?: string[];
+  /** Whether an admin edit may arm plan mode on this deployment. */
+  plan_mode_armable: boolean;
+}
+
+/** One high-impact edit a save must acknowledge. */
+export interface GuardianImpact {
+  field: string;
+  from: string;
+  to: string;
+  effect: string;
+}
+
+/** The body of a refused Guardian save. Branch on `code`, never on the message. */
+export interface GuardianConfigRefusal {
+  code: string;
+  message: string;
+  impacted_fields?: GuardianImpact[];
+}
+
+export const GUARDIAN_CONFIG_STALE = 'guardian_config_stale';
+export const GUARDIAN_CONFIG_IMPACT = 'guardian_config_impact_not_acknowledged';
+
+export const HARNESS_CONFIG_STALE = 'harness_config_stale';
+
+/** The refusal a failed save of a setting carries, or null for any other failure. */
+function settingRefusalOf(err: unknown, codePrefix: string): GuardianConfigRefusal | null {
+  const data = (err as { response?: { data?: Partial<GuardianConfigRefusal> } } | null)?.response
+    ?.data;
+  if (typeof data?.code !== 'string' || !data.code.startsWith(codePrefix)) return null;
+  return {
+    code: data.code,
+    message: typeof data.message === 'string' ? data.message : '',
+    impacted_fields: data.impacted_fields,
+  };
+}
+
+/** The refusal a failed Guardian save carries, or null for any other failure. */
+export function guardianRefusalOf(err: unknown): GuardianConfigRefusal | null {
+  return settingRefusalOf(err, 'guardian_config_');
+}
+
+/** The refusal a failed harness save carries, or null for any other failure. */
+export function harnessRefusalOf(err: unknown): GuardianConfigRefusal | null {
+  return settingRefusalOf(err, 'harness_config_');
+}
+
+/** A tool call parked for its athlete's /confirm. The arguments are never served. */
+export interface GuardianPendingAction {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  conversation_id: string | null;
+  tool_name: string;
+  deny_reason: string;
+  status: 'pending' | 'confirmed' | 'denied' | 'expired';
+  turn_agent_id: string | null;
+  seat: string | null;
+  created_at: string;
+  expires_at: string;
+  resolved_at: string | null;
+}
+
+export interface GuardianPendingListResponse {
+  entries: GuardianPendingAction[];
+  status: string;
+  limit: number;
 }
 
 /**

@@ -125,6 +125,9 @@ pub use crate::services::coaching_workers::start_coaching_workers;
 pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::precedence_recompute::start_precedence_recompute;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
+pub use crate::services::settings_poll::{
+    settings_poll_interval, start_settings_poll, SettingsPollTargets,
+};
 pub use crate::services::upload_streams_backfill::start_upload_streams_backfill;
 pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;
 pub use pierre_services::firebase_identity_outbox::start_firebase_identity_sweeper;

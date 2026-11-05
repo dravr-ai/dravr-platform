@@ -645,6 +645,22 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_background_workers(Arc::clone(&resources));
     }
 
+    // Keep this instance's Guardian and harness policy converged on the rows an
+    // admin save writes. The save installs on one instance; the deployment runs
+    // several with no session affinity. Per-instance by design, so not a leased
+    // periodic worker.
+    {
+        use pierre_mcp_server::{settings_poll_interval, start_settings_poll, SettingsPollTargets};
+        start_settings_poll(
+            SettingsPollTargets {
+                database: Arc::clone(&resources.agent.database),
+                guardian: Arc::clone(&resources.fitness.guardian_config_registry),
+                harness: Arc::clone(&resources.fitness.harness_config_registry),
+            },
+            settings_poll_interval(resources.common.config.timeouts.settings_poll_interval_secs),
+        );
+    }
+
     // Start agent followup scheduler (polls agent_followups every 60 seconds)
     {
         use pierre_mcp_server::start_followup_scheduler;

@@ -18,6 +18,7 @@ use std::time::Instant;
 use tracing::{debug, info};
 
 use crate::RepositoryRegistry;
+use chrono::{DateTime, Utc};
 
 #[cfg(feature = "postgresql")]
 use super::postgres::PostgresDatabase;
@@ -417,6 +418,35 @@ impl Database {
             DatabaseBackend::SQLite(db) => db.set_system_setting(key, value).await,
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(db) => db.set_system_setting(key, value).await,
+        }
+    }
+
+    /// Write a `system_settings` entry only when the row is as the caller last
+    /// read it: `expected` is the `updated_at` it read, or `None` to create the
+    /// row only while no row holds the key.
+    ///
+    /// Returns the new `updated_at` when the write landed, `None` when the row
+    /// changed since the read (or, for `None`, already exists).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails.
+    pub async fn compare_and_set_system_setting(
+        &self,
+        key: &str,
+        value: &str,
+        expected: Option<DateTime<Utc>>,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => {
+                db.compare_and_set_system_setting(key, value, expected)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                db.compare_and_set_system_setting(key, value, expected)
+                    .await
+            }
         }
     }
 }

@@ -5,7 +5,7 @@
 // ABOUTME: Locks every fix from the audit gist 56c1c1d7b54bf16c9d140f54f3210c94
 
 import { test, expect } from '@playwright/test';
-import { setupAndLoginAsAdmin, navigateToTab } from './test-helpers';
+import { setupAndLoginAsAdmin, setupAndLoginAsSuperAdmin, navigateToTab } from './test-helpers';
 
 test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
   test('Service Tokens page renders without 500 (audit #19)', async ({ page }) => {
@@ -235,7 +235,8 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
         }),
       }),
     );
-    await setupAndLoginAsAdmin(page);
+    // The harness settings are a super admin's: a console admin holds no ViewConfiguration.
+    await setupAndLoginAsSuperAdmin(page);
     await navigateToTab(page, 'Harness Config');
     const windowTokens = page.locator('input[type="number"]').first();
     const max = await windowTokens.getAttribute('max');

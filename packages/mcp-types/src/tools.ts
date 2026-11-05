@@ -1449,7 +1449,7 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Publish or discard a group's human coach's draft of a coached athlete's training plan (a coach's save_training_plan for an athlete writes that unseen draft). publish makes it their live plan in one step — weeks the coach did not draft keep the athlete's version. Call it only when the coach asks. When the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose to replace them. Publishing does not touch the calendar; push_training_plan does that afterwards. The caller's own plan has no draft: their saves are already live.
+ * Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. Publishing leaves the calendar alone; one destructive action runs per turn, so push_training_plan waits for the coach's next message: say so. The caller's own plan has no draft: their saves are already live.
  */
 export interface PublishTrainingPlanParams {
 
@@ -1465,7 +1465,7 @@ export interface PublishTrainingPlanParams {
 
 
 /**
- * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin), or bring it up to date after the plan changed: creates missing days, updates changed ones, removes ones the plan no longer has, and leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save. Needs a saved plan and a connected provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan with `athlete`, through the athlete's Intervals.icu link: the athlete must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft says when one exists).
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin), or update it after a change: creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. Call it when the athlete or coach asks, not on your own after a save. One destructive action runs per turn, so after publish_training_plan it waits for the coach's next message. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).
  */
 export interface PushTrainingPlanParams {
 

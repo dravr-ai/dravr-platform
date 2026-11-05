@@ -29,30 +29,28 @@ use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::join_prompt_text;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::cli_loop::cli_loop_call;
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
-use crate::guardian::{PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
+use crate::guardian::TurnKey;
+use crate::headless_finalize::settle_turn_signals;
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
 use crate::tool_iteration::{iteration_response, LoopSpend};
 use crate::tool_loop_fallback::{run_api_turn, run_headless_turn, ApiLoopError};
 use crate::tool_loop_io::{
-    observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
-    ToolLoopTally, ToolRoundRecord,
+    observed_tool_name, ToolLoopParams, ToolLoopResult, ToolLoopTally, ToolRoundRecord,
 };
 use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
-    reconnect_offer_in_steps, render_tool_payload_for_prompt,
+    render_tool_payload_for_prompt,
 };
 use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::{
-    ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse, MessageRole,
-};
+use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse};
 
 // ============================================================================
 // API Tool Loop (native function calling)
@@ -135,6 +133,25 @@ pub(crate) async fn run_api_tool_loop(
                     tally.served_without_provider = Some(provider);
                 }
 
+                // Guardian-denied short-circuit (enforce mode): a consequential
+                // tool was blocked at the chokepoint. Exit immediately so the
+                // chat pipeline renders a deterministic "blocked for safety"
+                // reply instead of feeding the in-band denial back to the LLM.
+                //
+                // Ahead of the auth trip below, in all three batches: a batch can
+                // hold both (only a Guardian block stops the siblings), and a
+                // block takes precedence over re-auth (carnet#1411).
+                if let Some(denial) = guardian_denied {
+                    return Ok(tally.guardian_denied(Some(spend.usage), denial));
+                }
+
+                // Guardian confirm-required short-circuit (enforce mode): the
+                // chokepoint parked a destructive call; exit so the chat
+                // pipeline renders the deterministic confirmation ask.
+                if let Some(confirm) = guardian_confirm {
+                    return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
+                }
+
                 // Auth-required short-circuit: if any tool failed with
                 // `ProviderAuthRequired`, exit the loop immediately so the
                 // chat pipeline can mint a hosted-login URL and reply
@@ -152,21 +169,6 @@ pub(crate) async fn run_api_tool_loop(
                         tally.activity_list = Some(list);
                     }
                     return Ok(tally.provider_auth_required(Some(spend.usage), provider));
-                }
-
-                // Guardian-denied short-circuit (enforce mode): a consequential
-                // tool was blocked at the chokepoint. Exit immediately so the
-                // chat pipeline renders a deterministic "blocked for safety"
-                // reply instead of feeding the in-band denial back to the LLM.
-                if let Some(denial) = guardian_denied {
-                    return Ok(tally.guardian_denied(Some(spend.usage), denial));
-                }
-
-                // Guardian confirm-required short-circuit (enforce mode): the
-                // chokepoint parked a destructive call; exit so the chat
-                // pipeline renders the deterministic confirmation ask.
-                if let Some(confirm) = guardian_confirm {
-                    return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
                 }
 
                 // Add assistant's text to messages if present (strip synthetic function syntax)
@@ -248,6 +250,12 @@ pub(crate) async fn run_api_tool_loop(
             if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
                 tally.served_without_provider = Some(provider);
             }
+            if let Some(denial) = guardian_denied {
+                return Ok(tally.guardian_denied(Some(spend.usage), denial));
+            }
+            if let Some(confirm) = guardian_confirm {
+                return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
+            }
             // Keep the siblings' work on the way out, as in the structured
             // branch above.
             if let Some(provider) = auth_required_provider {
@@ -255,12 +263,6 @@ pub(crate) async fn run_api_tool_loop(
                     tally.activity_list = Some(list);
                 }
                 return Ok(tally.provider_auth_required(Some(spend.usage), provider));
-            }
-            if let Some(denial) = guardian_denied {
-                return Ok(tally.guardian_denied(Some(spend.usage), denial));
-            }
-            if let Some(confirm) = guardian_confirm {
-                return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
             }
             let assistant_round_text =
                 response
@@ -447,6 +449,19 @@ pub async fn run_cli_tool_loop(
             tally.served_without_provider = Some(provider);
         }
 
+        // Guardian-denied short-circuit (mirror of the API loop, and ahead of the
+        // auth trip for the same reason): a blocked consequential tool exits the
+        // turn so the chat pipeline renders the deterministic "blocked for
+        // safety" reply.
+        if let Some(denial) = guardian_denied {
+            return Ok(tally.guardian_denied(response.usage, denial));
+        }
+
+        // Guardian confirm-required short-circuit (mirror of the API loop).
+        if let Some(confirm) = guardian_confirm {
+            return Ok(tally.guardian_confirm(response.usage, confirm));
+        }
+
         // Auth-required short-circuit (mirror of the API loop): exit early so
         // the chat pipeline can render the deterministic hosted-login reply,
         // carrying whatever the sibling calls in the same batch already served.
@@ -455,18 +470,6 @@ pub async fn run_cli_tool_loop(
                 tally.activity_list = Some(list);
             }
             return Ok(tally.provider_auth_required(response.usage, provider));
-        }
-
-        // Guardian-denied short-circuit (mirror of the API loop): a blocked
-        // consequential tool exits the turn so the chat pipeline renders the
-        // deterministic "blocked for safety" reply.
-        if let Some(denial) = guardian_denied {
-            return Ok(tally.guardian_denied(response.usage, denial));
-        }
-
-        // Guardian confirm-required short-circuit (mirror of the API loop).
-        if let Some(confirm) = guardian_confirm {
-            return Ok(tally.guardian_confirm(response.usage, confirm));
         }
 
         // Add assistant message (with tool calls and any echoed tool-result
@@ -504,6 +507,7 @@ pub async fn run_cli_tool_loop(
 }
 
 pub use crate::headless_finalize::finalize_headless_turn;
+pub use crate::planned_loop::run_planned_tool_loop;
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
 pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
@@ -709,14 +713,17 @@ pub async fn run_tool_loop(
     // are plain completions every provider serves, and a verified plan's steps
     // dispatch through the UniversalExecutor chokepoint directly, so the ACP
     // subprocess loop is simply bypassed while the mode is armed.
-    {
-        use crate::guardian::PlanMode;
-        let plan_mode = params.executor.resources.guardian().policy().plan_mode;
-        if matches!(plan_mode, PlanMode::Enforce) {
-            return run_planned_tool_loop(params, llm_messages).await;
-        }
-    }
-    run_react_tool_loop(params, llm_messages).await
+    use crate::guardian::PlanMode;
+    let plan_mode = params.executor.resources.guardian().policy().plan_mode;
+    let mut result = if matches!(plan_mode, PlanMode::Enforce) {
+        run_planned_tool_loop(params, llm_messages).await?
+    } else {
+        run_react_tool_loop(params, llm_messages).await?
+    };
+    // Every path ends here, so the turn's first block reaches the reply however
+    // the turn got here, and no entry outlives a turn that returned.
+    settle_turn_signals(params, &mut result);
+    Ok(result)
 }
 
 /// Route one `ReAct` turn by provider capability: native function calling →
@@ -725,7 +732,7 @@ pub async fn run_tool_loop(
 /// when an armed planner emits an unparseable plan, so that fallback keeps
 /// the capability routing instead of forcing the API loop onto a provider
 /// that cannot serve it.
-async fn run_react_tool_loop(
+pub(crate) async fn run_react_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
@@ -738,223 +745,6 @@ async fn run_react_tool_loop(
     } else {
         run_cli_tool_loop(params, llm_messages, None).await
     }
-}
-
-/// Disposition of a model-emitted plan after parsing.
-enum ParsedPlan {
-    /// A parseable, within-cap plan — run it.
-    Run(Workflow),
-    /// Unparseable (weak-model artifact) — degrade to the `ReAct` loop.
-    Degrade,
-    /// Over the step cap (S15) — fail closed, no `ReAct` fallback.
-    TooLarge,
-}
-
-/// Parse the planner's JSON and log the disposition. Extracted from
-/// [`run_planned_tool_loop`] to keep that loop under the cognitive bar.
-fn parse_plan(plan_json: &str, model: &str) -> ParsedPlan {
-    use crate::guardian::PlanParseError;
-    match Workflow::from_json(plan_json) {
-        Ok(workflow) => ParsedPlan::Run(workflow),
-        Err(PlanParseError::Unparseable(error)) => {
-            warn!(
-                %error,
-                model,
-                "guardian plan: unparseable workflow JSON; degrading to the capability-routed ReAct loop"
-            );
-            ParsedPlan::Degrade
-        }
-        Err(PlanParseError::TooManySteps { steps, max }) => {
-            warn!(
-                steps,
-                max,
-                "guardian plan: over the step cap (S15); rejecting the turn (no ReAct fallback)"
-            );
-            ParsedPlan::TooLarge
-        }
-    }
-}
-
-/// Statically verify the frozen plan, returning the rejection result when the
-/// verifier refuses it (`None` = verified, execute). Extracted from
-/// [`run_planned_tool_loop`] to keep that loop under the cognitive bar.
-fn plan_rejection(workflow: &Workflow, params: &ToolLoopParams<'_>) -> Option<ToolLoopResult> {
-    use crate::guardian::{verify, VerifyOutcome};
-    let resources = &params.executor.resources;
-    let outcome = verify(
-        workflow,
-        resources.tool_registry().as_ref(),
-        resources.guardian().policy(),
-        Some(params.tenant_id.as_uuid()),
-    );
-    if let VerifyOutcome::Reject(reason) = outcome {
-        warn!(reason = ?reason, "guardian plan: REJECTED before execution");
-        return Some(ToolLoopResult::guardian_plan_denied("plan_rejected"));
-    }
-    info!(
-        steps = workflow.steps.len(),
-        model = params.model,
-        "guardian plan: verified; executing frozen plan"
-    );
-    None
-}
-
-/// Map a mid-plan Guardian block into its short-circuit [`ToolLoopResult`]:
-/// a parked step (Confirm) renders the confirmation ask, a denial renders the
-/// block reply. Extracted from [`run_planned_tool_loop`] to keep that loop
-/// under the cognitive-complexity bar.
-fn plan_block_result(
-    block: PlanDenial,
-    tool_calls_count: u32,
-    tools_called: Vec<String>,
-) -> ToolLoopResult {
-    let tally = ToolLoopTally {
-        activity_list: None,
-        tool_calls_count,
-        tools_called,
-        served_without_provider: None,
-        provider_warnings: Vec::new(),
-    };
-    if let Some(pending_id) = block.pending_id {
-        return tally.guardian_confirm(
-            None,
-            GuardianConfirmRequest {
-                tool_name: block.tool_name,
-                pending_id,
-            },
-        );
-    }
-    tally.guardian_denied(
-        None,
-        GuardianDenial {
-            tool_name: block.tool_name,
-            reason: block.reason,
-        },
-    )
-}
-
-/// Append each executed plan step's result to `llm_messages` as synthesis
-/// evidence.
-///
-/// Never re-proposed as tool calls. Extracted from [`run_planned_tool_loop`] to
-/// keep that loop under the cognitive-complexity bar.
-fn append_plan_results(llm_messages: &mut Vec<ChatMessage>, outputs: &[StepOutput]) {
-    for output in outputs {
-        let result_text = serde_json::to_string(&output.result).unwrap_or_default();
-        llm_messages.push(ChatMessage::user(format!(
-            "[Tool Result for {}]: {result_text}",
-            output.tool_name
-        )));
-    }
-}
-
-/// Build the planner call's message list by folding the planner prompt INTO the
-/// existing system message.
-///
-/// The planner prompt is prepended onto `messages[0]` rather than inserted as a
-/// second `System` message. Index 0 already carries the agent persona and the
-/// tool catalogue, and the live provider keeps only the *first* system message
-/// and drops the rest — a second one would take the slot and silently discard
-/// the persona for the whole plan call. Merging preserves the
-/// one-system-message invariant the rest of the pipeline holds.
-///
-/// Falls back to inserting when index 0 is not a `System` message, which the
-/// chat pipeline never produces but this function does not get to assume.
-fn with_planner_prompt(messages: &[ChatMessage], planner_prompt: &str) -> Vec<ChatMessage> {
-    let mut out = messages.to_vec();
-    match out.first_mut() {
-        Some(first) if first.role == MessageRole::System => {
-            let lead = format!("{planner_prompt}\n\n");
-            // The stable head the message names now starts after the lead,
-            // which is the same on every plan call: it grows by its length.
-            first.stable_prefix_len = first.stable_prefix_len.map(|len| len + lead.len());
-            first.content.insert_str(0, &lead);
-        }
-        _ => out.insert(0, ChatMessage::system(planner_prompt)),
-    }
-    out
-}
-
-/// Plan-then-verify loop (Phase 3).
-///
-/// The LLM emits the entire tool plan up front, a static verifier rejects any
-/// tainted-source→sink flow *before* execution, and only a verified, frozen
-/// plan runs. Because the plan is fixed before any tool result is seen, a
-/// malicious result cannot inject a new tool call.
-///
-/// Falls back to the capability-routed `ReAct` loop when the model does not
-/// emit a parseable plan (graceful degrade for weaker models).
-///
-/// # Errors
-/// Returns error if the LLM plan/synthesis call fails or a verified plan hits an
-/// unresolvable reference (a binding bug).
-pub async fn run_planned_tool_loop(
-    params: &ToolLoopParams<'_>,
-    llm_messages: &mut Vec<ChatMessage>,
-) -> Result<ToolLoopResult, AppError> {
-    // 1. Plan call — the whole plan up front, in the catalogue's `guardian_planner` grammar.
-    let planner = params.executor.resources.guardian_planner_prompt();
-    let plan_messages = with_planner_prompt(llm_messages, planner.trim());
-    let plan_request = ChatRequest::new(plan_messages).with_model(params.model);
-    let plan_response = params.provider.complete(&plan_request).await?;
-    let plan_warnings = plan_response.warnings;
-    let plan_json = plan_response.content;
-
-    // 2. Parse. An unparseable plan is a weak-model artifact → degrade to ReAct.
-    //    An over-cap plan is the S15 cost-amplification vector → FAIL CLOSED
-    //    (reject the turn); it must NOT drop to the unbudgeted ReAct loop, which
-    //    would reopen exactly what the step cap closes.
-    let workflow = match parse_plan(&plan_json, params.model) {
-        ParsedPlan::Run(workflow) => workflow,
-        ParsedPlan::Degrade => return run_react_tool_loop(params, llm_messages).await,
-        ParsedPlan::TooLarge => return Ok(ToolLoopResult::guardian_plan_denied("plan_too_large")),
-    };
-
-    // 3. Verify the frozen plan before anything executes.
-    if let Some(rejection) = plan_rejection(&workflow, params) {
-        return Ok(rejection);
-    }
-
-    // 4. Execute the verified plan (each call still passes the runtime Guardian).
-    let workflow_executor =
-        WorkflowExecutor::new(params.executor.as_ref(), params.user_id, params.tenant_id);
-    let (outputs, plan_denial) = workflow_executor.run(&workflow).await?;
-    let tools_called: Vec<String> = outputs.iter().map(|o| o.tool_name.clone()).collect();
-    let tool_calls_count = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
-
-    // S9: a runtime Guardian block mid-plan short-circuits with a deterministic
-    // reply — the blocked step's JSON must NOT be fed to the synthesis LLM to
-    // paraphrase (the exact softened-refusal the guard exists to prevent).
-    if let Some(block) = plan_denial {
-        return Ok(plan_block_result(block, tool_calls_count, tools_called));
-    }
-
-    // 5. Synthesis — feed the bound results back as evidence (never as new tool
-    //    proposals) and produce the user-facing answer.
-    append_plan_results(llm_messages, &outputs);
-    let synth_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
-    let synth_response = params.provider.complete(&synth_request).await?;
-    info!(
-        steps = workflow.steps.len(),
-        tools_called = tool_calls_count,
-        model = params.model,
-        "guardian plan: completed with synthesis"
-    );
-
-    let mut tally = ToolLoopTally {
-        activity_list: None,
-        tool_calls_count,
-        tools_called,
-        served_without_provider: reconnect_offer_in_steps(&outputs),
-        provider_warnings: Vec::new(),
-    };
-    tally.note_provider_warnings(plan_warnings.as_deref());
-    tally.note_provider_warnings(synth_response.warnings.as_deref());
-    Ok(tally.answered(
-        synth_response.content,
-        synth_response.usage,
-        synth_response.finish_reason,
-    ))
 }
 
 // ============================================================================
@@ -1016,22 +806,6 @@ pub(crate) async fn run_headless_tool_loop(
 
     // Copilot Headless handles tool execution internally via ACP — and, when
     // mcp_servers are present, calls Dravr tools natively over those servers.
-    // #10: clear any stale block for this (tenant, user) so only one raised
-    // during THIS turn's ACP subprocess is surfaced by finalize_headless_turn.
-    // The served-without-a-provider offer travels the same channel under the
-    // same key, and is bounded to this turn the same way.
-    let turn_key = headless_turn_key(params);
-    params
-        .executor
-        .resources
-        .guardian_turns()
-        .clear_block(&turn_key);
-    params
-        .executor
-        .resources
-        .reconnect_offers()
-        .clear_offer(&turn_key);
-
     let call_start = Instant::now();
     // The sink the turn's prose reached, when any did: what a reply that turns
     // out not to be the turn's answer has to take back.
@@ -1114,39 +888,16 @@ pub(crate) async fn run_headless_tool_loop(
     .await
 }
 
-/// The out-of-band key for a headless turn — `(tenant, user)`. Two signals the
-/// chokepoint raises during the ACP subprocess's loopback calls are recorded and
-/// later consumed under it: a Guardian block (#10) and the
-/// served-without-a-provider offer a `get_activities` payload carries. One user
-/// runs one headless turn at a time, so `(tenant, user)` identifies it;
-/// [`run_headless_tool_loop`] clears both stores before the subprocess and
-/// [`finalize_headless_turn`] takes from both after — after the text loop too,
-/// when it hands the turn there — bounding them to this turn.
-pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
-    TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use pierre_llm::ChatMessage;
-
-    use super::with_planner_prompt;
-
-    #[test]
-    fn the_planner_lead_keeps_the_stable_head_on_the_same_bytes() {
-        let messages = vec![
-            ChatMessage::system("head tail").with_stable_prefix_len(4),
-            ChatMessage::user("hi"),
-        ];
-        let out = with_planner_prompt(&messages, "plan first");
-        assert_eq!(
-            out[0].content, "plan first\n\nhead tail",
-            "bug: the planner lead must precede the system prompt"
-        );
-        assert_eq!(
-            out[0].stable_split(),
-            Some(("plan first\n\nhead", " tail")),
-            "bug: the stable head must grow by the lead and cover the same bytes"
-        );
-    }
+/// The out-of-band key for a turn's signals. Two the chokepoint raises during
+/// the ACP subprocess's tool calls are recorded and later consumed under it: a
+/// Guardian block (#10) and the served-without-a-provider offer a
+/// `get_activities` payload carries. It is the executor's turn token and the
+/// turn's tenant, the very [`TurnKey`] the tool-host surface dispatches under,
+/// so overlapping turns of one athlete keep apart (carnet#1404). `None` for an
+/// executor bound to no turn, whose dispatches recorded nothing.
+pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> Option<TurnKey> {
+    params
+        .executor
+        .turn_token()
+        .map(|token| TurnKey::new(Some(params.tenant_id.as_uuid()), token))
 }

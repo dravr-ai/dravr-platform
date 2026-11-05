@@ -274,8 +274,9 @@ impl ServerContext {
         // Load the harness config snapshot from `system_settings.harness_config`.
         // Falls back to compile-time defaults if the row is absent or invalid;
         // the chat pipeline reads compaction + Tier 6 guardrails through this
-        // registry, and `PUT /admin/settings/harness` calls `install` on it
-        // after persisting a new document.
+        // registry, `PUT /admin/settings/harness` calls `install` on it after
+        // persisting a new document, and `start_settings_poll` keeps every other
+        // instance converged on the row.
         let harness_config_registry =
             Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
 
@@ -283,8 +284,9 @@ impl ServerContext {
         // (defaults ← persisted document ← the GUARDIAN_* overrides startup read
         // into the config, which win per field).
         // Every dispatch point reads the effective Arc<Guardian> through the
-        // ServerContext ToolRuntime override, and `PUT /admin/settings/guardian`
-        // calls `install` on it after persisting a new document.
+        // ServerContext ToolRuntime override, `PUT /admin/settings/guardian` calls
+        // `install` on it after persisting a new document, and
+        // `start_settings_poll` keeps every other instance converged on the row.
         let guardian_config_registry = Arc::new(
             GuardianConfigRegistry::from_database(
                 &database_arc,

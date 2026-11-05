@@ -4263,6 +4263,7 @@ dependencies = [
  "pierre-database",
  "pierre-email",
  "pierre-llm",
+ "pierre-logging",
  "pierre-memory",
  "pierre-middleware",
  "pierre-runtime-context",

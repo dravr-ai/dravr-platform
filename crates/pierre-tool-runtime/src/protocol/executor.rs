@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use super::budget_reservation::BudgetReservation;
 use super::dispatch_span::{record_outcome, tool_call_span};
 use super::repeated_read;
 use super::tool_response::{
@@ -18,10 +19,12 @@ use crate::context::{
     TURN_AGENT_ID, TURN_LOCALE,
 };
 use crate::first_party_tools;
-use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
+use crate::guardian::{
+    self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TaintOrigin, TurnKey,
+};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
-use crate::protocol::types::{UniversalRequest, UniversalResponse};
+use crate::protocol::types::{refused_before_running, UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::reconnect::offer_in_payload;
 use crate::reply_check;
@@ -547,7 +550,7 @@ impl UniversalExecutor {
             &tool_name,
             ai_scope::effective_transport(self.transport),
         ) {
-            return Ok(refusal);
+            return Ok(refused_before_running(refusal));
         }
 
         // The coach's seats: in a group the caller coaches, their own data is
@@ -557,7 +560,7 @@ impl UniversalExecutor {
             .seat
             .refusal(self.resources.tool_registry(), &tool_name)
         {
-            return Ok(refusal);
+            return Ok(refused_before_running(refusal));
         }
 
         if let Some(refusal) = self
@@ -571,7 +574,7 @@ impl UniversalExecutor {
             )
             .await?
         {
-            return Ok(refusal);
+            return Ok(refused_before_running(refusal));
         }
 
         // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
@@ -603,16 +606,20 @@ impl UniversalExecutor {
         match outcome {
             GateOutcome::Proceed => {}
             GateOutcome::Blocked(reason) => {
-                // #10: record the block under the (tenant, user) headless key so
-                // the Copilot-headless loop surfaces a deterministic refusal for a
-                // block that fired inside its ACP subprocess's tool-host session (a
-                // separate task that can't return this out-of-band). Harmless for
-                // other transports — only the headless loop consumes it, and it
-                // clears the key first.
-                self.resources.guardian_turns().record_block(
-                    &TurnKey::new(tenant_uuid, request.user_id.clone()),
-                    HeadlessBlock::Denied(reason),
-                );
+                // #10: record the block under the turn it fired in, so the turn's
+                // tool loop surfaces a deterministic refusal for one raised inside
+                // an ACP agent's tool-host session (a separate task that can't
+                // return this out-of-band). A `TurnBlocked` refusal is a
+                // consequence of the block already recorded, never the first.
+                if reason != DenyReason::TurnBlocked {
+                    self.record_turn_block(
+                        &turn_key,
+                        HeadlessBlock::Denied {
+                            tool_name: tool_name.clone(),
+                            reason,
+                        },
+                    );
+                }
                 // Blocked before execution: nothing ran, nothing was reserved.
                 return Ok(guardian_denied_response(&tool_name, reason));
             }
@@ -625,20 +632,23 @@ impl UniversalExecutor {
                         request.user_id.clone(),
                         &tool_name,
                         tenant_uuid,
+                        &turn_key,
                     )
                     .await);
             }
         }
 
+        // From here to the verdict on the call, the reservation settles on every
+        // exit, a caller abandoning this future included (carnet#1405).
+        let turns = self.resources.guardian_turns();
+        let mut reservation = reserved
+            .then(|| BudgetReservation::new(turns, &turn_key, &tool_name, labels, writes_data));
+
         // A read repeated within one real turn is answered with a pointer to
         // the result the model already has (see `repeated_read`).
         let read = (!writes_data && self.turn_token.is_some())
             .then(|| ReadFingerprint::of(&tool_name, &args));
-        let turns = self.resources.guardian_turns();
         if let Some(pointer) = repeated_read::answer(turns, &turn_key, read, &tool_name) {
-            if reserved {
-                turns.refund(&turn_key, labels, writes_data);
-            }
             return Ok(pointer);
         }
 
@@ -702,6 +712,9 @@ impl UniversalExecutor {
         // provenance, so what it writes is stamped from everything the turn
         // served. The executor carries that provenance onto a Copilot loopback
         // task, so the mark holds on every path.
+        if let Some(reservation) = reservation.as_mut() {
+            reservation.start();
+        }
         let ((response, read_side_withheld), served_items) =
             ai_scope::tracking(provenance.clone(), ai_scope::serving_items(body)).await;
         if served_items && !response.is_error {
@@ -712,15 +725,18 @@ impl UniversalExecutor {
         // in `decide_and_reserve` above (before the body ran), so it is already
         // recorded here on success OR error — a failed `UNTRUSTED_OUTPUT` tool
         // still surfaced its content to the LLM (the S1 error-path escape) and
-        // stays tainted. The budget was reserved pre-execution; refund it if the
-        // call failed so only *successful* consequential actions consume budget
-        // (taint is intentionally NOT refunded).
-        if response.is_error && reserved {
-            self.resources
-                .guardian_turns()
-                .refund(&turn_key, labels, writes_data);
-        }
-        if !response.is_error {
+        // stays tainted. The budget was reserved pre-execution; it is refunded if
+        // the call returned a failure, so only *successful* consequential actions
+        // consume budget (taint is intentionally NOT refunded). A call abandoned
+        // while running never gets here, and its destructive charge stays spent.
+        if response.is_error {
+            if let Some(reservation) = reservation {
+                reservation.refund();
+            }
+        } else {
+            if let Some(reservation) = reservation {
+                reservation.keep();
+            }
             repeated_read::remember(turns, &turn_key, read, writes_data);
         }
 
@@ -800,18 +816,22 @@ impl UniversalExecutor {
         // Copilot-headless loop never sees that payload — its tools run inside
         // an ACP subprocess whose calls reach here through the embacle tool
         // host, on a separate task that returns to the subprocess — so the
-        // slug is recorded under the (tenant, user) headless key for the loop
-        // to take at the end of the turn, exactly as a Guardian block above it
-        // is. Harmless for the other transports: only the headless loop
-        // consumes it, and it clears the key before its subprocess starts.
-        if let Some(slug) = universal
-            .result
-            .as_ref()
-            .and_then(|payload| offer_in_payload(&tool_name, payload))
-        {
-            self.resources
-                .reconnect_offers()
-                .record_offer(&TurnKey::new(tenant_uuid, charged_user.clone()), slug);
+        // slug is recorded under the turn for the loop to take when it returns,
+        // exactly as a Guardian block above it is. A one-shot MCP or A2A call
+        // reads the slug off its own result and has no turn to report to, and a
+        // window the pipeline prefetched offers nothing: the model never asked
+        // for it, and most turns prefetch, so it would ask an athlete with one
+        // dead connection to reconnect on every message.
+        if self.turn_token.is_some() && TaintOrigin::current() != TaintOrigin::Prefetch {
+            if let Some(slug) = universal
+                .result
+                .as_ref()
+                .and_then(|payload| offer_in_payload(&tool_name, payload))
+            {
+                self.resources
+                    .reconnect_offers()
+                    .record_offer(&turn_key, slug);
+            }
         }
 
         self.record_dispatch(DispatchRecord {
@@ -934,6 +954,24 @@ struct DispatchRecord<'a> {
 const CONFIRM_TTL_MINUTES: i64 = 5;
 
 impl UniversalExecutor {
+    /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
+    /// call: such a call mints a nonce that no later reader could ever name.
+    #[must_use]
+    pub fn turn_token(&self) -> Option<&str> {
+        self.turn_token.as_deref()
+    }
+
+    /// Record `block` for the turn's tool loop to render, when this call runs in
+    /// a turn. A one-shot MCP or A2A call answers its caller in-band, and an
+    /// entry under its nonce would never be taken (carnet#1404).
+    fn record_turn_block(&self, turn_key: &TurnKey, block: HeadlessBlock) {
+        if self.turn_token.is_some() {
+            self.resources
+                .guardian_turns()
+                .record_block(turn_key, block);
+        }
+    }
+
     /// Park a confirm-required call and build the in-band confirmation ask.
     ///
     /// On a storage failure this FAILS CLOSED as a denial: an unparkable call
@@ -944,19 +982,24 @@ impl UniversalExecutor {
         user_id: String,
         tool_name: &str,
         tenant_uuid: Option<Uuid>,
+        turn_key: &TurnKey,
     ) -> UniversalResponse {
         let pending_id = Uuid::new_v4().simple().to_string();
         let action = PendingGuardianAction {
             id: pending_id.clone(),
             tenant_id: tenant_uuid.map(|t| t.to_string()).unwrap_or_default(),
-            user_id: user_id.clone(),
+            user_id,
             conversation_id: self.conversation_id.clone(),
             tool_name: tool_name.to_owned(),
             arguments: parameters,
             deny_reason: DenyReason::TaintedSink.as_str().to_owned(),
+            turn_agent_id: self.turn_agent_id.clone(),
+            seat: Some(self.seat.as_stored().to_owned()),
+            // No enclosing derivation means nothing was served yet: a clear record,
+            // which is not the NULL that `/confirm` reads as first-party-only.
+            turn_provenance: self.provenance.clone().unwrap_or_default().to_stored(),
         };
         let expires_at = Utc::now() + Duration::minutes(CONFIRM_TTL_MINUTES);
-        let headless_key = TurnKey::new(tenant_uuid, user_id);
 
         if let Err(e) = self
             .resources
@@ -970,9 +1013,12 @@ impl UniversalExecutor {
                 error = %e,
                 "guardian confirm: failed to park the call; failing closed as a denial"
             );
-            self.resources.guardian_turns().record_block(
-                &headless_key,
-                HeadlessBlock::Denied(DenyReason::TaintedSink),
+            self.record_turn_block(
+                turn_key,
+                HeadlessBlock::Denied {
+                    tool_name: tool_name.to_owned(),
+                    reason: DenyReason::TaintedSink,
+                },
             );
             return guardian_denied_response(tool_name, DenyReason::TaintedSink);
         }
@@ -983,10 +1029,10 @@ impl UniversalExecutor {
             "guardian confirm: parked tool call pending user confirmation"
         );
         // #10 analog: a park that fires inside the ACP subprocess's tool-host
-        // session surfaces through the headless block channel so the ask is rendered
+        // session surfaces through the turn's block channel so the ask is rendered
         // deterministically, never paraphrased by the model.
-        self.resources.guardian_turns().record_block(
-            &headless_key,
+        self.record_turn_block(
+            turn_key,
             HeadlessBlock::ConfirmRequired {
                 tool_name: tool_name.to_owned(),
                 pending_id: pending_id.clone(),

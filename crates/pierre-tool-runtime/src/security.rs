@@ -45,13 +45,23 @@ bitflags! {
         /// output is untrusted data that re-enters the instruction channel.
         const UNTRUSTED_OUTPUT = 0b0000_0001;
         /// The tool sends data outbound to a third party (messaging / email /
-        /// push). The exfiltration *sink*. None exist today; the label is armed
-        /// for the messaging epic so the guard is in place before the tools are.
+        /// push). The exfiltration *sink*, hard-denied in a tainted turn and
+        /// gated by the egress allowlist in every turn. None exist today; the
+        /// label is armed for the messaging epic so the guard is in place before
+        /// the tools are. A write that lands somewhere the athlete chose, with
+        /// content this platform shaped, is [`Self::OUTBOUND_WRITE`] instead.
         const EXTERNAL_SEND = 0b0000_0010;
         /// The tool performs an irreversible / destructive effect (deletes,
         /// disconnects). The Guardian caps these per turn and can require
         /// confirmation when the turn is tainted.
         const IRREVERSIBLE = 0b0000_0100;
+        /// The tool's effect lands outside this platform or in front of another
+        /// person: a workout on the athlete's provider calendar, a link proposal
+        /// in a group member's inbox. Reversible, and additive, so it costs no
+        /// destructive budget. In a tainted turn it answers to the
+        /// `tainted_destructive` policy exactly as an irreversible call does,
+        /// because an injected instruction would reach the same audience.
+        const OUTBOUND_WRITE = 0b0000_1000;
     }
 }
 
@@ -74,23 +84,18 @@ impl SecurityLabels {
         self.contains(Self::IRREVERSIBLE)
     }
 
-    /// Human-readable label list for structured logging (never secrets/PII).
+    /// The tool's effect lands outside this platform or in front of another
+    /// person (see [`Self::OUTBOUND_WRITE`]).
     #[must_use]
-    pub fn describe(self) -> &'static str {
-        match (
-            self.is_untrusted_output(),
-            self.is_external_send(),
-            self.is_irreversible(),
-        ) {
-            (false, false, false) => "none",
-            (true, false, false) => "untrusted_output",
-            (false, true, false) => "external_send",
-            (false, false, true) => "irreversible",
-            (true, true, false) => "untrusted_output|external_send",
-            (true, false, true) => "untrusted_output|irreversible",
-            (false, true, true) => "external_send|irreversible",
-            (true, true, true) => "untrusted_output|external_send|irreversible",
-        }
+    pub const fn is_outbound_write(self) -> bool {
+        self.contains(Self::OUTBOUND_WRITE)
+    }
+
+    /// Whether a call with these labels answers to the `tainted_destructive`
+    /// policy when the turn is tainted.
+    #[must_use]
+    pub const fn answers_to_taint_policy(self) -> bool {
+        self.is_irreversible() || self.is_outbound_write()
     }
 }
 

@@ -187,8 +187,9 @@ pub(crate) fn validate_guardian_settings(settings: &GuardianSettings) -> Result<
             .collect::<Vec<_>>()
             .join(", ");
         return Err(AppError::config(format!(
-            "Unrecognized GUARDIAN_* value(s): {detail}. Check the spelling — a \
-             security-posture typo must not silently revert to the laxer default."
+            "Unrecognized GUARDIAN_* value(s): {detail}. Check the spelling, and that \
+             GUARDIAN_MAX_WRITES_PER_TURN is at least 1 — a security-posture typo must \
+             not silently revert to the laxer default."
         )));
     }
     Ok(())

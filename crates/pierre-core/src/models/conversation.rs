@@ -518,6 +518,25 @@ pub const STOPPED_TURN_FINISH_REASON: &str = "stopped";
 /// every other outcome.
 pub const COMMAND_FINISH_REASON: &str = "command";
 
+/// `finish_reason` stamped on the assistant row asking to confirm a parked call.
+///
+/// The row holds the platform's localized ask, claim token included, and no
+/// word of the agent's. Replayed as written, the model would read an unresolved
+/// request as something it said itself (carnet#1398), so the prompt builder
+/// replays a platform note in its place.
+pub const GUARDIAN_CONFIRM_FINISH_REASON: &str = "guardian_confirm";
+
+/// `finish_reason` stamped on the assistant row saying the Guardian blocked a call.
+///
+/// Platform text, replayed as a note like [`GUARDIAN_CONFIRM_FINISH_REASON`].
+pub const GUARDIAN_DENIED_FINISH_REASON: &str = "guardian_denied";
+
+/// `finish_reason` stamped on the assistant row closing a turn whose plan was rejected.
+///
+/// The athlete reads the same block reply as under
+/// [`GUARDIAN_DENIED_FINISH_REASON`], and it replays the same way.
+pub const GUARDIAN_PLAN_REJECTED_FINISH_REASON: &str = "guardian_plan_rejected";
+
 /// `finish_reason` stamped on an agent's welcome row (carnet#735).
 ///
 /// The welcome is the opening an agent posts when it is bound into a thread:
@@ -703,6 +722,21 @@ impl MessageRecord {
     #[must_use]
     pub fn is_command_turn(&self) -> bool {
         self.finish_reason.as_deref() == Some(COMMAND_FINISH_REASON)
+    }
+
+    /// `true` when this row is the Guardian's own reply to a tool call it
+    /// parked or blocked: platform text in the assistant role. See
+    /// [`GUARDIAN_CONFIRM_FINISH_REASON`].
+    #[must_use]
+    pub fn is_guardian_reply(&self) -> bool {
+        matches!(
+            self.finish_reason.as_deref(),
+            Some(
+                GUARDIAN_CONFIRM_FINISH_REASON
+                    | GUARDIAN_DENIED_FINISH_REASON
+                    | GUARDIAN_PLAN_REJECTED_FINISH_REASON
+            )
+        )
     }
 
     /// `true` when this row is the opening an agent posted on being bound

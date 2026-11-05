@@ -15,10 +15,11 @@
 //! [`super::guardian_denied`] — the ask can never be softened,
 //! misrepresented, or hallucinated away by a follow-up model turn.
 //!
-//! The prompt carries the tool's registry identifier (a static, platform-owned
-//! name — meaningful consent needs to say WHAT is being confirmed) and the
-//! opaque claim token. It never echoes the tool arguments: they can carry the
-//! very injected content the taint rule fired on.
+//! The prompt carries the tool's display name (static and platform-owned, read
+//! off the registry: meaningful consent needs to say WHAT is being confirmed,
+//! in words the athlete reads) and the opaque claim token. It never echoes the
+//! tool arguments: they can carry the very injected content the taint rule
+//! fired on.
 
 use std::sync::Arc;
 
@@ -27,12 +28,14 @@ use tracing::warn;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_GUARDIAN_CONFIRM_PROMPT,
 };
+use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
 /// Apply Guardian confirm-required recovery in place.
 ///
 /// When `result.guardian_confirm` is set, render the localized confirmation
-/// prompt (tool name + claim token) and replace `result.content` with it.
+/// prompt (tool's display name + claim token) and replace `result.content` with
+/// it.
 ///
 /// Returns `true` when the stage fired so callers can skip LLM-content-aware
 /// post-processing (text guardrails, claim verification); returns `false`
@@ -43,6 +46,7 @@ use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 /// boundary, so this stage renders rather than re-derives.
 pub(crate) fn apply_guardian_confirm(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    tools: &ToolRegistry,
     locale: &str,
     result: &mut ToolLoopResult,
 ) -> bool {
@@ -53,7 +57,7 @@ pub(crate) fn apply_guardian_confirm(
     let message = messaging_strings_registry.render(
         KEY_GUARDIAN_CONFIRM_PROMPT,
         locale,
-        &[&confirm.tool_name, &confirm.pending_id],
+        &[&tools.display_name(&confirm.tool_name), &confirm.pending_id],
     );
 
     warn!(
@@ -81,6 +85,8 @@ mod tests {
     use std::sync::Arc;
 
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+    use pierre_tool_runtime::implementations::connection::DisconnectProviderTool;
+    use pierre_tool_runtime::registry::ToolRegistry;
     use pierre_tool_runtime::tool_loop_io::{GuardianConfirmRequest, ToolLoopResult};
 
     use super::apply_guardian_confirm;
@@ -102,6 +108,32 @@ mod tests {
         }
     }
 
+    /// The athlete approves an action named in words, and the raw id stays in
+    /// the server log (carnet#1398).
+    #[test]
+    fn park_names_the_tool_by_its_title() {
+        let registry = Arc::new(MessagingStringsRegistry::new());
+        let mut tools = ToolRegistry::new();
+        tools.register(Arc::new(DisconnectProviderTool));
+        let mut result = loop_result(Some(GuardianConfirmRequest {
+            tool_name: "disconnect_provider".to_owned(),
+            pending_id: "abc123".to_owned(),
+        }));
+
+        assert!(apply_guardian_confirm(&registry, &tools, "en", &mut result));
+
+        assert!(
+            result.content.contains("Disconnect fitness provider"),
+            "the prompt must carry the tool's title, got: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("disconnect_provider"),
+            "the registry id is not for the athlete, got: {}",
+            result.content
+        );
+    }
+
     #[test]
     fn park_renders_localized_prompt_with_tool_and_token() {
         let registry = Arc::new(MessagingStringsRegistry::new());
@@ -110,7 +142,7 @@ mod tests {
             pending_id: "abc123def456".to_owned(),
         }));
 
-        let fired = apply_guardian_confirm(&registry, "en", &mut result);
+        let fired = apply_guardian_confirm(&registry, &ToolRegistry::new(), "en", &mut result);
 
         assert!(fired, "the stage must fire when a tool was parked");
         assert!(
@@ -138,7 +170,7 @@ mod tests {
             pending_id: "abc123".to_owned(),
         }));
 
-        let fired = apply_guardian_confirm(&registry, "fr", &mut result);
+        let fired = apply_guardian_confirm(&registry, &ToolRegistry::new(), "fr", &mut result);
 
         assert!(fired);
         assert!(
@@ -154,7 +186,7 @@ mod tests {
         let mut result = loop_result(None);
         result.content = "normal reply".to_owned();
 
-        let fired = apply_guardian_confirm(&registry, "en", &mut result);
+        let fired = apply_guardian_confirm(&registry, &ToolRegistry::new(), "en", &mut result);
 
         assert!(!fired, "no park, no fire");
         assert_eq!(result.content, "normal reply", "content must be untouched");

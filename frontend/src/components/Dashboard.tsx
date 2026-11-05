@@ -59,9 +59,16 @@ const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
  * Tabs only a super admin may open: the sidebar offers them to no other role,
  * and every endpoint behind them refuses a plain admin. A typed or bookmarked
  * `#impersonation-log` would otherwise mount the pane for an admin and show
- * the server's refusal where the page should be.
+ * the server's refusal where the page should be. The harness and Guardian
+ * settings are here because they need `ViewConfiguration`, which a console
+ * admin does not hold.
  */
-const SUPER_ADMIN_ONLY_TABS = new Set(['admin-tokens', 'impersonation-log']);
+const SUPER_ADMIN_ONLY_TABS = new Set([
+  'admin-tokens',
+  'impersonation-log',
+  'harness-config',
+  'guardian-config',
+]);
 
 /**
  * Tabs behind a feature gate this build has off. The render switch draws
@@ -524,17 +531,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ) },
-    { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-      </svg>
-    ) },
-    { id: 'guardian-config', name: t('shell.navGuardianConfig'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 3v5c0 5.25-3.4 9.74-7 11-3.6-1.26-7-5.75-7-11V6l7-3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.5 12l1.8 1.8 3.2-3.6" />
-      </svg>
-    ) },
     { id: 'memory-worker', name: t('shell.navMemoryWorker'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6" />
@@ -609,6 +605,17 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Super admin tabs extend admin tabs with admin token management
   const superAdminTabs: TabDefinition[] = useMemo(() => [
     ...adminTabs,
+    { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+      </svg>
+    ) },
+    { id: 'guardian-config', name: t('shell.navGuardianConfig'), section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 3v5c0 5.25-3.4 9.74-7 11-3.6-1.26-7-5.75-7-11V6l7-3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.5 12l1.8 1.8 3.2-3.6" />
+      </svg>
+    ) },
     { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

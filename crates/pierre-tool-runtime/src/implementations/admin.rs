@@ -1061,5 +1061,7 @@ crate::declare_security!(AdminCreateSystemAgentTool => empty);
 crate::declare_security!(AdminGetSystemAgentTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(AdminListAgentAssignmentsTool => empty);
 crate::declare_security!(AdminListSystemAgentsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(AdminUnassignAgentTool => empty);
+// Annotated destructive: the assignment is gone and nothing restores it, so it
+// answers to the same per-turn cap and taint policy as every other such tool.
+crate::declare_security!(AdminUnassignAgentTool => IRREVERSIBLE);
 crate::declare_security!(AdminUpdateSystemAgentTool => empty);

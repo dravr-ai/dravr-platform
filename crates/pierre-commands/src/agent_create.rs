@@ -27,7 +27,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
-use pierre_database::repositories::PendingGuardianAction;
+use pierre_database::repositories::{PendingGuardianAction, AGENT_PROPOSAL_ACTION};
 use pierre_services::agent_generation::{
     agent_quota, conversation_excerpt, propose_agent, resolve_chat_provider, AgentProposal,
     ExcerptRequest, DEFAULT_MAX_MESSAGES,
@@ -39,13 +39,6 @@ use uuid::Uuid;
 use crate::agent::{bind_agent, AgentBinding};
 use crate::guardian_confirm::resolve_pending;
 use crate::{CommandHandler, PlatformCommandContext};
-
-/// `tool_name` a parked agent draft carries in the pending-action store.
-///
-/// Deliberately not a registered tool: the claim path checks for it before
-/// anything is dispatched, so a confirmed draft becomes an agent here rather
-/// than a tool call the executor would refuse.
-pub const AGENT_PROPOSAL_ACTION: &str = "coach.create_proposal";
 
 /// How long a draft waits for its confirmation.
 ///
@@ -204,6 +197,9 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
         tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
         arguments,
         deny_reason: PROPOSAL_PARK_REASON.to_owned(),
+        turn_agent_id: None,
+        turn_provenance: None,
+        seat: None,
     };
     ctx.ctx
         .repos()

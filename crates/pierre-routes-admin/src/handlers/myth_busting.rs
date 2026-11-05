@@ -14,7 +14,7 @@
 //! that closes the gap between observation and enforcement: when an admin
 //! sees a recurring unsupported claim phrase, they can promote it directly
 //! into `harness_config.guardrails.blocked_topics`. The handler reads the
-//! current document, appends the topic if not already present, validates
+//! stored document, appends the topic if not already present, validates
 //! via [`pierre_contremaitre::harness_config_document::validate_document`],
 //! persists to `system_settings`, and installs the new snapshot in the
 //! [`pierre_contremaitre::harness_config_registry::HarnessConfigRegistry`] so the chat
@@ -29,7 +29,6 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::to_string;
 use tracing::{error, info};
 
 use pierre_contremaitre::harness_config_document::{
@@ -49,6 +48,9 @@ use crate::context::AdminApiContext;
 /// Prevents an admin from pasting an entire reply into the blocked list
 /// (which would never match) or exhausting storage with a giant string.
 const MAX_TOPIC_LEN: usize = 200;
+
+/// How many times a promote re-reads the row after losing it to a concurrent save.
+const PROMOTE_ATTEMPTS: u32 = 3;
 
 /// Query parameters for the myth-busting summary endpoint.
 #[derive(Debug, Deserialize)]
@@ -128,6 +130,8 @@ pub(crate) async fn handle_promote_topic(
     Json(req): Json<PromoteTopicRequest>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+    // The blocked-topic list lives in the platform-wide harness document.
+    admin_token.require_global_scope()?;
 
     let response = promote_topic(
         &context.database,
@@ -150,8 +154,8 @@ pub(crate) async fn handle_promote_topic(
 /// Append `topic` to `harness_config.guardrails.blocked_topics`, persist,
 /// and install the new snapshot.
 ///
-/// Idempotent: re-promoting an existing topic returns `added=false` and
-/// skips the storage / registry write, avoiding churn from misclicks.
+/// Idempotent: re-promoting a topic the row already holds returns `added=false`
+/// and skips the storage / registry write, avoiding churn from misclicks.
 ///
 /// Trims whitespace; rejects empty or overlong inputs. Comparison is
 /// ASCII case-insensitive — same rule the guardrails apply at match time.
@@ -176,49 +180,78 @@ pub async fn promote_topic(
         )));
     }
 
-    // Take a snapshot of the running harness config and clone the
-    // document so the registry's `Arc<HarnessConfigDocument>` stays
-    // immutable until install time.
-    let mut document: HarnessConfigDocument = (*registry.current().document).clone();
+    // Read the row, not this instance's snapshot: the snapshot can trail a save
+    // that landed on another instance, or hold boot defaults after a read
+    // failure, and writing it back would wipe what the row holds. Compare-and-set
+    // keeps a concurrent save; appending needs no super admin decision, so losing
+    // that race just re-reads.
+    for _ in 0..PROMOTE_ATTEMPTS {
+        let row = db
+            .get_system_setting(HARNESS_CONFIG_SETTING_KEY)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "failed to read harness config for promote-topic");
+                AppError::internal(format!("Failed to read harness config: {e}"))
+            })?;
+        let mut document = match &row {
+            Some(row) => {
+                serde_json::from_str::<HarnessConfigDocument>(&row.value).map_err(|e| {
+                    error!(error = %e, "stored harness config is invalid; refusing promote-topic");
+                    AppError::internal(format!("Stored harness config is invalid JSON: {e}"))
+                })?
+            }
+            None => HarnessConfigDocument::default(),
+        };
 
-    let already_present = document
-        .guardrails
-        .blocked_topics
-        .iter()
-        .any(|t| t.eq_ignore_ascii_case(&topic));
+        let already_present = document
+            .guardrails
+            .blocked_topics
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(&topic));
+        if already_present {
+            return Ok(PromoteTopicResponse {
+                topic,
+                added: false,
+                total_blocked_topics: document.guardrails.blocked_topics.len(),
+            });
+        }
 
-    if already_present {
-        return Ok(PromoteTopicResponse {
-            topic,
-            added: false,
-            total_blocked_topics: document.guardrails.blocked_topics.len(),
-        });
+        document.guardrails.blocked_topics.push(topic.clone());
+
+        // Reuse the harness config validator so the same invariants the PUT
+        // route enforces apply here. A failure here would mean we started
+        // from a valid persisted document and only appended a string — the
+        // validator would have to fail on length, but blocked_topics has no
+        // count limit, so this is defensive only.
+        validate_document(&document)?;
+
+        let serialized = serde_json::to_string(&document).map_err(|e| {
+            error!(error = %e, "failed to serialize harness config after promote-topic");
+            AppError::internal(format!("Failed to serialize harness config: {e}"))
+        })?;
+        let written = db
+            .compare_and_set_system_setting(
+                HARNESS_CONFIG_SETTING_KEY,
+                &serialized,
+                row.map(|row| row.updated_at),
+            )
+            .await
+            .map_err(|e| {
+                error!(error = %e, "failed to persist harness config after promote-topic");
+                AppError::internal(format!("Failed to persist harness config: {e}"))
+            })?;
+        if written.is_some() {
+            let total_blocked_topics = document.guardrails.blocked_topics.len();
+            registry.install(document, HarnessConfigSource::AdminUpdate);
+            return Ok(PromoteTopicResponse {
+                topic,
+                added: true,
+                total_blocked_topics,
+            });
+        }
     }
 
-    document.guardrails.blocked_topics.push(topic.clone());
-
-    // Reuse the harness config validator so the same invariants the PUT
-    // route enforces apply here. A failure here would mean we started
-    // from a valid persisted document and only appended a string — the
-    // validator would have to fail on length, but blocked_topics has no
-    // count limit, so this is defensive only.
-    validate_document(&document)?;
-
-    let serialized = to_string(&document).map_err(|e| {
-        error!(error = %e, "failed to serialize harness config after promote-topic");
-        AppError::internal(format!("Failed to serialize harness config: {e}"))
-    })?;
-    db.set_system_setting(HARNESS_CONFIG_SETTING_KEY, &serialized)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "failed to persist harness config after promote-topic");
-            AppError::internal(format!("Failed to persist harness config: {e}"))
-        })?;
-    registry.install(document.clone(), HarnessConfigSource::AdminUpdate);
-
-    Ok(PromoteTopicResponse {
-        topic,
-        added: true,
-        total_blocked_topics: document.guardrails.blocked_topics.len(),
-    })
+    Err(AppError::internal(
+        "harness config kept changing during promote-topic",
+    ))
 }

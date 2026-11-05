@@ -5,12 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HarnessConfigTab from '../HarnessConfigTab';
 import type { HarnessConfigDocument, HarnessConfigResponse } from '../../services/api/admin';
 
-vi.mock('../../services/api/admin', async () => ({
+vi.mock('../../services/api/admin', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api/admin')>()),
   adminApi: {
     getHarnessConfig: vi.fn(),
     putHarnessConfig: vi.fn(),
@@ -55,11 +56,12 @@ function renderTab() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <HarnessConfigTab />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 describe('HarnessConfigTab', () => {
@@ -116,6 +118,122 @@ describe('HarnessConfigTab', () => {
     });
     const [payload] = vi.mocked(adminApi.putHarnessConfig).mock.calls[0];
     expect(payload.compaction.window_tokens).toBe(200000);
+  });
+
+  it('echoes the updated_at it read verbatim, and the one a save returned next', async () => {
+    const read = '2026-04-13T18:00:00.123456+00:00';
+    const written = '2026-04-13T18:05:00.654321+00:00';
+    vi.mocked(adminApi.getHarnessConfig).mockResolvedValueOnce({
+      ...sampleResponse(),
+      updated_at: read,
+    });
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce({
+      ...sampleResponse(),
+      updated_at: written,
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(adminApi.putHarnessConfig).mock.calls[0][1]).toBe(read);
+
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce(sampleResponse());
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /save changes/i })).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(adminApi.putHarnessConfig).mock.calls[1][1]).toBe(written);
+  });
+
+  it('sends null when it read no row', async () => {
+    vi.mocked(adminApi.getHarnessConfig).mockResolvedValueOnce(sampleResponse(false));
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce(sampleResponse());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalled();
+    });
+    expect(vi.mocked(adminApi.putHarnessConfig).mock.calls[0][1]).toBeNull();
+  });
+
+  it('reloads and says so when the server calls the save stale', async () => {
+    vi.mocked(adminApi.getHarnessConfig)
+      .mockResolvedValueOnce(sampleResponse())
+      .mockResolvedValueOnce({
+        ...sampleResponse(),
+        updated_at: '2026-04-13T19:00:00Z',
+      });
+    vi.mocked(adminApi.putHarnessConfig).mockRejectedValueOnce({
+      response: { data: { code: 'harness_config_stale', message: 'It changed.' } },
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    expect(await screen.findByText(/It changed\..*stored configuration/)).toBeInTheDocument();
+    expect(adminApi.getHarnessConfig).toHaveBeenCalledTimes(2);
+
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce(sampleResponse());
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(adminApi.putHarnessConfig).mock.calls[1][1]).toBe('2026-04-13T19:00:00Z');
+  });
+
+  it('a stale save keeps the edits when the reload fails, and says so', async () => {
+    vi.mocked(adminApi.getHarnessConfig)
+      .mockResolvedValueOnce(sampleResponse())
+      .mockRejectedValueOnce(new Error('unreachable'));
+    vi.mocked(adminApi.putHarnessConfig).mockRejectedValueOnce({
+      response: { data: { code: 'harness_config_stale', message: 'It changed.' } },
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '7777' } });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText(/It changed\..*edits are still here/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/7777/)).toBeInTheDocument();
+  });
+
+  it('a background refetch leaves edits and their token alone', async () => {
+    const moved = { ...sampleResponse(), updated_at: '2026-04-13T19:00:00Z' };
+    vi.mocked(adminApi.getHarnessConfig)
+      .mockResolvedValueOnce(sampleResponse())
+      .mockResolvedValueOnce(moved);
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce(moved);
+    const queryClient = renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getAllByRole('spinbutton')[0], { target: { value: '7777' } });
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['admin', 'harness-config'] });
+    });
+
+    expect(screen.getByDisplayValue(/7777/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalled();
+    });
+    expect(vi.mocked(adminApi.putHarnessConfig).mock.calls[0][1]).toBe(
+      sampleResponse().updated_at,
+    );
   });
 
   it('reset reverts in-progress edits to the persisted document', async () => {

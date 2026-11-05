@@ -46,6 +46,8 @@ use tracing::{info, warn};
 
 use pierre_core::models::TenantId;
 use pierre_llm::ChatMessage;
+use pierre_tool_runtime::context::GUARDIAN_TAINT_ORIGIN;
+use pierre_tool_runtime::guardian::TaintOrigin;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalResponse};
 use pierre_tool_runtime::tool_results::served_without_notes;
 
@@ -341,7 +343,13 @@ pub async fn prefetch_activity_context(
         tenant_id: Some(tenant_id.to_string()),
     };
 
-    match executor.execute_tool(request).await {
+    // A prefetched window really is untrusted text in the model's context, so it
+    // taints like any other read. The scope only tells the Guardian's telemetry
+    // that the platform decided this read, not the model.
+    match GUARDIAN_TAINT_ORIGIN
+        .scope(TaintOrigin::Prefetch, executor.execute_tool(request))
+        .await
+    {
         Ok(response) => Some(prefetched_window(&response)),
         Err(e) => {
             warn!("Failed to pre-fetch activity context: {e}");

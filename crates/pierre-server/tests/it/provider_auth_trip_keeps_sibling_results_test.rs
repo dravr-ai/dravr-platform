@@ -22,14 +22,19 @@ use crate::helpers;
 
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use std::mem::replace;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use common::{create_test_server_resources_with_sciotte, create_test_user};
+use common::{
+    create_test_server_resources_with_config, create_test_server_resources_with_sciotte,
+    create_test_user, test_server_config_with_guardian,
+};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+use pierre_config::environment::GuardianSettings;
 use pierre_core::errors::AppError;
 use pierre_core::models::ConnectionType;
 use pierre_llm::{
@@ -231,4 +236,195 @@ async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
         "the reconnect turn carries the ride the healthy connection served, got: \
          {activity_list}"
     );
+}
+
+/// How a mock turn asks for its one batch, one shape per branch of the tool loops.
+#[derive(Clone, Copy)]
+enum BatchShape {
+    /// Native function calling, as structured tool calls.
+    ApiStructured,
+    /// A native-tool model writing `<tool_call>` blocks as text.
+    ApiTextBlocks,
+    /// A text-only provider, whose calls are always `<tool_call>` blocks.
+    CliTextBlocks,
+}
+
+/// Asks for one batch: a read that trips auth, then a destructive call the
+/// Guardian denies. Then it would answer.
+struct AuthTripThenDenied {
+    shape: BatchShape,
+    asked: Mutex<bool>,
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl LlmProvider for AuthTripThenDenied {
+    fn name(&self) -> &'static str {
+        "auth_trip_then_denied"
+    }
+    fn display_name(&self) -> &'static str {
+        "Auth trip then Guardian denial mock"
+    }
+    fn capabilities(&self) -> LlmCapabilities {
+        match self.shape {
+            BatchShape::ApiStructured | BatchShape::ApiTextBlocks => {
+                LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+            }
+            BatchShape::CliTextBlocks => LlmCapabilities::SYSTEM_MESSAGES,
+        }
+    }
+    fn default_model(&self) -> &'static str {
+        "batch-model"
+    }
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        let first_ask = {
+            let mut asked = self.asked.lock().unwrap();
+            !replace(&mut *asked, true)
+        };
+        let auth_trip = json!({ "provider": "whoop", "limit": 5, "mode": "summary" });
+        let destructive = json!({ "provider": "whoop" });
+        let (content, tool_calls) = match (first_ask, self.shape) {
+            (false, _) => ("the agent's answer".to_owned(), None),
+            (true, BatchShape::ApiStructured) => (
+                String::new(),
+                Some(vec![
+                    ToolCallRequest {
+                        id: "call-dead".to_owned(),
+                        function_name: "get_activities".to_owned(),
+                        arguments: auth_trip,
+                    },
+                    ToolCallRequest {
+                        id: "call-denied".to_owned(),
+                        function_name: "disconnect_provider".to_owned(),
+                        arguments: destructive,
+                    },
+                ]),
+            ),
+            (true, BatchShape::ApiTextBlocks | BatchShape::CliTextBlocks) => (
+                format!(
+                    "<tool_call>{}</tool_call><tool_call>{}</tool_call>",
+                    json!({ "name": "get_activities", "arguments": auth_trip }),
+                    json!({ "name": "disconnect_provider", "arguments": destructive }),
+                ),
+                None,
+            ),
+        };
+        Ok(ChatResponse {
+            content,
+            model: "batch-model".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls,
+        })
+    }
+
+    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+        let response = self.complete(request).await?;
+        let chunk = StreamChunk {
+            delta: response.content,
+            is_final: true,
+            finish_reason: response.finish_reason,
+        };
+        Ok(Box::pin(stream::once(async move { Ok(chunk) })))
+    }
+
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// carnet#1411: a batch that trips auth and is then denied answers with the
+/// Guardian's block, in every branch of the tool loops, because the chat pipeline
+/// renders a block ahead of a reconnect and an auth exit would have hidden it.
+#[tokio::test]
+async fn a_batch_that_trips_auth_and_is_denied_returns_the_denial() {
+    common::init_server_config();
+    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
+        GuardianSettings {
+            mode: Some("enforce".to_owned()),
+            max_destructive_per_turn: Some("0".to_owned()),
+            ..GuardianSettings::default()
+        },
+    ))
+    .await
+    .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("user has a tenant")
+        .id;
+    // A connection with no token: the read reaches the provider and trips auth.
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let user_id_str = user_id.to_string();
+
+    for (shape, label) in [
+        (BatchShape::ApiStructured, "api structured"),
+        (BatchShape::ApiTextBlocks, "api text blocks"),
+        (BatchShape::CliTextBlocks, "cli text blocks"),
+    ] {
+        let chat_provider = ChatProvider::Custom(Arc::new(AuthTripThenDenied {
+            shape,
+            asked: Mutex::new(false),
+            models: vec!["batch-model".to_owned()],
+        }));
+        let executor = Arc::new(
+            UniversalToolExecutor::new(resources.clone())
+                .with_scopes(OAuthScope::self_grant())
+                .with_transport(Transport::WebApp)
+                .with_turn_token(format!("auth-then-denied-{label}")),
+        );
+        let tools = advertised_tools();
+        let params = ToolLoopParams {
+            provider: &chat_provider,
+            executor,
+            tools: &tools,
+            model: "batch-model",
+            user_id: &user_id_str,
+            tenant_id: tenant,
+            max_iterations: 3,
+            call_recorder: None,
+            tool_message_recorder: None,
+            temperature: None,
+            stream_sink: None,
+            mcp_servers: Vec::new(),
+        };
+        let mut messages = vec![
+            ChatMessage::system("You are a test coach."),
+            ChatMessage::user("déconnecte whoop"),
+        ];
+
+        let result = run_tool_loop(&params, &mut messages)
+            .await
+            .expect("the loop completes the batch");
+
+        let denial = result
+            .guardian_denied
+            .unwrap_or_else(|| panic!("{label}: the denial must win over the auth trip"));
+        assert_eq!(denial.reason, "budget_exceeded", "{label}");
+        assert_eq!(denial.tool_name, "disconnect_provider", "{label}");
+        assert_eq!(
+            result.pending_provider_auth_required, None,
+            "{label}: the loop exits on the block, not the auth trip"
+        );
+    }
 }

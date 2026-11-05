@@ -239,17 +239,16 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
             "Put the athlete's active training plan on their calendar provider (Intervals.icu, \
-             Wahoo or Garmin), or bring it up to date after the plan changed: creates missing \
-             days, updates changed ones, removes ones the plan no longer has, and leaves alone \
-             any the athlete edited there (Garmin reports no edits). Never touches dates \
-             before today. Call it \
-             when the athlete or coach asks to put or update the plan on their calendar — not \
-             on your own initiative after a save. Needs a saved plan and a connected provider \
-             that writes a training calendar. A group's human coach pushes a consenting \
-             athlete's plan with `athlete`, through the athlete's Intervals.icu link: the \
-             athlete must allow calendar writes on it, and Intervals.icu must list the coach \
-             as their coach. Only the published plan is pushed, never a coach's unpublished \
-             draft (the reply's unpublished_draft says when one exists).",
+             Wahoo or Garmin), or update it after a change: creates missing days, updates \
+             changed ones, removes dropped ones, leaves alone any the athlete edited there \
+             (Garmin reports no edits). Never touches dates before today. Call it when the \
+             athlete or coach asks, not on your own after a save. One destructive action runs \
+             per turn, so after publish_training_plan it waits for the coach's next message. \
+             Needs a saved plan and a connected calendar-writing provider. A group's human \
+             coach pushes a consenting athlete's plan with `athlete`, through their \
+             Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must \
+             list the coach as their coach. Only the published plan is pushed, never a coach's \
+             unpublished draft (the reply's unpublished_draft flags one).",
             schema,
             annotations(
                 "Push training plan to calendar",

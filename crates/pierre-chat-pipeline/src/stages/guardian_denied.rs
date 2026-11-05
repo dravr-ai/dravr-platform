@@ -24,8 +24,9 @@
 //! outcome is rendered deterministically rather than fed back to the LLM, so
 //! the security block can never be softened, misrepresented, or hallucinated
 //! away by a follow-up model turn. In `off` and `observe` modes (`enforce` is
-//! the default) the Guardian never denies, so `guardian_denied` stays `None`
-//! and this stage is a no-op.
+//! the default) the runtime Guardian denies no tool call. Plan-then-verify is
+//! its own switch and rejects in any mode, so this stage also fires for a plan
+//! refused before it ran and for one stopped on a reference that did not resolve.
 
 use std::sync::Arc;
 

@@ -48,6 +48,9 @@ use futures_util::stream;
 use pierre_chat_pipeline::stages::auth_recovery::{
     apply_auth_recovery, AuthRecovery, AuthRecoveryDeps,
 };
+use pierre_chat_pipeline::stages::prefetch::{
+    agentless_activity_window, prefetch_activity_context,
+};
 use pierre_chat_pipeline::{
     build_envelope, InputSource, PipelineHooks, QuotaState, ReplyBlock, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnInput, TurnOrigin, TurnState, TurnTelemetry,
@@ -1546,6 +1549,101 @@ async fn a_headless_turn_drains_the_offer_it_consumed() {
     assert_eq!(
         second.content, AGENT_ANSWER,
         "and answers exactly as it was written"
+    );
+}
+
+/// carnet#1404: the offer belongs to the turn that raised it. A second turn of
+/// the same athlete running over it, and a one-shot MCP call beside it, neither
+/// take it nor add to it.
+#[tokio::test]
+async fn an_offer_stays_with_its_turn_whatever_else_the_athlete_runs() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    let raising_turn = Uuid::new_v4().to_string();
+    let overlapping_turn = Uuid::new_v4().to_string();
+
+    loopback_get_activities(&resources, user_id, tenant, &raising_turn).await;
+
+    // A one-shot call the same window serves, with no turn to report to.
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let one_shot = UniversalExecutor::new(runtime)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+        .execute_tool(UniversalRequest {
+            tool_name: "get_activities".to_owned(),
+            parameters: json!({ "limit": 10, "mode": "summary" }),
+            user_id: user_id.to_string(),
+            protocol: "mcp".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await
+        .expect("the healthy sibling serves the one-shot call too");
+    assert!(
+        one_shot
+            .result
+            .as_ref()
+            .is_some_and(|payload| payload.get("reconnect_required").is_some()),
+        "the one-shot caller reads the offer off its own result"
+    );
+
+    let overlapping = finish_headless_turn(&resources, user_id, tenant, &overlapping_turn).await;
+    assert_eq!(
+        overlapping.served_without_provider, None,
+        "a turn that served no window takes nothing from the turn beside it"
+    );
+    let raising = finish_headless_turn(&resources, user_id, tenant, &raising_turn).await;
+    assert_eq!(
+        raising.served_without_provider.as_deref(),
+        Some("sciotte_garmin"),
+        "the turn that raised the offer still carries it"
+    );
+}
+
+/// A window the pipeline prefetched grounds the prompt, and the model never asked
+/// for it. Most turns prefetch, so an offer raised here would append a reconnect
+/// sentence to every message of an athlete with one dead connection. Only a read
+/// the model asked for raises one, as it did before turns keyed the store.
+#[tokio::test]
+async fn a_prefetched_window_raises_no_offer() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    let turn = Uuid::new_v4().to_string();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let executor = Arc::new(
+        UniversalExecutor::new(runtime)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp)
+            .with_turn_token(turn.clone()),
+    );
+
+    let window = prefetch_activity_context(
+        &executor,
+        &user_id.to_string(),
+        tenant,
+        &agentless_activity_window(),
+    )
+    .await
+    .expect("the healthy sibling serves the prefetched window");
+    assert!(
+        window.content.contains("reconnect_required"),
+        "the window itself was served without its provider: {}",
+        window.content
+    );
+
+    let finished = finish_headless_turn(&resources, user_id, tenant, &turn).await;
+    assert_eq!(
+        finished.served_without_provider, None,
+        "a prefetch the model never asked for offers nothing"
+    );
+    assert_eq!(finished.content, AGENT_ANSWER);
+
+    // The model asking for the same window on the same turn still raises it.
+    loopback_get_activities(&resources, user_id, tenant, &turn).await;
+    let asked = finish_headless_turn(&resources, user_id, tenant, &turn).await;
+    assert_eq!(
+        asked.served_without_provider.as_deref(),
+        Some("sciotte_garmin"),
+        "a read the model asked for still carries the offer"
     );
 }
 

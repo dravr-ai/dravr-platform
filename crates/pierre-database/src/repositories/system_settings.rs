@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
 use crate::database::system_settings::SystemSetting;
@@ -28,6 +28,43 @@ pub(crate) const SET_SYSTEM_SETTING_SQL: &str = r"
                 value = $2,
                 updated_at = $3
             ";
+
+/// Overwrite a setting only while its `updated_at` still holds the value the
+/// writer read. A row someone else changed in between matches nothing.
+pub(crate) const UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL: &str = r"
+            UPDATE system_settings
+            SET value = $2, updated_at = $3
+            WHERE key = $1 AND updated_at = $4
+            ";
+
+/// Insert a setting only while no row holds the key.
+pub(crate) const INSERT_SYSTEM_SETTING_IF_ABSENT_SQL: &str = r"
+            INSERT INTO system_settings (key, value, created_at, updated_at)
+            VALUES ($1, $2, $3, $3)
+            ON CONFLICT (key) DO NOTHING
+            ";
+
+/// The `updated_at` a compare-and-set writes, so it reads back as the exact
+/// instant the caller is handed.
+///
+/// Whole microseconds, because a Postgres `TIMESTAMPTZ` keeps no more: a
+/// nanosecond stamp handed to the caller would never match the stored row and
+/// their next write would be refused as stale. Always past `expected`, because
+/// the stamp is the concurrency token: on a clock running behind the instance
+/// that wrote `expected`, or in the same microsecond, a write would otherwise
+/// leave the token unmoved and a second writer holding it would still pass.
+pub(crate) fn next_setting_stamp(
+    now: DateTime<Utc>,
+    expected: Option<DateTime<Utc>>,
+) -> DateTime<Utc> {
+    use chrono::SubsecRound;
+
+    let now = now.trunc_subsecs(6);
+    match expected {
+        Some(prior) if now <= prior => prior.trunc_subsecs(6) + Duration::microseconds(1),
+        _ => now,
+    }
+}
 
 /// Decode one `system_settings` row via `try_get` only, so a corrupt row is a
 /// recoverable error naming the column rather than a panic or a plausible
@@ -98,6 +135,42 @@ macro_rules! impl_system_settings {
                 Ok(())
             }
 
+            /// Write a setting only when the row is as the caller last read it:
+            /// `expected` is the `updated_at` it read, or `None` to create the
+            /// row only while no row holds the key.
+            ///
+            /// Returns the new `updated_at` when the write landed, `None` when
+            /// the row changed since the read (or, for `None`, already exists).
+            /// The returned stamp reads back exactly on either backend, so it
+            /// can be the `expected` of the next write.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the database operation fails.
+            pub async fn compare_and_set_system_setting(
+                &self,
+                key: &str,
+                value: &str,
+                expected: Option<DateTime<Utc>>,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let stamp = next_setting_stamp(Utc::now(), expected);
+                let query = match expected {
+                    Some(prior) => sqlx::query(UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL)
+                        .bind(key)
+                        .bind(value)
+                        .bind(stamp)
+                        .bind(prior),
+                    None => sqlx::query(INSERT_SYSTEM_SETTING_IF_ABSENT_SQL)
+                        .bind(key)
+                        .bind(value)
+                        .bind(stamp),
+                };
+                let result = query.execute(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to compare-and-set system setting: {e}"))
+                })?;
+                Ok((result.rows_affected() > 0).then_some(stamp))
+            }
+
             /// Whether auto-approval is enabled in the database.
             ///
             /// Returns `Some(true/false)` if explicitly set in the database, or
@@ -129,3 +202,33 @@ macro_rules! impl_system_settings {
     };
 }
 pub(crate) use impl_system_settings;
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    #[test]
+    fn a_stamp_is_whole_microseconds_and_always_moves_past_the_token() {
+        let at = |nanos: u32| Utc.timestamp_opt(1_700_000_000, nanos).single().unwrap();
+
+        assert_eq!(next_setting_stamp(at(1_234_567), None), at(1_234_000));
+
+        // Later than the token: the clock's own microsecond.
+        assert_eq!(
+            next_setting_stamp(at(9_000_500), Some(at(1_000_000))),
+            at(9_000_000)
+        );
+        // The same microsecond, and a clock behind the instance that wrote the
+        // token: the token still moves.
+        assert_eq!(
+            next_setting_stamp(at(1_000_400), Some(at(1_000_000))),
+            at(1_001_000)
+        );
+        assert_eq!(
+            next_setting_stamp(at(500_000), Some(at(1_000_000))),
+            at(1_001_000)
+        );
+    }
+}

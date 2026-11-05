@@ -14,7 +14,7 @@
 //! was compacted) or wants a fresh read (a progress check).
 //!
 //! The memory lives in the Guardian turn store, keyed like taint, so the chat
-//! loops and the Copilot-headless loopback (a fresh executor per call) share
+//! loops and the Copilot-headless loopback (its tool host's own executor) share
 //! it. A one-shot `/mcp` or A2A call runs under a nonce turn and so never
 //! repeats: the 2026-07-28 MCP revision is stateless, and a client session
 //! would need tronc to expose an id the load balancer keeps affinity on.

@@ -9,7 +9,9 @@
 
 use std::sync::Arc;
 
-use pierre_contremaitre::harness_config_document::HARNESS_CONFIG_SETTING_KEY;
+use pierre_contremaitre::harness_config_document::{
+    HarnessConfigDocument, HARNESS_CONFIG_SETTING_KEY,
+};
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use pierre_database::backends::factory::Database;
@@ -155,4 +157,60 @@ async fn promote_topic_survives_round_trip_through_from_database() {
         topics.iter().any(|t| t == "vegan diets cause anemia"),
         "promoted topic should survive a registry rebuild"
     );
+}
+
+/// The row is the base, not this instance's snapshot: on a pod that has not yet
+/// polled in a save, or that booted on defaults, appending to the snapshot would
+/// wipe what the row holds.
+#[tokio::test]
+async fn promote_topic_appends_to_the_row_even_when_this_instance_trails_it() {
+    let db = fresh_database().await;
+    let registry = Arc::new(HarnessConfigRegistry::from_database(&db).await);
+    assert_eq!(
+        registry.current_guardrails().blocked_topics,
+        Vec::<String>::new()
+    );
+
+    let mut saved_elsewhere = HarnessConfigDocument::default();
+    saved_elsewhere.guardrails.blocked_topics = vec!["saved on another instance".to_owned()];
+    db.set_system_setting(
+        HARNESS_CONFIG_SETTING_KEY,
+        &serde_json::to_string(&saved_elsewhere).unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let response = promote_topic(&db, &registry, "promoted here")
+        .await
+        .expect("promote should succeed");
+    assert_eq!(response.total_blocked_topics, 2);
+
+    let row = db
+        .get_system_setting(HARNESS_CONFIG_SETTING_KEY)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.value.contains("saved on another instance"));
+    assert!(row.value.contains("promoted here"));
+    assert_eq!(registry.current_guardrails().blocked_topics.len(), 2);
+}
+
+#[tokio::test]
+async fn promote_topic_refuses_to_write_over_a_row_it_cannot_read() {
+    let db = fresh_database().await;
+    let registry = Arc::new(HarnessConfigRegistry::from_database(&db).await);
+    db.set_system_setting(HARNESS_CONFIG_SETTING_KEY, "{not json")
+        .await
+        .unwrap();
+
+    promote_topic(&db, &registry, "promoted here")
+        .await
+        .expect_err("a corrupt row is not a base to append to");
+
+    let row = db
+        .get_system_setting(HARNESS_CONFIG_SETTING_KEY)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.value, "{not json");
 }

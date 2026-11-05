@@ -28,7 +28,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GuardianMode {
-    /// Kill switch: compute the decision for debug visibility, never block.
+    /// Never block. Identical to [`Self::Observe`] at runtime: the decision is
+    /// computed, budgets are spent and a would-be denial is logged at `warn!`,
+    /// and only the log line's `mode` field differs. It is not a kill switch
+    /// that skips the Guardian.
     Off,
     /// Compute + `warn!`-log would-be denials, but never block — the
     /// telemetry and rollback posture.
@@ -66,7 +69,7 @@ impl GuardianMode {
 
 /// Which tenants may reach an `EXTERNAL_SEND` tool at all (taint-independent
 /// egress allowlist; `tenant_id` is server-set and cannot be injected).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ExternalSendAllowlist {
     /// No tenant may reach external-send tools (default — none exist yet).
     #[default]
@@ -161,7 +164,8 @@ impl<'de> Deserialize<'de> for ExternalSendAllowlist {
     }
 }
 
-/// How the Guardian treats an `IRREVERSIBLE` sink invoked in a tainted turn.
+/// How the Guardian treats an `IRREVERSIBLE` or `OUTBOUND_WRITE` sink invoked in
+/// a tainted turn.
 ///
 /// `Log` only (default) because deleting an agent after viewing activities is
 /// plausibly legitimate — Phase 1 measures the base rate before escalating.
@@ -201,7 +205,7 @@ pub struct GuardianPolicy {
     pub max_writes_per_turn: u16,
     /// Which tenants may reach external-send tools.
     pub external_send: ExternalSendAllowlist,
-    /// Severity for `IRREVERSIBLE`-after-untrusted-source.
+    /// Severity for `IRREVERSIBLE`- or `OUTBOUND_WRITE`-after-untrusted-source.
     pub tainted_destructive: TaintedDestructive,
     /// Whether the LLM emits a verified up-front plan instead of the `ReAct` loop.
     pub plan_mode: PlanMode,
@@ -222,9 +226,9 @@ impl Default for GuardianPolicy {
             // multi-disconnect ("Strava and Garmin") is done one at a time — rare
             // and recoverable, worth the ceiling on a fully-injected turn.
             max_destructive_per_turn: 1,
-            // Generous enough to clear a legit bulk turn (an agent setting goals
-            // across a group) while still bounding a runaway injected write flood.
-            // Tunable via GUARDIAN_MAX_WRITES_PER_TURN.
+            // Generous, because this bounds a runaway injected write flood rather
+            // than an ordinary turn: each write call counts once, however many
+            // calls a bulk ask takes. Tunable via GUARDIAN_MAX_WRITES_PER_TURN.
             max_writes_per_turn: 50,
             external_send: ExternalSendAllowlist::None,
             tainted_destructive: TaintedDestructive::Log,
@@ -255,6 +259,10 @@ pub struct GuardianEnvOverrides {
     pub tainted_destructive: Option<TaintedDestructive>,
     /// `GUARDIAN_PLAN_MODE`.
     pub plan_mode: Option<PlanMode>,
+    /// `GUARDIAN_PLAN_MODE_ARMABLE`: whether the persisted document may arm
+    /// `plan_mode=enforce`. `false` unless the deployment set `true`, so a typo
+    /// outside the server's boot gate leaves plan mode unarmable.
+    pub plan_mode_armable: bool,
 }
 
 impl GuardianEnvOverrides {
@@ -271,9 +279,10 @@ impl GuardianEnvOverrides {
                 "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
                 settings.max_destructive_per_turn.as_deref(),
             ),
-            max_writes_per_turn: parse_u16_opt(
+            max_writes_per_turn: parse_opt(
                 "GUARDIAN_MAX_WRITES_PER_TURN",
                 settings.max_writes_per_turn.as_deref(),
+                parse_write_budget,
             ),
             external_send: settings
                 .external_send_tenants
@@ -289,6 +298,12 @@ impl GuardianEnvOverrides {
                 settings.plan_mode.as_deref(),
                 PlanMode::parse,
             ),
+            plan_mode_armable: parse_opt(
+                "GUARDIAN_PLAN_MODE_ARMABLE",
+                settings.plan_mode_armable.as_deref(),
+                parse_flag,
+            )
+            .unwrap_or(false),
         }
     }
 
@@ -346,6 +361,21 @@ impl PlanMode {
     }
 }
 
+/// A write budget the policy can run under. Zero is an outage switch, not a
+/// budget: it would deny every write-tool dispatch on the platform.
+fn parse_write_budget(raw: &str) -> Option<u16> {
+    raw.trim().parse::<u16>().ok().filter(|budget| *budget > 0)
+}
+
+/// The strict boolean form of a `GUARDIAN_*` flag.
+fn parse_flag(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 fn parse_u16_opt(name: &str, raw: Option<&str>) -> Option<u16> {
     raw.and_then(|raw| {
         raw.trim().parse::<u16>().map_or_else(
@@ -390,7 +420,11 @@ fn parse_opt<T>(name: &str, raw: Option<&str>, parse: impl Fn(&str) -> Option<T>
 /// (`GUARDIAN_MODE=enfroce`, `GUARDIAN_TAINTED_DESTRUCTIVE=denny`, …) **fails the
 /// boot loudly** instead of silently serving traffic under the laxer default —
 /// the fail-fast complement to the `error!` in [`parse_opt`]. Empty vec
-/// means every set variable parsed cleanly. Budget vars are validated as `u16`.
+/// means every set variable parsed cleanly. Budget vars are validated as `u16`,
+/// and the write budget must also be positive: `GUARDIAN_MAX_WRITES_PER_TURN=0`
+/// would deny every write-tool dispatch. `GUARDIAN_MAX_DESTRUCTIVE_PER_TURN=0`
+/// stays legal, since denying irreversible tools is a posture a super admin can
+/// mean.
 #[must_use]
 pub fn validate_settings(settings: &GuardianSettings) -> Vec<(String, String)> {
     let mut bad = Vec::new();
@@ -430,7 +464,12 @@ pub fn validate_settings(settings: &GuardianSettings) -> Vec<(String, String)> {
     check(
         "GUARDIAN_MAX_WRITES_PER_TURN",
         settings.max_writes_per_turn.as_ref(),
-        budget,
+        |v| parse_write_budget(v).is_some(),
+    );
+    check(
+        "GUARDIAN_PLAN_MODE_ARMABLE",
+        settings.plan_mode_armable.as_ref(),
+        |v| parse_flag(v).is_some(),
     );
     bad
 }

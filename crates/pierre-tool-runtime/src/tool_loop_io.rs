@@ -24,10 +24,14 @@ use std::sync::Arc;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
+use tracing::warn;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::is_llm_provider_fault;
-use pierre_core::models::TenantId;
+use pierre_core::models::{
+    TenantId, GUARDIAN_CONFIRM_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON,
+    GUARDIAN_PLAN_REJECTED_FINISH_REASON,
+};
 use uuid::Uuid;
 
 use crate::protocol::UniversalExecutor;
@@ -168,8 +172,9 @@ impl fmt::Debug for ToolLoopParams<'_> {
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// Only ever set in `enforce` mode (the default) — `off` and `observe` log and
-/// fall through to execution, so this stays `None` there.
+/// The chokepoint raises one in `enforce` mode (the default); `off` and `observe`
+/// log and fall through to execution. A plan the Guardian refused sets one in
+/// every mode: plan-then-verify is its own switch, and a refused plan never runs.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
@@ -214,10 +219,11 @@ pub struct ToolLoopResult {
     /// carrying both blanks: it did not answer what the athlete asked, and the
     /// provider that blanked it is the one to offer.
     pub served_without_provider: Option<String>,
-    /// The first tool the runtime Guardian blocked this turn (`enforce` mode
-    /// only). The chat pipeline detects this and short-circuits with a
-    /// localized "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None`
-    /// when no tool was denied (always, in `observe`).
+    /// The first tool the runtime Guardian blocked this turn (`enforce` mode),
+    /// or the plan it refused (in any mode, once plan-then-verify is armed).
+    /// The chat pipeline detects this and short-circuits with a localized
+    /// "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None` when nothing
+    /// was denied.
     pub guardian_denied: Option<GuardianDenial>,
     /// The first tool the Guardian parked pending user confirmation this turn
     /// (`TaintedDestructive::Confirm`, `enforce` mode only). The chat pipeline
@@ -316,7 +322,7 @@ impl ToolLoopTally {
         ToolLoopResult {
             content: String::new(),
             usage,
-            finish_reason: Some("guardian_denied".to_owned()),
+            finish_reason: Some(GUARDIAN_DENIED_FINISH_REASON.to_owned()),
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
@@ -329,6 +335,34 @@ impl ToolLoopTally {
         }
     }
 
+    /// Exit carrying a plan the Guardian refused before running it: over the
+    /// step cap, or failed static verification.
+    ///
+    /// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
+    /// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
+    /// post-processing as if it were model output. `reason` is the slug this
+    /// rejection is told apart by in logs: the athlete reads one reply for all.
+    pub(crate) fn guardian_plan_denied(
+        self,
+        usage: Option<TokenUsage>,
+        reason: &str,
+    ) -> ToolLoopResult {
+        warn!(
+            guardian.reason = reason,
+            "guardian plan: refused the plan; rendering the block reply"
+        );
+        ToolLoopResult {
+            finish_reason: Some(GUARDIAN_PLAN_REJECTED_FINISH_REASON.to_owned()),
+            ..self.guardian_denied(
+                usage,
+                GuardianDenial {
+                    tool_name: "(plan)".to_owned(),
+                    reason: reason.to_owned(),
+                },
+            )
+        }
+    }
+
     /// Exit carrying the tool call the Guardian parked pending confirmation.
     pub(crate) fn guardian_confirm(
         self,
@@ -338,7 +372,7 @@ impl ToolLoopTally {
         ToolLoopResult {
             content: String::new(),
             usage,
-            finish_reason: Some("guardian_confirm".to_owned()),
+            finish_reason: Some(GUARDIAN_CONFIRM_FINISH_REASON.to_owned()),
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
@@ -448,32 +482,6 @@ impl ToolLoopResult {
         }
     }
 
-    /// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
-    ///
-    /// Covers both the over-step-cap and the failed-static-verification cases.
-    /// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
-    /// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
-    /// post-processing as if it were model output.
-    pub(crate) fn guardian_plan_denied(reason: &str) -> Self {
-        Self {
-            content: String::new(),
-            usage: None,
-            finish_reason: Some("guardian_plan_rejected".to_owned()),
-            activity_list: None,
-            tool_calls_count: 0,
-            tools_called: Vec::new(),
-            pending_provider_auth_required: None,
-            served_without_provider: None,
-            guardian_denied: Some(GuardianDenial {
-                tool_name: "(plan)".to_owned(),
-                reason: reason.to_owned(),
-            }),
-            guardian_confirm: None,
-            capability_claim_unverified: false,
-            provider_warnings: Vec::new(),
-        }
-    }
-
     /// `true` when this turn produced nothing the athlete can be shown.
     ///
     /// Mirrors the rule the messaging egress applies before it sends the
@@ -577,7 +585,10 @@ pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String 
 pub const PLATFORM_MCP_SERVER_NAME: &str = "dravr";
 
 /// Two optional usages summed, counting the optional counts too.
-fn sum_usage(first: Option<TokenUsage>, second: Option<TokenUsage>) -> Option<TokenUsage> {
+pub(crate) fn sum_usage(
+    first: Option<TokenUsage>,
+    second: Option<TokenUsage>,
+) -> Option<TokenUsage> {
     match (first, second) {
         (None, None) => None,
         (Some(only), None) | (None, Some(only)) => Some(only),

@@ -19,15 +19,21 @@ use crate::common;
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use pierre_commands::guardian_confirm::ConfirmHandler;
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::PendingGuardianAction;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::FactKind;
+use pierre_providers::ai_scope::Provenance;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -612,5 +618,59 @@ async fn an_executor_bound_to_the_endurance_conversation_with_the_taper_turn_age
     assert!(
         text.contains(ENDURANCE_TITLE) && text.contains("replace_season"),
         "the taper turn may not re-lay the endurance season unasked: {text}"
+    );
+}
+
+/// A write the Guardian parked on a `@taper` turn runs on `/confirm` as the
+/// agent the athlete was talking to, not as the conversation's (carnet#1398).
+#[tokio::test]
+async fn a_parked_write_confirmed_later_is_authored_by_the_turns_agent() {
+    let a = athlete().await;
+    let season = endurance_lays_the_season(&a).await;
+    let action = PendingGuardianAction {
+        id: Uuid::new_v4().simple().to_string(),
+        tenant_id: a.tenant.to_string(),
+        user_id: a.user.to_string(),
+        conversation_id: Some(a.endurance_dm.clone()),
+        tool_name: "save_training_plan".to_owned(),
+        arguments: json!({ "weeks": [week("2026-11-16", "taper via mention")] }),
+        deny_reason: "tainted_sink".to_owned(),
+        turn_agent_id: Some(a.taper.clone()),
+        seat: Some(TurnSeat::Subject.as_stored().to_owned()),
+        turn_provenance: Provenance::new().to_stored(),
+    };
+    a.resources
+        .common
+        .repos
+        .guardian_actions
+        .create_pending_action(&action, Utc::now() + Duration::minutes(5))
+        .await
+        .unwrap();
+
+    let ctx = PlatformCommandContext {
+        user_id: a.user,
+        tenant_id: a.tenant,
+        channel_type: "web".to_owned(),
+        args: vec![action.id.clone()],
+        raw_text: format!("/confirm {}", action.id),
+        ctx: Arc::<ServerContext>::clone(&a.resources),
+        locale: "en".to_owned(),
+        is_direct_message: true,
+        ambient_group_fallback: false,
+        conversation_id: Some(a.endurance_dm.clone()),
+        conversation_tenant_id: a.tenant,
+        sender_id: None,
+        rotation: ConversationRotation::default(),
+        tool_runtime: Arc::<ServerContext>::clone(&a.resources),
+    };
+    ConfirmHandler.execute(&ctx).await.unwrap();
+
+    assert_eq!(
+        week_authors(&a, &season).await,
+        vec![
+            ("2026-10-05".to_owned(), Some(a.endurance.clone())),
+            ("2026-11-16".to_owned(), Some(a.taper.clone())),
+        ],
+        "the parked turn's agent wrote it, and the conversation's did not"
     );
 }

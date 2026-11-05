@@ -494,9 +494,11 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 // consent, so it is not destructive. Its answer echoes the member's Dravr
 // display name and the group name, peer-written text the roster tools label
 // untrusted, so this one does too.
+// The proposal reaches another person's inbox, so in a tainted turn it answers
+// to the taint policy.
 // A coach's tool over other athletes' data: Dravr's own surfaces list and run
 // it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(ProposeAthleteLinkTool => UNTRUSTED_OUTPUT; first_party_only);
+crate::declare_security!(ProposeAthleteLinkTool => UNTRUSTED_OUTPUT | OUTBOUND_WRITE; first_party_only);
 
 #[cfg(test)]
 mod tests {

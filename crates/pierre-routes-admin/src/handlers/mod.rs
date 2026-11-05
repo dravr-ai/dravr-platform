@@ -36,6 +36,8 @@ pub mod eval_harness;
 pub mod feature_flags;
 /// Admin endpoints for the Guardian security-policy configuration.
 pub mod guardian_config;
+/// Admin endpoints listing and denying the tool calls the Guardian parked.
+pub mod guardian_pending;
 pub mod harness_config;
 pub mod impersonation;
 /// The single-use invitation a pre-approval allow can mail: issue the link,
@@ -50,6 +52,8 @@ pub mod new_users;
 pub mod provider_clone;
 /// Super-admin termination purge: every row one provider contributed, in every tenant.
 pub mod provider_data;
+/// The compare-and-set contract a document setting's save answers to.
+pub mod setting_revision;
 /// Admin endpoints for reading and writing tenant runtime settings.
 pub mod settings;
 /// Admin endpoints driving first-run / bootstrap setup of a tenant.

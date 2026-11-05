@@ -145,6 +145,9 @@ pub mod commitment_refresher;
 /// Assembles and starts the Strava seat reclaimer (carnet#505).
 pub mod seat_reclaim_worker;
 
+/// Per-instance poll that keeps the Guardian and harness policy converged on the database
+pub mod settings_poll;
+
 /// The periodic walk of each Strava athlete's history that seeds their
 /// all-time best efforts before any is announced (carnet#582).
 #[cfg(feature = "health-sync")]

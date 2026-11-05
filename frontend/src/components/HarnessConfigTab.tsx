@@ -4,10 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   adminApi,
+  HARNESS_CONFIG_STALE,
+  harnessRefusalOf,
   type HarnessConfigDocument,
   type HarnessConfigResponse,
   type LocaleGuardrails,
@@ -171,24 +173,37 @@ function validate(doc: HarnessConfigDocument): ValidationError[] {
 export default function HarnessConfigTab() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: HARNESS_CONFIG_QUERY_KEY,
     queryFn: () => adminApi.getHarnessConfig(),
   });
 
   const [draft, setDraft] = useState<HarnessConfigDocument>(defaultDocument());
   const [activeLocale, setActiveLocale] = useState<string>('en');
+  // Also the concurrency token a save echoes: verbatim from the response, since a
+  // `Date` would drop digits the server compares.
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [staleNotice, setStaleNotice] = useState<string | null>(null);
 
-  // Hydrate the form when the API responds. Avoid blowing away in-progress
-  // edits if the user is mid-typing — only sync on the first successful load.
+  // What the edit started from, so a background refetch can tell an edit in progress.
+  const [base, setBase] = useState<HarnessConfigDocument | null>(null);
+  const isDirty = base !== null && JSON.stringify(draft) !== JSON.stringify(base);
+
+  const hydrate = useCallback((response: HarnessConfigResponse) => {
+    setBase(response.config);
+    setDraft(response.config);
+    setSavedAt(response.updated_at);
+  }, []);
+
+  // A background refetch must not write over unsaved edits, and must not move the
+  // token under them either: a save still names the version it started from, so
+  // the server can refuse it rather than lose the other save.
   useEffect(() => {
-    if (data?.config) {
-      setDraft(data.config);
-      setSavedAt(data.updated_at);
+    if (data?.config && !isDirty) {
+      hydrate(data);
     }
-  }, [data]);
+  }, [data, isDirty, hydrate]);
 
   const validationErrors = useMemo(() => validate(draft), [draft]);
   const isInvalid = validationErrors.length > 0;
@@ -205,15 +220,37 @@ export default function HarnessConfigTab() {
     });
   }
 
+  const reloadAfterStale = async (message: string) => {
+    const fresh = await refetch();
+    // A failed refetch still carries the last good `data`, the very response the
+    // save was refused against, so `data` alone does not say the reload worked.
+    if (fresh.isError || !fresh.data) {
+      setStaleNotice(`${message} The configuration could not be reloaded, so your edits are still here.`);
+      return;
+    }
+    hydrate(fresh.data);
+    setStaleNotice(`${message} The form now shows the stored configuration, and your edits were discarded.`);
+  };
+
   const mutation = useMutation({
-    mutationFn: (doc: HarnessConfigDocument) => adminApi.putHarnessConfig(doc),
+    mutationFn: (doc: HarnessConfigDocument) => adminApi.putHarnessConfig(doc, savedAt),
     onSuccess: (resp: HarnessConfigResponse) => {
       setServerError(null);
-      setSavedAt(resp.updated_at);
+      setStaleNotice(null);
+      hydrate(resp);
       queryClient.setQueryData(HARNESS_CONFIG_QUERY_KEY, resp);
     },
     onError: (err: unknown) => {
-      setServerError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
+      setServerError(null);
+      setStaleNotice(null);
+      const refusal = harnessRefusalOf(err);
+      if (refusal?.code === HARNESS_CONFIG_STALE) {
+        void reloadAfterStale(refusal.message);
+      } else if (refusal) {
+        setServerError(refusal.message);
+      } else {
+        setServerError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
+      }
     },
   });
 
@@ -227,7 +264,8 @@ export default function HarnessConfigTab() {
     );
   }
 
-  if (isError) {
+  // A failed background refetch keeps the last good response, and the form with it.
+  if (isError && !data) {
     return (
       <Card className="p-6">
         <p className="text-sm text-error">
@@ -246,8 +284,10 @@ export default function HarnessConfigTab() {
               Coaching Harness Configuration
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Tunables for conversation compaction and response text guardrails.
-              Changes apply on the next agent turn.
+              Tunables for conversation compaction and response text guardrails. A save applies
+              at once on the instance that took it and reaches every other instance within its
+              settings poll (30 seconds unless PIERRE_SETTINGS_POLL_INTERVAL_SECS says otherwise),
+              with no restart.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -476,6 +516,19 @@ export default function HarnessConfigTab() {
         </Card>
       ) : null}
 
+      {data?.degraded_reason ? (
+        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
+          Showing what this instance holds, not the stored row: {data.degraded_reason}. Saving
+          replaces the row.
+        </p>
+      ) : null}
+
+      {staleNotice ? (
+        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
+          {staleNotice}
+        </p>
+      ) : null}
+
       {serverError ? (
         <Card className="p-4">
           <p className="text-sm text-error">{serverError}</p>
@@ -486,7 +539,7 @@ export default function HarnessConfigTab() {
         <Button
           variant="secondary"
           onClick={() => {
-            if (data?.config) setDraft(data.config);
+            if (data?.config) hydrate(data);
           }}
           disabled={mutation.isPending}
         >

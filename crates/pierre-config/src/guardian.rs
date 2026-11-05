@@ -28,6 +28,10 @@ pub struct GuardianSettings {
     pub tainted_destructive: Option<String>,
     /// `GUARDIAN_PLAN_MODE`: `off` | `enforce`
     pub plan_mode: Option<String>,
+    /// `GUARDIAN_PLAN_MODE_ARMABLE`: `true` | `false`. Whether an admin edit may
+    /// arm `plan_mode=enforce` at runtime. Unset refuses it: `GUARDIAN_PLAN_MODE`
+    /// is the deploy-time arming path and does not need this.
+    pub plan_mode_armable: Option<String>,
 }
 
 impl GuardianSettings {
@@ -43,6 +47,7 @@ impl GuardianSettings {
             external_send_tenants: read("GUARDIAN_EXTERNAL_SEND_TENANTS"),
             tainted_destructive: read("GUARDIAN_TAINTED_DESTRUCTIVE"),
             plan_mode: read("GUARDIAN_PLAN_MODE"),
+            plan_mode_armable: read("GUARDIAN_PLAN_MODE_ARMABLE"),
         }
     }
 }

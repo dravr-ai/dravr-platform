@@ -10,8 +10,8 @@
 //! Erik Meijer's *Guardians of the Agents*: prompt injection is SQL injection —
 //! untrusted data must not become executable intent). A single Guardian is
 //! interposed at [`crate::protocol::executor::UniversalExecutor::execute_tool`],
-//! the one chokepoint every transport (chat ReAct loop, MCP-direct, A2A, the
-//! Copilot-headless `/mcp` loopback) funnels through.
+//! the one chokepoint every transport (chat ReAct loop, MCP-direct, A2A, an ACP
+//! agent's tool-host session) funnels through.
 //!
 //! It does **not** "solve" injection — it has no symbolic dataflow, so a single
 //! tainted ordinary write still goes through. What it does: cap blast radius
@@ -28,9 +28,11 @@
 //!   transport honours it.
 //! - **Taint / budget / egress** ([`Guardian::decide`]) — security heuristics,
 //!   gated by [`GuardianMode`]: `observe` logs would-be denials, `enforce`
-//!   blocks.
+//!   blocks. Under `enforce` a turn's first block also stops it committing: the
+//!   athlete's reply is settled, so later writes are refused while reads go on.
 
 pub mod config;
+pub mod impact;
 pub mod planner;
 pub mod policy;
 pub mod state;
@@ -38,16 +40,21 @@ pub mod verify;
 pub mod workflow;
 
 pub use config::{
-    validate_document, GuardianConfigDocument, GuardianConfigRegistry, GuardianConfigSnapshot,
-    GuardianConfigSource, GuardianFieldSource, GuardianFieldSources,
+    parse_persisted_document, validate_document, validate_plan_mode_arming, GuardianConfigDocument,
+    GuardianConfigRegistry, GuardianConfigSnapshot, GuardianConfigSource, GuardianFieldSource,
+    GuardianFieldSources, GuardianReloadOutcome, PersistedGuardianDocument,
     GUARDIAN_CONFIG_SCHEMA_VERSION, GUARDIAN_CONFIG_SETTING_KEY,
 };
-pub use planner::{PlanDenial, StepOutput, WorkflowExecutor};
+pub use impact::{high_impact_changes, GuardianImpact};
+pub use planner::{PlanDenial, PlanRun, StepOutput, WorkflowExecutor, PLAN_BINDING_FAILED};
 pub use policy::{
     validate_settings, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
     PlanMode, TaintedDestructive,
 };
-pub use state::{GuardianTurns, HeadlessBlock, ReadFingerprint, TurnKey, TurnState};
+pub use state::{
+    CallFate, GuardianTurns, HeadlessBlock, ReadFingerprint, TaintOrigin, TurnKey, TurnState,
+};
+pub use verify::OfferedOnly;
 pub use verify::{verify, ToolLabels, VerifyError, VerifyOutcome};
 pub use workflow::{ArgValue, PlanParseError, StepId, SymRef, Workflow, WorkflowStep};
 
@@ -99,6 +106,10 @@ pub enum DenyReason {
     BudgetExceeded,
     /// The egress allowlist forbids external send for this tenant.
     EgressForbidden,
+    /// An earlier call in this turn was denied or parked, so the reply the
+    /// athlete gets is about that call and nothing further may commit behind it.
+    /// Reads stay allowed, so the model can finish its answer.
+    TurnBlocked,
 }
 
 impl DenyReason {
@@ -110,6 +121,7 @@ impl DenyReason {
             Self::TaintedSink => "tainted_sink",
             Self::BudgetExceeded => "budget_exceeded",
             Self::EgressForbidden => "egress_forbidden",
+            Self::TurnBlocked => "turn_blocked",
         }
     }
 }
@@ -152,7 +164,7 @@ pub fn guardian_gate(
     // Taint provenance captured under the turn lock when the call is a
     // tainted-destructive sequence the `Log` phase lets through, so the
     // telemetry below is emitted outside the lock.
-    let mut logged_taint_sources: Option<Vec<String>> = None;
+    let mut logged_taint: Option<(Vec<String>, Option<&'static str>)> = None;
     let (decision, reserved) = turns.decide_and_reserve(
         turn_key,
         tool_name,
@@ -161,25 +173,36 @@ pub fn guardian_gate(
         |turn_state| {
             let decision = guardian.decide(labels, writes_data, tenant, turn_state);
             if guardian.logs_tainted_destructive(labels, turn_state, decision) {
-                logged_taint_sources = Some(turn_state.taint_sources().to_vec());
+                logged_taint = Some((
+                    turn_state.taint_sources().to_vec(),
+                    turn_state.taint_origin(),
+                ));
             }
             decision
         },
-        // Reserve budget when the call WILL run: on an allow, and on a
-        // would-deny/would-confirm in a non-blocking mode (observe/off execute
-        // anyway).
-        |decision| matches!(decision, Decision::Allow) || !mode_blocks,
+        // The call runs on an allow, and on a would-deny/would-confirm in a
+        // non-blocking mode (observe/off execute anyway). Only enforce mode ever
+        // blocks, so observe and off never latch the turn (carnet#1397).
+        |decision| {
+            if matches!(decision, Decision::Allow) || !mode_blocks {
+                CallFate::Runs
+            } else {
+                CallFate::Blocked
+            }
+        },
     );
-    if let Some(taint_sources) = logged_taint_sources {
+    if let Some((taint_sources, taint_origin)) = logged_taint {
         // The Phase 1 base-rate signal for `TaintedDestructive`: under `Log` the
         // call proceeds, so this line is the only record that `Confirm` would
-        // have parked it. Grouped by `tool_name` and `taint_sources` in Cloud
-        // Logging, it is the measurement the confirm phase is armed on.
+        // have parked it. Grouped by `tool_name`, `taint_sources` and
+        // `taint_origin` in Cloud Logging, it is the measurement the confirm
+        // phase is armed on.
         warn!(
             tool_name = %tool_name,
             rule = TAINTED_DESTRUCTIVE_RULE,
             phase = "log",
             taint_sources = %taint_sources.join(","),
+            taint_origin = taint_origin.unwrap_or("none"),
             tenant_id = ?tenant,
             mode = guardian.mode().as_str(),
             "guardian logged tainted-destructive dispatch"
@@ -249,6 +272,13 @@ impl Guardian {
     /// applies [`GuardianMode`] (observe logs, enforce blocks). The separate
     /// tool-disable gate ([`caller_tool_enabled`] at the dispatch chokepoint,
     /// [`tenant_tool_enabled`] inside a tool) is always enforced.
+    ///
+    /// A turn already blocked is checked first, ahead of the budgets. The reply
+    /// is settled by then, so the later call's refusal must not vary with what
+    /// is left of a budget, and anyone grouping `budget_exceeded` must not
+    /// count the calls an earlier denial stopped. Only enforce mode latches a
+    /// turn, so observe and off never reach this arm; a mode flipped mid-turn
+    /// reads it as one more would-deny and lets the call run.
     #[must_use]
     pub fn decide(
         &self,
@@ -257,6 +287,17 @@ impl Guardian {
         tenant: Option<Uuid>,
         turn: &TurnState,
     ) -> Decision {
+        // Tier 0 — the turn stopped committing at its first block. Reads carry
+        // on so the model can finish.
+        if turn.is_blocked()
+            && (writes_data
+                || labels.is_irreversible()
+                || labels.is_external_send()
+                || labels.is_outbound_write())
+        {
+            return Decision::Deny(DenyReason::TurnBlocked);
+        }
+
         // Tier A — always-on, taint-independent, false-positive-free.
         if labels.is_irreversible()
             && turn.destructive_count() >= self.policy.max_destructive_per_turn
@@ -277,7 +318,9 @@ impl Guardian {
                 // outbound send. Hard-deny — near-zero false positives.
                 return Decision::Deny(DenyReason::TaintedSink);
             }
-            if labels.is_irreversible() {
+            // An outbound write takes this branch without having been charged
+            // above: the destructive budget caps irreversible calls alone.
+            if labels.answers_to_taint_policy() {
                 match self.policy.tainted_destructive {
                     TaintedDestructive::Log => {}
                     TaintedDestructive::Confirm => return Decision::ConfirmRequired,
@@ -291,9 +334,9 @@ impl Guardian {
         Decision::Allow
     }
 
-    /// Whether `decision` let through an `IRREVERSIBLE` call in a tainted turn
-    /// only because the policy is [`TaintedDestructive::Log`] — the sequence
-    /// `Confirm` would park and `Deny` would block. A call already denied for
+    /// Whether `decision` let through an `IRREVERSIBLE` or `OUTBOUND_WRITE` call
+    /// in a tainted turn only because the policy is [`TaintedDestructive::Log`] —
+    /// the sequence `Confirm` would park and `Deny` would block. A call already denied for
     /// another reason (budget) is not counted: `Confirm` would deny it the same
     /// way, and the gate logs that denial on its own line.
     fn logs_tainted_destructive(
@@ -304,7 +347,7 @@ impl Guardian {
     ) -> bool {
         decision == Decision::Allow
             && self.policy.tainted_destructive == TaintedDestructive::Log
-            && labels.is_irreversible()
+            && labels.answers_to_taint_policy()
             && turn.is_tainted()
     }
 }
@@ -423,11 +466,12 @@ mod tests {
     use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
 
     use super::*;
+    use crate::context::GUARDIAN_TAINT_ORIGIN;
 
     /// In-memory sink for the lines one gate call logs. The `Arc` is shared by
     /// every writer the subscriber makes and by the test that reads it back.
     #[derive(Clone, Default)]
-    struct LogSink(Arc<Mutex<Vec<u8>>>);
+    pub(super) struct LogSink(pub(super) Arc<Mutex<Vec<u8>>>);
 
     impl Write for LogSink {
         fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
@@ -449,6 +493,15 @@ mod tests {
     /// Dispatch one `IRREVERSIBLE` call through [`guardian_gate`] under the
     /// `Log` policy, in a turn tainted by `sources`, and return what it logged.
     fn log_phase_gate_output(sources: &[&str]) -> String {
+        log_phase_gate_output_for("delete_agent", SecurityLabels::IRREVERSIBLE, sources)
+    }
+
+    /// [`log_phase_gate_output`] for any tool and labels.
+    fn log_phase_gate_output_for(
+        tool_name: &str,
+        labels: SecurityLabels,
+        sources: &[&str],
+    ) -> String {
         let sink = LogSink::default();
         let subscriber = log_fmt()
             .with_writer(sink.clone())
@@ -461,15 +514,7 @@ mod tests {
             turns.record_taint(&key, source, SecurityLabels::UNTRUSTED_OUTPUT);
         }
         let (outcome, _reserved) = with_default(subscriber, || {
-            guardian_gate(
-                &guardian,
-                &turns,
-                &key,
-                "delete_agent",
-                SecurityLabels::IRREVERSIBLE,
-                false,
-                None,
-            )
+            guardian_gate(&guardian, &turns, &key, tool_name, labels, false, None)
         });
         assert_eq!(outcome, GateOutcome::Proceed);
         let bytes = sink.0.lock().expect("sink lock");
@@ -492,6 +537,38 @@ mod tests {
             log.contains("taint_sources=get_activities,get_activity_intelligence"),
             "{log}"
         );
+    }
+
+    #[test]
+    fn log_phase_gate_names_who_tainted_the_turn() {
+        let model = log_phase_gate_output(&["get_activities"]);
+        assert!(model.contains(r#"taint_origin="model""#), "{model}");
+
+        let prefetched = GUARDIAN_TAINT_ORIGIN.sync_scope(TaintOrigin::Prefetch, || {
+            log_phase_gate_output(&["get_activities"])
+        });
+        assert!(
+            prefetched.contains(r#"taint_origin="prefetch""#),
+            "{prefetched}"
+        );
+        assert!(
+            prefetched.contains("taint_sources=get_activities"),
+            "the existing field keeps its value: {prefetched}"
+        );
+    }
+
+    #[test]
+    fn log_phase_gate_logs_a_tainted_outbound_write_on_the_same_line() {
+        let log = log_phase_gate_output_for(
+            "prescribe_workout",
+            SecurityLabels::OUTBOUND_WRITE,
+            &["get_activities"],
+        );
+        assert!(
+            log.contains("guardian logged tainted-destructive dispatch"),
+            "{log}"
+        );
+        assert!(log.contains("tool_name=prescribe_workout"), "{log}");
     }
 
     #[test]
@@ -536,6 +613,50 @@ mod tests {
         let turn = tainted_turn();
         let decision = guardian.decide(SecurityLabels::empty(), true, None, &turn);
         assert!(!guardian.logs_tainted_destructive(SecurityLabels::empty(), &turn, decision));
+    }
+
+    #[test]
+    fn log_phase_records_a_tainted_outbound_write_and_charges_no_destructive_budget() {
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let turn = tainted_turn();
+        let decision = guardian.decide(SecurityLabels::OUTBOUND_WRITE, true, None, &turn);
+        assert_eq!(decision, Decision::Allow);
+        assert!(guardian.logs_tainted_destructive(SecurityLabels::OUTBOUND_WRITE, &turn, decision));
+
+        // With the destructive budget spent, an outbound write still runs: the
+        // cap is on irreversible calls, and this is not one.
+        let mut spent = tainted_turn();
+        spent.record_success("delete_agent", SecurityLabels::IRREVERSIBLE, false);
+        assert_eq!(
+            guardian.decide(SecurityLabels::OUTBOUND_WRITE, true, None, &spent),
+            Decision::Allow
+        );
+        spent.reserve(SecurityLabels::OUTBOUND_WRITE, true);
+        assert_eq!(spent.destructive_count(), 1, "no destructive charge");
+    }
+
+    #[test]
+    fn armed_taint_policies_hold_an_outbound_write_only_in_a_tainted_turn() {
+        let tainted = tainted_turn();
+        let clean = TurnState::default();
+        for (armed, held) in [
+            (TaintedDestructive::Confirm, Decision::ConfirmRequired),
+            (
+                TaintedDestructive::Deny,
+                Decision::Deny(DenyReason::TaintedSink),
+            ),
+        ] {
+            let guardian = Guardian::new(policy(armed));
+            assert_eq!(
+                guardian.decide(SecurityLabels::OUTBOUND_WRITE, true, None, &tainted),
+                held
+            );
+            assert_eq!(
+                guardian.decide(SecurityLabels::OUTBOUND_WRITE, true, None, &clean),
+                Decision::Allow,
+                "an untainted outbound write is an ordinary write"
+            );
+        }
     }
 
     #[test]

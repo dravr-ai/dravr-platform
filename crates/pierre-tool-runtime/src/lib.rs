@@ -134,6 +134,7 @@ pub mod scopes;
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
+pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
 
@@ -156,6 +157,9 @@ mod head_stream;
 /// loop, a degenerate reply retried once, the loopback's signals drained
 #[cfg(feature = "client-chat")]
 mod headless_finalize;
+/// The plan-then-verify tool loop a super admin can arm in place of `ReAct`
+#[cfg(feature = "client-chat")]
+mod planned_loop;
 #[cfg(feature = "client-chat")]
 mod prompt_projection;
 #[cfg(feature = "client-chat")]

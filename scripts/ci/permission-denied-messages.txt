@@ -31,6 +31,7 @@ crates/pierre-auth/src/auth/method.rs:An API key cannot be exchanged for a sessi
 crates/pierre-auth/src/auth/method.rs:An MCP token cannot be exchanged for a session; sign in to obtain one
 crates/pierre-auth/src/auth/method.rs:An impersonation token cannot be exchanged for a session
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
+crates/pierre-core/src/admin/models.rs:This setting applies to the whole platform; a token scoped to one tenant cannot read or change it
 crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}
 crates/pierre-core/src/error_helpers.rs:User state error: {message}

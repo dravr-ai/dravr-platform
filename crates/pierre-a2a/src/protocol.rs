@@ -33,7 +33,9 @@ use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, lo
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::first_party_tools;
-use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocol::{
+    guardian_block_reason, UniversalRequest, UniversalResponse, UniversalToolExecutor,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
@@ -104,12 +106,40 @@ struct PreparedSend {
     history: Vec<Message>,
 }
 
+/// Why a message produced no tool output.
+struct SendFailure {
+    /// The human-readable reason, surfaced as the `failed` status message.
+    reason: String,
+    /// The Guardian's machine-readable refusal when it stopped the call
+    /// (`error_code` + `reason`), for a client to branch on. It rides beside the
+    /// text as a data part, so a client reading only the text sees what it did.
+    data: Option<Value>,
+}
+
+impl SendFailure {
+    /// A failure with nothing beyond its text.
+    fn text(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            data: None,
+        }
+    }
+}
+
 /// Result of executing a message against its task.
 enum SendOutcome {
     /// A named tool ran successfully and produced this result
     Tool(String, Value),
-    /// The message produced no tool output, for this human-readable reason
-    Failure(String),
+    /// The message produced no tool output
+    Failure(SendFailure),
+}
+
+/// The Guardian's `error_code` and `reason` when it denied the call, read only
+/// from a response the chokepoint itself stamped: a tool cannot put words here.
+fn guardian_refusal_data(response: &UniversalResponse) -> Option<Value> {
+    (guardian_block_reason(response) == Some("guardian"))
+        .then(|| response.result.clone())
+        .flatten()
 }
 
 impl A2AServer {
@@ -720,7 +750,7 @@ impl A2AServer {
             }
             // A message addressing no registered tool has nothing to run:
             // the task fails with the shape the surface accepts.
-            None => SendOutcome::Failure(NO_TOOL_INTENT_MESSAGE.to_owned()),
+            None => SendOutcome::Failure(SendFailure::text(NO_TOOL_INTENT_MESSAGE)),
         };
 
         match outcome {
@@ -762,7 +792,20 @@ impl A2AServer {
         text: String,
         history: &mut Vec<Message>,
     ) -> Message {
-        let mut reply = Message::agent(Uuid::new_v4().to_string(), vec![Part::text(text)]);
+        Self::build_reply_with(task_id, context_id, text, Vec::new(), history)
+    }
+
+    /// [`Self::build_reply`] with `extra_parts` after the text.
+    fn build_reply_with(
+        task_id: &str,
+        context_id: &str,
+        text: String,
+        extra_parts: Vec<Part>,
+        history: &mut Vec<Message>,
+    ) -> Message {
+        let mut parts = vec![Part::text(text)];
+        parts.extend(extra_parts);
+        let mut reply = Message::agent(Uuid::new_v4().to_string(), parts);
         reply.task_id = Some(task_id.to_owned());
         reply.context_id = Some(context_id.to_owned());
         history.push(reply.clone()); // Safe: Message ownership for history
@@ -776,16 +819,23 @@ impl A2AServer {
         task_id: &str,
         context_id: &str,
         mut history: Vec<Message>,
-        failure: String,
+        failure: SendFailure,
     ) {
-        let reply = Self::build_reply(task_id, context_id, failure, &mut history);
+        let SendFailure { reason, data } = failure;
+        let extra_parts = data.iter().cloned().map(Part::data).collect();
+        let reply = Self::build_reply_with(task_id, context_id, reason, extra_parts, &mut history);
         Self::persist_history(ctx, task_id, &history).await;
 
         let status_message = to_value(&reply).ok();
         if let Err(e) = ctx
             .repos()
             .a2a
-            .update_task_status(task_id, &TaskState::Failed, None, status_message.as_ref())
+            .update_task_status(
+                task_id,
+                &TaskState::Failed,
+                data.as_ref(),
+                status_message.as_ref(),
+            )
             .await
         {
             error!("Failed to persist A2A task failure: {e}");
@@ -905,30 +955,30 @@ impl A2AServer {
     }
 
     /// Execute a registered tool against the authenticated user's tenant.
-    /// Returns the tool output on success, or a human-readable failure
-    /// description (surfaced on the task as the `failed` status message).
+    /// Returns the tool output on success, or the failure (surfaced on the task
+    /// as the `failed` status message).
     async fn execute_registered_tool(
         ctx: &Arc<dyn A2ACtx>,
         tool_runtime: &Arc<dyn ToolRuntime>,
         principal: &AuthPrincipal,
         tool_name: &str,
         tool_params: Value,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, SendFailure> {
         let user_id = principal.user_id;
         // Resolve tenant context — required for all A2A tool execution.
         let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
-                Ok(None) => return Err("User does not belong to any tenant".into()),
+                Ok(None) => return Err(SendFailure::text("User does not belong to any tenant")),
                 Err(e) => {
                     log_tenant_failure(user_id, &e);
-                    return Err("Failed to resolve tenant context".into());
+                    return Err(SendFailure::text("Failed to resolve tenant context"));
                 }
             };
 
         if !tool_runtime.tool_registry().contains(tool_name) {
-            return Err(format!("Unknown tool: {tool_name}"));
+            return Err(SendFailure::text(format!("Unknown tool: {tool_name}")));
         }
 
         // The unified executor: Guardian chokepoint and admin/tenant context as on MCP and
@@ -950,10 +1000,16 @@ impl A2AServer {
             Ok(response) if response.success => Ok(response
                 .result
                 .unwrap_or_else(|| Value::Object(Map::default()))),
-            Ok(response) => Err(response
-                .error
-                .unwrap_or_else(|| "Tool execution failed".into())),
-            Err(e) => Err(e.to_string()),
+            Ok(response) => {
+                let data = guardian_refusal_data(&response);
+                Err(SendFailure {
+                    reason: response
+                        .error
+                        .unwrap_or_else(|| "Tool execution failed".into()),
+                    data,
+                })
+            }
+            Err(e) => Err(SendFailure::text(e.to_string())),
         }
     }
 
