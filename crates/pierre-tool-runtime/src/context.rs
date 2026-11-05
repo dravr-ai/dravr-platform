@@ -85,6 +85,19 @@ tokio::task_local! {
     /// stored locale.
     pub static TURN_LOCALE: Option<String>;
 
+    /// Whether the in-flight tool call's turn was posted where only the
+    /// caller reads the reply.
+    ///
+    /// `Some(false)` on a turn other people read: a group's room, or a
+    /// messaging group chat no group is bound to (carnet#1421). The
+    /// conversation row cannot tell that chat from a direct message — both
+    /// carry no group — so a tool that publishes another athlete's data only
+    /// where the caller alone reads it asks this. `pierre_chat_pipeline::run`
+    /// scopes it around the whole turn from the turn's input; the executor
+    /// reads it and re-scopes it around each tool body, as it does
+    /// [`TURN_LOCALE`]. Absent for MCP-direct / A2A / SSE calls.
+    pub static TURN_DIRECT_MESSAGE: Option<bool>;
+
     /// Guardian turn token for the in-flight tool call.
     ///
     /// Scoped by the executor
@@ -226,6 +239,9 @@ pub struct ToolExecutionContext {
     /// The locale the originating chat turn is conducted in; see
     /// [`TURN_LOCALE`].
     pub turn_locale: Option<String>,
+    /// Whether the originating chat turn was a direct message; see
+    /// [`TURN_DIRECT_MESSAGE`]. `None` outside a chat turn.
+    pub(crate) turn_direct_message: Option<bool>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -256,6 +272,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: None,
             turn_agent_id: None,
             turn_locale: None,
+            turn_direct_message: None,
             is_admin: None,
         }
     }
@@ -298,6 +315,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
             turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
+            turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -466,6 +484,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: self.conversation_tenant_id,
             turn_agent_id: self.turn_agent_id.clone(),
             turn_locale: self.turn_locale.clone(),
+            turn_direct_message: self.turn_direct_message,
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -482,6 +501,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
+            .field("turn_direct_message", &self.turn_direct_message)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

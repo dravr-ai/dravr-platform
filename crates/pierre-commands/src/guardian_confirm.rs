@@ -322,7 +322,8 @@ async fn execute_confirmed(
             // arrived under — same resolution the original turn's executor carried.
             executor = executor
                 .with_conversation_id(conversation_id)
-                .with_conversation_tenant(ctx.conversation_tenant_id.as_uuid());
+                .with_conversation_tenant(ctx.conversation_tenant_id.as_uuid())
+                .with_direct_message(ctx.is_direct_message);
         }
         executor.execute_tool(request).await
     })

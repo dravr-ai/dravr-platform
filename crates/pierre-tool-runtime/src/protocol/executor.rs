@@ -7,6 +7,7 @@
 use super::auth::AuthService;
 use super::budget_reservation::BudgetReservation;
 use super::dispatch_span::{record_outcome, tool_call_span};
+use super::refusal_response;
 use super::repeated_read;
 use super::tool_response::{
     is_unavailable_over_transport, protocol_error_from_raised, provider_auth_required_slug,
@@ -16,7 +17,7 @@ use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
-    TURN_AGENT_ID, TURN_LOCALE,
+    TURN_AGENT_ID, TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
 use crate::guardian::{
@@ -45,7 +46,6 @@ use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
@@ -98,6 +98,11 @@ pub struct UniversalExecutor {
     /// [`crate::context::TURN_LOCALE`] when the executor is built inside a
     /// turn and scoped back around each tool body. `None` outside a chat turn.
     turn_locale: Option<String>,
+    /// Whether the turn was a direct message, read from
+    /// [`crate::context::TURN_DIRECT_MESSAGE`] when the executor is built
+    /// inside a turn, or bound with [`Self::with_direct_message`], and scoped
+    /// back around each tool body. `None` outside a chat turn.
+    turn_direct_message: Option<bool>,
     /// Per-**utterance** token used solely as the Guardian's turn key so taint
     /// and per-turn budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -159,6 +164,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
+            .field("turn_direct_message", &self.turn_direct_message)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
@@ -185,6 +191,10 @@ impl UniversalExecutor {
             // The turn service scopes the turn's locale around the whole turn,
             // and a nested dispatch inherits its caller's.
             turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
+            // The chat pipeline scopes whether the turn is a direct message
+            // around the whole turn, and a nested dispatch inherits it the same
+            // way.
+            turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
             // taints the SAME turn as its caller. Absent outside any tool scope
@@ -308,6 +318,15 @@ impl UniversalExecutor {
         self
     }
 
+    /// Bind whether the turn was a direct message, for an executor built
+    /// outside the chat pipeline's scope — the `/confirm` re-dispatch of a
+    /// parked call, which runs from the command that confirmed it.
+    #[must_use]
+    pub const fn with_direct_message(mut self, is_direct_message: bool) -> Self {
+        self.turn_direct_message = Some(is_direct_message);
+        self
+    }
+
     /// Return a cheap clone of the current cageux intelligence config
     /// snapshot from the server's hot-reloadable registry.
     ///
@@ -354,7 +373,7 @@ impl UniversalExecutor {
                     reason = "tenant_disabled",
                     "tool disabled for tenant — returning in-band refusal"
                 );
-                return Ok(Some(tenant_disabled_response(tool_name)));
+                return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
             }
         }
 
@@ -621,7 +640,9 @@ impl UniversalExecutor {
                     );
                 }
                 // Blocked before execution: nothing ran, nothing was reserved.
-                return Ok(guardian_denied_response(&tool_name, reason));
+                return Ok(refusal_response::guardian_denied_response(
+                    &tool_name, reason,
+                ));
             }
             GateOutcome::ConfirmRequired => {
                 // `args` owns the parameters (moved out of `request` above);
@@ -680,14 +701,17 @@ impl UniversalExecutor {
                     self.turn_agent_id.clone(),
                     TURN_LOCALE.scope(
                         self.turn_locale.clone(),
-                        GUARDIAN_TURN_TOKEN.scope(
-                            Some(resolved_turn_token.clone()),
-                            // The grant travels with the turn token for the
-                            // same reason: a nested dispatch must run under
-                            // exactly what authorized this call, never wider.
-                            GRANTED_SCOPES.scope(
-                                self.scopes.clone(),
-                                tool.execute(&self.resources, &ctx, args),
+                        TURN_DIRECT_MESSAGE.scope(
+                            self.turn_direct_message,
+                            GUARDIAN_TURN_TOKEN.scope(
+                                Some(resolved_turn_token.clone()),
+                                // The grant travels with the turn token for the
+                                // same reason: a nested dispatch must run under
+                                // exactly what authorized this call, never wider.
+                                GRANTED_SCOPES.scope(
+                                    self.scopes.clone(),
+                                    tool.execute(&self.resources, &ctx, args),
+                                ),
                             ),
                         ),
                     ),
@@ -1020,7 +1044,7 @@ impl UniversalExecutor {
                     reason: DenyReason::TaintedSink,
                 },
             );
-            return guardian_denied_response(tool_name, DenyReason::TaintedSink);
+            return refusal_response::guardian_denied_response(tool_name, DenyReason::TaintedSink);
         }
 
         warn!(
@@ -1038,82 +1062,7 @@ impl UniversalExecutor {
                 pending_id: pending_id.clone(),
             },
         );
-        guardian_confirm_response(tool_name, &pending_id)
-    }
-}
-
-/// Build the in-band response for a confirm-required tool call.
-///
-/// Shaped like [`guardian_denied_response`] but with its own machine code and
-/// `blocked_reason` so the tool-loop detector renders a confirmation ask, not
-/// a refusal. Carries the opaque claim token — never the arguments, which can
-/// hold the very injected content the taint rule fired on.
-fn guardian_confirm_response(tool_name: &str, pending_id: &str) -> UniversalResponse {
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "blocked_reason".to_owned(),
-        serde_json::Value::String("guardian_confirm".to_owned()),
-    );
-    metadata.insert(
-        "pending_id".to_owned(),
-        serde_json::Value::String(pending_id.to_owned()),
-    );
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": "guardian_confirm_required",
-            "pending_id": pending_id,
-        })),
-        error: Some(format!(
-            "Tool '{tool_name}' requires user confirmation before it can run"
-        )),
-        metadata: Some(metadata),
-    }
-}
-
-/// Build the in-band response for a Guardian-denied tool call.
-///
-/// Shaped exactly like a tool's own `is_error` response so the LLM observes a
-/// refusal it can adapt to — it is deliberately **not** re-raised as a
-/// `ProtocolError`. The chat render layer keys on
-/// `result.error_code == "guardian_denied"` to localize the user-facing message.
-fn guardian_denied_response(tool_name: &str, reason: DenyReason) -> UniversalResponse {
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "blocked_reason".to_owned(),
-        serde_json::Value::String("guardian".to_owned()),
-    );
-    metadata.insert(
-        "guardian_reason".to_owned(),
-        serde_json::Value::String(reason.as_str().to_owned()),
-    );
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": "guardian_denied",
-            "reason": reason.as_str(),
-        })),
-        error: Some(format!("Tool '{tool_name}' was blocked by security policy")),
-        metadata: Some(metadata),
-    }
-}
-
-/// Build the in-band refusal for a tool a tenant has disabled by configuration.
-///
-/// Unlike [`guardian_denied_response`], this carries **no** `blocked_reason`
-/// guardian metadata and a distinct `error_code`, so the chat pipeline treats it
-/// as an ordinary tool refusal the LLM adapts to (pick another tool, answer from
-/// memory) rather than a "blocked for safety" security incident that abandons
-/// the turn. A tenant disabling a tool is config, not a security event.
-fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": guardian::TENANT_DISABLED_ERROR_CODE,
-            "reason": guardian::TENANT_DISABLED_REASON,
-        })),
-        error: Some(guardian::tenant_disabled_message(tool_name)),
-        metadata: None,
+        refusal_response::guardian_confirm_response(tool_name, &pending_id)
     }
 }
 

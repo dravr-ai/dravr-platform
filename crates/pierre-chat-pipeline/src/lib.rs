@@ -117,6 +117,7 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::context::TURN_DIRECT_MESSAGE;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
 
@@ -349,9 +350,17 @@ pub async fn run(
         // withheld, as an undeclared read would withhold it.
         Err(_) => ai_scope::ai_consent_withheld().as_ref().clone(),
     };
+    // Every tool the turn dispatches knows whether other people read the
+    // reply, which the conversation row cannot say: a messaging group chat
+    // with no group bound to it carries no group, as a direct message does
+    // (carnet#1421). Executors built inside the turn carry it to their tool
+    // bodies.
     let outcome = ai_scope::for_model(ai_scope::with_ai_consent(
         consent_withheld,
-        Box::pin(run_turn(ctx, input, profile, hooks)),
+        Box::pin(TURN_DIRECT_MESSAGE.scope(
+            Some(input.is_direct_message),
+            run_turn(ctx, input, profile, hooks),
+        )),
     ))
     .await;
 

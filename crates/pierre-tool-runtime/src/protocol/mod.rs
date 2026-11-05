@@ -26,6 +26,8 @@ pub mod provider_helpers;
 pub mod reauth_notice;
 /// Classification of a failed token refresh: a refusal of the grant or client, or transient
 mod refresh_failure;
+/// The in-band responses the executor answers a refused or parked call with
+mod refusal_response;
 /// A read repeated within one turn, answered with a pointer to its result
 mod repeated_read;
 /// Synced sleep and recovery reads, merged across sources (sleep + analytics tools)
