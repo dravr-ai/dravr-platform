@@ -55,6 +55,14 @@ resource "google_compute_backend_service" "frontend" {
   backend {
     group = google_compute_region_network_endpoint_group.frontend.id
   }
+
+  # The one log of a request that never reached nginx: a certificate or routing
+  # fault, or the frontend service down. Logs share the project's free monthly
+  # ingestion; traffic here is small, so every request is kept.
+  log_config {
+    enable      = true
+    sample_rate = 1.0
+  }
 }
 
 # -----------------------------------------------------------------------------

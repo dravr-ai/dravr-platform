@@ -17,8 +17,9 @@
 use crate::common;
 use crate::helpers;
 
+use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
@@ -28,10 +29,17 @@ use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::models::UserStatus;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use regex::Regex;
 use sha2::{Digest, Sha256};
+use tracing::field::{Field, Visit};
+use tracing::{Event, Subscriber};
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 use url::Url;
 
 const REDIRECT: &str = "https://client.example.test/callback";
@@ -285,5 +293,74 @@ async fn a_denial_needs_no_token_and_reaches_the_client() {
     assert_eq!(
         redirect_param(&denied, "error").as_deref(),
         Some("access_denied")
+    );
+}
+
+/// Keeps the message of every event logged on this thread.
+#[derive(Clone, Default)]
+struct MessageCapture {
+    messages: Arc<Mutex<Vec<String>>>,
+}
+
+struct MessageVisitor<'a>(&'a mut String);
+
+impl Visit for MessageVisitor<'_> {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        if field.name() == "message" {
+            *self.0 = format!("{value:?}");
+        }
+    }
+}
+
+impl<S: Subscriber> Layer<S> for MessageCapture {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let mut message = String::new();
+        event.record(&mut MessageVisitor(&mut message));
+        self.messages.lock().unwrap().push(message);
+    }
+}
+
+/// The page `public_mcp_monitoring.tf` sends when a stranger cannot finish
+/// connecting matches on the words of this refusal. Reworded on one side only,
+/// the page would never fire and nothing else would say so.
+#[tokio::test]
+async fn the_refusal_an_alert_pages_on_is_the_one_the_server_logs() {
+    let terraform = include_str!("../../../../infra/environments/dev/public_mcp_monitoring.tf");
+    let reason = &Regex::new(r#"metric\.labels\.reason=\\"([^"\\]+)\\""#)
+        .unwrap()
+        .captures(terraform)
+        .expect("public_mcp_monitoring.tf pages on one consent refusal reason")[1];
+
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (user, session) = create_test_tenant(&resources, "consent-pending@example.test")
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .users
+        .update_status(user.id, UserStatus::Pending, None)
+        .await
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+
+    let capture = MessageCapture::default();
+    let messages = Arc::clone(&capture.messages);
+    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let page = AxumTestRequest::get(&authorize_uri(&client_id))
+        .header("cookie", &cookie)
+        .send(app(&resources))
+        .await;
+    drop(guard);
+
+    let text = page.text();
+    assert!(text.contains("waiting for approval"), "{text}");
+    let wanted = format!("OAuth authorization refused: {reason}");
+    let logged = messages.lock().unwrap();
+    assert!(
+        logged.contains(&wanted),
+        "the alert pages on {wanted:?}; the server logged {logged:#?}"
     );
 }
