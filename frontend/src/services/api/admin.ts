@@ -298,7 +298,77 @@ export interface ImpersonationSessionsResponse {
   total_count: number;
 }
 
+/** How an audited operator action ended: done, refused by a check, or errored. */
+export type AuditOutcome = 'success' | 'refused' | 'failed';
+
+/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, or a service token. */
+export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service';
+
+/** The request details the server recorded beside an audit event; every field is optional. */
+export interface AuditEventMetadata {
+  method?: string;
+  route?: string;
+  status?: number;
+  params?: Record<string, unknown>;
+  target?: unknown;
+  before?: unknown;
+  after?: unknown;
+  token_id?: string;
+  [key: string]: unknown;
+}
+
+/** One operator action as GET /api/admin/audit-events lists it. */
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  action: string;
+  summary: string;
+  outcome: AuditOutcome;
+  source: AuditSource;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  tenant_id: string | null;
+  metadata: AuditEventMetadata | null;
+}
+
+/** One page of the audit trail, newest first; `next_before` is the cursor for the next older page, null on the last. */
+export interface AuditEventsPage {
+  events: AuditEvent[];
+  next_before: string | null;
+}
+
+/** Filters GET /api/admin/audit-events accepts; `before` is the cursor a previous page returned. */
+export interface AuditEventsQuery {
+  limit?: number;
+  before?: string;
+  action?: string;
+  outcome?: AuditOutcome;
+  actor_user_id?: string;
+}
+
+/** Query key of the audit trail; the filters are part of it so a filter change restarts the pages. */
+export const auditEventsQueryKey = (filters: Omit<AuditEventsQuery, 'before'>) =>
+  ['admin-audit-events', filters] as const;
+
 export const adminApi = {
+  // ==================== AUDIT TRAIL ====================
+  /** One page of what operators did, newest first. */
+  async getAuditEvents(query: AuditEventsQuery = {}): Promise<AuditEventsPage> {
+    const params = new URLSearchParams();
+    if (query.limit !== undefined) params.append('limit', String(query.limit));
+    if (query.before) params.append('before', query.before);
+    if (query.action) params.append('action', query.action);
+    if (query.outcome) params.append('outcome', query.outcome);
+    if (query.actor_user_id) params.append('actor_user_id', query.actor_user_id);
+    const queryString = params.toString();
+    const url = queryString ? `/api/admin/audit-events?${queryString}` : '/api/admin/audit-events';
+    const response = await axios.get(url);
+    return {
+      events: response.data.data?.events ?? [],
+      next_before: response.data.data?.next_before ?? null,
+    };
+  },
+
   // ==================== ADMIN TOKEN MANAGEMENT ====================
   // The admin-token handlers `pierre-cli` reaches too; every answer is the
   // `{ success, message, data }` envelope and these return its `data`.

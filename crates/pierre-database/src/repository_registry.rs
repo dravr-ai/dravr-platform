@@ -14,9 +14,9 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
-    ActivityRouteTrackRepository, ActivityStreamRepository, AdminRepository, AgentsRepository,
-    ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository, AthleteGearRepository,
-    ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
+    ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
+    AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository,
+    AthleteGearRepository, ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
     CoachAccessRequestRepository, CoachAttentionDismissalRepository, CoachReplyReviewRepository,
     CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
@@ -260,6 +260,9 @@ pub struct RepositoryRegistry {
     /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
     /// claimed single-use by the `/confirm` and `/deny` slash commands.
     pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
+    /// The admin audit trail: one row per operator write through the admin
+    /// API, or `pierre-cli` straight to the database (carnet#1391).
+    pub admin_audit: Arc<dyn AdminAuditRepository>,
     /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
@@ -393,6 +396,7 @@ impl RepositoryRegistry {
             pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
+            admin_audit: db.clone(),
             guardian_actions: db,
         }
     }
@@ -500,6 +504,7 @@ impl RepositoryRegistry {
             pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
+            admin_audit: db.clone(),
             guardian_actions: db,
         }
     }

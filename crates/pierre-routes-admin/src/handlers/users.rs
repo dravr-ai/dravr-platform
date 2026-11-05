@@ -35,6 +35,7 @@ use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
     UserActivityQuery,
 };
+use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
 /// User list response
@@ -1038,15 +1039,27 @@ pub(crate) async fn handle_allow_email(
         "Pre-approval allow recorded"
     );
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: format!("{}{}", result.message(), invite.sentence()),
-            data: Some(allow_data(&result, &invite)),
-        },
-        StatusCode::OK,
+    // The address is in the body, which the audit recorder never reads.
+    let audit = AuditDetail::new(
+        "pre_approval.allow",
+        format!("Pre-approved {}", result.email),
     )
-    .into_response())
+    .target(json!({
+        "email": result.email,
+        "outcome": format!("{:?}", result.outcome),
+        "invited": invited,
+    }));
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: format!("{}{}", result.message(), invite.sentence()),
+                data: Some(allow_data(&result, &invite)),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }
 
 /// The allow's answer body; `invite_url` appears only when the link was asked
@@ -1088,19 +1101,35 @@ pub(crate) async fn handle_disallow_email(
         "Pre-approval removal processed"
     );
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: result.message(),
-            data: to_value(json!({
-                "email": result.email,
-                "removed": result.removed,
-                "invitation_revoked": result.invitation_revoked,
-                "account_status": result.account_status,
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
+    // Said plainly: removing a pre-approval never deletes an account, and an
+    // operator once read this action as a user delete (carnet#1391).
+    let audit = AuditDetail::new(
+        "pre_approval.remove",
+        format!(
+            "Removed the pre-approval of {} (no account deleted)",
+            result.email
+        ),
     )
-    .into_response())
+    .target(json!({
+        "email": result.email,
+        "removed": result.removed,
+        "account_status": result.account_status,
+    }));
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: result.message(),
+                data: to_value(json!({
+                    "email": result.email,
+                    "removed": result.removed,
+                    "invitation_revoked": result.invitation_revoked,
+                    "account_status": result.account_status,
+                }))
+                .ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }

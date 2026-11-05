@@ -177,6 +177,15 @@ macro_rules! user_owned_tables {
         /// read them, the reply drawn from it, and a summary of those
         /// (`chat_messages` and `compaction_blocks` by `about_user_id`).
         ///
+        /// The admin audit trail's rows that name the user as the *target* of
+        /// an operator's action, by id or by email, go too (carnet#1391): the
+        /// trail keeps that an action happened, never whom a deleted account
+        /// was. The email is matched as a whole quoted JSON string with its
+        /// `LIKE` wildcards escaped, so deleting `bob@x.com` or `j_doe@x.com`
+        /// leaves the rows about `jimbob@x.com` and `jxdoe@x.com`. The rows the
+        /// user wrote *as* an operator stay, their `user_id` set NULL by its
+        /// foreign key.
+        ///
         /// A coaching group the user owns and archived goes too (carnet#1161),
         /// once their own conversations are gone and while no other user's
         /// conversation is bound to it: its members, invites, transcript and
@@ -238,6 +247,7 @@ user_owned_tables!(
     "user_onboarding",
     "user_physiological_profiles",
     "user_llm_credentials_audit",
+    "audit_events" where "CAST(metadata AS TEXT) LIKE '%' || $1 || '%' OR CAST(metadata AS TEXT) LIKE (SELECT '%\"' || REPLACE(REPLACE(REPLACE(u.email, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '\"%' FROM users u WHERE CAST(u.id AS TEXT) = $1) ESCAPE '\\'",
     "fitness_configurations",
     "training_plan_weeks" where "CAST(user_id AS TEXT) = $1 OR plan_id IN (SELECT p.id FROM training_plans p WHERE p.drafted_by_user_id = $1)",
     "training_plans" where "CAST(user_id AS TEXT) = $1 OR drafted_by_user_id = $1",

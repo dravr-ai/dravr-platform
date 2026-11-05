@@ -193,8 +193,11 @@ export default function PreApprovedEmails() {
                   size="sm"
                   variant="outline"
                   className="border-error/50 text-error hover:bg-error/10 ml-4"
+                  // An operator read the old "Remove" as deleting the user: it only
+                  // withdraws the standing allow, never the account (carnet#1391).
+                  title="Removes this address from the pre-approved list. An account already registered with it is not deleted."
                 >
-                  Remove
+                  Remove pre-approval
                 </Button>
               </div>
             </Card>

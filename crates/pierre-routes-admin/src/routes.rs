@@ -27,7 +27,7 @@ use crate::auth::middleware::admin_auth_middleware;
 use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
-    admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
+    admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys, audit_trail,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
     guardian_config, harness_config, memory_worker, myth_busting, new_users, provider_clone,
     provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
@@ -362,6 +362,11 @@ impl AdminRoutes {
     /// so every route stays a string literal the route scanners can read.
     fn token_user_management_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
+            // The admin audit trail (carnet#1391), for `pierre-cli audit list`.
+            .route(
+                "/admin/audit-events",
+                get(audit_trail::handle_list_audit_events),
+            )
             .route("/admin/pending-users", get(users::handle_pending_users))
             .route(
                 "/admin/approve-user/{user_id}",
@@ -454,6 +459,11 @@ impl AdminRoutes {
             .route(
                 "/api/admin/settings/signup/reset",
                 post(settings::handle_reset_signup_count),
+            )
+            // The admin audit trail (carnet#1391), for the console's Audit page.
+            .route(
+                "/api/admin/audit-events",
+                get(audit_trail::handle_list_audit_events),
             )
             .route("/api/admin/pending-users", get(users::handle_pending_users))
             .route(

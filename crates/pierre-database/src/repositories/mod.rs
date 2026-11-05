@@ -24,6 +24,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
+/// The admin audit trail: one row per operator write (carnet#1391).
+pub mod admin_audit;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
 /// The agent row decoders both backends share, emitted per backend.
@@ -268,6 +270,10 @@ pub use activity_conversations::*;
 pub use activity_route_tracks::*;
 pub use activity_streams::*;
 pub use admin::*;
+pub use admin_audit::{
+    AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
+    NewAuditEvent, AUDIT_PAGE_MAX,
+};
 pub use agent_artefacts::*;
 pub use agents::*;
 pub use api_keys::*;

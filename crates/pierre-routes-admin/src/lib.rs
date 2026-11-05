@@ -31,6 +31,9 @@
 
 #![warn(missing_docs)]
 
+/// The admin audit trail's recorder: one row per operator write (carnet#1391).
+pub mod audit;
+
 /// Admin authentication services (JWT-token and cookie-derived).
 pub mod auth;
 
@@ -46,6 +49,7 @@ pub mod tool_selection;
 mod context;
 mod routes;
 
+pub use audit::{record_admin_writes, AuditDetail, AuditRecorder};
 pub use auth::{
     middleware::admin_auth_middleware, service::AdminAuthService, AdminJwtManager,
     TokenGenerationConfig,

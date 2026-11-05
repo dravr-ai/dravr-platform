@@ -176,7 +176,11 @@ describe('PreApprovedEmails', () => {
 
     renderView();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+    const remove = await screen.findByRole('button', { name: 'Remove pre-approval' });
+    // The control withdraws the allow only; it must not read as deleting a user.
+    expect(remove.getAttribute('title')).toMatch(/is not deleted/);
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    fireEvent.click(remove);
 
     await waitFor(() => expect(adminApi.disallowEmail).toHaveBeenCalledWith('alpha@example.com'));
     expect(

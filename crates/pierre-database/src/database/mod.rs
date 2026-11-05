@@ -22,6 +22,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Admin token management and authorization
 pub mod admin;
+/// The admin audit trail (`SQLite`) backing `AdminAuditRepository`.
+pub mod admin_audit;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
 pub mod agent_artefacts;
 /// Coaches (custom AI personas) storage and management

@@ -20,6 +20,8 @@ pub mod agent_grading;
 pub mod agent_notes;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
+/// The admin audit trail, read newest first (carnet#1391).
+pub mod audit_trail;
 pub mod claim_verdicts;
 pub mod coach_access;
 pub mod contremaitre_admin;

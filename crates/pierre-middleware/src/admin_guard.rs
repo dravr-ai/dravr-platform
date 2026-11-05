@@ -118,8 +118,12 @@ pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
     // `admin_auth_middleware`) work identically when the request comes
     // through cookie auth.
     let admin_token = cookie_admin_token(&user, auth.active_tenant_id);
-    request.extensions_mut().insert(admin_token);
-    Ok(next.run(request).await)
+    request.extensions_mut().insert(admin_token.clone());
+    // The audit recorder wrapping the admin routes runs outside this layer
+    // and reads who acted from the response (carnet#1391).
+    let mut response = next.run(request).await;
+    response.extensions_mut().insert(admin_token);
+    Ok(response)
 }
 
 /// Build the `ValidatedAdminToken` granted to a cookie-authenticated admin.

@@ -298,9 +298,13 @@ pub mod middleware {
         };
 
         // Insert validated token as extension
-        request.extensions_mut().insert(validated_token);
+        request.extensions_mut().insert(validated_token.clone());
 
-        // Continue to next middleware/handler
-        next.run(request).await
+        // Continue to next middleware/handler, then hand the token to the
+        // audit recorder wrapping the admin routes (carnet#1391): it runs
+        // outside this layer, so the response is where it reads who acted.
+        let mut response = next.run(request).await;
+        response.extensions_mut().insert(validated_token);
+        response
     }
 }

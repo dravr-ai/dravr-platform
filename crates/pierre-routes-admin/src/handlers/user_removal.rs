@@ -38,8 +38,8 @@ use uuid::Uuid;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
-use pierre_database::repositories::DeletionActor;
 use pierre_database::repositories::OnboardingResetScope;
+use pierre_database::repositories::{subject_hash, DeletionActor};
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
@@ -48,6 +48,7 @@ use pierre_services::user_removal::{
 use super::api_keys::json_response;
 use super::types::{AdminResponse, DeleteUserRequest, ResetOnboardingRequest};
 use super::users::deny_without_manage_users;
+use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
 /// What a delete answers when the database refused it over a reference the
@@ -367,28 +368,49 @@ pub async fn handle_delete_user(
         "User deleted by operator"
     );
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "User deleted successfully".to_owned(),
-            data: to_value(json!({
-                "deleted_user": {
-                    "id": user_uuid.to_string(),
-                    "email": user.email,
-                },
-                "disconnected": report.disconnected,
-                "not_revocable": report.not_revocable,
-                "memberships_removed": report.memberships_removed,
-                "rows_removed": report.rows_removed,
-                "firebase_identity": report.firebase_identity,
-                "ledger": report.ledger,
-                "reason": reason,
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
+    // The trail keeps that an account was deleted, which receipt proves it and
+    // the subject hash the tombstones carry, never which account: no id, no
+    // email, and not the operator's free-text reason, which can name the
+    // person (the deletion policy).
+    let audit = AuditDetail::new(
+        "user.delete",
+        format!(
+            "Deleted an account (receipt #{})",
+            report.ledger.receipt_seq
+        ),
     )
-    .into_response())
+    .target(json!({
+        "receipt_id": report.ledger.receipt_id,
+        "receipt_seq": report.ledger.receipt_seq,
+        "subject_hash": subject_hash(user_uuid),
+        "providers_disconnected": report.disconnected.len(),
+    }))
+    .omit_route_params();
+
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: "User deleted successfully".to_owned(),
+                data: to_value(json!({
+                    "deleted_user": {
+                        "id": user_uuid.to_string(),
+                        "email": user.email,
+                    },
+                    "disconnected": report.disconnected,
+                    "not_revocable": report.not_revocable,
+                    "memberships_removed": report.memberships_removed,
+                    "rows_removed": report.rows_removed,
+                    "firebase_identity": report.firebase_identity,
+                    "ledger": report.ledger,
+                    "reason": reason,
+                }))
+                .ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }
 
 /// `POST /admin/users/{user_id}/onboarding/reset` — send a user back through

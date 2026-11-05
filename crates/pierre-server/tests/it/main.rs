@@ -44,6 +44,7 @@ mod activity_detail_budget_test;
 mod activity_live_read_budget_test;
 mod activity_summary_enrichment_test;
 mod admin_analytics_test;
+mod admin_audit_trail_test;
 mod admin_auth_test;
 mod admin_auto_approve_effective_test;
 mod admin_cli_parity_test;

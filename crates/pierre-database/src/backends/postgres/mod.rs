@@ -26,6 +26,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
+/// The admin audit trail (`Postgres`) backing `AdminAuditRepository`.
+pub mod admin_audit;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (Postgres)
 pub mod agent_artefacts;
 /// Coaches repository implementation

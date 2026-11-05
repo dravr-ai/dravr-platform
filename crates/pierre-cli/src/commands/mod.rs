@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 pub(crate) mod api_key;
+/// `pierre-cli audit`: the admin audit trail of a remote server.
+pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod canary;
 pub(crate) mod config;
@@ -13,6 +15,8 @@ pub(crate) mod drift;
 #[cfg(feature = "tools-verification")]
 pub(crate) mod harness;
 pub(crate) mod key;
+/// The audit trail row of a command that writes the database directly.
+pub(crate) mod local_audit;
 pub(crate) mod provider_data;
 pub(crate) mod seed;
 #[cfg(feature = "e2e-seeded-sessions")]

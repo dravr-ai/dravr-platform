@@ -49,6 +49,7 @@ crates/pierre-providers/src/delegation.rs:{brand} refused this calendar write: t
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
+crates/pierre-routes-admin/src/handlers/audit_trail.rs:A tenant admin's credential names no tenant to read the audit trail of
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
