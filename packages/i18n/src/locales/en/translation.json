@@ -1909,6 +1909,14 @@
     "useOwnAppHint": "Use your own OAuth app to connect fitness providers",
     "useOwnHint": "Use your own OAuth app credentials to avoid shared rate limits"
   },
+  "dataExport": {
+    "action": "Download my data",
+    "description": "Get a copy of the personal information Dravr holds about you as one JSON file: your profile, connected providers, activities, health data, plans, conversations and notes. Passwords, tokens and keys are never included.",
+    "failed": "Your data could not be exported. Try again in a moment.",
+    "preparing": "Preparing your file…",
+    "rateLimited": "You have already exported your data several times this hour. Try again later.",
+    "title": "Download your data"
+  },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",
     "alreadyLinked": "Your {{platform}} is already linked through another group.",

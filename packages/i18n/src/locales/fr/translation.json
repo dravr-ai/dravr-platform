@@ -1909,6 +1909,14 @@
     "useOwnAppHint": "Utilise ta propre application OAuth pour connecter les fournisseurs",
     "useOwnHint": "Utilise tes propres identifiants OAuth pour éviter les limites partagées"
   },
+  "dataExport": {
+    "action": "Télécharger mes données",
+    "description": "Récupère une copie des informations personnelles que Dravr détient sur toi dans un seul fichier JSON : ton profil, tes fournisseurs connectés, tes activités, tes données de santé, tes plans, tes conversations et tes notes. Les mots de passe, jetons et clés n'y figurent jamais.",
+    "failed": "Impossible d'exporter tes données. Réessaie dans un instant.",
+    "preparing": "Préparation de ton fichier…",
+    "rateLimited": "Tu as déjà exporté tes données plusieurs fois cette heure. Réessaie plus tard.",
+    "title": "Télécharge tes données"
+  },
   "delegation": {
     "actionFailed": "Ça n'a pas abouti. Réessaie.",
     "alreadyLinked": "Ton {{platform}} est déjà associé via un autre groupe.",
