@@ -19,7 +19,7 @@ mod coach_attention_route_tests {
     use std::slice;
     use std::sync::Arc;
 
-    use chrono::{Duration, Utc};
+    use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
     use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Activity, TenantId};
     use pierre_core::transport::TransportPolicy;
@@ -34,7 +34,8 @@ mod coach_attention_route_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::coach_roster_fixtures::{
         agent_reply, coach, coached_group, get, group_agent, join, join_at, live_plan, person,
-        phase, post, ride, ride_lasting, router, row, seed_activities, seed_ride, ymd, Person,
+        phase, post, ride, ride_lasting, ride_started, router, row, seed_activities, seed_ride,
+        ymd, Person,
     };
 
     const ROSTER: &str = "/api/coach/roster?limit=100";
@@ -325,6 +326,99 @@ mod coach_attention_route_tests {
         assert!(
             rosalie_quiet["rank"].as_u64() < kevin_quiet["rank"].as_u64(),
             "nine quiet days rank above six"
+        );
+    }
+
+    /// `day` on the UTC calendar, at `hour`:00.
+    fn utc_at(day: NaiveDate, hour: u32) -> DateTime<Utc> {
+        day.and_time(NaiveTime::from_hms_opt(hour, 0, 0).unwrap())
+            .and_utc()
+    }
+
+    /// The day the athlete's quiet reason says the source last delivered a
+    /// session.
+    fn last_received_day(page: &Value, athlete: &Person) -> String {
+        let list = reasons(page, athlete.id);
+        let evidence = reason(&list, "nothing_received")["evidence"]
+            .as_array()
+            .unwrap();
+        let line = evidence
+            .iter()
+            .find(|e| e["key"] == "coachHome.evidence.lastReceived")
+            .unwrap_or_else(|| panic!("no lastReceived line in {list:#?}"));
+        line["params"]["date"].as_str().unwrap().to_owned()
+    }
+
+    /// A row's evidence names the athlete's civil day, on the zone of their
+    /// user row. Each case sits hours from a UTC midnight, so the UTC day is
+    /// never the right answer by accident, in standard or summer time.
+    #[tokio::test]
+    async fn evidence_names_the_athletes_own_civil_day() {
+        let s = squad("civilday").await;
+        let repos = &s.res.common.repos;
+        let utc_today = Utc::now().date_naive();
+        let ride_day = utc_today - Duration::days(8);
+        let cases = [
+            ("West", Some("America/Montreal"), 1),
+            ("East", Some("Australia/Sydney"), 22),
+            ("Dated", Some("America/Montreal"), 0),
+            ("Unset", None, 1),
+        ];
+        let mut athletes = Vec::new();
+        for (name, zone, hour) in cases {
+            let athlete = s.athlete(name, true, 60).await;
+            if let Some(zone) = zone {
+                repos.users.set_timezone(athlete.id, zone).await.unwrap();
+            }
+            let session = ride_started(name, utc_at(ride_day, hour), 3_600);
+            seed_activities(&s.res, &athlete, "strava", &[session]).await;
+            athletes.push(athlete);
+        }
+
+        let joined_day = utc_today - Duration::days(3);
+        let email = format!("joiner@{}.test", s.coach.id.simple());
+        let joiner = person(&s.res, &email, "Joiner").await;
+        repos
+            .users
+            .set_timezone(joiner.id, "America/Montreal")
+            .await
+            .unwrap();
+        let joined_at = utc_at(joined_day, 1);
+        join_at(&s.res, s.group, joiner.id, joiner.tenant, true, joined_at).await;
+        seed_ride(&s.res, &joiner, 1).await;
+
+        let page = s.roster().await;
+        assert_eq!(
+            last_received_day(&page, &athletes[0]),
+            ymd(ride_day - Duration::days(1)),
+            "an evening west of Greenwich is the day ridden, not the next UTC day"
+        );
+        assert_eq!(
+            last_received_day(&page, &athletes[1]),
+            ymd(ride_day + Duration::days(1)),
+            "a morning east of Greenwich is the day ridden, not the previous UTC day"
+        );
+        assert_eq!(
+            last_received_day(&page, &athletes[2]),
+            ymd(ride_day),
+            "a date-only start already names its day and is not converted"
+        );
+        assert_eq!(
+            last_received_day(&page, &athletes[3]),
+            ymd(ride_day),
+            "no zone on file reads on UTC, as the row's civil today does"
+        );
+
+        let list = reasons(&page, joiner.id);
+        let new_member = reason(&list, "new_member_no_plan");
+        let join_line = ymd(joined_day - Duration::days(1));
+        assert_eq!(
+            new_member["params"]["date"], join_line,
+            "the summary names the day they joined on their own calendar"
+        );
+        assert_eq!(
+            new_member["evidence"][0]["params"]["date"], join_line,
+            "the evidence names the day they joined on their own calendar"
         );
     }
 

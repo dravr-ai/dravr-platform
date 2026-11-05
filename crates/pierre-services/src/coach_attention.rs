@@ -38,6 +38,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono_tz::Tz;
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::models::groups::FormMorning;
 use pierre_core::models::FormBand;
@@ -228,10 +229,9 @@ pub struct AttentionReason {
 pub struct TrainingSignals<'row> {
     /// When the snapshot was read.
     pub computed_at: DateTime<Utc>,
-    /// The athlete's own civil day the form was read for.
-    pub form_as_of: NaiveDate,
-    /// The band today's form falls in; absent when not computed.
-    pub form_band: Option<FormBand>,
+    /// The band today's form falls in and the athlete's own civil day it was
+    /// read for; absent when not computed.
+    pub form: Option<(FormBand, NaiveDate)>,
     /// Days since the last session; absent with none in the lookback.
     pub days_since_last_activity: Option<i32>,
     /// The instant each source last delivered a session.
@@ -317,6 +317,8 @@ pub struct AttentionInputs<'row> {
     pub now: DateTime<Utc>,
     /// The athlete's own civil today.
     pub today: NaiveDate,
+    /// The zone that today is read in, and every day the evidence names.
+    pub zone: Tz,
     /// Their training; only for a sharer with a reading.
     pub training: Option<TrainingSignals<'row>>,
     /// Whether the plan was read: the coaching gate let the coach read it.
@@ -381,8 +383,8 @@ pub fn attention_reasons(
         .filter_map(unverified_figure)
         .collect();
     if let Some(training) = &inputs.training {
-        reasons.extend(source_reasons(training, thresholds));
-        reasons.extend(deep_fatigue_streak(training, thresholds));
+        reasons.extend(source_reasons(training, inputs.zone, thresholds));
+        reasons.extend(deep_fatigue_streak(training, inputs.zone, thresholds));
     }
     if inputs.plan_read {
         reasons.extend(plan_reasons(inputs, thresholds));
@@ -514,6 +516,7 @@ mod tests {
             joined: join,
             now: at("2026-10-30T12:00:00Z"),
             today: date("2026-10-30"),
+            zone: Tz::UTC,
             training,
             plan_read: true,
             plan: None,
@@ -530,12 +533,14 @@ mod tests {
     ) -> TrainingSignals<'a> {
         TrainingSignals {
             computed_at: at("2026-10-30T06:30:00Z"),
-            form_as_of: date("2026-10-30"),
-            form_band: Some(if mornings.is_empty() {
-                FormBand::Balanced
-            } else {
-                FormBand::DeepFatigue
-            }),
+            form: Some((
+                if mornings.is_empty() {
+                    FormBand::Balanced
+                } else {
+                    FormBand::DeepFatigue
+                },
+                date("2026-10-30"),
+            )),
             days_since_last_activity: days,
             last_activity_per_source: sources,
             needs_reconnect: dead,
@@ -681,6 +686,94 @@ mod tests {
             .evidence
             .iter()
             .any(|e| e.key == "coachHome.evidence.sourceNeedsReconnect"));
+    }
+
+    /// The days a session starting at `start` is named on, for an athlete in
+    /// `zone`: the quiet spell's `lastReceived` line and the fatigue run's
+    /// `lastSession` line.
+    fn session_days(zone: Tz, start: DateTime<Utc>) -> (Value, Value) {
+        let join = joined("2026-01-01T00:00:00Z");
+        let sources = BTreeMap::from([("garmin".to_owned(), start)]);
+        let mornings = [morning(0, -40.0), morning(1, -38.0)];
+        let mut row = inputs(&join, Some(training(&sources, &[], &mornings, Some(8))));
+        row.zone = zone;
+        let reasons = attention_reasons(&row, &THRESHOLDS);
+        let line = |key: &str| {
+            reasons
+                .iter()
+                .flat_map(|r| &r.evidence)
+                .find(|e| e.key == key)
+                .unwrap_or_else(|| panic!("no {key} in {reasons:#?}"))
+                .params["date"]
+                .clone()
+        };
+        (
+            line("coachHome.evidence.lastReceived"),
+            line("coachHome.evidence.lastSession"),
+        )
+    }
+
+    #[test]
+    fn an_evening_session_west_of_greenwich_is_the_day_ridden() {
+        let (received, session) = session_days(Tz::America__Toronto, at("2026-05-28T01:00:00Z"));
+        assert_eq!(received, "2026-05-27", "21:00 local, not the next UTC day");
+        assert_eq!(session, "2026-05-27", "21:00 local, not the next UTC day");
+    }
+
+    #[test]
+    fn a_morning_session_east_of_greenwich_is_the_day_ridden() {
+        let (received, session) = session_days(Tz::Asia__Tokyo, at("2026-10-29T23:30:00Z"));
+        assert_eq!(received, "2026-10-30", "08:30 local, not the prior UTC day");
+        assert_eq!(session, "2026-10-30", "08:30 local, not the prior UTC day");
+    }
+
+    #[test]
+    fn a_date_only_start_keeps_the_day_its_provider_named() {
+        let (received, session) = session_days(Tz::America__Toronto, at("2026-10-20T00:00:00Z"));
+        assert_eq!(received, "2026-10-20", "a date has no time to convert");
+        assert_eq!(session, "2026-10-20", "a date has no time to convert");
+    }
+
+    /// A refusal is a moment the server recorded, never a provider's date-only
+    /// row, so even midnight UTC is the evening before in Toronto.
+    #[test]
+    fn a_refusal_is_named_on_the_athletes_day() {
+        let join = joined("2026-01-01T00:00:00Z");
+        let sources = BTreeMap::new();
+        let dead = ["garmin".to_owned()];
+        let since = BTreeMap::from([("garmin".to_owned(), at("2026-10-22T00:00:00Z"))]);
+        let mut signals = training(&sources, &dead, &[], Some(8));
+        signals.refused_since = &since;
+        let mut row = inputs(&join, Some(signals));
+        row.zone = Tz::America__Toronto;
+        let reasons = attention_reasons(&row, &THRESHOLDS);
+        let line = reasons
+            .iter()
+            .flat_map(|r| &r.evidence)
+            .find(|e| e.key == "coachHome.evidence.sourceRefusedSince")
+            .unwrap_or_else(|| panic!("no refusal line in {reasons:#?}"));
+        assert_eq!(
+            line.params["date"], "2026-10-21",
+            "20:00 local the day before"
+        );
+    }
+
+    /// A join is a moment too: same midnight, same evening before.
+    #[test]
+    fn a_join_is_named_on_the_athletes_day() {
+        let join = joined("2026-10-29T00:00:00Z");
+        let mut row = inputs(&join, None);
+        row.zone = Tz::America__Toronto;
+        let reasons = attention_reasons(&row, &THRESHOLDS);
+        let new_member = reasons
+            .iter()
+            .find(|r| r.kind == AttentionKind::NewMemberNoPlan)
+            .unwrap_or_else(|| panic!("no new member reason in {reasons:#?}"));
+        assert_eq!(new_member.params["date"], "2026-10-28", "the summary's day");
+        assert_eq!(
+            new_member.evidence[0].params["date"], "2026-10-28",
+            "the evidence's day"
+        );
     }
 
     #[test]
