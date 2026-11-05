@@ -24,6 +24,13 @@
 //!   `peer_sharing_consent` is `true` AND the group's `peer_data_sharing`
 //!   kill-switch is `true`.
 //!
+//! In a group's room the scan is pinned to that room's group server-side,
+//! whatever `group_id` the model passes (carnet#1420): every member of the
+//! room reads the reply, and another group's member shared with that group,
+//! not this one, so they resolve as no match there. Only a conversation no
+//! room is published to — the caller's own chat, a coach's athlete thread —
+//! scans every group the caller shares.
+//!
 //! The peer's activities are fetched under the peer's OWN connection tenant
 //! (cross-tenant lookup), matching how their 1-1 chat resolves data — the same
 //! correction applied to the group snapshot fetcher in [`crate::group_fitness`].
@@ -51,8 +58,9 @@ use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
 use super::athlete_link::ProposeAthleteLinkTool;
+use super::coach_scope;
 use super::group_member_plan::GetGroupMemberPlanStatusTool;
-use super::group_roster::GetRosterOverviewTool;
+use super::group_roster::{self, CallRoom, GetRosterOverviewTool};
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::fetch_provider_activities;
 use crate::context::ToolExecutionContext;
@@ -110,12 +118,12 @@ struct ReadableGroup {
 /// attached human coach of — a coach has no membership row (the coach invite
 /// attaches `coaching_groups.coach_user_id` and nothing else), yet their
 /// prompt view already lists the consenting roster, so their fetch must
-/// resolve the same names. When `group_id` is given the set is narrowed to
-/// that one group: the room the question was asked in.
+/// resolve the same names. When `pin` is given the set is narrowed to that
+/// one group ([`ScanScope::pin`]).
 async fn readable_groups(
     data: &DataContext,
     requester: Uuid,
-    group_id: Option<&str>,
+    pin: Option<&str>,
 ) -> AppResult<Vec<ReadableGroup>> {
     let mut groups: Vec<ReadableGroup> = data
         .repos()
@@ -152,10 +160,51 @@ async fn readable_groups(
             });
         }
     }
-    if let Some(pin) = group_id {
+    if let Some(pin) = pin {
         groups.retain(|g| g.id.to_string() == pin);
     }
     Ok(groups)
+}
+
+/// The groups a call resolves the named member in.
+enum ScanScope {
+    /// No room is published to: every group the caller shares, or the one
+    /// the model's `group_id` names.
+    Private(Option<String>),
+    /// A group's room: that group alone, whatever `group_id` says.
+    Room(String),
+}
+
+impl ScanScope {
+    /// The one group the scan is narrowed to, when it is narrowed.
+    fn pin(&self) -> Option<&str> {
+        match self {
+            Self::Private(pin) => pin.as_deref(),
+            Self::Room(group) => Some(group),
+        }
+    }
+}
+
+/// The scope `context`'s call resolves a member in. The outer `Err` is a
+/// repository failure; the inner `Err` the refusal.
+///
+/// A room's reply is read by every member, so the room pins the scan
+/// server-side: `group_id` is the model's to pass and never what keeps
+/// another group's member out of the room. A conversation that does not
+/// resolve for the caller may be any room, so it is refused, not scanned.
+async fn scan_scope(
+    context: &ToolExecutionContext,
+    arg_group: Option<&str>,
+) -> AppResult<Result<ScanScope, ToolResult>> {
+    Ok(match group_roster::call_room(context).await? {
+        CallRoom::Private => Ok(ScanScope::Private(arg_group.map(str::to_owned))),
+        CallRoom::Group(group) => Ok(ScanScope::Room(group)),
+        CallRoom::Unresolved => Err(coach_scope::refusal(
+            "room_unresolved",
+            "Ask about a group member's training in that group's room or in your own \
+             conversation with Dravr — this conversation could not be confirmed as either.",
+        )),
+    })
 }
 
 /// Scan the requester's readable groups for members whose display name
@@ -163,16 +212,16 @@ async fn readable_groups(
 /// requester themself matched — the signal for the self-query redirect.
 ///
 /// `list_groups_for_user` is requester-scoped and cross-tenant, so any match
-/// proves shared membership without trusting a conversation tenant; a pinned
-/// `group_id` narrows the scan to that one room, so the consent read is the
-/// member's consent for THAT group and never one granted elsewhere.
+/// proves shared membership without trusting a conversation tenant; a `pin`
+/// narrows the scan to that one group, so the consent read is the member's
+/// consent for THAT group and never one granted elsewhere.
 async fn scan_shared_rosters(
     data: &DataContext,
     requester: Uuid,
     query_lower: &str,
-    group_id: Option<&str>,
+    pin: Option<&str>,
 ) -> AppResult<(Vec<MemberMatch>, bool)> {
-    let groups = readable_groups(data, requester, group_id).await?;
+    let groups = readable_groups(data, requester, pin).await?;
     let mut matches: Vec<MemberMatch> = Vec::new();
     let mut requester_matched = false;
     for group in &groups {
@@ -205,20 +254,35 @@ async fn scan_shared_rosters(
     Ok((matches, requester_matched))
 }
 
+/// The refusal for a name no member of the scanned groups carries.
+///
+/// In a room it never says whether the name belongs to another group: the
+/// room reads the reply, so it only points to where that member is read.
+fn no_match(query: &str, scope: &ScanScope) -> Value {
+    let error = match scope {
+        ScanScope::Private(_) => format!(
+            "No group member matching '{query}' was found in your group(s). \
+             They must be a member of a group you share."
+        ),
+        ScanScope::Room(_) => format!(
+            "No member of this room's group matches '{query}'. Another group's members are \
+             never read here, where every member reads the reply: ask in that group's room or \
+             in your own conversation with Dravr — as their coach, in your thread about that \
+             athlete."
+        ),
+    };
+    json!({ "reason": "no_match", "error": error })
+}
+
 /// Collapse the match set to a single peer, or an error payload explaining why
 /// resolution failed (none found / ambiguous across distinct users).
 fn resolve_unique_peer<'a>(
     matches: &'a [MemberMatch],
     query: &str,
+    scope: &ScanScope,
 ) -> Result<&'a MemberMatch, Value> {
     let Some(first) = matches.first() else {
-        return Err(json!({
-            "reason": "no_match",
-            "error": format!(
-                "No group member matching '{query}' was found in your group(s). \
-                 They must be a member of a group you share."
-            )
-        }));
+        return Err(no_match(query, scope));
     };
 
     // Ambiguous only when DISTINCT users match — the same peer appearing in
@@ -387,8 +451,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Id of the coaching group bound to the room the question was asked in; only \
-                     the member's consent for it applies. Omit to search every group you share."
+                    "Id of one group you share, to search only it. In a group's room only that \
+                     room's group is ever searched, whatever is passed."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -477,15 +541,20 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             let runtime = &context.resources;
             let data = runtime.data();
 
-            // Resolve the target peer across the groups the requester belongs to.
+            // Resolve the target peer in the groups this conversation may
+            // read: the room's own, or every group the requester shares.
             let query_lower = member_query.to_lowercase();
-            let group_pin = args
+            let arg_group = args
                 .get("group_id")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
+            let scope = match scan_scope(&context, arg_group).await? {
+                Ok(scope) => scope,
+                Err(refused) => return Ok(refused),
+            };
             let (matches, requester_matched) =
-                scan_shared_rosters(&data, requester, &query_lower, group_pin).await?;
+                scan_shared_rosters(&data, requester, &query_lower, scope.pin()).await?;
 
             // A self-lookup used to fall through to the generic "no member
             // matching" error — a dead end with no gradient out, since no
@@ -505,7 +574,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 })));
             }
 
-            let resolved = match resolve_unique_peer(&matches, member_query) {
+            let resolved = match resolve_unique_peer(&matches, member_query, &scope) {
                 Ok(r) => r,
                 Err(payload) => return Ok(ToolResult::error(payload)),
             };
@@ -520,6 +589,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 requester = %requester,
                 peer = %peer_id,
                 as_coach = resolved.requester_is_coach,
+                in_room = matches!(scope, ScanScope::Room(_)),
                 "get_group_member_activities: authorized consent-gated member fetch"
             );
             // What the turn derives from here on carries this member's data
