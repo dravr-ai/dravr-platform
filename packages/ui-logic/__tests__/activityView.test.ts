@@ -65,6 +65,7 @@ function detail(overrides: Partial<ActivityDetailResponse> = {}, sport = 'run'):
     splits: [],
     laps: [],
     conversation_id: null,
+    utc_offset_seconds: null,
     ...overrides,
   };
 }

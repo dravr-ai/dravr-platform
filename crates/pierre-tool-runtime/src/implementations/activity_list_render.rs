@@ -299,6 +299,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
+    use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
     fn ride(id: &str, source: Option<&str>) -> Activity {
         ActivityBuilder::new(
@@ -311,6 +312,67 @@ mod tests {
         )
         .source_opt(source.map(str::to_owned))
         .build()
+    }
+
+    #[test]
+    fn a_stated_offset_changes_nothing_the_agent_reads() {
+        // The list is one calendar, the athlete's stored zone: the 2026-08-28
+        // "two calendars in one prompt" failure. The recording's own clock is
+        // the activity view's, never this list's, even when it moves the day.
+        let start = Utc.with_ymd_and_hms(2026, 9, 20, 2, 59, 3).unwrap();
+        let rendered = |offset: Option<i32>| {
+            format_activities_as_list(
+                &[
+                    ActivityBuilder::new("r", "Ride", SportType::Ride, start, 3_600, "garmin")
+                        .utc_offset_seconds_opt(offset)
+                        .build(),
+                ],
+                &HashMap::new(),
+                None,
+                "en",
+                Some("America/Toronto"),
+                Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+            )
+        };
+        let without = rendered(None);
+        assert!(without.contains("2026-09-19"), "{without}");
+        for offset in [-14_400, 19_800, 50_400] {
+            assert_eq!(rendered(Some(offset)), without, "{offset}");
+        }
+    }
+
+    #[test]
+    fn a_merged_session_s_offset_is_not_named_in_the_merge_note() {
+        // The session's offset comes from the recording that covered it, and
+        // the merge note lists what a session took: the second calendar must
+        // not reach the model through that list either.
+        let start = Utc.with_ymd_and_hms(2026, 9, 20, 14, 0, 0).unwrap();
+        let rendered = |offset: Option<i32>| {
+            let (sessions, report) = merge_duplicates(
+                vec![
+                    ActivityBuilder::new("gps", "Ride", SportType::Ride, start, 3_600, "garmin")
+                        .start_latitude(45.5)
+                        .start_longitude(-73.6)
+                        .build(),
+                    ActivityBuilder::new("watch", "Ride", SportType::Ride, start, 3_600, "whoop")
+                        .utc_offset_seconds_opt(offset)
+                        .build(),
+                ],
+                &DedupConfig::default(),
+            );
+            assert_eq!(sessions[0].utc_offset_seconds(), offset, "bug: not filled");
+            format_activities_as_list(
+                &sessions,
+                &HashMap::new(),
+                Some(&report),
+                "en",
+                Some("America/Toronto"),
+                Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+            )
+        };
+        let without = rendered(None);
+        assert!(without.contains("recordings: [gps, watch]"), "{without}");
+        assert_eq!(rendered(Some(19_800)), without, "bug: the note changed");
     }
 
     #[test]

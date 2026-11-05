@@ -23,6 +23,17 @@ export const DRAFT_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'n
 /** The short form a row or a heading carries — "Tue 23 Sep". */
 export const ROW_DATE: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
 
+/** A row's short date with the time of day — "Tue 23 Sep, 07:04", a 24-hour clock in every locale. */
+const ROW_DATE_TIME: Intl.DateTimeFormatOptions = {
+  ...ROW_DATE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+};
+
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+
 /** When the activity cache last heard from a provider — a 24-hour clock in every locale, like the chat list. */
 const SYNC_TIME: Intl.DateTimeFormatOptions = {
   day: 'numeric',
@@ -83,6 +94,34 @@ export function formatInstant(instant: string, language: string, options: Intl.D
   const ms = instantMs(instant);
   if (Number.isNaN(ms)) return instant;
   return new Intl.DateTimeFormat(language, options).format(new Date(ms));
+}
+
+/**
+ * An activity's start line: the date as every row prints it, or, when its
+ * recording's clock is not the one this device reads at that instant, the date
+ * and time on that clock ("Tue 23 Sep, 07:04 local time").
+ *
+ * The device's offset is asked of that instant, not of today, so a summer ride
+ * read in winter compares against summer time. The clock is drawn by moving the
+ * instant by the offset and formatting in UTC, the way `formatCivilDate` draws a
+ * day: no zone name, which a recording does not state and the phone's reduced
+ * `Intl` could not be trusted to resolve.
+ */
+export function activityStartLine(
+  t: Translate,
+  activity: { start_date: string },
+  utcOffsetSeconds: number | null,
+  language: string,
+): string {
+  const ms = instantMs(activity.start_date);
+  const deviceOffsetSeconds = -new Date(ms).getTimezoneOffset() * SECONDS_PER_MINUTE;
+  if (Number.isNaN(ms) || utcOffsetSeconds === null || utcOffsetSeconds === deviceOffsetSeconds) {
+    return formatInstant(activity.start_date, language, ROW_DATE);
+  }
+  const time = new Intl.DateTimeFormat(language, { ...ROW_DATE_TIME, timeZone: 'UTC' }).format(
+    new Date(ms + utcOffsetSeconds * MS_PER_SECOND),
+  );
+  return t('home.activity.localTime', { time });
 }
 
 /** "Last synced" time for the activity cache's `as_of`. */

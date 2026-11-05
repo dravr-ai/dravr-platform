@@ -484,6 +484,11 @@ pub struct ActivityDetailResponse {
     /// The conversation the view opened about this workout, while it is
     /// still the caller's own; `null` before the first question.
     pub conversation_id: Option<String>,
+    /// Seconds east of UTC on the clock the merged session started on, as its
+    /// recording stated it; `null` when no recording says, or when the session
+    /// knows only its day. Display only: the
+    /// day the workout counts on stays the athlete's own zone (registre#200).
+    pub utc_offset_seconds: Option<i32>,
 }
 
 /// Body of `PUT /api/me/activities/{provider}/{activity_id}/conversation`,

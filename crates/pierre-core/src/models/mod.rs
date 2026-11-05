@@ -86,6 +86,10 @@ pub mod data_source;
 /// Provider data freshness and refresh configuration
 pub mod refresh;
 
+/// The range a provider's stated UTC offset must fall in
+mod utc_offset;
+pub use utc_offset::stated_utc_offset;
+
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{

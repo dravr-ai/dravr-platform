@@ -359,6 +359,11 @@ async fn activities_land_in_the_cache_and_a_resend_replaces_the_row() {
     assert_eq!(cached[0].id(), "920001");
     assert_eq!(cached[0].name(), "Morning ride");
     assert_eq!(cached[0].device_name(), Some("Garmin Edge 840"));
+    assert_eq!(
+        cached[0].utc_offset_seconds(),
+        Some(-14_400),
+        "the summary's startTimeOffsetInSeconds survives the cache"
+    );
     assert!(
         resources
             .common

@@ -4,7 +4,7 @@
 // ABOUTME: Tests Home's words and figures, shared by both clients — row and volume distances, durations, dates, the plan drafts
 // ABOUTME: Read through the app's own catalogues, so a row that printed "10.0 km" on one client and "10.00 km" on the other fails here
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanWeek } from '@pierre/shared-types';
 import en from '../../i18n/src/locales/en/translation.json';
 import fr from '../../i18n/src/locales/fr/translation.json';
@@ -14,14 +14,17 @@ import pt from '../../i18n/src/locales/pt/translation.json';
 import {
   activityNaming,
   activityRowFigures,
+  activityStartLine,
   calendarDayLabel,
   civilDayOfMonth,
   civilWeekdayNarrow,
   DRAFT_DATE,
   formatCivilDate,
+  formatInstant,
   formatSyncTime,
   planDayDraft,
   planDayRouteDraft,
+  ROW_DATE,
   sportLabel,
   volumeMetricText,
   volumeReadoutShown,
@@ -245,5 +248,78 @@ describe('volumeReadoutShown', () => {
   it('reads out any week the athlete points at, an empty one included', () => {
     expect(volumeReadoutShown(0, { activities: 0 })).toBe(true);
     expect(volumeReadoutShown(11, { activities: 0 })).toBe(true);
+  });
+});
+
+describe('activityStartLine', () => {
+  const zoneBefore = process.env.TZ;
+  const JANUARY = '2026-01-15T12:00:00Z';
+  const JULY = '2026-07-15T12:00:00Z';
+
+  afterEach(() => {
+    process.env.TZ = zoneBefore;
+  });
+
+  function line(zone: string, start: string, offset: number | null, language = 'en-US'): string {
+    process.env.TZ = zone;
+    return activityStartLine(t, { start_date: start }, offset, language);
+  }
+
+  function dateOnly(zone: string, start: string, language = 'en-US'): string {
+    process.env.TZ = zone;
+    return formatInstant(start, language, ROW_DATE);
+  }
+
+  it('prints the row date, byte for byte, when no recording states a clock', () => {
+    expect(line('America/Montreal', JULY, null)).toBe(dateOnly('America/Montreal', JULY));
+  });
+
+  it('prints the row date when the recording read the device clock at that instant', () => {
+    expect(line('America/Montreal', JULY, -14_400)).toBe(dateOnly('America/Montreal', JULY));
+    expect(line('America/Montreal', JANUARY, -18_000)).toBe(dateOnly('America/Montreal', JANUARY));
+    expect(line('Asia/Kolkata', JULY, 19_800)).toBe(dateOnly('Asia/Kolkata', JULY));
+    expect(line('UTC', JULY, 0)).toBe(dateOnly('UTC', JULY));
+  });
+
+  it('asks the device of the instant, not of today, across daylight saving', () => {
+    // Summer time on a winter instant is another clock, and winter time on a summer one.
+    expect(line('America/Montreal', JANUARY, -14_400)).toBe('Thu, Jan 15, 08:00 local time');
+    expect(line('America/Montreal', JULY, -18_000)).toBe('Wed, Jul 15, 07:00 local time');
+    // The Sydney side of the same rule, whose summer is January.
+    expect(line('Australia/Sydney', JANUARY, 39_600)).toBe(dateOnly('Australia/Sydney', JANUARY));
+    expect(line('Australia/Sydney', JULY, 39_600)).toBe('Wed, Jul 15, 23:00 local time');
+  });
+
+  it('draws half-hour and quarter-hour clocks without a zone name', () => {
+    expect(line('America/Montreal', JULY, 19_800)).toBe('Wed, Jul 15, 17:30 local time');
+    expect(line('America/Montreal', JULY, 20_700)).toBe('Wed, Jul 15, 17:45 local time');
+    expect(line('America/Montreal', JULY, -9_000)).toBe('Wed, Jul 15, 09:30 local time');
+    expect(line('Asia/Kolkata', JULY, 20_700)).toBe('Wed, Jul 15, 17:45 local time');
+  });
+
+  it('dates the start on the recording\'s own calendar, whichever way the offset moves the day', () => {
+    expect(line('America/Montreal', '2026-07-15T23:30:00Z', 50_400)).toBe('Thu, Jul 16, 13:30 local time');
+    expect(line('Asia/Tokyo', '2026-07-15T02:00:00Z', -43_200)).toBe('Tue, Jul 14, 14:00 local time');
+  });
+
+  it('reads the clock in the app\'s language', () => {
+    process.env.TZ = 'America/Montreal';
+    const french = activityStartLine(translator('fr'), { start_date: JULY }, 19_800, 'fr');
+    expect(french).toContain('17:30');
+    expect(french).toContain('juil');
+    expect(french).toContain('heure locale');
+  });
+
+  it('leaves where the clock sits to the catalogue, whatever the language', () => {
+    process.env.TZ = 'America/Montreal';
+    const clockLast: Translate = (key, options) => `${key}: ${String(options?.time)}`;
+    expect(activityStartLine(clockLast, { start_date: JULY }, 19_800, 'en-US')).toBe(
+      'home.activity.localTime: Wed, Jul 15, 17:30',
+    );
+  });
+
+  it('leaves a string that is not an instant to the row formatter', () => {
+    process.env.TZ = 'America/Montreal';
+    expect(activityStartLine(t, { start_date: 'not-a-date' }, 19_800, 'en-US')).toBe('not-a-date');
   });
 });

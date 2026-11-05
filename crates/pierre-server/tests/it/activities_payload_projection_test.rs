@@ -77,6 +77,23 @@ fn activities_envelope(rows: usize) -> Value {
 }
 
 #[test]
+fn a_row_s_stated_offset_does_not_reach_the_model() {
+    // The list is one calendar: the recording's own clock is the activity
+    // view's display, and a second zone in the agent's rows is the 2026-08-28
+    // "two calendars in one prompt" failure.
+    let mut envelope = activities_envelope(2);
+    for row in envelope["activities"].as_array_mut().unwrap() {
+        row["utc_offset_seconds"] = json!(19_800);
+    }
+    let projected = project_activities_payload("get_activities", &envelope)
+        .expect("a real get_activities envelope is recognised");
+    for row in projected["activities"].as_array().unwrap() {
+        assert!(row.get("utc_offset_seconds").is_none(), "{row}");
+        assert_eq!(row["start_date"], json!("2026-08-20T11:04:00Z"));
+    }
+}
+
+#[test]
 fn the_projection_keeps_every_field_a_chained_call_needs() {
     let projected = project_activities_payload("get_activities", &activities_envelope(3))
         .expect("a real get_activities envelope is recognised");

@@ -356,6 +356,7 @@ export const TEMPO_DETAIL_RESPONSE: ActivityDetailResponse = {
   ],
   laps: [],
   conversation_id: null,
+  utc_offset_seconds: null,
 };
 
 /** The first day the server's activity cache holds in full in these specs. */

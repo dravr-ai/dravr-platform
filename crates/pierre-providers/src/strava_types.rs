@@ -64,6 +64,9 @@ pub struct StravaActivityResponse {
     /// any response that omits it.
     pub(crate) sport_type: Option<String>,
     pub(crate) start_date: String,
+    /// Seconds east of UTC on the clock the activity was recorded on. Strava
+    /// sends it on the list and detail payloads alike, as a JSON number.
+    pub(crate) utc_offset: Option<f64>,
     pub(crate) distance: Option<f32>,
     pub(crate) elapsed_time: Option<u32>,
     pub(crate) total_elevation_gain: Option<f32>,

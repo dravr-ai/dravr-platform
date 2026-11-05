@@ -244,6 +244,7 @@ export {
   ROW_DATE,
   activityNaming,
   activityRowFigures,
+  activityStartLine,
   calendarDayLabel,
   civilDayMonth,
   civilDayOfMonth,

@@ -609,6 +609,110 @@ fn an_auto_split_piece_adds_its_volume_but_none_of_its_averages() {
 }
 
 #[test]
+fn a_split_session_keeps_its_start_piece_s_offset_whichever_piece_is_canonical() {
+    let t = base_time();
+    let later = t + Duration::seconds(7_203);
+    // The start piece is canonical: the tail's clock is not the start's.
+    let (merged, _) = merge_duplicates(
+        vec![
+            provider_activity("start", "garmin", SportType::Ride, t, 7_200)
+                .utc_offset_seconds(-14_400)
+                .build(),
+            provider_activity("tail", "garmin", SportType::Ride, later, 3_600)
+                .utc_offset_seconds(3_600)
+                .build(),
+        ],
+        &DedupConfig::default(),
+    );
+    assert_eq!(ids(&merged), vec!["start"], "bug: the start piece stands");
+    assert_eq!(
+        merged[0].utc_offset_seconds(),
+        Some(-14_400),
+        "bug: the tail's clock replaced the start's"
+    );
+
+    // The GPS tail is canonical, so the earlier piece hands it its start.
+    let tail_with_gps = || {
+        provider_activity("tail", "garmin", SportType::Ride, later, 3_600)
+            .start_latitude(45.5)
+            .start_longitude(-73.6)
+            .utc_offset_seconds(3_600)
+            .build()
+    };
+    let (merged, _) = merge_duplicates(
+        vec![
+            provider_activity("start", "garmin", SportType::Ride, t, 7_200)
+                .utc_offset_seconds(-14_400)
+                .build(),
+            tail_with_gps(),
+        ],
+        &DedupConfig::default(),
+    );
+    assert_eq!(ids(&merged), vec!["tail"], "bug: the GPS tail stands");
+    assert_eq!(merged[0].start_date(), t, "bug: the start did not move");
+    assert_eq!(
+        merged[0].utc_offset_seconds(),
+        Some(-14_400),
+        "bug: the offset did not follow the start"
+    );
+
+    // A start piece that does not say leaves the session unknown.
+    let (merged, _) = merge_duplicates(
+        vec![
+            provider_activity("start", "garmin", SportType::Ride, t, 7_200).build(),
+            tail_with_gps(),
+        ],
+        &DedupConfig::default(),
+    );
+    assert_eq!(ids(&merged), vec!["tail"], "bug: the GPS tail stands");
+    assert_eq!(
+        merged[0].utc_offset_seconds(),
+        None,
+        "bug: a tail's clock stood in for a start that does not say"
+    );
+}
+
+#[test]
+fn a_covering_recording_fills_a_session_s_missing_offset_and_never_replaces_one() {
+    let t = base_time();
+    let gps = || {
+        provider_activity("gps", "garmin", SportType::Ride, t, 3_600)
+            .start_latitude(45.5)
+            .start_longitude(-73.6)
+    };
+    let watch = || {
+        provider_activity("watch", "whoop", SportType::Ride, t, 3_600)
+            .utc_offset_seconds(19_800)
+            .build()
+    };
+    let (merged, report) = merge_duplicates(vec![gps().build(), watch()], &DedupConfig::default());
+    assert_eq!(ids(&merged), vec!["gps"], "bug: the GPS row stands");
+    assert_eq!(
+        merged[0].utc_offset_seconds(),
+        Some(19_800),
+        "bug: the covering recording did not fill the offset"
+    );
+    assert!(
+        report.groups[0]
+            .filled_fields
+            .iter()
+            .all(|filled| filled.field != "utc_offset_seconds"),
+        "bug: the model's merge report named the recording's clock"
+    );
+
+    let (merged, _) = merge_duplicates(
+        vec![gps().utc_offset_seconds(-14_400).build(), watch()],
+        &DedupConfig::default(),
+    );
+    assert_eq!(ids(&merged), vec!["gps"], "bug: the GPS row stands");
+    assert_eq!(
+        merged[0].utc_offset_seconds(),
+        Some(-14_400),
+        "bug: a covering recording replaced a stated offset"
+    );
+}
+
+#[test]
 fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
     // Watch ≈ bike computer (same provider, overlap) and bike computer ≈
     // Strava upload of it (two providers). One workout, three rows.

@@ -229,6 +229,14 @@ export interface ActivityDetailResponse {
    * `PUT …/conversation`, so the thread resumes on any device.
    */
   conversation_id: string | null;
+  /**
+   * Seconds east of UTC on the clock the workout's recording started on
+   * (Montreal in summer is -14400), or null when no recording says or the
+   * session knows only its day. Only the
+   * view's start line reads it: the day a workout counts on stays the athlete's
+   * own zone. `activityStartLine` in `@pierre/ui-logic` decides and formats.
+   */
+  utc_offset_seconds: number | null;
 }
 
 /**
@@ -539,11 +547,13 @@ export function parseActivityDetailResponse(body: unknown): ActivityDetailRespon
   const splits = parseList(body.splits, parseSplit);
   const laps = parseList(body.laps, parseLap);
   const conversationId = nullable(body.conversation_id, isString);
+  const utcOffset = nullable(body.utc_offset_seconds, Number.isInteger as (value: unknown) => value is number);
   if (
     activity === null ||
     splits === null ||
     laps === null ||
     conversationId === undefined ||
+    utcOffset === undefined ||
     Object.values(figures).includes(undefined)
   ) {
     return null;
@@ -559,6 +569,7 @@ export function parseActivityDetailResponse(body: unknown): ActivityDetailRespon
     splits,
     laps,
     conversation_id: conversationId,
+    utc_offset_seconds: utcOffset,
   };
 }
 

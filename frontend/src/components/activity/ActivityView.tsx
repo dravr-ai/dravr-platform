@@ -12,11 +12,11 @@ import {
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
+  activityStartLine,
   DRAFT_DATE,
   formatInstant,
   isDeletableActivity,
   lapsTable,
-  ROW_DATE,
   type SegmentTable,
   splitsTable,
   sportLabel,
@@ -294,7 +294,9 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
           <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-6 md:px-6">
             <div>
               <p className="text-sm text-on-surface-variant" data-testid="activity-when">
-                <span className="font-mono">{formatInstant(data.activity.start_date, language, ROW_DATE)}</span>
+                <span className="font-mono">
+                  {activityStartLine(t, data.activity, data.utc_offset_seconds, language)}
+                </span>
                 {' · '}
                 {sport}
                 {/* The recording device, with the attribution Garmin-sourced data owes, as served (carnet#521, carnet#711). */}

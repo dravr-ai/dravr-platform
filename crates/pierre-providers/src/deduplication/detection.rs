@@ -94,9 +94,16 @@ pub struct FragmentGroup {
     pub window_end: DateTime<Utc>,
     /// Fields the canonical row took from another recording: those it
     /// lacked, and the title and sport the athlete gave the workout on
-    /// Strava's copy (`name`, `sport_type`, `sport_type_detail`).
+    /// Strava's copy (`name`, `sport_type`, `sport_type_detail`). The model
+    /// reads this list, so [`UNREPORTED_FILL`] is left out of it.
     pub filled_fields: Vec<FilledField>,
 }
+
+/// A field a session can take from a recording without the report naming it.
+/// The offset is the activity view's display: the agent's rows stay on one
+/// calendar, the athlete's stored zone, and a merge note naming the recording's
+/// clock would be a second one (the 2026-08-28 "two calendars in one prompt").
+const UNREPORTED_FILL: &str = "utc_offset_seconds";
 
 /// One field a canonical row took from a peer recording of its session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -335,12 +342,16 @@ fn fold_group(
     let mut filled_fields = Vec::new();
     for (peer, _) in peers.iter().zip(&pieces).filter(|(_, &piece)| !piece) {
         if covers_session(peer, &canonical) {
-            filled_fields.extend(canonical.fill_missing_from(peer).into_iter().map(|field| {
-                FilledField {
-                    field,
-                    provider: origin_name(peer),
-                }
-            }));
+            filled_fields.extend(
+                canonical
+                    .fill_missing_from(peer)
+                    .into_iter()
+                    .filter(|&field| field != UNREPORTED_FILL)
+                    .map(|field| FilledField {
+                        field,
+                        provider: origin_name(peer),
+                    }),
+            );
         }
     }
     if let Some(copy) = peer_indices
