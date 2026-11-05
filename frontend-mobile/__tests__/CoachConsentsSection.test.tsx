@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the member's "what your human coach can do" block on the phone — calendar and wellness consents on the relationship
-// ABOUTME: One switch at a time, a wellness revoke asks first, refusals worded from their reason, the Intervals.icu Coach step
+// ABOUTME: One switch at a time, a wellness revoke asks first, the widening notice's two answers, refusals worded from their reason
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -33,9 +33,16 @@ function consents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsents
     wellness_read_at: null,
     wellness_read_supported: true,
     wellness_read_skipped: null,
+    wellness_notice_due: false,
     ...overrides,
   };
 }
+
+/** What the wellness revoke confirm says: the coach's reads end, only what the link synced goes. */
+const REVOKE_BODY =
+  "Casey Coach stops seeing your sleep, HRV, resting heart rate, weight, readiness and daily notes. Dravr removes what it synced through Casey Coach's Intervals.icu account; what your own apps sync stays in your account.";
+
+type AlertButtons = Array<{ text: string; style?: string; onPress?: () => void }>;
 
 /** The block as Group info renders it: fed by the member's coach-consents read. */
 function Harness() {
@@ -74,7 +81,7 @@ describe('CoachConsentsSection', () => {
     expect(getByTestId('coach-consent-row-calendar_write')).toHaveTextContent(
       /On Intervals\.icu, Casey Coach must also be your human coach there: open intervals\.icu\/athletes, click Casey Coach and pick the Coach role, not Follower\./,
     );
-    // Wellness syncs only through a link: not offered, not shown.
+    // A relationship that does not offer wellness shows no wellness switch.
     expect(queryByTestId('coach-consent-wellness_read')).toBeNull();
   });
 
@@ -124,15 +131,9 @@ describe('CoachConsentsSection', () => {
     await act(async () => {
       fireEvent(getByTestId('coach-consent-wellness_read'), 'valueChange', false);
     });
-    const ask = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
-      string,
-      string,
-      Array<{ text: string; style?: string; onPress?: () => void }>,
-    ];
+    const ask = (Alert.alert as jest.Mock).mock.calls.at(-1) as [string, string, AlertButtons];
     expect(ask[0]).toBe('Stop sharing wellness?');
-    expect(ask[1]).toBe(
-      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
-    );
+    expect(ask[1]).toBe(REVOKE_BODY);
     expect(ask[2].map((button) => [button.text, button.style])).toEqual([
       ['Cancel', 'cancel'],
       ['Stop sharing', 'destructive'],
@@ -144,6 +145,60 @@ describe('CoachConsentsSection', () => {
       await ask[2].find((button) => button.text === 'Stop sharing')?.onPress?.();
     });
     expect(mockUpdate).toHaveBeenCalledWith(GROUP_ID, { wellness_read: false });
+  });
+
+  it('tells a grant from before the widening, and keeping it grants it again', async () => {
+    mockGet.mockResolvedValue(consents({ wellness_read: true, wellness_notice_due: true }));
+    mockUpdate.mockResolvedValue(consents({ wellness_read: true }));
+    const { findByTestId, getByTestId, queryByTestId } = renderBlock();
+
+    const notice = await findByTestId('coach-consent-wellness-notice');
+    expect(notice).toHaveTextContent(/Wellness sharing now covers all your apps/);
+    expect(notice).toHaveTextContent(
+      /Sharing your wellness with Casey Coach now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only Intervals\.icu\./,
+    );
+    // The grant stands while the member decides.
+    expect(getByTestId('coach-consent-wellness_read')).toHaveProp('value', true);
+
+    await act(async () => {
+      fireEvent.press(getByTestId('coach-consent-wellness-keep'));
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(GROUP_ID, { wellness_read: true });
+    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(queryByTestId('coach-consent-wellness-notice')).toBeNull());
+    expect(getByTestId('coach-consent-wellness_read')).toHaveProp('value', true);
+  });
+
+  it('stops sharing from the widening notice through the ordinary revoke confirm', async () => {
+    mockGet.mockResolvedValue(consents({ wellness_read: true, wellness_notice_due: true }));
+    mockUpdate.mockResolvedValue(consents({ wellness_read: false }));
+    const { findByTestId, getByTestId, queryByTestId } = renderBlock();
+
+    await findByTestId('coach-consent-wellness-notice');
+    expect(getByTestId('coach-consent-wellness-stop')).toHaveTextContent('Stop sharing');
+    await act(async () => {
+      fireEvent.press(getByTestId('coach-consent-wellness-stop'));
+    });
+    const ask = (Alert.alert as jest.Mock).mock.calls.at(-1) as [string, string, AlertButtons];
+    expect(ask[0]).toBe('Stop sharing wellness?');
+    expect(ask[1]).toBe(REVOKE_BODY);
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await ask[2].find((button) => button.text === 'Stop sharing')?.onPress?.();
+    });
+    expect(mockUpdate).toHaveBeenCalledWith(GROUP_ID, { wellness_read: false });
+    await waitFor(() => expect(queryByTestId('coach-consent-wellness-notice')).toBeNull());
+    expect(getByTestId('coach-consent-wellness_read')).toHaveProp('value', false);
+  });
+
+  it('tells nothing of the widening to a grant given since it', async () => {
+    mockGet.mockResolvedValue(consents({ wellness_read: true }));
+    const { findByTestId, queryByTestId } = renderBlock();
+
+    expect(await findByTestId('coach-consent-wellness_read')).toHaveProp('value', true);
+    expect(queryByTestId('coach-consent-wellness-notice')).toBeNull();
   });
 
   it('switches calendar writes on without asking', async () => {

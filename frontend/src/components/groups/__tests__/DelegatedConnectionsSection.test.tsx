@@ -475,7 +475,7 @@ describe('DelegatedConnectionsSection — coach', () => {
     const both = await screen.findByTestId('delegation-consents-dc-1');
     expect(within(both).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'Can put workouts on their calendar',
-      'Shares sleep, HRV, resting heart rate, weight and notes',
+      'Shares sleep, HRV, resting heart rate, weight, readiness and daily notes',
     ]);
     expect(screen.getByTestId('delegation-consents-dc-2')).toHaveTextContent('Workouts only');
     // A proposal has granted nothing yet, so it carries no line.
@@ -589,14 +589,16 @@ describe('DelegatedConnectionsSection — member', () => {
       name: /Let Casey Coach put workouts on your Intervals\.icu calendar/,
     });
     const wellness = within(request).getByRole('checkbox', {
-      name: /Also share your Intervals\.icu sleep, HRV, resting heart rate, weight and daily notes/,
+      name: /Let Casey Coach see your sleep, HRV, resting heart rate, weight, readiness and daily notes from your connected apps/,
     });
     expect(calendar).not.toBeChecked();
     expect(wellness).not.toBeChecked();
     expect(request).toHaveTextContent(
       'Workouts Casey Coach plans for you in Dravr go on your Intervals.icu calendar, and from there to your devices.',
     );
-    expect(request).toHaveTextContent('Turning this off removes what Dravr already read.');
+    expect(request).toHaveTextContent(
+      "Turning this off ends that access and removes only what Dravr synced through Casey Coach's Intervals.icu account",
+    );
 
     await user.click(calendar);
     expect(calendar).toBeChecked();

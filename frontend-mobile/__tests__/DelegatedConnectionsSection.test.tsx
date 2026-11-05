@@ -410,7 +410,7 @@ describe('DelegatedConnectionsSection', () => {
     const request = await findByTestId('delegation-request');
     expect(request).toHaveTextContent(/Let Casey Coach put workouts on your Intervals\.icu calendar/);
     expect(request).toHaveTextContent(
-      /Also share your Intervals\.icu sleep, HRV, resting heart rate, weight and daily notes/,
+      /Let Casey Coach see your sleep, HRV, resting heart rate, weight, readiness and daily notes from your connected apps/,
     );
     expect(getByTestId('delegation-consent-calendar_write')).toHaveProp('value', false);
     expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', false);

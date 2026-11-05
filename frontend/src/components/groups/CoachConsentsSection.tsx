@@ -4,15 +4,16 @@
 // ABOUTME: Group info's "what your human coach can do" — the member's calendar-write and wellness consents to the group's coach
 // ABOUTME: One block on the coach relationship, shown with or without a link; a wellness revoke asks first, as it deletes
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { CoachConsentsResponse } from '@pierre/shared-types';
 import {
-  COACH_CALENDAR_PLATFORM,
   COACH_CONSENTS_KEYS,
   DELEGATION_CONSENT_KEYS,
+  WELLNESS_WIDENED_NOTICE_KEYS,
   coachPlatformName,
   consentChangeConfirm,
   consentNoteKey,
+  consentPlatformName,
   delegationRefusalKey,
   offeredConsents,
   type DelegationConsent,
@@ -20,7 +21,7 @@ import {
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useSetCoachConsents } from '../../hooks/useGroups';
-import { Checkbox, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Button, Checkbox, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 
 interface CoachConsentsSectionProps {
   groupId: string;
@@ -36,11 +37,13 @@ interface CoachConsentsSectionProps {
  * one block for the group, whether the member reaches the coaching platform
  * through a link or through a connection of their own. The calendar switch
  * says the step the athlete also takes on the platform itself: making the
- * coach their Coach there.
+ * coach their Coach there. A wellness grant given before the consent widened
+ * to every app the member connects is told so above the switches, with its
+ * two answers: keep it (granted again) or stop (the ordinary revoke).
  */
 export default function CoachConsentsSection({ groupId, consents, coach }: CoachConsentsSectionProps) {
   const { t } = useTranslation();
-  const platform = coachPlatformName(COACH_CALENDAR_PLATFORM);
+  const noticeTitleId = useId();
   const showSuccess = useSuccessToast();
   const showError = useErrorToast();
   const { setConsents, isPending } = useSetCoachConsents(groupId);
@@ -69,8 +72,46 @@ export default function CoachConsentsSection({ groupId, consents, coach }: Coach
   return (
     <div className="space-y-3" data-testid="coach-consents">
       <p className="text-sm text-on-surface-variant">{t(COACH_CONSENTS_KEYS.hint, { coach })}</p>
+      {consents.wellness_notice_due && (
+        <div
+          role="note"
+          aria-labelledby={noticeTitleId}
+          className="space-y-2 rounded-lg border border-info/30 bg-info/10 p-3"
+          data-testid="coach-consent-wellness-notice"
+        >
+          <p id={noticeTitleId} className="text-sm font-medium text-on-info-container">
+            {t(WELLNESS_WIDENED_NOTICE_KEYS.title)}
+          </p>
+          <p className="text-sm text-on-info-container">
+            {t(WELLNESS_WIDENED_NOTICE_KEYS.body, { coach, platform: consentPlatformName('wellness_read') })}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Keeping is a fresh grant: the server stamps it, and the notice goes with its answer. */}
+            <Button
+              variant="tertiary"
+              size="sm"
+              disabled={isPending}
+              onClick={() => void change('wellness_read', true)}
+              data-testid="coach-consent-wellness-keep"
+            >
+              {t(WELLNESS_WIDENED_NOTICE_KEYS.keep)}
+            </Button>
+            <Button
+              variant="tertiary"
+              size="sm"
+              className="text-error"
+              disabled={isPending}
+              onClick={() => setRevoking('wellness_read')}
+              data-testid="coach-consent-wellness-stop"
+            >
+              {t(WELLNESS_WIDENED_NOTICE_KEYS.stop)}
+            </Button>
+          </div>
+        </div>
+      )}
       {offered.map((consent) => {
         const note = consentNoteKey(consents, consent);
+        const platform = consentPlatformName(consent);
         return (
           <div key={consent} className="space-y-1">
             <Checkbox
@@ -107,7 +148,7 @@ export default function CoachConsentsSection({ groupId, consents, coach }: Coach
           setRevoking(null);
         }}
         title={revokeConfirm ? t(revokeConfirm.title) : ''}
-        message={revokeConfirm ? t(revokeConfirm.body, { platform, coach }) : ''}
+        message={revokeConfirm && revoking ? t(revokeConfirm.body, { platform: consentPlatformName(revoking), coach }) : ''}
         confirmLabel={revokeConfirm ? t(revokeConfirm.confirm) : undefined}
         variant="danger"
       />

@@ -525,6 +525,44 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
         Some(t2.timestamp_micros())
     );
 
+    // A wellness grant is the member agreeing to the consent as it reads
+    // now, so it is stamped even over a standing one; a revoke, like every
+    // calendar change, only when it changes the value.
+    let t4 = t3 + Duration::minutes(1);
+    let regranted = groups
+        .set_coach_consents(&key, member, None, Some(true), t4)
+        .await
+        .unwrap()
+        .unwrap()
+        .coach_consents;
+    assert!(regranted.wellness_read);
+    assert_eq!(
+        micros(regranted.wellness_read_at),
+        Some(t4.timestamp_micros()),
+        "a wellness grant over a standing one is stamped again"
+    );
+    assert_eq!(
+        micros(regranted.calendar_write_at),
+        Some(t3.timestamp_micros()),
+        "a consent left out keeps its stamp"
+    );
+    let t5 = t4 + Duration::minutes(1);
+    let t6 = t5 + Duration::minutes(1);
+    for at in [t5, t6] {
+        groups
+            .set_coach_consents(&key, member, None, Some(false), at)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let withdrawn = consents_of(&f, group, member).await;
+    assert!(!withdrawn.wellness_read);
+    assert_eq!(
+        micros(withdrawn.wellness_read_at),
+        Some(t5.timestamp_micros()),
+        "a repeated revoke keeps when it was revoked"
+    );
+
     assert!(groups.remove_member(&key, member).await.unwrap());
     assert!(
         groups

@@ -17,12 +17,14 @@
 //!   coach's account or through a connection of their own. Offered where a
 //!   coaching platform takes a coach's calendar writes
 //!   ([`ProviderCapabilities::supports_coach_calendar_write`]).
-//! - `wellness_read`: the member's sleep, HRV, resting heart rate, weight and
-//!   daily note sync through the coach's account. Offered while the member
-//!   reads a platform whose coach credential reads them
+//! - `wellness_read`: the group's coach, through Dravr, may read the
+//!   member's sleep, HRV, resting heart rate, weight, readiness and daily
+//!   notes from every app they connect. Offered whenever the group has a
+//!   human coach. A confirmed link whose platform reads a member's wellness
+//!   through the coach's credential
 //!   ([`crate::coach_platform::CoachPlatform::reads_member_wellness`])
-//!   through a confirmed link in the group. It is also the only thing that
-//!   lets the readiness the coach reads in the member's plan include their
+//!   syncs it under this consent too. It is also the only thing that lets
+//!   the readiness the coach reads in the member's plan include their
 //!   sleep, HRV and resting heart rate (carnet#1423).
 //!
 //! A link only binds a platform athlete to the member; it is how a member with
@@ -33,9 +35,17 @@
 //! at any time on their membership ([`set_coach_consents`]). A grant that is
 //! not offered is ignored, never stored. A grant is accepted only from
 //! Dravr's own app, never over an API key or another external transport; a
-//! revoke is accepted from anywhere. Revoking `wellness_read` deletes the
-//! wellness every confirmed link of the member's in the group wrote under
-//! their tenant, with its attestation row; the workouts the links read stay.
+//! revoke is accepted from anywhere. Revoking `wellness_read` ends the
+//! coach's access and deletes the wellness every confirmed link of the
+//! member's in the group wrote under their tenant, with its attestation row;
+//! the workouts the links read, and the wellness the member's own
+//! connections filed, stay.
+//!
+//! `wellness_read` once covered only the wellness a link syncs through the
+//! coach's account. A grant given before it widened
+//! ([`WELLNESS_READ_WIDENED_AT`]) stands, and the apps tell the member it now
+//! covers every app they connect ([`wellness_notice_due`]) until they keep it
+//! (a fresh grant, which stamps it again) or revoke it.
 //!
 //! No coach can change a consent: every write is scoped to the member's own
 //! membership.
@@ -46,7 +56,7 @@
 
 use std::cmp::Ordering;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -70,14 +80,26 @@ use crate::delegated_read::{holds_own_connection, holds_own_session, OwnLogins};
 /// `details.reason`.
 const GRANT_NEEDS_APP: &str = "consent_grant_needs_app";
 
+/// The instant `wellness_read` widened to every app the member connects.
+///
+/// Before it, the consent covered only the wellness a link syncs through the
+/// coach's account (carnet#1387). This is 2026-11-05T18:43:00Z, the minute
+/// the widening landed. A grant stamped before it was given
+/// to the narrower consent, so the member is told of the widening
+/// ([`wellness_notice_due`]).
+const WELLNESS_READ_WIDENED_AT: DateTime<Utc> =
+    DateTime::from_timestamp_nanos(1_793_904_180_000_000_000);
+
 /// Which coach consents are offered: by a member's coach relationship right
 /// now ([`consent_offer`]), or by one link's platform ([`link_offer`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsentOffer {
     /// A coaching platform takes a coach's writes to an athlete's calendar.
     pub calendar_write: bool,
-    /// The member reads a platform through a confirmed link whose coach
-    /// credential reads their wellness.
+    /// For a relationship, the group has a human coach, who may read the
+    /// member's wellness from every app they connect. For a link, its
+    /// platform's coach credential reads the member's wellness, so the link
+    /// syncs it under the consent.
     pub wellness_read: bool,
 }
 
@@ -112,37 +134,33 @@ pub fn link_offer(registry: &ProviderRegistry, link: &DelegatedConnection) -> Co
     }
 }
 
-/// The consents `member`'s relationship with the coach of `group` can carry.
+/// The consents a member's relationship with the coach of `group` can carry.
 ///
 /// None while the group has no coach; else calendar writes where a platform
-/// takes them, wellness reads while one of the member's confirmed links in
-/// the group reads wellness.
-///
-/// # Errors
-///
-/// Returns the repository error when the member's links cannot be read.
-pub async fn consent_offer(
-    repos: &RepositoryRegistry,
-    registry: &ProviderRegistry,
-    group: &CoachingGroup,
-    member: Uuid,
-) -> AppResult<ConsentOffer> {
-    if group.coach_user_id.is_none() {
-        return Ok(ConsentOffer {
-            calendar_write: false,
-            wellness_read: false,
-        });
+/// takes them, and wellness reads, whatever the member connects or links.
+#[must_use]
+pub fn consent_offer(registry: &ProviderRegistry, group: &CoachingGroup) -> ConsentOffer {
+    let coached = group.coach_user_id.is_some();
+    ConsentOffer {
+        calendar_write: coached && calendar_write_offered(registry),
+        wellness_read: coached,
     }
-    let links = repos
-        .delegated_connections
-        .list_live_for_member_in_group(group.id, member)
-        .await?;
-    Ok(ConsentOffer {
-        calendar_write: calendar_write_offered(registry),
-        wellness_read: links.iter().any(|link| {
-            link.status == DelegationStatus::Confirmed && link_reads_wellness(registry, link)
-        }),
-    })
+}
+
+/// Whether the apps tell the member their wellness grant widened.
+///
+/// They say it now covers every app the member connects, and ask whether to
+/// keep it, while the relationship offers wellness reads (`offer`) and the
+/// grant stands, stamped before the consent widened
+/// ([`WELLNESS_READ_WIDENED_AT`]) or never stamped at all. Keeping it is a
+/// fresh grant, which stamps it again and clears the notice.
+#[must_use]
+pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool {
+    offer.wellness_read
+        && consents.wellness_read
+        && consents
+            .wellness_read_at
+            .is_none_or(|at| at < WELLNESS_READ_WIDENED_AT)
 }
 
 /// The consents `member` gave the coach of the group `group_id`: those on
@@ -258,7 +276,7 @@ fn own_wellness_backends(registry: &ProviderRegistry, link: &str) -> Vec<String>
 pub struct ConsentChange {
     /// Grant or revoke the coach's writes to the member's calendar.
     pub calendar_write: Option<bool>,
-    /// Grant or revoke the sync of the member's wellness.
+    /// Grant or revoke the coach's reads of the member's wellness.
     pub wellness_read: Option<bool>,
 }
 
@@ -300,9 +318,12 @@ const fn keep(change: Option<bool>, offered: bool) -> Option<bool> {
 /// `change` says.
 ///
 /// A grant the relationship does not offer is ignored ([`consent_offer`]).
-/// Revoking `wellness_read` deletes the wellness the member's confirmed
-/// links in the group wrote, whatever it stood at before, so a revoke
-/// repeated after a failed purge deletes what the first one left.
+/// A `wellness_read` grant is stamped even over a standing one: the member
+/// agrees to the consent as it reads now, which is how they keep a grant
+/// given before it widened ([`wellness_notice_due`]). Revoking
+/// `wellness_read` deletes the wellness the member's confirmed links in the
+/// group wrote, whatever it stood at before, so a revoke repeated after a
+/// failed purge deletes what the first one left.
 ///
 /// # Errors
 ///
@@ -317,8 +338,7 @@ pub async fn set_coach_consents(
     change: ConsentChange,
 ) -> AppResult<GroupMember> {
     require_app_for_grant(change.grants_any())?;
-    let offer = consent_offer(repos, registry, group, member).await?;
-    let change = change.within(offer);
+    let change = change.within(consent_offer(registry, group));
     let updated = repos
         .groups
         .set_coach_consents(
@@ -348,6 +368,11 @@ pub async fn set_coach_consents(
 /// tenant they confirmed in, where the link's reads are filed (the sleep,
 /// recovery and health rows, the data sources they reference and the sync's
 /// cursors over them).
+///
+/// The member's own wellness stays: another app's is filed under that app,
+/// and a login of their own to the link's platform in that tenant files
+/// under the platform beside the link, so every row there is then theirs to
+/// keep, whatever the link synced before it.
 async fn purge_member_wellness(
     repos: &RepositoryRegistry,
     group: &CoachingGroup,
@@ -364,6 +389,15 @@ async fn purge_member_wellness(
         let tenant = link
             .member_tenant_id
             .ok_or_else(|| AppError::internal("A confirmed link carries no member tenant"))?;
+        let own = OwnLogins::of(repos);
+        if holds_own_connection(own, member, Some(tenant), &[&link.provider]).await? {
+            info!(
+                link_id = %link.id,
+                group_id = %group.id,
+                "Kept the wellness filed under a delegated link's platform: the member's own login files there too"
+            );
+            continue;
+        }
         let purge = repos
             .provider_data
             .purge_user_provider_wellness(
@@ -408,6 +442,7 @@ pub(crate) fn require_app_for_grant(grants: bool) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Duration;
     use pierre_core::constants::oauth_providers::{
         GARMIN, INTERVALS_ICU, SCIOTTE_GARMIN, TRAININGPEAKS, WHOOP,
     };
@@ -475,6 +510,51 @@ mod tests {
         );
         assert!(!revokes.grants_any());
         assert!(both.grants_any());
+    }
+
+    /// A grant given before the consent widened to every app is told of the
+    /// widening until it is given again; one given at the widening or after
+    /// it, a revoked one, and one the relationship no longer offers are not.
+    #[test]
+    fn only_a_standing_grant_from_before_the_widening_is_told_of_it() {
+        let offered = ConsentOffer {
+            calendar_write: false,
+            wellness_read: true,
+        };
+        let granted_at = |at: Option<DateTime<Utc>>| CoachConsents {
+            wellness_read: true,
+            wellness_read_at: at,
+            ..CoachConsents::default()
+        };
+        let before = WELLNESS_READ_WIDENED_AT - Duration::seconds(1);
+        assert!(
+            wellness_notice_due(offered, granted_at(Some(before))),
+            "a grant a second before the widening was given to the narrower consent"
+        );
+        assert!(
+            wellness_notice_due(offered, granted_at(None)),
+            "a grant with no instant cannot be shown to postdate the widening"
+        );
+        assert!(
+            !wellness_notice_due(offered, granted_at(Some(WELLNESS_READ_WIDENED_AT))),
+            "a grant at the widening was given to the consent as it reads now"
+        );
+        let revoked = CoachConsents {
+            wellness_read: false,
+            ..granted_at(Some(before))
+        };
+        assert!(
+            !wellness_notice_due(offered, revoked),
+            "nothing to keep once revoked"
+        );
+        let no_coach = ConsentOffer {
+            calendar_write: false,
+            wellness_read: false,
+        };
+        assert!(
+            !wellness_notice_due(no_coach, granted_at(Some(before))),
+            "a group with no coach asks nothing"
+        );
     }
 
     #[tokio::test]

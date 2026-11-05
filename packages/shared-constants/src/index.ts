@@ -281,6 +281,8 @@ export {
   delegationRefusalKey,
   coachDelegationRefusalKey,
   DELEGATION_CONSENT_KEYS,
+  consentPlatformName,
+  WELLNESS_WIDENED_NOTICE_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   WELLNESS_READ_SKIP_KEYS,
   offeredConsents,
@@ -289,7 +291,6 @@ export {
   confirmConsents,
   DELEGATION_REVOKE_CONFIRM_KEYS,
   consentChangeConfirm,
-  COACH_CALENDAR_PLATFORM,
   COACH_CONSENTS_KEYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';

@@ -278,8 +278,10 @@ export function createGroupsApi(axios: AxiosInstance) {
 
     /**
      * The member grants or revokes what the group's coach may do; a consent
-     * left out stays as it stands. Revoking `wellness_read` deletes the
-     * wellness their links synced. Answers with the consents as they now stand.
+     * left out stays as it stands. Granting `wellness_read` over a standing
+     * grant keeps it under the consent's current wording (stamped again);
+     * revoking it deletes the wellness their links synced. Answers with the
+     * consents as they now stand.
      */
     async updateCoachConsents(
       groupId: string,

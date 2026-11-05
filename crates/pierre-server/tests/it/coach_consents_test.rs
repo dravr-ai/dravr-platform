@@ -1,5 +1,5 @@
 // ABOUTME: A member grants and revokes what their group's coach may do beyond reading their workouts, on the coach relationship
-// ABOUTME: Pins the grants a confirm names, the member-only change, the API-key refusal, the offer, and the wellness purge a revoke owes
+// ABOUTME: Pins the grants a confirm names, the member-only change, the API-key refusal, the offer, the widening notice and the purge
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,9 +11,12 @@
 //! link: each is off until the member grants it, when they confirm a link or
 //! at any time under `/members/me/coach-consents`; only the member changes
 //! it; a grant is taken only from Dravr's own app, a revoke from anywhere;
-//! `wellness_read` is offered only while a confirmed link reads wellness; and
+//! `wellness_read`, the coach's reads of the member's wellness from every app
+//! they connect, is offered whenever the group has a coach; a grant given
+//! before it widened is told of the widening until the member keeps it; and
 //! revoking it deletes the wellness the member's links synced, leaving the
-//! links and their workouts. A link's response mirrors the relationship.
+//! links, their workouts and the member's own wellness. A link's response
+//! mirrors the relationship.
 //!
 //! The API is a loopback stand-in (a test double, per the repo's mock rule)
 //! serving the coach's roster and each athlete's activities to the coach's key.
@@ -30,7 +33,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use common::{
     create_test_server_resources_with_config, create_test_user_with_plan, generate_test_token,
     test_server_config_with_api_base,
@@ -466,7 +469,31 @@ impl World {
     /// Seed the wellness and the one workout a link synced for `member`, as
     /// the sync files them: under the member's tenant, as Intervals.icu's.
     async fn seed_synced(&self, member: &Person) {
+        self.seed_wellness(member, INTERVALS_ICU, night()).await;
+        let ride = ActivityBuilder::new(
+            format!("icu-ride-{}", member.id),
+            "Endurance ride".to_owned(),
+            SportType::Ride,
+            night() + Duration::hours(14),
+            5_400,
+            INTERVALS_ICU.to_owned(),
+        )
+        .build();
+        self.res
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(member.id, &member.tenant, INTERVALS_ICU, &[ride])
+            .await
+            .unwrap();
+    }
+
+    /// Seed one night of sleep, one morning's recovery and one weigh-in for
+    /// `member` from `provider`, under the member's tenant, as that
+    /// provider's sync files them.
+    async fn seed_wellness(&self, member: &Person, provider: &str, night: DateTime<Utc>) {
         let repos = &self.res.common.repos;
+        let morning = (night + Duration::days(1)).date_naive();
         let source = repos
             .data_sources
             .upsert_data_source(
@@ -474,7 +501,7 @@ impl World {
                 &DataSource {
                     id: String::new(),
                     user_id: member.id.to_string(),
-                    provider: INTERVALS_ICU.to_owned(),
+                    provider: provider.to_owned(),
                     device_model: None,
                     software_version: None,
                     source: None,
@@ -489,12 +516,12 @@ impl World {
             .upsert_sleep_session(
                 &member.tenant,
                 &StoredSleepSession {
-                    id: format!("icu-sleep-{}", Uuid::new_v4()),
+                    id: format!("{provider}-sleep-{}", Uuid::new_v4()),
                     user_id: member.id.to_string(),
                     data_source_id: source.clone(),
                     is_nap: false,
-                    start_datetime: night(),
-                    end_datetime: night() + Duration::hours(8),
+                    start_datetime: night,
+                    end_datetime: night + Duration::hours(8),
                     total_sleep_seconds: Some(25_200),
                     deep_sleep_seconds: None,
                     light_sleep_seconds: None,
@@ -507,7 +534,7 @@ impl World {
                     sleep_score: None,
                     avg_spo2: None,
                     stages: Vec::new(),
-                    source_name: INTERVALS_ICU.to_owned(),
+                    source_name: provider.to_owned(),
                 },
                 Utc::now(),
             )
@@ -518,10 +545,10 @@ impl World {
             .upsert_recovery_metrics(
                 &member.tenant,
                 &StoredRecoveryMetrics {
-                    id: format!("icu-day-{}", Uuid::new_v4()),
+                    id: format!("{provider}-day-{}", Uuid::new_v4()),
                     user_id: member.id.to_string(),
                     data_source_id: source.clone(),
-                    date: morning(),
+                    date: morning,
                     recovery_score: None,
                     readiness_score: None,
                     hrv_ms: Some(68.0),
@@ -534,7 +561,7 @@ impl World {
                     skin_temp_deviation: None,
                     daily_strain: None,
                     athlete_note: None,
-                    source_name: INTERVALS_ICU.to_owned(),
+                    source_name: provider.to_owned(),
                     recorded_at: Utc::now(),
                 },
                 WellnessWriteMode::FullDay,
@@ -550,7 +577,7 @@ impl World {
                     id: String::new(),
                     user_id: member.id.to_string(),
                     data_source_id: source,
-                    date: morning(),
+                    date: morning,
                     weight_kg: Some(68.2),
                     body_fat_pct: None,
                     muscle_mass_kg: None,
@@ -561,26 +588,12 @@ impl World {
                     diastolic_bp: None,
                     blood_glucose: None,
                     vo2_max: None,
-                    source_name: INTERVALS_ICU.to_owned(),
+                    source_name: provider.to_owned(),
                     recorded_at: Utc::now(),
                 },
                 WellnessWriteMode::FullDay,
                 Utc::now(),
             )
-            .await
-            .unwrap();
-        let ride = ActivityBuilder::new(
-            format!("icu-ride-{}", member.id),
-            "Endurance ride".to_owned(),
-            SportType::Ride,
-            night() + Duration::hours(14),
-            5_400,
-            INTERVALS_ICU.to_owned(),
-        )
-        .build();
-        repos
-            .activity_cache
-            .upsert_activities(member.id, &member.tenant, INTERVALS_ICU, &[ride])
             .await
             .unwrap();
     }
@@ -617,14 +630,60 @@ impl World {
                 .len(),
         ]
     }
+
+    /// How many sleep, recovery and health rows `provider` filed for
+    /// `member` around `night`.
+    async fn wellness_from(
+        &self,
+        member: &Person,
+        provider: &str,
+        night: DateTime<Utc>,
+    ) -> [usize; 3] {
+        let repos = &self.res.common.repos;
+        let (from, to) = (night - Duration::days(1), night + Duration::days(2));
+        [
+            repos
+                .sleep
+                .get_sleep_sessions(member.id, &member.tenant, from, to)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|row| row.source_name == provider)
+                .count(),
+            repos
+                .recovery
+                .get_recovery_metrics(member.id, &member.tenant, from, to)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|row| row.source_name == provider)
+                .count(),
+            repos
+                .health_snapshots
+                .get_health_snapshots(member.id, &member.tenant, from, to)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|row| row.source_name == provider)
+                .count(),
+        ]
+    }
 }
 
 fn night() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 20, 22, 0, 0).unwrap()
 }
 
-fn morning() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, 21).unwrap()
+/// A night of the member's own WHOOP, a week before the link's, so no read
+/// of one night's wellness ever weighs the two sources against each other.
+fn own_night() -> DateTime<Utc> {
+    night() - Duration::days(7)
+}
+
+/// A month before the wellness consent widened to every app the member
+/// connects (2026-11-05T18:43:00Z), when it covered only a link's sync.
+fn before_the_widening() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 10, 6, 9, 0, 0).unwrap()
 }
 
 /// A confirm grants exactly the consents it names, each stamped on the
@@ -660,15 +719,17 @@ async fn a_confirm_grants_what_it_names(w: &World) -> (Uuid, Uuid, Uuid) {
     (m1_link, m2_link, m3_link)
 }
 
-/// A member with no link is offered calendar writes (the group has a coach,
-/// and Intervals.icu takes a coach's writes) but no wellness sync, since no
-/// link of theirs reads it: a wellness grant is ignored, a calendar grant
-/// stands. The coach reads no member's consents through this path, and a
-/// coach's or an outsider's change is refused.
+/// A member with no link is offered both consents: calendar writes (the
+/// group has a coach, and Intervals.icu takes a coach's writes) and wellness
+/// reads, which cover every app they connect, so no link of theirs need read
+/// it. Both grants stand, each stamped, and a grant given now asks no
+/// widening notice. The coach reads no member's consents through this path,
+/// and a coach's or an outsider's change is refused.
 async fn the_relationship_offers_what_applies(w: &World) {
     let (status, body) = w.get_consents(&w.m4.auth).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_consents(&body, [false, true, false, false]);
+    assert_consents(&body, [false, true, false, true]);
+    assert_eq!(body["wellness_notice_due"], false, "{body}");
 
     let (status, body) = w
         .put_consents(
@@ -677,14 +738,15 @@ async fn the_relationship_offers_what_applies(w: &World) {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_consents(&body, [true, true, false, false]);
+    assert_consents(&body, [true, true, true, true]);
     assert!(body["calendar_write_at"].is_string(), "{body}");
-    let stored = w.consents(&w.m4).await;
-    assert!(stored.calendar_write && !stored.wellness_read);
+    assert!(body["wellness_read_at"].is_string(), "{body}");
     assert_eq!(
-        stored.wellness_read_at, None,
-        "an ignored grant stamps nothing"
+        body["wellness_notice_due"], false,
+        "a grant given to the consent as it reads now: {body}"
     );
+    let stored = w.consents(&w.m4).await;
+    assert!(stored.calendar_write && stored.wellness_read);
 
     let (status, body) = w.get_consents(&w.coach.auth).await;
     assert_eq!(
@@ -816,12 +878,15 @@ async fn an_api_key_revokes_but_never_grants(w: &World) {
 }
 
 /// Revoking the wellness consent deletes the wellness the member's links
-/// synced and records it; the link, its workouts, the calendar consent and
-/// the other member's wellness stay. A calendar revoke deletes nothing.
+/// synced and records it; the link, its workouts, the calendar consent, the
+/// wellness the member's own WHOOP filed and the other member's wellness
+/// stay. A calendar revoke deletes nothing.
 async fn revoking_wellness_deletes_what_the_links_synced(w: &World, m1_link: Uuid, m2_link: Uuid) {
     w.seed_synced(&w.m1).await;
     w.seed_synced(&w.m2).await;
+    w.seed_wellness(&w.m2, WHOOP, own_night()).await;
     assert_eq!(w.synced(&w.m2).await, [1, 1, 1, 1]);
+    assert_eq!(w.wellness_from(&w.m2, WHOOP, own_night()).await, [1, 1, 1]);
 
     let (status, body) = w
         .put_consents(&w.m2.auth, &json!({ "calendar_write": false }))
@@ -844,6 +909,18 @@ async fn revoking_wellness_deletes_what_the_links_synced(w: &World, m1_link: Uui
         [0, 0, 0, 1],
         "the wellness goes, the workouts stay"
     );
+    what_a_wellness_revoke_leaves(w, m1_link, m2_link).await;
+    the_withdrawal_is_recorded(w, &w.m2).await;
+}
+
+/// After `m2`'s wellness revoke: their own WHOOP wellness, their link, and
+/// `m1`'s link, wellness and consent all stand.
+async fn what_a_wellness_revoke_leaves(w: &World, m1_link: Uuid, m2_link: Uuid) {
+    assert_eq!(
+        w.wellness_from(&w.m2, WHOOP, own_night()).await,
+        [1, 1, 1],
+        "the member's own WHOOP wellness is theirs, never the link's"
+    );
     assert_eq!(w.stored(m2_link).await.status, DelegationStatus::Confirmed);
     assert_eq!(
         w.synced(&w.m1).await,
@@ -852,8 +929,6 @@ async fn revoking_wellness_deletes_what_the_links_synced(w: &World, m1_link: Uui
     );
     assert_eq!(w.stored(m1_link).await.status, DelegationStatus::Confirmed);
     assert!(w.consents(&w.m1).await.wellness_read);
-
-    the_withdrawal_is_recorded(w, &w.m2).await;
 }
 
 /// One purge is recorded for `member`'s withdrawn wellness consent, in their
@@ -876,6 +951,120 @@ async fn the_withdrawal_is_recorded(w: &World, member: &Person) {
     assert_eq!(withdrawn[0].tenant_id, Some(member.tenant.to_string()));
     // The sleep, recovery and health rows, and the data source they named.
     assert_eq!(withdrawn[0].rows_removed, 4);
+}
+
+/// A grant given before the consent widened to every app is told of the
+/// widening, and stays as it stands until the member answers. Keeping it is a
+/// fresh grant, so it is taken only from Dravr's own app: over an API key it
+/// is refused and the notice stays; from the app it stamps the grant again
+/// and the notice goes. Stopping is the ordinary revoke (the next step).
+async fn a_grant_from_before_the_widening_is_told_until_kept(w: &World) {
+    let before = before_the_widening();
+    w.res
+        .common
+        .repos
+        .groups
+        .set_coach_consents(&w.group.to_string(), w.m1.id, None, Some(true), before)
+        .await
+        .unwrap()
+        .expect("a live member");
+
+    let (status, body) = w.get_consents(&w.m1.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["wellness_read"], true,
+        "existing grants are kept: {body}"
+    );
+    assert_eq!(body["wellness_notice_due"], true, "{body}");
+    let (status, body) = w.get_consents(&w.m4.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["wellness_notice_due"], false,
+        "a grant given since the widening asks nothing: {body}"
+    );
+
+    let keep = json!({ "wellness_read": true });
+    let key = api_key(&w.res, w.m1.id).await;
+    let (status, body) = w.put_consents(&key, &keep).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        body["details"]["reason"], "consent_grant_needs_app",
+        "{body}"
+    );
+    assert_eq!(w.consents(&w.m1).await.wellness_read_at, Some(before));
+
+    let (status, body) = w.put_consents(&w.m1.auth, &keep).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["wellness_read"], true, "{body}");
+    assert_eq!(body["wellness_notice_due"], false, "{body}");
+    let kept = w.consents(&w.m1).await;
+    assert!(kept.wellness_read);
+    assert!(
+        kept.wellness_read_at > Some(before),
+        "keeping the grant stamps it again: {kept:?}"
+    );
+    let (_, body) = w.get_consents(&w.m1.auth).await;
+    assert_eq!(
+        body["wellness_notice_due"], false,
+        "the notice stays gone: {body}"
+    );
+}
+
+/// A login of the member's own to the link's platform, in the tenant the
+/// link files under, files its wellness beside the link's: a revoke then
+/// keeps every row there, since each may be the member's own, and records no
+/// purge. The consent is revoked all the same.
+async fn an_own_login_to_the_links_platform_keeps_its_wellness(w: &World) {
+    let now = Utc::now();
+    w.res
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id: w.m1.id,
+            tenant_id: w.m1.tenant.to_string(),
+            provider: INTERVALS_ICU.to_owned(),
+            access_token: SecretString::from("m1-own-key".to_owned()),
+            refresh_token: None,
+            token_type: API_KEY_TOKEN_TYPE.to_owned(),
+            expires_at: None,
+            scope: None,
+            provider_user_id: Some(M1_ATHLETE.to_owned()),
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+    assert!(w.consents(&w.m1).await.wellness_read);
+    assert_eq!(w.synced(&w.m1).await, [1, 1, 1, 1]);
+
+    let (status, body) = w
+        .put_consents(&w.m1.auth, &json!({ "wellness_read": false }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["wellness_read"], false, "{body}");
+    assert!(!w.consents(&w.m1).await.wellness_read);
+    assert_eq!(
+        w.synced(&w.m1).await,
+        [1, 1, 1, 1],
+        "the member's own Intervals.icu wellness stays"
+    );
+    let recorded = w
+        .res
+        .common
+        .repos
+        .provider_data
+        .list_provider_data_purges(INTERVALS_ICU, 10)
+        .await
+        .unwrap();
+    assert!(
+        !recorded
+            .iter()
+            .any(|r| r.user_id.as_deref() == Some(w.m1.id.to_string().as_str())),
+        "nothing was deleted, so nothing is recorded: {recorded:?}"
+    );
 }
 
 /// A group with no coach offers no consent: a member's grant is ignored and
@@ -919,5 +1108,7 @@ async fn a_member_grants_and_revokes_what_their_coach_may_do() {
     an_api_key_revokes_but_never_grants(&w).await;
     revoking_wellness_deletes_what_the_links_synced(&w, m1_link, m2_link).await;
     an_own_wellness_source_is_named_on_the_link(&w, m3_link, m1_link).await;
+    a_grant_from_before_the_widening_is_told_until_kept(&w).await;
+    an_own_login_to_the_links_platform_keeps_its_wellness(&w).await;
     a_group_with_no_coach_offers_nothing(&w).await;
 }

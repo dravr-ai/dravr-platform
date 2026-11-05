@@ -57,6 +57,7 @@ function coachConsents(overrides: Record<string, unknown> = {}) {
     wellness_read_at: null,
     wellness_read_supported: false,
     wellness_read_skipped: null,
+    wellness_notice_due: false,
     ...overrides,
   };
 }
@@ -962,12 +963,14 @@ describe('GroupInfoSheet', () => {
     expect(confirm[1]).toContain('Your Intervals.icu link through this group ends too.');
   });
 
-  it('lets a member who connects Intervals.icu themselves, with no link, allow calendar writes', async () => {
+  it('lets a member with no link allow calendar writes, and asks them for their wellness too', async () => {
     mockCallerId = 'user-phil';
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
     (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'member' });
-    mockGetCoachConsents.mockResolvedValue(coachConsents({ calendar_write_supported: true }));
-    mockUpdateCoachConsents.mockResolvedValue(coachConsents({ calendar_write: true, calendar_write_supported: true }));
+    // Every coached member is offered wellness, which covers each app they connect.
+    const offered = { calendar_write_supported: true, wellness_read_supported: true };
+    mockGetCoachConsents.mockResolvedValue(coachConsents(offered));
+    mockUpdateCoachConsents.mockResolvedValue(coachConsents({ ...offered, calendar_write: true }));
     const { findByTestId, getByTestId, queryByTestId } = renderSheet();
 
     const calendar = await findByTestId('coach-consent-calendar_write');
@@ -975,7 +978,7 @@ describe('GroupInfoSheet', () => {
     expect(getByTestId('coach-consent-row-calendar_write')).toHaveTextContent(
       /open intervals\.icu\/athletes, click Casey Coach and pick the Coach role, not Follower\./,
     );
-    expect(queryByTestId('coach-consent-wellness_read')).toBeNull();
+    expect(getByTestId('coach-consent-wellness_read')).toHaveProp('value', false);
     await act(async () => {
       fireEvent(calendar, 'valueChange', true);
     });

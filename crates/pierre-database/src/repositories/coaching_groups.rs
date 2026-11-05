@@ -264,14 +264,17 @@ pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_grou
 
 /// A live member sets what their coach may do beyond reading their training:
 /// `$1` calendar write and `$2` wellness read, NULL to leave one as it
-/// stands; a consent whose value changes is stamped `$3`. Every SET
+/// stands. A consent whose value changes is stamped `$3`, and so is every
+/// wellness grant, a standing one included: `coach_wellness_read_at` is when
+/// the member last agreed to the wellness consent as it reads now. Every SET
 /// expression reads the row as it stood before the update, on both engines.
 pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
         SET coach_calendar_write = COALESCE($1, coach_calendar_write),
             coach_calendar_write_at = CASE WHEN $1 IS NULL OR $1 = coach_calendar_write
                                            THEN coach_calendar_write_at ELSE $3 END,
             coach_wellness_read = COALESCE($2, coach_wellness_read),
-            coach_wellness_read_at = CASE WHEN $2 IS NULL OR $2 = coach_wellness_read
+            coach_wellness_read_at = CASE WHEN $2 THEN $3
+                                          WHEN $2 IS NULL OR $2 = coach_wellness_read
                                           THEN coach_wellness_read_at ELSE $3 END
       WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
 

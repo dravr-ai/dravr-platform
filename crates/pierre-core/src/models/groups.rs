@@ -306,12 +306,13 @@ pub struct CoachConsents {
     /// When the member last granted or revoked `calendar_write`; `None` while
     /// it was never granted.
     pub calendar_write_at: Option<DateTime<Utc>>,
-    /// The member's wellness (sleep, HRV, resting heart rate, weight, daily
-    /// note) syncs through the coach's account, for a member who reads the
-    /// platform through a link.
+    /// The group's coach, through Dravr, may read the member's wellness
+    /// (sleep, HRV, resting heart rate, weight, readiness, daily notes) from
+    /// every app they connect; a confirmed link that reads wellness through
+    /// the coach's account syncs it under this consent too.
     pub wellness_read: bool,
-    /// When the member last granted or revoked `wellness_read`; `None` while
-    /// it was never granted.
+    /// When the member last granted or revoked `wellness_read`, every grant
+    /// stamped even over a standing one; `None` while it was never granted.
     pub wellness_read_at: Option<DateTime<Utc>>,
 }
 

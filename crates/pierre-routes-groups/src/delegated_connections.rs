@@ -11,8 +11,8 @@
 //! there. The coach lists their roster and proposes which athlete is which
 //! member; the member confirms, which is their consent to the read; either
 //! side ends a link. What the member lets their coach do beyond the read (the
-//! coach writing their calendar, their wellness syncing through the coach's
-//! account) lives on their coach relationship, not on a link: the member alone
+//! coach writing their calendar, reading their wellness from every app they
+//! connect) lives on their coach relationship, not on a link: the member alone
 //! grants it, as they confirm a link or at any time on their membership
 //! (`/members/me/coach-consents`), and revokes it. The rules of each step
 //! live in [`pierre_services::delegated_connections`] and
@@ -46,7 +46,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
     consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
-    wellness_read_skipped, ConsentChange, ConsentOffer, WellnessReadSkip,
+    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, WellnessReadSkip,
 };
 use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
@@ -109,8 +109,9 @@ pub struct DelegatedConnectionResponse {
     /// Whether the link's platform takes a coach's calendar writes, so the
     /// member's `calendar_write` applies to it
     pub calendar_write_supported: bool,
-    /// Whether the member lets their wellness sync through the coach's
-    /// account, read from their coach relationship
+    /// Whether the member lets their coach read their wellness, this link's
+    /// sync through the coach's account included, read from their coach
+    /// relationship
     pub wellness_read: bool,
     /// Whether the coach's account reads wellness on the link's platform, so
     /// the member's `wellness_read` applies to it
@@ -195,7 +196,8 @@ pub struct ConfirmDelegatedConnectionRequest {
     /// Let the link's coach write the member's training calendar
     #[serde(default)]
     pub calendar_write: bool,
-    /// Let the member's wellness sync through the coach's account
+    /// Let the group's coach read the member's wellness, this link's sync
+    /// through the coach's account included
     #[serde(default)]
     pub wellness_read: bool,
 }
@@ -208,8 +210,9 @@ pub struct UpdateCoachConsentsRequest {
     /// Grant (`true`) or revoke (`false`) the coach's calendar writes
     #[serde(default)]
     pub calendar_write: Option<bool>,
-    /// Grant (`true`) or revoke (`false`) the wellness sync; a revoke deletes
-    /// the wellness the member's links synced
+    /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
+    /// wellness; a grant over a standing one stamps it again, and a revoke
+    /// deletes the wellness the member's links synced
     #[serde(default)]
     pub wellness_read: Option<bool>,
 }
@@ -226,17 +229,24 @@ pub struct CoachConsentsResponse {
     /// Whether the group has a coach and a coaching platform takes a coach's
     /// calendar writes, so the member can be asked for them
     pub calendar_write_supported: bool,
-    /// The member's wellness syncs through the coach's account
+    /// The group's coach, through Dravr, may read the member's wellness from
+    /// every app they connect, a link's sync through the coach's account
+    /// included
     pub wellness_read: bool,
-    /// When the member last granted or revoked `wellness_read` (RFC 3339)
+    /// When the member last granted or revoked `wellness_read` (RFC 3339);
+    /// every grant is stamped, a standing one included
     pub wellness_read_at: Option<String>,
-    /// Whether the member reads a platform through a confirmed link whose
-    /// coach credential reads wellness, so they can be asked for it
+    /// Whether the group has a human coach, so the member can be asked for
+    /// `wellness_read`
     pub wellness_read_supported: bool,
     /// Why the member's links sync none of their wellness whatever they
     /// grant: a source of their own already gives Dravr it
     /// (`own_connection`, `own_wellness_source`); `None` when nothing does
     pub wellness_read_skipped: Option<String>,
+    /// Whether the member's standing wellness grant predates the consent's
+    /// widening to every app they connect, so the apps tell them and ask
+    /// whether to keep it; keeping it is a fresh grant, which clears this
+    pub wellness_notice_due: bool,
 }
 
 /// Query for the roster read
@@ -651,7 +661,7 @@ impl DelegatedConnectionRoutes {
         consents: CoachConsents,
         member: Uuid,
     ) -> Result<CoachConsentsResponse, AppError> {
-        let offer = consent_offer(repos, registry, group, member).await?;
+        let offer = consent_offer(registry, group);
         let mut skipped = None;
         if offer.wellness_read {
             let links = repos
@@ -675,6 +685,7 @@ impl DelegatedConnectionRoutes {
             wellness_read_at: consents.wellness_read_at.map(|at| at.to_rfc3339()),
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
+            wellness_notice_due: wellness_notice_due(offer, consents),
         })
     }
 

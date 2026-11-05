@@ -474,7 +474,8 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// The live member `user_id` of `group_id` grants or revokes what their
     /// coach may do beyond reading their training: each `Some` sets that
     /// consent, each `None` leaves it as it stands, and a consent whose value
-    /// changes is stamped `now`. Scoped to the member's own row, so no coach
+    /// changes is stamped `now`, as is every wellness grant, one already
+    /// standing included. Scoped to the member's own row, so no coach
     /// can change it. Returns the membership as it now stands, or `None` when
     /// `user_id` is not a live member. No tenant filter — members update
     /// their own consent cross-tenant, exactly as
