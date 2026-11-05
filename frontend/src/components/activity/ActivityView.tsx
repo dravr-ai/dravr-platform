@@ -12,9 +12,8 @@ import {
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
+  activityNaming,
   activityStartLine,
-  DRAFT_DATE,
-  formatActivityDay,
   isDeletableActivity,
   lapsTable,
   type SegmentTable,
@@ -184,10 +183,7 @@ function ActivityChat({
   const { t, language } = useTranslation();
   const { conversationId, setConversationId } = useActivityConversation(activity.provider, activity.id, detail);
   const [action, setAction] = useState<PendingComposerAction | null>(null);
-  const naming = {
-    name: detail.activity.name.trim() || sportLabel(t, detail.activity.sport_type),
-    date: formatActivityDay(detail.activity.start_date, language, DRAFT_DATE),
-  };
+  const naming = activityNaming(t, detail.activity, language);
   const send = (text: string) => setAction({ kind: 'send', text });
   const sendChip = (text: string) => setAction({ kind: 'send', text, origin: 'chip' });
   const consumed = useCallback(() => setAction(null), []);

@@ -167,6 +167,21 @@ describe('RecentActivities', () => {
     expect(screen.getAllByTestId('activity-attribution')).toHaveLength(1);
   });
 
+  it('dates a date-only row by the day it names, west of Greenwich too', async () => {
+    vi.stubEnv('TZ', 'America/Montreal');
+    try {
+      const response = recentResponse();
+      response.activities[1] = { ...response.activities[1], start_date: '2026-05-28T00:00:00Z' };
+      api.getRecentActivities.mockResolvedValue(response);
+      renderSection();
+
+      const rows = await screen.findAllByTestId('home-activity-row');
+      expect(within(rows[0]).getByText('Thu, May 28')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('sketches from the route coordinates when the activity carries no polyline', async () => {
     api.getRecentActivities.mockResolvedValue(recentResponse());
     renderSection();

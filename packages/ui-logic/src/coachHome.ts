@@ -28,7 +28,7 @@ import {
 } from '@pierre/shared-constants';
 import { ordinalKey } from '@pierre/chat-utils';
 import { formatDuration } from '@pierre/domain-utils';
-import { civilShortDate, formatInstant, formatSyncTime, sportLabel, type Translate } from './homeFormat';
+import { civilShortDate, formatActivityDay, formatInstant, formatSyncTime, isDateOnlyStart, sportLabel, type Translate } from './homeFormat';
 
 // ── The roster, every page read ─────────────────────────────────────────────
 
@@ -772,7 +772,13 @@ export function describeSource(
     if (providers.length > 0) parts.push(providers.join(', '));
     parts.push(t(COACH_EVIDENCE_SOURCE_LABEL_KEY[source.kind]));
   }
-  if (at !== null) parts.push(formatInstant(at, language, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }));
+  if (at !== null) {
+    parts.push(
+      isDateOnlyStart(at)
+        ? formatActivityDay(at, language, { day: 'numeric', month: 'short' })
+        : formatInstant(at, language, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    );
+  }
   return parts.join(' · ');
 }
 
@@ -780,6 +786,6 @@ export function describeSource(
 export function queueWhen(language: string, entry: QueueEntry): string {
   const first = entry.reason.evidence[0];
   const at = first?.at ?? null;
-  if (at === null) return '';
+  if (at === null || isDateOnlyStart(at)) return '';
   return formatInstant(at, language, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }

@@ -15,11 +15,11 @@ import {
   activityNaming,
   activityRowFigures,
   activityStartLine,
-  formatActivityDay,
   calendarDayLabel,
   civilDayOfMonth,
   civilWeekdayNarrow,
   DRAFT_DATE,
+  formatActivityDay,
   formatCivilDate,
   formatInstant,
   formatSyncTime,
@@ -286,6 +286,11 @@ describe('formatActivityDay', () => {
   it('prints the same day on the start line when the row states no clock', () => {
     process.env.TZ = 'America/Montreal';
     expect(activityStartLine(t, { start_date: DATE_ONLY }, null, 'en-US')).toBe('Thu, May 28');
+  });
+
+  it('names the same day in a chat draft', () => {
+    process.env.TZ = 'America/Montreal';
+    expect(activityNaming(t, activity({ start_date: DATE_ONLY }), 'en-US').date).toBe('Thursday, May 28');
   });
 });
 

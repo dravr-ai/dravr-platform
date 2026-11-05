@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The words and figures Home prints on both clients — calendar days, instants, sports, row figures, plan drafts
-// ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone
+// ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone, unless date-only: then it is the day it names
 
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
 import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
@@ -105,9 +105,14 @@ export function formatInstant(instant: string, language: string, options: Intl.D
  * week strip, which the server buckets by the same rule, marks the right one.
  */
 export function formatActivityDay(start: string, language: string, options: Intl.DateTimeFormatOptions): string {
+  if (!isDateOnlyStart(start)) return formatInstant(start, language, options);
+  return new Intl.DateTimeFormat(language, { ...options, timeZone: 'UTC' }).format(new Date(instantMs(start)));
+}
+
+/** Whether a start is a date-only provider row: exactly midnight UTC, which carries no clock to print. */
+export function isDateOnlyStart(start: string): boolean {
   const ms = instantMs(start);
-  if (Number.isNaN(ms) || ms % MS_PER_DAY !== 0) return formatInstant(start, language, options);
-  return new Intl.DateTimeFormat(language, { ...options, timeZone: 'UTC' }).format(new Date(ms));
+  return !Number.isNaN(ms) && ms % MS_PER_DAY === 0;
 }
 
 /**
