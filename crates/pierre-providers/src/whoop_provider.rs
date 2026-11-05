@@ -22,9 +22,10 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::activity::utc_offset_seconds_if_civil;
 use crate::models::refresh_due;
 use crate::models::StatsCoverage;
-use crate::models::{stated_utc_offset, Activity, ActivityBuilder, Athlete, SportType, Stats};
+use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::utils;
@@ -618,7 +619,7 @@ impl ProviderFactory for WhoopProviderFactory {
 /// a value outside every civil zone.
 fn whoop_utc_offset(stated: &str) -> Option<i32> {
     let offset = stated.trim().parse::<FixedOffset>().ok()?;
-    stated_utc_offset(i64::from(offset.local_minus_utc()))
+    utc_offset_seconds_if_civil(i64::from(offset.local_minus_utc()))
 }
 
 #[cfg(test)]

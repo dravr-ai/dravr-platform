@@ -28,10 +28,11 @@ use dravr_riviere::DataPoint;
 use dravr_sciotte::models::SportType as GarminSportKey;
 use pierre_core::constants::oauth_providers::{garmin_service_attribution, GARMIN};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::activity::utc_offset_seconds_if_civil;
 use pierre_core::models::{
-    stated_utc_offset, Activity, ActivityBuilder, Lap, SportType, StoredDailyActivity,
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, StoredSleepStage,
-    StoredSleepStageType, TimeSeriesData,
+    Activity, ActivityBuilder, Lap, SportType, StoredDailyActivity, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession, StoredSleepStage, StoredSleepStageType,
+    TimeSeriesData,
 };
 use pierre_providers::sciotte_provider::convert_sport_type;
 use serde_json::Value;
@@ -160,7 +161,7 @@ pub(crate) fn activity_from_summary(
             .utc_offset_seconds_opt(
                 summary
                     .start_time_offset_in_seconds
-                    .and_then(stated_utc_offset),
+                    .and_then(utc_offset_seconds_if_civil),
             )
             .build(),
     )

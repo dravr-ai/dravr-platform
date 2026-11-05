@@ -21,9 +21,8 @@ use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::StatsCoverage;
 use crate::models::{
-    activity::{Lap, Split},
-    resolve_sport_type, stated_utc_offset, Activity, ActivityBuilder, Athlete, SportType, Stats,
-    TimeSeriesData,
+    activity::{utc_offset_seconds_if_civil, Lap, Split},
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
@@ -1081,5 +1080,5 @@ fn strava_utc_offset(seconds: f64) -> Option<i32> {
     if seconds.fract() != 0.0 {
         return None;
     }
-    seconds.to_i64().and_then(stated_utc_offset)
+    seconds.to_i64().and_then(utc_offset_seconds_if_civil)
 }
