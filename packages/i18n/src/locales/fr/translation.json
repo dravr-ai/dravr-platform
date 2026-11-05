@@ -1976,6 +1976,10 @@
     "unlinkTitle": "Dissocier {{platform}} ?",
     "unlinked": "Lien {{platform}} terminé",
     "waitingFor": "En attente de la confirmation de {{member}}",
+    "wellnessAppsGranted": "Partage sommeil, VFC, fréquence cardiaque au repos, poids, forme du jour et notes quotidiennes",
+    "wellnessAppsHint": "{{coach}} les consulte via Dravr, peu importe l'application d'où elles viennent. Désactiver met fin à cet accès et retire seulement ce que Dravr a synchronisé via le compte {{platform}} de {{coach}}. Ce que tes propres applications synchronisent reste dans ton compte.",
+    "wellnessAppsLabel": "Laisser {{coach}} voir ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids, ta forme du jour et tes notes quotidiennes depuis tes applications connectées",
+    "wellnessAppsRevokeBody": "{{coach}} ne verra plus ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids, ta forme du jour ni tes notes quotidiennes. Dravr retire ce qu'il a synchronisé via le compte {{platform}} de {{coach}}. Ce que tes propres applications synchronisent reste dans ton compte.",
     "wellnessReadGranted": "Partage sommeil, VFC, fréquence cardiaque au repos, poids et notes",
     "wellnessReadHint": "Dravr les lit via le compte de {{coach}} : {{coach}} voit ta forme du jour et ton agent peut s'en servir. Désactiver retire ce que Dravr a déjà lu.",
     "wellnessReadLabel": "Partager aussi ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids et tes notes du jour {{platform}}",
@@ -1984,6 +1988,9 @@
     "wellnessRevokeBody": "Dravr arrête de lire ton bien-être {{platform}} via le compte de {{coach}} et retire ce qu'il a déjà lu.",
     "wellnessRevokeConfirm": "Arrêter le partage",
     "wellnessRevokeTitle": "Arrêter de partager le bien-être ?",
+    "wellnessWidenedBody": "Partager ton bien-être avec {{coach}} couvre maintenant ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids, ta forme du jour et tes notes quotidiennes depuis toutes tes applications connectées, pas seulement {{platform}}.",
+    "wellnessWidenedKeep": "Continuer le partage",
+    "wellnessWidenedTitle": "Le partage de ton bien-être couvre maintenant toutes tes applications",
     "withdraw": "Retirer"
   },
   "discover": {

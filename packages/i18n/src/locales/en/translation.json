@@ -1976,6 +1976,10 @@
     "unlinkTitle": "Unlink {{platform}}?",
     "unlinked": "{{platform}} link ended",
     "waitingFor": "Waiting for {{member}} to confirm",
+    "wellnessAppsGranted": "Shares sleep, HRV, resting heart rate, weight, readiness and daily notes",
+    "wellnessAppsHint": "{{coach}} reads them through Dravr, whichever app they come from. Turning this off ends that access and removes only what Dravr synced through {{coach}}'s {{platform}} account; what your own apps sync stays in your account.",
+    "wellnessAppsLabel": "Let {{coach}} see your sleep, HRV, resting heart rate, weight, readiness and daily notes from your connected apps",
+    "wellnessAppsRevokeBody": "{{coach}} stops seeing your sleep, HRV, resting heart rate, weight, readiness and daily notes. Dravr removes what it synced through {{coach}}'s {{platform}} account; what your own apps sync stays in your account.",
     "wellnessReadGranted": "Shares sleep, HRV, resting heart rate, weight and notes",
     "wellnessReadHint": "Dravr reads them through {{coach}}'s account, so {{coach}} sees your readiness and your agent can use it. Turning this off removes what Dravr already read.",
     "wellnessReadLabel": "Also share your {{platform}} sleep, HRV, resting heart rate, weight and daily notes",
@@ -1984,6 +1988,9 @@
     "wellnessRevokeBody": "Dravr stops reading your {{platform}} wellness through {{coach}}'s account and removes what it already read.",
     "wellnessRevokeConfirm": "Stop sharing",
     "wellnessRevokeTitle": "Stop sharing wellness?",
+    "wellnessWidenedBody": "Sharing your wellness with {{coach}} now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only {{platform}}.",
+    "wellnessWidenedKeep": "Keep sharing",
+    "wellnessWidenedTitle": "Wellness sharing now covers all your apps",
     "withdraw": "Withdraw"
   },
   "discover": {

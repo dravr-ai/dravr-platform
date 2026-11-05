@@ -1976,6 +1976,10 @@
     "unlinkTitle": "{{platform}} trennen?",
     "unlinked": "{{platform}}-Verknüpfung beendet",
     "waitingFor": "Wartet auf Bestätigung von {{member}}",
+    "wellnessAppsGranted": "Teilt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen",
+    "wellnessAppsHint": "{{coach}} liest sie über Dravr, egal aus welcher App sie kommen. Beim Ausschalten endet dieser Zugriff, und Dravr entfernt nur, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
+    "wellnessAppsLabel": "{{coach}} deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen aus deinen verbundenen Apps sehen lassen",
+    "wellnessAppsRevokeBody": "{{coach}} sieht deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen nicht mehr. Dravr entfernt, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
     "wellnessReadGranted": "Teilt Schlaf, HRV, Ruhepuls, Gewicht und Notizen",
     "wellnessReadHint": "Dravr liest sie über das Konto von {{coach}}: {{coach}} sieht deine Tagesform, und dein Agent kann sie nutzen. Beim Ausschalten entfernt Dravr, was es schon gelesen hat.",
     "wellnessReadLabel": "Auch Schlaf, HRV, Ruhepuls, Gewicht und Tagesnotizen aus {{platform}} teilen",
@@ -1984,6 +1988,9 @@
     "wellnessRevokeBody": "Dravr liest deine {{platform}}-Wellness nicht mehr über das Konto von {{coach}} und entfernt, was es schon gelesen hat.",
     "wellnessRevokeConfirm": "Nicht mehr teilen",
     "wellnessRevokeTitle": "Wellness nicht mehr teilen?",
+    "wellnessWidenedBody": "Wenn du deine Wellness mit {{coach}} teilst, umfasst das jetzt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen aus allen deinen verbundenen Apps, nicht nur aus {{platform}}.",
+    "wellnessWidenedKeep": "Weiter teilen",
+    "wellnessWidenedTitle": "Das Teilen deiner Wellness umfasst jetzt alle deine Apps",
     "withdraw": "Zurückziehen"
   },
   "discover": {

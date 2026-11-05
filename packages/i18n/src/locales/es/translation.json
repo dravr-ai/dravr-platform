@@ -1976,6 +1976,10 @@
     "unlinkTitle": "¿Desvincular {{platform}}?",
     "unlinked": "Vínculo de {{platform}} terminado",
     "waitingFor": "Esperando la confirmación de {{member}}",
+    "wellnessAppsGranted": "Comparte sueño, VFC, frecuencia cardiaca en reposo, peso, estado de forma y notas diarias",
+    "wellnessAppsHint": "{{coach}} los ve a través de Dravr, venga de la app que venga. Al desactivarlo se termina ese acceso y solo se borra lo que Dravr sincronizó a través de la cuenta de {{platform}} de {{coach}}; lo que sincronizan tus propias apps se queda en tu cuenta.",
+    "wellnessAppsLabel": "Dejar que {{coach}} vea tu sueño, VFC, frecuencia cardiaca en reposo, peso, estado de forma y notas diarias de tus apps conectadas",
+    "wellnessAppsRevokeBody": "{{coach}} deja de ver tu sueño, VFC, frecuencia cardiaca en reposo, peso, estado de forma y notas diarias. Dravr borra lo que sincronizó a través de la cuenta de {{platform}} de {{coach}}; lo que sincronizan tus propias apps se queda en tu cuenta.",
     "wellnessReadGranted": "Comparte sueño, VFC, frecuencia cardiaca en reposo, peso y notas",
     "wellnessReadHint": "Dravr los lee a través de la cuenta de {{coach}}: {{coach}} ve tu estado de forma y tu agente puede usarlo. Al desactivarlo se borra lo que Dravr ya leyó.",
     "wellnessReadLabel": "Compartir también tu sueño, VFC, frecuencia cardiaca en reposo, peso y notas diarias de {{platform}}",
@@ -1984,6 +1988,9 @@
     "wellnessRevokeBody": "Dravr deja de leer tu bienestar de {{platform}} a través de la cuenta de {{coach}} y borra lo que ya leyó.",
     "wellnessRevokeConfirm": "Dejar de compartir",
     "wellnessRevokeTitle": "¿Dejar de compartir el bienestar?",
+    "wellnessWidenedBody": "Compartir tu bienestar con {{coach}} ahora incluye tu sueño, VFC, frecuencia cardiaca en reposo, peso, estado de forma y notas diarias de todas tus apps conectadas, no solo de {{platform}}.",
+    "wellnessWidenedKeep": "Seguir compartiendo",
+    "wellnessWidenedTitle": "Compartir tu bienestar ahora incluye todas tus apps",
     "withdraw": "Retirar"
   },
   "discover": {
