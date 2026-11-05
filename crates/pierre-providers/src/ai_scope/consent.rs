@@ -16,10 +16,17 @@
 //! ([`for_human_coach`](super::for_human_coach)) is held to the same consent
 //! (carnet#1262). The athlete still sees it, and the connection stays live.
 //! The parent module re-exports the public surface.
+//!
+//! The consents are always those of the person whose data is read. A call
+//! that reads someone other than its caller — a human coach's agent reading
+//! the athlete they coach — runs that read under the athlete's consents
+//! ([`with_subject_consent`], carnet#1419), and the call's output boundary
+//! applies the same ones ([`subject_consents`]): the caller's consents say
+//! nothing about the athlete's providers, in either direction.
 
 use std::collections::BTreeSet;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use pierre_core::ai_policy::Withheld;
 use pierre_core::constants::oauth_providers::ai_consent_backends;
@@ -31,6 +38,20 @@ tokio::task_local! {
     /// The providers whose data the athlete has not consented to hand to AI,
     /// declared at the entry point that knows the athlete.
     static AI_CONSENT_WITHHELD: Arc<BTreeSet<String>>;
+    /// What the people a call read other than its caller withheld from AI
+    /// ([`with_subject_consent`]), collected for the call's output boundary
+    /// ([`subject_consents`]). `None` until the call reads such a person.
+    /// Shared because the scope owns its value: [`subject_consents`] keeps a
+    /// second handle to read what the call recorded once that scope closes.
+    static SUBJECT_CONSENTS: Arc<Mutex<Option<BTreeSet<String>>>>;
+}
+
+/// `withheld` with every provider named as the filters compare it.
+fn lowercased(withheld: BTreeSet<String>) -> BTreeSet<String> {
+    withheld
+        .into_iter()
+        .map(|provider| provider.to_ascii_lowercase())
+        .collect()
 }
 
 /// Run `fut` with `withheld` as the providers lacking the athlete's AI consent.
@@ -43,11 +64,54 @@ tokio::task_local! {
 /// whose notice is a consent to AI use ([`ai_consent_backends`]): an entry
 /// point that forgets withholds the data instead of handing it over.
 pub async fn with_ai_consent<F: Future>(withheld: BTreeSet<String>, fut: F) -> F::Output {
-    let withheld = withheld
-        .into_iter()
-        .map(|provider| provider.to_ascii_lowercase())
-        .collect();
+    AI_CONSENT_WITHHELD
+        .scope(Arc::new(lowercased(withheld)), fut)
+        .await
+}
+
+/// Run `fut`, a read of another person's data made for its caller — a human
+/// coach's agent reading the athlete they coach — under that person's AI
+/// consents, `withheld`.
+///
+/// Inside `fut` this is [`with_ai_consent`]: the subject's consents decide,
+/// never the caller's, so a provider the subject withheld is denied whole and
+/// one they consented to is served even when the caller withheld it. The
+/// consents are also recorded for the output boundary of the call `fut` runs
+/// in ([`subject_consents`]), so the backstop filtering the call's result
+/// applies the consents its reads ran under. A call that reads several people
+/// this way records every provider any of them withheld.
+pub async fn with_subject_consent<F: Future>(withheld: BTreeSet<String>, fut: F) -> F::Output {
+    let withheld = lowercased(withheld);
+    record_subject(&withheld);
     AI_CONSENT_WITHHELD.scope(Arc::new(withheld), fut).await
+}
+
+/// Run `fut`, returning what the people it read other than its caller
+/// withheld from AI ([`with_subject_consent`]): `None` when it read only its
+/// caller's data.
+///
+/// The tool executor wraps every tool body in this, and filters the body's
+/// result under what it returns. What a nested call records reaches the call
+/// enclosing it too: the outer result carries what the inner one returned.
+pub async fn subject_consents<F: Future>(fut: F) -> (F::Output, Option<BTreeSet<String>>) {
+    let slot = Arc::new(Mutex::new(None));
+    let output = SUBJECT_CONSENTS.scope(Arc::clone(&slot), fut).await;
+    let recorded = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(withheld) = &recorded {
+        record_subject(withheld);
+    }
+    (output, recorded)
+}
+
+/// Add `withheld` to what the enclosing call recorded of the people it read.
+/// Nothing happens outside such a call.
+fn record_subject(withheld: &BTreeSet<String>) {
+    let _ = SUBJECT_CONSENTS.try_with(|slot| {
+        slot.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert_with(BTreeSet::new)
+            .extend(withheld.iter().cloned());
+    });
 }
 
 /// The providers whose data the athlete has not consented to hand to AI.
@@ -194,5 +258,89 @@ mod tests {
         }))
         .await;
         assert!(athlete.is_ok(), "outside a model read the athlete reads it");
+    }
+
+    /// A model read of `week()` made for a caller whose consents are
+    /// `caller`, of a subject whose consents are `subject`: what the read
+    /// kept, and what the call's output boundary records.
+    async fn read_as_subject(
+        caller: BTreeSet<String>,
+        subject: BTreeSet<String>,
+    ) -> (Vec<Activity>, Option<BTreeSet<String>>) {
+        let ((kept, _), boundary) = serve_over(
+            Transport::WebApp,
+            subject_consents(with_ai_consent(
+                caller,
+                ai_read(with_subject_consent(subject, async {
+                    filter_activities(&WhoopTerms, week())
+                })),
+            )),
+        )
+        .await;
+        (kept, boundary)
+    }
+
+    #[tokio::test]
+    async fn a_subjects_withheld_consent_denies_the_provider_whatever_the_caller_gave() {
+        let (kept, boundary) =
+            read_as_subject(BTreeSet::new(), BTreeSet::from(["WHOOP".to_owned()])).await;
+        assert_eq!(
+            ids(&kept),
+            vec!["g"],
+            "the subject withheld WHOOP: no WHOOP workout reaches the caller's model"
+        );
+        assert_eq!(
+            boundary,
+            Some(BTreeSet::from(["whoop".to_owned()])),
+            "the call's output boundary applies the subject's consents"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_subjects_consent_serves_the_provider_the_caller_withheld() {
+        let (kept, boundary) =
+            read_as_subject(BTreeSet::from(["whoop".to_owned()]), BTreeSet::new()).await;
+        assert_eq!(
+            ids(&kept),
+            vec!["w", "g"],
+            "the subject consented to WHOOP: the caller's own withdrawal hides nothing of theirs"
+        );
+        assert_eq!(
+            boundary,
+            Some(BTreeSet::new()),
+            "the boundary withholds nothing the subject consented to"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_call_that_reads_only_its_caller_records_no_subject() {
+        let ((), boundary) = subject_consents(with_ai_consent(BTreeSet::new(), async {})).await;
+        assert_eq!(
+            boundary, None,
+            "the caller's own consents govern its own call"
+        );
+    }
+
+    #[tokio::test]
+    async fn every_subject_a_call_read_and_its_nested_calls_read_reaches_its_boundary() {
+        let ((), outer) = subject_consents(async {
+            with_subject_consent(BTreeSet::from(["whoop".to_owned()]), async {}).await;
+            let ((), inner) = subject_consents(with_subject_consent(
+                BTreeSet::from(["oura".to_owned()]),
+                async {},
+            ))
+            .await;
+            assert_eq!(
+                inner,
+                Some(BTreeSet::from(["oura".to_owned()])),
+                "the nested call's boundary holds what it read alone"
+            );
+        })
+        .await;
+        assert_eq!(
+            outer,
+            Some(BTreeSet::from(["oura".to_owned(), "whoop".to_owned()])),
+            "the outer call's result carries both reads, so it withholds what either withheld"
+        );
     }
 }

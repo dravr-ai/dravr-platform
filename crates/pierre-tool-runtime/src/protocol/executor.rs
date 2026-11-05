@@ -686,7 +686,10 @@ impl UniversalExecutor {
         // The athlete's AI consents (carnet#726): a provider whose data they
         // have not consented to hand to AI is denied to this tool's reads and
         // to the backstop below alike. The tenant names whose feature flags
-        // arm a flag-gated notice; a call without one reads the defaults.
+        // arm a flag-gated notice; a call without one reads the defaults. A
+        // body that reads another person — a coach's agent reading their
+        // athlete — reads under that person's consents instead, and the
+        // backstop follows it (carnet#1419).
         let consent_withheld = provider_notice::ai_consent_withheld(
             self.resources.repos(),
             tenant_uuid.unwrap_or_default(),
@@ -739,8 +742,15 @@ impl UniversalExecutor {
         if let Some(reservation) = reservation.as_mut() {
             reservation.start();
         }
-        let ((response, read_side_withheld), served_items) =
-            ai_scope::tracking(provenance.clone(), ai_scope::serving_items(body)).await;
+        let (((response, read_side_withheld), subject_withheld), served_items) =
+            ai_scope::tracking(
+                provenance.clone(),
+                ai_scope::serving_items(ai_scope::subject_consents(body)),
+            )
+            .await;
+        // The backstop applies the consents the body's reads ran under: the
+        // person it read, when that was not the caller.
+        let consent_withheld = subject_withheld.unwrap_or(consent_withheld);
         if served_items && !response.is_error {
             provenance.mark_provider_data();
         }

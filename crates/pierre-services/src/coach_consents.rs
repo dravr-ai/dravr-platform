@@ -21,7 +21,9 @@
 //!   daily note sync through the coach's account. Offered while the member
 //!   reads a platform whose coach credential reads them
 //!   ([`crate::coach_platform::CoachPlatform::reads_member_wellness`])
-//!   through a confirmed link in the group.
+//!   through a confirmed link in the group. It is also the only thing that
+//!   lets the readiness the coach reads in the member's plan include their
+//!   sleep, HRV and resting heart rate (carnet#1423).
 //!
 //! A link only binds a platform athlete to the member; it is how a member with
 //! no connection of their own is onboarded, and it carries no consent.

@@ -16897,6 +16897,13 @@
                   "$ref": "#/$defs/WeekReadiness"
                 },
                 "type": "array"
+              },
+              "recovery_unread": {
+                "description": "Present when the reader is the athlete's human coach and the athlete\nhas not granted them their wellness: no sleep, HRV or resting heart\nrate was read, so `readiness` and `alerts` come from training load\nalone and no recovery alert can be raised. Say so; never call the\nathlete rested or recovered from this block.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"

@@ -84,7 +84,9 @@ mod provenance;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
-pub use consent::{ai_consent_withheld, consented_read, with_ai_consent};
+pub use consent::{
+    ai_consent_withheld, consented_read, subject_consents, with_ai_consent, with_subject_consent,
+};
 pub use governed::AiGovernedProvider;
 pub use human_coach::for_human_coach;
 pub use provenance::{derived_member, note_member_read, reading_members, sole, Provenance};

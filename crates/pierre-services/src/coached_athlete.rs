@@ -34,7 +34,7 @@
 //! single athlete, [`solo_athlete`] (carnet#1249). It replaces none of them.
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::groups::CoachingGroup;
+use pierre_core::models::groups::{CoachConsents, CoachingGroup};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use serde_json::json;
@@ -55,6 +55,10 @@ pub struct CoachedAthleteAccess {
     pub display_name: String,
     /// The group the coach coaches the athlete in.
     pub group: CoachingGroup,
+    /// What the athlete lets the coach do beyond reading their training, as
+    /// their membership in `group` holds it when the gates read it: whether
+    /// the coach reads their wellness, writes their calendar.
+    pub consents: CoachConsents,
 }
 
 /// Why the coach may not act for the athlete.
@@ -201,6 +205,7 @@ pub async fn coached_athlete_access(
         tenant,
         display_name,
         group,
+        consents: member.coach_consents,
     }))
 }
 

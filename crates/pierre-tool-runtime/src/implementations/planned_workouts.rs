@@ -89,6 +89,7 @@ use pierre_providers::core::planned_workouts_unsupported;
 use pierre_providers::{CoreFitnessProvider, ProviderRegistry};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_platform::coach_platform;
+use pierre_services::provider_notice;
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -518,6 +519,29 @@ impl CalendarReader {
             }))
     }
 
+    /// Read `backend`'s calendar under the AI consents of the athlete whose
+    /// calendar it is: a coach's read runs under the athlete's own, never the
+    /// coach's (carnet#1419); the athlete's own read already runs under
+    /// theirs.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Self::provider`] error.
+    async fn read(&self, backend: &str) -> AppResult<CalendarRead> {
+        match self.reader {
+            Reader::Own => self.read_calendar(backend).await,
+            Reader::Coach { .. } => {
+                provider_notice::under_subject_ai_consent(
+                    self.executor.resources.repos(),
+                    self.tenant.as_uuid(),
+                    self.user_id,
+                    self.read_calendar(backend),
+                )
+                .await
+            }
+        }
+    }
+
     /// Read `backend`'s calendar, reacting to a refusal of a delegated read
     /// (a dead coach credential, an athlete off the coach's roster) the way
     /// every delegated read does.
@@ -525,7 +549,7 @@ impl CalendarReader {
     /// # Errors
     ///
     /// Returns the [`Self::provider`] error.
-    async fn read(&self, backend: &str) -> AppResult<CalendarRead> {
+    async fn read_calendar(&self, backend: &str) -> AppResult<CalendarRead> {
         let name = user_facing_name(backend);
         let attempt_started_at = Utc::now();
         let Provider { provider, seat } = match self.provider(backend).await? {

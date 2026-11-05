@@ -45,6 +45,12 @@
 //! that opens a coach's athlete thread runs too: a name is resolved to one
 //! member here, and the check decides by their id.
 //!
+//! What a tool then reads of the athlete runs under the athlete's own
+//! provider AI consents, never the coach's ([`PlanScope::read_as_athlete`],
+//! carnet#1419). Their wellness — sleep, HRV, resting heart rate — takes the
+//! athlete's `coach_wellness_read` grant on top of the gates
+//! ([`PlanScope::reads_wellness`], carnet#1423).
+//!
 //! ## A thread bound to one athlete
 //!
 //! A coach's thread opened from a group's roster names its athlete
@@ -69,10 +75,11 @@
 //! surface's own: the view and the private reply reach the coach alone, and
 //! the room's status carries no week of the plan.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::groups::CoachingGroup;
+use pierre_core::models::groups::{CoachConsents, CoachingGroup};
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
@@ -80,6 +87,7 @@ use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
+use pierre_services::provider_notice;
 use pierre_tools_core::ToolResult;
 use serde_json::json;
 use tracing::info;
@@ -109,6 +117,45 @@ pub struct PlanScope {
     /// the room a publish of their plan is said in (carnet#1249); `None` in
     /// self scope.
     pub group_id: Option<Uuid>,
+    /// What the athlete lets the caller do beyond reading their training,
+    /// when the caller acts for them ([`CoachedAthleteAccess::consents`]);
+    /// `None` in self scope.
+    pub(crate) coach_consents: Option<CoachConsents>,
+}
+
+impl PlanScope {
+    /// Whether this call reads the athlete's wellness: their sleep, HRV and
+    /// resting heart rate.
+    ///
+    /// The athlete reads their own. A human coach acting for them reads it
+    /// only under the athlete's `coach_wellness_read` grant, never under
+    /// their coach sharing alone (carnet#1423).
+    #[must_use]
+    pub(crate) fn reads_wellness(&self) -> bool {
+        self.coach_consents
+            .as_ref()
+            .is_none_or(|consents| consents.wellness_read)
+    }
+
+    /// Run `read`, a read of this scope's athlete's data, under the athlete's
+    /// own AI consents.
+    ///
+    /// A coach acting for a coached athlete reads the athlete's providers as
+    /// the athlete allowed AI to read them, never as the coach did, and the
+    /// call's result is filtered the same way (carnet#1419). In self scope the
+    /// athlete is the caller, whose consents the dispatch chokepoint already
+    /// declared.
+    pub(crate) async fn read_as_athlete<F: Future>(
+        &self,
+        repos: &RepositoryRegistry,
+        read: F,
+    ) -> F::Output {
+        if self.acting_for.is_none() {
+            return read.await;
+        }
+        provider_notice::under_subject_ai_consent(repos, self.tenant.as_uuid(), self.user_id, read)
+            .await
+    }
 }
 
 /// Who writes to the plan: the requester and the agent their turn answers as.
@@ -348,6 +395,7 @@ pub async fn resolve_plan_scope(
             writer,
             acting_for: None,
             group_id: None,
+            coach_consents: None,
         }));
     };
 
@@ -541,5 +589,6 @@ async fn acting_for(
         writer,
         acting_for: Some(access.display_name),
         group_id: Some(access.group.id),
+        coach_consents: Some(access.consents),
     }))
 }

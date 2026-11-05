@@ -238,6 +238,13 @@ pub struct PlanStateBlock {
     /// that a fortnight needs writing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coverage_gaps: Vec<String>,
+    /// Present when the reader is the athlete's human coach and the athlete
+    /// has not granted them their wellness: no sleep, HRV or resting heart
+    /// rate was read, so `readiness` and `alerts` come from training load
+    /// alone and no recovery alert can be raised. Say so; never call the
+    /// athlete rested or recovered from this block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_unread: Option<String>,
 }
 
 /// The kernel's readiness verdict for one week, with the week named and each

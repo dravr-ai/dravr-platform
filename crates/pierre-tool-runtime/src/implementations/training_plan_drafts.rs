@@ -464,8 +464,14 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
             match action {
                 DraftAction::Discard => discard(repos, &target, name).await,
+                // The rails a publish runs read the athlete's load to report
+                // back to the coach, under the athlete's own AI consents
+                // (carnet#1419).
                 DraftAction::Publish => {
-                    publish(state, &context, &scope, &target, group_id, name, overwrite).await
+                    let publishing = Box::pin(publish(
+                        state, &context, &scope, &target, group_id, name, overwrite,
+                    ));
+                    scope.read_as_athlete(repos, publishing).await
                 }
             }
         }

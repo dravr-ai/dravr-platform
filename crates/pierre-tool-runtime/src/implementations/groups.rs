@@ -34,6 +34,10 @@
 //! The peer's activities are fetched under the peer's OWN connection tenant
 //! (cross-tenant lookup), matching how their 1-1 chat resolves data — the same
 //! correction applied to the group snapshot fetcher in [`crate::group_fitness`].
+//! They are read under the peer's own provider AI consents, never the
+//! requester's: what the peer withheld from AI never reaches the requester's
+//! model, and what they consented to is not hidden by the requester's own
+//! choice (carnet#1419).
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::cmp::Reverse;
@@ -74,6 +78,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::member_reads::{self, GroupReader};
+use pierre_services::provider_notice;
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -641,11 +646,23 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // `ok(count: 0)` taught the agent the peer had not trained.
             // A successful fetch that genuinely finds nothing in the window
             // still answers `ok` with a zero count — that emptiness is real.
+            // Each connection is read under the member's own AI consents in
+            // the tenant it lives under, never the requester's (carnet#1419).
             let mut activities = Vec::new();
             let mut any_fetch_succeeded = false;
             for conn in &connections {
+                let fetch = fetch_provider_activities(
+                    runtime,
+                    &conn.provider,
+                    peer_id,
+                    &conn.tenant_id,
+                    &params,
+                );
+                // A tenant id that does not parse reads the notice defaults, as
+                // a call made without a tenant does.
+                let tenant = Uuid::parse_str(&conn.tenant_id).unwrap_or_default();
                 if let Some(fetched) =
-                    fetch_provider_activities(runtime, &conn.provider, peer_id, &conn.tenant_id, &params)
+                    provider_notice::under_subject_ai_consent(data.repos(), tenant, peer_id, fetch)
                         .await
                 {
                     any_fetch_succeeded = true;

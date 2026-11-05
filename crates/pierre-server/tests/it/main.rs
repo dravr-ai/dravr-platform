@@ -201,6 +201,7 @@ mod coach_home_seed_test;
 mod coach_plan_notice_test;
 mod coach_plan_thread_seed_test;
 mod coach_planned_read_test;
+mod coach_read_athlete_consent_test;
 mod coach_reply_review_test;
 mod coach_roster_ai_consent_test;
 mod coach_roster_route_test;
