@@ -1577,7 +1577,7 @@
       "description": "Den Einladungscode für den menschlichen Coach dieser Gruppe ausgeben"
     },
     "confirm": {
-      "description": "Eine vom Sicherheitswächter zurückgehaltene Aktion freigeben"
+      "description": "Einen Agenten-Entwurf bestätigen, der auf deine Antwort wartet"
     },
     "delete-account": {
       "description": "Dein Konto und alle seine Daten endgültig löschen",
@@ -1604,7 +1604,7 @@
       }
     },
     "deny": {
-      "description": "Eine vom Sicherheitswächter zurückgehaltene Aktion abbrechen"
+      "description": "Einen Agenten-Entwurf verwerfen, der auf deine Antwort wartet"
     },
     "discover": {
       "add_label": "Hier nutzen",
@@ -2899,13 +2899,9 @@
       "time_crunched_threshold": "kurze Wochen: zwei Schwelleneinheiten und eine lockere oder lange"
     },
     "guardian": {
-      "confirm_denied": "Verstanden — die Aktion wurde abgebrochen.",
-      "confirm_done": "Erledigt — die Aktion {0} wurde ausgeführt.",
-      "confirm_expired": "Diese Bestätigung ist abgelaufen. Formuliere deine Anfrage neu, um die Aktion erneut anzustoßen.",
-      "confirm_failed": "Die Aktion {0} wurde bestätigt, aber die Ausführung ist fehlgeschlagen. Formuliere deine Anfrage neu, um es erneut zu versuchen.",
+      "confirm_expired": "Dieser Entwurf ist abgelaufen. Führe /agent create erneut aus, um einen neuen zu erstellen.",
       "confirm_not_found": "Keine ausstehende Aktion passt zu diesem Code. Möglicherweise wurde sie bereits bearbeitet.",
-      "confirm_prompt": "Aus Sicherheitsgründen muss die Aktion {0} bestätigt werden, bevor sie ausgeführt wird. Antworte /confirm {1} zum Bestätigen oder /deny {1} zum Abbrechen (läuft in 5 Minuten ab).",
-      "denied": "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut.",
+      "denied": "Diese Aktion wurde aus Sicherheitsgründen blockiert. Wenn du sie weiterhin möchtest, bitte in einer neuen Nachricht darum.",
       "denied_after_actions": "Bereits erledigt: {0}. Die nächste Aktion wurde aus Sicherheitsgründen blockiert, deshalb habe ich dort aufgehört. Wenn du sie weiterhin möchtest, bitte in einer neuen Nachricht darum."
     },
     "guardrail": {
@@ -4022,7 +4018,6 @@
     "navEvalHarness": "Evaluierungsrahmen",
     "navFuelProducts": "Verpflegungsprodukte",
     "navGroups": "Gruppen",
-    "navGuardianConfig": "Guardian-Konfiguration",
     "navHarnessConfig": "Rahmen-Konfiguration",
     "navImpersonationLog": "Identitätsübernahme-Protokoll",
     "navMemoryWorker": "Erinnerungs-Prozess",

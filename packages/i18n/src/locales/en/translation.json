@@ -1577,7 +1577,7 @@
       "description": "Issue this group's human-coach invite code"
     },
     "confirm": {
-      "description": "Approve an action the security guardian put on hold"
+      "description": "Approve an agent draft waiting for your answer"
     },
     "delete-account": {
       "description": "Permanently delete your account and all its data",
@@ -1604,7 +1604,7 @@
       }
     },
     "deny": {
-      "description": "Cancel an action the security guardian put on hold"
+      "description": "Discard an agent draft waiting for your answer"
     },
     "discover": {
       "add_label": "Use in this chat",
@@ -2899,13 +2899,9 @@
       "time_crunched_threshold": "short weeks: two threshold sessions and one easy or long one"
     },
     "guardian": {
-      "confirm_denied": "Understood — the action has been cancelled.",
-      "confirm_done": "Done — the action {0} has been executed.",
-      "confirm_expired": "That confirmation has expired. Rephrase your request to run the action again.",
-      "confirm_failed": "The action {0} was confirmed but failed to execute. Rephrase your request to try again.",
+      "confirm_expired": "That draft has expired. Run /agent create again to make a new one.",
       "confirm_not_found": "No pending action matches that code. It may already have been resolved.",
-      "confirm_prompt": "For safety, the action {0} needs your confirmation before it runs. Reply /confirm {1} to approve or /deny {1} to cancel (expires in 5 minutes).",
-      "denied": "That action was blocked for safety. Try rephrasing your request, or retry without the earlier context.",
+      "denied": "That action was blocked for safety. If you still want it, ask in a new message.",
       "denied_after_actions": "Already done: {0}. The next action was blocked for safety, so I stopped there. If you still want it, ask in a new message."
     },
     "guardrail": {
@@ -4022,7 +4018,6 @@
     "navEvalHarness": "Eval Harness",
     "navFuelProducts": "Fuel products",
     "navGroups": "Groups",
-    "navGuardianConfig": "Guardian Config",
     "navHarnessConfig": "Harness Config",
     "navImpersonationLog": "Impersonation log",
     "navMemoryWorker": "Memory Worker",

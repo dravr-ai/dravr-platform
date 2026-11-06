@@ -1577,7 +1577,7 @@
       "description": "Emitir o código de convite do coach humano deste grupo"
     },
     "confirm": {
-      "description": "Aprovar uma ação que o guardião de segurança deixou em espera"
+      "description": "Aprovar um rascunho de agente à espera da tua resposta"
     },
     "delete-account": {
       "description": "Excluir para sempre sua conta e todos os dados dela",
@@ -1604,7 +1604,7 @@
       }
     },
     "deny": {
-      "description": "Cancelar uma ação que o guardião de segurança deixou em espera"
+      "description": "Descartar um rascunho de agente à espera da tua resposta"
     },
     "discover": {
       "add_label": "Usar aqui",
@@ -2899,13 +2899,9 @@
       "time_crunched_threshold": "semanas curtas: duas sessões de limiar e uma leve ou longa"
     },
     "guardian": {
-      "confirm_denied": "Entendido — a ação foi cancelada.",
-      "confirm_done": "Feito — a ação {0} foi executada.",
-      "confirm_expired": "Essa confirmação expirou. Reformula o teu pedido para relançar a ação.",
-      "confirm_failed": "A ação {0} foi confirmada mas a execução falhou. Reformula o teu pedido para tentar de novo.",
+      "confirm_expired": "Esse rascunho expirou. Executa /agent create de novo para criar outro.",
       "confirm_not_found": "Nenhuma ação pendente corresponde a esse código. Talvez já tenha sido resolvida.",
-      "confirm_prompt": "Por segurança, a ação {0} precisa da tua confirmação antes de ser executada. Responde /confirm {1} para aprovar ou /deny {1} para cancelar (expira em 5 minutos).",
-      "denied": "Essa ação foi bloqueada por segurança. Reformula o teu pedido ou tenta de novo sem o contexto anterior.",
+      "denied": "Essa ação foi bloqueada por segurança. Se ainda a quiseres, pede-a numa nova mensagem.",
       "denied_after_actions": "Já feito: {0}. A ação seguinte foi bloqueada por segurança, por isso parei aí. Se ainda a quiseres, pede-a numa nova mensagem."
     },
     "guardrail": {
@@ -4022,7 +4018,6 @@
     "navEvalHarness": "Banco de avaliação",
     "navFuelProducts": "Produtos de abastecimento",
     "navGroups": "Grupos",
-    "navGuardianConfig": "Configuração do Guardian",
     "navHarnessConfig": "Configuração do banco",
     "navImpersonationLog": "Registo de personificação",
     "navMemoryWorker": "Processo de memória",

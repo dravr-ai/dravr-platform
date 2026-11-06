@@ -1577,7 +1577,7 @@
       "description": "Emitir el código de invitación del coach humano de este grupo"
     },
     "confirm": {
-      "description": "Aprobar una acción que el guardián de seguridad dejó en espera"
+      "description": "Aprobar un borrador de agente que espera tu respuesta"
     },
     "delete-account": {
       "description": "Eliminar para siempre tu cuenta y todos sus datos",
@@ -1604,7 +1604,7 @@
       }
     },
     "deny": {
-      "description": "Cancelar una acción que el guardián de seguridad dejó en espera"
+      "description": "Descartar un borrador de agente que espera tu respuesta"
     },
     "discover": {
       "add_label": "Usar aquí",
@@ -2899,13 +2899,9 @@
       "time_crunched_threshold": "semanas cortas: dos sesiones de umbral y una suave o larga"
     },
     "guardian": {
-      "confirm_denied": "Entendido — la acción ha sido cancelada.",
-      "confirm_done": "Hecho — la acción {0} se ha ejecutado.",
-      "confirm_expired": "Esa confirmación ha caducado. Reformula tu solicitud para relanzar la acción.",
-      "confirm_failed": "La acción {0} fue confirmada pero su ejecución falló. Reformula tu solicitud para intentarlo de nuevo.",
+      "confirm_expired": "Ese borrador ha caducado. Ejecuta /agent create de nuevo para crear otro.",
       "confirm_not_found": "Ninguna acción pendiente coincide con ese código. Puede que ya se haya resuelto.",
-      "confirm_prompt": "Por seguridad, la acción {0} necesita tu confirmación antes de ejecutarse. Responde /confirm {1} para aprobarla o /deny {1} para cancelarla (caduca en 5 minutos).",
-      "denied": "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior.",
+      "denied": "Esa acción fue bloqueada por seguridad. Si todavía la quieres, pídela en un mensaje nuevo.",
       "denied_after_actions": "Ya hecho: {0}. La siguiente acción fue bloqueada por seguridad, así que me detuve ahí. Si todavía la quieres, pídela en un mensaje nuevo."
     },
     "guardrail": {
@@ -4022,7 +4018,6 @@
     "navEvalHarness": "Banco de evaluación",
     "navFuelProducts": "Productos de avituallamiento",
     "navGroups": "Grupos",
-    "navGuardianConfig": "Configuración de Guardian",
     "navHarnessConfig": "Configuración del banco",
     "navImpersonationLog": "Registro de suplantación",
     "navMemoryWorker": "Proceso de memoria",
