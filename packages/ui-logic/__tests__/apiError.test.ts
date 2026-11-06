@@ -13,6 +13,10 @@ import {
   describeQuotaRefusal,
   describeSignInFailure,
   refusalReason,
+  refusalCode,
+  isProviderAuthRefusal,
+  providerAuthRefusalKey,
+  describeProviderAuthRefusal,
   API_ERROR_KEYS,
 } from '../src/apiError';
 
@@ -350,5 +354,53 @@ describe('apiErrorStatus', () => {
     expect(apiErrorStatus({ code: 'ETIMEDOUT' })).toBeUndefined();
     expect(apiErrorStatus(new Error('offline'))).toBeUndefined();
     expect(apiErrorStatus(null)).toBeUndefined();
+  });
+});
+
+describe('provider-auth refusals', () => {
+  /** Names the key and the provider it was given, so the assertion reads which sentence was chosen. */
+  const t = (key: string, params?: Record<string, string | number>) =>
+    params?.provider !== undefined ? `${key}(${params.provider})` : key;
+  const ENGLISH = 'A connected fitness provider needs to be (re)authenticated';
+  const expired = (provider?: unknown) =>
+    responded(403, {
+      code: 'ProviderAuthRequired',
+      message: ENGLISH,
+      ...(provider === undefined ? {} : { details: { provider } }),
+    });
+
+  it('reads the refusal by its code, never by its English message', () => {
+    expect(refusalCode(expired('strava'))).toBe('ProviderAuthRequired');
+    expect(isProviderAuthRefusal(expired('strava'))).toBe(true);
+    // The same sentence under another code is not one.
+    expect(isProviderAuthRefusal(responded(403, { code: 'PermissionDenied', message: ENGLISH }))).toBe(false);
+    expect(isProviderAuthRefusal(new Error('Network Error'))).toBe(false);
+    expect(refusalCode(responded(403, { code: 7 }))).toBeUndefined();
+  });
+
+  it('names a scraper backend by the service it signs in to, and a plain id by its brand', () => {
+    expect(describeProviderAuthRefusal(expired('sciotte_garmin'), t)).toBe('errors.providerReconnect(Garmin)');
+    expect(describeProviderAuthRefusal(expired('garmin'), t)).toBe('errors.providerReconnect(Garmin)');
+    expect(describeProviderAuthRefusal(expired('strava'), t)).toBe('errors.providerReconnect(Strava)');
+  });
+
+  it('says "a connected app" when the refusal names no provider this client can brand', () => {
+    expect(describeProviderAuthRefusal(expired(), t)).toBe('errors.providerReconnectUnnamed');
+    expect(describeProviderAuthRefusal(expired('sciotte_unheard_of'), t)).toBe('errors.providerReconnectUnnamed');
+    expect(describeProviderAuthRefusal(expired(42), t)).toBe('errors.providerReconnectUnnamed');
+  });
+
+  it('is what describeApiError says, in place of the server sentence a 403 otherwise reads as', () => {
+    expect(describeApiError(expired('sciotte_garmin'), { online: true, t, fallbackKey: 'errors.forbidden' })).toBe(
+      'errors.providerReconnect(Garmin)',
+    );
+    expect(describeProviderAuthRefusal(responded(403, { message: 'nope' }), t)).toBeUndefined();
+  });
+
+  it('keys the same expired session the same way across requests, and a second provider apart', () => {
+    // A backend id and the service it signs in to are one session as the athlete sees it.
+    expect(providerAuthRefusalKey(expired('sciotte_garmin'))).toBe(providerAuthRefusalKey(expired('garmin')));
+    expect(providerAuthRefusalKey(expired('strava'))).not.toBe(providerAuthRefusalKey(expired('garmin')));
+    expect(providerAuthRefusalKey(responded(403, { code: 'PermissionDenied' }))).toBeUndefined();
   });
 });

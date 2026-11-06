@@ -19,6 +19,8 @@ export interface ToastItem {
   duration: number;
   /** Timestamp when toast was added */
   createdAt: number;
+  /** What makes a second notice of the same thing this one, while it is shown */
+  dedupeKey?: string;
 }
 
 /**
@@ -29,6 +31,12 @@ export interface AddToastProps {
   type?: ToastType;
   /** Duration in ms. Defaults based on type: error=5000, others=3000 */
   duration?: number;
+  /**
+   * Collapses repeats: while a toast with this key is still queued, adding
+   * another returns that toast's id and shows nothing new. One failure that
+   * every parallel request reports would otherwise stack one toast per request.
+   */
+  dedupeKey?: string;
 }
 
 /**
@@ -47,7 +55,7 @@ export interface UseToastProps {
 export interface UseToastReturn {
   /** Current toast queue */
   toasts: ToastItem[];
-  /** Add a new toast */
+  /** Add a new toast, or return the id of the queued one sharing its `dedupeKey` */
   addToast: (props: AddToastProps) => string;
   /** Remove a specific toast by id */
   removeToast: (id: string) => void;
@@ -101,6 +109,11 @@ export function useToast({
 }: UseToastProps = {}): UseToastReturn {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // The queue's ids in order and each keyed toast's id, kept synchronously
+  // beside the state: a burst of adds lands in one tick, before any render, so
+  // a check against `toasts` would see an empty queue every time.
+  const queueRef = useRef<string[]>([]);
+  const keyedRef = useRef<Map<string, string>>(new Map());
 
   // Cleanup timers on unmount. The ref holds one Map for the hook's life, so
   // the instance read here is the one the cleanup must empty.
@@ -112,18 +125,33 @@ export function useToast({
     };
   }, []);
 
-  const removeToast = useCallback((id: string) => {
-    // Clear the timer for this toast
+  /** Drop a toast's bookkeeping: its timer, its place in the queue, its key. */
+  const forget = useCallback((id: string) => {
     const timer = timersRef.current.get(id);
     if (timer) {
       clearTimeout(timer);
       timersRef.current.delete(id);
     }
-
-    setToasts(prev => prev.filter(t => t.id !== id));
+    queueRef.current = queueRef.current.filter(queued => queued !== id);
+    for (const [key, keyedId] of keyedRef.current) {
+      if (keyedId === id) {
+        keyedRef.current.delete(key);
+      }
+    }
   }, []);
 
-  const addToast = useCallback(({ message, type = 'info', duration }: AddToastProps): string => {
+  const removeToast = useCallback((id: string) => {
+    forget(id);
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, [forget]);
+
+  const addToast = useCallback(({ message, type = 'info', duration, dedupeKey }: AddToastProps): string => {
+    if (dedupeKey !== undefined) {
+      const shown = keyedRef.current.get(dedupeKey);
+      if (shown !== undefined) {
+        return shown;
+      }
+    }
     const id = generateId();
     const actualDuration = duration ?? getDefaultDuration(type, defaultDuration);
 
@@ -133,7 +161,18 @@ export function useToast({
       type,
       duration: actualDuration,
       createdAt: Date.now(),
+      dedupeKey,
     };
+
+    // The oldest is evicted here rather than only inside the state updater, so
+    // its key is released in the same tick and a later repeat is shown again.
+    if (queueRef.current.length >= maxToasts) {
+      forget(queueRef.current[0]);
+    }
+    queueRef.current = [...queueRef.current, id];
+    if (dedupeKey !== undefined) {
+      keyedRef.current.set(dedupeKey, id);
+    }
 
     setToasts(prev => {
       // Remove oldest if at max capacity
@@ -150,11 +189,13 @@ export function useToast({
     }
 
     return id;
-  }, [defaultDuration, maxToasts, removeToast]);
+  }, [defaultDuration, maxToasts, removeToast, forget]);
 
   const clearAll = useCallback(() => {
     timersRef.current.forEach(timer => clearTimeout(timer));
     timersRef.current.clear();
+    queueRef.current = [];
+    keyedRef.current.clear();
     setToasts([]);
   }, []);
 

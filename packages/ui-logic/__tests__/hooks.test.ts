@@ -560,4 +560,53 @@ describe('useToast', () => {
     });
     expect(result.current.toasts).toHaveLength(0);
   });
+
+  it('shows one toast for a burst sharing a dedupe key, and returns its id each time', () => {
+    const { result } = renderHook(() => useToast());
+
+    const ids: string[] = [];
+    // One tick, as five parallel refusals arrive: no render between the adds.
+    act(() => {
+      for (let i = 0; i < 5; i += 1) {
+        ids.push(result.current.addToast({ message: 'Garmin', type: 'error', dedupeKey: 'auth:garmin' }));
+      }
+      ids.push(result.current.addToast({ message: 'Strava', type: 'error', dedupeKey: 'auth:strava' }));
+    });
+
+    expect(result.current.toasts.map(toast => toast.message)).toEqual(['Garmin', 'Strava']);
+    expect(new Set(ids.slice(0, 5)).size).toBe(1);
+    expect(ids[5]).not.toBe(ids[0]);
+  });
+
+  it('shows a keyed toast again once the first is gone', () => {
+    const { result } = renderHook(() => useToast({ defaultDuration: 1000 }));
+
+    let first = '';
+    act(() => {
+      first = result.current.addToast({ message: 'Garmin', dedupeKey: 'auth:garmin' });
+    });
+    act(() => result.current.removeToast(first));
+    act(() => {
+      result.current.addToast({ message: 'Garmin', dedupeKey: 'auth:garmin' });
+    });
+    expect(result.current.toasts).toHaveLength(1);
+
+    // Auto-dismissed releases the key as well.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    act(() => {
+      result.current.addToast({ message: 'Garmin', dedupeKey: 'auth:garmin' });
+    });
+    expect(result.current.toasts).toHaveLength(1);
+
+    // And so does being pushed out of a full queue.
+    const { result: small } = renderHook(() => useToast({ maxToasts: 1 }));
+    act(() => {
+      small.current.addToast({ message: 'Garmin', dedupeKey: 'auth:garmin' });
+      small.current.addToast({ message: 'Other' });
+      small.current.addToast({ message: 'Garmin again', dedupeKey: 'auth:garmin' });
+    });
+    expect(small.current.toasts.map(toast => toast.message)).toEqual(['Garmin again']);
+  });
 });
