@@ -86,9 +86,11 @@ crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared wi
 crates/pierre-server/src/routes/coach_roster.rs:Only a coach attached to a group can read a roster
 crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
+crates/pierre-server/src/routes/imports.rs:This origin may not upload
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active super-admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active super-admin
+crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
 crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tenant
 crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
 crates/pierre-services/src/auth.rs:User state error: User already exists

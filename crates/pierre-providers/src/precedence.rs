@@ -17,7 +17,7 @@
 //! | Stored key | Service | Ingress |
 //! |---|---|---|
 //! | `garmin` (push, and the usr/pwd capture it shares a row key with) | garmin | api |
-//! | `garmin_archive`, `strava_archive` | the export's service | export |
+//! | `apple_health_archive`, `coros_archive`, `garmin_archive`, `strava_archive`, `whoop_archive` | the export's service | export |
 //! | a mirror backend (`sciotte`, `sciotte_coros`...) | the service it signed in to | capture |
 //! | `intervals_icu`, `trainingpeaks`, `terra`, naming another service's device | that service | relay |
 //! | `upload` | the device's service, else upload | upload |
@@ -34,8 +34,9 @@
 
 pub use dravr_equilibre::precedence::{rank, Ingress, Kind, Service, Source};
 use pierre_core::constants::oauth_providers::{
-    garmin_recorded, ATHLETE, COROS, GARMIN, GARMIN_ARCHIVE, INTERVALS_ICU, STRAVA, STRAVA_ARCHIVE,
-    SYNTHETIC, SYNTHETIC_SLEEP, TERRA, TRAININGPEAKS, UPLOAD, WAHOO, WHOOP,
+    garmin_recorded, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE,
+    INTERVALS_ICU, STRAVA, STRAVA_ARCHIVE, SYNTHETIC, SYNTHETIC_SLEEP, TERRA, TRAININGPEAKS,
+    UPLOAD, WAHOO, WHOOP, WHOOP_ARCHIVE,
 };
 use pierre_core::models::{Activity, DataSource};
 
@@ -84,6 +85,9 @@ pub fn key_source(key: &str) -> Option<Source> {
         ATHLETE => source(Service::Athlete, Ingress::Manual),
         GARMIN => source(Service::Garmin, Ingress::Api),
         GARMIN_ARCHIVE => source(Service::Garmin, Ingress::Export),
+        APPLE_HEALTH_ARCHIVE => source(Service::Apple, Ingress::Export),
+        COROS_ARCHIVE => source(Service::Coros, Ingress::Export),
+        WHOOP_ARCHIVE => source(Service::Whoop, Ingress::Export),
         STRAVA => source(Service::Strava, Ingress::Api),
         STRAVA_ARCHIVE => source(Service::Strava, Ingress::Export),
         WHOOP => source(Service::Whoop, Ingress::Api),
@@ -206,8 +210,8 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS;
     use pierre_core::constants::oauth_providers::{
-        ATHLETE, GARMIN, GARMIN_ARCHIVE, INTERVALS_ICU, SCIOTTE, SCIOTTE_COROS, STRAVA,
-        STRAVA_ARCHIVE, UPLOAD, WHOOP,
+        APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE, INTERVALS_ICU,
+        SCIOTTE, SCIOTTE_COROS, STRAVA, STRAVA_ARCHIVE, UPLOAD, WHOOP, WHOOP_ARCHIVE,
     };
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
 
@@ -247,6 +251,12 @@ mod tests {
                 STRAVA_ARCHIVE,
                 Source::new(Service::Strava, Ingress::Export),
             ),
+            (
+                APPLE_HEALTH_ARCHIVE,
+                Source::new(Service::Apple, Ingress::Export),
+            ),
+            (COROS_ARCHIVE, Source::new(Service::Coros, Ingress::Export)),
+            (WHOOP_ARCHIVE, Source::new(Service::Whoop, Ingress::Export)),
             (WHOOP, Source::new(Service::Whoop, Ingress::Api)),
             (SCIOTTE_COROS, Source::new(Service::Coros, Ingress::Capture)),
             (

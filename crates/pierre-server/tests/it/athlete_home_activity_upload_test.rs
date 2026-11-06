@@ -33,7 +33,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{
-    BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken,
+    BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken, UploadTarget,
 };
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::parse::fit::FitFileError;
@@ -1080,6 +1080,16 @@ impl BlobStore for ScriptedBlobs {
         meta: &BlobMeta,
     ) -> Result<BlobStat, BarrageError> {
         self.inner.put(key, bytes, meta).await
+    }
+
+    async fn open_upload(
+        &self,
+        key: &BlobKey,
+        meta: &BlobMeta,
+        length: u64,
+        origin: Option<&str>,
+    ) -> Result<UploadTarget, BarrageError> {
+        self.inner.open_upload(key, meta, length, origin).await
     }
 
     async fn get(&self, key: &BlobKey) -> Result<Option<Bytes>, BarrageError> {

@@ -377,6 +377,7 @@ mod i18n_bundle_route_test;
 mod identity_anchor_test;
 mod impersonation_log_routes_test;
 mod impersonation_revocation_test;
+mod import_upload_test;
 mod intelligence_algorithms_test;
 mod intelligence_comprehensive_test;
 mod intelligence_config_test;

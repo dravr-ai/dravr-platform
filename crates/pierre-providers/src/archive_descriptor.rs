@@ -8,7 +8,8 @@
 //!
 //! An athlete's own export of a service's history (carnet#1218) is held by
 //! dravr-barrage and served under its own key, one per service
-//! ([`STRAVA_ARCHIVE`], [`GARMIN_ARCHIVE`]), never under
+//! ([`STRAVA_ARCHIVE`], [`GARMIN_ARCHIVE`], [`APPLE_HEALTH_ARCHIVE`],
+//! [`COROS_ARCHIVE`], [`WHOOP_ARCHIVE`]), never under
 //! the live provider's. Each key's descriptor gives it its terms: the copy is
 //! the athlete's own (portability data), so a model, MCP, A2A and an API key
 //! may read it alike, it is never evicted for age, and no connection's consent
@@ -28,7 +29,10 @@
 //! Connectability is read from the factories, so an archive key is never
 //! offered as a connection and nothing ever fetches it.
 
-use pierre_core::constants::oauth_providers::{ATHLETE, GARMIN_ARCHIVE, STRAVA_ARCHIVE, UPLOAD};
+use pierre_core::constants::oauth_providers::{
+    APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN_ARCHIVE, STRAVA_ARCHIVE, UPLOAD,
+    WHOOP_ARCHIVE,
+};
 use pierre_core::transport::TransportPolicy;
 
 use crate::spi::{
@@ -50,6 +54,11 @@ pub struct ArchiveDescriptor {
 /// - A Strava export holds recorded activities, with their samples and laps.
 /// - A Garmin Connect export holds those too, and the athlete's wellness:
 ///   sleep, the day's recovery readings, body readings and activity totals.
+/// - An Apple Health export holds recorded activities with their routes, and
+///   the athlete's sleep, resting heart rate and HRV.
+/// - A COROS export holds recorded activities, with their samples and laps.
+/// - A WHOOP export holds workouts with no samples, and the athlete's sleep and
+///   the day's recovery readings, without WHOOP's own scores.
 /// - An upload holds the recordings in the files the athlete uploaded.
 /// - A manual entry holds the readings the athlete typed in.
 #[must_use]
@@ -69,6 +78,25 @@ pub fn own_data_descriptors() -> Vec<ArchiveDescriptor> {
                 .union(ProviderCapabilities::SLEEP_TRACKING)
                 .union(ProviderCapabilities::RECOVERY_METRICS)
                 .union(ProviderCapabilities::HEALTH_METRICS),
+        },
+        ArchiveDescriptor {
+            key: APPLE_HEALTH_ARCHIVE,
+            display_name: "Apple Health (imported)",
+            capabilities: recorded
+                .union(ProviderCapabilities::SLEEP_TRACKING)
+                .union(ProviderCapabilities::RECOVERY_METRICS),
+        },
+        ArchiveDescriptor {
+            key: COROS_ARCHIVE,
+            display_name: "COROS (imported)",
+            capabilities: recorded,
+        },
+        ArchiveDescriptor {
+            key: WHOOP_ARCHIVE,
+            display_name: "WHOOP (imported)",
+            capabilities: ProviderCapabilities::ACTIVITIES
+                .union(ProviderCapabilities::SLEEP_TRACKING)
+                .union(ProviderCapabilities::RECOVERY_METRICS),
         },
         ArchiveDescriptor {
             key: UPLOAD,
@@ -129,7 +157,8 @@ impl ProviderDescriptor for ArchiveDescriptor {
 mod tests {
     use pierre_core::ai_policy::first_party_only;
     use pierre_core::constants::oauth_providers::{
-        ATHLETE, GARMIN, GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS,
+        APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE, STRAVA,
+        STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS, WHOOP_ARCHIVE,
     };
 
     use super::own_data_descriptors;
@@ -143,6 +172,9 @@ mod tests {
         for (key, brand) in [
             (STRAVA_ARCHIVE, "Strava (imported)"),
             (GARMIN_ARCHIVE, "Garmin (imported)"),
+            (APPLE_HEALTH_ARCHIVE, "Apple Health (imported)"),
+            (COROS_ARCHIVE, "COROS (imported)"),
+            (WHOOP_ARCHIVE, "WHOOP (imported)"),
         ] {
             assert!(
                 !first_party_only(&registry, key, None),

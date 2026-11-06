@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as _;
@@ -136,6 +136,110 @@ impl QueueStub {
             .route(
                 "/projects/{project}/locations/{location}/queues/{queue}/tasks",
                 post(handler),
+            )
+            .with_state(Arc::clone(self));
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr: SocketAddr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve");
+        });
+        format!("http://{addr}")
+    }
+}
+
+/// A queue that keeps its task names as Cloud Tasks does: a create under a name
+/// it has seen answers 409 whether the task is live or spent, and only a read
+/// of the task tells those apart.
+pub(crate) struct NamedQueueStub {
+    names: Mutex<Vec<NamedTask>>,
+    /// What a read of a task answers instead of its state.
+    read_refused_with: Mutex<Option<StatusCode>>,
+}
+
+struct NamedTask {
+    name: String,
+    live: bool,
+}
+
+impl NamedQueueStub {
+    #[must_use]
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            names: Mutex::new(Vec::new()),
+            read_refused_with: Mutex::new(None),
+        })
+    }
+
+    /// Every name a task was created under, in order.
+    #[must_use]
+    pub(crate) fn created(&self) -> Vec<String> {
+        let names = self.names.lock().expect("mutex");
+        names.iter().map(|task| task.name.clone()).collect()
+    }
+
+    /// The tasks the queue would still deliver.
+    #[must_use]
+    pub(crate) fn live(&self) -> Vec<String> {
+        let names = self.names.lock().expect("mutex");
+        names
+            .iter()
+            .filter(|task| task.live)
+            .map(|task| task.name.clone())
+            .collect()
+    }
+
+    /// The queue spends every live task's retries and deletes it. Its name
+    /// stays reserved.
+    pub(crate) fn spend_all(&self) {
+        for task in self.names.lock().expect("mutex").iter_mut() {
+            task.live = false;
+        }
+    }
+
+    /// Every read of a task answers `status` from now on.
+    pub(crate) fn refuse_reads(&self, status: StatusCode) {
+        *self.read_refused_with.lock().expect("mutex") = Some(status);
+    }
+
+    /// Serve this stub from a local listener and return its base URL.
+    pub(crate) async fn serve(self: &Arc<Self>) -> String {
+        async fn create(
+            State(stub): State<Arc<NamedQueueStub>>,
+            Json(body): Json<Value>,
+        ) -> StatusCode {
+            let name = body["task"]["name"].as_str().unwrap_or_default().to_owned();
+            let mut names = stub.names.lock().expect("mutex");
+            if names.iter().any(|task| task.name == name) {
+                return StatusCode::CONFLICT;
+            }
+            names.push(NamedTask { name, live: true });
+            StatusCode::OK
+        }
+        async fn read(
+            State(stub): State<Arc<NamedQueueStub>>,
+            Path((project, location, queue, task)): Path<(String, String, String, String)>,
+        ) -> StatusCode {
+            let refused = *stub.read_refused_with.lock().expect("mutex");
+            if let Some(status) = refused {
+                return status;
+            }
+            let name =
+                format!("projects/{project}/locations/{location}/queues/{queue}/tasks/{task}");
+            let names = stub.names.lock().expect("mutex");
+            if names.iter().any(|known| known.name == name && known.live) {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            }
+        }
+        let app = Router::new()
+            .route(
+                "/projects/{project}/locations/{location}/queues/{queue}/tasks",
+                post(create),
+            )
+            .route(
+                "/projects/{project}/locations/{location}/queues/{queue}/tasks/{task}",
+                get(read),
             )
             .with_state(Arc::clone(self));
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");

@@ -150,3 +150,23 @@ pub async fn owner_authorization_outstanding(
             .is_some(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WHOOP's API terms reach what Dravr fetched under its key, not the
+    /// athlete's own export: its importer withholds WHOOP's scores itself.
+    #[test]
+    fn an_imported_whoop_export_is_not_held_to_the_api_terms() {
+        assert!(is_whoop(oauth_providers::WHOOP), "bug: the live key");
+        assert!(
+            !is_whoop(oauth_providers::WHOOP_ARCHIVE),
+            "bug: the athlete's own export needs no owner authorization"
+        );
+        assert!(
+            !scores_withheld(oauth_providers::WHOOP_ARCHIVE),
+            "bug: an export's readings are stripped by the store too"
+        );
+    }
+}

@@ -270,9 +270,14 @@ export type {
   ImportLinkRefusal,
   ImportReportPage,
   ImportStatus,
+  ImportUploadTarget,
   ImportsOverview,
+  StartedImportUpload,
 } from './imports.js';
 export {
+  APPLE_HEALTH_ARCHIVE_SOURCE,
+  COROS_ARCHIVE_SOURCE,
+  WHOOP_ARCHIVE_SOURCE,
   GARMIN_ARCHIVE_SOURCE,
   STRAVA_ARCHIVE_SOURCE,
   isFinalImportStatus,
@@ -281,7 +286,9 @@ export {
   parseCurrentImport,
   parseImportLinkCheck,
   parseImportReportPage,
+  parseImportUploadTarget,
   parseImportsOverview,
+  parseStartedImportUpload,
 } from './imports.js';
 
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in

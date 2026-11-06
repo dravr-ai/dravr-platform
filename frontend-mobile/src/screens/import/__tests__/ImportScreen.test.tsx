@@ -8,8 +8,12 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ArchiveImport } from '@pierre/shared-types';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import { ImportScreen } from '../ImportScreen';
 import { importsApi } from '../../../services/api';
+
+jest.mock('expo-file-system', () => ({ File: jest.fn() }));
 
 jest.mock('../../../services/api', () => ({
   importsApi: {
@@ -20,6 +24,10 @@ jest.mock('../../../services/api', () => ({
     cancelImport: jest.fn(),
     getReport: jest.fn(),
     deleteHistory: jest.fn(),
+    startUpload: jest.fn(),
+    getUploadSession: jest.fn(),
+    writeUpload: jest.fn(),
+    finishUpload: jest.fn(),
   },
 }));
 
@@ -165,5 +173,108 @@ describe('ImportScreen', () => {
       'That link has expired. Request a new export from Garmin.',
     );
     expect(api.checkLink).toHaveBeenCalledWith('garmin_archive', 'https://s3.amazonaws.com/it-gdpr-bucket/x_1.zip');
+  });
+});
+
+describe('ImportScreen, an export the athlete uploads', () => {
+  const session = { kind: 'session' as const, url: 'https://storage.example.com/session-secret' };
+  const picker = DocumentPicker as jest.Mocked<typeof DocumentPicker>;
+  const reads: [number, number][] = [];
+
+  /** A store's session: asked where it stands first, then takes every chunk. */
+  function storeFetch() {
+    return jest.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      const range = init.headers['Content-Range'];
+      return { status: range.startsWith('bytes */') ? 308 : 201, headers: { get: () => null } };
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    reads.length = 0;
+    (File as unknown as jest.Mock).mockImplementation(() => ({
+      size: 9,
+      open: () => {
+        let offset = 0;
+        return {
+          set offset(value: number) {
+            offset = value;
+          },
+          get offset() {
+            return offset;
+          },
+          readBytes: (length: number) => {
+            reads.push([offset, length]);
+            return new Uint8Array(length);
+          },
+          close: jest.fn(),
+        };
+      },
+    }));
+    picker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///cache/export.zip', name: 'export.zip', size: 9 }],
+    } as never);
+    api.getImports.mockResolvedValue({ enabled: true, sources: ['apple_health_archive'], imports: [] });
+  });
+
+  it('is listed with the other sources, and opens by its direct link', async () => {
+    api.getCurrentImport.mockResolvedValue(null);
+    renderScreen();
+    expect(await screen.findByTestId('import-source-apple_health_archive')).toBeTruthy();
+
+    renderScreen('apple_health_archive');
+    expect(await screen.findByTestId('import-upload-pick')).toBeTruthy();
+    expect(screen.queryByTestId('import-link-input')).toBeNull();
+  });
+
+  it('opens an upload of the picked file, reads it by chunk and says it landed', async () => {
+    api.getCurrentImport.mockResolvedValue(null);
+    api.startUpload.mockResolvedValue({ import: job({ id: 'job-9', status: 'awaiting_link' }), upload: session });
+    api.finishUpload.mockResolvedValue(job({ id: 'job-9', status: 'downloading' }));
+    const fetchMock = storeFetch();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    renderScreen('apple_health_archive');
+
+    fireEvent.press(await screen.findByTestId('import-upload-pick'));
+
+    await waitFor(() => expect(api.finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-9'));
+    expect(api.startUpload).toHaveBeenCalledWith('apple_health_archive', 9);
+    expect(reads).toEqual([[0, 9]]);
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'Content-Range': 'bytes 0-8/9' });
+  });
+
+  it('resumes the import that waits rather than opening another', async () => {
+    api.getCurrentImport.mockResolvedValue(job({ id: 'job-7', status: 'awaiting_link', imported: 0 }));
+    api.getUploadSession.mockResolvedValue(session);
+    api.finishUpload.mockResolvedValue(job({ id: 'job-7', status: 'downloading' }));
+    global.fetch = storeFetch() as unknown as typeof fetch;
+    renderScreen('apple_health_archive');
+
+    fireEvent.press(await screen.findByTestId('import-upload-pick'));
+
+    await waitFor(() => expect(api.finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-7'));
+    expect(api.startUpload).not.toHaveBeenCalled();
+  });
+
+  it('starts nothing when the picker is dismissed', async () => {
+    api.getCurrentImport.mockResolvedValue(null);
+    picker.getDocumentAsync.mockResolvedValue({ canceled: true, assets: null } as never);
+    renderScreen('apple_health_archive');
+
+    fireEvent.press(await screen.findByTestId('import-upload-pick'));
+
+    await waitFor(() => expect(picker.getDocumentAsync).toHaveBeenCalled());
+    expect(api.startUpload).not.toHaveBeenCalled();
+  });
+
+  it('cancels an upload that waits', async () => {
+    api.getCurrentImport.mockResolvedValue(job({ id: 'job-7', status: 'awaiting_link', imported: 0 }));
+    api.cancelImport.mockResolvedValue(true);
+    renderScreen('apple_health_archive');
+
+    fireEvent.press(await screen.findByTestId('import-upload-cancel'));
+
+    await waitFor(() => expect(api.cancelImport).toHaveBeenCalledWith('apple_health_archive', 'job-7'));
   });
 });

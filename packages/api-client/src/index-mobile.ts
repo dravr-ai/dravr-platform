@@ -176,6 +176,16 @@ export type {
 } from './domains/gear';
 
 export { createImportsApi } from './domains/imports';
+export { uploadExport } from './core/exportUpload';
+export type { ExportUploadOptions } from './core/exportUpload';
+export {
+  ExportUploadError,
+  UPLOAD_CHUNK_BYTES,
+  UPLOAD_MAX_STALLED_ATTEMPTS,
+  committedLength,
+  uploadToSession,
+} from './core/resumableUpload';
+export type { SessionUploadOptions, UploadBytes, UploadFailure } from './core/resumableUpload';
 export type {
   ImportsApi,
   ArchiveImport,

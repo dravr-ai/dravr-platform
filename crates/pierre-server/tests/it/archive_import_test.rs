@@ -30,8 +30,11 @@ use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobSto
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Scope, SourceKey};
 use futures_util::stream::{self, BoxStream, StreamExt};
-use pierre_core::constants::oauth_providers::{GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE};
-use pierre_core::models::TenantId;
+use pierre_core::constants::oauth_providers::{
+    APPLE_HEALTH_ARCHIVE, COROS, COROS_ARCHIVE, GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE, WHOOP,
+    WHOOP_ARCHIVE,
+};
+use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::DeletionActor;
@@ -562,6 +565,51 @@ async fn the_agent_reads_imported_history_with_nothing_connected() {
     );
 }
 
+/// A COROS or WHOOP export is the athlete's copy of that service's history,
+/// as a Strava export is Strava's: asking for the service by name with no
+/// connection serves the copy, and only that service's copy.
+#[tokio::test]
+async fn asking_for_coros_or_whoop_serves_the_export_imported_from_it() {
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "archive-companions").await;
+    let start = Utc::now() - Duration::days(3);
+    for (key, id, offset) in [(COROS_ARCHIVE, "coros-1", 0), (WHOOP_ARCHIVE, "whoop-1", 4)] {
+        let activity = ActivityBuilder::new(
+            id.to_owned(),
+            format!("{key} workout"),
+            SportType::Run,
+            start + Duration::hours(offset),
+            1_800,
+            key.to_owned(),
+        )
+        .build();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities_synced_at(
+                athlete.user_id,
+                &athlete.tenant,
+                key,
+                &[activity],
+                Utc::now(),
+            )
+            .await
+            .expect("the imported row is cached");
+    }
+
+    for (service, expected) in [(COROS, "coros-1"), (WHOOP, "whoop-1")] {
+        let payload = agent_activities(&resources, &athlete, json!({ "provider": service })).await;
+        assert_eq!(
+            activity_ids(&payload),
+            [expected],
+            "bug: asking for {service} does not serve the export imported from it: {payload}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn deleting_the_imported_history_removes_rows_samples_and_records() {
     let (imports, stores) = imports_serving(strava_export());
@@ -1067,7 +1115,165 @@ async fn the_web_apps_own_session_manages_imports() {
     assert_eq!(overview["enabled"], true, "{overview}");
     assert_eq!(
         overview["sources"],
-        json!([STRAVA_ARCHIVE, GARMIN_ARCHIVE]),
-        "both exports are offered, Strava's first (carnet#1337): {overview}"
+        json!([
+            STRAVA_ARCHIVE,
+            GARMIN_ARCHIVE,
+            APPLE_HEALTH_ARCHIVE,
+            COROS_ARCHIVE,
+            WHOOP_ARCHIVE
+        ]),
+        "every export is offered, Strava's first (carnet#1337): {overview}"
     );
+}
+
+/// Apple's HRV is SDNN, and a day's HRV is read as rMSSD: its readings keep
+/// their own series, reach no day's row, are stored once however often the
+/// export is read, are what a model's read of that series sees, and go with
+/// the source and with the account.
+#[tokio::test]
+async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
+    use dravr_barrage::{HrvSdnnReading, ProjectionSink, WellnessRecords};
+    use dravr_riviere::{SeriesType, TimeRange};
+    use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
+    use pierre_providers::ai_scope;
+    use pierre_services::continuous_series::{continuous_series, SeriesRead};
+
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "apple-sdnn").await;
+    let at = Utc::now() - Duration::days(1);
+    let exported = WellnessRecords {
+        hrv_sdnn: vec![HrvSdnnReading {
+            at,
+            milliseconds: 42.5,
+        }],
+        ..WellnessRecords::default()
+    };
+    let sink = CachedActivitiesSink::new(Arc::clone(&resources));
+    let scope = athlete.scope();
+    for _ in 0..2 {
+        sink.project_wellness(&scope, SourceKey::AppleHealthArchive, &exported)
+            .await
+            .unwrap();
+    }
+
+    let repos = &resources.common.repos;
+    let sources = repos
+        .data_sources
+        .list_data_sources(athlete.user_id, &athlete.tenant)
+        .await
+        .unwrap();
+    assert_eq!(sources.len(), 1, "bug: one source files the readings");
+    let range = TimeRange::new(at - Duration::hours(1), at + Duration::hours(1));
+    let read = |series: SeriesType| {
+        let source = sources[0].id.clone();
+        let range = range.clone();
+        async move {
+            repos
+                .time_series_points
+                .query(&source, series.id(), &range)
+                .await
+                .unwrap()
+                .points
+        }
+    };
+    let points = read(SeriesType::HrvSdnn).await;
+    assert_eq!(points.len(), 1, "bug: a second read stores it twice");
+    assert_eq!(
+        points[0].value, 42.5,
+        "bug: the reading's own value, in milliseconds"
+    );
+    assert!(
+        read(SeriesType::HrvRmssd).await.is_empty(),
+        "bug: SDNN is filed as rMSSD"
+    );
+    let window = (at - Duration::hours(1), at + Duration::hours(1));
+    let days = repos
+        .recovery
+        .get_recovery_metrics(athlete.user_id, &athlete.tenant, window.0, window.1)
+        .await
+        .unwrap();
+    assert!(days.is_empty(), "bug: SDNN reached a day's row: {days:?}");
+
+    let registry = resources.data().provider_registry().clone();
+    let model_read = |series: SeriesType| {
+        ai_scope::ai_read(continuous_series(
+            repos,
+            registry.as_ref(),
+            athlete.user_id,
+            &athlete.tenant,
+            series,
+            window,
+            SeriesRead::Points,
+        ))
+    };
+    let (served, withheld) = model_read(SeriesType::HrvSdnn).await;
+    let served = served.unwrap().records;
+    assert_eq!(
+        served.len(),
+        1,
+        "bug: a gate hides the export's series: {withheld:?}"
+    );
+    assert_eq!(
+        served[0].provider, APPLE_HEALTH_ARCHIVE,
+        "bug: the series is not served under the export's key"
+    );
+    assert!(
+        model_read(SeriesType::HrvRmssd)
+            .await
+            .0
+            .unwrap()
+            .records
+            .is_empty(),
+        "bug: a read of rMSSD serves SDNN"
+    );
+
+    sink.retract(&scope, SourceKey::AppleHealthArchive, None)
+        .await
+        .unwrap();
+    assert!(
+        read(SeriesType::HrvSdnn).await.is_empty(),
+        "bug: the readings outlive their source"
+    );
+
+    sink.project_wellness(&scope, SourceKey::AppleHealthArchive, &exported)
+        .await
+        .unwrap();
+    let source = repos
+        .data_sources
+        .list_data_sources(athlete.user_id, &athlete.tenant)
+        .await
+        .unwrap()
+        .remove(0)
+        .id;
+    let reimported = repos
+        .time_series_points
+        .query(&source, SeriesType::HrvSdnn.id(), &range)
+        .await
+        .unwrap()
+        .points;
+    assert_eq!(
+        reimported.len(),
+        1,
+        "bug: a retraction keeps the export from being read again"
+    );
+    let removal = remove_user(
+        repos,
+        None,
+        None,
+        None,
+        athlete.user_id,
+        DeletionActor::Athlete,
+    )
+    .await
+    .expect("the removal runs");
+    assert!(matches!(removal, UserRemoval::Removed(_)), "{removal:?}");
+    let left = repos
+        .time_series_points
+        .query(&source, SeriesType::HrvSdnn.id(), &range)
+        .await
+        .unwrap()
+        .points;
+    assert!(left.is_empty(), "bug: the readings outlive the account");
 }

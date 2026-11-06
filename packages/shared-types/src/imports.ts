@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The import-your-own-data wire shapes — an import's state, a link check, a report page — and their parsers
+// ABOUTME: The import-your-own-data wire shapes — an import's state, a link check, an upload's target, a report page — and their parsers
 // ABOUTME: One declaration both clients read, so the web window and the mobile screen agree on every state and code
 
 /** The source key a Strava export is imported under (`STRAVA_ARCHIVE` in pierre-core). */
@@ -9,6 +9,15 @@ export const STRAVA_ARCHIVE_SOURCE = 'strava_archive';
 
 /** The source key a Garmin Connect export is imported under (`GARMIN_ARCHIVE` in pierre-core). */
 export const GARMIN_ARCHIVE_SOURCE = 'garmin_archive';
+
+/** The source key an Apple Health export is imported under (`APPLE_HEALTH_ARCHIVE` in pierre-core). */
+export const APPLE_HEALTH_ARCHIVE_SOURCE = 'apple_health_archive';
+
+/** The source key a COROS export is imported under (`COROS_ARCHIVE` in pierre-core). */
+export const COROS_ARCHIVE_SOURCE = 'coros_archive';
+
+/** The source key a WHOOP export is imported under (`WHOOP_ARCHIVE` in pierre-core). */
+export const WHOOP_ARCHIVE_SOURCE = 'whoop_archive';
 
 /** Where an import is. The last three are final. */
 export type ImportStatus =
@@ -44,6 +53,7 @@ export type ImportFailureCode =
   | 'archive_limit'
   | 'missing_activities_csv'
   | 'unknown_locale'
+  | 'unknown_columns'
   | 'spool_missing'
   | 'not_an_export';
 
@@ -64,7 +74,7 @@ const LINK_REFUSALS: readonly ImportLinkRefusal[] = [
 /** One import, as the athlete's screens read it. The link never comes back. */
 export interface ArchiveImport {
   id: string;
-  /** The source it imports: {@link STRAVA_ARCHIVE_SOURCE} or {@link GARMIN_ARCHIVE_SOURCE}. */
+  /** The source it imports: {@link STRAVA_ARCHIVE_SOURCE}, {@link GARMIN_ARCHIVE_SOURCE}, {@link APPLE_HEALTH_ARCHIVE_SOURCE}, {@link COROS_ARCHIVE_SOURCE} or {@link WHOOP_ARCHIVE_SOURCE}. */
   source: string;
   status: ImportStatus;
   /** Rows in the export's activity list, once downloaded. */
@@ -105,6 +115,19 @@ export interface ImportLinkCheck {
   accepted: boolean;
   refusal: ImportLinkRefusal | null;
   size_bytes: number | null;
+}
+
+/**
+ * Where an upload's bytes go: straight to the store's resumable session, whose
+ * URL is a credential served only to the import's owner, or whole to this API
+ * where the store takes no direct writes.
+ */
+export type ImportUploadTarget = { kind: 'session'; url: string } | { kind: 'through_api' };
+
+/** `POST /api/imports/{source}` for a source that takes an upload. */
+export interface StartedImportUpload {
+  import: ArchiveImport;
+  upload: ImportUploadTarget;
 }
 
 /** One row of an import's report: a row of the export that was not imported. */
@@ -223,6 +246,24 @@ export function parseImportLinkCheck(body: unknown): ImportLinkCheck | null {
     refusal: refusal as ImportLinkRefusal | null,
     size_bytes: body.size_bytes,
   };
+}
+
+/** Read an upload's target, or `null` for any other shape. */
+export function parseImportUploadTarget(body: unknown): ImportUploadTarget | null {
+  if (!isRecord(body)) return null;
+  if (body.kind === 'through_api') return { kind: 'through_api' };
+  if (body.kind === 'session' && typeof body.url === 'string' && body.url !== '') {
+    return { kind: 'session', url: body.url };
+  }
+  return null;
+}
+
+/** Read the answer to an upload's start, or `null` for any other shape. */
+export function parseStartedImportUpload(body: unknown): StartedImportUpload | null {
+  if (!isRecord(body)) return null;
+  const started = parseArchiveImport(body);
+  const upload = parseImportUploadTarget(body.upload);
+  return started && upload && { import: started, upload };
 }
 
 /** Read a report page, or `null` for any other shape. */

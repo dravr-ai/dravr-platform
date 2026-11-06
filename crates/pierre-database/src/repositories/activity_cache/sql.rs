@@ -118,7 +118,7 @@ pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
 pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive')
+    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')
     ORDER BY synced_at DESC
     LIMIT 1";
 
@@ -137,7 +137,7 @@ pub(crate) const LATEST_ACTIVITY_START_SQL: &str = r"
 pub(crate) const HELD_USER_PROVIDED_SQL: &str = r"
     SELECT DISTINCT provider
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive')";
+    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')";
 
 /// How many cached activities the user holds under each key in a tenant.
 pub(crate) const COUNT_BY_PROVIDER_SQL: &str = r"
@@ -178,7 +178,7 @@ pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
 pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider = $4
-      AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive')";
+      AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///

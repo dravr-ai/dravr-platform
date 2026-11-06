@@ -10,16 +10,20 @@ import {
   parseCurrentImport,
   parseImportLinkCheck,
   parseImportReportPage,
+  parseImportUploadTarget,
   parseImportsOverview,
+  parseStartedImportUpload,
   type ArchiveImport,
   type ImportLinkCheck,
   type ImportReportPage,
+  type ImportUploadTarget,
   type ImportsOverview,
+  type StartedImportUpload,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 import { requireShape } from '../core/shape';
 
-export type { ArchiveImport, ImportLinkCheck, ImportReportPage, ImportsOverview };
+export type { ArchiveImport, ImportLinkCheck, ImportReportPage, ImportUploadTarget, ImportsOverview, StartedImportUpload };
 
 /**
  * Creates the import API methods bound to an axios instance.
@@ -62,6 +66,44 @@ export function createImportsApi(axios: AxiosInstance) {
     async startImport(source: string, url?: string): Promise<ArchiveImport> {
       const endpoint = ENDPOINTS.IMPORTS.START(source);
       const response = await axios.post<unknown>(endpoint, url ? { url } : {});
+      return requireShape(parseArchiveImport(response.data), endpoint);
+    },
+
+    /**
+     * Open an upload of `length` bytes for a source that takes one. Rejects
+     * with 409 while another import of the source runs, and 413 past the cap.
+     */
+    async startUpload(source: string, length: number): Promise<StartedImportUpload> {
+      const endpoint = ENDPOINTS.IMPORTS.START(source);
+      const response = await axios.post<unknown>(endpoint, { length });
+      return requireShape(parseStartedImportUpload(response.data), endpoint);
+    },
+
+    /** Where a waiting upload's bytes go, for a client resuming it. Rejects with 409 once it no longer waits. */
+    async getUploadSession(source: string, importId: string): Promise<ImportUploadTarget> {
+      const endpoint = ENDPOINTS.IMPORTS.UPLOAD_SESSION(source, importId);
+      const response = await axios.get<unknown>(endpoint);
+      return requireShape(parseImportUploadTarget(response.data), endpoint);
+    },
+
+    /** Send the whole file, where the store takes no direct writes. */
+    async writeUpload(
+      source: string,
+      importId: string,
+      body: Blob | ArrayBuffer | Uint8Array,
+      onProgress?: (sent: number) => void,
+    ): Promise<void> {
+      await axios.put(ENDPOINTS.IMPORTS.UPLOAD(source, importId), body, {
+        headers: { 'Content-Type': 'application/zip' },
+        timeout: 0,
+        onUploadProgress: (event) => onProgress?.(event.loaded),
+      });
+    },
+
+    /** The upload landed: read it. Rejects with 409 until it has, and 413 past the cap. */
+    async finishUpload(source: string, importId: string): Promise<ArchiveImport> {
+      const endpoint = ENDPOINTS.IMPORTS.UPLOADED(source, importId);
+      const response = await axios.post<unknown>(endpoint);
       return requireShape(parseArchiveImport(response.data), endpoint);
     },
 

@@ -7,8 +7,8 @@
 //! # Import operations
 //!
 //! Every operation acts in the athlete's [`Scope`] (their tenant and account)
-//! and on one of the [`OFFERED_SOURCES`] (`strava_archive`,
-//! `garmin_archive`). One import per source runs at a time: a second start
+//! and on one of the [`OFFERED_SOURCES`] (`strava_archive`, `garmin_archive`,
+//! `apple_health_archive`, `coros_archive`, `whoop_archive`). One import per source runs at a time: a second start
 //! answers a conflict while the first is not final (barrage's partial unique
 //! index).
 //!
@@ -16,6 +16,9 @@
 //! the link has an import *waiting for its link* (`awaiting_link`), which
 //! expires after [`AWAITING_LINK_DAYS`]. Pasting the link cancels that
 //! placeholder and starts the import with the link, in one request.
+//!
+//! A source whose export is a file the athlete holds takes an upload instead
+//! of a link ([`super::upload`]).
 
 use std::sync::Arc;
 
@@ -37,6 +40,7 @@ use super::fetch::LinkRefusal;
 use super::link::{link_digest, open, seal};
 use super::runner::StepTask;
 use super::sink::CachedActivitiesSink;
+use super::upload::takes_upload;
 use super::ImportWiring;
 use crate::mcp::resources::ServerContext;
 
@@ -44,19 +48,29 @@ use crate::mcp::resources::ServerContext;
 pub const AWAITING_LINK_DAYS: i64 = 14;
 
 /// The sources an athlete may import today, in the order their screens list
-/// them: the Strava export, then the Garmin Connect export (carnet#1337).
+/// them.
+///
+/// The Strava export, the Garmin Connect export (carnet#1337), then the Apple
+/// Health, COROS and WHOOP exports the athlete uploads.
 // LIMITATION(registre#1268): barrage's Garmin export readers for HRV status,
 // blood pressure, sleep SpO2, activity power, multisport legs and multi-part
 // exports are unchecked against a real export. The one real export imported
 // (carnet#1231) held none of those, so a Garmin import may leave them absent.
-pub const OFFERED_SOURCES: &[SourceKey] = &[SourceKey::StravaArchive, SourceKey::GarminArchive];
+pub const OFFERED_SOURCES: &[SourceKey] = &[
+    SourceKey::StravaArchive,
+    SourceKey::GarminArchive,
+    SourceKey::AppleHealthArchive,
+    SourceKey::CorosArchive,
+    SourceKey::WhoopArchive,
+];
 
 /// One import as the athlete's screens read it. The link is never part of it.
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportView {
     /// Its id.
     pub id: Uuid,
-    /// The source it imports (`strava_archive`, `garmin_archive`).
+    /// The source it imports (`strava_archive`, `garmin_archive`, `apple_health_archive`,
+    /// `coros_archive`, `whoop_archive`).
     pub source: &'static str,
     /// Where it is: `awaiting_link`, `queued`, `downloading`, `importing`,
     /// `completed`, `failed` or `cancelled`.
@@ -92,7 +106,7 @@ pub struct ImportView {
 
 impl ImportView {
     /// The view of `job`, given whether the athlete still holds its source's history.
-    fn of(job: &ImportJob, history_held: bool) -> Self {
+    pub(super) fn of(job: &ImportJob, history_held: bool) -> Self {
         Self {
             id: job.id.0,
             source: job.source.as_str(),
@@ -178,7 +192,7 @@ pub fn offered_source(key: &str) -> AppResult<SourceKey> {
 }
 
 /// The wiring imports run on here.
-fn wiring(resources: &ServerContext) -> AppResult<&Arc<ImportWiring>> {
+pub(super) fn wiring(resources: &ServerContext) -> AppResult<&Arc<ImportWiring>> {
     resources.common.archive_imports.wiring()
 }
 
@@ -193,7 +207,7 @@ pub(super) fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) ->
 }
 
 /// Barrage's error as the platform's.
-fn barrage(error: BarrageError) -> AppError {
+pub(super) fn barrage(error: BarrageError) -> AppError {
     match error {
         BarrageError::ImportInProgress(source) => {
             AppError::already_exists(format!("an import of {source} in progress"))
@@ -232,7 +246,7 @@ pub async fn check_link(resources: &ServerContext, link: &str) -> AppResult<Link
 ///
 /// - [`AppError::already_exists`] while another import of the source runs;
 /// - [`AppError::invalid_input`] naming the refusal's code when the link is
-///   refused;
+///   refused, or for a source that takes an upload ([`super::upload`]);
 /// - a store or queue error.
 pub async fn start(
     resources: &Arc<ServerContext>,
@@ -240,6 +254,9 @@ pub async fn start(
     source: SourceKey,
     link: Option<&str>,
 ) -> AppResult<ImportView> {
+    if takes_upload(source) {
+        return Err(takes_no_link(source));
+    }
     let wiring = wiring(resources)?;
     let importer = importer(resources, wiring);
     let Some(link) = link.map(str::trim).filter(|link| !link.is_empty()) else {
@@ -251,6 +268,7 @@ pub async fn start(
                     status: JobStatus::AwaitingLink,
                     url_sha256: None,
                     url_ciphertext: None,
+                    spool: None,
                     expires_at: Some(Utc::now() + Duration::days(AWAITING_LINK_DAYS)),
                 },
             )
@@ -286,6 +304,7 @@ pub async fn start(
                 status: JobStatus::Queued,
                 url_sha256: Some(link_digest(link)),
                 url_ciphertext: Some(ciphertext),
+                spool: None,
                 expires_at: None,
             },
         )
@@ -300,6 +319,12 @@ pub async fn start(
     wiring.runner.schedule(resources, task).await?;
     info!(import = %job.id, source = %source, link_sha256 = %link_digest(link).to_hex(), "archive import started");
     Ok(ImportView::of(&job, false))
+}
+
+/// The refusal of a link for a source that takes an upload.
+#[must_use]
+pub fn takes_no_link(source: SourceKey) -> AppError {
+    AppError::invalid_input(format!("{source} takes an uploaded file, not a link"))
 }
 
 /// A link refusal as the error a start answers with: its code leads the
@@ -360,7 +385,7 @@ pub async fn latest(
 }
 
 /// The job `id` of `source` in `scope`.
-async fn job_of(
+pub(super) async fn job_of(
     wiring: &ImportWiring,
     scope: &Scope,
     source: SourceKey,
@@ -477,8 +502,10 @@ pub async fn delete_activity(
 
 /// Run one step of an import, and name the step that follows it.
 ///
-/// The download step decrypts the link, streams the export through the
-/// guarded fetcher into barrage's spool and readies the first chunk; a chunk
+/// The first step reads the export: for a link, it decrypts the link and
+/// streams the export through the guarded fetcher into barrage's spool; for
+/// an upload, it adopts the object the athlete wrote. Either readies the first
+/// chunk, and a chunk
 /// step imports up to `dravr_barrage::import::CHUNK_ROWS` rows. A step that finds the import
 /// elsewhere than it expected (a duplicate delivery, a retry after the
 /// commit) commits nothing and names the step the import is actually at, so
@@ -515,7 +542,7 @@ pub async fn run_step(
     }))
 }
 
-/// The download step of import `id`.
+/// The first step of import `id`: adopting its upload, or downloading its link.
 async fn download(
     resources: &ServerContext,
     wiring: &ImportWiring,
@@ -528,6 +555,9 @@ async fn download(
     let Some(job) = wiring.stores.jobs.get(scope, id).await.map_err(barrage)? else {
         return Ok(StepOutcome::Stale);
     };
+    if job.status == JobStatus::AwaitingLink && job.spool.is_some() {
+        return importer.adopt_upload(scope, id).await.map_err(barrage);
+    }
     if job.status != JobStatus::Queued {
         return Ok(StepOutcome::Stale);
     }

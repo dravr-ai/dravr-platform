@@ -10,6 +10,12 @@
 //!   it has waited `ops::AWAITING_LINK_DAYS` (barrage's
 //!   `ImportJobStore::expire_awaiting`), so a forgotten request does not hold
 //!   the source's one active import for ever.
+//! - **Uploads abandoned.** Expiring or cancelling a job only ends the job, and
+//!   a live session can still complete after that, so every pass deletes what
+//!   any upload that ended within a session's lifetime left in the store
+//!   ([`UPLOAD_SESSION_LIFETIME`]). The same pass ends any import that stopped
+//!   while holding its link or session ([`STUCK_AFTER`]), since a crash during
+//!   a read leaves one nothing else would ever finish.
 //! - **Deleted accounts.** The account delete queues every deleted account in
 //!   `archive_erasures` inside its own transaction; this sweep erases what
 //!   barrage holds for each, in every tenant — records, jobs and their
@@ -43,6 +49,17 @@ pub const ERASURE_WORKER: &str = "archive erasure";
 /// How often links never pasted are expired.
 const EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
+/// How far back an upload's end still has its store swept: past the week a
+/// resumable session lives per GCS's documentation, so a session that
+/// completes after its job ended is still caught.
+const UPLOAD_SESSION_LIFETIME: TimeDelta = TimeDelta::days(8);
+
+/// How long an import that holds its link or session may stand unchanged
+/// before it counts as stopped: past the six hours Cloud Tasks retries a step
+/// (`archive_imports.tf`), with room for a queue that dispatches one step at a
+/// time.
+const STUCK_AFTER: TimeDelta = TimeDelta::hours(24);
+
 /// How often deleted accounts' imported history is erased.
 const ERASURE_INTERVAL: Duration = Duration::from_mins(5);
 
@@ -55,7 +72,7 @@ const FIRST_BACKOFF: Duration = Duration::from_mins(5);
 /// The longest wait between two attempts at one erasure.
 const MAX_BACKOFF: Duration = Duration::from_hours(6);
 
-/// Start the sweeps: the link expiry where imports run, and the erasure of
+/// Start the sweeps: the link and upload expiry where imports run, and the erasure of
 /// deleted accounts' imported history and uploaded files everywhere.
 pub fn start_archive_import_sweeps(resources: &Arc<ServerContext>) {
     let imports = resources.common.archive_imports.is_enabled();
@@ -82,23 +99,48 @@ pub fn start_archive_import_sweeps(resources: &Arc<ServerContext>) {
     });
 }
 
-/// Cancel every import that waited too long for its link; how many.
+/// Cancel every import that waited too long for its link or upload, end every
+/// import that stopped while holding one, and delete what abandoned uploads
+/// left in the store; how many waited too long.
 ///
 /// # Errors
 ///
-/// When imports are not available here, or the store fails.
+/// When imports are not available here, or the store fails: the next pass
+/// picks up what this one did not reach, each step being idempotent.
 pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<u64> {
     let wiring = resources.common.archive_imports.wiring()?;
+    let now = Utc::now();
     let expired = wiring
         .stores
         .jobs
-        .expire_awaiting(Utc::now())
+        .expire_awaiting(now)
         .await
         .map_err(|e| AppError::internal(format!("expiring imports: {e}")))?;
     if expired > 0 {
         info!(expired, "imports never given their link were cancelled");
     }
+    sweep_stopped_imports(&ops::importer(resources, wiring), now).await?;
     Ok(expired)
+}
+
+/// End every import that stopped holding its link or session, and delete what
+/// abandoned uploads left in the store.
+async fn sweep_stopped_imports(importer: &Importer, now: DateTime<Utc>) -> AppResult<()> {
+    let stuck = importer
+        .fail_stuck_holding_link(now - STUCK_AFTER)
+        .await
+        .map_err(|e| AppError::internal(format!("ending stopped imports: {e}")))?;
+    if stuck > 0 {
+        warn!(stuck, "imports that stopped holding their link were failed");
+    }
+    let swept = importer
+        .delete_abandoned_uploads(now - UPLOAD_SESSION_LIFETIME)
+        .await
+        .map_err(|e| AppError::internal(format!("deleting abandoned uploads: {e}")))?;
+    if swept > 0 {
+        info!(swept, "abandoned uploads swept from the store");
+    }
+    Ok(())
 }
 
 /// Erase what barrage and the originals store hold for each deleted account

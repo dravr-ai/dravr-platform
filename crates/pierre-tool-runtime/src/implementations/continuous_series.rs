@@ -6,13 +6,14 @@
 
 //! # `get_heart_rate_series`
 //!
-//! The continuous series the sync stores, read back (carnet#999): every
+//! The continuous series a sync or an import stores, read back (carnet#999): every
 //! heart-rate or HRV sample a source recorded in a time range, or one value
 //! per window when `window_minutes` is given. The daily readings —
 //! resting heart rate, overnight HRV — stay with `get_recovery_metrics`;
 //! this tool is the intraday series under them. An imported Garmin export's
 //! overnight HRV is one of those daily readings: it is a day's
-//! `hrv_rmssd`, never a point here.
+//! `hrv_rmssd`, never a point here. An imported Apple export's HRV is SDNN,
+//! so it is on no day's row: its readings are points of `hrv_sdnn` here.
 //!
 //! On a coach's read of a coached athlete only the HRV series read: their
 //! wellness grant names their HRV, not their intraday heart rate

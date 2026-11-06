@@ -1,10 +1,10 @@
-// ABOUTME: One source's import (W2), Strava's or Garmin's: request the export, paste and check its link, follow it, delete it
+// ABOUTME: One source's import (W2): request the export, paste and check its link or upload its file, follow it, delete it
 // ABOUTME: Polls the current import every 5 s while it runs; the copy for each source, state and code is ui-logic's, shared with mobile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { isFinalImportStatus, type ArchiveImport, type ImportLinkCheck } from '@pierre/shared-types';
@@ -27,6 +27,9 @@ import { importsApi } from '../../services/api';
 import { copyText } from './importCopy';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Input } from '../ui';
+
+/** Only a source that takes a file reaches the uploader, so it stays out of the entry bundle. */
+const UploadIntake = lazy(() => import('./UploadIntake'));
 
 interface SourceImportProps {
   /** The source imported, and the copy that names its service. */
@@ -198,9 +201,11 @@ export default function SourceImport({ copy, enabled }: SourceImportProps) {
               {copyText(t, importHistoryCopy(current, locale))}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" onClick={() => start.mutate(undefined)} loading={start.isPending}>
-                {t('providers.import.strava.importNewer')}
-              </Button>
+              {copy.intake === 'link' && (
+                <Button variant="secondary" size="sm" onClick={() => start.mutate(undefined)} loading={start.isPending}>
+                  {t('providers.import.strava.importNewer')}
+                </Button>
+              )}
               <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
                 {t('providers.import.strava.delete')}
               </Button>
@@ -214,7 +219,7 @@ export default function SourceImport({ copy, enabled }: SourceImportProps) {
           <h3 className="text-sm font-semibold text-on-surface">{t('providers.import.strava.step3Title')}</h3>
           <p className="mt-1 text-sm text-on-surface" role="status">
             {current.status === 'importing' && current.total_rows !== null
-              ? t('providers.import.strava.progress', {
+              ? t(copy.progress, {
                   processed: current.processed_rows,
                   total: current.total_rows,
                 })
@@ -241,7 +246,28 @@ export default function SourceImport({ copy, enabled }: SourceImportProps) {
         </section>
       )}
 
-      {(phase === 'request' || phase === 'awaiting_link') && (
+      {(phase === 'request' || phase === 'awaiting_link') && copy.intake === 'upload' && (
+        <>
+          {current && current.status === 'failed' && (
+            <p className="mb-2 text-sm text-error" data-testid="import-failed">
+              {t(importFailureKey(current.error_code, copy))} {t('providers.import.strava.retry')}
+            </p>
+          )}
+          <section className={stepClass}>
+            <h3 className="text-sm font-semibold text-on-surface">{t(copy.step1Title)}</h3>
+            <p className="mt-1 text-sm text-on-surface-variant">{t(copy.step1Body)}</p>
+          </section>
+        </>
+      )}
+
+      {/* One place for every phase that takes a file: opening an upload moves the phase, and unmounting would stop the bytes. */}
+      {phase !== 'running' && copy.intake === 'upload' && (
+        <Suspense fallback={<p className="text-sm text-on-surface-variant">{t('providers.import.loading')}</p>}>
+          <UploadIntake copy={copy} current={current} onChanged={refresh} />
+        </Suspense>
+      )}
+
+      {(phase === 'request' || phase === 'awaiting_link') && copy.intake === 'link' && (
         <>
           {current && current.status === 'failed' && (
             <p className="mb-2 text-sm text-error" data-testid="import-failed">

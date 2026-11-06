@@ -11,6 +11,10 @@
 //! | `GET /api/imports` | whether imports run here, the offered sources, and each source's running or latest import |
 //! | `POST /api/imports/{source}/check` `{url}` | whether an import can start from the link (`200`, with a refusal code when not) |
 //! | `POST /api/imports/{source}` `{url?}` | `201`: an import waiting for its link, or one started from it; `409` while another runs |
+//! | `POST /api/imports/{source}` `{length}` | for a source that takes an upload, `201`: the import waiting for it and where the bytes go; `413` past the cap |
+//! | `GET /api/imports/{source}/{id}/upload-session` | where a waiting upload's bytes go, for its owner to resume; `409` once it no longer waits |
+//! | `PUT /api/imports/{source}/{id}/upload` | the whole file, where the store takes no direct writes |
+//! | `POST /api/imports/{source}/{id}/uploaded` | `202`: the upload landed and is being read; `409` until it has; `413` past the cap |
 //! | `GET /api/imports/{source}/current` | the source's running or latest import, or `null` |
 //! | `GET /api/imports/{source}/{id}/report?offset&limit` | a page of the rows it did not import |
 //! | `POST /api/imports/{source}/{id}/cancel` | whether it was still running |
@@ -19,8 +23,12 @@
 //! Every route takes the athlete's own session, in their active tenant: an
 //! API key, a personal MCP token or a delegated OAuth grant is refused, so no
 //! agent, MCP client or A2A caller can start, cancel or delete an import.
-//! `source` is one of the offered sources (`strava_archive`, `garmin_archive`);
-//! any other is `404`.
+//! `source` is one of the offered sources (`strava_archive`, `garmin_archive`,
+//! `apple_health_archive`, `coros_archive`, `whoop_archive`); any other is `404`.
+//!
+//! A session URL (`upload-session`, and the start that opens it) is a bearer
+//! credential for a write: it is served to the job's owner, marked `no-store`,
+//! and logged nowhere.
 //!
 //! `POST /internal/imports/{id}/step` exists only where Cloud Tasks delivers
 //! the steps; its one gate is the delivery's OIDC token.
@@ -45,13 +53,15 @@
 
 use std::sync::Arc;
 
-use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::routing::{delete, get, post};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use dravr_barrage::store::PageReq;
-use dravr_barrage::{Scope, SourceKey};
+use dravr_barrage::{BarrageError, Scope, SourceKey};
+use futures_util::StreamExt;
 use pierre_auth::auth::AuthMethod;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
@@ -67,6 +77,7 @@ use crate::services::archive_import::ops::{
     self, ImportView, LinkCheckView, ReportPage, OFFERED_SOURCES,
 };
 use crate::services::archive_import::runner::StepTask;
+use crate::services::archive_import::upload::{self, FinishedUpload};
 
 /// The most report rows one page returns.
 const MAX_REPORT_PAGE: u32 = 200;
@@ -81,6 +92,16 @@ pub fn import_routes() -> Router<Arc<ServerContext>> {
         .route("/api/imports/{source}/data", delete(delete_history))
         .route("/api/imports/{source}/{id}/report", get(import_report))
         .route("/api/imports/{source}/{id}/cancel", post(cancel_import))
+        .route(
+            "/api/imports/{source}/{id}/upload-session",
+            get(upload_session),
+        )
+        .route(
+            "/api/imports/{source}/{id}/upload",
+            // The body is streamed under the upload's own cap, never buffered.
+            put(write_upload).layer(DefaultBodyLimit::disable()),
+        )
+        .route("/api/imports/{source}/{id}/uploaded", post(finish_upload))
         .route(
             "/providers/connect/import/{source}",
             post(link_start_import),
@@ -268,15 +289,21 @@ async fn check_link(
     Json(body): Json<LinkBody>,
 ) -> AppResult<Json<LinkCheckView>> {
     session_scope(&auth)?;
-    ops::offered_source(&source)?;
+    let source = ops::offered_source(&source)?;
+    if upload::takes_upload(source) {
+        return Err(ops::takes_no_link(source));
+    }
     Ok(Json(ops::check_link(&resources, &body.url).await?))
 }
 
-/// Body of `POST /api/imports/{source}`: the link, or nothing to wait for it.
+/// Body of `POST /api/imports/{source}`: the link, or nothing to wait for it;
+/// for a source that takes an upload, the length it declares.
 #[derive(Debug, Default, Deserialize)]
 struct StartBody {
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    length: Option<u64>,
 }
 
 /// A start's body; an empty one asks for an import that waits for its link.
@@ -291,13 +318,122 @@ async fn start_import(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(source): Path<String>,
+    headers: HeaderMap,
     body: Bytes,
-) -> AppResult<(StatusCode, Json<ImportView>)> {
+) -> AppResult<Response> {
     let scope = session_scope(&auth)?;
     let source = ops::offered_source(&source)?;
     let body = start_body(&body)?;
+    if upload::takes_upload(source) {
+        return start_upload(&resources, &scope, source, &headers, &body).await;
+    }
     let view = ops::start(&resources, &scope, source, body.url.as_deref()).await?;
-    Ok((StatusCode::CREATED, Json(view)))
+    Ok((StatusCode::CREATED, Json(view)).into_response())
+}
+
+/// Open an upload, refusing a body that is not one before anything is opened.
+async fn start_upload(
+    resources: &ServerContext,
+    scope: &Scope,
+    source: SourceKey,
+    headers: &HeaderMap,
+    body: &StartBody,
+) -> AppResult<Response> {
+    if body.url.is_some() {
+        return Err(ops::takes_no_link(source));
+    }
+    let length = body
+        .length
+        .ok_or_else(|| AppError::invalid_input("An upload declares its length"))?;
+    if length > upload::max_upload_bytes() {
+        return Ok(too_large());
+    }
+    let origin = upload::upload_origin(
+        origin_header(headers)?,
+        &resources.common.config.cors.allowed_origins,
+    )?;
+    let started = upload::start_upload(resources, scope, source, length, origin.as_deref()).await?;
+    Ok((StatusCode::CREATED, no_store(), Json(started)).into_response())
+}
+
+/// The request's `Origin`, refusing one that is not text.
+fn origin_header(headers: &HeaderMap) -> AppResult<Option<&str>> {
+    headers
+        .get(header::ORIGIN)
+        .map(|value| {
+            value.to_str().map_err(|_| {
+                AppError::new(ErrorCode::PermissionDenied, "This origin may not upload")
+            })
+        })
+        .transpose()
+}
+
+/// The header that keeps a session URL out of every cache.
+const fn no_store() -> [(header::HeaderName, &'static str); 1] {
+    [(header::CACHE_CONTROL, "no-store")]
+}
+
+/// The answer to an upload past the cap: the same stable code a failed import
+/// carries, for the client to read.
+fn too_large() -> Response {
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({ "error_code": "archive_too_large" })),
+    )
+        .into_response()
+}
+
+async fn upload_session(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((source, id)): Path<(String, Uuid)>,
+) -> AppResult<Response> {
+    let scope = session_scope(&auth)?;
+    let source = ops::offered_source(&source)?;
+    let view = upload::session_of(&resources, &scope, source, id).await?;
+    Ok((no_store(), Json(view)).into_response())
+}
+
+async fn write_upload(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((source, id)): Path<(String, Uuid)>,
+    headers: HeaderMap,
+    body: Body,
+) -> AppResult<Response> {
+    let scope = session_scope(&auth)?;
+    let source = ops::offered_source(&source)?;
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+    if declared.is_some_and(|length| length > upload::max_upload_bytes()) {
+        return Ok(too_large());
+    }
+    let stream = body
+        .into_data_stream()
+        .map(|chunk| chunk.map_err(|e| BarrageError::Blob(e.to_string())))
+        .boxed();
+    if upload::write_through_api(&resources, &scope, source, id, stream).await? {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Ok(too_large())
+    }
+}
+
+async fn finish_upload(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((source, id)): Path<(String, Uuid)>,
+) -> AppResult<Response> {
+    let scope = session_scope(&auth)?;
+    let source = ops::offered_source(&source)?;
+    Ok(
+        match upload::finish_upload(&resources, &scope, source, id).await? {
+            FinishedUpload::Started(view) => (StatusCode::ACCEPTED, Json(view)).into_response(),
+            FinishedUpload::TooLarge => too_large(),
+        },
+    )
 }
 
 async fn current_import(

@@ -43,8 +43,10 @@ pub mod ops;
 pub mod runner;
 /// The projection of imported records into the activity cache and sample store.
 pub mod sink;
-/// The periodic sweeps: links never pasted, and deleted accounts' originals.
+/// The periodic sweeps: links never pasted, uploads abandoned, and deleted accounts' originals.
 pub mod sweeps;
+/// An export the athlete uploads themselves rather than links.
+pub mod upload;
 
 use std::env;
 use std::fmt;

@@ -118,6 +118,48 @@ pub async fn create_http_task(
     ))
 }
 
+/// Whether the task named `name` is still on its queue.
+///
+/// A deleted or spent task's name stays reserved for up to a day, during which
+/// a create under it answers [`TaskCreated::AlreadyQueued`] with nothing queued;
+/// this tells the two apart. It needs `cloudtasks.tasks.get`, which the enqueuer
+/// role lacks.
+///
+/// # Errors
+///
+/// `ExternalServiceUnavailable` when Cloud Tasks cannot be reached, and
+/// `ExternalServiceError` when it answers neither yes nor no.
+pub async fn http_task_exists(
+    tokens: &dyn TokenProvider,
+    api_base: &str,
+    name: &str,
+) -> AppResult<bool> {
+    let token = tokens.access_token().await?;
+    let response = api_client()
+        .get(format!("{api_base}/{name}"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| {
+            AppError::new(
+                ErrorCode::ExternalServiceUnavailable,
+                format!("Cloud Tasks unreachable: {e}"),
+            )
+        })?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(true);
+    }
+    if status.as_u16() == 404 {
+        return Ok(false);
+    }
+    warn!(status = status.as_u16(), "Cloud Tasks refused a task read");
+    Err(AppError::new(
+        ErrorCode::ExternalServiceError,
+        format!("Cloud Tasks answered HTTP {status}"),
+    ))
+}
+
 /// Checks that a delivery's bearer token is a Google ID token minted for
 /// this service's audience on behalf of the one service account its tasks
 /// are created with.

@@ -423,6 +423,15 @@ export const ENDPOINTS = {
     /** Cancel an import (`POST`) */
     CANCEL: (source: string, importId: string) =>
       `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/cancel`,
+    /** Where a waiting upload's bytes go, for its owner to resume (`GET`) */
+    UPLOAD_SESSION: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/upload-session`,
+    /** The whole file, where the store takes no direct writes (`PUT`) */
+    UPLOAD: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/upload`,
+    /** The upload landed: read it (`POST`) */
+    UPLOADED: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/uploaded`,
   },
   // ==================== PERSONAS ====================
   PERSONAS: {

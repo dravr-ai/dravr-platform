@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dravr_tronc::iam::GOOGLE_OIDC_JWKS_URL;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -35,7 +35,8 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::cloud_tasks::{
-    create_http_task, DeliveryVerifier, HttpTask, TaskCreated, CLOUD_TASKS_API_BASE,
+    create_http_task, http_task_exists, DeliveryVerifier, HttpTask, TaskCreated,
+    CLOUD_TASKS_API_BASE,
 };
 
 use super::ops::run_step;
@@ -63,6 +64,12 @@ const IN_PROCESS_ATTEMPTS: u32 = 5;
 
 /// The wait before an in-process step is tried again.
 const IN_PROCESS_RETRY: Duration = Duration::from_secs(2);
+
+/// How many names an import's first step may try.
+///
+/// Reaching the next takes a task that spent the queue's retries
+/// (`archive_imports.tf`: six hours), so this outlasts an upload's six-day wait.
+const FIRST_STEP_NAMES: u32 = 32;
 
 /// One step of one import: the download when `expect_cursor` is `None`, else
 /// the chunk of rows starting there.
@@ -128,22 +135,17 @@ impl ImportRunner {
                             ))
                         })
                 };
-                let target_url = required(ENV_IMPORT_TARGET_URL)?
-                    .trim_end_matches('/')
-                    .to_owned();
-                let service_account = required(ENV_IMPORT_OIDC_SERVICE_ACCOUNT)?;
-                Ok(Self::CloudTasks(Box::new(ImportTasks {
-                    queue: required(ENV_IMPORT_QUEUE)?,
-                    verifier: DeliveryVerifier::new(
-                        &target_url,
-                        &service_account,
-                        GOOGLE_OIDC_JWKS_URL,
-                    ),
-                    target_url,
-                    service_account,
-                    api_base: CLOUD_TASKS_API_BASE.to_owned(),
+                Ok(Self::CloudTasks(Box::new(ImportTasks::new(
+                    ImportTasksConfig {
+                        queue: required(ENV_IMPORT_QUEUE)?,
+                        target_url: required(ENV_IMPORT_TARGET_URL)?
+                            .trim_end_matches('/')
+                            .to_owned(),
+                        service_account: required(ENV_IMPORT_OIDC_SERVICE_ACCOUNT)?,
+                        api_base: CLOUD_TASKS_API_BASE.to_owned(),
+                    },
                     tokens,
-                })))
+                ))))
             }
             other => Err(AppError::internal(format!(
                 "{ENV_IMPORT_RUNNER} must be in_process or cloud_tasks, got {other:?}"
@@ -210,6 +212,20 @@ async fn drive_in_process(resources: &Arc<ServerContext>, first: StepTask) {
     }
 }
 
+/// Where import steps are enqueued and who delivers them.
+#[derive(Debug, Clone)]
+pub struct ImportTasksConfig {
+    /// The queue, as `projects/{p}/locations/{l}/queues/{q}`.
+    pub queue: String,
+    /// This service's own origin, with no path: the task target and the token
+    /// audience.
+    pub target_url: String,
+    /// The service account each task's OIDC token is minted on behalf of.
+    pub service_account: String,
+    /// The Cloud Tasks API ([`CLOUD_TASKS_API_BASE`] when deployed).
+    pub api_base: String,
+}
+
 /// Enqueues import steps on Cloud Tasks and verifies their deliveries.
 pub struct ImportTasks {
     queue: String,
@@ -231,6 +247,24 @@ impl fmt::Debug for ImportTasks {
 }
 
 impl ImportTasks {
+    /// The enqueuer `config` describes, minting Cloud Tasks tokens from `tokens`.
+    #[must_use]
+    pub fn new(config: ImportTasksConfig, tokens: Arc<dyn TokenProvider>) -> Self {
+        let verifier = DeliveryVerifier::new(
+            &config.target_url,
+            &config.service_account,
+            GOOGLE_OIDC_JWKS_URL,
+        );
+        Self {
+            queue: config.queue,
+            target_url: config.target_url,
+            service_account: config.service_account,
+            api_base: config.api_base,
+            tokens,
+            verifier,
+        }
+    }
+
     /// Check the bearer token a step delivery carries.
     ///
     /// # Errors
@@ -255,27 +289,71 @@ impl ImportTasks {
     ///
     /// The Cloud Tasks error when the queue refuses the task.
     pub async fn enqueue(&self, task: &StepTask) -> AppResult<()> {
-        let phase = task
-            .expect_cursor
-            .map_or_else(|| "download".to_owned(), |cursor| format!("c{cursor}"));
+        let Some(cursor) = task.expect_cursor else {
+            return self.enqueue_first_step(task).await;
+        };
+        let phase = format!("c{cursor}");
+        self.create(task, &phase).await?;
+        info!(import = %task.import_id, phase = %phase, "import step enqueued");
+        Ok(())
+    }
+
+    /// Enqueue the step that downloads or adopts an import.
+    ///
+    /// An athlete can ask for this one again: an upload whose read spent the
+    /// queue's retries still waits with its object landed, and finishing it
+    /// again is what starts it. A name left by a spent task gives way to the
+    /// next, and the names are fixed, so a double submit is still one task and
+    /// one costly pass.
+    async fn enqueue_first_step(&self, task: &StepTask) -> AppResult<()> {
+        for generation in 0..FIRST_STEP_NAMES {
+            let phase = match generation {
+                0 => "download".to_owned(),
+                n => format!("download-g{n}"),
+            };
+            if self.step_is_queued(task, &phase).await? {
+                info!(import = %task.import_id, phase = %phase, "import step enqueued");
+                return Ok(());
+            }
+            warn!(import = %task.import_id, phase = %phase, "a spent task holds this step's name");
+        }
+        Err(AppError::new(
+            ErrorCode::ExternalServiceError,
+            "Every name for this import's first step is reserved",
+        ))
+    }
+
+    /// Create `task` under `phase`, and whether a task now waits under it. The
+    /// queue answers one 409 for a live task and for a spent one, so a 409
+    /// alone cannot be believed and the task is read.
+    async fn step_is_queued(&self, task: &StepTask, phase: &str) -> AppResult<bool> {
+        match self.create(task, phase).await? {
+            TaskCreated::Created => Ok(true),
+            TaskCreated::AlreadyQueued => {
+                let name = self.task_name(task, phase);
+                http_task_exists(self.tokens.as_ref(), &self.api_base, &name).await
+            }
+        }
+    }
+
+    fn task_name(&self, task: &StepTask, phase: &str) -> String {
+        format!(
+            "{}/tasks/import-{}-{phase}",
+            self.queue,
+            task.import_id.simple()
+        )
+    }
+
+    async fn create(&self, task: &StepTask, phase: &str) -> AppResult<TaskCreated> {
         let http = HttpTask {
             queue: &self.queue,
-            name: format!(
-                "{}/tasks/import-{}-{phase}",
-                self.queue,
-                task.import_id.simple()
-            ),
+            name: self.task_name(task, phase),
             url: self.step_url(task.import_id),
             body: json!(task),
             service_account: &self.service_account,
             audience: &self.target_url,
             dispatch_deadline: STEP_DISPATCH_DEADLINE,
         };
-        match create_http_task(self.tokens.as_ref(), &self.api_base, &http).await? {
-            TaskCreated::Created | TaskCreated::AlreadyQueued => {
-                info!(import = %task.import_id, phase = %phase, "import step enqueued");
-                Ok(())
-            }
-        }
+        create_http_task(self.tokens.as_ref(), &self.api_base, &http).await
     }
 }
