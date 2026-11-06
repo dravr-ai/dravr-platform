@@ -357,6 +357,7 @@ fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     }
 }
 

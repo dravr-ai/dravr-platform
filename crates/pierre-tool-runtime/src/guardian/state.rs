@@ -93,6 +93,9 @@ pub struct TurnState {
     /// Registry names of the consequential calls abandoned while running this
     /// turn, in order, repeats kept. Each one may have landed. Never arguments.
     unconfirmed: Vec<String>,
+    /// Whether a call of a consequential tool reached the Guardian's gate this
+    /// turn, whatever then became of it: blocked, failed, abandoned or done.
+    write_attempted: bool,
     /// Reads that succeeded this turn, by [`ReadFingerprint`], and whether
     /// their one repeat has been answered with a pointer back to them.
     reads: HashMap<ReadFingerprint, ReadSeen>,
@@ -364,6 +367,30 @@ impl GuardianTurns {
             .map_or_else(Vec::new, |(_, state)| state.unconfirmed.clone())
     }
 
+    /// Remember that a consequential call reached the gate in `key`'s turn. Unlike
+    /// [`Self::record_committed`] this opens the turn's entry: it runs before the
+    /// gate does, so it is the first thing a turn may record.
+    pub fn record_write_attempt(&self, key: &TurnKey) {
+        let now = Instant::now();
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = guard
+            .map
+            .entry(key.clone())
+            .or_insert_with(|| (now, TurnState::default()));
+        entry.0 = now;
+        entry.1.write_attempted = true;
+    }
+
+    /// Whether a consequential call reached the gate in `key`'s turn.
+    #[must_use]
+    pub fn write_attempted(&self, key: &TurnKey) -> bool {
+        let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        guard
+            .map
+            .get(key)
+            .is_some_and(|(_, state)| state.write_attempted)
+    }
+
     /// Consume and return the block recorded under `key`, if any.
     #[must_use]
     pub fn take_block(&self, key: &TurnKey) -> Option<HeadlessBlock> {
@@ -507,6 +534,36 @@ mod tests {
             store.take_block(&past_the_cap),
             Some(denied(DenyReason::TurnBlocked)),
             "a block recorded past the cap must still land"
+        );
+    }
+
+    #[test]
+    fn a_write_attempt_belongs_to_its_turn_and_survives_a_refund() {
+        let store = GuardianTurns::new();
+        let key = TurnKey::new(None, "turn");
+        let other = TurnKey::new(None, "other-turn");
+        assert!(
+            !store.write_attempted(&key),
+            "a turn that recorded nothing has attempted nothing"
+        );
+
+        store.record_write_attempt(&key);
+        store.decide_and_reserve(
+            &key,
+            SecurityLabels::empty(),
+            true,
+            |_| (),
+            |()| CallFate::Runs,
+        );
+        store.refund(&key, SecurityLabels::empty(), true);
+
+        assert!(
+            store.write_attempted(&key),
+            "a refund gives the budget back, not the attempt"
+        );
+        assert!(
+            !store.write_attempted(&other),
+            "the attempt belongs to its own turn"
         );
     }
 

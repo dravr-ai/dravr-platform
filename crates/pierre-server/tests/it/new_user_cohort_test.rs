@@ -77,6 +77,7 @@ async fn seed_messages(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();

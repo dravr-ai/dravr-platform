@@ -115,6 +115,7 @@ async fn write_interrupted_notice(thread: &TurnThread<'_>, locale: &str) {
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),

@@ -835,6 +835,7 @@ export function useChatThread({
             token_count: assistantMessage.token_count,
             created_at: assistantMessage.created_at ?? new Date().toISOString(),
             scene_blocks: replySceneBlocks(turn),
+            turn_attempted_write: assistantMessage.turn_attempted_write,
           };
           queryClient.setQueryData(
             QUERY_KEYS.chat.messages(selectedConversation),

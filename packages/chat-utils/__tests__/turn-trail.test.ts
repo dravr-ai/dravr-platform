@@ -51,6 +51,11 @@ describe('toolStepLabel', () => {
     expect(toolStepLabel('list_workout_templates')).toEqual({ key: TURN_STEP_KEYS.pickWorkouts });
   });
 
+  it('says a recipe is being deleted, never that recipes are being prepared', () => {
+    expect(toolStepLabel('delete_recipe')).toEqual({ key: TURN_STEP_KEYS.deleteRecipe });
+    expect(toolStepLabel('pierre__delete_recipe')).toEqual({ key: TURN_STEP_KEYS.deleteRecipe });
+  });
+
   it('finds a known tool inside a runner-qualified title, the most specific one first', () => {
     expect(toolStepLabel('pierre__get_group_member_activities')).toEqual({
       key: TURN_STEP_KEYS.readMemberActivities,

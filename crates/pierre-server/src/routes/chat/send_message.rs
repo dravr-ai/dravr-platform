@@ -490,6 +490,7 @@ fn unpersisted_message(role: &str, content: String, created_at: String) -> Messa
         channel_type: None,
         quote: None,
         created_at,
+        turn_attempted_write: None,
     }
 }
 

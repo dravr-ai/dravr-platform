@@ -215,6 +215,7 @@ impl ToolRoundRows {
                 transport_policy,
                 channel_type: None,
                 about_user_id,
+                turn_attempted_write: None,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_call message: {e}");
@@ -236,6 +237,7 @@ impl ToolRoundRows {
                 transport_policy,
                 channel_type: None,
                 about_user_id,
+                turn_attempted_write: None,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_result message: {e}");

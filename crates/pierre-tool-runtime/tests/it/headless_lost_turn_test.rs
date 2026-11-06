@@ -33,6 +33,7 @@ fn answered() -> ToolLoopResult {
         activity_list: None,
         tool_calls_count: 1,
         tools_called: vec!["get_activities".to_owned()],
+        write_attempted: false,
         pending_provider_auth_required: None,
         served_without_provider: None,
         guardian_denied: None,

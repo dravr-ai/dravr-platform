@@ -73,6 +73,7 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
                 transport_policy: policy,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();
@@ -428,6 +429,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
             transport_policy: FirstPartyOnly,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -660,6 +662,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
                     transport_policy: policy,
                     channel_type: None,
                     about_user_id: None,
+                    turn_attempted_write: None,
                 })
                 .await
                 .unwrap();

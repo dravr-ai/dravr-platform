@@ -579,6 +579,24 @@ impl UniversalExecutor {
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
+        // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
+        // agent's tool-host session), so budgets accumulate across ONE user
+        // message's tool calls and reset on the next — NOT across the whole
+        // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
+        // each its own bucket (no cross-call accumulation — correct).
+        let resolved_turn_token = self
+            .turn_token
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        // Before every refusal below, so a write that any of them turns away
+        // counts too: sending this turn's question again would try the same
+        // thing on a fresh budget, and the refusal may no longer apply by then.
+        if writes_data || labels.is_irreversible() {
+            self.resources
+                .guardian_turns()
+                .record_write_attempt(&TurnKey::new(tenant_uuid, resolved_turn_token.clone()));
+        }
+
         // The scope gate runs first, and is its own gate rather than an arm of
         // `authorization_refusal`: the two answer different questions and both
         // must pass. The role gate asks WHO this caller is; this asks HOW MUCH
@@ -642,15 +660,6 @@ impl UniversalExecutor {
             return Ok(refusal);
         }
 
-        // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
-        // agent's tool-host session), so budgets accumulate across ONE user
-        // message's tool calls and reset on the next — NOT across the whole
-        // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
-        // each its own bucket (no cross-call accumulation — correct).
-        let resolved_turn_token = self
-            .turn_token
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
         // The requester's: a read of a coached athlete is still one of the
         // coach's calls, on the coach's turn.
         let turn_key = TurnKey::new(parties.requester_tenant, resolved_turn_token.clone());

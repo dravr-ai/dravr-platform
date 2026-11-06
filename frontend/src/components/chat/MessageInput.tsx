@@ -15,6 +15,7 @@ import { IconButton } from '../ui';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
 import { useTranslation } from '@pierre/i18n';
+import { keepComposerFocus } from '../../hooks/useComposerFocused';
 
 /**
  * The most lines the composer shows before it scrolls, so a long draft never
@@ -223,7 +224,10 @@ export default function MessageInput({
   };
 
   return (
-    <div className="bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">
+    <div
+      className="bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6"
+      onMouseDown={keepComposerFocus}
+    >
       <div className="mx-auto max-w-[720px]">
         <CommandPalette
           matches={palette.matches}

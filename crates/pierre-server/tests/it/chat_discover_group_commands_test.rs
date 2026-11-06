@@ -954,6 +954,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();

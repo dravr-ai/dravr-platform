@@ -130,6 +130,7 @@ fn a_persisted_user_message_prints_its_size_never_its_text() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         },
         conversation: ConversationRecord {
             id: "conv-1".to_owned(),

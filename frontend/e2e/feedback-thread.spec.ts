@@ -186,4 +186,24 @@ test.describe('Feedback thread', () => {
     await expect.poll(() => unread.reads).toBe(1);
     await expect(page.getByTestId('feedback-unread-dot')).toHaveCount(0);
   });
+
+  test.describe('on a phone, where the tab bar folds away while typing', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 393, height: 852 } });
+
+    test('the first tap on Send sends', async ({ page }) => {
+      await setupDashboardMocks(page, { role: 'user' });
+      const sent = await mockFeedbackThread(page);
+      await loginToDashboard(page);
+      await page.evaluate(() => {
+        window.location.hash = '#feedback';
+      });
+
+      const thread = page.getByTestId('feedback-thread');
+      const field = thread.getByRole('textbox', { name: 'Message the Dravr team...' });
+      await field.tap();
+      await field.pressSequentially('The week view skips my ride.', { delay: 5 });
+      await thread.getByRole('button', { name: 'Send', exact: true }).tap();
+      await expect.poll(() => sent).toHaveLength(1);
+    });
+  });
 });

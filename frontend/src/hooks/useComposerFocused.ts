@@ -4,7 +4,7 @@
 // ABOUTME: Whether the athlete is typing in a chat composer right now, read from focus anywhere in the document
 // ABOUTME: A phone folds its tab bar and Home's Today line away while it is true, so the composer sits on the keyboard
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 
 /** The chat composer's own field, marked `data-composer="true"` by MessageInput. */
 function isComposer(node: EventTarget | null): boolean {
@@ -36,4 +36,14 @@ export function useComposerFocused(): boolean {
   }, []);
 
   return focused;
+}
+
+/**
+ * For a composer's `onMouseDown`: a press on one of its buttons leaves focus in
+ * the field. Focus leaving unfolds the phone's tab bar, which lifts the composer
+ * out from under the finger, so the release lands on the tab bar and the send
+ * never happens. The click itself still fires.
+ */
+export function keepComposerFocus(event: MouseEvent<HTMLElement>): void {
+  if (event.target instanceof Element && event.target.closest('button')) event.preventDefault();
 }

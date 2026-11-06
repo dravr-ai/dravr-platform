@@ -1109,6 +1109,7 @@ async fn an_old_stored_card_reads_back_unchanged() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();

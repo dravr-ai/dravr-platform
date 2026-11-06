@@ -31,6 +31,7 @@ use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use uuid::Uuid;
 
 use crate::protocol::UniversalExecutor;
+use crate::registry::ToolRegistry;
 use crate::tool_loop_telemetry::accumulate_optional;
 
 /// One round of tool dispatch as the in-memory loop sees it.
@@ -203,6 +204,14 @@ pub struct ToolLoopResult {
     /// Persisted alongside the LLM usage row so per-turn observability
     /// can answer "which tools ran for this turn".
     pub tools_called: Vec<String>,
+    /// Whether a call of a tool that writes or is irreversible reached the
+    /// Guardian's gate under this turn's key, whatever became of it.
+    ///
+    /// [`Self::tools_called`] cannot say this: the API and text loops list only
+    /// the calls that succeeded, and a headless leg re-run on the chain's tail
+    /// loses its list altogether. The dispatch chokepoint sees them all, on every
+    /// transport.
+    pub write_attempted: bool,
     /// Provider slug that triggered an `AppError::ProviderAuthRequired`
     /// during a tool dispatch in this loop. The chat pipeline detects this
     /// and short-circuits the turn with a deterministic re-auth reply
@@ -284,6 +293,7 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: Some(provider),
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
@@ -305,6 +315,7 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: Some(denial),
@@ -327,6 +338,7 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
@@ -344,6 +356,7 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
@@ -366,6 +379,20 @@ impl ToolLoopTally {
 pub(crate) const MAX_ITERATIONS_FINISH_REASON: &str = "max_iterations";
 
 impl ToolLoopResult {
+    /// Whether this turn tried to change anything, so sending its question again
+    /// could repeat it: the Guardian blocked it, a consequential call reached the
+    /// gate, or a tool it lists may change data ([`ToolRegistry::may_change_data`]),
+    /// which is how a headless call the transport named only by title counts.
+    #[must_use]
+    pub fn attempted_write(&self, registry: &ToolRegistry) -> bool {
+        self.guardian_denied.is_some()
+            || self.write_attempted
+            || self
+                .tools_called
+                .iter()
+                .any(|tool| registry.may_change_data(tool))
+    }
+
     /// `true` when the loop stopped because its iteration budget ran out.
     ///
     /// Such a turn is empty but not lost to a provider: the model kept calling
@@ -400,6 +427,7 @@ impl ToolLoopResult {
             activity_list: self.activity_list.or(prior.activity_list),
             tool_calls_count: prior.tool_calls_count.saturating_add(self.tool_calls_count),
             tools_called,
+            write_attempted: prior.write_attempted || self.write_attempted,
             served_without_provider: self
                 .served_without_provider
                 .or(prior.served_without_provider),
@@ -549,7 +577,8 @@ mod tests {
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_llm::TokenUsage;
 
-    use super::{HeadlessRoute, ToolLoopResult, ToolLoopTally};
+    use super::{GuardianDenial, HeadlessRoute, ToolLoopResult, ToolLoopTally};
+    use crate::registry::ToolRegistry;
 
     fn tally(tools: &[&str], activity_list: Option<&str>, warning: &str) -> ToolLoopTally {
         ToolLoopTally {
@@ -572,6 +601,7 @@ mod tests {
             activity_list: None,
             tool_calls_count: 1,
             tools_called: vec!["get_activities".to_owned()],
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: None,
             guardian_denied: None,
@@ -704,6 +734,35 @@ mod tests {
             HeadlessRoute::of(Ok(empty), "copilot_sdk"),
             HeadlessRoute::Reroute(_)
         ));
+    }
+
+    /// A block counts on its own: the Guardian can refuse a call that is no
+    /// write, and that turn must not read as safe to send again.
+    #[test]
+    fn a_blocked_turn_attempted_a_write_though_no_write_reached_the_gate() {
+        let registry = ToolRegistry::new();
+        let quiet = ToolLoopResult {
+            tools_called: Vec::new(),
+            ..answered()
+        };
+        assert!(
+            !quiet.attempted_write(&registry),
+            "a turn with no call and no block changed nothing"
+        );
+
+        let blocked = ToolLoopResult {
+            guardian_denied: Some(GuardianDenial {
+                tool_name: "get_activities".to_owned(),
+                reason: "egress_forbidden".to_owned(),
+                committed: Vec::new(),
+                unconfirmed: Vec::new(),
+            }),
+            ..quiet
+        };
+        assert!(
+            blocked.attempted_write(&registry),
+            "a blocked turn must never read as safe to send again"
+        );
     }
 
     #[test]

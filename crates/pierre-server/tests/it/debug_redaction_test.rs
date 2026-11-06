@@ -441,6 +441,7 @@ async fn activity_refresh_inputs_print_the_size_of_the_history_never_its_text() 
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: Some("web".to_owned()),
         about_user_id: None,
+        turn_attempted_write: None,
     }];
     let inputs = ActivityRefreshInputs {
         executor: &executor,

@@ -297,6 +297,19 @@ impl ToolRegistry {
         })
     }
 
+    /// Whether a call of `tool` may change data: it declares `WRITES_DATA`, it is
+    /// labelled irreversible, or the registry does not hold it, since nothing
+    /// then vouches that it only reads.
+    #[must_use]
+    pub fn may_change_data(&self, tool: &str) -> bool {
+        self.tools.get(tool).is_none_or(|registered| {
+            registered
+                .capabilities()
+                .contains(ToolCapabilities::WRITES_DATA)
+                || registered.security_class().is_irreversible()
+        })
+    }
+
     /// Check if a tool is registered
     #[must_use]
     pub fn contains(&self, name: &str) -> bool {

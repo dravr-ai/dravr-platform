@@ -38,6 +38,8 @@ export interface Message {
    */
   actions?: MessageActions;
   isError?: boolean;
+  /** Whether the row's turn tried to change anything; read through `canRegenerateReply`. */
+  turn_attempted_write?: boolean | null;
   /**
    * Set on a row a group thread shows from the room — another member's words,
    * the agent's reply to them, or a placeholder for an entry the author's

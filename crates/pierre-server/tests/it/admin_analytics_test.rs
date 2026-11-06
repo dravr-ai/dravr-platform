@@ -218,6 +218,7 @@ async fn seed_conversations_and_messages(
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             };
             resources
                 .common

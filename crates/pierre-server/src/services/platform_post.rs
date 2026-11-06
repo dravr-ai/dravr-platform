@@ -310,6 +310,7 @@ mod tests {
                     transport_policy: TransportPolicy::AnyTransport,
                     channel_type: None,
                     about_user_id: None,
+                    turn_attempted_write: None,
                 },
                 blocks: vec![ReplyBlock::Prose {
                     text: SENTINEL.to_owned(),

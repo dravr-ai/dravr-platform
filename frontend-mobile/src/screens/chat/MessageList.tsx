@@ -30,6 +30,7 @@ import {
   isDivider,
   messageChannelOrigin,
   isModelReply,
+  canRegenerateReply,
   isSameMessageGroup,
   localDayKey,
   opensPrivateStretch,
@@ -1151,7 +1152,7 @@ export function MessageList({
             onLongPress={item.room ? undefined : () =>
               presentMessageMenu(
                 {
-                  canRetry: true,
+                  canRetry: canRegenerateReply(item),
                   fromModel: isModelReply(item.finish_reason),
                   rating: messageFeedback[item.id] ?? null,
                   onCopy: () => handleCopyMessage(readableCopy),

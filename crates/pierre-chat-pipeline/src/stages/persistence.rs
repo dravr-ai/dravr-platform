@@ -191,6 +191,7 @@ pub async fn persist_user_message(
         transport_policy,
         channel_type: Some(channel),
         about_user_id,
+        turn_attempted_write: None,
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -309,6 +310,7 @@ pub async fn resolve_platform_turn(
         created_at: Utc::now().to_rfc3339(),
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
 
     Ok(UserMessageResult {
@@ -463,6 +465,7 @@ mod tests {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         }
     }
 

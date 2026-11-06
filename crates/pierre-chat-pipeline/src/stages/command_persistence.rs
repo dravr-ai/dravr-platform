@@ -200,6 +200,7 @@ pub async fn persist_command_turn(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: Some(request.channel_type),
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await?;
 
@@ -225,6 +226,7 @@ pub async fn persist_command_turn(
             // A reply that read one group member — `/plan <athlete>` to their
             // coach — names them, so it goes with their account (carnet#1174).
             about_user_id: ai_scope::derived_member(),
+            turn_attempted_write: None,
         })
         .await?;
 

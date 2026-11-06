@@ -687,12 +687,12 @@ macro_rules! conversation_columns {
 }
 pub(crate) use conversation_columns;
 
-/// The thirteen columns every message read returns.
+/// The fourteen columns every message read returns.
 macro_rules! message_columns {
     () => {
         "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
          m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only, \
-         m.channel_type, m.about_user_id"
+         m.channel_type, m.about_user_id, m.turn_attempted_write"
     };
 }
 pub(crate) use message_columns;
@@ -903,8 +903,8 @@ pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id, turn_attempted_write)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15, $16
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id

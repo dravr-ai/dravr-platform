@@ -829,6 +829,7 @@ mod trainingpeaks_link_binding_test;
 mod trainingpeaks_reconnect_gate_test;
 mod transaction_guard_test;
 mod transport_gate_e2e_test;
+mod turn_attempted_write_test;
 mod turn_directive_physiology_test;
 mod turn_envelope_test;
 mod turn_language_directive_test;

@@ -432,6 +432,7 @@ async fn test_pg_chat_messages() {
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
     let msg1 = repos
         .chat
@@ -456,6 +457,7 @@ async fn test_pg_chat_messages() {
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
     let msg2 = repos
         .chat
@@ -544,6 +546,7 @@ async fn test_pg_chat_recent_messages_withhold_stamped_rows() {
                 transport_policy,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .expect("Failed to add message");

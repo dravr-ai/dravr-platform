@@ -676,6 +676,14 @@ pub struct MessageRecord {
     /// it goes with the member's account. `None` for every other row.
     #[serde(default, skip_serializing)]
     pub about_user_id: Option<Uuid>,
+    /// Whether the turn that wrote this assistant row was blocked by the
+    /// Guardian, or called a tool that writes, is irreversible or cannot be
+    /// classified, whether or not the call succeeded. Sending the question
+    /// again is a new turn on a fresh budget, so clients offer Regenerate only
+    /// on `Some(false)`. `None` means nobody knows: a row from before the
+    /// column, or one no model turn wrote.
+    #[serde(default)]
+    pub turn_attempted_write: Option<bool>,
 }
 
 // The content is the athlete's message or the reply, and the blocks are lifted
@@ -699,6 +707,7 @@ impl fmt::Debug for MessageRecord {
             .field("transport_policy", &self.transport_policy)
             .field("channel_type", &self.channel_type)
             .field("about_user_id", &self.about_user_id)
+            .field("turn_attempted_write", &self.turn_attempted_write)
             .finish()
     }
 }
@@ -975,6 +984,9 @@ pub struct AddMessageParams<'a> {
     /// The one group member whose data the row carries; see
     /// [`MessageRecord::about_user_id`].
     pub about_user_id: Option<Uuid>,
+    /// Whether the row's turn tried to change anything; see
+    /// [`MessageRecord::turn_attempted_write`].
+    pub turn_attempted_write: Option<bool>,
 }
 
 // The content is the athlete's message or the reply: only lengths are printed.
@@ -994,6 +1006,7 @@ impl fmt::Debug for AddMessageParams<'_> {
             .field("transport_policy", &self.transport_policy)
             .field("channel_type", &self.channel_type)
             .field("about_user_id", &self.about_user_id)
+            .field("turn_attempted_write", &self.turn_attempted_write)
             .finish()
     }
 }

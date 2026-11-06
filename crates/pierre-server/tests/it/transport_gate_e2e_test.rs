@@ -908,6 +908,7 @@ async fn write_row(
             transport_policy,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();

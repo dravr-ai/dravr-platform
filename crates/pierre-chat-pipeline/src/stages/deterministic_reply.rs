@@ -181,6 +181,9 @@ pub async fn deliver(
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
         about_user_id: None,
+        // No model ran, but this turn does record the athlete's last interview
+        // answer: it is not a reply to offer again.
+        turn_attempted_write: None,
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

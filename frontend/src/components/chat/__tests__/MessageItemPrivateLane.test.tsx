@@ -96,6 +96,9 @@ describe('Adjust plan from this', () => {
 
     await user.click(action);
     expect(onAdjustPlan).toHaveBeenCalledTimes(2);
+    // The class that lifts it to 44px on a phone; the rule itself is measured in
+    // e2e/accessibility/chat-reply-actions.a11y.spec.ts.
+    expect(screen.getByTestId('adjust-plan-from-message').className).toContain('touch-target');
   });
 
   it('offers nothing on a room message it cannot quote', () => {

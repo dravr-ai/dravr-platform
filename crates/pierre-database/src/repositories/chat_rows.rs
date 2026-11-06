@@ -147,6 +147,9 @@ macro_rules! impl_chat_row_parsers {
                 ),
                 channel_type: opt("channel_type")?,
                 about_user_id: $ids::read_opt(row, "about_user_id")?,
+                turn_attempted_write: row
+                    .try_get("turn_attempted_write")
+                    .map_err(|e| chat_column_error("turn_attempted_write", &e))?,
             })
         }
 

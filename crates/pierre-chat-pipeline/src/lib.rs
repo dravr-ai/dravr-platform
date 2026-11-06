@@ -838,6 +838,8 @@ async fn run_turn(
         stages::source_attribution::model_answered(&result),
         &profile.locale,
     );
+    let answered_by =
+        stages::introduction::answering_title(ctx, &input, &conv, agent_ctx.as_ref()).await;
     // A reply the platform composed on its own initiative is posted only when
     // it grounded in the athlete's data and did not refuse (carnet#831).
     if let Some(withheld) = stages::platform_grounding::withheld_platform_reply(
@@ -853,19 +855,15 @@ async fn run_turn(
             provider_name: &provider_name,
             activities_prefetched,
             identity_leak,
-            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
+            answered_by: answered_by.clone(),
         },
     ) {
         return Ok(withheld);
     }
     // The steps this reply hands over ride its stored row and its live
-    // actions alike. A reply withheld for a leak is an apology, not the
-    // answer the steps would have followed.
-    let next_steps = if leak_replaced {
-        NextSteps::default()
-    } else {
-        next_steps::for_reply(ctx, &input, profile, &conv, plan_was_saved).await
-    };
+    // actions alike.
+    let next_steps =
+        steps_handed_over(ctx, &input, profile, &conv, plan_was_saved, leak_replaced).await;
     let content_blocks = next_steps
         .stored_blocks(post_processed.content_blocks.as_deref())
         .unwrap_or_else(|e| {
@@ -895,6 +893,7 @@ async fn run_turn(
         // them as their tool rows do (carnet#1174). A turn that read several
         // members writes a reply about nobody.
         about_user_id: ai_scope::derived_member(),
+        turn_attempted_write: Some(result.attempted_write(ctx.tool_runtime.tool_registry())),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);
@@ -1012,9 +1011,25 @@ async fn run_turn(
             scene_images,
             actions: next_steps.into_actions(),
             actions_title: None,
-            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
+            answered_by,
         },
     ))
+}
+
+/// The steps a reply hands over. A reply withheld for a leak is an apology, not
+/// the answer the steps would have followed, so it hands over none.
+async fn steps_handed_over(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    conv: &ConversationRecord,
+    plan_was_saved: bool,
+    leak_replaced: bool,
+) -> NextSteps {
+    if leak_replaced {
+        return NextSteps::default();
+    }
+    next_steps::for_reply(ctx, input, profile, conv, plan_was_saved).await
 }
 
 /// Ask the wired [`ScenePublisher`] to mint an image per stored chart spec.

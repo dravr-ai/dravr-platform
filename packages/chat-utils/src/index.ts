@@ -140,6 +140,9 @@ export type { ClaimContext } from './claim-context';
 export { parseEvidenceRefs } from './evidence-refs';
 export type { EvidenceRef } from './evidence-refs';
 
+// Whether a stored reply may be re-run: one rule for both clients.
+export { canRegenerateReply } from './regenerate';
+
 // The ids support needs to find a verdict, as both clients copy them.
 export { verdictSupportReference } from './verdict-support';
 

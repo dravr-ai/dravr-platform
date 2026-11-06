@@ -135,6 +135,7 @@ pub(super) async fn get_messages(
                 channel_type: m.channel_type,
                 quote,
                 created_at: m.created_at,
+                turn_attempted_write: m.turn_attempted_write,
             }
         })
         .collect();

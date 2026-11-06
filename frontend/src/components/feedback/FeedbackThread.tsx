@@ -23,6 +23,7 @@ import { FilePickerButton } from '../ui';
 import MessageBubble from '../chat/MessageBubble';
 import DaySeparator from '../chat/DaySeparator';
 import { useFeedbackImageUrl, useFeedbackThread } from '../../hooks/useFeedbackThread';
+import { keepComposerFocus } from '../../hooks/useComposerFocused';
 
 interface FeedbackThreadProps {
   /** The agent reply the next message is about, when opened from a thumbs-down. */
@@ -233,7 +234,7 @@ export default function FeedbackThread({ about, openedFrom, onClearAbout }: Feed
             {t('feedback.sendFailed')}
           </p>
         ) : null}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2" onMouseDown={keepComposerFocus}>
           <FilePickerButton
             accept={FEEDBACK_IMAGE_TYPES.join(',')}
             onPick={pickImage}

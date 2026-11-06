@@ -166,6 +166,7 @@ mod tests {
             activity_list: None,
             tool_calls_count: 1,
             tools_called: vec!["disconnect_provider".to_owned()],
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: None,
             guardian_denied: denied,

@@ -275,6 +275,7 @@ pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
         channel_type: record.channel_type,
         quote: None,
         created_at: record.created_at,
+        turn_attempted_write: record.turn_attempted_write,
     }
 }
 

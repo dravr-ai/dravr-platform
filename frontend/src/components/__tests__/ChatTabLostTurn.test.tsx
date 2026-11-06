@@ -88,7 +88,13 @@ const OLD_REPLY = 'Your week: 40 km, mostly easy.';
 /** A thread whose question already has a stored answer the athlete regenerates. */
 const QUESTION_ONLY_ANSWERED_BEFORE: Message[] = [
   ...QUESTION_ONLY,
-  { id: 'm4', role: 'assistant', content: OLD_REPLY, created_at: '2026-09-21T23:46:30Z' },
+  {
+    id: 'm4',
+    role: 'assistant',
+    content: OLD_REPLY,
+    created_at: '2026-09-21T23:46:30Z',
+    turn_attempted_write: false,
+  },
 ];
 /** Regenerate deletes nothing: the old reply stays, and the re-sent question is new. */
 const REGENERATING: Message[] = [

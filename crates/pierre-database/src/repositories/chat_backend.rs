@@ -464,6 +464,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
+                    .bind(params.turn_attempted_write)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -515,6 +516,7 @@ macro_rules! impl_chat_repository {
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
+                    turn_attempted_write: params.turn_attempted_write,
                 })
             }
 
@@ -1141,6 +1143,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
+                    .bind(params.turn_attempted_write)
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1172,6 +1175,7 @@ macro_rules! impl_chat_repository {
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
+                    turn_attempted_write: params.turn_attempted_write,
                 }))
             }
         }

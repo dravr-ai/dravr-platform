@@ -148,6 +148,8 @@ pub async fn finalize_headless_turn(
         activity_list: None,
         tool_calls_count,
         tools_called,
+        // Set by `settle_turn_signals` below, from the chokepoint's record.
+        write_attempted: false,
         // The hard auth trip stays None on this path: a loopback dispatch that
         // raises ProviderAuthRequired leaves the chokepoint as a JSON-RPC error
         // addressed to the ACP subprocess, which hands it to the model, so no
@@ -193,6 +195,9 @@ pub async fn finalize_headless_turn(
 ///   It stamps the finish reason too: the reply is about to become the platform's
 ///   text, and the row is replayed by that stamp, so a model's `stop` left on it
 ///   would read back as the agent's own words (carnet#1398).
+/// - Whether a consequential call reached the gate under this turn's key, which
+///   a leg re-run on the chain's tail would otherwise lose along with its list
+///   of tools.
 ///
 /// Called when the headless path assembles its result, so `is_lost_turn` reads
 /// the block, and again where every loop returns: a head that faulted after its
@@ -207,6 +212,7 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
         result.served_without_provider = result.served_without_provider.take().or(Some(offer));
     }
     let turns = resources.guardian_turns();
+    result.write_attempted |= turns.write_attempted(&turn_key);
     if let Some(HeadlessBlock { tool_name, reason }) = turns.take_block(&turn_key) {
         result.guardian_denied = Some(GuardianDenial {
             tool_name,

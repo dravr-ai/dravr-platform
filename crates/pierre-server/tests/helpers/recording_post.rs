@@ -78,6 +78,7 @@ impl PlatformPost for RecordingPost {
                     created_at: Utc::now().to_rfc3339(),
                     channel_type: None,
                     about_user_id: None,
+                    turn_attempted_write: None,
                 },
                 blocks: vec![ReplyBlock::Prose {
                     text: REPLY.to_owned(),
