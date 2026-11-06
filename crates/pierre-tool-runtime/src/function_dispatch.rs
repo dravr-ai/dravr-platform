@@ -163,6 +163,7 @@ fn capture_guardian_block(
         // The turn's store holds these: `settle_turn_signals` reads them when the
         // loop returns, for this denial's own block record.
         committed: Vec::new(),
+        unconfirmed: Vec::new(),
     })
 }
 

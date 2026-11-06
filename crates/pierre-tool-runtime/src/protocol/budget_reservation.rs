@@ -20,7 +20,8 @@
 //!   and nothing settled it): the outcome is unknown, and a provider push may have
 //!   landed. The write count is refunded, but a destructive charge stays spent, so
 //!   a timed-out destructive call can never run twice in one turn on a budget of
-//!   one.
+//!   one. Either way a write or destructive call is named as unconfirmed, for the
+//!   reply to mention; a read changed nothing, so it is not.
 
 use tracing::warn;
 
@@ -92,7 +93,17 @@ impl Drop for BudgetReservation<'_> {
         if self.stage == Stage::Settled {
             return;
         }
-        if self.stage == Stage::Reserved || !self.labels.is_irreversible() {
+        if self.stage == Stage::Reserved {
+            self.turns
+                .refund(self.turn_key, self.labels, self.writes_data);
+            return;
+        }
+        // Running: whether it landed is unknown, and the reply has to say so. A read
+        // lands nothing, so the reply has nothing to say about one.
+        if self.writes_data || self.labels.is_irreversible() {
+            self.turns.record_unconfirmed(self.turn_key, self.tool_name);
+        }
+        if !self.labels.is_irreversible() {
             self.turns
                 .refund(self.turn_key, self.labels, self.writes_data);
             return;
@@ -147,6 +158,7 @@ mod tests {
         assert_eq!(spent(&turns, &key), (1, 1));
         drop(reservation);
         assert_eq!(spent(&turns, &key), (0, 0), "nothing ran");
+        assert_eq!(turns.unconfirmed(&key), Vec::<String>::new(), "nothing ran");
     }
 
     #[test]
@@ -161,6 +173,11 @@ mod tests {
             spent(&turns, &key),
             (1, 0),
             "a push may have landed, so only the write count comes back"
+        );
+        assert_eq!(
+            turns.unconfirmed(&key),
+            ["tool"],
+            "the push may have landed, so the reply has to name it"
         );
     }
 
@@ -181,6 +198,34 @@ mod tests {
         reservation.start();
         drop(reservation);
         assert_eq!(spent(&turns, &key), (0, 0));
+        assert_eq!(
+            turns.unconfirmed(&key),
+            ["tool"],
+            "a plain write may have landed too, refunded or not"
+        );
+    }
+
+    #[test]
+    fn dropping_a_running_read_names_nothing_as_unconfirmed() {
+        let turns = GuardianTurns::new();
+        let key = TurnKey::new(None, "turn");
+        let ((), reserved) = turns.decide_and_reserve(
+            &key,
+            SecurityLabels::empty(),
+            false,
+            |_| (),
+            |()| CallFate::Runs,
+        );
+        assert!(reserved, "a read runs, so the gate reserves for it");
+        let mut reservation =
+            BudgetReservation::new(&turns, &key, "tool", SecurityLabels::empty(), false);
+        reservation.start();
+        drop(reservation);
+        assert_eq!(
+            turns.unconfirmed(&key),
+            Vec::<String>::new(),
+            "a read that timed out changed nothing the reply has to warn about"
+        );
     }
 
     #[test]
@@ -196,6 +241,11 @@ mod tests {
             (0, 0),
             "the call said it failed, so nothing is charged, once"
         );
+        assert_eq!(
+            turns.unconfirmed(&key),
+            Vec::<String>::new(),
+            "the call answered, so its outcome is known"
+        );
     }
 
     #[test]
@@ -207,5 +257,10 @@ mod tests {
         reservation.start();
         reservation.keep();
         assert_eq!(spent(&turns, &key), (1, 1));
+        assert_eq!(
+            turns.unconfirmed(&key),
+            Vec::<String>::new(),
+            "the call answered, so its outcome is known"
+        );
     }
 }

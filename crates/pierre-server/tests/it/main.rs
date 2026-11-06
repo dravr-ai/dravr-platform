@@ -346,6 +346,7 @@ mod group_transcript_test;
 mod group_weekly_digest_test;
 mod group_weekly_report_test;
 mod groups_test;
+mod guardian_action_titles_test;
 mod guardian_config_admin_test;
 mod guardian_config_registry_test;
 mod guardian_confirm_flow_test;

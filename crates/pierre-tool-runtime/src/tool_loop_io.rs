@@ -181,6 +181,9 @@ pub struct GuardianDenial {
     /// Registry names of the consequential calls that succeeded before the
     /// block, in order, repeats kept. The reply has to say these went through.
     pub committed: Vec<String>,
+    /// Registry names of the consequential calls abandoned while running, in
+    /// order, repeats kept. The reply has to say these may have gone through.
+    pub unconfirmed: Vec<String>,
 }
 
 /// Result of running the multi-turn tool execution loop

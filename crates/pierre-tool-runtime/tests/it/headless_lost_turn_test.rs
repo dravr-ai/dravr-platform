@@ -117,6 +117,7 @@ fn a_guardian_denial_is_not_lost() {
             tool_name: "delete_training_plan".to_owned(),
             reason: "budget_exceeded".to_owned(),
             committed: Vec::new(),
+            unconfirmed: Vec::new(),
         }),
         ..answered()
     };

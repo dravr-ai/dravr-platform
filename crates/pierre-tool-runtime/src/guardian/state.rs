@@ -90,6 +90,9 @@ pub struct TurnState {
     /// Registry names of the consequential calls that succeeded this turn, in
     /// order, repeats kept. Never arguments.
     committed: Vec<String>,
+    /// Registry names of the consequential calls abandoned while running this
+    /// turn, in order, repeats kept. Each one may have landed. Never arguments.
+    unconfirmed: Vec<String>,
     /// Reads that succeeded this turn, by [`ReadFingerprint`], and whether
     /// their one repeat has been answered with a pointer back to them.
     reads: HashMap<ReadFingerprint, ReadSeen>,
@@ -339,6 +342,26 @@ impl GuardianTurns {
             .map
             .get(key)
             .map_or_else(Vec::new, |(_, state)| state.committed.clone())
+    }
+
+    /// Remember that `tool_name`, a consequential call, was abandoned while running
+    /// in `key`'s turn, so nobody knows whether it landed.
+    pub fn record_unconfirmed(&self, key: &TurnKey, tool_name: &str) {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, state)) = guard.map.get_mut(key) {
+            state.unconfirmed.push(tool_name.to_owned());
+        }
+    }
+
+    /// The consequential calls abandoned while running in `key`'s turn, for a
+    /// reply that has to say they may have gone through.
+    #[must_use]
+    pub fn unconfirmed(&self, key: &TurnKey) -> Vec<String> {
+        let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        guard
+            .map
+            .get(key)
+            .map_or_else(Vec::new, |(_, state)| state.unconfirmed.clone())
     }
 
     /// Consume and return the block recorded under `key`, if any.

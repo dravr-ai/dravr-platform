@@ -647,6 +647,34 @@ async fn abandoning_a_running_destructive_call_leaves_its_destructive_charge_spe
         (1, 0),
         "the outcome is unknown: only the write count comes back"
     );
+    assert_eq!(
+        resources.guardian_turns().unconfirmed(&key),
+        ["never_answers"],
+        "it may have landed, so the turn remembers it (carnet#1447)"
+    );
+
+    // What the loop hands the reply stage once a later call in the turn is blocked.
+    resources.guardian_turns().record_block(
+        &key,
+        HeadlessBlock {
+            tool_name: "never_answers".to_owned(),
+            reason: DenyReason::BudgetExceeded,
+        },
+    );
+    let denial = finish_turn(&resources, user_id, tenant, "abandoned-turn")
+        .await
+        .guardian_denied
+        .expect("the turn's block reaches the loop's result");
+    assert_eq!(
+        denial.unconfirmed,
+        ["never_answers"],
+        "the reply must be able to say it may have gone through"
+    );
+    assert_eq!(
+        denial.committed,
+        Vec::<String>::new(),
+        "nothing confirmed it, so the reply must not claim it as done"
+    );
 }
 
 /// A destructive write that runs and says it failed.

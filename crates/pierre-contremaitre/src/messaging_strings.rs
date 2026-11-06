@@ -89,8 +89,19 @@ pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
 
 /// Reply when a Guardian block stopped a turn that had already committed actions:
-/// `{0}` lists them by their display titles.
+/// `{0}` lists them by their localized titles.
 pub const KEY_GUARDIAN_DENIED_AFTER_ACTIONS: &str = "messaging.guardian.denied_after_actions";
+
+/// Added to a Guardian block's reply when calls were abandoned while running:
+/// `{0}` lists them by their titles. They may have gone through.
+pub const KEY_GUARDIAN_UNCONFIRMED_ACTIONS: &str = "messaging.guardian.unconfirmed_actions";
+
+/// The key of a tool's localized title in a Guardian reply. Every tool that writes
+/// data or is irreversible has one in every locale, which a server test holds.
+#[must_use]
+pub fn guardian_action_title_key(tool_name: &str) -> String {
+    format!("messaging.guardian.action_title.{tool_name}")
+}
 
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";

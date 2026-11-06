@@ -294,7 +294,7 @@ const BLOCKED_BY_POLICY_FRAME: &str = "[Tool Result for guardian]: ";
 /// Carries the reply's words, because a block ends the turn before its round is
 /// recorded: calls that landed in that round leave no `tool_result` row, and this
 /// is the only record of them. Without it the next turn tells the athlete it cannot
-/// confirm what the reply just said was done. The reply names display titles and
+/// confirm what the reply just said was done. The reply names tool titles and
 /// never an argument, so nothing untrusted rides in; like a replayed `tool_result`
 /// row, the quoted text still loses any platform lead.
 fn guardian_reply_note(msg: &MessageRecord) -> Option<String> {
@@ -304,7 +304,8 @@ fn guardian_reply_note(msg: &MessageRecord) -> Option<String> {
             "ran": false,
             "told_the_athlete": defang_platform_markers(&msg.content),
             "note": "The platform refused the next action and sent the athlete told_the_athlete. \
-                     What it names as done did run. The refused action did not.",
+                     What it names as done did run. The refused action did not. What it says \
+                     got no answer may or may not have run, so say that rather than either.",
         });
         format!("{BLOCKED_BY_POLICY_FRAME}{note}")
     })

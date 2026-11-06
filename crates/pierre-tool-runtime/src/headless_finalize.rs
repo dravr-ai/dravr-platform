@@ -212,6 +212,7 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
             tool_name,
             reason: reason.as_str().to_owned(),
             committed: turns.committed(&turn_key),
+            unconfirmed: turns.unconfirmed(&turn_key),
         });
         result.finish_reason = Some(GUARDIAN_DENIED_FINISH_REASON.to_owned());
     }
