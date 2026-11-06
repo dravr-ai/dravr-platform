@@ -2950,7 +2950,8 @@
     "guardrail": {
       "blocked_topic": "Je préfère ne pas aborder ce sujet ici. Restons concentrés sur ton entraînement et ta récupération. Y a-t-il quelque chose de précis sur lequel je peux t'aider?",
       "medical_emergency": "Je ne peux pas évaluer des symptômes, et ceci demande quelqu'un qui le peut. Une douleur à la poitrine, une difficulté à respirer, un évanouissement ou un étourdissement soudain peuvent être graves : si ça se produit maintenant, arrête ce que tu fais et appelle le numéro d'urgence local (911 en Amérique du Nord, 112 en Europe) ou rends-toi aux urgences. Si c'est passé, consulte un médecin avant ta prochaine séance.",
-      "too_long": "J'ai une réponse plus longue prête, mais elle dépasse la limite de longueur configurée. Veux-tu que je te la résume plus brièvement?"
+      "too_long": "J'ai une réponse plus longue prête, mais elle dépasse la limite de longueur configurée. Veux-tu que je te la résume plus brièvement?",
+      "disclaimer": "**Avis médical :** Je ne suis pas un professionnel de santé. Consulte un clinicien qualifié pour toute blessure, douleur ou question médicamenteuse."
     },
     "intake": {
       "complete_clear": "C'est tout, rien à signaler. Pose-moi ce que tu veux sur ton entraînement.",
@@ -3929,7 +3930,6 @@
   "shell": {
     "accountSuspendedBody": "Ton compte a été suspendu. Contacte un administrateur pour obtenir de l'aide.",
     "accountSuspendedTitle": "Compte suspendu",
-    "apiKeysDescription": "Gère les clés API pour les clients MCP et l’accès programmatique. Seuls les super admins peuvent créer, renouveler et révoquer des clés API.",
     "appleEmail": "E-mail Apple ID",
     "billingAmount": "Montant",
     "billingCancelAtPeriodEnd": "Résiliation en fin de période",
@@ -4047,7 +4047,6 @@
     "mobileNavSignOut": "Se déconnecter",
     "modalCloseAria": "Fermer la fenêtre",
     "navActivity": "Activité",
-    "navAdminTokens": "Jetons admin",
     "navAgentFollowups": "Relances de l'agent",
     "navAgentGrades": "Évaluations des agents",
     "navAgentNotesAudit": "Audit des notes d'agent",
@@ -4069,7 +4068,7 @@
     "navOpenSettings": "Ouvrir les réglages",
     "navPlatformSettings": "Réglages de la plateforme",
     "navPrompts": "Consignes",
-    "navServiceTokens": "Jetons de service",
+    "navServiceTokens": "Jetons API",
     "navSettings": "Réglages",
     "navSignOut": "Se déconnecter",
     "navToolManagement": "Gestion des outils",

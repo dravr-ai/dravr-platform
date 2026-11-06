@@ -2950,7 +2950,8 @@
     "guardrail": {
       "blocked_topic": "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?",
       "medical_emergency": "No puedo evaluar síntomas, y esto necesita a alguien que sí pueda. El dolor en el pecho, la dificultad para respirar, un desmayo o un mareo repentino pueden ser graves: si está ocurriendo ahora, detén lo que estés haciendo y llama al número de emergencias local (911 en Norteamérica, 112 en Europa) o acude a urgencias. Si ya pasó, consulta a un médico antes de tu próxima sesión.",
-      "too_long": "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?"
+      "too_long": "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?",
+      "disclaimer": "**Aviso médico:** No soy un profesional médico. Consulta a un clínico cualificado para cualquier lesión, dolor o duda sobre medicación."
     },
     "intake": {
       "complete_clear": "Eso es todo, nada que señalar. Pregúntame lo que quieras sobre tu entrenamiento.",
@@ -3929,7 +3930,6 @@
   "shell": {
     "accountSuspendedBody": "Tu cuenta ha sido suspendida. Contacta con un administrador para obtener ayuda.",
     "accountSuspendedTitle": "Cuenta suspendida",
-    "apiKeysDescription": "Gestiona las claves de API para clientes MCP y el acceso programático. Solo los superadministradores pueden crear, rotar y revocar claves de API.",
     "appleEmail": "Correo de Apple ID",
     "billingAmount": "Importe",
     "billingCancelAtPeriodEnd": "Cancelar al final del periodo",
@@ -4047,7 +4047,6 @@
     "mobileNavSignOut": "Cerrar sesión",
     "modalCloseAria": "Cerrar la ventana",
     "navActivity": "Actividad",
-    "navAdminTokens": "Tokens de admin",
     "navAgentFollowups": "Seguimientos del agente",
     "navAgentGrades": "Calificaciones de agentes",
     "navAgentNotesAudit": "Auditoría de notas del agente",
@@ -4069,7 +4068,7 @@
     "navOpenSettings": "Abrir ajustes",
     "navPlatformSettings": "Ajustes de la plataforma",
     "navPrompts": "Instrucciones",
-    "navServiceTokens": "Tokens de servicio",
+    "navServiceTokens": "Tokens de API",
     "navSettings": "Ajustes",
     "navSignOut": "Cerrar sesión",
     "navToolManagement": "Gestión de herramientas",

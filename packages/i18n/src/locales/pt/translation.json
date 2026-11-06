@@ -2950,7 +2950,8 @@
     "guardrail": {
       "blocked_topic": "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?",
       "medical_emergency": "Não consigo avaliar sintomas, e isto precisa de alguém que consiga. Dor no peito, dificuldade em respirar, desmaio ou tontura súbita podem ser graves: se está a acontecer agora, para o que estás a fazer e liga para o número de emergência local (112 na Europa, 911 na América do Norte) ou vai às urgências. Se já passou, consulta um médico antes da tua próxima sessão.",
-      "too_long": "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?"
+      "too_long": "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?",
+      "disclaimer": "**Aviso médico:** Não sou um profissional de saúde. Consulta um clínico qualificado para qualquer lesão, dor ou questão de medicação."
     },
     "intake": {
       "complete_clear": "É tudo, nada a assinalar. Pergunta-me o que quiseres sobre o teu treino.",
@@ -3929,7 +3930,6 @@
   "shell": {
     "accountSuspendedBody": "A tua conta foi suspensa. Contacta um administrador para obteres ajuda.",
     "accountSuspendedTitle": "Conta suspensa",
-    "apiKeysDescription": "Gere as chaves de API para clientes MCP e para o acesso programático. Só os super-admins podem criar, renovar e revogar chaves de API.",
     "appleEmail": "E-mail Apple ID",
     "billingAmount": "Montante",
     "billingCancelAtPeriodEnd": "Cancelar no fim do período",
@@ -4047,7 +4047,6 @@
     "mobileNavSignOut": "Terminar sessão",
     "modalCloseAria": "Fechar a janela",
     "navActivity": "Atividade",
-    "navAdminTokens": "Tokens de admin",
     "navAgentFollowups": "Seguimentos do agente",
     "navAgentGrades": "Avaliações dos agentes",
     "navAgentNotesAudit": "Auditoria de notas do agente",
@@ -4069,7 +4068,7 @@
     "navOpenSettings": "Abrir definições",
     "navPlatformSettings": "Definições da plataforma",
     "navPrompts": "Instruções",
-    "navServiceTokens": "Tokens de serviço",
+    "navServiceTokens": "Tokens de API",
     "navSettings": "Definições",
     "navSignOut": "Terminar sessão",
     "navToolManagement": "Gestão de ferramentas",

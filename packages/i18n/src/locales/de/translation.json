@@ -2950,7 +2950,8 @@
     "guardrail": {
       "blocked_topic": "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?",
       "medical_emergency": "Ich kann Symptome nicht beurteilen, und das braucht jemanden, der es kann. Brustschmerzen, Atemnot, Ohnmacht oder plötzlicher Schwindel können ernst sein: Wenn es gerade passiert, hör sofort auf und ruf den örtlichen Notruf an (112 in Europa, 911 in Nordamerika) oder geh in die Notaufnahme. Wenn es vorbei ist, lass dich vor deiner nächsten Einheit ärztlich untersuchen.",
-      "too_long": "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?"
+      "too_long": "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?",
+      "disclaimer": "**Medizinischer Hinweis:** Ich bin kein Arzt. Bitte konsultiere eine qualifizierte Fachkraft bei Verletzungen, Schmerzen oder Medikamentenfragen."
     },
     "intake": {
       "complete_clear": "Das war's, nichts anzumerken. Frag mich alles zu deinem Training.",
@@ -3929,7 +3930,6 @@
   "shell": {
     "accountSuspendedBody": "Dein Konto wurde gesperrt. Wende dich an einen Administrator, um Hilfe zu erhalten.",
     "accountSuspendedTitle": "Konto gesperrt",
-    "apiKeysDescription": "Verwalte API-Schlüssel für MCP-Clients und den programmatischen Zugriff. Nur Super-Admins können API-Schlüssel erstellen, rotieren und widerrufen.",
     "appleEmail": "Apple-ID-E-Mail",
     "billingAmount": "Betrag",
     "billingCancelAtPeriodEnd": "Zum Periodenende kündigen",
@@ -4047,7 +4047,6 @@
     "mobileNavSignOut": "Abmelden",
     "modalCloseAria": "Dialog schließen",
     "navActivity": "Aktivität",
-    "navAdminTokens": "Admin-Tokens",
     "navAgentFollowups": "Agenten-Follow-ups",
     "navAgentGrades": "Agenten-Bewertungen",
     "navAgentNotesAudit": "Agenten-Notizen-Audit",
@@ -4069,7 +4068,7 @@
     "navOpenSettings": "Einstellungen öffnen",
     "navPlatformSettings": "Plattform-Einstellungen",
     "navPrompts": "Anweisungen",
-    "navServiceTokens": "Service-Tokens",
+    "navServiceTokens": "API-Tokens",
     "navSettings": "Einstellungen",
     "navSignOut": "Abmelden",
     "navToolManagement": "Werkzeug-Verwaltung",
