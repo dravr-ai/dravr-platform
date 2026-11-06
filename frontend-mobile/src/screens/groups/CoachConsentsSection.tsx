@@ -4,7 +4,7 @@
 // ABOUTME: Group info's "what your human coach can do" — the member's calendar-write and wellness consents to the group's coach
 // ABOUTME: One block on the coach relationship, shown with or without a link; a wellness revoke asks first, as it deletes
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Switch, Text, View, type ViewStyle } from 'react-native';
 import {
   COACH_CONSENTS_KEYS,
@@ -54,19 +54,32 @@ export function CoachConsentsSection({ groupId, consents, coach }: CoachConsents
   const [changing, setChanging] = useState<Partial<Record<DelegationConsent, boolean>>>({});
   const offered = offeredConsents(consents);
 
+  // A change the server took is let go once the consents passed in show it:
+  // the cache holds the answer before this block's parent renders it, and
+  // letting go sooner flicks the switch back for a frame.
+  useEffect(() => {
+    setChanging((held) => {
+      const shown = (Object.keys(held) as DelegationConsent[]).filter((key) => held[key] === consents[key]);
+      if (shown.length === 0) return held;
+      const next = { ...held };
+      for (const key of shown) delete next[key];
+      return next;
+    });
+  }, [consents]);
+
   const change = async (consent: DelegationConsent, granted: boolean) => {
     setChanging((held) => ({ ...held, [consent]: granted }));
     try {
-      await setConsents({ [consent]: granted });
+      const answered = await setConsents({ [consent]: granted });
+      if (answered[consent] === granted) return;
     } catch (err) {
       Alert.alert(
         t('common.error'),
         t(delegationRefusalKey(refusalReason(err)), { platform: coachPlatformName(refusalProvider(err)) }),
       );
-    } finally {
-      // The consents now say where each stands: granted, or unchanged after a refusal.
-      setChanging((held) => ({ ...held, [consent]: undefined }));
     }
+    // Refused, or answered otherwise: the consents say where it stands.
+    setChanging((held) => ({ ...held, [consent]: undefined }));
   };
 
   /** A turn of a consent, behind a confirm when it deletes what was read. */
