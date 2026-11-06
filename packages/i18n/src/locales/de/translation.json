@@ -2114,6 +2114,8 @@
     "serverError": "Serverfehler. Versuch es etwas später erneut.",
     "timeout": "Zeitüberschreitung. Versuch es erneut.",
     "unauthorized": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+    "providerReconnect": "{{provider}} muss neu verbunden werden.",
+    "providerReconnectUnnamed": "Eine verbundene App muss neu verbunden werden.",
     "unknown": "Etwas ist schiefgelaufen",
     "usageQuotaReached": "Nutzungskontingent erreicht ({{current, number}}/{{limit, number}}). Versuch es später noch einmal.",
     "validation": "Prüf deine Eingabe und versuch es erneut.",
@@ -3646,7 +3648,6 @@
   },
   "providers": {
     "add": "Anbieter hinzufügen",
-    "awaitingActivities": "Verbunden — wartet auf Aktivitäten",
     "connect": "Verbinden",
     "connectLater": "Dienste später verbinden",
     "connectToAria": "Mit {{provider}} verbinden",
@@ -3666,8 +3667,6 @@
     "fitnessHint": "Verbinde deine Sportkonten, um Aktivitäten, Gesundheitswerte und mehr zu synchronisieren.",
     "fitnessTitle": "Datenanbieter",
     "garmin": "Garmin",
-    "importHistory": "Meinen Verlauf importieren",
-    "importHistoryAria": "Meinen {{provider}}-Verlauf importieren",
     "history": {
       "importing": "Deine früheren {{provider}}-Aktivitäten werden kopiert…",
       "imported": "Dein {{provider}}-Verlauf ist da",

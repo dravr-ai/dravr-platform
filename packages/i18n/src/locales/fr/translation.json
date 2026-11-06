@@ -2114,6 +2114,8 @@
     "serverError": "Erreur du serveur. Réessaie un peu plus tard.",
     "timeout": "Le délai d’attente est dépassé. Réessaie.",
     "unauthorized": "Ta session a expiré. Reconnecte-toi.",
+    "providerReconnect": "{{provider}} doit être reconnecté.",
+    "providerReconnectUnnamed": "Une app connectée doit être reconnectée.",
     "unknown": "Quelque chose s’est mal passé",
     "usageQuotaReached": "Quota d'utilisation atteint ({{current, number}}/{{limit, number}}). Réessaie plus tard.",
     "validation": "Vérifie ce que tu as saisi, puis réessaie.",
@@ -3646,7 +3648,6 @@
   },
   "providers": {
     "add": "Ajouter un fournisseur",
-    "awaitingActivities": "Connecté — en attente d'activités",
     "connect": "Connecter",
     "connectLater": "Connecter des services plus tard",
     "connectToAria": "Se connecter à {{provider}}",
@@ -3666,8 +3667,6 @@
     "fitnessHint": "Connecte tes comptes sportifs pour synchroniser tes activités, tes données de santé et plus encore.",
     "fitnessTitle": "Fournisseurs de données",
     "garmin": "Garmin",
-    "importHistory": "Importer mon historique",
-    "importHistoryAria": "Importer mon historique {{provider}}",
     "history": {
       "importing": "Copie de tes anciennes activités {{provider}}…",
       "imported": "Ton historique {{provider}} est là",

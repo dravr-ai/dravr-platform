@@ -2114,6 +2114,8 @@
     "serverError": "Server error. Try again a bit later.",
     "timeout": "The request timed out. Try again.",
     "unauthorized": "Your session expired. Sign in again.",
+    "providerReconnect": "{{provider}} needs reconnecting.",
+    "providerReconnectUnnamed": "A connected app needs reconnecting.",
     "unknown": "Something went wrong",
     "usageQuotaReached": "Usage quota reached ({{current, number}}/{{limit, number}}). Please try again later.",
     "validation": "Check what you entered and try again.",
@@ -3646,7 +3648,6 @@
   },
   "providers": {
     "add": "Add Provider",
-    "awaitingActivities": "Connected — waiting for activities",
     "connect": "Connect",
     "connectLater": "Connect providers later",
     "connectToAria": "Connect to {{provider}}",
@@ -3666,8 +3667,6 @@
     "fitnessHint": "Connect your fitness accounts to sync activities, health metrics, and more.",
     "fitnessTitle": "Fitness Providers",
     "garmin": "Garmin",
-    "importHistory": "Import my history",
-    "importHistoryAria": "Import my {{provider}} history",
     "history": {
       "importing": "Copying your past {{provider}} activities…",
       "imported": "Your {{provider}} history is in",

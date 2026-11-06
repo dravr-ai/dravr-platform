@@ -2114,6 +2114,8 @@
     "serverError": "Error del servidor. Inténtalo un poco más tarde.",
     "timeout": "Se agotó el tiempo de espera. Inténtalo de nuevo.",
     "unauthorized": "Tu sesión ha caducado. Vuelve a iniciar sesión.",
+    "providerReconnect": "Hay que volver a conectar {{provider}}.",
+    "providerReconnectUnnamed": "Hay que volver a conectar una app conectada.",
     "unknown": "Algo salió mal",
     "usageQuotaReached": "Cuota de uso alcanzada ({{current, number}}/{{limit, number}}). Inténtalo más tarde.",
     "validation": "Revisa lo que has escrito e inténtalo de nuevo.",
@@ -3646,7 +3648,6 @@
   },
   "providers": {
     "add": "Añadir proveedor",
-    "awaitingActivities": "Conectado — esperando actividades",
     "connect": "Conectar",
     "connectLater": "Conectar servicios más tarde",
     "connectToAria": "Conectar con {{provider}}",
@@ -3666,8 +3667,6 @@
     "fitnessHint": "Conecta tus cuentas deportivas para sincronizar actividades, métricas de salud y más.",
     "fitnessTitle": "Proveedores de datos",
     "garmin": "Garmin",
-    "importHistory": "Importar mi historial",
-    "importHistoryAria": "Importar mi historial de {{provider}}",
     "history": {
       "importing": "Copiando tus actividades anteriores de {{provider}}…",
       "imported": "Tu historial de {{provider}} ya está aquí",
