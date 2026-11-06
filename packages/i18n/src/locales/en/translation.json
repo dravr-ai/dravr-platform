@@ -3326,6 +3326,60 @@
       "marathon": "marathon"
     }
   },
+  "oauth": {
+    "consent": {
+      "allow": "Allow access",
+      "deny": "Deny",
+      "express": "Your training, sleep and recovery data is sensitive personal information. By choosing {0} you expressly consent to Dravr sharing it with {1}.",
+      "firstPartyOnly": "Your data from {0} stays inside Dravr and is not shared with {1}.",
+      "health": "Training, sleep and recovery data you connected to Dravr will be shared with {0}. Dravr gives training and wellness information, not medical advice.",
+      "inUnitedStates": "in the United States",
+      "lead": "{0} wants to access your Dravr fitness data.",
+      "listPair": "{0} and {1}",
+      "outsideQuebecKnown": "This information may be communicated outside Québec: {0} is run by {1} and processes what it receives {2}.",
+      "outsideQuebecUnknown": "This information may be communicated outside Québec: Dravr does not know where {0} processes what it receives.",
+      "privacyPolicy": "Privacy policy",
+      "returnsTo": "It will return you to {0}",
+      "revokeAnytime": "You can revoke this access at any time in your Dravr settings.",
+      "scope": {
+        "fitnessRead": "read your fitness data: activities, stats, sleep and analytics",
+        "fitnessWrite": "create or change your fitness data: goals, plans and logged work",
+        "profileRead": "read your profile, your settings and which services you have linked",
+        "profileWrite": "change your profile, your settings and your linked services"
+      },
+      "scopesTitle": "This will allow it to",
+      "signedInAs": "Signed in as {0}",
+      "terms": "Terms",
+      "title": "Authorize access",
+      "unverifiedBody": "Dravr has not verified who runs this app. Allow access only if you started this connection yourself.",
+      "unverifiedLoopback": "It returns you to a program on this device, so only continue if you are running it.",
+      "unverifiedPublishedBy": "It is published by {0}; the name it gives itself is not checked.",
+      "unverifiedTitle": "Unverified app.",
+      "useAnotherAccount": "Use another account",
+      "verified": "Verified: {0} by {1}"
+    },
+    "error": {
+      "accountGone": "The account you are signed in as no longer exists; sign in again",
+      "accountUnavailable": "The account could not be loaded",
+      "awaitsApproval": "Your Dravr account is waiting for approval. Connect this app again once it is approved.",
+      "awaitsEmailProof": "Your Dravr account is waiting for you to confirm your email address. Open the confirmation link we emailed you, then connect this app again.",
+      "consentExpired": "The consent screen expired or did not come from Dravr; start the connection again",
+      "consentUnavailable": "The consent screen could not be prepared",
+      "denied": "This request was refused.",
+      "googleExpired": "This Google sign-in expired or was started in another browser. Start again from the app you are connecting.",
+      "googleRefused": "Google sign-in could not be completed for this account.",
+      "invalidClient": "This app is not recognized. Go back to it and start the connection again.",
+      "invalidRequest": "This connection request is not valid. Go back to the app and start again.",
+      "limiterUnavailable": "Rate limiting is temporarily unavailable; retry later",
+      "rateLimited": "Rate limit exceeded",
+      "serverError": "Something went wrong on our side. Try again in a moment.",
+      "signupPaused": "Sign-up is paused right now. Please try again later.",
+      "suspended": "Your Dravr account is suspended",
+      "title": "Connection Failed",
+      "tryAgain": "Please try again.",
+      "unavailable": "The service is temporarily unavailable. Try again in a moment."
+    }
+  },
   "onboarding": {
     "aboutYouHint": "Three quick questions so your agent starts out knowing you. Skip any of them — we'll pick the rest up as we go.",
     "agentProposalNoActivities": "We didn't find recent activities yet — here are some agents to start with. Your picks will sharpen as your provider syncs more data.",

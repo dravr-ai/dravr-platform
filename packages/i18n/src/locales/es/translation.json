@@ -3326,6 +3326,60 @@
       "marathon": "maratón"
     }
   },
+  "oauth": {
+    "consent": {
+      "allow": "Permitir el acceso",
+      "deny": "Denegar",
+      "express": "Sus datos de entrenamiento, sueño y recuperación son información personal sensible. Al elegir {0}, usted consiente expresamente que Dravr los comparta con {1}.",
+      "firstPartyOnly": "Sus datos de {0} permanecen dentro de Dravr y no se comparten con {1}.",
+      "health": "Los datos de entrenamiento, sueño y recuperación que conectó a Dravr se compartirán con {0}. Dravr ofrece información sobre entrenamiento y bienestar, no consejo médico.",
+      "inUnitedStates": "en los Estados Unidos",
+      "lead": "{0} quiere acceder a sus datos de actividad física de Dravr.",
+      "listPair": "{0} y {1}",
+      "outsideQuebecKnown": "Esta información puede comunicarse fuera de Quebec: {0} es operado por {1} y trata lo que recibe {2}.",
+      "outsideQuebecUnknown": "Esta información puede comunicarse fuera de Quebec: Dravr no sabe dónde trata {0} lo que recibe.",
+      "privacyPolicy": "Política de privacidad",
+      "returnsTo": "Después volverá a {0}",
+      "revokeAnytime": "Puede revocar este acceso en cualquier momento en sus ajustes de Dravr.",
+      "scope": {
+        "fitnessRead": "leer sus datos de actividad física: actividades, estadísticas, sueño y análisis",
+        "fitnessWrite": "crear o modificar sus datos de actividad física: objetivos, planes y entrenamientos registrados",
+        "profileRead": "leer su perfil, sus ajustes y los servicios que ha vinculado",
+        "profileWrite": "modificar su perfil, sus ajustes y sus servicios vinculados"
+      },
+      "scopesTitle": "Esto le permitirá",
+      "signedInAs": "Sesión iniciada como {0}",
+      "terms": "Condiciones",
+      "title": "Autorizar el acceso",
+      "unverifiedBody": "Dravr no ha verificado quién opera esta aplicación. Permita el acceso solo si usted mismo inició esta conexión.",
+      "unverifiedLoopback": "Le devuelve a un programa de este dispositivo, así que continúe solo si lo está ejecutando.",
+      "unverifiedPublishedBy": "La publica {0}; el nombre que se da a sí misma no se comprueba.",
+      "unverifiedTitle": "Aplicación no verificada.",
+      "useAnotherAccount": "Usar otra cuenta",
+      "verified": "Verificada: {0} de {1}"
+    },
+    "error": {
+      "accountGone": "La cuenta con la que inició sesión ya no existe; vuelva a iniciar sesión",
+      "accountUnavailable": "No se pudo cargar la cuenta",
+      "awaitsApproval": "Su cuenta de Dravr está pendiente de aprobación. Vuelva a conectar esta aplicación cuando esté aprobada.",
+      "awaitsEmailProof": "Su cuenta de Dravr está a la espera de que confirme su correo electrónico. Abra el enlace de confirmación que le enviamos y vuelva a conectar esta aplicación.",
+      "consentExpired": "La pantalla de consentimiento caducó o no procede de Dravr; vuelva a iniciar la conexión",
+      "consentUnavailable": "No se pudo preparar la pantalla de consentimiento",
+      "denied": "Esta solicitud fue rechazada.",
+      "googleExpired": "Este inicio de sesión con Google caducó o se inició en otro navegador. Vuelva a empezar desde la aplicación que está conectando.",
+      "googleRefused": "No se pudo completar el inicio de sesión con Google para esta cuenta.",
+      "invalidClient": "No se reconoce esta aplicación. Vuelva a ella e inicie de nuevo la conexión.",
+      "invalidRequest": "Esta solicitud de conexión no es válida. Vuelva a la aplicación y empiece de nuevo.",
+      "limiterUnavailable": "La limitación de solicitudes no está disponible temporalmente; vuelva a intentarlo más tarde",
+      "rateLimited": "Demasiadas solicitudes; vuelva a intentarlo en un momento",
+      "serverError": "Algo salió mal por nuestra parte. Vuelva a intentarlo en un momento.",
+      "signupPaused": "Las inscripciones están en pausa por ahora. Vuelva a intentarlo más tarde.",
+      "suspended": "Su cuenta de Dravr está suspendida",
+      "title": "Error de conexión",
+      "tryAgain": "Vuelva a intentarlo.",
+      "unavailable": "El servicio no está disponible temporalmente. Vuelva a intentarlo en un momento."
+    }
+  },
   "onboarding": {
     "aboutYouHint": "Tres preguntas rápidas para que tu agente te conozca desde el principio. Sáltate las que quieras — el resto lo iremos recogiendo por el camino.",
     "agentProposalNoActivities": "Todavía no encontramos actividades recientes — aquí tienes algunos agentes para empezar. Tus sugerencias se afinarán a medida que tu proveedor sincronice más datos.",

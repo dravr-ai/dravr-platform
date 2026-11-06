@@ -3326,6 +3326,60 @@
       "marathon": "Marathon"
     }
   },
+  "oauth": {
+    "consent": {
+      "allow": "Zugriff erlauben",
+      "deny": "Ablehnen",
+      "express": "Ihre Trainings-, Schlaf- und Erholungsdaten sind sensible personenbezogene Informationen. Indem Sie {0} wählen, willigen Sie ausdrücklich ein, dass Dravr sie an {1} weitergibt.",
+      "firstPartyOnly": "Ihre Daten von {0} bleiben in Dravr und werden nicht an {1} weitergegeben.",
+      "health": "Die Trainings-, Schlaf- und Erholungsdaten, die Sie mit Dravr verbunden haben, werden an {0} weitergegeben. Dravr bietet Informationen zu Training und Wohlbefinden, keine medizinische Beratung.",
+      "inUnitedStates": "in den Vereinigten Staaten",
+      "lead": "{0} möchte auf Ihre Dravr-Fitnessdaten zugreifen.",
+      "listPair": "{0} und {1}",
+      "outsideQuebecKnown": "Diese Informationen können außerhalb von Québec übermittelt werden: {0} wird von {1} betrieben und verarbeitet das Empfangene {2}.",
+      "outsideQuebecUnknown": "Diese Informationen können außerhalb von Québec übermittelt werden: Dravr weiß nicht, wo {0} das Empfangene verarbeitet.",
+      "privacyPolicy": "Datenschutzerklärung",
+      "returnsTo": "Danach kehren Sie zu {0} zurück",
+      "revokeAnytime": "Sie können diesen Zugriff jederzeit in Ihren Dravr-Einstellungen widerrufen.",
+      "scope": {
+        "fitnessRead": "Ihre Fitnessdaten lesen: Aktivitäten, Statistiken, Schlaf und Analysen",
+        "fitnessWrite": "Ihre Fitnessdaten erstellen oder ändern: Ziele, Pläne und erfasste Einheiten",
+        "profileRead": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste lesen",
+        "profileWrite": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste ändern"
+      },
+      "scopesTitle": "Damit kann die App",
+      "signedInAs": "Angemeldet als {0}",
+      "terms": "Nutzungsbedingungen",
+      "title": "Zugriff autorisieren",
+      "unverifiedBody": "Dravr hat nicht überprüft, wer diese App betreibt. Erlauben Sie den Zugriff nur, wenn Sie diese Verbindung selbst gestartet haben.",
+      "unverifiedLoopback": "Sie führt Sie zu einem Programm auf diesem Gerät zurück. Fahren Sie also nur fort, wenn Sie es ausführen.",
+      "unverifiedPublishedBy": "Sie wird von {0} veröffentlicht; der Name, den sie sich selbst gibt, wird nicht geprüft.",
+      "unverifiedTitle": "Nicht verifizierte App.",
+      "useAnotherAccount": "Anderes Konto verwenden",
+      "verified": "Verifiziert: {0} von {1}"
+    },
+    "error": {
+      "accountGone": "Das Konto, mit dem Sie angemeldet sind, existiert nicht mehr; melden Sie sich erneut an",
+      "accountUnavailable": "Das Konto konnte nicht geladen werden",
+      "awaitsApproval": "Ihr Dravr-Konto wartet auf die Freigabe. Verbinden Sie diese App erneut, sobald es freigegeben ist.",
+      "awaitsEmailProof": "Ihr Dravr-Konto wartet auf die Bestätigung Ihrer E-Mail-Adresse. Öffnen Sie den Bestätigungslink aus unserer E-Mail und verbinden Sie diese App dann erneut.",
+      "consentExpired": "Der Einwilligungsbildschirm ist abgelaufen oder stammt nicht von Dravr; starten Sie die Verbindung erneut",
+      "consentUnavailable": "Der Einwilligungsbildschirm konnte nicht vorbereitet werden",
+      "denied": "Diese Anfrage wurde abgelehnt.",
+      "googleExpired": "Diese Google-Anmeldung ist abgelaufen oder wurde in einem anderen Browser gestartet. Beginnen Sie erneut in der App, die Sie verbinden.",
+      "googleRefused": "Die Google-Anmeldung konnte für dieses Konto nicht abgeschlossen werden.",
+      "invalidClient": "Diese App wird nicht erkannt. Kehren Sie zu ihr zurück und starten Sie die Verbindung erneut.",
+      "invalidRequest": "Diese Verbindungsanfrage ist ungültig. Kehren Sie zur App zurück und beginnen Sie erneut.",
+      "limiterUnavailable": "Die Anfragebegrenzung ist vorübergehend nicht verfügbar; versuchen Sie es später erneut",
+      "rateLimited": "Zu viele Anfragen; versuchen Sie es gleich erneut",
+      "serverError": "Bei uns ist ein Fehler aufgetreten. Versuchen Sie es gleich erneut.",
+      "signupPaused": "Die Registrierung ist derzeit pausiert. Bitte versuchen Sie es später erneut.",
+      "suspended": "Ihr Dravr-Konto ist gesperrt",
+      "title": "Verbindung fehlgeschlagen",
+      "tryAgain": "Bitte versuchen Sie es erneut.",
+      "unavailable": "Der Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es gleich erneut."
+    }
+  },
   "onboarding": {
     "aboutYouHint": "Drei kurze Fragen, damit dein Agent dich von Anfang an kennt. Überspring, was du willst — den Rest holen wir unterwegs nach.",
     "agentProposalNoActivities": "Wir haben noch keine aktuellen Aktivitäten gefunden — hier sind ein paar Agenten für den Anfang. Deine Vorschläge werden genauer, sobald dein Anbieter mehr Daten synchronisiert.",

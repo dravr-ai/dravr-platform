@@ -3326,6 +3326,60 @@
       "marathon": "marathon"
     }
   },
+  "oauth": {
+    "consent": {
+      "allow": "Autoriser l’accès",
+      "deny": "Refuser",
+      "express": "Vos données d’entraînement, de sommeil et de récupération sont des renseignements personnels sensibles. En choisissant {0}, vous consentez expressément à ce que Dravr les communique à {1}.",
+      "firstPartyOnly": "Vos données provenant de {0} restent dans Dravr et ne sont pas communiquées à {1}.",
+      "health": "Les données d’entraînement, de sommeil et de récupération que vous avez connectées à Dravr seront communiquées à {0}. Dravr fournit de l’information sur l’entraînement et le mieux-être, et non des conseils médicaux.",
+      "inUnitedStates": "aux États-Unis",
+      "lead": "{0} souhaite accéder à vos données de conditionnement physique Dravr.",
+      "listPair": "{0} et {1}",
+      "outsideQuebecKnown": "Ces renseignements peuvent être communiqués à l’extérieur du Québec : {0} est un service exploité par {1}, et ce service traite ce qu’il reçoit {2}.",
+      "outsideQuebecUnknown": "Ces renseignements peuvent être communiqués à l’extérieur du Québec : Dravr ne sait pas où {0} traite ce que ce service reçoit.",
+      "privacyPolicy": "Politique de confidentialité",
+      "returnsTo": "Vous reviendrez ensuite sur {0}",
+      "revokeAnytime": "Vous pouvez révoquer cet accès à tout moment dans vos paramètres Dravr.",
+      "scope": {
+        "fitnessRead": "lire vos données de conditionnement physique : activités, statistiques, sommeil et analyses",
+        "fitnessWrite": "créer ou modifier vos données de conditionnement physique : objectifs, plans et entraînements consignés",
+        "profileRead": "lire votre profil, vos paramètres et les services que vous avez liés",
+        "profileWrite": "modifier votre profil, vos paramètres et vos services liés"
+      },
+      "scopesTitle": "Cela lui permettra de",
+      "signedInAs": "Compte connecté : {0}",
+      "terms": "Conditions d’utilisation",
+      "title": "Autoriser l’accès",
+      "unverifiedBody": "Dravr n’a pas vérifié qui exploite cette application. N’autorisez l’accès que si vous avez vous-même lancé cette connexion.",
+      "unverifiedLoopback": "Elle vous renvoie vers un programme sur cet appareil : ne continuez que si vous l’exécutez.",
+      "unverifiedPublishedBy": "Elle est publiée par {0}; le nom qu’elle se donne n’est pas vérifié.",
+      "unverifiedTitle": "Application non vérifiée.",
+      "useAnotherAccount": "Utiliser un autre compte",
+      "verified": "Application vérifiée : {0}, de {1}"
+    },
+    "error": {
+      "accountGone": "Le compte utilisé pour cette session n’existe plus; connectez-vous de nouveau",
+      "accountUnavailable": "Le compte n’a pas pu être chargé",
+      "awaitsApproval": "Votre compte Dravr est en attente d’approbation. Connectez de nouveau cette application une fois le compte approuvé.",
+      "awaitsEmailProof": "Votre compte Dravr attend la confirmation de votre adresse courriel. Ouvrez le lien de confirmation que nous vous avons envoyé par courriel, puis connectez de nouveau cette application.",
+      "consentExpired": "L’écran de consentement a expiré ou ne provient pas de Dravr; recommencez la connexion",
+      "consentUnavailable": "L’écran de consentement n’a pas pu être préparé",
+      "denied": "Cette demande a été refusée.",
+      "googleExpired": "Cette connexion Google a expiré ou a été lancée dans un autre navigateur. Recommencez à partir de l’application que vous connectez.",
+      "googleRefused": "La connexion Google n’a pas pu être effectuée pour ce compte.",
+      "invalidClient": "Cette application n’est pas reconnue. Retournez-y et recommencez la connexion.",
+      "invalidRequest": "Cette demande de connexion n’est pas valide. Retournez à l’application et recommencez.",
+      "limiterUnavailable": "La limitation du nombre de requêtes est temporairement indisponible; réessayez plus tard",
+      "rateLimited": "Trop de requêtes; réessayez dans un moment",
+      "serverError": "Un problème est survenu de notre côté. Réessayez dans un moment.",
+      "signupPaused": "Les inscriptions sont suspendues pour le moment. Veuillez réessayer plus tard.",
+      "suspended": "Votre compte Dravr est suspendu",
+      "title": "Échec de la connexion",
+      "tryAgain": "Veuillez réessayer.",
+      "unavailable": "Le service est temporairement indisponible. Réessayez dans un moment."
+    }
+  },
   "onboarding": {
     "aboutYouHint": "Trois questions rapides pour que ton agent te connaisse dès le départ. Passe celles que tu veux — on rattrapera le reste en route.",
     "agentProposalNoActivities": "On n’a pas encore trouvé d’activités récentes — voici quelques agents pour démarrer. Tes suggestions s’affineront à mesure que ton fournisseur synchronise plus de données.",
