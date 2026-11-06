@@ -823,3 +823,54 @@ async fn a_screenshot_that_is_not_what_it_says_is_refused() {
         "bug: a text message serves no screenshot"
     );
 }
+
+/// Messages written in one millisecond read back in the order they were sent:
+/// the thread breaks a time tie by id, and ids are time-ordered.
+#[tokio::test]
+async fn messages_written_in_one_millisecond_read_back_in_the_order_they_were_sent() {
+    let setup = setup().await;
+    let a = athlete(&setup, "feedback-same-instant@example.com").await;
+    let at = Utc::now();
+    let team = FeedbackWriter::Team {
+        slack_user_id: "U0PHIL",
+    };
+    let sent = [
+        (FeedbackWriter::Athlete, "one"),
+        (team, "two"),
+        (FeedbackWriter::Athlete, "three"),
+        (team, "four"),
+        (FeedbackWriter::Athlete, "five"),
+    ];
+    for (writer, body) in sent {
+        setup
+            .resources
+            .common
+            .repos
+            .feedback_messages
+            .insert_feedback_message(&NewFeedbackMessage {
+                tenant_id: a.tenant_id,
+                user_id: a.user_id,
+                writer,
+                body,
+                screen: None,
+                app_version: None,
+                locale: None,
+                about: None,
+                image: None,
+                at,
+            })
+            .await
+            .expect("message stored");
+    }
+
+    let bodies: Vec<String> = thread(&setup, &a)
+        .await
+        .iter()
+        .map(|m| m["body"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        bodies,
+        ["one", "two", "three", "four", "five"],
+        "bug: messages sharing a millisecond must keep the order they were sent"
+    );
+}

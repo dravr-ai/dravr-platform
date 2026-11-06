@@ -303,7 +303,10 @@ macro_rules! impl_feedback_message_repository {
                 &self,
                 message: &NewFeedbackMessage<'_>,
             ) -> AppResult<FeedbackMessage> {
-                let id = Uuid::new_v4().to_string();
+                // Time-ordered, and ordered within a millisecond in this
+                // process, so the thread's `id` tiebreak keeps two messages
+                // written in the same millisecond in the order they were sent.
+                let id = Uuid::now_v7().to_string();
                 let author = message.writer.author();
                 sqlx::query(INSERT_FEEDBACK_MESSAGE_SQL)
                     .bind(&id)
