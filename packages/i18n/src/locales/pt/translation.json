@@ -3668,6 +3668,16 @@
     "garmin": "Garmin",
     "importHistory": "Importar o meu histórico",
     "importHistoryAria": "Importar o meu histórico do {{provider}}",
+    "history": {
+      "importing": "A copiar as tuas atividades anteriores do {{provider}}…",
+      "imported": "O teu histórico do {{provider}} já está cá",
+      "incomplete": "A cópia do teu histórico do {{provider}} não terminou",
+      "needed": "As tuas atividades anteriores do {{provider}} ainda não estão cá",
+      "signIn": "Inicia sessão para importar o teu histórico",
+      "signInAria": "Inicia sessão no {{provider}} para importar o teu histórico",
+      "retry": "Tentar novamente",
+      "explainer": "Inicia sessão uma vez com a tua conta {{provider}}: copiamos as tuas atividades anteriores e um ano de bem-estar e depois esquecemos esse início de sessão."
+    },
     "isConnectedAria": "{{provider}} está ligado",
     "lastSync": "Última sincronização",
     "none": "Não há fornecedores disponíveis",

@@ -3668,6 +3668,16 @@
     "garmin": "Garmin",
     "importHistory": "Import my history",
     "importHistoryAria": "Import my {{provider}} history",
+    "history": {
+      "importing": "Copying your past {{provider}} activities…",
+      "imported": "Your {{provider}} history is in",
+      "incomplete": "Your {{provider}} history didn't finish copying",
+      "needed": "Your past {{provider}} activities aren't here yet",
+      "signIn": "Sign in to import your history",
+      "signInAria": "Sign in to {{provider}} to import your history",
+      "retry": "Try again",
+      "explainer": "Sign in once with your {{provider}} account: we copy your past activities and a year of wellness, then forget that sign-in."
+    },
     "isConnectedAria": "{{provider}} is connected",
     "lastSync": "Last sync",
     "none": "No providers available",

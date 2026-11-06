@@ -3668,6 +3668,16 @@
     "garmin": "Garmin",
     "importHistory": "Meinen Verlauf importieren",
     "importHistoryAria": "Meinen {{provider}}-Verlauf importieren",
+    "history": {
+      "importing": "Deine früheren {{provider}}-Aktivitäten werden kopiert…",
+      "imported": "Dein {{provider}}-Verlauf ist da",
+      "incomplete": "Dein {{provider}}-Verlauf wurde nicht vollständig kopiert",
+      "needed": "Deine früheren {{provider}}-Aktivitäten sind noch nicht da",
+      "signIn": "Anmelden, um deinen Verlauf zu importieren",
+      "signInAria": "Bei {{provider}} anmelden, um deinen Verlauf zu importieren",
+      "retry": "Erneut versuchen",
+      "explainer": "Melde dich einmal mit deinem {{provider}}-Konto an: Wir kopieren deine früheren Aktivitäten und ein Jahr Wellness-Daten und vergessen diese Anmeldung danach."
+    },
     "isConnectedAria": "{{provider}} ist verbunden",
     "lastSync": "Letzte Synchronisierung",
     "none": "Keine Anbieter verfügbar",
