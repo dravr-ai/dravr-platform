@@ -9,6 +9,11 @@ const reactDir = path.dirname(require.resolve('react/package.json'));
 
 module.exports = {
   preset: 'jest-expo',
+  // Jest's default is one worker per core minus one: 17 on an 18-core Mac.
+  // Several sessions test from their own worktrees on one machine, and two
+  // runs at once put 34 workers into swap. CI keeps the default, sized to the
+  // runner; `--maxWorkers` on the command line still overrides this.
+  ...(process.env.CI ? {} : { maxWorkers: 4 }),
   setupFilesAfterEnv: [
     '@testing-library/jest-native/extend-expect',
     '<rootDir>/jest.setup.js',
