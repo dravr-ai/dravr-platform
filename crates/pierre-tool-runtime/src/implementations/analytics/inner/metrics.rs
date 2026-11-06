@@ -36,11 +36,6 @@ struct ActivityParameters {
     user_age: Option<u32>,
 }
 
-/// Why a coach's read of an athlete carries no heart-rate reading.
-const COACH_READ_NO_HEART_RATE_READING: &str = "a coach's read of an athlete leaves out the \
-     resting heart rate their heart-rate zones are cut from, so the heart rate is not read on \
-     their zones here";
-
 /// Calculated fitness metrics
 struct CalculatedMetrics {
     pace: f64,
@@ -373,13 +368,18 @@ async fn fetch_and_calculate_metrics(
     let metrics = calculate_activity_metrics(&params);
     // A reading's fraction of heart-rate reserve, beside the heart rate and
     // the maximum it was read against, gives back the resting heart rate the
-    // zones were cut from: the athlete's wellness, which a coach's read of
-    // their training leaves out (carnet#1387).
-    let reading = if read_subject::wellness_readable() {
-        heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref())
-    } else {
-        Err(COACH_READ_NO_HEART_RATE_READING.to_owned())
-    };
+    // zones were cut from: the athlete's wellness, which a coach's read shows
+    // only under their wellness grant (carnet#1387).
+    let reading = read_subject::wellness_withheld().map_or_else(
+        || heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref()),
+        |withheld| {
+            Err(format!(
+                "the heart rate is not read on the athlete's zones here: they are cut from the \
+                 athlete's resting heart rate. {}",
+                withheld.note()
+            ))
+        },
+    );
 
     build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format)
 }

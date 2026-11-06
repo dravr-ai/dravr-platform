@@ -863,16 +863,23 @@ pub(crate) fn handle_generate_recommendations(
             )));
         }
         // The nutrition mode scales its amounts from the athlete's body weight
-        // and reads their medical flag: their wellness, which a coach's read of
-        // their training leaves out (carnet#1387). Refused before anything is
-        // read; every other mode reads their training alone.
-        if recommendation_type == "nutrition" && !read_subject::wellness_readable() {
+        // and reads their medical flag: their wellness, which a coach's read
+        // shows only under their wellness grant, on any transport
+        // (carnet#1387). Refused before anything is read; every other mode
+        // reads their training alone.
+        let withheld = if recommendation_type == "nutrition" {
+            read_subject::wellness_withheld()
+        } else {
+            None
+        };
+        if let Some(withheld) = withheld {
             return Ok(read_subject::wellness_refusal(
                 "generate_recommendations",
                 WellnessInput::Mode {
                     argument: "recommendation_type",
                     value: "nutrition",
                 },
+                &withheld,
             ));
         }
         let provider_name = match resolve_provider_for_request(

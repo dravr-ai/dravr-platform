@@ -27,7 +27,8 @@
 //! per-night and per-day merge: a reader gets
 //! one record per night or per date, gated, merged and attributed, and
 //! never merges rows itself, so two tools can no longer answer the same
-//! night two ways. A [`SourceFilter`] says which rows take part.
+//! night two ways. A [`SourceFilter`] says which rows take part, and a
+//! [`RowProjection`] what of each row the reader may see, before the merge.
 //!
 //! Each row is merged as the precedence source its key and data source
 //! classify to (`pierre_providers::precedence`), the one input
@@ -145,25 +146,44 @@ impl SourceFilter<'_> {
     }
 }
 
-/// Narrow, gate and merge stored rows: the shared body of the `merged_*`
-/// reads. A [`SourceFilter::Link`] read returns each kept row on its own.
+/// What a merged read keeps of each stored row, before the rows merge: the
+/// row with only what the reader may see, or `None` to leave it out.
+///
+/// Applied before the merge because a merged record cannot be cut down
+/// afterwards: a primary picked from a row the reader may not see carries
+/// that row's id, source and time into the record, and the next source's are
+/// gone. [`as_stored`] keeps every row whole.
+pub type RowProjection<T> = fn(T) -> Option<T>;
+
+/// Each row as it was stored: the [`RowProjection`] of a read that shows the
+/// athlete's records whole.
+#[must_use]
+pub const fn as_stored<T>(row: T) -> Option<T> {
+    Some(row)
+}
+
+/// Narrow, project, gate and merge stored rows: the shared body of the
+/// `merged_*` reads. A [`SourceFilter::Link`] read returns each kept row on
+/// its own.
 ///
 /// Each row is merged as the [`Source`] its key and data source classify to
 /// ([`wellness_source`]), the one input dravr-equilibre's rank reads. The
 /// athlete's data sources are listed once, when a gate applies or when a
 /// row's key needs its data source to name its recorder (a relay, an
-/// upload); otherwise the classification reads the key alone.
+/// upload); otherwise the classification reads the key alone. A row
+/// `project` leaves out is never gated, attributed or merged.
 async fn merged<T: StoredHealthRecord>(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     (user_id, tenant): (Uuid, &TenantId),
     rows: Vec<T>,
-    filter: SourceFilter<'_>,
+    (filter, project): (SourceFilter<'_>, RowProjection<T>),
     merge: impl FnOnce(Vec<Sourced<T>>) -> Vec<Merged<T>>,
 ) -> AppResult<StoredHealth<Merged<T>>> {
     let rows: Vec<T> = rows
         .into_iter()
         .filter(|row| filter.admits(row.source_name()))
+        .filter_map(project)
         .collect();
     let classify_by_source = matches!(filter, SourceFilter::All | SourceFilter::Service(_))
         && rows.iter().any(|row| needs_data_source(row.source_name()));
@@ -218,7 +238,8 @@ fn unmerged<T: StoredHealthRecord>(record: T, sources: &[DataSource]) -> Merged<
 }
 
 /// The athlete's nights starting inside the window, one per night across the
-/// sources `filter` admits, ordered by start, naps included.
+/// sources `filter` admits, each session kept as `project` says, ordered by
+/// start, naps included.
 ///
 /// # Errors
 ///
@@ -231,20 +252,23 @@ pub async fn merged_sleep(
     tenant: &TenantId,
     (start, end): (DateTime<Utc>, DateTime<Utc>),
     filter: SourceFilter<'_>,
+    project: RowProjection<StoredSleepSession>,
 ) -> AppResult<StoredHealth<Merged<StoredSleepSession>>> {
     let rows = repos
         .sleep
         .get_sleep_sessions(user_id, tenant, start, end)
         .await?;
     let zone = athlete_zone(repos, user_id).await;
-    merged(repos, terms, (user_id, tenant), rows, filter, |nights| {
+    let kept = (filter, project);
+    merged(repos, terms, (user_id, tenant), rows, kept, |nights| {
         merge_sleep_sessions(nights, &zone)
     })
     .await
 }
 
 /// The athlete's recovery days inside the window, one per date across the
-/// sources `filter` admits, ordered by date.
+/// sources `filter` admits, each reading kept as `project` says, ordered by
+/// date.
 ///
 /// # Errors
 ///
@@ -257,6 +281,7 @@ pub async fn merged_recovery(
     tenant: &TenantId,
     (start, end): (DateTime<Utc>, DateTime<Utc>),
     filter: SourceFilter<'_>,
+    project: RowProjection<StoredRecoveryMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredRecoveryMetrics>>> {
     let rows = repos
         .recovery
@@ -267,14 +292,15 @@ pub async fn merged_recovery(
         terms,
         (user_id, tenant),
         rows,
-        filter,
+        (filter, project),
         merge_recovery_metrics,
     )
     .await
 }
 
 /// The athlete's body readings inside the window, one per date across the
-/// sources `filter` admits, ordered by date.
+/// sources `filter` admits, each snapshot kept as `project` says, ordered by
+/// date.
 ///
 /// # Errors
 ///
@@ -287,6 +313,7 @@ pub async fn merged_body(
     tenant: &TenantId,
     (start, end): (DateTime<Utc>, DateTime<Utc>),
     filter: SourceFilter<'_>,
+    project: RowProjection<StoredHealthMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredHealthMetrics>>> {
     let rows = repos
         .health_snapshots
@@ -297,15 +324,15 @@ pub async fn merged_body(
         terms,
         (user_id, tenant),
         rows,
-        filter,
+        (filter, project),
         merge_health_metrics,
     )
     .await
 }
 
 /// The athlete's activity days inside the window — steps, energy, intensity
-/// minutes — one per date across the sources `filter` admits, ordered by
-/// date.
+/// minutes — one per date across the sources `filter` admits, each day kept
+/// as `project` says, ordered by date.
 ///
 /// # Errors
 ///
@@ -318,6 +345,7 @@ pub async fn merged_daily_activity(
     tenant: &TenantId,
     (start, end): (DateTime<Utc>, DateTime<Utc>),
     filter: SourceFilter<'_>,
+    project: RowProjection<StoredDailyActivity>,
 ) -> AppResult<StoredHealth<Merged<StoredDailyActivity>>> {
     let rows = repos
         .daily_activity
@@ -328,7 +356,7 @@ pub async fn merged_daily_activity(
         terms,
         (user_id, tenant),
         rows,
-        filter,
+        (filter, project),
         merge_daily_activity,
     )
     .await
@@ -366,7 +394,7 @@ pub async fn latest_anchor_measurements(
             terms,
             (user_id, tenant),
             recovery,
-            SourceFilter::All,
+            (SourceFilter::All, as_stored),
             merge_recovery_metrics,
         )
         .await?
@@ -383,7 +411,7 @@ pub async fn latest_anchor_measurements(
             terms,
             (user_id, tenant),
             body,
-            SourceFilter::All,
+            (SourceFilter::All, as_stored),
             merge_health_metrics,
         )
         .await?
@@ -416,7 +444,8 @@ pub async fn latest_night_source(
     tenant: &TenantId,
     window: (DateTime<Utc>, DateTime<Utc>),
 ) -> AppResult<Option<String>> {
-    let nights = merged_sleep(repos, terms, user_id, tenant, window, SourceFilter::All).await?;
+    let all = SourceFilter::All;
+    let nights = merged_sleep(repos, terms, user_id, tenant, window, all, as_stored).await?;
     Ok(nights
         .records
         .into_iter()
@@ -918,54 +947,6 @@ mod tests {
         );
     }
 
-    fn source_of(
-        id: &str,
-        provider: &str,
-        source: Option<&str>,
-        model: Option<&str>,
-    ) -> DataSource {
-        DataSource {
-            id: id.to_owned(),
-            user_id: "athlete".to_owned(),
-            provider: provider.to_owned(),
-            device_model: model.map(str::to_owned),
-            software_version: None,
-            source: source.map(str::to_owned),
-            device_type: DeviceType::Watch,
-            original_source_name: None,
-        }
-    }
-
-    #[test]
-    fn a_row_is_attributed_by_the_garmin_data_source_that_synced_it() {
-        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
-        let user_id = Uuid::new_v4();
-        let sources = [
-            source_of("garmin", "garmin", None, Some("Forerunner 965")),
-            source_of("nolio-garmin", "nolio", Some("garmin"), None),
-            source_of("nolio-edge", "nolio", None, Some("Garmin Edge 840")),
-            source_of("nolio-zepp", "nolio", Some("zepp"), Some("Zepp Amazfit")),
-            source_of("coros", "coros", None, Some("PACE 3")),
-        ];
-        for (id, stored_under, expected) in [
-            ("garmin", "garmin", Some("Garmin Forerunner 965")),
-            ("nolio-garmin", "nolio", Some("Garmin")),
-            ("nolio-edge", "nolio", Some("Garmin Edge 840")),
-            ("nolio-zepp", "nolio", None),
-            ("coros", "coros", None),
-            // No gate listed the sources: the provider it was stored under.
-            ("unlisted", "garmin", Some("Garmin")),
-            ("unlisted", "coros", None),
-        ] {
-            let row = morning_of(user_id, id, stored_under, night);
-            assert_eq!(
-                garmin_rows_attribution(&[row], &sources).as_deref(),
-                expected,
-                "{id} stored under {stored_under}"
-            );
-        }
-    }
-
     #[tokio::test]
     async fn the_athletes_own_routes_read_every_row() {
         let athlete = athlete().await;
@@ -978,6 +959,14 @@ mod tests {
             &self,
             filter: SourceFilter<'_>,
         ) -> Vec<Merged<StoredRecoveryMetrics>> {
+            self.projected_mornings(filter, as_stored).await.records
+        }
+
+        async fn projected_mornings(
+            &self,
+            filter: SourceFilter<'_>,
+            project: RowProjection<StoredRecoveryMetrics>,
+        ) -> StoredHealth<Merged<StoredRecoveryMetrics>> {
             merged_recovery(
                 &self.repos,
                 &Terms,
@@ -985,10 +974,10 @@ mod tests {
                 &self.tenant,
                 (self.start, self.end),
                 filter,
+                project,
             )
             .await
             .unwrap()
-            .records
         }
 
         async fn merged_nights(&self, filter: SourceFilter<'_>) -> Vec<Merged<StoredSleepSession>> {
@@ -999,11 +988,38 @@ mod tests {
                 &self.tenant,
                 (self.start, self.end),
                 filter,
+                as_stored,
             )
             .await
             .unwrap()
             .records
         }
+    }
+
+    /// A projection that keeps nothing of Garmin's mornings.
+    fn without_garmin(morning: StoredRecoveryMetrics) -> Option<StoredRecoveryMetrics> {
+        (morning.source_name != "garmin").then_some(morning)
+    }
+
+    /// A row the projection leaves out never reaches the merge: Garmin ranks
+    /// first, yet the morning stands on COROS, with its value, and owes none
+    /// of Garmin's attribution; a link read is projected too.
+    #[tokio::test]
+    async fn a_projection_runs_on_each_row_before_the_merge() {
+        let athlete = athlete().await;
+        let read = athlete
+            .projected_mornings(SourceFilter::All, without_garmin)
+            .await;
+        let morning = &read.records[0];
+        let primary = (
+            morning.record.source_name.as_str(),
+            morning.record.resting_heart_rate,
+        );
+        assert_eq!(primary, ("coros", Some(44)), "the next source stands");
+        assert_eq!(sorted(&morning.sources), vec!["coros", "zepp"], "no Garmin");
+        assert_eq!(read.attribution, None, "no Garmin row is served");
+        let link = athlete.projected_mornings(SourceFilter::Link("garmin"), without_garmin);
+        assert!(link.await.records.is_empty(), "a link read is projected");
     }
 
     /// Every source's morning merges into one record; a named source narrows

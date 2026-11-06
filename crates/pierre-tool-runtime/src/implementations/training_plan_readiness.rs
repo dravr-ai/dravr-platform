@@ -465,6 +465,7 @@ async fn recovery_series(
         &tenant,
         (start, end),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .map_or_else(
@@ -527,6 +528,7 @@ async fn sleep_by_night(
         &tenant,
         (start, end),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .map_or_else(

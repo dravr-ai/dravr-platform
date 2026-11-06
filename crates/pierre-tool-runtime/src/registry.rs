@@ -127,16 +127,17 @@ impl ToolRegistry {
 
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
     ///
-    /// A training-class tool ([`DataClass::Training`]) is listed with the
-    /// shared `athlete` property ([`athlete_property`]): the class is what
-    /// lets the dispatch chokepoint read a named coached athlete for it, so
-    /// the argument follows the declaration rather than each tool's own
-    /// schema. Chat strips it again ([`Self::chat_callable_schemas`]).
+    /// A training- or wellness-class tool ([`DataClass::reads_a_coached_athlete`])
+    /// is listed with the shared `athlete` property ([`athlete_property`]):
+    /// the class is what lets the dispatch chokepoint read a named coached
+    /// athlete for it, so the argument follows the declaration rather than
+    /// each tool's own schema. Chat strips it again
+    /// ([`Self::chat_callable_schemas`]).
     fn build_schema(&self, tool: &Arc<dyn RuntimeTool>) -> ToolSchema {
         let def = tool.definition();
         let name = def.name.clone();
         let mut schema = schema_from_definition(def);
-        if self.data_class(&name) == Some(DataClass::Training) {
+        if self.reads_a_coached_athlete(&name) {
             let (property, declared) = athlete_property();
             schema
                 .input_schema
@@ -215,6 +216,13 @@ impl ToolRegistry {
     #[must_use]
     pub(crate) fn data_class(&self, name: &str) -> Option<DataClass> {
         self.data_classes.get(name).copied()
+    }
+
+    /// Whether `name` reads a coached athlete a call names: a training- or
+    /// wellness-class tool, which takes `athlete=` over MCP and A2A.
+    fn reads_a_coached_athlete(&self, name: &str) -> bool {
+        self.data_class(name)
+            .is_some_and(DataClass::reads_a_coached_athlete)
     }
 
     /// Get a tool by name
@@ -407,10 +415,10 @@ impl ToolRegistry {
     ///
     /// Each schema here omits `format`: a chat turn never picks TOON
     /// (carnet#1314). The MCP listings (`user_visible_schemas` and the rest)
-    /// keep it, for external clients that opt in. A training-class tool also
-    /// omits `athlete`: in a coach's thread the athlete is implicit, and
-    /// anywhere else in chat a name would be the model's guess, which the
-    /// dispatch chokepoint refuses (carnet#1387).
+    /// keep it, for external clients that opt in. A training- or
+    /// wellness-class tool also omits `athlete`: in a coach's thread the
+    /// athlete is implicit, and anywhere else in chat a name would be the
+    /// model's guess, which the dispatch chokepoint refuses (carnet#1387).
     #[must_use]
     pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
         const CHAT_CALLABLE_CATEGORIES: &[&str] = &[
@@ -458,7 +466,7 @@ impl ToolRegistry {
             .map(|(name, tool)| {
                 let mut schema = self.build_schema(tool);
                 chat_catalogue::withhold_chat_parameters(&mut schema.input_schema);
-                if self.data_class(name) == Some(DataClass::Training) {
+                if self.reads_a_coached_athlete(name) {
                     if let Some(properties) = &mut schema.input_schema.properties {
                         properties.remove(ATHLETE_ARGUMENT);
                     }

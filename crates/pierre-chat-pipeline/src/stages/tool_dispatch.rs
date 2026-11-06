@@ -99,7 +99,8 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// declarations and refused at execution: the coach's own data tools on
     /// the coach's seat (carnet#742), and in their athlete thread every write
     /// on the coach's own account and every read of it (carnet#1387). There a
-    /// training read reads the thread's athlete.
+    /// training read reads the thread's athlete, and a wellness read too under
+    /// their wellness grant.
     pub seat: TurnSeat,
     /// The tools an operator switched off for the sender, resolved once per
     /// turn. Left out of the declarations and the loopback listing, as

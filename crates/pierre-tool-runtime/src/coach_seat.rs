@@ -19,14 +19,15 @@
 //!   turn there is about that athlete. A `remember_fact` would file "her FTP
 //!   is 250" as the coach's own FTP, and a note, follow-up, commitment, goal
 //!   or physiology write would land in the coach's dossier and reach every
-//!   other conversation that reads it; a `get_sleep_sessions` would answer a
-//!   question about her sleep with the coach's. A tool that writes data is
-//!   withheld unless it takes the `athlete` argument, which there defaults to
-//!   the thread's athlete. A tool that reads data is withheld unless it takes
-//!   that argument or declares a data class
+//!   other conversation that reads it; a `recall_user_memory` would answer a
+//!   question about her with the coach's own memory. A tool that writes data
+//!   is withheld unless it takes the `athlete` argument, which there defaults
+//!   to the thread's athlete. A tool that reads data is withheld unless it
+//!   takes that argument or declares a data class
 //!   ([`DataClass`](crate::read_subject::DataClass)): a training read reads
-//!   the thread's athlete ([`crate::read_subject`]), and a tool that reads no
-//!   person's data answers the same whoever asks. The `groups` tools take
+//!   the thread's athlete, and a wellness read too under their wellness grant
+//!   ([`crate::read_subject`]); a tool that reads no person's data answers the
+//!   same whoever asks. The `groups` tools take
 //!   neither — in a thread their room resolves as private, and each would
 //!   scan every group the coach coaches — so they stay in the room only.
 //!
@@ -42,7 +43,7 @@ use dravr_tronc::mcp::tool::ToolCapabilities;
 use serde_json::{json, Value};
 
 use crate::protocol::types::UniversalResponse;
-use crate::read_subject::ATHLETE_ARGUMENT;
+use crate::read_subject::{self, ATHLETE_ARGUMENT, WELLNESS_GRANT_WHERE};
 use crate::registry::ToolRegistry;
 
 /// Whose data a turn's tools run against.
@@ -210,13 +211,16 @@ fn coach_seat_message(tool_name: &str) -> String {
 /// What the model reads when it calls a read withheld in a coach's thread
 /// about one athlete.
 fn athlete_thread_read_message(tool_name: &str) -> String {
+    let wellness = read_subject::wellness_data();
     format!(
         "'{tool_name}' is not available here: in this thread about one athlete it would read the \
          coach's own data, never the athlete's. The athlete's training reads here — activities, \
          the daily load history, trends, goals, training physiology and the analyses of them — \
-         act on the athlete with `athlete` left out. Their wellness (sleep, HRV, recovery, \
-         resting heart rate, body weight) and their memory are not readable here; say so. If the \
-         coach wants their own data, tell them to ask in their own conversation with Dravr."
+         act on the athlete with `athlete` left out. Their wellness ({wellness}) reads here \
+         only once they share it with the coach, which only they can do, \
+         {WELLNESS_GRANT_WHERE}. Their memory is never readable here; \
+         say so. If the coach wants their own data, tell them to ask in their own conversation \
+         with Dravr."
     )
 }
 
@@ -266,9 +270,9 @@ mod tests {
 
     #[test]
     fn the_athlete_thread_read_refusal_says_whose_data_it_would_read() {
-        let message = athlete_thread_read_message("get_sleep_sessions");
+        let message = athlete_thread_read_message("recall_user_memory");
         assert!(
-            message.starts_with("'get_sleep_sessions' is not available here"),
+            message.starts_with("'recall_user_memory' is not available here"),
             "bug: the refusal names the tool it withholds: {message}"
         );
         assert!(
@@ -276,13 +280,15 @@ mod tests {
             "bug: the refusal says whose data the read would return: {message}"
         );
         assert!(
-            message.contains("not readable here; say so"),
+            message.contains("Their memory is never readable here; say so"),
             "bug: the refusal tells the model to say so rather than estimate: {message}"
         );
         assert!(
-            message
-                .contains("Their wellness (sleep, HRV, recovery, resting heart rate, body weight)"),
-            "bug: the refusal names the class a coach cannot read here: {message}"
+            message.contains(
+                "Their wellness (sleep, HRV, resting heart rate, weight, readiness and daily \
+                 notes) reads here only once they share it with the coach"
+            ) && message.contains("Group info → What your human coach can do"),
+            "bug: the refusal says the wellness takes the athlete's grant, and where: {message}"
         );
     }
 

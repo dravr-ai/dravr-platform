@@ -155,18 +155,11 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
 ///
 /// A training-class tool reads a coached athlete's training when a call names
 /// one: the athlete of a coach's thread about them, or `athlete=` over MCP
-/// and A2A. A tool that reads no person's data stays callable in that thread.
-/// A tool that reads data and is declared here under neither reads only its
-/// caller's own, and the thread withholds it.
-///
-/// LIMITATION(registre#1387): `DATA_CLASSES` declares no wellness class, so a coach reads none of
-/// an athlete's wellness under their `coach_wellness_read`: `get_sleep_sessions`,
-/// `get_recovery_metrics`, `get_health_snapshots`, `get_heart_rate_series`, the five sleep tools
-/// (`analyze_sleep_quality`, `calculate_recovery_score`, `suggest_rest_day`,
-/// `track_sleep_trends`, `optimize_sleep_schedule`), `calculate_daily_nutrition` and
-/// `get_nutrient_timing` declare no class, and a training read leaves out the wellness fields of
-/// the athlete's physiology (resting heart rate, weight) and refuses its wellness inputs
-/// (`read_subject::wellness_readable`).
+/// and A2A. A wellness-class tool reads their wellness the same two ways,
+/// under their `coach_wellness_read` too. A tool that reads no person's data
+/// stays callable in that thread. A tool that reads data and is declared here
+/// under none of them reads only its caller's own, and the thread withholds
+/// it.
 const DATA_CLASSES: &[(&str, DataClass)] = &[
     // The daily load history and the activities it is computed from, each
     // session's detail and streams.
@@ -194,15 +187,34 @@ const DATA_CLASSES: &[(&str, DataClass)] = &[
     ("suggest_goals", DataClass::Training),
     ("track_progress", DataClass::Training),
     ("analyze_goal_feasibility", DataClass::Training),
-    // Training physiology and the estimates read against it.
+    // Training physiology, the estimates read against it, and the zones and
+    // configuration it sets; the wellness fields of the physiology show only
+    // where a wellness read could.
     ("estimate_vo2max", DataClass::Training),
     ("estimate_lactate_thresholds", DataClass::Training),
+    ("calculate_personalized_zones", DataClass::Training),
+    ("get_user_configuration", DataClass::Training),
     // The athlete's provider profile and totals, their connected sources and
     // how fresh each is.
     ("get_athlete", DataClass::Training),
     ("get_stats", DataClass::Training),
     ("list_data_sources", DataClass::Training),
     ("get_data_freshness", DataClass::Training),
+    // The athlete's wellness: the sleep, recovery and readiness, health
+    // snapshots and intraday heart rate their sources sync, and what is
+    // derived from them.
+    ("get_sleep_sessions", DataClass::Wellness),
+    ("get_recovery_metrics", DataClass::Wellness),
+    ("get_health_snapshots", DataClass::Wellness),
+    ("get_heart_rate_series", DataClass::Wellness),
+    ("analyze_sleep_quality", DataClass::Wellness),
+    ("calculate_recovery_score", DataClass::Wellness),
+    ("suggest_rest_day", DataClass::Wellness),
+    ("track_sleep_trends", DataClass::Wellness),
+    ("optimize_sleep_schedule", DataClass::Wellness),
+    // Nutrition targets, which the athlete's medical flag governs.
+    ("calculate_daily_nutrition", DataClass::Wellness),
+    ("get_nutrient_timing", DataClass::Wellness),
     // Route and weather lookups: OpenStreetMap and forecast data, cached for
     // the caller's own next call.
     ("discover_routes", DataClass::NoSubject),

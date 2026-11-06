@@ -1,5 +1,5 @@
 // ABOUTME: Whose data a read tool reads: the caller's own, or a coached athlete's, resolved once at the dispatch chokepoint
-// ABOUTME: The thread's athlete by default in a coach's thread, `athlete=` over MCP/A2A only, under the coaching gates every time
+// ABOUTME: The thread's athlete by default in a coach's thread, `athlete=` over MCP/A2A, the coaching gates every time
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,10 @@
 //! their athletes, though, and a tool that reads the caller's own account
 //! answers with the coach's data (carnet#1387: "Tes activités (26)" were the
 //! coach's own rides). Each tool declares what it reads when it registers
-//! ([`DataClass`], beside its category); for a tool of the training class
-//! the dispatch chokepoint resolves *whose* data it reads before the body
-//! runs, here, once, rather than every tool resolving it again:
+//! ([`DataClass`], beside its category); for a tool of the training or the
+//! wellness class the dispatch chokepoint resolves *whose* data it reads
+//! before the body runs, here, once, rather than every tool resolving it
+//! again:
 //!
 //! 1. An `athlete` argument that did not arrive over an external transport is
 //!    refused. Chat never offers it, so a name in a chat call is the model's
@@ -29,8 +30,11 @@
 //! Either way the subject passes [`coached_athlete_access`] on every call —
 //! the coach attachment, a live membership, the athlete's
 //! `coach_sharing_consent` and one home tenant — so a consent revoked
-//! mid-thread refuses the next read. Each refusal is in-band, worded for the
-//! model to relay.
+//! mid-thread refuses the next read. A wellness read also needs the athlete's
+//! `coach_wellness_read`, read by the same gates (`wellness`), on every
+//! transport alike: a coach's own AI client reads under the same grant as
+//! Dravr's app (carnet#1424). Each refusal is in-band, worded for the model
+//! to relay.
 //!
 //! The plan tools' scope ([`crate::implementations::plan_scope`]) resolves
 //! its own `athlete` the same way and shares the name match and the gate
@@ -41,8 +45,6 @@ use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
-#[cfg(feature = "tools-config")]
-use pierre_core::models::UserPhysiologicalProfile;
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::PropertySchema;
@@ -50,23 +52,32 @@ use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
-#[cfg(feature = "tools-config")]
-use pierre_services::stored_health::Anchors;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
-use crate::context::scoped_read_subject;
 use crate::implementations::training_plan_authorship::load_conversation;
 use crate::protocol::types::UniversalResponse;
 use crate::runtime::ToolRuntime;
 
+mod wellness;
+
+#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+pub(crate) use wellness::wellness_withheld;
+#[cfg(feature = "tools-config")]
+pub(crate) use wellness::{readable_anchors, readable_physiology, wellness_readable};
+#[cfg(feature = "tools-data")]
+pub(crate) use wellness::{readable_wellness, unnamed_refusal, unnamed_wellness_note};
+pub(crate) use wellness::{wellness_class_refusal, WellnessWithheld};
+pub use wellness::{wellness_data, WELLNESS_GRANT_WHERE};
+#[cfg(feature = "tools-analytics")]
+pub(crate) use wellness::{wellness_refusal, WellnessInput};
+
 /// The argument a tool takes when it can act on an athlete other than the
 /// caller: a coach names a coached athlete with it. The plan and calendar
 /// tools declare it themselves, and in a coach's thread about one athlete it
-/// defaults to that athlete; a training read is listed with it over MCP and
-/// A2A only ([`athlete_property`]).
+/// defaults to that athlete; a training or wellness read is listed with it
+/// over MCP and A2A only ([`athlete_property`]).
 pub(crate) const ATHLETE_ARGUMENT: &str = "athlete";
 
 /// `error_code` of every refusal a read-subject resolution answers with.
@@ -75,9 +86,10 @@ pub(crate) const READ_SUBJECT_ERROR_CODE: &str = "read_subject_refused";
 /// What a tool reads, declared when it registers, beside its category.
 ///
 /// The class decides whose data the tool may read for a coach: a
-/// [`DataClass::Training`] tool reads a coached athlete's when the call
-/// resolves one (`resolve_read_subject`), and a [`DataClass::NoSubject`]
-/// tool reads no person's data at all, so it answers the same whoever asks.
+/// [`DataClass::Training`] or [`DataClass::Wellness`] tool reads a coached
+/// athlete's when the call resolves one (`resolve_read_subject`), and a
+/// [`DataClass::NoSubject`] tool reads no person's data at all, so it answers
+/// the same whoever asks.
 /// A tool that reads data and declares no class reads its caller's own, and
 /// a coach's thread about one athlete withholds it
 /// ([`TurnSeat::AthleteThread`]).
@@ -88,11 +100,28 @@ pub enum DataClass {
     /// best efforts — their training physiology and zones, goals and
     /// progress, and how fresh their sources are. Gated by the athlete's
     /// `coach_sharing_consent`. Their wellness is not in it: a coach's read
-    /// leaves it out (`wellness_readable`).
+    /// shows it only where a wellness read could (`wellness_readable`).
     Training,
+    /// The athlete's wellness: sleep, HRV, recovery and readiness, resting
+    /// heart rate, body weight, the health snapshots and intraday heart rate
+    /// they sync, and what is derived from them — sleep and recovery scores,
+    /// rest-day advice, nutrition targets their medical flag governs. Gated
+    /// by their `coach_sharing_consent` and their `coach_wellness_read`, on
+    /// every transport a training read takes: the coach's thread, and
+    /// `athlete=` over MCP or A2A (carnet#1424).
+    Wellness,
     /// Reads no person's data: route and weather lookups, food and mobility
     /// references, pure calculators, the agent catalogue.
     NoSubject,
+}
+
+impl DataClass {
+    /// Whether a coach's read of a coached athlete reads through a tool of
+    /// this class: their training or their wellness, not nobody's.
+    #[must_use]
+    pub(crate) const fn reads_a_coached_athlete(self) -> bool {
+        matches!(self, Self::Training | Self::Wellness)
+    }
 }
 
 /// How the call named the athlete it reads.
@@ -154,6 +183,8 @@ pub(crate) struct ReadSubjectRequest<'request> {
     pub requester_tenant: Option<TenantId>,
     /// The turn's seat.
     pub seat: TurnSeat,
+    /// What the tool reads: their training or their wellness.
+    pub class: DataClass,
     /// The originating conversation, for a call from a chat turn.
     pub conversation_id: Option<&'request str>,
     /// The `athlete` argument, as the call sent it.
@@ -171,6 +202,7 @@ impl fmt::Debug for ReadSubjectRequest<'_> {
             .field("requester", &self.requester)
             .field("requester_tenant", &self.requester_tenant)
             .field("seat", &self.seat)
+            .field("class", &self.class)
             .field("conversation_id", &self.conversation_id)
             .field("athlete", &self.athlete)
             .field("named_externally", &self.named_externally)
@@ -179,13 +211,17 @@ impl fmt::Debug for ReadSubjectRequest<'_> {
     }
 }
 
-/// Resolve whose data a training-class read reads: `None` for the caller's
-/// own, a [`ReadSubject`] for a coached athlete, or the in-band refusal the
-/// call answers with instead, before anything is read.
+/// Resolve whose data a training- or wellness-class read reads: `None` for
+/// the caller's own, a [`ReadSubject`] for a coached athlete, or the in-band
+/// refusal the call answers with instead, before anything is read.
+///
+/// A wellness read of a coached athlete also needs the athlete's
+/// `coach_wellness_read` ([`ReadSubject::wellness_withheld`]), named in the
+/// thread or with `athlete=` alike.
 ///
 /// LIMITATION(registre#1445): `resolve_read_subject` lets a coach read a coached athlete's
-/// training under their consents and leaves the athlete no record of it: no log they can
-/// open says which coach read what, and when.
+/// training, and their wellness under their grant, and leaves the athlete no record of it: no
+/// log they can open says which coach read what, and when.
 ///
 /// # Errors
 ///
@@ -201,13 +237,22 @@ pub(crate) async fn resolve_read_subject(
     if athlete.is_some() && !request.named_externally {
         return Ok(Err(athlete_argument_refusal(request.tool_name)));
     }
-    if request.seat == TurnSeat::AthleteThread {
-        return thread_subject(&request).await;
+    let resolved = if request.seat == TurnSeat::AthleteThread {
+        thread_subject(&request).await?
+    } else {
+        match athlete {
+            Some(name) => named_subject(&request, name).await?,
+            None => Ok(None),
+        }
+    };
+    let withheld = match &resolved {
+        Ok(Some(subject)) if request.class == DataClass::Wellness => subject.wellness_withheld(),
+        _ => None,
+    };
+    if let Some(withheld) = withheld {
+        return Ok(Err(wellness_class_refusal(request.tool_name, &withheld)));
     }
-    match athlete {
-        Some(name) => named_subject(&request, name).await,
-        None => Ok(Ok(None)),
-    }
+    Ok(resolved)
 }
 
 /// The subject of a call made in a coach's thread about one athlete: that
@@ -286,7 +331,8 @@ async fn named_subject(
     }
 }
 
-/// The `athlete` property a training-class tool advertises over MCP and A2A.
+/// The `athlete` property a training- or wellness-class tool advertises over
+/// MCP and A2A.
 ///
 /// One short description shared by every such tool, so the argument costs
 /// each listing about a hundred bytes. Chat never offers it: in a coach's
@@ -377,124 +423,17 @@ pub(crate) fn athlete_reconnect_note(athlete: &str, brand: &str) -> String {
 }
 
 /// The refusal of a nested call, made inside a read of a coached athlete, to
-/// a tool that does not read their training: it would read data the scope
-/// was never resolved for.
+/// a tool that reads neither their training nor their wellness: it would
+/// read data the scope was never resolved for.
 #[must_use]
 pub(crate) fn outside_class_refusal(tool_name: &str) -> UniversalResponse {
     refusal(
         "outside_subject_class",
         format!(
-            "'{tool_name}' does not read an athlete's training, so it cannot run inside a read \
-             of a coached athlete."
+            "'{tool_name}' reads neither an athlete's training nor their wellness, so it cannot \
+             run inside a read of a coached athlete."
         ),
     )
-}
-
-/// What a call asked for that reads the athlete's wellness.
-#[cfg(feature = "tools-analytics")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WellnessInput<'call> {
-    /// An argument that adds their wellness to a read of their training
-    /// (`sleep_provider`).
-    Argument(&'call str),
-    /// A mode, `argument` set to `value`, that reads their wellness
-    /// (`recommendation_type` `nutrition`, which scales from their body
-    /// weight and reads their medical flag).
-    Mode {
-        /// The argument that picks the mode.
-        argument: &'call str,
-        /// The mode it picked.
-        value: &'call str,
-    },
-}
-
-/// The refusal of `asked`, which would make `tool_name` read the coached
-/// athlete's wellness on a read of their training: their training is what
-/// the coach reads here ([`wellness_readable`]).
-#[cfg(feature = "tools-analytics")]
-#[must_use]
-pub(crate) fn wellness_refusal(tool_name: &str, asked: WellnessInput<'_>) -> UniversalResponse {
-    const WELLNESS: &str = "the athlete's wellness (sleep, HRV, recovery, body weight, health \
-                            flags), which a coach does not read here — only their training";
-    let message = match asked {
-        WellnessInput::Argument(argument) => format!(
-            "'{tool_name}' with `{argument}` reads {WELLNESS}. Leave `{argument}` out to read \
-             their training alone."
-        ),
-        WellnessInput::Mode { argument, value } => format!(
-            "'{tool_name}' with `{argument}` '{value}' reads {WELLNESS}. Ask for another \
-             `{argument}` to read their training."
-        ),
-    };
-    refusal("wellness_not_read", message)
-}
-
-/// Whether the in-flight call may read the wellness of the person it reads:
-/// sleep, HRV, recovery and readiness, resting heart rate, body weight.
-///
-/// Always on a caller's read of their own data. Never on a coach's read of a
-/// coached athlete ([`scoped_read_subject`]): that read is of their training
-/// (carnet#1387), and their wellness, gated by `coach_wellness_read`, is
-/// opened by no read. Every place a read leaves wellness out asks here — the
-/// refused wellness inputs (`wellness_refusal`), the physiology a read shows
-/// (`readable_physiology`), the anchors it looks up (`readable_anchors`) and
-/// an output the resting heart rate could be solved back from (the heart-rate
-/// reading of `calculate_metrics`) — so the class opens in one place.
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
-#[must_use]
-pub(crate) fn wellness_readable() -> bool {
-    scoped_read_subject().is_none()
-}
-
-/// The athlete's physiology as the in-flight read may show it: the whole
-/// profile on a caller's own read; on a coach's read of a coached athlete,
-/// their training physiology alone ([`without_wellness`]).
-///
-/// For what a read outputs or offers as the athlete's own number. A value
-/// read only to compute a training output (resting heart rate cutting the
-/// heart-rate zones) is read from the stored profile as it is, and only the
-/// training output leaves.
-#[cfg(feature = "tools-config")]
-#[must_use]
-pub(crate) fn readable_physiology(
-    profile: Option<UserPhysiologicalProfile>,
-) -> Option<UserPhysiologicalProfile> {
-    if wellness_readable() {
-        profile
-    } else {
-        profile.map(without_wellness)
-    }
-}
-
-/// The anchors of `wanted` the in-flight read may look up among the
-/// athlete's measurements: all of them on a caller's own read; on a coach's
-/// read, `VO2max` alone — a resting heart rate and a weigh-in are their
-/// wellness rows.
-#[cfg(feature = "tools-config")]
-#[must_use]
-pub(crate) fn readable_anchors(wanted: Anchors) -> Anchors {
-    if wellness_readable() {
-        wanted
-    } else {
-        Anchors {
-            vo2_max: wanted.vo2_max,
-            ..Anchors::default()
-        }
-    }
-}
-
-/// `profile`'s training physiology, as carnet#1387 splits it: FTP, threshold
-/// pace and heart rate, maximum heart rate, lactate threshold, the zones, CP,
-/// W′, CS and D′, `VO2max`, age and sex, with where each came from. Its
-/// wellness — resting heart rate and body weight, and where each came from —
-/// is left out.
-#[cfg(feature = "tools-config")]
-fn without_wellness(mut profile: UserPhysiologicalProfile) -> UserPhysiologicalProfile {
-    profile.resting_hr = None;
-    profile.weight = None;
-    profile.anchor_provenance.resting_hr = None;
-    profile.anchor_provenance.weight = None;
-    profile
 }
 
 /// What a coach's thread says when the gates fail before the athlete is
@@ -833,152 +772,6 @@ mod tests {
             !message.contains("connect_provider"),
             "bug: nothing points the coach at a tool that connects their own account: {message}"
         );
-    }
-
-    #[cfg(feature = "tools-analytics")]
-    #[test]
-    fn a_wellness_refusal_says_how_to_read_the_training_alone() {
-        let argument = wellness_refusal(
-            "analyze_training_load",
-            WellnessInput::Argument("sleep_provider"),
-        );
-        assert_eq!(
-            argument.result.as_ref().unwrap()["reason"],
-            "wellness_not_read",
-            "the refusal carries the reason a test branches on"
-        );
-        let message = argument.error.unwrap();
-        assert!(
-            message.starts_with("'analyze_training_load' with `sleep_provider` reads")
-                && message.contains("Leave `sleep_provider` out"),
-            "bug: an argument's refusal names it and says to leave it out: {message}"
-        );
-        let mode = wellness_refusal(
-            "generate_recommendations",
-            WellnessInput::Mode {
-                argument: "recommendation_type",
-                value: "nutrition",
-            },
-        )
-        .error
-        .unwrap();
-        assert!(
-            mode.contains("`recommendation_type` 'nutrition' reads")
-                && mode.contains("body weight")
-                && mode.contains("Ask for another `recommendation_type`"),
-            "bug: a mode's refusal names the mode and says to pick another: {mode}"
-        );
-    }
-
-    #[cfg(feature = "tools-config")]
-    mod physiology {
-        use chrono::NaiveDate;
-        use pierre_core::models::{
-            AnchorOrigin, AnchorProvenance, AnchorStamp, PhysiologicalSex, SportType,
-        };
-
-        use super::super::*;
-
-        fn stamp() -> AnchorStamp {
-            AnchorStamp {
-                origin: AnchorOrigin::Promoted,
-                as_of: NaiveDate::from_ymd_opt(2026, 11, 1),
-            }
-        }
-
-        /// An athlete who saved every number, each anchor with its origin.
-        fn full_profile() -> UserPhysiologicalProfile {
-            let mut profile = UserPhysiologicalProfile::new(Uuid::new_v4(), SportType::Run);
-            profile.resting_hr = Some(46);
-            profile.weight = Some(61.5);
-            profile.max_hr = Some(191);
-            profile.threshold_hr = Some(172);
-            profile.vo2_max = Some(58.0);
-            profile.lactate_threshold_percentage = Some(0.86);
-            profile.ftp_watts = Some(248);
-            profile.threshold_pace_sec_per_km = Some(232.0);
-            profile.age = Some(31);
-            profile.sex = Some(PhysiologicalSex::Female);
-            profile.anchor_provenance = AnchorProvenance {
-                resting_hr: Some(stamp()),
-                vo2_max: Some(stamp()),
-                weight: Some(stamp()),
-            };
-            profile
-        }
-
-        #[test]
-        fn the_training_physiology_leaves_out_resting_heart_rate_and_weight() {
-            let projected = without_wellness(full_profile());
-            assert_eq!(projected.resting_hr, None, "bug: resting HR is wellness");
-            assert_eq!(projected.weight, None, "bug: body weight is wellness");
-            assert_eq!(
-                projected.anchor_provenance.resting_hr, None,
-                "bug: where the resting HR came from says one was saved"
-            );
-            assert_eq!(
-                projected.anchor_provenance.weight, None,
-                "bug: where the weight came from says one was saved"
-            );
-            let shown = serde_json::to_value(&projected).unwrap();
-            assert!(
-                shown["resting_hr"].is_null() && shown["weight"].is_null(),
-                "bug: the serialized profile carries no wellness value: {shown}"
-            );
-        }
-
-        #[test]
-        fn the_training_physiology_keeps_every_training_number() {
-            let projected = without_wellness(full_profile());
-            assert_eq!(projected.max_hr, Some(191), "max HR is training");
-            assert_eq!(
-                projected.threshold_hr,
-                Some(172),
-                "threshold HR is training"
-            );
-            assert_eq!(projected.vo2_max, Some(58.0), "VO2max is training");
-            assert_eq!(
-                projected.lactate_threshold_percentage,
-                Some(0.86),
-                "LT% is training"
-            );
-            assert_eq!(projected.ftp_watts, Some(248), "FTP is training");
-            assert_eq!(
-                projected.threshold_pace_sec_per_km,
-                Some(232.0),
-                "threshold pace is training"
-            );
-            assert_eq!(projected.age, Some(31), "age is training");
-            assert_eq!(
-                projected.sex,
-                Some(PhysiologicalSex::Female),
-                "sex is training"
-            );
-            assert!(
-                projected.anchor_provenance.vo2_max.is_some(),
-                "where the VO2max came from stays with it"
-            );
-        }
-
-        #[test]
-        fn a_callers_own_read_shows_their_whole_physiology() {
-            let shown = readable_physiology(Some(full_profile())).unwrap();
-            assert_eq!(
-                (shown.resting_hr, shown.weight),
-                (Some(46), Some(61.5)),
-                "bug: outside a coach's read, nothing of the caller's own is left out"
-            );
-            let wanted = Anchors {
-                resting_hr: true,
-                vo2_max: true,
-                weight: true,
-            };
-            assert_eq!(
-                readable_anchors(wanted),
-                wanted,
-                "bug: a caller's own read looks up every anchor it wants"
-            );
-        }
     }
 
     #[test]

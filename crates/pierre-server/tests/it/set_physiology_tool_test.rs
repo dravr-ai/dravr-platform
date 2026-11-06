@@ -966,6 +966,7 @@ async fn a_stated_resting_hr_is_the_days_measurement_over_the_watchs() -> Result
         &tenant,
         (now - Duration::days(3), now + Duration::days(1)),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await?;
     assert_eq!(
@@ -1275,6 +1276,7 @@ async fn a_saved_vo2max_is_an_anchor_not_the_days_measurement() -> Result<()> {
         &tenant,
         (now - Duration::days(3), now + Duration::days(1)),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await?
     .records;

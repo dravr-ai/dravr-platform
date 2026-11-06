@@ -859,6 +859,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .unwrap();
@@ -890,6 +891,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .unwrap();
@@ -1072,6 +1074,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .unwrap();
@@ -1095,6 +1098,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .unwrap();

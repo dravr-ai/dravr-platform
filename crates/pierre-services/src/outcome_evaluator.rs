@@ -281,6 +281,7 @@ impl EvalCtx<'_> {
             &self.tenant_id,
             (self.start(), self.end()),
             SourceFilter::All,
+            stored_health::as_stored,
         )
         .await
         .inspect_err(|e| warn!(error = %e, "recovery read failed; will retry"))

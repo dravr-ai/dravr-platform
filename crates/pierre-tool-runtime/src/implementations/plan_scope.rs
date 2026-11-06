@@ -50,7 +50,7 @@
 //! provider AI consents, never the coach's ([`PlanScope::read_as_athlete`],
 //! carnet#1419). Their wellness — sleep, HRV, resting heart rate — takes the
 //! athlete's `coach_wellness_read` grant on top of the gates
-//! ([`PlanScope::reads_wellness`], carnet#1423).
+//! ([`PlanScope::wellness_withheld`], carnet#1423).
 //!
 //! ## A thread bound to one athlete
 //!
@@ -101,7 +101,7 @@ use crate::guardian::{
 };
 use crate::read_subject::{
     gate_message, match_coached_member, names_subject, other_name, thread_unreached, GateObject,
-    MemberMiss, OtherName,
+    MemberMiss, OtherName, WellnessWithheld,
 };
 use crate::runtime::ToolRuntime;
 
@@ -152,17 +152,22 @@ impl PlanScope {
         }
     }
 
-    /// Whether this call reads the athlete's wellness: their sleep, HRV and
-    /// resting heart rate.
+    /// Why this call leaves the athlete's wellness — their sleep, HRV and
+    /// resting heart rate — out, or `None` when it reads it.
     ///
     /// The athlete reads their own. A human coach acting for them reads it
     /// only under the athlete's `coach_wellness_read` grant, never under
-    /// their coach sharing alone (carnet#1423).
+    /// their coach sharing alone (carnet#1423), and is told so in the one
+    /// wording every coach's read gives ([`WellnessWithheld::note`]).
     #[must_use]
-    pub(crate) const fn reads_wellness(&self) -> bool {
+    pub(crate) fn wellness_withheld(&self) -> Option<WellnessWithheld> {
         match &self.subject {
-            PlanSubject::Own => true,
-            PlanSubject::Coached { consents, .. } => consents.wellness_read,
+            PlanSubject::Own => None,
+            PlanSubject::Coached {
+                athlete, consents, ..
+            } => (!consents.wellness_read).then(|| WellnessWithheld {
+                athlete: athlete.clone(),
+            }),
         }
     }
 

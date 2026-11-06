@@ -1173,6 +1173,7 @@ fn get_sleep_sessions_declares_a_schema_that_accepts_an_empty_window() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: None,
     });
     assert_declares_and_accepts(
         <GetSleepSessionsTool as McpTool<dyn ToolRuntime>>::definition(&GetSleepSessionsTool)
@@ -1201,6 +1202,7 @@ fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: Some("Mira shares their sleep, HRV, resting heart rate, weight, readiness and daily notes with you, and nothing else of their health.".to_owned()),
     });
     assert_declares_and_accepts(
         <GetRecoveryMetricsTool as McpTool<dyn ToolRuntime>>::definition(&GetRecoveryMetricsTool)
@@ -1247,6 +1249,7 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: None,
     });
     assert_declares_and_accepts(
         <GetHealthSnapshotsTool as McpTool<dyn ToolRuntime>>::definition(&GetHealthSnapshotsTool)

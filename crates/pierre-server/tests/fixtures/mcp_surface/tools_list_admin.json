@@ -1990,6 +1990,10 @@
       "description": "Analyze last night's sleep into quality scores and insights, from synced nights (WHOOP, Garmin, intervals.icu) or manual `sleep_data`.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "baseline_hrv": {
             "description": "User's baseline HRV (RMSSD, ms) for comparison",
             "type": "number"
@@ -3282,6 +3286,10 @@
             "description": "Age in years",
             "type": "integer"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "gender": {
             "description": "male or female",
             "type": "string"
@@ -4248,6 +4256,10 @@
       "description": "Calculate training zones from the athlete's own measurements, falling back to their saved physiology for anything not supplied here. Zone families whose inputs are unknown are listed under `unavailable` instead of being estimated; `input_sources` says where each number came from.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "ftp": {
             "description": "Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists.",
             "type": "integer"
@@ -4739,6 +4751,10 @@
         "properties": {
           "activity_provider": {
             "description": "Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
           "baseline_hrv": {
@@ -13443,6 +13459,10 @@
       "description": "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "end": {
             "description": "RFC3339 end; defaults to now.",
             "type": "string"
@@ -13528,6 +13548,13 @@
                 },
                 "description": "When each connected source last synced this data, RFC 3339 by\nprovider (`null` when it never has), so an empty or short window can\nbe told apart from a source that stopped syncing.",
                 "type": "object"
+              },
+              "not_shared": {
+                "description": "On a coach's read: what of the athlete's health their wellness\nsharing leaves out, said once whatever their sources record. Absent on\nthe athlete's own read.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "range": {
                 "$ref": "#/$defs/DateRange",
@@ -13917,6 +13944,10 @@
             "description": "How a window's samples fold into its value, with `window_minutes`; defaults to avg. One of: avg, min, max, count, first, last.",
             "type": "string"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "end": {
             "description": "Exclusive RFC3339 end; defaults to now.",
             "type": "string"
@@ -14240,6 +14271,10 @@
       "description": "Get nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "daily_protein_g": {
             "description": "Daily protein target in grams",
             "type": "number"
@@ -15525,6 +15560,10 @@
       "description": "Get stored recovery and readiness metrics",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "end": {
             "description": "RFC3339 end; defaults to now.",
             "type": "string"
@@ -15781,6 +15820,13 @@
                 },
                 "type": "array"
               },
+              "not_shared": {
+                "description": "On a coach's read: what of the athlete's health their wellness\nsharing leaves out, said once whatever their sources record. Absent on\nthe athlete's own read.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "range": {
                 "$ref": "#/$defs/DateRange",
                 "description": "The window that was read."
@@ -15914,6 +15960,10 @@
       "description": "Get stored sleep sessions from the database",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "end": {
             "description": "RFC3339 end; defaults to now.",
             "type": "string"
@@ -16168,6 +16218,13 @@
                 },
                 "description": "When each connected source last synced this data, RFC 3339 by\nprovider (`null` when it never has), so an empty or short window can\nbe told apart from a source that stopped syncing.",
                 "type": "object"
+              },
+              "not_shared": {
+                "description": "On a coach's read: what of the athlete's health their wellness\nsharing leaves out, said once whatever their sources record. Absent on\nthe athlete's own read.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "range": {
                 "$ref": "#/$defs/DateRange",
@@ -19637,7 +19694,12 @@
       "name": "get_user_configuration",
       "description": "Get your current training configuration settings",
       "inputSchema": {
-        "properties": {},
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "outputSchema": {
@@ -24610,6 +24672,10 @@
         "properties": {
           "activity_provider": {
             "description": "Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
           "typical_wake_time": {
@@ -30748,6 +30814,10 @@
             "description": "Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select",
             "type": "string"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "baseline_hrv": {
             "description": "User's baseline HRV (RMSSD, ms)",
             "type": "number"
@@ -31632,6 +31702,10 @@
       "description": "Analyze sleep trends over `days` from synced nights (WHOOP, Garmin, intervals.icu) or manual `sleep_history`. Needs at least 7 nights.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "days": {
             "description": "Days of sleep history to fetch (default 14, max 366)",
             "type": "integer"

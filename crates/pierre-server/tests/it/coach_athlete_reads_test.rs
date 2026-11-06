@@ -924,7 +924,11 @@ async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
         );
     }
     assert!(
-        !declares_athlete(by_name("get_sleep_sessions")),
+        declares_athlete(by_name("get_sleep_sessions")),
+        "a wellness read takes athlete over MCP too, under the athlete's wellness grant"
+    );
+    assert!(
+        !declares_athlete(by_name("recall_user_memory")),
         "a read with no class reads only the caller"
     );
     let shared = |name: &str| {
@@ -1182,14 +1186,14 @@ async fn a_read_of_the_athletes_training_never_reads_their_sleep() {
             .await;
         assert_eq!(
             refused_reason(&refused),
-            "wellness_not_read",
-            "{tool}: sleep_provider reads the athlete's wellness"
+            "wellness_grant_needed",
+            "{tool}: sleep_provider reads the athlete's wellness, which they have not shared"
         );
         assert!(
-            refused
-                .error
-                .as_deref()
-                .is_some_and(|e| e.contains("Leave `sleep_provider` out")),
+            refused.error.as_deref().is_some_and(|e| {
+                e.contains("Leave `sleep_provider` out")
+                    && e.contains("Mira Subject has not shared their wellness")
+            }),
             "{tool}: {:?}",
             refused.error
         );

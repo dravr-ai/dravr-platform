@@ -154,13 +154,20 @@ async fn newest_filed(
     let link = SourceFilter::Link(&provider);
     let window = (start, now);
 
-    let mut recovery: Vec<_> =
-        stored_health::merged_recovery(repos, terms, athlete, &tenant, window, link)
-            .await?
-            .records
-            .into_iter()
-            .map(|row| row.record)
-            .collect();
+    let mut recovery: Vec<_> = stored_health::merged_recovery(
+        repos,
+        terms,
+        athlete,
+        &tenant,
+        window,
+        link,
+        stored_health::as_stored,
+    )
+    .await?
+    .records
+    .into_iter()
+    .map(|row| row.record)
+    .collect();
     recovery.sort_by_key(|row| row.date);
     let hrv_ms = recovery.iter().rev().find_map(|row| {
         row.daily_hrv().map(|value| Reading {
@@ -176,32 +183,48 @@ async fn newest_filed(
     });
 
     let zone = athlete_zone(repos, athlete).await;
-    let sleep_seconds = stored_health::merged_sleep(repos, terms, athlete, &tenant, window, link)
-        .await?
-        .records
-        .into_iter()
-        .map(|night| night.record)
-        .filter(|night| !night.is_nap)
-        .filter_map(|night| {
-            night.total_sleep_seconds.map(|value| Reading {
-                value,
-                date: night.night_date(&zone),
-            })
+    let sleep_seconds = stored_health::merged_sleep(
+        repos,
+        terms,
+        athlete,
+        &tenant,
+        window,
+        link,
+        stored_health::as_stored,
+    )
+    .await?
+    .records
+    .into_iter()
+    .map(|night| night.record)
+    .filter(|night| !night.is_nap)
+    .filter_map(|night| {
+        night.total_sleep_seconds.map(|value| Reading {
+            value,
+            date: night.night_date(&zone),
         })
-        .max_by_key(|reading| reading.date);
+    })
+    .max_by_key(|reading| reading.date);
 
-    let weight_kg = stored_health::merged_body(repos, terms, athlete, &tenant, window, link)
-        .await?
-        .records
-        .into_iter()
-        .map(|row| row.record)
-        .filter_map(|row| {
-            row.weight_kg.map(|value| Reading {
-                value,
-                date: row.date,
-            })
+    let weight_kg = stored_health::merged_body(
+        repos,
+        terms,
+        athlete,
+        &tenant,
+        window,
+        link,
+        stored_health::as_stored,
+    )
+    .await?
+    .records
+    .into_iter()
+    .map(|row| row.record)
+    .filter_map(|row| {
+        row.weight_kg.map(|value| Reading {
+            value,
+            date: row.date,
         })
-        .max_by_key(|reading| reading.date);
+    })
+    .max_by_key(|reading| reading.date);
 
     Ok(LinkedWellness {
         provider,

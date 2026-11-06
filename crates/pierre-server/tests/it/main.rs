@@ -195,6 +195,8 @@ mod coach_access_request_test;
 mod coach_athlete_plan_test;
 mod coach_athlete_reads_test;
 mod coach_athlete_training_reads_test;
+mod coach_athlete_wellness_named_test;
+mod coach_athlete_wellness_reads_test;
 mod coach_attention_route_test;
 mod coach_calendar_write_test;
 mod coach_consents_migration_test;

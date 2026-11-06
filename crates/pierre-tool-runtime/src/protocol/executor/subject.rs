@@ -6,12 +6,13 @@
 
 //! The read-subject half of the dispatch chokepoint (carnet#1387).
 //!
-//! A training-class tool reads a coached athlete when the call names one: the
-//! athlete of a coach's thread about them, or `athlete=` over MCP and A2A.
-//! [`UniversalExecutor::read_subject`] resolves that once, before the body
-//! runs; [`Parties`] then tells every later step whose configuration, data
-//! sources and consents it asks (the athlete's) from whose turn and charge
-//! it is (the coach's).
+//! A training- or wellness-class tool reads a coached athlete when the call
+//! names one: the athlete of a coach's thread about them, or `athlete=` over
+//! MCP and A2A. A wellness-class tool also needs their `coach_wellness_read`,
+//! on either path. [`UniversalExecutor::read_subject`] resolves that
+//! once, before the body runs; [`Parties`] then tells every later step whose
+//! configuration, data sources and consents it asks (the athlete's) from
+//! whose turn and charge it is (the coach's).
 
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::TenantId;
@@ -101,10 +102,10 @@ impl UniversalExecutor {
     }
 
     /// Whose data a call to `tool_name` reads: the caller's own (`None`), or
-    /// the coached athlete a training-class tool reads for them — the one
-    /// this executor's call already reads, for a nested dispatch, or the one
-    /// [`resolve_read_subject`] resolves. The inner `Err` is the in-band
-    /// refusal the call answers with instead. A training tool's `athlete`
+    /// the coached athlete a training- or wellness-class tool reads for them
+    /// — the one this executor's call already reads, for a nested dispatch,
+    /// or the one [`resolve_read_subject`] resolves. The inner `Err` is the
+    /// in-band refusal the call answers with instead. Such a tool's `athlete`
     /// argument is taken out of `args`: its body reads its context, never the
     /// name. Any other tool keeps its own (the plan and calendar tools).
     pub(super) async fn read_subject(
@@ -117,25 +118,35 @@ impl UniversalExecutor {
         let class = self.resources.tool_registry().data_class(tool_name);
         if let Some(inherited) = &self.read_subject {
             // A nested call reads the athlete its caller reads, and only what
-            // their scope was resolved for.
-            if class != Some(DataClass::Training) {
-                return Ok(Err(read_subject::outside_class_refusal(tool_name)));
+            // their scope was resolved for: their wellness only where the
+            // caller's read could have read it.
+            match class {
+                Some(DataClass::Training) => {}
+                Some(DataClass::Wellness) => {
+                    if let Some(withheld) = inherited.wellness_withheld() {
+                        return Ok(Err(read_subject::wellness_class_refusal(
+                            tool_name, &withheld,
+                        )));
+                    }
+                }
+                _ => return Ok(Err(read_subject::outside_class_refusal(tool_name))),
             }
             take_athlete_argument(args);
             return Ok(Ok(Some(inherited.clone())));
         }
-        if class != Some(DataClass::Training) {
+        let Some(class) = class.filter(|class| class.reads_a_coached_athlete()) else {
             return Ok(Ok(None));
-        }
+        };
         let athlete = take_athlete_argument(args);
-        let named_externally = self.caller_writes_reply
-            && !ai_scope::effective_transport(self.transport)
-                .is_some_and(Transport::is_first_party);
+        let first_party =
+            ai_scope::effective_transport(self.transport).is_some_and(Transport::is_first_party);
+        let named_externally = self.caller_writes_reply && !first_party;
         let resolved = resolve_read_subject(ReadSubjectRequest {
             resources: &self.resources,
             requester,
             requester_tenant: requester_tenant.map(TenantId::from_uuid),
             seat: self.seat,
+            class,
             conversation_id: self.conversation_id.as_deref(),
             athlete: athlete.as_deref(),
             named_externally,
@@ -151,8 +162,9 @@ impl UniversalExecutor {
                 athlete = %subject.athlete(),
                 group_id = %subject.access.group.id,
                 tool = %tool_name,
+                class = ?class,
                 source = subject.via.as_str(),
-                "coach reading a coached athlete's training"
+                "coach reading a coached athlete's data"
             );
         }
         Ok(resolved)

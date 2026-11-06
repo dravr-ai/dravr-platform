@@ -13,8 +13,9 @@
 //!
 //! A human coach reading a coached athlete's plan reads their sleep, HRV and
 //! resting heart rate only under the athlete's wellness grant
-//! ([`PlanScope::reads_wellness`], carnet#1423). Without it the readiness is
-//! read from training load alone, and the block says so.
+//! ([`PlanScope::wellness_withheld`], carnet#1423). Without it the readiness
+//! is read from training load alone, and the block says so, and where the
+//! athlete grants it.
 
 use std::sync::Arc;
 
@@ -29,11 +30,10 @@ use super::training_plan_telemetry::coverage_gaps;
 use crate::implementations::training_plans_output::{PlanStateBlock, WeekComplianceBlock};
 use crate::runtime::ToolRuntime;
 
-/// What the block says in place of the athlete's recovery when their human
-/// coach reads it without their wellness grant.
-const RECOVERY_UNREAD: &str = "The athlete has not shared their wellness with you, so their \
-     sleep, HRV and resting heart rate were not read: readiness and alerts here come from \
-     training load alone, and no recovery alert can be raised.";
+/// What the block adds, after why the athlete's recovery was not read, when
+/// their human coach reads it without their wellness grant.
+const RECOVERY_FROM_LOAD: &str = "Readiness and alerts here come from training load alone, and \
+     no recovery alert can be raised.";
 
 /// What the two rails make of a plan, for a caller that asked for it.
 ///
@@ -50,7 +50,8 @@ pub(super) async fn plan_state_block(
     today: NaiveDate,
 ) -> PlanStateBlock {
     let (tenant, user_id) = (scope.tenant, scope.user_id);
-    let recovery = if scope.reads_wellness() {
+    let withheld = scope.wellness_withheld();
+    let recovery = if withheld.is_none() {
         RecoveryRead::Read
     } else {
         RecoveryRead::Withheld
@@ -81,6 +82,7 @@ pub(super) async fn plan_state_block(
             .into_iter()
             .map(|gap| gap.as_str().to_owned())
             .collect(),
-        recovery_unread: (recovery == RecoveryRead::Withheld).then(|| RECOVERY_UNREAD.to_owned()),
+        recovery_unread: withheld
+            .map(|withheld| format!("{} {RECOVERY_FROM_LOAD}", withheld.note())),
     }
 }

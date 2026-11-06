@@ -715,7 +715,8 @@ async fn a_coachs_read_never_defaults_to_the_athletes_body_weight() {
         }
     };
     assert!(
-        message.contains("leaves out their body weight"),
+        message.contains("body weight is their wellness")
+            && message.contains("Mira Subject has not shared their wellness"),
         "bug: the coach is told why, not that the athlete has no weight: {message}"
     );
     assert!(
@@ -762,7 +763,7 @@ async fn the_nutrition_mode_reads_wellness_and_is_refused_on_a_coachs_read() {
         .await;
     assert_eq!(
         refused_reason(&refused),
-        "wellness_not_read",
+        "wellness_grant_needed",
         "bug: the nutrition mode scales from the athlete's body weight"
     );
     let message = refused.error.clone().unwrap_or_default();
@@ -788,8 +789,9 @@ async fn the_nutrition_mode_reads_wellness_and_is_refused_on_a_coachs_read() {
         .await;
     assert_eq!(
         refused_reason(&over_mcp),
-        "wellness_not_read",
-        "bug: athlete= over MCP reads the same class as the thread"
+        "wellness_grant_needed",
+        "bug: athlete= over MCP reads the athlete's wellness only under their grant, as the \
+         thread does"
     );
 
     // Every other mode reads the athlete's training.
@@ -876,7 +878,10 @@ async fn a_coachs_metrics_read_carries_no_heart_rate_reading_the_resting_rate_so
         "bug: a coach's read carries no reading the resting heart rate solves from: {thread}"
     );
     assert!(
-        mentions(&thread["heart_rate_unavailable"], "a coach's read"),
+        mentions(
+            &thread["heart_rate_unavailable"],
+            "Mira Subject has not shared their wellness"
+        ),
         "the coach's model reads why there is none: {thread}"
     );
     assert_eq!(

@@ -274,6 +274,9 @@ export interface AnalyzePerformanceTrendsParams {
  */
 export interface AnalyzeSleepQualityParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** User's baseline HRV (RMSSD, ms) for comparison */
   baseline_hrv?: number;
 
@@ -362,6 +365,9 @@ export interface CalculateDailyNutritionParams {
   /** Age in years */
   age: number;
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** male or female */
   gender: string;
 
@@ -428,6 +434,9 @@ export interface CalculateMetricsParams {
  */
 export interface CalculatePersonalizedZonesParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists. */
   ftp?: number;
 
@@ -452,6 +461,9 @@ export interface CalculateRecoveryScoreParams {
 
   /** Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select */
   activity_provider?: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** User's baseline HRV (RMSSD, ms) */
   baseline_hrv?: number;
@@ -995,6 +1007,9 @@ export interface GetFoodDetailsParams {
  */
 export interface GetHealthSnapshotsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** RFC3339 end; defaults to now. */
   end?: string;
 
@@ -1013,6 +1028,9 @@ export interface GetHeartRateSeriesParams {
 
   /** How a window's samples fold into its value, with `window_minutes`; defaults to avg. One of: avg, min, max, count, first, last. */
   aggregation?: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Exclusive RFC3339 end; defaults to now. */
   end?: string;
@@ -1035,6 +1053,9 @@ export interface GetHeartRateSeriesParams {
  * Get nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.
  */
 export interface GetNutrientTimingParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Daily protein target in grams */
   daily_protein_g: number;
@@ -1109,6 +1130,9 @@ export interface GetRecipeConstraintsParams {
  */
 export interface GetRecoveryMetricsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** RFC3339 end; defaults to now. */
   end?: string;
 
@@ -1124,6 +1148,9 @@ export interface GetRecoveryMetricsParams {
  * Get stored sleep sessions from the database
  */
 export interface GetSleepSessionsParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** RFC3339 end; defaults to now. */
   end?: string;
@@ -1200,7 +1227,11 @@ export interface GetTrainingPlanParams {
 /**
  * Get your current training configuration settings
  */
-export interface GetUserConfigurationParams {}
+export interface GetUserConfigurationParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+}
 
 
 /**
@@ -1427,6 +1458,9 @@ export interface OptimizeSleepScheduleParams {
 
   /** Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select */
   activity_provider?: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Wake time in HH:MM format (default: 06:00) */
   typical_wake_time?: string;
@@ -2184,6 +2218,9 @@ export interface SuggestRestDayParams {
   /** Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select */
   activity_provider?: string;
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** User's baseline HRV (RMSSD, ms) */
   baseline_hrv?: number;
 
@@ -2263,6 +2300,9 @@ export interface TrackProgressParams {
  * Analyze sleep trends over `days` from synced nights (WHOOP, Garmin, intervals.icu) or manual `sleep_history`. Needs at least 7 nights.
  */
 export interface TrackSleepTrendsParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Days of sleep history to fetch (default 14, max 366) */
   days?: number;

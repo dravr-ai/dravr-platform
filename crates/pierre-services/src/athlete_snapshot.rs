@@ -240,6 +240,7 @@ async fn load_recovery_readings(
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     {
@@ -256,6 +257,7 @@ async fn load_recovery_readings(
         &tenant_id,
         window,
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     {

@@ -205,18 +205,19 @@ impl EstimateVo2maxTool {
             defaults.push("weight_kg");
             return Ok(w);
         }
-        // A coach's read leaves the athlete's body weight out, so none stands
-        // in, and the coach is not told the athlete has none (carnet#1387).
+        // A coach's read without the athlete's wellness grant leaves their
+        // body weight out, so none stands in, and the coach is told why rather
+        // than that the athlete has none (carnet#1387).
         Err(AppError::invalid_input(
-            if read_subject::wellness_readable() {
-                format!(
-                "{method} needs 'weight_kg' — none was given and neither the profile nor a weigh-in holds a weight; ask the athlete or save it with set_physiology"
-            )
-            } else {
-                format!(
-                "{method} needs 'weight_kg' — none was given, and a coach's read of an athlete leaves out their body weight; ask the athlete for it"
-            )
-            },
+            read_subject::wellness_withheld().map_or_else(
+                || format!(
+                    "{method} needs 'weight_kg' — none was given and neither the profile nor a weigh-in holds a weight; ask the athlete or save it with set_physiology"
+                ),
+                |withheld| format!(
+                    "{method} needs 'weight_kg' — none was given, and the athlete's body weight is their wellness. {} Give weight_kg to estimate without it.",
+                    withheld.note()
+                ),
+            ),
         ))
     }
 

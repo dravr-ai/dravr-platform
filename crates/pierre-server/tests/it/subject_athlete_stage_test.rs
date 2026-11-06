@@ -513,6 +513,16 @@ impl Fixture {
     }
 }
 
+/// The block about the thread's athlete, up to the prompt's next section: the
+/// prompt also lists every callable tool, wellness reads included, elsewhere.
+fn subject_block(prompt: &str) -> &str {
+    let block = &prompt[prompt.find(SUBJECT_HEADING).expect("the subject block")..];
+    let end = block[SUBJECT_HEADING.len()..]
+        .find("\n## ")
+        .map_or(block.len(), |at| at + SUBJECT_HEADING.len());
+    &block[..end]
+}
+
 /// Nothing of the athlete, of the coach's own context or of another member is
 /// in `prompt` — only the refusal line under the heading.
 fn assert_refused_with(prompt: &str, why: &str) {
@@ -635,15 +645,15 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
     }
     assert!(
         prompt.contains(
-            "No tool here reads Mira Subject's wellness — sleep, HRV, recovery and readiness, \
-             resting heart rate, body weight"
-        ),
-        "bug: the granted block names what a coach cannot read here: {prompt}"
+            "Mira Subject has not shared their wellness with the coach (sleep, HRV, resting heart \
+             rate, weight, readiness and daily notes), so no tool here reads it"
+        ) && prompt.contains("Group info → What your human coach can do"),
+        "bug: the granted block says the wellness is unshared, and where it is shared: {prompt}"
     );
     for unread in ["get_sleep_sessions", "get_recovery_metrics"] {
         assert!(
-            !prompt.contains(unread),
-            "bug: a wellness read is never named readable: {prompt}"
+            !subject_block(&prompt).contains(unread),
+            "bug: without the grant no wellness read is named readable: {prompt}"
         );
     }
     assert!(
@@ -1174,6 +1184,11 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
             && !without.contains("resting heart rate 48 bpm"),
         "no wellness without the athlete's wellness_read"
     );
+    assert!(
+        without.contains("Mira Subject has not shared their wellness with the coach")
+            && !subject_block(&without).contains("get_sleep_sessions"),
+        "bug: without the grant no wellness read is named, and the block says so: {without}"
+    );
 
     repos
         .groups
@@ -1188,6 +1203,13 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
         .unwrap()
         .expect("the member grants their coach wellness_read");
     let (with, _) = fx.thread_turn(PLAIN_ASK).await;
+    let block = subject_block(&with);
+    assert!(
+        block.contains("Mira Subject shares their wellness with the coach")
+            && block.contains("get_sleep_sessions")
+            && block.contains("get_recovery_metrics"),
+        "bug: under the grant the block names the wellness reads, beside the link's: {with}"
+    );
 
     let at = with.find(WELLNESS_HEADING).expect("the wellness section");
     let section = &with[at..];

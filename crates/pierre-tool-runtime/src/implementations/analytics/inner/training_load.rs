@@ -344,12 +344,13 @@ pub(crate) fn handle_analyze_training_load(
             .parameters
             .get("sleep_provider")
             .and_then(|v| v.as_str());
-        // A coach's read of a coached athlete reads their training, never
-        // their sleep or HRV (carnet#1387).
-        if sleep_provider.is_some() && !read_subject::wellness_readable() {
+        // A coach's read of a coached athlete reads their sleep and HRV only
+        // under their wellness grant, on any transport (carnet#1387).
+        if let Some(withheld) = sleep_provider.and_then(|_| read_subject::wellness_withheld()) {
             return Ok(read_subject::wellness_refusal(
                 "analyze_training_load",
                 WellnessInput::Argument("sleep_provider"),
+                &withheld,
             ));
         }
 
