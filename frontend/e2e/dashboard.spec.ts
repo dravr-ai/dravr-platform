@@ -132,7 +132,7 @@ test.describe('Dashboard Navigation', () => {
 
     // Navigate to Connections - check tab becomes active
     await navigateToTab(page, TOKENS_TAB_LABEL);
-    const connectionsTab = page.locator('button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) });
+    const connectionsTab = page.locator('aside nav button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) });
     await expect(connectionsTab).toHaveClass(/bg-primary-container/);
     await expect(usersTab).not.toHaveClass(/bg-primary-container/);
 

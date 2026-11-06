@@ -18,7 +18,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     );
     await setupAndLoginAsAdmin(page);
     await navigateToTab(page, TOKENS_TAB_LABEL);
-    await expect(page.getByRole('heading', { name: TOKENS_TAB_LABEL })).toBeVisible();
+    await expect(page.getByRole('heading', { name: TOKENS_TAB_LABEL, exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Create API Token/ })).toBeVisible();
   });
 

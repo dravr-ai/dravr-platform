@@ -461,7 +461,8 @@ test.describe('Connections Tab - API Tokens (Admin Only)', () => {
     await expect(page.locator('nav').first()).toBeVisible({ timeout: 10000 });
 
     // Find and click the API Tokens tab
-    const apiTokensTab = page.locator('button').filter({ hasText: 'API Tokens' });
+    // The rail's entry carries the same label, so this names the tab in the page.
+    const apiTokensTab = page.getByRole('main').getByRole('button', { name: 'API Tokens' });
     await expect(apiTokensTab).toBeVisible({ timeout: 5000 });
     await apiTokensTab.click();
     await page.waitForTimeout(500);
@@ -479,7 +480,8 @@ test.describe('Connections Tab - Tab Navigation', () => {
 
   test('can switch between all tabs', async ({ page }) => {
     // Start with API Tokens - use button filter instead of .tab class
-    const apiTokensTab = page.locator('button').filter({ hasText: 'API Tokens' });
+    // The rail's entry carries the same label, so this names the tab in the page.
+    const apiTokensTab = page.getByRole('main').getByRole('button', { name: 'API Tokens' });
     await apiTokensTab.click();
     await page.waitForTimeout(300);
     await expect(page.getByText(/API Tokens/i).first()).toBeVisible();
