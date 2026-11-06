@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::context::scoped_read_subject;
 use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
     FitnessScoreResult, NoFitnessScore, ProvidersUsed, RecoveryAdjustment,
@@ -13,6 +14,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::read_subject;
 use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -479,6 +481,14 @@ pub(crate) fn handle_calculate_fitness_score(
             .parameters
             .get("sleep_provider")
             .and_then(|v| v.as_str());
+        // A coach's read of a coached athlete reads their training, never
+        // their sleep or HRV (carnet#1387).
+        if sleep_provider.is_some() && scoped_read_subject().is_some() {
+            return Ok(read_subject::wellness_refusal(
+                "calculate_fitness_score",
+                "sleep_provider",
+            ));
+        }
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
@@ -562,14 +572,18 @@ pub(crate) fn handle_calculate_fitness_score(
                             }
                         }
 
-                        // Fire fitness improvement notification if trend is improving
+                        // Fire fitness improvement notification if trend is
+                        // improving. It is the athlete's own: a coach's read of
+                        // them notifies no one (carnet#1387).
                         #[cfg(feature = "client-notifications")]
-                        fire_fitness_improvement_notification(
-                            &executor.resources,
-                            user_uuid,
-                            request.tenant_id.as_deref(),
-                            &analysis,
-                        );
+                        if scoped_read_subject().is_none() {
+                            fire_fitness_improvement_notification(
+                                &executor.resources,
+                                user_uuid,
+                                request.tenant_id.as_deref(),
+                                &analysis,
+                            );
+                        }
 
                         let result = UniversalResponse {
                             success: true,

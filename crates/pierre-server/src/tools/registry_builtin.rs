@@ -26,6 +26,7 @@
 
 use tracing::info;
 
+use pierre_tool_runtime::read_subject::DataClass;
 use pierre_tool_runtime::registry::ToolRegistry;
 
 /// Register all built-in tools based on feature flags.
@@ -144,7 +145,66 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
 
+    declare_data_classes(registry);
+
     info!("Registered {} built-in tools", registry.len());
+}
+
+/// What the tools registered above read, beside their categories
+/// (carnet#1387).
+///
+/// A training-class tool reads a coached athlete's training when a call names
+/// one: the athlete of a coach's thread about them, or `athlete=` over MCP
+/// and A2A. A tool that reads no person's data stays callable in that thread.
+/// A tool that reads data and is declared here under neither reads only its
+/// caller's own, and the thread withholds it.
+///
+/// LIMITATION(registre#1387): `DATA_CLASSES` declares only the first eight training reads; the
+/// rest of the training class — `get_athlete`, `get_stats`, `get_data_freshness`,
+/// `list_data_sources`, `export_latest_snapshot`, `export_routes`, `calculate_metrics`,
+/// `analyze_performance_trends`, `compare_activities`, `detect_patterns`, `predict_performance`,
+/// `analyze_weather_impact`, `suggest_goals`, `track_progress`, `analyze_goal_feasibility`,
+/// `estimate_vo2max`, `estimate_lactate_thresholds`, `generate_recommendations` — declares no
+/// class, so a coach reads none of an athlete's physiology, zones, goals, best efforts or trends.
+const DATA_CLASSES: &[(&str, DataClass)] = &[
+    ("get_training_history", DataClass::Training),
+    ("analyze_training_load", DataClass::Training),
+    ("calculate_fitness_score", DataClass::Training),
+    ("get_activities", DataClass::Training),
+    ("analyze_activity", DataClass::Training),
+    ("get_activity_intelligence", DataClass::Training),
+    ("extract_activity_streams", DataClass::Training),
+    ("export_intervals", DataClass::Training),
+    // Route and weather lookups: OpenStreetMap and forecast data, cached for
+    // the caller's own next call.
+    ("discover_routes", DataClass::NoSubject),
+    ("compose_route", DataClass::NoSubject),
+    ("get_weather_forecast", DataClass::NoSubject),
+    // The caller's own catalogue of workouts and agents, not anyone's
+    // training: what a coach prescribes from.
+    ("list_workout_templates", DataClass::NoSubject),
+    ("browse_agent_store", DataClass::NoSubject),
+    ("search_agent_store", DataClass::NoSubject),
+    // Food references and pure calculators.
+    ("search_food", DataClass::NoSubject),
+    ("get_food_details", DataClass::NoSubject),
+    ("analyze_meal_nutrition", DataClass::NoSubject),
+    ("get_recipe_constraints", DataClass::NoSubject),
+    ("validate_recipe", DataClass::NoSubject),
+    // The shared stretching and yoga references.
+    ("get_stretching_exercise", DataClass::NoSubject),
+    ("get_yoga_pose", DataClass::NoSubject),
+    ("list_stretching_exercises", DataClass::NoSubject),
+    ("list_yoga_poses", DataClass::NoSubject),
+    ("suggest_stretches_for_activity", DataClass::NoSubject),
+    ("suggest_yoga_sequence", DataClass::NoSubject),
+];
+
+/// Declare [`DATA_CLASSES`] on the tools this build registered.
+fn declare_data_classes(registry: &mut ToolRegistry) {
+    for (tool, class) in DATA_CLASSES {
+        registry.declare_data_class(tool, *class);
+    }
 }
 
 /// Register Tier 3 agent-authored memory tools.

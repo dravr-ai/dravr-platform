@@ -5,16 +5,19 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, NaiveDate};
+use chrono::{Duration, NaiveDate, NaiveTime};
+use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
 };
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
+use pierre_providers::{ai_scope, backend_resolver};
+use pierre_services::training_history_read::user_timezone;
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -22,7 +25,7 @@ use uuid::Uuid;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
-use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::context::{scoped_read_subject, ToolExecutionContext};
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
@@ -58,7 +61,10 @@ pub struct TrainingHistoryDay {
 /// Every row carries its own form reading, and the payload carries the method
 /// that produced it. This is the tool the endurance agent prompt calls first;
 /// shipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a
-/// diagnosis nobody could explain (registre#199).
+/// diagnosis nobody could explain (registre#199). Beside the rows ride the
+/// evidence a "why" traces them to: the services whose sessions they are
+/// computed from, and the run of deep-fatigue days a reading closes
+/// (carnet#1387).
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TrainingHistoryResult {
     /// First day of the window, as `YYYY-MM-DD`.
@@ -67,8 +73,108 @@ pub struct TrainingHistoryResult {
     pub to: String,
     /// One entry per day that has a rollup.
     pub days: Vec<TrainingHistoryDay>,
+    /// Each service a session in the window came from, with the last day it
+    /// delivered one there. Empty when no session in the window is readable.
+    pub sources: Vec<HistorySource>,
+    /// The consecutive days ending on `to` whose form fell in deep fatigue,
+    /// oldest first. Empty when `to` has no row or its form is not deep
+    /// fatigue. A run describes accumulated fatigue relative to fitness, not
+    /// overtraining.
+    pub deep_fatigue_mornings: Vec<DeepFatigueMorning>,
     /// What the numbers mean and how they were computed.
     pub interpretation: FormInterpretation,
+}
+
+/// A service the rows' sessions came from.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct HistorySource {
+    /// The service's key, as `connect_provider` takes it.
+    pub provider: String,
+    /// The service as the athlete knows it.
+    pub brand: String,
+    /// The athlete's civil date of the last session it delivered in the
+    /// window, as `YYYY-MM-DD`.
+    pub last_activity: String,
+}
+
+/// One day of a deep-fatigue run.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DeepFatigueMorning {
+    /// The day, as `YYYY-MM-DD`.
+    pub date: String,
+    /// Form that day as a percentage of the athlete's own CTL, rounded.
+    pub tsb_pct_of_ctl: Option<f64>,
+}
+
+/// Sessions read for [`history_sources`]: a window of daily rows holds far
+/// fewer, and only the newest of each service counts.
+const SOURCE_READ_LIMIT: i64 = 500;
+
+/// The services the window's sessions came from, newest delivery first, as
+/// the call may read them: a provider whose terms or the athlete's consent
+/// keep its sessions from the reader is not named.
+async fn history_sources(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<Vec<HistorySource>> {
+    let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
+    let start = (from - Duration::days(1))
+        .and_time(NaiveTime::MIN)
+        .and_utc();
+    let end = (to + Duration::days(2)).and_time(NaiveTime::MIN).and_utc();
+    let stored = resources
+        .repos()
+        .activity_cache
+        .get_cached_activities(user_id, &tenant_id, None, start, end, SOURCE_READ_LIMIT)
+        .await?;
+    let readable = ai_scope::filter_activities(resources.provider_registry().as_ref(), stored);
+    let mut last: BTreeMap<String, NaiveDate> = BTreeMap::new();
+    for activity in &readable {
+        let day = local_date(activity.start_date(), zone);
+        if day < from || day > to {
+            continue;
+        }
+        let provider = backend_resolver::user_facing_name(activity.provider()).to_owned();
+        last.entry(provider)
+            .and_modify(|latest| *latest = (*latest).max(day))
+            .or_insert(day);
+    }
+    let mut sources: Vec<HistorySource> = last
+        .into_iter()
+        .map(|(provider, day)| HistorySource {
+            brand: resources
+                .provider_registry()
+                .get_display_name(&provider)
+                .unwrap_or(provider.as_str())
+                .to_owned(),
+            last_activity: day.format("%Y-%m-%d").to_string(),
+            provider,
+        })
+        .collect();
+    sources.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+    Ok(sources)
+}
+
+/// The consecutive days ending on `to` whose form fell in deep fatigue,
+/// oldest first; empty unless the row for `to` is one of them.
+fn deep_fatigue_run(days: &[TrainingHistoryDay], to: NaiveDate) -> Vec<DeepFatigueMorning> {
+    let mut run: Vec<DeepFatigueMorning> = Vec::new();
+    let mut expected = to;
+    for day in days.iter().rev() {
+        if day.state.date != expected || day.form_band != FormBand::DeepFatigue {
+            break;
+        }
+        run.push(DeepFatigueMorning {
+            date: day.state.date.format("%Y-%m-%d").to_string(),
+            tsb_pct_of_ctl: day.tsb_pct_of_ctl,
+        });
+        expected = day.state.date - Duration::days(1);
+    }
+    run.reverse();
+    run
 }
 
 /// What `compute_training_history` answers with.
@@ -282,9 +388,9 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
 
 /// `get_training_history` — read the persisted daily rollup.
 ///
-/// LIMITATION(registre#1387): `GetTrainingHistoryTool` reads only the caller's rollup
-/// (`context.user_id`, no `athlete` argument), and no coach tool reads an athlete's daily
-/// CTL/ATL/TSB, so a coach gets no fatigue/form analysis from their athlete's data.
+/// A training-class read: for a coach's read of a coached athlete the
+/// dispatch chokepoint builds the call's context as the athlete, so the
+/// rows read are theirs (carnet#1387).
 #[derive(Debug)]
 pub struct GetTrainingHistoryTool;
 
@@ -324,8 +430,18 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             let tenant_id = require_tenant(&context)?;
             let user_id = context.user_id;
             let (from, to) = resolve_window(&context.resources, user_id, &args).await?;
-            let rows =
+            let mut rows =
                 history_rows_for_model(&context.resources, tenant_id, user_id, from, to).await?;
+            // An athlete's rollup is computed when their own surfaces or a
+            // capture compute it, so a coach reading it can come first: rows
+            // that stop short of `to` are computed from the athlete's stored
+            // sessions, under their tenant, before they are read (carnet#1387).
+            if scoped_read_subject().is_some() && rows.last().is_none_or(|row| row.date < to) {
+                compute_and_persist_history(&context.resources, tenant_id, user_id, from, to)
+                    .await?;
+                rows = history_rows_for_model(&context.resources, tenant_id, user_id, from, to)
+                    .await?;
+            }
 
             // Every row carries its own form reading, and the payload carries
             // the method that produced it. This is the tool the endurance agent
@@ -344,6 +460,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                     }
                 })
                 .collect();
+            let deep_fatigue_mornings = deep_fatigue_run(&days, to);
+            let sources = history_sources(&context.resources, tenant_id, user_id, from, to).await?;
 
             ok_typed(
                 "get_training_history",
@@ -351,6 +469,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                     from: from.format("%Y-%m-%d").to_string(),
                     to: to.format("%Y-%m-%d").to_string(),
                     days,
+                    sources,
+                    deep_fatigue_mornings,
                     interpretation: FormReading::interpretation(
                         params.training_load_ctl_days,
                         params.training_load_atl_days,
@@ -373,6 +493,63 @@ pub fn create_endurance_history_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
-// tools read/compute the caller's own training history — internal, no egress.
+// tools read/compute the training history of the athlete the call reads — the
+// caller, or a coached athlete for a coach's read — internal, no egress.
 pierre_tool_runtime::declare_security!(ComputeTrainingHistoryTool => empty);
 pierre_tool_runtime::declare_security!(GetTrainingHistoryTool => empty);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn day(date: NaiveDate, band: FormBand, pct: f64) -> TrainingHistoryDay {
+        TrainingHistoryDay {
+            state: DailyTrainingState::zero(date),
+            tsb_pct_of_ctl: Some(pct),
+            form_band: band,
+        }
+    }
+
+    fn date(d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 11, d).expect("a valid day")
+    }
+
+    #[test]
+    fn the_run_is_the_deep_fatigue_days_ending_on_to_oldest_first() {
+        let days = [
+            day(date(1), FormBand::DeepFatigue, -40.0),
+            day(date(2), FormBand::HeavyBlock, -25.0),
+            day(date(3), FormBand::DeepFatigue, -31.0),
+            day(date(4), FormBand::DeepFatigue, -38.0),
+        ];
+        let run = deep_fatigue_run(&days, date(4));
+        let dates: Vec<&str> = run.iter().map(|m| m.date.as_str()).collect();
+        assert_eq!(
+            dates,
+            ["2026-11-03", "2026-11-04"],
+            "the run stops at the first day out of deep fatigue"
+        );
+        assert_eq!(
+            run[1].tsb_pct_of_ctl,
+            Some(-38.0),
+            "each day carries its share"
+        );
+    }
+
+    #[test]
+    fn no_run_when_to_has_no_row_or_a_day_is_missing() {
+        let days = [
+            day(date(2), FormBand::DeepFatigue, -40.0),
+            day(date(4), FormBand::DeepFatigue, -38.0),
+        ];
+        assert!(
+            deep_fatigue_run(&days, date(5)).is_empty(),
+            "a series that stops short of `to` says nothing about today"
+        );
+        assert_eq!(
+            deep_fatigue_run(&days, date(4)).len(),
+            1,
+            "a missing day ends the run: the 3rd has no row"
+        );
+    }
+}

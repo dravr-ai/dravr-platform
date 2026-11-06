@@ -6,6 +6,7 @@
 
 #[cfg(feature = "client-notifications")]
 use crate::context::scoped_conversation_id;
+use crate::context::scoped_read_subject;
 use crate::implementations::analytics::output::{
     LoadMetrics, LoadRecoveryContext, NoTrainingLoad, ProvidersUsed, TrainingLoadDetail,
     TrainingLoadResult, TrainingZone, WeeklyTss,
@@ -15,6 +16,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::read_subject;
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use chrono::Utc;
@@ -343,6 +345,14 @@ pub(crate) fn handle_analyze_training_load(
             .parameters
             .get("sleep_provider")
             .and_then(|v| v.as_str());
+        // A coach's read of a coached athlete reads their training, never
+        // their sleep or HRV (carnet#1387).
+        if sleep_provider.is_some() && scoped_read_subject().is_some() {
+            return Ok(read_subject::wellness_refusal(
+                "analyze_training_load",
+                "sleep_provider",
+            ));
+        }
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
@@ -397,14 +407,18 @@ pub(crate) fn handle_analyze_training_load(
                             },
                         );
 
-                        // Fire intelligence-driven notification triggers based on computed metrics
+                        // Fire intelligence-driven notification triggers based on
+                        // computed metrics. They are the athlete's own: a coach's
+                        // read of them notifies no one (carnet#1387).
                         #[cfg(feature = "client-notifications")]
-                        fire_training_load_notifications(
-                            &executor.resources,
-                            user_uuid,
-                            request.tenant_id.as_deref(),
-                            &analysis,
-                        );
+                        if scoped_read_subject().is_none() {
+                            fire_training_load_notifications(
+                                &executor.resources,
+                                user_uuid,
+                                request.tenant_id.as_deref(),
+                                &analysis,
+                            );
+                        }
 
                         // If sleep_provider is specified, fetch recovery context
                         let recovery_context = if let Some(sleep_provider_name) = sleep_provider {

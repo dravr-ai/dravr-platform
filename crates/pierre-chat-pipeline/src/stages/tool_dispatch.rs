@@ -97,9 +97,9 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// group (carnet#741), and a human coach's thread bound to one athlete
     /// (carnet#1070). The tools the seat withholds are left out of the
     /// declarations and refused at execution: the coach's own data tools on
-    /// the coach's seat (carnet#742), every write on the coach's own account
-    /// in their athlete thread. There the coach's own reads stay declared, and
-    /// read the coach's own data when called.
+    /// the coach's seat (carnet#742), and in their athlete thread every write
+    /// on the coach's own account and every read of it (carnet#1387). There a
+    /// training read reads the thread's athlete.
     pub seat: TurnSeat,
     /// The tools an operator switched off for the sender, resolved once per
     /// turn. Left out of the declarations and the loopback listing, as

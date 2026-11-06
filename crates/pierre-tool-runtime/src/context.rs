@@ -25,6 +25,7 @@ use dravr_tronc::mcp::tool::ToolContext as TroncToolContext;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::read_subject::ReadSubject;
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
 use pierre_cache::Cache;
@@ -123,6 +124,17 @@ tokio::task_local! {
     /// cannot reach further by calling a tool that calls another tool.
     pub static GRANTED_SCOPES: Vec<OAuthScope>;
 
+    /// The coached athlete the in-flight tool call reads, when it reads one.
+    ///
+    /// Resolved once by the dispatch chokepoint for a training-class tool
+    /// ([`crate::read_subject`]), which then builds the call's context as the
+    /// athlete. Scoped around the tool body so a handler can tell a coach's
+    /// read of their athlete from the athlete's own call — and leave out what
+    /// only the athlete's own call does, such as notifying them — and so a
+    /// nested dispatch inherits the subject rather than resolving its own.
+    /// `None` on every call that reads its caller's own data.
+    pub(crate) static READ_SUBJECT: Option<ReadSubject>;
+
     /// Who decided the in-flight tool call should run. Scoped by the chat
     /// pipeline around a read it runs on the athlete's behalf before the model
     /// has said anything; absent everywhere else, which means the model asked.
@@ -159,6 +171,14 @@ impl DispatchOrigin {
 #[must_use]
 pub fn scoped_conversation_id() -> Option<String> {
     CONVERSATION_ID.try_with(Clone::clone).ok().flatten()
+}
+
+/// The coached athlete the in-flight tool call reads, read from the
+/// `READ_SUBJECT` task-local; `None` when it reads its caller's own data, and
+/// outside any tool body.
+#[must_use]
+pub fn scoped_read_subject() -> Option<ReadSubject> {
+    READ_SUBJECT.try_with(Clone::clone).ok().flatten()
 }
 
 /// How the user authenticated for this request.

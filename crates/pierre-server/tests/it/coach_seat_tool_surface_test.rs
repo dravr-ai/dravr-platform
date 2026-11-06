@@ -17,7 +17,13 @@
 //! own account would file what the coach says of the athlete as the coach's
 //! own — "her FTP is 250" as the coach's FTP. The same surface leaves every
 //! such write out and refuses it, while the plan tools, which act on the
-//! thread's athlete, and the coach's own reads stay.
+//! thread's athlete, stay.
+//!
+//! carnet#1387. A read of the coach's own data would answer a question about
+//! the athlete with the coach's — their sleep, their memory — so the thread
+//! withholds every read that declares no data class and takes no `athlete`,
+//! the four `groups` tools among them. The training reads, which read the
+//! thread's athlete, and the reads of no one's data stay.
 
 use crate::common;
 
@@ -52,6 +58,20 @@ const OWN_ACCOUNT_WRITES: [&str; 6] = [
 ];
 /// Takes `athlete`, which defaults to the thread's athlete: kept there.
 const PLAN_WRITE: &str = "save_training_plan";
+/// Reads only the coach's own data: withheld in a coach's athlete thread.
+const OWN_READS: [&str; 3] = ["get_sleep_sessions", "recall_user_memory", "get_athlete"];
+/// The `groups` tools: each would scan every group the coach coaches from a
+/// thread, so the thread withholds them; the room keeps them.
+const GROUP_TOOLS: [&str; 4] = [
+    "get_group_member_activities",
+    "get_roster_overview",
+    "get_group_member_plan_status",
+    "get_provider_roster",
+];
+/// A training read of the thread's athlete: kept there.
+const TRAINING_READ: &str = "get_training_history";
+/// Reads no person's data: kept there.
+const NO_SUBJECT_READ: &str = "get_weather_forecast";
 
 /// The surface an in-app turn opens: built inside the web app's transport
 /// declaration, as the turn service scopes every turn.
@@ -173,10 +193,68 @@ async fn the_athlete_thread_lists_the_plan_tools_and_no_write_on_the_coachs_acco
         names.iter().any(|n| n == PLAN_WRITE),
         "the plan tools act on the thread's athlete and stay"
     );
-    assert!(
-        names.iter().any(|n| n == OWN_DATA_TOOL),
-        "the coach's own reads stay, and the thread's prompt says whose they are"
-    );
+    for read in OWN_READS {
+        assert!(
+            !names.iter().any(|n| n == read),
+            "{read} reads the coach's own data, never the thread's athlete"
+        );
+    }
+    if cfg!(feature = "tools-groups") {
+        for group_tool in GROUP_TOOLS {
+            assert!(
+                !names.iter().any(|n| n == group_tool),
+                "{group_tool} would scan every group the coach coaches from the thread"
+            );
+        }
+    }
+    for kept in [OWN_DATA_TOOL, TRAINING_READ, NO_SUBJECT_READ] {
+        assert!(
+            names.iter().any(|n| n == kept),
+            "{kept} reads the thread's athlete or no one's data, and stays"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_read_of_the_coachs_own_data_called_in_the_athlete_thread_is_refused() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let thread = surface(&resources, user_id, tenant, TurnSeat::AthleteThread).await;
+
+    let mut refused_reads: Vec<&str> = OWN_READS.to_vec();
+    if cfg!(feature = "tools-groups") {
+        refused_reads.extend(GROUP_TOOLS);
+    }
+    for read in refused_reads {
+        let refused = thread.call(read, &json!({})).await;
+        assert!(refused.is_error, "{read}: {}", refused.text);
+        assert!(
+            refused.text.contains(ATHLETE_THREAD_ERROR_CODE)
+                && refused
+                    .text
+                    .contains("the coach's own data, never the athlete's"),
+            "{read}: the read refusal, got: {}",
+            refused.text
+        );
+    }
+
+    // The room keeps the group tools: the thread's rule is the thread's.
+    if cfg!(feature = "tools-groups") {
+        let room: Vec<String> = surface(&resources, user_id, tenant, TurnSeat::Coach)
+            .await
+            .list_tools()
+            .await
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        for group_tool in GROUP_TOOLS {
+            assert!(
+                room.iter().any(|n| n == group_tool),
+                "{group_tool} in the room"
+            );
+        }
+    }
 }
 
 #[tokio::test]

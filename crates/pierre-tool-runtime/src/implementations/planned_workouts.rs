@@ -377,7 +377,7 @@ async fn coach_read(
     };
     // A named athlete or a bound one always resolves to someone the caller
     // acts for, never to the caller's own scope.
-    let name = scope.acting_for.ok_or_else(|| {
+    let name = scope.acting_for().map(str::to_owned).ok_or_else(|| {
         AppError::internal("a coach's planned-calendar read resolved to the caller's own scope")
     })?;
     let today = athlete_today(repos, scope.user_id).await;

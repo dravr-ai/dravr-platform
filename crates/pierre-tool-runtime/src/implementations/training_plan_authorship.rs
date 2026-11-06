@@ -44,7 +44,7 @@ use crate::context::ToolExecutionContext;
 /// # Errors
 ///
 /// Returns the repository error from the conversation lookup.
-pub(super) async fn load_conversation(
+pub(crate) async fn load_conversation(
     repos: &RepositoryRegistry,
     conversation_id: Option<&str>,
     tenant: TenantId,

@@ -56,6 +56,7 @@ use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
 use pierre_services::linked_wellness::{linked_wellness, LinkedWellness, LINKED_WELLNESS_DAYS};
+use pierre_tool_runtime::read_subject::DataClass;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -269,7 +270,13 @@ pub(crate) async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> Stri
                     .unwrap_or(&readings.provider);
                 (brand, readings)
             });
-            granted_block(granted, &training, shown)
+            // The tools that read the athlete here, from what each declares:
+            // a training read added later is named without a prompt edit.
+            let readable = ctx
+                .tool_runtime
+                .tool_registry()
+                .chat_callable_of_class(DataClass::Training);
+            granted_block(granted, &training, shown, &readable)
         }
     }
 }
@@ -353,11 +360,13 @@ fn name(raw: &str) -> String {
 }
 
 /// The block for a granted turn. `wellness` is the linked wellness with the
-/// brand of the platform it came through.
+/// brand of the platform it came through; `readable` names the tools that
+/// read the athlete's training in this thread.
 fn granted_block(
     granted: &GrantedSubject,
     training: &RosterLine,
     wellness: Option<(&str, &LinkedWellness)>,
+    readable: &[String],
 ) -> String {
     let athlete = name(&granted.access.display_name);
     let group = name(&granted.access.group.name);
@@ -376,12 +385,14 @@ fn granted_block(
          A publish that would overwrite a week {athlete} changed since it was drafted, or a \
          season {athlete} re-laid, is refused and names each such week; publish over them \
          with `overwrite_athlete_changes` only when the coach says to.\n\
-         - Tools that read \"your own\" data — activities, sleep, recovery, profile, goals, \
-         physiology — read the coach's own account, never {athlete}'s. Never present what \
-         they return as {athlete}'s.\n\
+         - Data tools act on {athlete} by default: leave `athlete` out. They read {athlete}'s \
+         training under {athlete}'s consent: {readable}. Anything else about {athlete} — sleep, \
+         recovery, goals, physiology, trends — is not readable here; say so rather than \
+         estimating it. The coach's own data is never read in this thread.\n\
          - Nothing said here is saved to the coach's own account: the tools that would write \
          it — facts, notes, follow-ups, commitments, goals, physiology — are not offered in \
-         this thread.\n"
+         this thread.\n",
+        readable = readable.join(", ")
     );
     training_section(&mut out, &athlete, training);
     plan_section(&mut out, &athlete, granted.view.as_ref());

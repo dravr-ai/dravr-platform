@@ -29,7 +29,7 @@ use super::calendar::{
     entry_provider_property, provider_arg, provider_property, required_text, step_schema,
     validate_step, TargetRule, MAX_SESSION_STEPS,
 };
-use super::coach_scope::{athlete_property, resolve_calendar_scope};
+use super::coach_scope::{athlete_property, resolve_calendar_scope, under_athlete_consents};
 use super::plan_scope::PlanWriter;
 use super::training_plan_authorship::{load_conversation, resolve_turn_agent};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
@@ -704,189 +704,195 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     Ok(scope) => scope,
                     Err(refused) => return Ok(refused),
                 };
-            let (tenant_id, user_id) = (scope.tenant, scope.user_id);
-            let agent = scope.writer.agent_id.clone();
-            let template =
-                resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
-            // An authored session becomes one of the athlete's saved sessions:
-            // their own even when no calendar takes it, a coach's only once the
-            // coach's writer is built, so a refused write saves nothing of theirs.
-            let authored = args.get("session").is_some_and(|session| !session.is_null());
-            if authored && !scope.acts_for_athlete() {
-                keep_session(&context, &template).await?;
-            }
-            // The previous entry is resolved before the provider is built, so a
-            // bad id is refused without a credential lookup.
-            let previous = match replaces {
-                Some(id) => Some(live_prescription(&context, tenant_id, user_id, id).await?),
-                None => None,
-            };
-            // A replaced entry lives on the provider the ledger filed it under;
-            // naming another would orphan it.
-            let named = provider_arg(&args);
-            let (target, calendar_note) = if let Some((prev, _)) = &previous {
-                if let Some(named) = named.filter(|name| *name != prev.provider) {
-                    return Err(AppError::invalid_input(format!(
-                        "prescription {} is on {}, so it cannot be replaced on {named}",
-                        prev.id, prev.provider
-                    )));
+            // What the call reads of a coached athlete's calendar runs under the
+            // athlete's AI consents, never the coach's (carnet#1387).
+            let athlete_consents = scope.athlete_consents(context.resources.repos()).await;
+            under_athlete_consents(athlete_consents, Box::pin(async {
+                let (tenant_id, user_id) = (scope.tenant, scope.user_id);
+                let agent = scope.writer.agent_id.clone();
+                let template =
+                    resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
+                // An authored session becomes one of the athlete's saved sessions:
+                // their own even when no calendar takes it, a coach's only once the
+                // coach's writer is built, so a refused write saves nothing of theirs.
+                let authored = args.get("session").is_some_and(|session| !session.is_null());
+                if authored && !scope.acts_for_athlete() {
+                    keep_session(&context, &template).await?;
                 }
-                (prev.provider.clone(), None)
-            } else {
-                let chosen = match scope.target(&context, named).await? {
-                    Ok(chosen) => chosen,
-                    Err(ask) => return Ok(ask),
+                // The previous entry is resolved before the provider is built, so a
+                // bad id is refused without a credential lookup.
+                let previous = match replaces {
+                    Some(id) => Some(live_prescription(&context, tenant_id, user_id, id).await?),
+                    None => None,
                 };
-                let note = scope.passed_over_note(&context, &chosen).await?;
-                (chosen.backend, note)
-            };
-            let provider = match scope.calendar_writer(&context, &target).await? {
-                Ok(provider) => provider,
-                Err(refused) => return Ok(refused),
-            };
-            if authored && scope.acts_for_athlete() {
-                keep_session(&context, &template).await?;
-            }
+                // A replaced entry lives on the provider the ledger filed it under;
+                // naming another would orphan it.
+                let named = provider_arg(&args);
+                let (target, calendar_note) = if let Some((prev, _)) = &previous {
+                    if let Some(named) = named.filter(|name| *name != prev.provider) {
+                        return Err(AppError::invalid_input(format!(
+                            "prescription {} is on {}, so it cannot be replaced on {named}",
+                            prev.id, prev.provider
+                        )));
+                    }
+                    (prev.provider.clone(), None)
+                } else {
+                    let chosen = match scope.target(&context, named).await? {
+                        Ok(chosen) => chosen,
+                        Err(ask) => return Ok(ask),
+                    };
+                    let note = scope.passed_over_note(&context, &chosen).await?;
+                    (chosen.backend, note)
+                };
+                let provider = match scope.calendar_writer(&context, &target).await? {
+                    Ok(provider) => provider,
+                    Err(refused) => return Ok(refused),
+                };
+                if authored && scope.acts_for_athlete() {
+                    keep_session(&context, &template).await?;
+                }
 
-            let prescription_id = Uuid::new_v4();
-            let session = PlannedSession::from_template(
-                &template,
-                date,
-                CalendarKey::prescription(prescription_id),
-            );
-            let payload_json = serde_json::to_string(&session)
-                .map_err(|e| AppError::internal(format!("serialize session: {e}")))?;
-            let payload_hash = session
-                .payload_hash()
-                .map_err(|e| AppError::internal(format!("hash session: {e}")))?;
+                let prescription_id = Uuid::new_v4();
+                let session = PlannedSession::from_template(
+                    &template,
+                    date,
+                    CalendarKey::prescription(prescription_id),
+                );
+                let payload_json = serde_json::to_string(&session)
+                    .map_err(|e| AppError::internal(format!("serialize session: {e}")))?;
+                let payload_hash = session
+                    .payload_hash()
+                    .map_err(|e| AppError::internal(format!("hash session: {e}")))?;
 
-            // What this turn derived from first-party-only data does not leave
-            // through an external transport, onto a third-party calendar or
-            // anywhere else: the gate `push_training_plan` applies to a stored
-            // plan, applied to what this call derived (carnet#901).
-            if !ai_scope::admit_derived(ai_scope::derived_policy()) {
-                return Err(AppError::unavailable_over_transport(
-                    "this workout is not available over this interface",
-                ));
-            }
+                // What this turn derived from first-party-only data does not leave
+                // through an external transport, onto a third-party calendar or
+                // anywhere else: the gate `push_training_plan` applies to a stored
+                // plan, applied to what this call derived (carnet#901).
+                if !ai_scope::admit_derived(ai_scope::derived_policy()) {
+                    return Err(AppError::unavailable_over_transport(
+                        "this workout is not available over this interface",
+                    ));
+                }
 
-            // With `replaces`, the calendar entry keeps its provider id and gets
-            // the new workout; without it, a new entry is created.
-            let push: AppResult<String> = match &previous {
-                Some((_, event_id)) => provider
-                    .update_planned_session(event_id, &session)
-                    .await
-                    .map(|()| event_id.clone()),
-                None => provider.push_planned_session(&session).await,
-            };
-            let push = scope.reacting(&context, provider.as_ref(), push).await;
-            let (status, provider_event_id) = push.as_ref().map_or_else(
-                |_| (PrescribedWorkout::STATUS_FAILED, None),
-                |id| (PrescribedWorkout::STATUS_PUSHED, Some(id.clone())),
-            );
-            match &push {
-                Ok(_) => emit_calendar_sync_completed(
-                    tenant_id,
+                // With `replaces`, the calendar entry keeps its provider id and gets
+                // the new workout; without it, a new entry is created.
+                let push: AppResult<String> = match &previous {
+                    Some((_, event_id)) => provider
+                        .update_planned_session(event_id, &session)
+                        .await
+                        .map(|()| event_id.clone()),
+                    None => provider.push_planned_session(&session).await,
+                };
+                let push = scope.reacting(&context, provider.as_ref(), push).await;
+                let (status, provider_event_id) = push.as_ref().map_or_else(
+                    |_| (PrescribedWorkout::STATUS_FAILED, None),
+                    |id| (PrescribedWorkout::STATUS_PUSHED, Some(id.clone())),
+                );
+                match &push {
+                    Ok(_) => emit_calendar_sync_completed(
+                        tenant_id,
+                        user_id,
+                        &target,
+                        PRESCRIBE_TOOL,
+                        1,
+                    ),
+                    Err(e) => emit_calendar_sync_failed(
+                        tenant_id,
+                        user_id,
+                        &target,
+                        PRESCRIBE_TOOL,
+                        &e.to_string(),
+                    ),
+                }
+
+                // The ledger records the attempt either way. A prescription the
+                // provider refused is a fact the agent and the athlete both need,
+                // and a ledger that holds only successes cannot answer the one
+                // question it exists for: did this workout reach the athlete?
+                let repos = context.resources.repos();
+                // A landed replacement supersedes the previous row first, so the
+                // one-live-row-per-key index never sees two live rows for the
+                // same calendar entry.
+                let superseded: AppResult<()> = match (&push, &previous) {
+                    (Ok(_), Some((prev, _))) => {
+                        repos
+                            .prescribed_workouts
+                            .set_prescribed_workout_status(
+                                tenant_id,
+                                prev.id,
+                                PrescribedWorkout::STATUS_REPLACED,
+                            )
+                            .await
+                    }
+                    _ => Ok(()),
+                };
+                let now = Utc::now();
+                let prescribed = PrescribedWorkout {
+                    id: prescription_id,
+                    tenant_id: tenant_id.as_uuid(),
                     user_id,
-                    &target,
-                    PRESCRIBE_TOOL,
-                    1,
-                ),
-                Err(e) => emit_calendar_sync_failed(
-                    tenant_id,
-                    user_id,
-                    &target,
-                    PRESCRIBE_TOOL,
-                    &e.to_string(),
-                ),
-            }
-
-            // The ledger records the attempt either way. A prescription the
-            // provider refused is a fact the agent and the athlete both need,
-            // and a ledger that holds only successes cannot answer the one
-            // question it exists for: did this workout reach the athlete?
-            let repos = context.resources.repos();
-            // A landed replacement supersedes the previous row first, so the
-            // one-live-row-per-key index never sees two live rows for the
-            // same calendar entry.
-            let superseded: AppResult<()> = match (&push, &previous) {
-                (Ok(_), Some((prev, _))) => {
+                    agent_id: agent,
+                    template_slug: Some(template.slug.clone()),
+                    sport: template.sport.clone(),
+                    prescribed_for_date: date,
+                    provider: target.clone(),
+                    provider_event_id: provider_event_id.clone(),
+                    external_id: Some(session.external_id.clone()),
+                    source: CalendarEventSource::Prescription,
+                    plan_week_id: None,
+                    replaces_id: previous.as_ref().map(|(prev, _)| prev.id),
+                    payload_hash: Some(payload_hash),
+                    payload_json,
+                    status: status.to_owned(),
+                    created_at: now,
+                    updated_at: now,
+                    transport_policy: ai_scope::derived_policy(),
+                };
+                let audit: AppResult<()> = if let Err(e) = superseded {
+                    Err(e)
+                } else {
                     repos
                         .prescribed_workouts
-                        .set_prescribed_workout_status(
-                            tenant_id,
-                            prev.id,
-                            PrescribedWorkout::STATUS_REPLACED,
-                        )
+                        .upsert_prescribed_workout(&prescribed)
                         .await
+                };
+                match &audit {
+                    Ok(()) => scope.record_coach_write(PRESCRIBE_TOOL, 1),
+                    Err(e) => warn!(error = %e, "prescribe_workout: ledger row not saved"),
                 }
-                _ => Ok(()),
-            };
-            let now = Utc::now();
-            let prescribed = PrescribedWorkout {
-                id: prescription_id,
-                tenant_id: tenant_id.as_uuid(),
-                user_id,
-                agent_id: agent,
-                template_slug: Some(template.slug.clone()),
-                sport: template.sport.clone(),
-                prescribed_for_date: date,
-                provider: target.clone(),
-                provider_event_id: provider_event_id.clone(),
-                external_id: Some(session.external_id.clone()),
-                source: CalendarEventSource::Prescription,
-                plan_week_id: None,
-                replaces_id: previous.as_ref().map(|(prev, _)| prev.id),
-                payload_hash: Some(payload_hash),
-                payload_json,
-                status: status.to_owned(),
-                created_at: now,
-                updated_at: now,
-                transport_policy: ai_scope::derived_policy(),
-            };
-            let audit: AppResult<()> = if let Err(e) = superseded {
-                Err(e)
-            } else {
-                repos
-                    .prescribed_workouts
-                    .upsert_prescribed_workout(&prescribed)
-                    .await
-            };
-            match &audit {
-                Ok(()) => scope.record_coach_write(PRESCRIBE_TOOL, 1),
-                Err(e) => warn!(error = %e, "prescribe_workout: ledger row not saved"),
-            }
 
-            // A push failure is the root cause and outranks a failed ledger
-            // write. Only once the push is known to have landed does a ledger
-            // failure surface — and then it must say the event IS on the
-            // calendar, because an agent told "the prescription failed" would
-            // retry, and a retry adds a second entry.
-            let event_id = push?;
-            audit.map_err(|e| {
-                AppError::internal(format!(
-                    "the workout IS on the athlete's {target} calendar (event {event_id}) \
-                     but the prescription ledger row failed to save — do not prescribe it again: {e}"
-                ))
-            })?;
+                // A push failure is the root cause and outranks a failed ledger
+                // write. Only once the push is known to have landed does a ledger
+                // failure surface — and then it must say the event IS on the
+                // calendar, because an agent told "the prescription failed" would
+                // retry, and a retry adds a second entry.
+                let event_id = push?;
+                audit.map_err(|e| {
+                    AppError::internal(format!(
+                        "the workout IS on the athlete's {target} calendar (event {event_id}) \
+                         but the prescription ledger row failed to save — do not prescribe it again: {e}"
+                    ))
+                })?;
 
-            ok_typed(
-                "prescribe_workout",
-                PrescribeWorkoutResult {
-                    prescription_id,
-                    provider: target,
-                    provider_event_id: event_id,
-                    replaced_prescription_id: previous
-                        .as_ref()
-                        .map(|(prev, _)| prev.id),
-                    template_slug: template.slug.clone(),
-                    name: template.name.clone(),
-                    duration_minutes: template.duration_minutes,
-                    scheduled_for: date.format("%Y-%m-%d").to_string(),
-                    status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
-                    calendar_note,
-                },
-            )
+                ok_typed(
+                    "prescribe_workout",
+                    PrescribeWorkoutResult {
+                        prescription_id,
+                        provider: target,
+                        provider_event_id: event_id,
+                        replaced_prescription_id: previous
+                            .as_ref()
+                            .map(|(prev, _)| prev.id),
+                        template_slug: template.slug.clone(),
+                        name: template.name.clone(),
+                        duration_minutes: template.duration_minutes,
+                        scheduled_for: date.format("%Y-%m-%d").to_string(),
+                        status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
+                        calendar_note,
+                    },
+                )
+            }))
+            .await
         }
         .await;
         tool_result_to_response(result)
@@ -957,77 +963,83 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                     Ok(scope) => scope,
                     Err(refused) => return Ok(refused),
                 };
-            let (tenant_id, user_id) = (scope.tenant, scope.user_id);
-            let (row, event_id) =
-                live_prescription(&context, tenant_id, user_id, prescription_id).await?;
-            if let Some(named) = provider_arg(&args).filter(|name| *name != row.provider) {
-                return Err(AppError::invalid_input(format!(
-                    "prescription {prescription_id} is on {}, not {named}",
-                    row.provider
-                )));
-            }
-            let provider = match scope.calendar_writer(&context, &row.provider).await? {
-                Ok(provider) => provider,
-                Err(refused) => return Ok(refused),
-            };
+            // What the call reads of a coached athlete's calendar runs under the
+            // athlete's AI consents, never the coach's (carnet#1387).
+            let athlete_consents = scope.athlete_consents(context.resources.repos()).await;
+            under_athlete_consents(athlete_consents, async {
+                let (tenant_id, user_id) = (scope.tenant, scope.user_id);
+                let (row, event_id) =
+                    live_prescription(&context, tenant_id, user_id, prescription_id).await?;
+                if let Some(named) = provider_arg(&args).filter(|name| *name != row.provider) {
+                    return Err(AppError::invalid_input(format!(
+                        "prescription {prescription_id} is on {}, not {named}",
+                        row.provider
+                    )));
+                }
+                let provider = match scope.calendar_writer(&context, &row.provider).await? {
+                    Ok(provider) => provider,
+                    Err(refused) => return Ok(refused),
+                };
 
-            let deleted = provider
-                .delete_planned_sessions(slice::from_ref(&event_id))
-                .await;
-            let deleted = scope.reacting(&context, provider.as_ref(), deleted).await;
-            match &deleted {
-                Ok(_) => emit_calendar_sync_completed(
-                    tenant_id,
-                    user_id,
-                    &row.provider,
-                    WITHDRAW_TOOL,
-                    1,
-                ),
-                Err(e) => emit_calendar_sync_failed(
-                    tenant_id,
-                    user_id,
-                    &row.provider,
-                    WITHDRAW_TOOL,
-                    &e.to_string(),
-                ),
-            }
-            deleted?;
+                let deleted = provider
+                    .delete_planned_sessions(slice::from_ref(&event_id))
+                    .await;
+                let deleted = scope.reacting(&context, provider.as_ref(), deleted).await;
+                match &deleted {
+                    Ok(_) => emit_calendar_sync_completed(
+                        tenant_id,
+                        user_id,
+                        &row.provider,
+                        WITHDRAW_TOOL,
+                        1,
+                    ),
+                    Err(e) => emit_calendar_sync_failed(
+                        tenant_id,
+                        user_id,
+                        &row.provider,
+                        WITHDRAW_TOOL,
+                        &e.to_string(),
+                    ),
+                }
+                deleted?;
 
-            // The entry is gone from the calendar. If the ledger cannot record
-            // that, say so in those terms — a retry would find nothing to
-            // delete, which the provider ignores, so the row can be repaired
-            // by calling again.
-            context
-                .resources
-                .repos()
-                .prescribed_workouts
-                .set_prescribed_workout_status(
-                    tenant_id,
-                    row.id,
-                    PrescribedWorkout::STATUS_WITHDRAWN,
+                // The entry is gone from the calendar. If the ledger cannot record
+                // that, say so in those terms — a retry would find nothing to
+                // delete, which the provider ignores, so the row can be repaired
+                // by calling again.
+                context
+                    .resources
+                    .repos()
+                    .prescribed_workouts
+                    .set_prescribed_workout_status(
+                        tenant_id,
+                        row.id,
+                        PrescribedWorkout::STATUS_WITHDRAWN,
+                    )
+                    .await
+                    .map_err(|e| {
+                        AppError::internal(format!(
+                            "the entry is gone from the athlete's {provider_name} calendar (event \
+                             {event_id}) but the ledger could not record the withdrawal — call \
+                             again to repair the row: {e}",
+                            provider_name = row.provider
+                        ))
+                    })?;
+                scope.record_coach_write(WITHDRAW_TOOL, 1);
+
+                ok_typed(
+                    "withdraw_prescribed_workout",
+                    WithdrawWorkoutResult {
+                        prescription_id,
+                        provider: row.provider.clone(),
+                        provider_event_id: event_id,
+                        name: row.template_slug.clone(),
+                        scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                        status: PrescribedWorkout::STATUS_WITHDRAWN.to_owned(),
+                    },
                 )
-                .await
-                .map_err(|e| {
-                    AppError::internal(format!(
-                        "the entry is gone from the athlete's {provider_name} calendar (event \
-                         {event_id}) but the ledger could not record the withdrawal — call \
-                         again to repair the row: {e}",
-                        provider_name = row.provider
-                    ))
-                })?;
-            scope.record_coach_write(WITHDRAW_TOOL, 1);
-
-            ok_typed(
-                "withdraw_prescribed_workout",
-                WithdrawWorkoutResult {
-                    prescription_id,
-                    provider: row.provider.clone(),
-                    provider_event_id: event_id,
-                    name: row.template_slug.clone(),
-                    scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
-                    status: PrescribedWorkout::STATUS_WITHDRAWN.to_owned(),
-                },
-            )
+            })
+            .await
         }
         .await;
         tool_result_to_response(result)

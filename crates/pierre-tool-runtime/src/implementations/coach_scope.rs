@@ -29,21 +29,28 @@
 //!
 //! What a coach writes keeps the athlete's side whole: the calendar target
 //! comes from the athlete's connections, "today" from the athlete's clock,
-//! and the ledger, the plan and stored sessions live under the athlete's
-//! tenant. The coach's side is the conversation the call came from and the
-//! agent it answers as ([`PlanWriter`]).
+//! the ledger, the plan and stored sessions live under the athlete's tenant,
+//! and what the write reads of the athlete's calendar runs under the
+//! athlete's AI consents ([`under_athlete_consents`]). The coach's side is
+//! the conversation the call came from and the agent it answers as
+//! ([`PlanWriter`]).
 //!
 //! A refusal on this path is in-band, `{reason, error}`, in the coach's
 //! words; nothing on the athlete's calendar is read or written before it, and
 //! nothing is saved among the athlete's sessions.
 
+use std::collections::BTreeSet;
+use std::future::Future;
+
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::core::FitnessProvider;
 use pierre_services::plan_calendar_push::{CalendarResolution, CalendarTarget};
+use pierre_services::provider_notice;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;
@@ -255,17 +262,48 @@ pub(super) async fn resolve_calendar_scope(
         Ok(scope) => scope,
         Err(refused) => return Ok(Err(refused)),
     };
+    let acting_for = scope.acting_for().map(str::to_owned);
     Ok(Ok(CalendarScope {
         tenant: scope.tenant,
         user_id: scope.user_id,
         writer: scope.writer,
-        acting_for: scope.acting_for,
+        acting_for,
         seat: None,
         credential_read_at: None,
     }))
 }
 
+/// Run `work`, a calendar tool's reads and writes once its scope resolved,
+/// under `athlete_consents` ([`CalendarScope::athlete_consents`]).
+///
+/// On the coach path those are the athlete's AI consents: what the write
+/// reads of their calendar is held to them, never to the coach's, and the
+/// call's output boundary applies the same ones — as the plan scope's reads
+/// are (carnet#1419). In self scope the caller's own consents, which the
+/// dispatch chokepoint declared, stand.
+pub(super) async fn under_athlete_consents<F: Future>(
+    athlete_consents: Option<BTreeSet<String>>,
+    work: F,
+) -> F::Output {
+    match athlete_consents {
+        Some(withheld) => ai_scope::with_subject_consent(withheld, work).await,
+        None => work.await,
+    }
+}
+
 impl CalendarScope {
+    /// The providers the athlete whose calendar a coach writes withheld from
+    /// AI; `None` in self scope.
+    pub(super) async fn athlete_consents(
+        &self,
+        repos: &RepositoryRegistry,
+    ) -> Option<BTreeSet<String>> {
+        if !self.acts_for_athlete() {
+            return None;
+        }
+        Some(provider_notice::ai_consent_withheld(repos, self.tenant.as_uuid(), self.user_id).await)
+    }
+
     /// Whether a group's human coach writes a coached athlete's calendar,
     /// rather than the caller their own.
     pub(super) const fn acts_for_athlete(&self) -> bool {
@@ -497,5 +535,52 @@ impl CalendarScope {
                 "Coach wrote a coached athlete's calendar ledger"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use pierre_providers::ai_scope;
+
+    use super::under_athlete_consents;
+
+    fn whoop() -> BTreeSet<String> {
+        BTreeSet::from(["whoop".to_owned()])
+    }
+
+    #[tokio::test]
+    async fn a_coachs_calendar_write_reads_under_the_athletes_consents_and_reports_them() {
+        let (seen, boundary) = ai_scope::subject_consents(ai_scope::with_ai_consent(
+            BTreeSet::new(),
+            under_athlete_consents(Some(whoop()), async { ai_scope::ai_consent_withheld() }),
+        ))
+        .await;
+        assert_eq!(
+            *seen,
+            whoop(),
+            "the write reads under the athlete's consents, not the coach's"
+        );
+        assert_eq!(
+            boundary,
+            Some(whoop()),
+            "the call's output boundary applies the athlete's consents"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_callers_own_calendar_write_keeps_the_callers_consents() {
+        let (seen, boundary) = ai_scope::subject_consents(ai_scope::with_ai_consent(
+            whoop(),
+            under_athlete_consents(None, async { ai_scope::ai_consent_withheld() }),
+        ))
+        .await;
+        assert_eq!(
+            *seen,
+            whoop(),
+            "self scope reads under the caller's consents"
+        );
+        assert_eq!(boundary, None, "and records no one else's");
     }
 }

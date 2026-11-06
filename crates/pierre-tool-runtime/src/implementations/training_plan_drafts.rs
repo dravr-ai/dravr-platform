@@ -50,7 +50,7 @@ use serde_json::{json, Value};
 use tracing::info;
 use uuid::Uuid;
 
-use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
+use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
 use super::training_plan_push::calendar_preview_after_save;
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
@@ -168,7 +168,7 @@ pub(super) async fn draft_section(
     live_weeks: &[PlanWeek],
     fueling: &FuelingDisclosure,
 ) -> AppResult<Option<DraftSection>> {
-    if scope.acting_for.is_none() {
+    if scope.acting_for().is_none() {
         return Ok(None);
     }
     let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
@@ -452,7 +452,12 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let (Some(name), Some(group_id)) = (scope.acting_for.clone(), scope.group_id) else {
+            let PlanSubject::Coached {
+                athlete: name,
+                group_id,
+                ..
+            } = &scope.subject
+            else {
                 return Ok(refusal(
                     "own_plan",
                     "Your own saves are already live — there is no draft of your own plan to \
@@ -462,13 +467,19 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             };
             let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
             match action {
-                DraftAction::Discard => discard(repos, &target, name).await,
+                DraftAction::Discard => discard(repos, &target, name.clone()).await,
                 // The rails a publish runs read the athlete's load to report
                 // back to the coach, under the athlete's own AI consents
                 // (carnet#1419).
                 DraftAction::Publish => {
                     let publishing = Box::pin(publish(
-                        state, &context, &scope, &target, group_id, name, overwrite,
+                        state,
+                        &context,
+                        &scope,
+                        &target,
+                        *group_id,
+                        name.clone(),
+                        overwrite,
                     ));
                     scope.read_as_athlete(repos, publishing).await
                 }

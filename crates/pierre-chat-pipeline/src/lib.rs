@@ -563,6 +563,15 @@ async fn store_turn_prompt(
     Ok(msg_result)
 }
 
+/// The activity list a reply may carry: the one the turn's tools read, on the
+/// subject's seat only. The card is labelled as the sender's own activities,
+/// and off that seat the list a tool read is someone else's — the athlete of
+/// a coach's thread (carnet#1387) — so it reaches the reply only through the
+/// agent's prose.
+fn sender_activity_list(seat: TurnSeat, list: Option<String>) -> Option<String> {
+    list.filter(|_| seat.sender_is_subject())
+}
+
 /// Run the body of a single turn.
 async fn run_turn(
     ctx: &ChatPipelineContext,
@@ -955,6 +964,7 @@ async fn run_turn(
     // asked for activities and got them" signal, which `tools_called` cannot be
     // because the platform injects the tool name when it prefetches.
     let activity_list_captured = result.activity_list.is_some();
+    result.activity_list = sender_activity_list(seat, result.activity_list.take());
     let activity_list = if profile.render.blocks.activity_list_card {
         stages::activity_fold::athlete_list(result.activity_list.as_deref())
     } else {

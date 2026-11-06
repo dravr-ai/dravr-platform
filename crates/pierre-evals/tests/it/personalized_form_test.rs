@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The product never prints form as a bare TSB. It prints "TSB -77 (-64% of
-//! CTL, deep fatigue)": the share of the athlete's own fitness, banded. A reply
+//! The product never prints form as a bare TSB. It prints "form -64% of CTL,
+//! deep fatigue": the share of the athlete's own fitness, banded. A reply
 //! written that way is checked against the share and the band; only a bare TSB
 //! meets the raw number, and a percentage never does, so a correct percentage
 //! beside "current form" is not contradicted by the TSB.
@@ -528,11 +528,18 @@ fn the_prose_the_tools_render_is_supported_for_the_athlete_it_describes() {
         balanced(),
         fresh(),
         detraining(),
-        no_base(),
     ] {
         let prose = form.inline();
         assert_eq!(check(form, &prose), Some(ClaimStatus::Supported), "{prose}");
     }
+}
+
+/// Without a chronic base the prose gives the reason and no figure, so it
+/// makes no form claim to check, true or false.
+#[test]
+fn the_prose_without_a_chronic_base_claims_no_figure() {
+    let prose = no_base().inline();
+    assert_eq!(check(no_base(), &prose), None, "{prose}");
 }
 
 #[test]
@@ -543,9 +550,9 @@ fn the_prose_the_tools_render_is_contradicted_with_its_share_changed() {
         check(deep(), &prose.replace("-64%", "-30%")),
         Some(ClaimStatus::Contradicted)
     );
-    assert_eq!(
-        check(deep(), &prose.replace("TSB -77", "TSB -30")),
-        Some(ClaimStatus::Contradicted)
+    assert!(
+        !prose.contains("TSB"),
+        "the rendered form carries the share and the band, never the raw TSB: {prose}"
     );
     // The same prose, for a different athlete, is wrong.
     assert_eq!(

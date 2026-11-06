@@ -193,6 +193,7 @@ mod claim_verification_service_test;
 mod cloud_tasks_enqueue_test;
 mod coach_access_request_test;
 mod coach_athlete_plan_test;
+mod coach_athlete_reads_test;
 mod coach_attention_route_test;
 mod coach_calendar_write_test;
 mod coach_consents_migration_test;

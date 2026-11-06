@@ -28,7 +28,8 @@ use pierre_services::coached_athlete::CoachedAthleteRefusal;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
-use pierre_tool_runtime::implementations::plan_scope::{self, CoachedPlanRefusal, MemberMiss};
+use pierre_tool_runtime::implementations::plan_scope::{self, CoachedPlanRefusal};
+use pierre_tool_runtime::read_subject::{self, MemberMiss};
 use std::fmt::Write as _;
 use tracing::info;
 use uuid::Uuid;
@@ -508,7 +509,7 @@ async fn coached_athlete_plan(
 
     // Every name in a reply is user-set free text in rich text, so escaped.
     let typed = escape_markdown(query);
-    let found = match plan_scope::match_coached_member(repos, ctx.user_id, query, None).await? {
+    let found = match read_subject::match_coached_member(repos, ctx.user_id, query, None).await? {
         Ok(found) => found,
         Err(MemberMiss::Requester) => return Ok(None),
         Err(MemberMiss::NoMatch) => {

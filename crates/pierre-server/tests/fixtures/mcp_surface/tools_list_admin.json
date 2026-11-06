@@ -1044,6 +1044,10 @@
             "description": "ID of the activity to analyze; get IDs from get_activities.",
             "type": "string"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -2297,6 +2301,10 @@
       "description": "Analyze training load from per-activity TSS (the provider's, else estimated from power vs the FTP saved with set_physiology, heart rate vs the saved threshold heart rate, or pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), form as a percentage of CTL with its band, weekly TSS totals and a taper reading.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -3445,6 +3453,10 @@
       "description": "Calculate a fitness score (0-100): chronic training load 40% (sessions scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does), consistency 30% (share of weeks with 3+ activities) and pace improvement 30%, over the `timeframe` period.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -8817,6 +8829,10 @@
           "activity_id": {
             "description": "Provider activity id, as a string (e.g. a Strava id).",
             "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
           }
         },
         "required": [
@@ -9614,6 +9630,10 @@
         "properties": {
           "activity_id": {
             "description": "Provider activity id, as a string (e.g. a Strava id).",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           }
         },
@@ -10820,6 +10840,10 @@
             "description": "Tunes the data-sufficiency guidance: 'weekly_summary', 'trend_analysis', 'race_preparation', 'recovery_assessment' or 'general_overview' (default).",
             "type": "string"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "before": {
             "description": "Upper bound, epoch seconds. Pair with `after` for a year or date range (all of 2022 = after 1640995200, before 1672531200).",
             "type": "integer"
@@ -11375,6 +11399,10 @@
         "properties": {
           "activity_id": {
             "description": "ID of the activity to analyze",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
           "format": {
@@ -16734,6 +16762,10 @@
       "description": "Fetch the stored Endurance daily training-state rows, chronological: CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load. Use this BEFORE prescribing new load, so every numeric claim cites these framework values (Coggan / Foster). Interpret TSB relative to CTL (form as % of fitness), and report `acwr` strictly as the magnitude of 7-day load against the 28-day baseline — a descriptive ratio, not a predictor of harm. Sessions are scored against the FTP and threshold heart rate saved with set_physiology; a save that changes either recomputes the rows.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "from": {
             "description": "Inclusive start date, YYYY-MM-DD; defaults to 90 days before `to`.",
             "type": "string"
@@ -16748,6 +16780,28 @@
       },
       "outputSchema": {
         "$defs": {
+          "DeepFatigueMorning": {
+            "description": "One day of a deep-fatigue run.",
+            "properties": {
+              "date": {
+                "description": "The day, as `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "tsb_pct_of_ctl": {
+                "description": "Form that day as a percentage of the athlete's own CTL, rounded.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "date",
+              "tsb_pct_of_ctl"
+            ],
+            "type": "object"
+          },
           "FormBand": {
             "description": "Descriptive band for an athlete's form, expressed relative to their own\nchronic load (`form_pct = tsb / form_ctl * 100`) per the TrainingPeaks/Friel and\nintervals.icu convention.\n\nForm on a day is the previous day's CTL minus ATL, and it is a share of\nthat same previous day's CTL (Coggan/TrainingPeaks, see [`TrainingLoad`]).\nA band is therefore built from a whole [`TrainingLoad`] or\n[`DailyTrainingLoad`], which carry both numbers from the same day, never\nfrom a TSB and a CTL handed over separately.\n\nThe bands state the magnitude of fatigue relative to fitness. They are not\ninjury predictions: fixed-threshold injury prediction from load ratios is\nnot supported by the literature (Impellizzeri et al., 2020). This is the\nsingle form vocabulary — every surface that bands form derives it from\nhere rather than comparing raw TSB to a constant, because the same TSB is\na normal build week at CTL 120 and the deepest fatigue at CTL 40.",
             "oneOf": [
@@ -16828,6 +16882,29 @@
               "form_band",
               "method",
               "deep_fatigue_is_not_overtraining"
+            ],
+            "type": "object"
+          },
+          "HistorySource": {
+            "description": "A service the rows' sessions came from.",
+            "properties": {
+              "brand": {
+                "description": "The service as the athlete knows it.",
+                "type": "string"
+              },
+              "last_activity": {
+                "description": "The athlete's civil date of the last session it delivered in the\nwindow, as `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "The service's key, as `connect_provider` takes it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "brand",
+              "last_activity"
             ],
             "type": "object"
           },
@@ -16923,12 +17000,19 @@
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_training_history` answers with.\n\nEvery row carries its own form reading, and the payload carries the method\nthat produced it. This is the tool the endurance agent prompt calls first;\nshipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a\ndiagnosis nobody could explain (registre#199).",
+        "description": "What `get_training_history` answers with.\n\nEvery row carries its own form reading, and the payload carries the method\nthat produced it. This is the tool the endurance agent prompt calls first;\nshipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a\ndiagnosis nobody could explain (registre#199). Beside the rows ride the\nevidence a \"why\" traces them to: the services whose sessions they are\ncomputed from, and the run of deep-fatigue days a reading closes\n(carnet#1387).",
         "properties": {
           "days": {
             "description": "One entry per day that has a rollup.",
             "items": {
               "$ref": "#/$defs/TrainingHistoryDay"
+            },
+            "type": "array"
+          },
+          "deep_fatigue_mornings": {
+            "description": "The consecutive days ending on `to` whose form fell in deep fatigue,\noldest first. Empty when `to` has no row or its form is not deep\nfatigue. A run describes accumulated fatigue relative to fitness, not\novertraining.",
+            "items": {
+              "$ref": "#/$defs/DeepFatigueMorning"
             },
             "type": "array"
           },
@@ -16940,6 +17024,13 @@
             "$ref": "#/$defs/FormInterpretation",
             "description": "What the numbers mean and how they were computed."
           },
+          "sources": {
+            "description": "Each service a session in the window came from, with the last day it\ndelivered one there. Empty when no session in the window is readable.",
+            "items": {
+              "$ref": "#/$defs/HistorySource"
+            },
+            "type": "array"
+          },
           "to": {
             "description": "Last day, inclusive.",
             "type": "string"
@@ -16949,6 +17040,8 @@
           "from",
           "to",
           "days",
+          "sources",
+          "deep_fatigue_mornings",
           "interpretation"
         ],
         "title": "TrainingHistoryResult",

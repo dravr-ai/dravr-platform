@@ -16,8 +16,9 @@ use super::tool_response::{
 use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
-    AuthMethod, DispatchOrigin, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES,
-    GUARDIAN_TURN_TOKEN, TURN_AGENT_ID, TURN_DIRECT_MESSAGE, TURN_LOCALE,
+    scoped_read_subject, AuthMethod, DispatchOrigin, CONVERSATION_ID, CONVERSATION_TENANT,
+    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_DIRECT_MESSAGE,
+    TURN_LOCALE,
 };
 use crate::first_party_tools;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
@@ -28,12 +29,14 @@ use crate::protocol::provider_offer::{
 };
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
+use crate::read_subject::ReadSubject;
 use crate::reconnect::offer_in_payload;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
+use futures_util::future::Either;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
@@ -49,8 +52,12 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
+use subject::{subject_tool_context, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
+
+/// Whose data a dispatched call reads (carnet#1387).
+mod subject;
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -153,6 +160,11 @@ pub struct UniversalExecutor {
     /// [`Self::with_caller_writing_reply`]; never inherited, because a nested
     /// dispatch answers the tool that made it, not the caller.
     caller_writes_reply: bool,
+    /// The coached athlete the call this executor was built inside reads
+    /// ([`READ_SUBJECT`]), inherited when it is built inside such a call's
+    /// body. A nested dispatch then reads that athlete too, and is charged to
+    /// the coach who asked, rather than resolving a subject of its own.
+    read_subject: Option<ReadSubject>,
 }
 
 impl fmt::Debug for UniversalExecutor {
@@ -170,6 +182,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("transport", &self.transport)
             .field("provenance", &self.provenance)
             .field("caller_writes_reply", &self.caller_writes_reply)
+            .field("read_subject", &self.read_subject)
             .finish_non_exhaustive()
     }
 }
@@ -213,6 +226,8 @@ impl UniversalExecutor {
             // And accumulates into the derivation its caller accumulates into.
             provenance: ai_scope::current_provenance(),
             caller_writes_reply: false,
+            // A nested dispatch reads the coached athlete its caller reads.
+            read_subject: scoped_read_subject(),
         }
     }
 
@@ -338,8 +353,7 @@ impl UniversalExecutor {
     async fn authorization_refusal(
         &self,
         tool_name: &str,
-        tenant_uuid: Option<Uuid>,
-        user_uuid: Uuid,
+        parties: Parties,
         is_admin: bool,
         admin_only: bool,
         provider_gate: ProviderGate<'_>,
@@ -348,23 +362,16 @@ impl UniversalExecutor {
         // explicit config for the tenant, or a per-user override above it,
         // enforced on every transport. Disabling a tool is config, not a
         // security incident — return the graceful in-band nudge the old
-        // chat-only allowlist gave, so the turn is not abandoned.
-        if let Some(tenant) = tenant_uuid {
-            if !guardian::caller_tool_enabled(
-                &self.resources,
-                TenantId::from_uuid(tenant),
-                user_uuid,
-                tool_name,
-            )
-            .await
-            {
-                info!(
-                    tool_name = %tool_name,
-                    reason = "tenant_disabled",
-                    "tool disabled for tenant — returning in-band refusal"
-                );
-                return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
-            }
+        // chat-only allowlist gave, so the turn is not abandoned. A read of
+        // a coached athlete filed under another tenant honours that tenant's
+        // configuration too.
+        if !self.tool_enabled(tool_name, parties).await {
+            info!(
+                tool_name = %tool_name,
+                reason = "tenant_disabled",
+                "tool disabled for tenant — returning in-band refusal"
+            );
+            return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
         }
 
         // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
@@ -385,9 +392,11 @@ impl UniversalExecutor {
             });
         }
 
+        // The data sources asked of are the reader's: a coach's read of their
+        // athlete needs the athlete's connection, not the coach's.
         if provider_gate.required {
             if let Some(refusal) = self
-                .provider_refusal(tool_name, user_uuid, tenant_uuid, provider_gate.requested)
+                .provider_refusal(tool_name, parties, provider_gate.requested)
                 .await
             {
                 return Ok(Some(refusal));
@@ -439,10 +448,10 @@ impl UniversalExecutor {
     async fn provider_refusal(
         &self,
         tool_name: &str,
-        user_uuid: Uuid,
-        tenant_uuid: Option<Uuid>,
+        parties: Parties,
         requested_provider: Option<&str>,
     ) -> Option<UniversalResponse> {
+        let (user_uuid, tenant_uuid) = (parties.reader, parties.reader_tenant);
         if default_provider().is_some() {
             return None;
         }
@@ -469,7 +478,7 @@ impl UniversalExecutor {
                         .await;
                 Some(external_no_provider_response(
                     &offers,
-                    &self.connect_route(),
+                    &self.connect_route(parties),
                 ))
             }
             _ => Some(no_provider_refusal()),
@@ -478,13 +487,16 @@ impl UniversalExecutor {
 
     /// Where this caller's athlete connects a provider: through
     /// `connect_provider` when the grant covers it, as the tool is otherwise
-    /// not listed to this caller, and in the app when it does not.
-    fn connect_route(&self) -> ConnectRoute {
-        let covered = self
-            .resources
-            .tool_registry()
-            .get(CONNECT_PROVIDER)
-            .is_some_and(|tool| missing_scope(&self.scopes, tool.capabilities()).is_none());
+    /// not listed to this caller, and in the app when it does not. A coach
+    /// reading a coached athlete is always sent to the app: `connect_provider`
+    /// would connect the coach's own account, not the athlete's.
+    fn connect_route(&self, parties: Parties) -> ConnectRoute {
+        let covered = parties.reader == parties.requester
+            && self
+                .resources
+                .tool_registry()
+                .get(CONNECT_PROVIDER)
+                .is_some_and(|tool| missing_scope(&self.scopes, tool.capabilities()).is_none());
         if covered {
             ConnectRoute::Tool
         } else {
@@ -544,9 +556,8 @@ impl UniversalExecutor {
         // event below are owed for every transport, and `protocol` is the only
         // thing that says which one this was.
         let protocol = request.protocol.clone();
-        let charged_user = request.user_id.clone();
         let dispatch_start = Instant::now();
-        let args = request.parameters;
+        let mut args = request.parameters;
         let tool_name = request.tool_name;
 
         // ── Guardian: dispatch-time budget/egress + tenant allowlist ──
@@ -565,15 +576,6 @@ impl UniversalExecutor {
         // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
         // dispatch fn within the cognitive-complexity budget.
         let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
-        let provider_gate = ProviderGate {
-            required: tool
-                .capabilities()
-                .contains(ToolCapabilities::REQUIRES_PROVIDER),
-            requested: args
-                .get("provider")
-                .and_then(JsonValue::as_str)
-                .filter(|s| !s.is_empty()),
-        };
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
@@ -610,15 +612,31 @@ impl UniversalExecutor {
             return Ok(refusal);
         }
 
+        // Whose data the body reads (carnet#1387): a training-class tool
+        // reads a coached athlete when the call names one, and its context is
+        // then built as the athlete, so the body reads them with no change of
+        // its own.
+        let subject = match self
+            .read_subject(&tool_name, &mut args, user_uuid, tenant_uuid)
+            .await?
+        {
+            Ok(subject) => subject,
+            Err(refusal) => return Ok(refusal),
+        };
+        let parties = Parties::of(subject.as_ref(), user_uuid, tenant_uuid);
+        let ctx = subject.as_ref().map_or(ctx, subject_tool_context);
+
+        let provider_gate = ProviderGate {
+            required: tool
+                .capabilities()
+                .contains(ToolCapabilities::REQUIRES_PROVIDER),
+            requested: args
+                .get("provider")
+                .and_then(JsonValue::as_str)
+                .filter(|s| !s.is_empty()),
+        };
         if let Some(refusal) = self
-            .authorization_refusal(
-                &tool_name,
-                tenant_uuid,
-                user_uuid,
-                is_admin,
-                admin_only,
-                provider_gate,
-            )
+            .authorization_refusal(&tool_name, parties, is_admin, admin_only, provider_gate)
             .await?
         {
             return Ok(refusal);
@@ -633,7 +651,9 @@ impl UniversalExecutor {
             .turn_token
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let turn_key = TurnKey::new(tenant_uuid, resolved_turn_token.clone());
+        // The requester's: a read of a coached athlete is still one of the
+        // coach's calls, on the coach's turn.
+        let turn_key = TurnKey::new(parties.requester_tenant, resolved_turn_token.clone());
 
         // Budget / egress — mode-gated (observe logs, enforce blocks).
         // The decision + atomic budget-reserve is the shared `guardian_gate`
@@ -697,23 +717,34 @@ impl UniversalExecutor {
         // The transport is resolved once, here, and handed to the backstop
         // explicitly: the body's scope has closed by the time it runs.
         let transport = ai_scope::effective_transport(self.transport);
-        // The athlete's AI consents (carnet#726): a provider whose data they
+        // The reader's AI consents (carnet#726): a provider whose data they
         // have not consented to hand to AI is denied to this tool's reads and
         // to the backstop below alike. The tenant names whose feature flags
         // arm a flag-gated notice; a call without one reads the defaults. A
-        // body that reads another person — a coach's agent reading their
-        // athlete — reads under that person's consents instead, and the
-        // backstop follows it (carnet#1419).
+        // read of a coached athlete runs under the athlete's consents, never
+        // the coach's (carnet#1419).
         let consent_withheld = provider_notice::ai_consent_withheld(
             self.resources.repos(),
-            tenant_uuid.unwrap_or_default(),
-            user_uuid,
+            parties.reader_tenant.unwrap_or_default(),
+            parties.reader,
         )
         .await;
+        // A read of a coached athlete answers into no conversation: what the
+        // body starts on the athlete's account (a backfill, a reconnect
+        // notice) is the athlete's, and never posts into the coach's thread.
+        let in_conversation = subject.is_none();
+        let member_read = subject.as_ref().map(ReadSubject::athlete);
+        let execute = async move {
+            // What the call derives from here on is the athlete's (carnet#1174).
+            if let Some(athlete) = member_read {
+                ai_scope::note_member_read(athlete);
+            }
+            tool.execute(&self.resources, &ctx, args).await
+        };
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
-            self.conversation_id.clone(),
+            self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(
-                self.conversation_tenant_id,
+                self.conversation_tenant_id.filter(|_| in_conversation),
                 TURN_AGENT_ID.scope(
                     self.turn_agent_id.clone(),
                     TURN_LOCALE.scope(
@@ -727,7 +758,7 @@ impl UniversalExecutor {
                                 // exactly what authorized this call, never wider.
                                 GRANTED_SCOPES.scope(
                                     self.scopes.clone(),
-                                    tool.execute(&self.resources, &ctx, args),
+                                    READ_SUBJECT.scope(subject.clone(), execute),
                                 ),
                             ),
                         ),
@@ -735,9 +766,18 @@ impl UniversalExecutor {
                 ),
             ),
         ));
-        // Boxed: the scopes around the tool body would otherwise ride inline in
-        // every caller's future.
-        let body = Box::pin(ai_scope::with_ai_consent(consent_withheld.clone(), body));
+        // A read of a coached athlete runs under the athlete's consents and
+        // records them for the call that encloses it; the caller's own call
+        // runs under theirs. Boxed: the scopes around the tool body would
+        // otherwise ride inline in every caller's future.
+        let body = Box::pin(if subject.is_some() {
+            Either::Left(ai_scope::with_subject_consent(
+                consent_withheld.clone(),
+                body,
+            ))
+        } else {
+            Either::Right(ai_scope::with_ai_consent(consent_withheld.clone(), body))
+        });
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,
@@ -762,9 +802,16 @@ impl UniversalExecutor {
                 ai_scope::serving_items(ai_scope::subject_consents(body)),
             )
             .await;
-        // The backstop applies the consents the body's reads ran under: the
-        // person it read, when that was not the caller.
-        let consent_withheld = subject_withheld.unwrap_or(consent_withheld);
+        // The backstop applies the consents the body's reads ran under. For a
+        // read of a coached athlete those are the athlete's, by construction:
+        // the subject resolved above, whatever a nested call recorded. For the
+        // caller's own call, they are the person a body read other than its
+        // caller, when it read one (a group tool reading a member).
+        let consent_withheld = if subject.is_some() {
+            consent_withheld
+        } else {
+            subject_withheld.unwrap_or(consent_withheld)
+        };
         if served_items && !response.is_error {
             provenance.mark_provider_data();
         }
@@ -885,9 +932,9 @@ impl UniversalExecutor {
         self.record_dispatch(DispatchRecord {
             tool_name: &tool_name,
             protocol: &protocol,
-            user_id: &charged_user,
+            user_id: &parties.requester.to_string(),
             response: &universal,
-            tenant_uuid,
+            tenant_uuid: parties.requester_tenant,
             started: dispatch_start,
         })
         .await;

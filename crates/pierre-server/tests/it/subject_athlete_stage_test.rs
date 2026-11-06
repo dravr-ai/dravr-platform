@@ -44,9 +44,9 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    AddMessageParams, ConnectionType, ConversationTurnId, DataSource, DelegatedConnection,
-    DeviceType, RosterAthlete, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
-    Tenant, TenantId,
+    ActivityBuilder, AddMessageParams, ConnectionType, ConversationTurnId, DataSource,
+    DelegatedConnection, DeviceType, RosterAthlete, SportType, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::WellnessWriteMode;
@@ -70,6 +70,10 @@ const MODEL: &str = "subject-stage-model";
 const ANSWER: &str = "Voici où en est son plan.";
 /// The message on which the model reads the plan, so the turn ends with a card.
 const READ_ASK: &str = "Montre-moi son plan.";
+/// On this ask the model lists the athlete's activities, then answers.
+const ACTIVITIES_ASK: &str = "Montre-moi ses dernières séances.";
+/// A run the subject uploaded, which the thread's activity read lists.
+const SUBJECT_RUN: &str = "subject-upload-run";
 const PLAIN_ASK: &str = "Comment s'est passée sa semaine ?";
 
 const SUBJECT_NAME: &str = "Mira Subject";
@@ -180,17 +184,25 @@ impl LlmProvider for ThreadModel {
             .messages
             .iter()
             .any(|m| matches!(m.role, MessageRole::Tool));
-        let asked_to_read = request
+        let last_ask = request
             .messages
             .iter()
             .rev()
             .find(|m| matches!(m.role, MessageRole::User))
-            .is_some_and(|m| m.content.contains(READ_ASK));
-        let tool_calls = (asked_to_read && !already_ran).then(|| {
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let read = if last_ask.contains(READ_ASK) {
+            Some(("get_training_plan", json!({})))
+        } else if last_ask.contains(ACTIVITIES_ASK) {
+            Some(("get_activities", json!({ "limit": 10 })))
+        } else {
+            None
+        };
+        let tool_calls = read.filter(|_| !already_ran).map(|(tool, arguments)| {
             vec![ToolCallRequest {
                 id: "call-read".to_owned(),
-                function_name: "get_training_plan".to_owned(),
-                arguments: json!({}),
+                function_name: tool.to_owned(),
+                arguments,
             }]
         });
         let content = if tool_calls.is_some() {
@@ -606,7 +618,26 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
     assert!(prompt.contains(GRANTED_MARKER));
     assert!(prompt.contains("opened from the group 'Tempo Squad'"));
     assert!(prompt.contains("`publish_training_plan`"));
-    assert!(prompt.contains("read the coach's own account, never Mira Subject's"));
+    assert!(
+        prompt.contains("Data tools act on Mira Subject by default: leave `athlete` out."),
+        "bug: the granted block says the data tools read the thread's athlete: {prompt}"
+    );
+    // The tools that read the athlete are named from what each declares.
+    for readable in [
+        "get_training_history",
+        "get_activities",
+        "analyze_training_load",
+    ] {
+        assert!(prompt.contains(readable), "{readable} is named: {prompt}");
+    }
+    assert!(
+        prompt.contains("sleep, recovery, goals, physiology, trends — is not readable here"),
+        "bug: the granted block names what a coach cannot read here: {prompt}"
+    );
+    assert!(
+        !prompt.contains("read the coach's own account"),
+        "no tool in the thread reads the coach's own data any more"
+    );
     assert!(prompt.contains("Nothing said here is saved to the coach's own account"));
     // The athlete's plan, as their live season with no draft open.
     assert!(prompt.contains(&format!(
@@ -1336,4 +1367,45 @@ async fn a_plain_thread_is_the_coachs_own_as_before() {
             ..
         }
     )));
+}
+
+// carnet#1387: the thread's activity read lists the athlete's sessions, and
+// the reply never carries them under a card labelled as the coach's own.
+
+#[tokio::test]
+async fn the_threads_activity_read_lists_the_athlete_and_the_reply_carries_no_own_activity_card() {
+    let fx = Fixture::new().await;
+    let run = ActivityBuilder::new(
+        SUBJECT_RUN.to_owned(),
+        "Subject easy run".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(1),
+        2_400,
+        "upload".to_owned(),
+    )
+    .distance_meters(8_000.0)
+    .build();
+    fx.repos()
+        .activity_cache
+        .upsert_activities(fx.subject.id, &fx.subject.tenant, "upload", &[run])
+        .await
+        .unwrap();
+
+    let before = fx.model.calls();
+    let (_, envelope) = fx.thread_turn(ACTIVITIES_ASK).await;
+
+    let read = fx.model.conversation_since(before);
+    assert!(
+        read.contains(SUBJECT_RUN),
+        "the model read the athlete's sessions, not the coach's: {read}"
+    );
+    assert!(
+        !envelope
+            .assistant
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ReplyBlock::ActivityList { .. })),
+        "the athlete's sessions never ride under the sender's own activity card: {:?}",
+        envelope.assistant.blocks
+    );
 }

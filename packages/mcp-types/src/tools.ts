@@ -197,6 +197,9 @@ export interface AnalyzeActivityParams {
   /** ID of the activity to analyze; get IDs from get_activities. */
   activity_id: string;
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
@@ -287,6 +290,9 @@ export interface AnalyzeSleepQualityParams {
  */
 export interface AnalyzeTrainingLoadParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
@@ -365,6 +371,9 @@ export interface CalculateDailyNutritionParams {
  * Calculate a fitness score (0-100): chronic training load 40% (sessions scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does), consistency 30% (share of weeks with 3+ activities) and pace improvement 30%, over the `timeframe` period.
  */
 export interface CalculateFitnessScoreParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -733,6 +742,9 @@ export interface ExportIntervalsParams {
 
   /** Provider activity id, as a string (e.g. a Strava id). */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 }
 
 
@@ -763,6 +775,9 @@ export interface ExtractActivityStreamsParams {
 
   /** Provider activity id, as a string (e.g. a Strava id). */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 }
 
 
@@ -813,6 +828,9 @@ export interface GetActivitiesParams {
   /** Tunes the data-sufficiency guidance: 'weekly_summary', 'trend_analysis', 'race_preparation', 'recovery_assessment' or 'general_overview' (default). */
   analysis_type?: string;
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** Upper bound, epoch seconds. Pair with `after` for a year or date range (all of 2022 = after 1640995200, before 1672531200). */
   before?: number;
 
@@ -846,6 +864,9 @@ export interface GetActivityIntelligenceParams {
 
   /** ID of the activity to analyze */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -1102,6 +1123,9 @@ export interface GetStretchingExerciseParams {
  * Fetch the stored Endurance daily training-state rows, chronological: CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load. Use this BEFORE prescribing new load, so every numeric claim cites these framework values (Coggan / Foster). Interpret TSB relative to CTL (form as % of fitness), and report `acwr` strictly as the magnitude of 7-day load against the 28-day baseline — a descriptive ratio, not a predictor of harm. Sessions are scored against the FTP and threshold heart rate saved with set_physiology; a save that changes either recomputes the rows.
  */
 export interface GetTrainingHistoryParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Inclusive start date, YYYY-MM-DD; defaults to 90 days before `to`. */
   from?: string;

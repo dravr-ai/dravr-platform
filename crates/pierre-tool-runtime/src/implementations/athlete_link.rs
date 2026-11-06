@@ -53,13 +53,13 @@ use pierre_services::delegation_refusal::Refusal;
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::{refusal, room_refusal};
-use super::plan_scope::{match_coached_member, MemberMiss};
 use super::provider_roster::{platform_refusal, roster_states, ProviderRosterRefusal};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::protocol::coach_calendar::delegation_services;
+use crate::read_subject::{match_coached_member, MemberMiss};
 use crate::runtime::ToolRuntime;
 
 /// What `propose_athlete_link` answers with.

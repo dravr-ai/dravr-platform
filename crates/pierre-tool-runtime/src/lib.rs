@@ -112,6 +112,8 @@ pub mod prose_stream;
 pub mod protocol;
 /// Protocol conversion + universal request/response re-exports
 pub mod protocols;
+/// Whose data a read tool reads: the caller's own or a coached athlete's (carnet#1387).
+pub mod read_subject;
 /// Throttled retry of a scrape session flagged `needs_reauth`.
 pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.

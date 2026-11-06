@@ -625,7 +625,7 @@ async fn read_plan(
             "get_training_plan",
             GetTrainingPlanResult {
                 plan: None,
-                athlete: scope.acting_for.clone(),
+                athlete: scope.acting_for().map(str::to_owned),
                 message: Some(message.to_owned()),
                 weeks: None,
                 weeks_omitted: None,
@@ -680,7 +680,7 @@ async fn read_plan(
         "get_training_plan",
         GetTrainingPlanResult {
             plan: Some(plan),
-            athlete: scope.acting_for.clone(),
+            athlete: scope.acting_for().map(str::to_owned),
             message: None,
             weeks: Some(weeks),
             weeks_omitted,
@@ -865,7 +865,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &user_id,
             )
             .await?;
-            if scope.acting_for.is_none() && walk.is_some_and(flow_refuses_plan_save) {
+            if scope.acting_for().is_none() && walk.is_some_and(flow_refuses_plan_save) {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \
                      finish the profile walk before saving a training plan",
@@ -893,7 +893,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // A coach writes their own draft of the athlete's plan, never the
             // season itself: read it beside the season, under the same rule.
             let draft_target = scope
-                .acting_for
+                .acting_for()
                 .is_some()
                 .then(|| CoachDraftTarget::new(tenant, scope.user_id, writer.user_id));
             let draft = match draft_target.as_ref() {
@@ -925,10 +925,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     Some(id) => agent_title(repos, id, writer.tenant, writer.user_id).await?,
                     None => None,
                 };
-                return Err(season_held_refusal(
-                    title.as_deref(),
-                    scope.acting_for.as_deref(),
-                ));
+                return Err(season_held_refusal(title.as_deref(), scope.acting_for()));
             }
 
             // The vision's catalogue references are checked through the
@@ -1011,7 +1008,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     repos,
                     DraftSave {
                         target,
-                        athlete: scope.acting_for.as_deref().unwrap_or_default(),
+                        athlete: scope.acting_for().unwrap_or_default(),
                         author,
                         goal_fact_id: goal_fact_id.as_deref(),
                         outline: outline_input,
@@ -1100,7 +1097,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     safety: (!safety.is_empty()).then_some(safety),
                     ignored_arguments,
                     plan_id: bundle.plan.id.clone(),
-                    athlete: scope.acting_for.clone(),
+                    athlete: scope.acting_for().map(str::to_owned),
                     goal_race: race_summary(&bundle.plan.goal_race),
                     superseded_plan_id: bundle.superseded_plan_id.clone(),
                     goal_fact_id,

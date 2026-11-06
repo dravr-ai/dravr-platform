@@ -717,7 +717,7 @@ impl RecommendPlanFlavourTool {
         ok_typed(
             "recommend_plan_flavour",
             PlanFlavourResult {
-                athlete: scope.acting_for.clone(),
+                athlete: scope.acting_for().map(str::to_owned),
                 verdict: Self::verdict_json(&verdict, strings, &locale),
                 season: Self::season_json(
                     layout.as_ref(),
