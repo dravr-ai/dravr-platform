@@ -320,14 +320,20 @@ pub fn client_from_document(
     }
     check_redirect_uris(&document.redirect_uris)?;
 
-    let grant_types = document
+    // The document lists what the client can do, not what it demands, and
+    // Claude's lists a jwt-bearer grant beside the two used here. The row keeps
+    // only what this server offers a public client, so the extra grant is never
+    // usable; a client that cannot run the code flow is refused.
+    let grant_types: Vec<String> = document
         .grant_types
-        .unwrap_or_else(|| vec!["authorization_code".to_owned()]);
-    if grant_types
-        .iter()
-        .any(|g| !matches!(g.as_str(), "authorization_code" | "refresh_token"))
-    {
-        return Err(CimdError::Invalid("unsupported grant_types".to_owned()));
+        .unwrap_or_else(|| vec!["authorization_code".to_owned()])
+        .into_iter()
+        .filter(|g| matches!(g.as_str(), "authorization_code" | "refresh_token"))
+        .collect();
+    if !grant_types.iter().any(|g| g == "authorization_code") {
+        return Err(CimdError::Invalid(
+            "grant_types does not include authorization_code".to_owned(),
+        ));
     }
     let response_types = document
         .response_types
@@ -697,6 +703,52 @@ mod tests {
         assert_eq!(built(b"<html>").unwrap_err(), CimdError::NotADocument);
         assert_eq!(built(b"[1,2]").unwrap_err(), CimdError::NotADocument);
         assert_eq!(built(b"{}").unwrap_err(), CimdError::NotADocument);
+    }
+
+    #[test]
+    fn claudes_published_document_is_accepted_without_its_jwt_bearer_grant() {
+        // Verbatim from https://claude.ai/oauth/mcp-oauth-client-metadata on
+        // 2026-11-06. Refusing it left every claude.ai connection on "Client
+        // authentication failed".
+        let url = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+        let body = br#"{"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata","client_name":"Claude","client_uri":"https://claude.ai","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"grant_types":["authorization_code","refresh_token","urn:ietf:params:oauth:grant-type:jwt-bearer"],"response_types":["code"],"token_endpoint_auth_method":"none"}"#;
+
+        let client = client_from_document(url, body, Utc::now()).expect("Claude's document");
+
+        assert_eq!(client.grant_types, ["authorization_code", "refresh_token"]);
+        assert_eq!(
+            client.redirect_uris,
+            ["https://claude.ai/api/mcp/auth_callback"]
+        );
+    }
+
+    #[test]
+    fn a_grant_this_server_does_not_offer_never_reaches_the_row() {
+        let url = "https://client.example/metadata.json";
+        let body = format!(
+            r#"{{"client_id":"{url}","redirect_uris":["https://client.example/cb"],"grant_types":["authorization_code","client_credentials","password"]}}"#
+        );
+
+        let client = client_from_document(url, body.as_bytes(), Utc::now()).expect("document");
+
+        assert_eq!(client.grant_types, ["authorization_code"]);
+    }
+
+    #[test]
+    fn a_document_without_the_code_flow_is_refused() {
+        let url = "https://client.example/metadata.json";
+        for grants in [r#"["client_credentials"]"#, r#"["refresh_token"]"#, "[]"] {
+            let body = format!(
+                r#"{{"client_id":"{url}","redirect_uris":["https://client.example/cb"],"grant_types":{grants}}}"#
+            );
+            assert!(
+                matches!(
+                    client_from_document(url, body.as_bytes(), Utc::now()),
+                    Err(CimdError::Invalid(_))
+                ),
+                "{grants} must be refused"
+            );
+        }
     }
 
     #[test]
