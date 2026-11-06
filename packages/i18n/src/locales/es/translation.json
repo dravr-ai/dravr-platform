@@ -2935,7 +2935,7 @@
         "set_physiology": "Definir la fisiología",
         "set_preferred_calendar": "Definir el calendario preferido",
         "show_agent": "Mostrar el agente",
-        "toggle_agent_favorite": "Cambiar el favorito del agente",
+        "toggle_agent_favorite": "Cambiar el estado de favorito del agente",
         "update_agent": "Actualizar el agente",
         "update_user_configuration": "Actualizar la configuración de usuario",
         "verify_claim": "Verificar la afirmación",
