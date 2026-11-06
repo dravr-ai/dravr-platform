@@ -47,40 +47,40 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 /// The athlete's roster name.
-const ATHLETE_NAME: &str = "Mira Subject";
+pub(crate) const ATHLETE_NAME: &str = "Mira Subject";
 
 /// The provider key the fixture's sessions are held under: what an athlete
 /// uploaded, read from their own rows with no connection or token.
-const UPLOAD: &str = "upload";
+pub(crate) const UPLOAD: &str = "upload";
 
 /// How many runs the athlete uploaded, one a day.
-const ATHLETE_RUNS: i64 = 12;
+pub(crate) const ATHLETE_RUNS: i64 = 12;
 
 /// The athlete's run that carries recorded samples.
-const ATHLETE_STREAM_RUN: &str = "athlete-run-1";
+pub(crate) const ATHLETE_STREAM_RUN: &str = "athlete-run-1";
 
 /// The coach's own ride, which no read of the athlete may return.
-const COACH_RIDE: &str = "coach-ride-1";
+pub(crate) const COACH_RIDE: &str = "coach-ride-1";
 
 /// The `error_code` of a read-subject refusal: a wire value the model and an
 /// external client branch on, pinned here as they read it.
 const READ_SUBJECT_ERROR_CODE: &str = "read_subject_refused";
 
 #[derive(Debug, Clone, Copy)]
-struct Person {
-    id: Uuid,
-    tenant: TenantId,
+pub(crate) struct Person {
+    pub(crate) id: Uuid,
+    pub(crate) tenant: TenantId,
 }
 
-struct Fixture {
-    res: Arc<ServerContext>,
-    coach: Person,
-    athlete: Person,
-    group: Uuid,
-    thread: String,
+pub(crate) struct Fixture {
+    pub(crate) res: Arc<ServerContext>,
+    pub(crate) coach: Person,
+    pub(crate) athlete: Person,
+    pub(crate) group: Uuid,
+    pub(crate) thread: String,
 }
 
-async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
+pub(crate) async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
     let email = format!("{label}-{}@coach-athlete-reads.test", Uuid::new_v4());
     let (id, _user, tenant) =
         common::create_test_user_with_plan(&res.agent.database, &email, "professional")
@@ -95,7 +95,7 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
     Person { id, tenant }
 }
 
-fn run(id: &str, days_ago: i64) -> Activity {
+pub(crate) fn run(id: &str, days_ago: i64) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         format!("{id} session"),
@@ -206,7 +206,7 @@ async fn open_thread(
         .id
 }
 
-async fn fixture() -> Fixture {
+pub(crate) async fn fixture() -> Fixture {
     common::init_server_config();
     common::init_test_http_clients();
     let res = common::create_test_server_resources().await.unwrap();
@@ -226,12 +226,12 @@ async fn fixture() -> Fixture {
 }
 
 impl Fixture {
-    fn repos(&self) -> &RepositoryRegistry {
+    pub(crate) fn repos(&self) -> &RepositoryRegistry {
         &self.res.common.repos
     }
 
     /// The executor a chat turn in the coach's thread dispatches through.
-    fn thread_executor(&self) -> UniversalToolExecutor {
+    pub(crate) fn thread_executor(&self) -> UniversalToolExecutor {
         UniversalToolExecutor::new(self.res.clone())
             .with_scopes(OAuthScope::self_grant())
             .with_transport(Transport::WebApp)
@@ -243,7 +243,7 @@ impl Fixture {
 
     /// The executor a chat turn in `who`'s own direct conversation
     /// dispatches through.
-    fn own_executor(&self) -> UniversalToolExecutor {
+    pub(crate) fn own_executor(&self) -> UniversalToolExecutor {
         UniversalToolExecutor::new(self.res.clone())
             .with_scopes(OAuthScope::self_grant())
             .with_transport(Transport::WebApp)
@@ -251,14 +251,14 @@ impl Fixture {
     }
 
     /// The executor an MCP client's call dispatches through.
-    fn mcp_executor(&self) -> UniversalToolExecutor {
+    pub(crate) fn mcp_executor(&self) -> UniversalToolExecutor {
         UniversalToolExecutor::new(self.res.clone())
             .with_scopes(OAuthScope::self_grant())
             .with_transport(Transport::McpHttp)
             .with_caller_writing_reply()
     }
 
-    async fn try_call(
+    pub(crate) async fn try_call(
         &self,
         executor: &UniversalToolExecutor,
         caller: Person,
@@ -276,7 +276,7 @@ impl Fixture {
             .await
     }
 
-    async fn call(
+    pub(crate) async fn call(
         &self,
         executor: &UniversalToolExecutor,
         caller: Person,
@@ -289,13 +289,13 @@ impl Fixture {
     }
 
     /// What `tool` answers the coach with in their thread about the athlete.
-    async fn in_thread(&self, tool: &str, params: Value) -> UniversalResponse {
+    pub(crate) async fn in_thread(&self, tool: &str, params: Value) -> UniversalResponse {
         self.call(&self.thread_executor(), self.coach, tool, params)
             .await
     }
 }
 
-fn ok(response: UniversalResponse, what: &str) -> Value {
+pub(crate) fn ok(response: UniversalResponse, what: &str) -> Value {
     assert!(
         response.success,
         "{what}: {:?} {:?}",
@@ -306,7 +306,7 @@ fn ok(response: UniversalResponse, what: &str) -> Value {
         .expect("a successful call answers with a result")
 }
 
-fn refused_reason(response: &UniversalResponse) -> String {
+pub(crate) fn refused_reason(response: &UniversalResponse) -> String {
     assert!(
         !response.success,
         "expected a refusal: {:?}",
@@ -335,7 +335,7 @@ fn ids(payload: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn mentions(payload: &Value, needle: &str) -> bool {
+pub(crate) fn mentions(payload: &Value, needle: &str) -> bool {
     payload.to_string().contains(needle)
 }
 
@@ -835,8 +835,10 @@ fn day(date: NaiveDate) -> String {
     date.format("%Y-%m-%d").to_string()
 }
 
-/// The eight training reads, which take `athlete` over MCP and A2A.
-const TRAINING_READS: [&str; 8] = [
+/// The training reads, which take `athlete` over MCP and A2A: the first
+/// eight, and the rest of the class (carnet#1387 Phase 2). `export_routes`
+/// builds its schema from the same function as `extract_activity_streams`.
+pub(crate) const TRAINING_READS: [&str; 26] = [
     "get_training_history",
     "analyze_training_load",
     "calculate_fitness_score",
@@ -845,13 +847,36 @@ const TRAINING_READS: [&str; 8] = [
     "get_activity_intelligence",
     "extract_activity_streams",
     "export_intervals",
+    "export_routes",
+    "calculate_metrics",
+    "compare_activities",
+    "analyze_weather_impact",
+    "export_latest_snapshot",
+    "analyze_performance_trends",
+    "detect_patterns",
+    "predict_performance",
+    "generate_recommendations",
+    "suggest_goals",
+    "track_progress",
+    "analyze_goal_feasibility",
+    "estimate_vo2max",
+    "estimate_lactate_thresholds",
+    "get_athlete",
+    "get_stats",
+    "list_data_sources",
+    "get_data_freshness",
 ];
 
 fn declares_athlete(tool: &Value) -> bool {
     tool["inputSchema"]["properties"].get("athlete").is_some()
 }
 
-async fn post_mcp(app: &Router, authorization: &str, method: &str, params: Value) -> Value {
+pub(crate) async fn post_mcp(
+    app: &Router,
+    authorization: &str,
+    method: &str,
+    params: Value,
+) -> Value {
     let request = Request::post("/mcp")
         .header("content-type", "application/json")
         .header("accept", "application/json")
@@ -899,8 +924,25 @@ async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
         );
     }
     assert!(
-        !declares_athlete(by_name("get_athlete")),
+        !declares_athlete(by_name("get_sleep_sessions")),
         "a read with no class reads only the caller"
+    );
+    let shared = |name: &str| {
+        let properties = &by_name(name)["inputSchema"]["properties"];
+        (
+            properties.get("activity_id").is_some(),
+            properties.get("athlete").is_some(),
+        )
+    };
+    assert_eq!(
+        shared("export_routes"),
+        shared("extract_activity_streams"),
+        "two tools built from one schema each take the activity and the athlete"
+    );
+    assert_eq!(
+        shared("export_routes"),
+        (true, true),
+        "bug: export_routes takes the activity it routes and the athlete it reads"
     );
     assert!(
         declares_athlete(by_name("get_training_plan")),

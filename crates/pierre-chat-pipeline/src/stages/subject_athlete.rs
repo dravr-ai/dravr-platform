@@ -386,9 +386,9 @@ fn granted_block(
          season {athlete} re-laid, is refused and names each such week; publish over them \
          with `overwrite_athlete_changes` only when the coach says to.\n\
          - Data tools act on {athlete} by default: leave `athlete` out. They read {athlete}'s \
-         training under {athlete}'s consent: {readable}. Anything else about {athlete} — sleep, \
-         recovery, goals, physiology, trends — is not readable here; say so rather than \
-         estimating it. The coach's own data is never read in this thread.\n\
+         training under {athlete}'s consent: {readable}. No tool here reads {athlete}'s \
+         wellness — sleep, HRV, recovery and readiness, resting heart rate, body weight: say so \
+         rather than estimating it. The coach's own data is never read in this thread.\n\
          - Nothing said here is saved to the coach's own account: the tools that would write \
          it — facts, notes, follow-ups, commitments, goals, physiology — are not offered in \
          this thread.\n",

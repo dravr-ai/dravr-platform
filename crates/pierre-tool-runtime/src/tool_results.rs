@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 use tracing::info;
 
 use crate::prompt_projection;
-use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY};
+use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 use crate::reply_budget::REPLY_BUDGET_KEY;
 
 /// Serialize one tool response for injection into the prompt.
@@ -99,7 +99,7 @@ const ACTIVITIES_ENVELOPE_KEPT: [&str; 12] = [
 /// one of the athlete's connections, each with a `note` addressed to the
 /// model: `reconnect_required` for a dead connection, `provider_unavailable`
 /// for one that could not answer just now.
-const SERVED_WITHOUT_SIDECARS: [&str; 2] = ["reconnect_required", "provider_unavailable"];
+const SERVED_WITHOUT_SIDECARS: [&str; 2] = [RECONNECT_REQUIRED_KEY, "provider_unavailable"];
 
 /// The notes of the served-without-a-provider sidecars a `get_activities`
 /// payload carries: a dead connection's (`reconnect_required`), then an

@@ -213,6 +213,9 @@ export interface AnalyzeActivityParams {
  */
 export interface AnalyzeGoalFeasibilityParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** One of 'distance' (km), 'duration' (hours), 'frequency' (activities). Any other type is answered as unknown. */
   goal_type: string;
 
@@ -248,6 +251,9 @@ export interface AnalyzeMealNutritionParams {
  * Analyze how one metric trends over time, with statistics and insights.
  */
 export interface AnalyzePerformanceTrendsParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -311,6 +317,9 @@ export interface AnalyzeWeatherImpactParams {
 
   /** ID of the activity to analyze */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Fitness provider. Defaults to configured provider. */
   provider?: string;
@@ -399,6 +408,9 @@ export interface CalculateMetricsParams {
 
   /** Age in years, else the saved one; estimates the maximum heart rate (configured algorithm.maxhr) when none is given or saved. */
   age?: number;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -497,6 +509,9 @@ export interface CompareActivitiesParams {
 
   /** Primary activity to compare */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** Activity to compare against; required for 'specific_activity' */
   compare_activity_id?: string;
@@ -620,6 +635,9 @@ export interface DeleteRecipeParams {
  */
 export interface DetectPatternsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
@@ -671,6 +689,9 @@ export interface DiscoverRoutesParams {
  */
 export interface EstimateLactateThresholdsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** The stages in the order they were run, easiest first, at least four, each harder than the last. */
   stages: {
 
@@ -696,6 +717,9 @@ export interface EstimateVo2maxParams {
 
   /** Age in years. rockport_walk needs it; when omitted the stored profile age is used. */
   age?: number;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000). */
   distance_meters?: number;
@@ -753,6 +777,9 @@ export interface ExportIntervalsParams {
  */
 export interface ExportLatestSnapshotParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** Window length in days (1..=365); default 7. */
   window?: number;
 }
@@ -765,6 +792,9 @@ export interface ExportRoutesParams {
 
   /** Provider activity id, as a string (e.g. a Strava id). */
   activity_id: string;
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 }
 
 
@@ -795,6 +825,9 @@ export interface ForgetPlaybookParams {
  * Generate personalized training recommendations. `training_plan`, `recovery` and `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In `nutrition` mode an athlete with a medical/PAR-Q flag on file gets foods and timing with no amounts, plus `figures_withheld` (their clinician sets those); the session is still described. Calories burned: the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex, else null with `calories_unavailable` saying why.
  */
 export interface GenerateRecommendationsParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -894,6 +927,9 @@ export interface GetAgentParams {
  */
 export interface GetAthleteParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
@@ -927,7 +963,11 @@ export interface GetConnectionStatusParams {
 /**
  * Check how fresh the user's data is per connected provider (last sync time, freshness level), to decide whether to refresh before a data-dependent answer.
  */
-export interface GetDataFreshnessParams {}
+export interface GetDataFreshnessParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+}
 
 
 /**
@@ -1101,6 +1141,9 @@ export interface GetSleepSessionsParams {
  */
 export interface GetStatsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
@@ -1264,6 +1307,9 @@ export interface ListCoachingPlaybooksParams {
  */
 export interface ListDataSourcesParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 }
@@ -1394,6 +1440,9 @@ export interface OptimizeSleepScheduleParams {
  * Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours, returned under `best_performance`. Running only.
  */
 export interface PredictPerformanceParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
@@ -2119,6 +2168,9 @@ export interface ShowAgentParams {
  */
 export interface SuggestGoalsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** Fitness provider. Defaults to configured provider. */
   provider?: string;
 }
@@ -2195,6 +2247,9 @@ export interface ToggleAgentFavoriteParams {
  * Track progress toward a fitness goal: current value vs target, percent complete, whether it is on track, days remaining and projected completion, over activities recorded since the goal was created (only the goal's sport when it names one).
  */
 export interface TrackProgressParams {
+
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
 
   /** ID of the goal to track progress for */
   goal_id: string;

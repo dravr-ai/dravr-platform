@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#[cfg(feature = "client-notifications")]
 use crate::context::scoped_read_subject;
 use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
@@ -14,7 +15,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use crate::read_subject;
+use crate::read_subject::{self, WellnessInput};
 use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -483,10 +484,10 @@ pub(crate) fn handle_calculate_fitness_score(
             .and_then(|v| v.as_str());
         // A coach's read of a coached athlete reads their training, never
         // their sleep or HRV (carnet#1387).
-        if sleep_provider.is_some() && scoped_read_subject().is_some() {
+        if sleep_provider.is_some() && !read_subject::wellness_readable() {
             return Ok(read_subject::wellness_refusal(
                 "calculate_fitness_score",
-                "sleep_provider",
+                WellnessInput::Argument("sleep_provider"),
             ));
         }
 

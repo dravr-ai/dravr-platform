@@ -1374,6 +1374,10 @@
       "description": "Analyze whether a fitness goal is achievable from current fitness and training history.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "goal_type": {
             "description": "One of 'distance' (km), 'duration' (hours), 'frequency' (activities). Any other type is answered as unknown.",
             "type": "string"
@@ -1709,6 +1713,10 @@
       "description": "Analyze how one metric trends over time, with statistics and insights.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -2790,6 +2798,10 @@
         "properties": {
           "activity_id": {
             "description": "ID of the activity to analyze",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
           "provider": {
@@ -3904,6 +3916,10 @@
           "age": {
             "description": "Age in years, else the saved one; estimates the maximum heart rate (configured algorithm.maxhr) when none is given or saved.",
             "type": "integer"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
           },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
@@ -5308,6 +5324,10 @@
             "description": "Primary activity to compare",
             "type": "string"
           },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "compare_activity_id": {
             "description": "Activity to compare against; required for 'specific_activity'",
             "type": "string"
@@ -6202,6 +6222,10 @@
       "description": "Detect one training pattern per call: weekly schedule, hard/easy balance, volume progression or overtraining signs. Needs at least 3 activities.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -6965,6 +6989,10 @@
       "description": "Locate the athlete's lactate thresholds from a step test they report (stage power or pace, blood lactate, heart rate if worn), e.g. '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each named, with intensity, lactate and heart rate; the 1.0–4.0 mmol/L band table; and power zones on the modified-Dmax LT2 for stages in watts. This only estimates: to keep a threshold, call set_physiology (ftp_watts or threshold_pace_sec_per_km, and threshold_hr) after the athlete confirms it.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "stages": {
             "description": "The stages in the order they were run, easiest first, at least four, each harder than the last.",
             "items": {
@@ -7418,6 +7446,10 @@
           "age": {
             "description": "Age in years. rockport_walk needs it; when omitted the stored profile age is used.",
             "type": "integer"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
           },
           "distance_meters": {
             "description": "cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000).",
@@ -9032,6 +9064,10 @@
       "description": "Export the Endurance latest snapshot: a structured per-activity training state — intensity factor, efficiency factor, variability index, aerobic decoupling and time-in-zone distribution — aggregated over a sliding window.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "window": {
             "description": "Window length in days (1..=365); default 7.",
             "type": "integer"
@@ -9391,6 +9427,10 @@
         "properties": {
           "activity_id": {
             "description": "Provider activity id, as a string (e.g. a Strava id).",
+            "type": "string"
+          },
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           }
         },
@@ -9922,6 +9962,10 @@
       "description": "Generate personalized training recommendations. `training_plan`, `recovery` and `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In `nutrition` mode an athlete with a medical/PAR-Q flag on file gets foods and timing with no amounts, plus `figures_withheld` (their clinician sets those); the session is still described. Calories burned: the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex, else null with `calories_unavailable` saying why.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -11879,6 +11923,10 @@
       "description": "Get the athlete profile a connected provider reports: the provider's athlete ID, username, first and last name where public, and profile picture.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -12895,6 +12943,12 @@
       "name": "get_data_freshness",
       "description": "Check how fresh the user's data is per connected provider (last sync time, freshness level), to decide whether to refresh before a data-dependent answer.",
       "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "outputSchema": {
@@ -16317,6 +16371,10 @@
       "description": "Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.count` most recent activities, oldest at `coverage.oldest`; e.g. Wahoo, WHOOP) or `window` (only the last `coverage.days` days). Report a `recent_activities` or `window` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -22424,6 +22482,10 @@
       "description": "List connected data sources (devices and providers)",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -24724,6 +24786,10 @@
       "description": "Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours, returned under `best_performance`. Running only.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
@@ -30534,6 +30600,10 @@
       "description": "Suggest up to five fitness goals from the athlete's activity history and fitness level; with a known latitude, out-of-season sports are dropped, not replaced.",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "provider": {
             "description": "Fitness provider. Defaults to configured provider.",
             "type": "string"
@@ -31368,6 +31438,10 @@
       "description": "Track progress toward a fitness goal: current value vs target, percent complete, whether it is on track, days remaining and projected completion, over activities recorded since the goal was created (only the goal's sport when it names one).",
       "inputSchema": {
         "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
           "goal_id": {
             "description": "ID of the goal to track progress for",
             "type": "string"

@@ -46,6 +46,10 @@ const OFFER_CAP: usize = 10_000;
 /// from what the model reads; the sidecar's `provider` names the connection.
 pub(crate) const RECONNECT_BACKEND_KEY: &str = "provider_slug";
 
+/// The `get_activities` sidecar a window served without a dead connection
+/// carries.
+pub(crate) const RECONNECT_REQUIRED_KEY: &str = "reconnect_required";
+
 /// Backend key of a provider one tool payload was served WITHOUT, if any.
 ///
 /// `get_activities` stamps `reconnect_required` into its own RESULT when the
@@ -66,7 +70,7 @@ pub fn offer_in_payload(tool_name: &str, payload: &Value) -> Option<String> {
         return None;
     }
     payload
-        .get("reconnect_required")?
+        .get(RECONNECT_REQUIRED_KEY)?
         .get(RECONNECT_BACKEND_KEY)?
         .as_str()
         .filter(|slug| !slug.is_empty())

@@ -28,7 +28,7 @@ use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
-use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::context::{scoped_read_subject, ToolExecutionContext};
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, tool_definition, tool_result_to_response,
 };
@@ -281,23 +281,28 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
                     "activity stream produced a route summary with non-finite metrics",
                 )
             })?;
-            let terrain_json = serde_json::to_string(&summary.terrain)
-                .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
-            let climbs_json = serde_json::to_string(&summary.climbs)
-                .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
-            context
-                .resources
-                .repos()
-                .route_summaries
-                .upsert_route_summary(
-                    tenant_id,
-                    user_id,
-                    &activity_id,
-                    &summary.gpx_hash,
-                    &terrain_json,
-                    &climbs_json,
-                )
-                .await?;
+            // A coach's read of a coached athlete writes nothing on the
+            // athlete's account: the summary is answered, never stored for
+            // them (carnet#1387).
+            if scoped_read_subject().is_none() {
+                let terrain_json = serde_json::to_string(&summary.terrain)
+                    .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
+                let climbs_json = serde_json::to_string(&summary.climbs)
+                    .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
+                context
+                    .resources
+                    .repos()
+                    .route_summaries
+                    .upsert_route_summary(
+                        tenant_id,
+                        user_id,
+                        &activity_id,
+                        &summary.gpx_hash,
+                        &terrain_json,
+                        &climbs_json,
+                    )
+                    .await?;
+            }
             let payload = serde_json::to_value(&summary)
                 .map_err(|e| AppError::internal(format!("serialize route summary: {e}")))?;
             Ok(ToolResult::ok(payload))
@@ -388,7 +393,8 @@ pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
-// tools export the caller's own activity intervals/routes — internal, no egress.
+// tools export the activity intervals/routes of the athlete the call reads — the
+// caller, or a coached athlete for a coach's read — internal, no egress.
 pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty);
 pierre_tool_runtime::declare_security!(ExportRoutesTool => empty);
 pierre_tool_runtime::declare_security!(ExtractActivityStreamsTool => empty);

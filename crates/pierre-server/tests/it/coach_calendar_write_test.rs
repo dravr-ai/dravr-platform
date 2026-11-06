@@ -28,7 +28,7 @@
 use crate::common;
 use secrecy::SecretString;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -41,7 +41,7 @@ use base64::Engine;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use common::{create_test_server_resources, create_test_user_with_plan};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_core::constants::oauth::providers::INTERVALS_ICU;
+use pierre_core::constants::oauth::providers::{provider_terms_version, INTERVALS_ICU};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -58,10 +58,11 @@ use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBun
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
-use pierre_providers::ai_scope::serve_over;
+use pierre_providers::ai_scope::{self, serve_over};
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_state::AthleteState;
+use pierre_services::provider_notice;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::guardian::{GuardianConfigDocument, GuardianConfigSource};
@@ -72,7 +73,7 @@ use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTo
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use sqlx::Row;
@@ -1816,4 +1817,129 @@ async fn a_dead_coach_key_on_an_own_connection_write_flags_the_coach_alone() {
         "{refusal}"
     );
     assert_eq!(w.api.event_calls().len(), calls);
+}
+
+/// `who` accepts WHOOP's notice: their consent to AI use of their WHOOP data
+/// (carnet#726).
+async fn accept_whoop(repos: &RepositoryRegistry, who: Person) {
+    repos
+        .users
+        .record_provider_terms(
+            who.id,
+            "whoop",
+            provider_terms_version("whoop").expect("WHOOP carries a notice"),
+        )
+        .await
+        .unwrap();
+}
+
+impl World {
+    /// `tool` as the coach through the dispatch chokepoint, from their direct
+    /// chat in Dravr's web app, with what the call recorded of the AI
+    /// consents it ran under: the set its output boundary applies, as an
+    /// enclosing derivation reads it.
+    async fn dispatched(
+        &self,
+        tool: &str,
+        args: Value,
+    ) -> (UniversalResponse, Option<BTreeSet<String>>) {
+        let executor = UniversalToolExecutor::new(self.res.clone())
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp)
+            .with_conversation_id(self.coach_dm().await)
+            .with_conversation_tenant(self.coach.tenant.as_uuid())
+            .with_turn_token(Uuid::new_v4().to_string());
+        let (response, consents) =
+            ai_scope::subject_consents(executor.execute_tool(UniversalRequest {
+                tool_name: tool.to_owned(),
+                parameters: args,
+                user_id: self.coach.id.to_string(),
+                protocol: "test".to_owned(),
+                tenant_id: Some(self.coach.tenant.to_string()),
+            }))
+            .await;
+        (
+            response.unwrap_or_else(|e| panic!("{tool} raised: {e}")),
+            consents,
+        )
+    }
+}
+
+/// carnet#1387: a coach's calendar writes, dispatched as the chat loop and an
+/// MCP client dispatch them, run under the athlete's AI consents and never
+/// the coach's, and the coach's write of their own calendar under no one
+/// else's.
+#[tokio::test]
+async fn a_coachs_dispatched_calendar_writes_run_under_the_athletes_ai_consents() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    // The athlete withheld WHOOP from AI; the coach accepted it.
+    accept_whoop(w.repos(), w.coach).await;
+    let athletes =
+        provider_notice::ai_consent_withheld(w.repos(), alex.tenant.as_uuid(), alex.id).await;
+    let coachs =
+        provider_notice::ai_consent_withheld(w.repos(), w.coach.tenant.as_uuid(), w.coach.id).await;
+    assert!(
+        athletes.contains("whoop") && !coachs.contains("whoop"),
+        "the fixture's two sets differ on WHOOP: athlete {athletes:?}, coach {coachs:?}"
+    );
+
+    let (pushed, consents) = w
+        .dispatched("push_training_plan", json!({ "athlete": "Alex" }))
+        .await;
+    assert!(pushed.success, "{:?} {:?}", pushed.error, pushed.result);
+    assert_eq!(
+        pushed.result.as_ref().unwrap()["created"],
+        3,
+        "the plan's two sessions and its week note reach the athlete's calendar"
+    );
+    assert_eq!(
+        consents.as_ref(),
+        Some(&athletes),
+        "bug: a coach's push runs under the athlete's AI consents, never the coach's"
+    );
+
+    let date = (Utc::now().date_naive() + Duration::days(3))
+        .format("%Y-%m-%d")
+        .to_string();
+    let (prescribed, consents) = w
+        .dispatched(
+            "prescribe_workout",
+            json!({ "athlete": "Alex", "date": date, "session": tempo_session() }),
+        )
+        .await;
+    assert!(
+        prescribed.success,
+        "{:?} {:?}",
+        prescribed.error, prescribed.result
+    );
+    assert_eq!(
+        consents.as_ref(),
+        Some(&athletes),
+        "bug: a coach's prescription runs under the athlete's AI consents, never the coach's"
+    );
+    assert!(
+        w.api
+            .event_writes()
+            .iter()
+            .all(|h| h.path.starts_with("/api/v1/athlete/i201/")),
+        "every write went to the athlete's calendar"
+    );
+
+    // The coach's own calendar: their own consents, which the dispatch
+    // declared, stand, and no one else's are recorded.
+    let (own, consents) = w
+        .dispatched(
+            "prescribe_workout",
+            json!({ "date": date, "session": tempo_session() }),
+        )
+        .await;
+    assert_eq!(
+        consents, None,
+        "bug: a write of the caller's own calendar records no one else's consents: {:?}",
+        own.result
+    );
 }

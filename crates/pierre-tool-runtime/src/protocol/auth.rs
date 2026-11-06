@@ -4,8 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::context::scoped_read_subject;
 use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
@@ -440,12 +442,31 @@ impl AuthService {
                     META_AUTH_REQUIRED_PROVIDER.to_owned(),
                     JsonValue::String(provider_name.to_owned()),
                 );
+                // On a coach's read of a coached athlete the reconnect is the
+                // athlete's to make, and "your account" would read as the
+                // coach's own: a tool that answers this text in band names
+                // whose connection it is (carnet#1387).
+                let error = match scoped_read_subject() {
+                    Some(subject) => {
+                        let athlete = &subject.access.display_name;
+                        let brand = backend_resolver::brand_name(
+                            self.resources.provider_registry(),
+                            provider_name,
+                        )
+                        .unwrap_or(user_facing);
+                        format!(
+                            "No valid {user_facing} token found for {athlete}: {}",
+                            read_subject::athlete_reconnect_note(athlete, brand)
+                        )
+                    }
+                    None => format!(
+                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
+                    ),
+                };
                 Err(Box::new(UniversalResponse {
                     success: false,
                     result: None,
-                    error: Some(format!(
-                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
-                    )),
+                    error: Some(error),
                     metadata: Some(map),
                 }))
             }

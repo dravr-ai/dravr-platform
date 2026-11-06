@@ -213,10 +213,10 @@ fn athlete_thread_read_message(tool_name: &str) -> String {
     format!(
         "'{tool_name}' is not available here: in this thread about one athlete it would read the \
          coach's own data, never the athlete's. The athlete's training reads here — activities, \
-         the daily load history and the analyses of them — act on the athlete with `athlete` left \
-         out. Anything else about the athlete (sleep, recovery, goals, physiology, trends) is not \
-         readable here; say so. If the coach wants their own data, tell them to ask in their own \
-         conversation with Dravr."
+         the daily load history, trends, goals, training physiology and the analyses of them — \
+         act on the athlete with `athlete` left out. Their wellness (sleep, HRV, recovery, \
+         resting heart rate, body weight) and their memory are not readable here; say so. If the \
+         coach wants their own data, tell them to ask in their own conversation with Dravr."
     )
 }
 
@@ -278,6 +278,11 @@ mod tests {
         assert!(
             message.contains("not readable here; say so"),
             "bug: the refusal tells the model to say so rather than estimate: {message}"
+        );
+        assert!(
+            message
+                .contains("Their wellness (sleep, HRV, recovery, resting heart rate, body weight)"),
+            "bug: the refusal names the class a coach cannot read here: {message}"
         );
     }
 

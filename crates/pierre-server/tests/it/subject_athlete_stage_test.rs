@@ -627,13 +627,25 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
         "get_training_history",
         "get_activities",
         "analyze_training_load",
+        "track_progress",
+        "estimate_vo2max",
+        "analyze_performance_trends",
     ] {
         assert!(prompt.contains(readable), "{readable} is named: {prompt}");
     }
     assert!(
-        prompt.contains("sleep, recovery, goals, physiology, trends — is not readable here"),
+        prompt.contains(
+            "No tool here reads Mira Subject's wellness — sleep, HRV, recovery and readiness, \
+             resting heart rate, body weight"
+        ),
         "bug: the granted block names what a coach cannot read here: {prompt}"
     );
+    for unread in ["get_sleep_sessions", "get_recovery_metrics"] {
+        assert!(
+            !prompt.contains(unread),
+            "bug: a wellness read is never named readable: {prompt}"
+        );
+    }
     assert!(
         !prompt.contains("read the coach's own account"),
         "no tool in the thread reads the coach's own data any more"
@@ -1157,7 +1169,9 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
 
     let (without, _) = fx.thread_turn(PLAIN_ASK).await;
     assert!(
-        !without.contains(WELLNESS_HEADING) && !without.contains("HRV"),
+        !without.contains(WELLNESS_HEADING)
+            && !without.contains("HRV 68 ms")
+            && !without.contains("resting heart rate 48 bpm"),
         "no wellness without the athlete's wellness_read"
     );
 

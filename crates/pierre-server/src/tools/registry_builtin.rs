@@ -159,14 +159,17 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
 /// A tool that reads data and is declared here under neither reads only its
 /// caller's own, and the thread withholds it.
 ///
-/// LIMITATION(registre#1387): `DATA_CLASSES` declares only the first eight training reads; the
-/// rest of the training class — `get_athlete`, `get_stats`, `get_data_freshness`,
-/// `list_data_sources`, `export_latest_snapshot`, `export_routes`, `calculate_metrics`,
-/// `analyze_performance_trends`, `compare_activities`, `detect_patterns`, `predict_performance`,
-/// `analyze_weather_impact`, `suggest_goals`, `track_progress`, `analyze_goal_feasibility`,
-/// `estimate_vo2max`, `estimate_lactate_thresholds`, `generate_recommendations` — declares no
-/// class, so a coach reads none of an athlete's physiology, zones, goals, best efforts or trends.
+/// LIMITATION(registre#1387): `DATA_CLASSES` declares no wellness class, so a coach reads none of
+/// an athlete's wellness under their `coach_wellness_read`: `get_sleep_sessions`,
+/// `get_recovery_metrics`, `get_health_snapshots`, `get_heart_rate_series`, the five sleep tools
+/// (`analyze_sleep_quality`, `calculate_recovery_score`, `suggest_rest_day`,
+/// `track_sleep_trends`, `optimize_sleep_schedule`), `calculate_daily_nutrition` and
+/// `get_nutrient_timing` declare no class, and a training read leaves out the wellness fields of
+/// the athlete's physiology (resting heart rate, weight) and refuses its wellness inputs
+/// (`read_subject::wellness_readable`).
 const DATA_CLASSES: &[(&str, DataClass)] = &[
+    // The daily load history and the activities it is computed from, each
+    // session's detail and streams.
     ("get_training_history", DataClass::Training),
     ("analyze_training_load", DataClass::Training),
     ("calculate_fitness_score", DataClass::Training),
@@ -175,6 +178,31 @@ const DATA_CLASSES: &[(&str, DataClass)] = &[
     ("get_activity_intelligence", DataClass::Training),
     ("extract_activity_streams", DataClass::Training),
     ("export_intervals", DataClass::Training),
+    ("export_routes", DataClass::Training),
+    ("calculate_metrics", DataClass::Training),
+    ("compare_activities", DataClass::Training),
+    ("analyze_weather_impact", DataClass::Training),
+    ("export_latest_snapshot", DataClass::Training),
+    // Trends, best efforts, predictions and the advice derived from the
+    // sessions; a mode that would read the athlete's wellness is refused on a
+    // coach's read.
+    ("analyze_performance_trends", DataClass::Training),
+    ("detect_patterns", DataClass::Training),
+    ("predict_performance", DataClass::Training),
+    ("generate_recommendations", DataClass::Training),
+    // Goals and the progress toward them.
+    ("suggest_goals", DataClass::Training),
+    ("track_progress", DataClass::Training),
+    ("analyze_goal_feasibility", DataClass::Training),
+    // Training physiology and the estimates read against it.
+    ("estimate_vo2max", DataClass::Training),
+    ("estimate_lactate_thresholds", DataClass::Training),
+    // The athlete's provider profile and totals, their connected sources and
+    // how fresh each is.
+    ("get_athlete", DataClass::Training),
+    ("get_stats", DataClass::Training),
+    ("list_data_sources", DataClass::Training),
+    ("get_data_freshness", DataClass::Training),
     // Route and weather lookups: OpenStreetMap and forecast data, cached for
     // the caller's own next call.
     ("discover_routes", DataClass::NoSubject),

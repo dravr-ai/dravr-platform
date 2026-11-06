@@ -31,6 +31,7 @@ use crate::implementations::lactate_thresholds_output::{
     StoredThresholds, ThresholdReport, UndeterminedThreshold,
 };
 use crate::implementations::physiology::optional_number;
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_cageux::algorithms::lactate::{
     LactateIntensityUnit, LactateStage, LactateStepTest, LactateThresholdMethod, LactateThresholds,
@@ -415,6 +416,9 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
                 // A profile written from first-party-only data is withheld from an
                 // external caller (carnet#769).
                 .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+            // The thresholds echoed are the physiology this read may show: on
+            // a coach's read, the athlete's training physiology (carnet#1387).
+            let profile = read_subject::readable_physiology(profile);
             info!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,

@@ -11,6 +11,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::by_id_reader;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::read_subject;
 use dravr_cageux::metrics::distance_per_climb_score;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
@@ -34,6 +35,11 @@ struct ActivityParameters {
     max_hr_provided: Option<f64>,
     user_age: Option<u32>,
 }
+
+/// Why a coach's read of an athlete carries no heart-rate reading.
+const COACH_READ_NO_HEART_RATE_READING: &str = "a coach's read of an athlete leaves out the \
+     resting heart rate their heart-rate zones are cut from, so the heart rate is not read on \
+     their zones here";
 
 /// Calculated fitness metrics
 struct CalculatedMetrics {
@@ -365,7 +371,15 @@ async fn fetch_and_calculate_metrics(
         algorithm,
     );
     let metrics = calculate_activity_metrics(&params);
-    let reading = heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref());
+    // A reading's fraction of heart-rate reserve, beside the heart rate and
+    // the maximum it was read against, gives back the resting heart rate the
+    // zones were cut from: the athlete's wellness, which a coach's read of
+    // their training leaves out (carnet#1387).
+    let reading = if read_subject::wellness_readable() {
+        heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref())
+    } else {
+        Err(COACH_READ_NO_HEART_RATE_READING.to_owned())
+    };
 
     build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format)
 }

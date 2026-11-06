@@ -59,7 +59,13 @@ const OWN_ACCOUNT_WRITES: [&str; 6] = [
 /// Takes `athlete`, which defaults to the thread's athlete: kept there.
 const PLAN_WRITE: &str = "save_training_plan";
 /// Reads only the coach's own data: withheld in a coach's athlete thread.
-const OWN_READS: [&str; 3] = ["get_sleep_sessions", "recall_user_memory", "get_athlete"];
+/// The athlete's wellness is not read there yet (carnet#1387), and their
+/// memory never is.
+const OWN_READS: [&str; 3] = [
+    "get_sleep_sessions",
+    "recall_user_memory",
+    "get_recovery_metrics",
+];
 /// The `groups` tools: each would scan every group the coach coaches from a
 /// thread, so the thread withholds them; the room keeps them.
 const GROUP_TOOLS: [&str; 4] = [

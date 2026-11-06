@@ -16,7 +16,7 @@
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
-use pierre_providers::ai_scope;
+use pierre_providers::{ai_scope, backend_resolver};
 use serde_json::Value as JsonValue;
 use tracing::info;
 use uuid::Uuid;
@@ -29,6 +29,7 @@ use crate::protocols::ProtocolError;
 use crate::read_subject::{
     self, resolve_read_subject, DataClass, ReadSubject, ReadSubjectRequest, ATHLETE_ARGUMENT,
 };
+use crate::reconnect::{RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 
 /// Who a call is for and whose data it reads.
 ///
@@ -156,6 +157,39 @@ impl UniversalExecutor {
         }
         Ok(resolved)
     }
+
+    /// What a read of a coached athlete answers when the athlete's `provider`
+    /// connection needs reconnecting: in band, naming the athlete.
+    ///
+    /// The reconnect is theirs to make, in their own app. Raised as the
+    /// re-auth error, it would reach the chat pipeline's reconnect flow,
+    /// which mints a hosted login for the turn's user — the coach — and
+    /// connects the coach's own account (carnet#1387).
+    pub(super) fn athlete_reconnect_refusal(
+        &self,
+        tool_name: &str,
+        subject: &ReadSubject,
+        provider: &str,
+    ) -> UniversalResponse {
+        let brand = backend_resolver::brand_name(self.resources.provider_registry(), provider)
+            .unwrap_or(provider);
+        read_subject::athlete_reconnect_refusal(tool_name, &subject.access.display_name, brand)
+    }
+}
+
+/// Take the reconnect offer out of a read of a coached athlete: the backend a
+/// window served without one of the athlete's connections names for the chat
+/// pipeline's reconnect mint, which would connect the coach's own account.
+/// The note to the model stays, so it can say which of the athlete's
+/// connections needs them (carnet#1387).
+pub(super) fn withhold_reconnect_offer(response: &mut UniversalResponse) {
+    if let Some(JsonValue::Object(sidecar)) = response
+        .result
+        .as_mut()
+        .and_then(|result| result.get_mut(RECONNECT_REQUIRED_KEY))
+    {
+        sidecar.remove(RECONNECT_BACKEND_KEY);
+    }
 }
 
 /// The context a read of a coached athlete runs under: the athlete and their
@@ -177,5 +211,62 @@ fn take_athlete_argument(args: &mut JsonValue) -> Option<String> {
         JsonValue::Null => None,
         JsonValue::String(name) => Some(name),
         other => Some(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::reconnect::offer_in_payload;
+
+    #[test]
+    fn a_coachs_window_keeps_the_note_and_loses_the_mints_backend() {
+        let mut response = UniversalResponse {
+            success: true,
+            result: Some(json!({
+                "activity_list": "…",
+                "reconnect_required": {
+                    "provider": "Garmin",
+                    "provider_slug": "sciotte_garmin",
+                    "note": "Garmin needs reconnecting."
+                }
+            })),
+            error: None,
+            metadata: None,
+        };
+        assert!(
+            offer_in_payload("get_activities", response.result.as_ref().unwrap()).is_some(),
+            "the fixture carries an offer"
+        );
+        withhold_reconnect_offer(&mut response);
+        let result = response.result.unwrap();
+        assert_eq!(
+            offer_in_payload("get_activities", &result),
+            None,
+            "bug: no reconnect offer survives a read of a coached athlete"
+        );
+        assert_eq!(
+            result["reconnect_required"]["note"], "Garmin needs reconnecting.",
+            "bug: the model still reads which connection needs the athlete"
+        );
+    }
+
+    #[test]
+    fn a_result_with_no_offer_is_left_as_it_is() {
+        let payload = json!({ "activities": [] });
+        let mut response = UniversalResponse {
+            success: true,
+            result: Some(payload.clone()),
+            error: None,
+            metadata: None,
+        };
+        withhold_reconnect_offer(&mut response);
+        assert_eq!(
+            response.result,
+            Some(payload),
+            "bug: nothing is taken from a result that offers no reconnect"
+        );
     }
 }

@@ -52,7 +52,7 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
-use subject::{subject_tool_context, Parties};
+use subject::{subject_tool_context, withhold_reconnect_offer, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
@@ -842,6 +842,9 @@ impl UniversalExecutor {
             // loop can mint a hosted-login URL instead of surfacing a generic
             // failure to the LLM.
             if let Some(provider) = provider_auth_required_slug(&response) {
+                if let Some(subject) = &subject {
+                    return Ok(self.athlete_reconnect_refusal(&tool_name, subject, &provider));
+                }
                 return Err(ProtocolError::ProviderAuthRequired { provider });
             }
 
@@ -863,6 +866,9 @@ impl UniversalExecutor {
         }
 
         let mut universal = tool_response_to_universal_response(&tool_name, &response);
+        if subject.is_some() {
+            withhold_reconnect_offer(&mut universal);
+        }
         let mut held_back = read_side_withheld;
         if response.is_error
             && raised_error_code(&response).is_some_and(|code| is_unavailable_over_transport(&code))
