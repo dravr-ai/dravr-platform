@@ -71,11 +71,7 @@ interface ToastContainerProps {
 
 const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, removeToast }) => {
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none"
-    >
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />
       ))}
