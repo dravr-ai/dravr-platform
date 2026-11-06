@@ -27,7 +27,6 @@ import {
   ACCOUNT_ROLE_LABEL_KEY,
   ACTIVE_TOKEN_COUNT_KEYS,
   AI_CONSENT_KEYS,
-  ADMIN_HIDDEN_PANES,
   APP_VERSION,
   countKey,
   HELP_URL,
@@ -41,7 +40,8 @@ import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
-import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+import type { SettingsTab } from './settings/settingsTabs';
+import { visibleSettingsTabs } from './settings/visibleSettingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
 import GearSettings from './settings/GearSettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
@@ -140,22 +140,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
-  // Admin users don't need Data Providers, About, or Messaging tabs.
+  // Admin users don't get the panes about an athlete's own account.
   // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
   // see migration 20260518000001 for the historic skew between the two.
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const { flags: featureFlags } = useFeatureFlags();
-  const visibleTabs = useMemo(() => {
-    const base = isAdminUser
-      ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_PANES.has(tab.id))
-      : SETTINGS_TABS;
-    // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
-    // off until an admin flips it on.
-    if (!featureFlags[FEATURE_KEYS.apiTokens]) {
-      return base.filter(tab => tab.id !== 'tokens' && tab.id !== 'api-keys');
-    }
-    return base;
-  }, [isAdminUser, featureFlags]);
+  // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
+  // off until an admin flips it on.
+  const visibleTabs = useMemo(
+    () => visibleSettingsTabs(isAdminUser, Boolean(featureFlags[FEATURE_KEYS.apiTokens])),
+    [isAdminUser, featureFlags],
+  );
 
   // Snap activeTab back to a visible tab when the API Tokens flag flips off
   // while the user is sitting on that tab.

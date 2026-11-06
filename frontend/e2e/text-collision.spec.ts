@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import type { CoachRosterResponse } from '@pierre/shared-types';
-import { setupDashboardMocks, loginToDashboard, signInThroughHostedPage } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, mockAdminUserDrawer, signInThroughHostedPage } from './test-helpers';
 import { mockCoach, localToday } from './coach-home-mocks';
 import { expectNoCollidingText, useFrench } from './text-collision';
 
@@ -206,6 +206,35 @@ test.describe('Text never paints over text', () => {
     // The cadence most athletes read: its longest sentence fits whole.
     expect(measured.words).toBeLessThanOrEqual(measured.room);
   });
+
+  for (const width of [1440, 390]) {
+    test(`the user drawer's usage rows stay on their lines at ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+      await mockAdminUserDrawer(page, NOW);
+      await loginToDashboard(page);
+      await go(page, 'users');
+      await page.getByRole('button', { name: /^(Active|Actifs?)/ }).first().click();
+      await page.getByText('alice@acme.com').first().click();
+      const name = page.getByText('anthropic/claude-sonnet-5-5');
+      await expect(name).toHaveCount(4, { timeout: 15000 });
+      // Overlap is not the only scramble: a name or figure broken across lines
+      // overlaps nothing and still reads as noise.
+      const broken = await page.evaluate(() => {
+        const lines = (el: Element) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return new Set(Array.from(range.getClientRects()).filter((r) => r.width > 1).map((r) => Math.round(r.top))).size;
+        };
+        const words = /^(anthropic\/claude-sonnet-5-5|[\d\s,.\u00a0\u202f]+ tok)$/;
+        return Array.from(document.querySelectorAll('span, div'))
+          .filter((el) => el.children.length === 0 && words.test((el.textContent ?? '').trim()) && lines(el) > 1)
+          .map((el) => el.textContent);
+      });
+      expect(broken, 'a usage row broke across lines').toEqual([]);
+      await expect(page.getByText('memory_extraction', { exact: true })).toBeVisible();
+    });
+  }
 
   test('the admin activity rows at 1024', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });

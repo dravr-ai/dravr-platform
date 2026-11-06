@@ -6,15 +6,13 @@
 
 import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useUnreadCount } from '../hooks/useNotifications';
 import { useFeedbackUnread } from '../hooks/useFeedbackUnread';
 import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import { useComposerFocused } from '../hooks/useComposerFocused';
 import { useConversationScope, usePersonalConversation } from '../hooks/useConversationList';
-import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
-import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK, SITE_URL } from '@pierre/shared-constants';
+import { ACCOUNT_ROLE_LABEL_KEY, ADMIN_HIDDEN_PANES, COMMAND_DRAFTS, PRODUCT_WORDMARK, SITE_URL } from '@pierre/shared-constants';
 import type { PendingComposerAction } from './chat/types';
 import type { PersonalToday } from './home/personalToday';
 // Explicit /index path avoids macOS case-insensitive collision between
@@ -40,7 +38,7 @@ const ADMIN_ONLY_TABS = new Set([
   'platform-settings', 'claim-verdicts', 'harness-config',
   'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
   'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
-  'analytics', 'admin-tokens', 'billing', 'impersonation-log', 'audit',
+  'analytics', 'billing', 'impersonation-log', 'audit',
 ]);
 
 /**
@@ -59,6 +57,12 @@ const ADMIN_ONLY_TABS = new Set([
 const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups', 'guardian-config']);
 
 /**
+ * Old names of a tab that moved. Service Tokens and Admin Tokens were one list
+ * on two screens (carnet#1444), so a bookmark of the second opens the first.
+ */
+const MOVED_TABS: ReadonlyMap<string, string> = new Map([['admin-tokens', 'connections']]);
+
+/**
  * Tabs only a super admin may open: the sidebar offers them to no other role,
  * and every endpoint behind them refuses a plain admin. A typed or bookmarked
  * `#impersonation-log` would otherwise mount the pane for an admin and show
@@ -66,7 +70,6 @@ const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups', 'guardian-conf
  * because they need `ViewConfiguration`, which a console admin does not hold.
  */
 const SUPER_ADMIN_ONLY_TABS = new Set([
-  'admin-tokens',
   'impersonation-log',
   'harness-config',
 ]);
@@ -96,8 +99,6 @@ const UnifiedConnections = lazy(() => import('./UnifiedConnections'));
 const UserManagement = lazy(() => import('./UserManagement'));
 const UserSettings = lazy(() => import('./UserSettings'));
 const AdminSettings = lazy(() => import('./AdminSettings'));
-const ApiKeyList = lazy(() => import('./ApiKeyList'));
-const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
 const PersonalChat = lazy(() => import('./home/PersonalChat'));
 const FeedbackThread = lazy(() => import('./feedback/FeedbackThread'));
@@ -171,9 +172,11 @@ function decodeSegment(segment: string): string | null {
 }
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
-function parseSettingsTab(segment: string): SettingsTab | null {
-  const id = decodeURIComponent(segment);
-  return SETTINGS_TABS.some((entry) => entry.id === id) ? (id as SettingsTab) : null;
+function parseSettingsTab(segment: string, isAdminUser: boolean): SettingsTab | null {
+  const id = decodeSegment(segment);
+  const entry = SETTINGS_TABS.find((candidate) => candidate.id === id);
+  if (entry === undefined || (isAdminUser && ADMIN_HIDDEN_PANES.has(entry.id))) return null;
+  return entry.id;
 }
 
 interface DashboardProps {
@@ -197,7 +200,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Android hardware Back button pops them.
   const initialRoute = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
   const initialSlash = initialRoute.indexOf('/');
-  const initialTabSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
+  const initialSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
+  const initialTabSeg = MOVED_TABS.get(initialSeg) ?? initialSeg;
   const initialSubSeg = initialSlash === -1 ? '' : initialRoute.slice(initialSlash + 1);
   // Guard the first paint as well as later hash edits. A hand-typed or
   // bookmarked `#users` arrives as a full page load, which never reaches
@@ -278,14 +282,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     window.addEventListener('pointerup', handleUp);
     window.addEventListener('pointercancel', handleUp);
   }, [sidebarCollapsed, sidebarWidth]);
-  const [selectedAdminToken, setSelectedAdminToken] = useState<AdminToken | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Use hooks from panel components for badge counts.
   // Gate behind admin role so regular users don't trigger 403s on /api/admin/*.
   const pendingUsersCount = usePendingUsersCount(isAdminUser);
   const storeStatsPendingCount = useStoreStatsPendingCount(isAdminUser);
-  const { unreadCount: notificationUnreadCount } = useUnreadCount();
   // The Dravr team's replies in the feedback thread the athlete has not opened.
   const feedbackUnread = useFeedbackUnread();
   // Unread rows, one badge per side of the app: Groups counts the rooms, Home
@@ -342,7 +344,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // The open settings section, from `#settings/<section>`; `null` is the
   // menu alone on a narrow screen and the first section on a wide one.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(
-    initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
+    initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg, isAdminUser) : null,
   );
 
   // The agent reply the feedback thread is about, from
@@ -430,7 +432,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const applyRoute = useCallback((raw: string) => {
     const slash = raw.indexOf('/');
     const fallback = isAdminUser ? 'users' : 'home';
-    const requested = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
+    const named = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
+    const requested = MOVED_TABS.get(named) ?? named;
     // The sidebar only offers tabs for the caller's role, but the hash is
     // user-editable: typing `#users` as a regular user mounted the admin
     // UserManagement pane. The server refuses the data (every /api/admin call
@@ -442,7 +445,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     // no state, so the route effect below never runs and the stale hash would
     // stay in the address bar. Replace it here — never push, so Back does not
     // walk into the retired route again.
-    if (tab !== requested && typeof window !== 'undefined') {
+    if (tab !== named && typeof window !== 'undefined') {
       writeSessionRoute(tab, 'replace');
     }
     // A resolved-away tab takes its sub-view with it. `#groups/<groupId>`
@@ -467,7 +470,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         ? open
         : activity,
     );
-    setSettingsTab(tab === 'settings' ? parseSettingsTab(sub) : null);
+    const pane = tab === 'settings' ? parseSettingsTab(sub, isAdminUser) : null;
+    // A refused section changes no state when the menu is already open, so this
+    // hash needs the same replace as the rewritten tab above.
+    if (tab === 'settings' && sub !== '' && pane === null && typeof window !== 'undefined') {
+      writeSessionRoute(tab, 'replace');
+    }
+    setSettingsTab(pane);
     setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
   }, [isAdminUser, isSuperAdmin]);
 
@@ -573,11 +582,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ) },
-    { id: 'notifications', name: t('shell.navNotifications'), section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-      </svg>
-    ), badge: notificationUnreadCount > 0 ? notificationUnreadCount : undefined },
     // What operators did, from the console, pierre-cli and service tokens (carnet#1391).
     { id: 'audit', name: t('shell.navAudit'), section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -602,9 +606,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         </svg>
       ) }]
       : []),
-  ], [pendingUsersCount, storeStatsPendingCount, notificationUnreadCount]);
+  ], [pendingUsersCount, storeStatsPendingCount]);
 
-  // Super admin tabs extend admin tabs with admin token management
+  // Super admin tabs extend admin tabs with the settings only they may change
   const superAdminTabs: TabDefinition[] = useMemo(() => [
     ...adminTabs,
     { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
@@ -615,11 +619,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ) },
-    { id: 'admin-tokens', name: t('shell.navAdminTokens'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
     ) },
   ], [adminTabs, t]);
@@ -1044,7 +1043,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <div className="flex h-[52px] items-center justify-between px-4 md:px-6">
               <div className="min-w-0">
                 <h1 className="font-display text-xl font-semibold text-on-surface truncate">
-                  {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : '')}
+                  {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : activeTab === 'notifications' ? t('shell.navNotifications') : '')}
                 </h1>
               </div>
             </div>
@@ -1262,7 +1261,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'settings' && isAdminUser && (
           <div className={PAGE_GUTTER_CLASS}>
             <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <UserSettings />
+              <UserSettings key={settingsTab ?? 'profile'} initialTab={settingsTab ?? undefined} />
             </Suspense>
           </div>
         )}
@@ -1300,27 +1299,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachReplies key={coachRepliesAthlete ?? 'all'} initialAthleteId={coachRepliesAthlete} />
           </Suspense>
-        )}
-        {activeTab === 'admin-tokens' && (
-          <div className="space-y-6">
-            {selectedAdminToken ? (
-              <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-                <ApiKeyDetails
-                  token={selectedAdminToken}
-                  onBack={() => setSelectedAdminToken(null)}
-                  onTokenUpdated={() => setSelectedAdminToken(null)}
-                />
-              </Suspense>
-            ) : (
-              <>
-                {/* The page's one line of explanation, not a card above the list. */}
-                <p className="max-w-[720px] text-sm text-on-surface-variant">{t('shell.apiKeysDescription')}</p>
-                <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-                  <ApiKeyList onViewDetails={setSelectedAdminToken} />
-                </Suspense>
-              </>
-            )}
-          </div>
         )}
         </div>
       </main>

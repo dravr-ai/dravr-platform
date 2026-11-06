@@ -604,21 +604,22 @@ export default function UserDetailDrawer({
                 <div>
                   <span className="text-sm text-on-surface-variant">By Model</span>
                   <div className="mt-2 space-y-2">
-                    {usage.by_model.slice(0, 5).map((row) => (
+                    {usage.by_model.map((row) => (
                       <div
                         key={`${row.provider}/${row.model}/${row.call_type}`}
-                        className="flex items-center justify-between"
                       >
-                        <span className="text-sm font-medium text-on-surface">
+                        <div
+                          className="truncate text-sm font-medium text-on-surface"
+                          title={`${row.provider}/${row.model}`}
+                        >
                           {row.provider}/{row.model}
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-on-surface-variant">
-                            {row.total_tokens.toLocaleString()} tok
-                          </span>
-                          <span className="text-xs text-outline">
-                            ({row.calls} calls · {formatCost(row.cost_usd ?? 0)})
-                          </span>
+                        </div>
+                        {/* One model appears once per call type, so a row without it reads as a duplicate. */}
+                        <div className="flex flex-wrap gap-x-2 text-xs text-on-surface-variant">
+                          <span className="whitespace-nowrap">{row.call_type}</span>
+                          <span className="whitespace-nowrap">{row.total_tokens.toLocaleString()} tok</span>
+                          <span className="whitespace-nowrap">{row.calls} calls</span>
+                          <span className="whitespace-nowrap">{formatCost(row.cost_usd ?? 0)}</span>
                         </div>
                       </div>
                     ))}

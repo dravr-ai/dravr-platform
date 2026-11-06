@@ -195,7 +195,7 @@ export default function UserToolOverrides() {
                 <div className="pierre-spinner w-6 h-6" />
               </div>
             ) : matchingUsers.length > 0 ? (
-              <ul className="divide-y ghost-border">
+              <ul className="divide-y divide-outline-variant">
                 {matchingUsers.map((user) => (
                   <li key={user.id}>
                     <button
@@ -257,7 +257,7 @@ export default function UserToolOverrides() {
               {toolsByCategory.map(([category, tools]) => (
                 <Card key={category} variant="dark">
                   <h2 className="font-medium text-on-surface capitalize mb-3">{category}</h2>
-                  <ul className="divide-y ghost-border">
+                  <ul className="divide-y divide-outline-variant">
                     {tools.map((tool) => {
                       const globallyDisabled = tool.source === 'global_disabled';
                       return (
@@ -305,27 +305,15 @@ export default function UserToolOverrides() {
 
                           {/* Reset affordance — only when a per-user override is in effect */}
                           {tool.source === 'user_override' && (
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => removeOverrideMutation.mutate(tool.tool_name)}
                               disabled={removeOverrideMutation.isPending}
-                              className="p-1 text-on-surface-variant hover:text-on-surface transition-colors"
                               title="Remove override (revert to plan/tenant/default)"
                             >
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                />
-                              </svg>
-                            </button>
+                              Reset
+                            </Button>
                           )}
                         </li>
                       );

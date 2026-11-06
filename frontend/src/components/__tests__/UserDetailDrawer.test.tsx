@@ -142,6 +142,30 @@ describe('UserDetailDrawer tier control', () => {
     clearUserTier.mockResolvedValue({ removed: true });
   });
 
+  it('tells apart the rows of one model by call type', async () => {
+    const row = (call_type: string, total_tokens: number) => ({
+      provider: 'anthropic',
+      model: 'claude-sonnet-5-5',
+      call_type,
+      total_tokens,
+      prompt_tokens: total_tokens,
+      completion_tokens: 0,
+      calls: 3,
+      cost_usd: 0.01,
+    });
+    getUserUsage.mockResolvedValue({
+      user_id: 'user-42',
+      from: '2026-07-01T00:00:00Z',
+      by_model: [row('chat', 100), row('memory_extraction', 200)],
+      total_cost_usd: 0.02,
+      daily: [],
+    });
+    await renderAndSettle();
+    expect(await screen.findByText('memory_extraction')).toBeInTheDocument();
+    expect(screen.getByText('chat')).toBeInTheDocument();
+    expect(screen.getAllByText('anthropic/claude-sonnet-5-5')).toHaveLength(2);
+  });
+
   it('saves the selected tier via setUserTier for super-admins', async () => {
     await renderAndSettle();
 

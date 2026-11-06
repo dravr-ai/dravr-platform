@@ -5,7 +5,7 @@
 // ABOUTME: Reads computed colours and chart pixels, because a class scan cannot see what a screen paints
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, mockAdminUserDrawer } from './test-helpers';
 
 // The hash of every tab the admin rail offers. A table's body only exists once
 // it has rows, so the tabs that paint one get rows below: an empty state has no
@@ -28,18 +28,16 @@ const ADMIN_TABS = [
   'eval-harness',
   'activity',
   'engagement',
-  'notifications',
   'audit',
   'connections',
   'analytics',
   'billing',
   'impersonation-log',
-  'admin-tokens',
 ] as const;
 
-// Reached from the gear rather than the rail, so the parity check below cannot
-// see it and it is walked on its own.
-const OFF_RAIL_TABS = ['settings'] as const;
+// Reached from the gear or a typed link rather than the rail, so the parity check
+// below cannot see them and they are walked on their own.
+const OFF_RAIL_TABS = ['settings', 'notifications'] as const;
 
 const THEMES = ['light', 'dark'] as const;
 type Theme = (typeof THEMES)[number];
@@ -421,11 +419,16 @@ function scanForMix(theme: Theme): ThemeViolation[] {
     // A white or black hairline only exists in one theme.
     for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
       const edge = parse(style[`border${side}Color`]);
-      if (!edge || edge[3] === 0 || edge[3] === 1 || parseFloat(style[`border${side}Width`]) === 0) continue;
+      if (!edge || edge[3] === 0 || parseFloat(style[`border${side}Width`]) === 0) continue;
       const white = edge[0] >= 250 && edge[1] >= 250 && edge[2] >= 250;
       const black = edge[0] <= 5 && edge[1] <= 5 && edge[2] <= 5;
       if (theme === 'light' && white) report('white hairline in light theme', describe(el));
       if (theme === 'dark' && black) report('black hairline in dark theme', describe(el));
+      // A divider left on Tailwind's default border colour (gray-200) stays light in
+      // every theme: a bright rule across a dark list, whatever its exact shade.
+      if (theme === 'dark' && edge[3] >= 0.9 && luminance(edge) > 0.5 && !isFilledToken(edge)) {
+        report('bright hairline in dark theme', describe(el));
+      }
     }
   }
 
@@ -456,6 +459,29 @@ function scanForMix(theme: Theme): ThemeViolation[] {
 }
 
 const CRASH_TEXT = 'Something went wrong';
+
+/** One user with an override, for the two surfaces that need a user picked first. */
+async function mockPickedUser(page: Page) {
+  await mockAdminUserDrawer(page, NOW);
+  const tool = (tool_name: string, source: string) => ({
+    tool_name,
+    display_name: tool_name,
+    description: 'A tool',
+    category: 'fitness',
+    is_enabled: true,
+    source,
+    min_plan: 'starter',
+  });
+  await page.route(/\/api\/admin\/tools\/user\/[^/]+$/, (route) =>
+    route.fulfill(
+      json({
+        success: true,
+        message: 'ok',
+        data: [tool('get_activities', 'user_override'), tool('analyze_activity', 'default'), tool('get_sleep', 'default')],
+      }),
+    ),
+  );
+}
 
 async function openTab(page: Page, tab: string) {
   await page.evaluate((hash) => {
@@ -527,6 +553,27 @@ for (const theme of THEMES) {
       found.push(`${theme}/claim-verdicts drawer — ${v.kind}: ${v.detail}`);
     }
     await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/claim-verdicts-drawer.png` });
+
+    // The tool list and the user drawer only exist once a user is picked.
+    await mockPickedUser(page);
+    await openTab(page, 'user-tools');
+    await page.getByRole('button', { name: /alice@acme.com/ }).click();
+    await expect(page.getByText('User Override').first()).toBeVisible();
+    await page.waitForTimeout(600);
+    for (const v of await page.evaluate(scanForMix, theme)) {
+      found.push(`${theme}/user-tools list — ${v.kind}: ${v.detail}`);
+    }
+    await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/user-tools-list.png` });
+
+    await openTab(page, 'users');
+    await page.getByRole('button', { name: /^Active/ }).first().click();
+    await page.getByText('alice@acme.com').first().click();
+    await expect(page.getByText('Usage (Month-to-Date)')).toBeVisible();
+    await page.waitForTimeout(600);
+    for (const v of await page.evaluate(scanForMix, theme)) {
+      found.push(`${theme}/user drawer — ${v.kind}: ${v.detail}`);
+    }
+    await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/user-drawer.png` });
 
     expect(
       await page.evaluate(() => document.documentElement.classList.contains('dark')),

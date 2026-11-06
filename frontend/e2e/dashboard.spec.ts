@@ -5,7 +5,7 @@
 // ABOUTME: Tests tab navigation, sidebar, user profile, and content loading.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, navigateToTab, TOKENS_TAB_LABEL } from './test-helpers';
 
 // Helper to set up additional dashboard mocks
 async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean } = {}) {
@@ -93,7 +93,7 @@ test.describe('Dashboard Navigation', () => {
 
     // Check main navigation tabs are present (using span text within buttons)
     await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Engagement")') })).toBeVisible();
@@ -131,8 +131,8 @@ test.describe('Dashboard Navigation', () => {
     await expect(usersTab).toHaveClass(/bg-primary-container/);
 
     // Navigate to Connections - check tab becomes active
-    await navigateToTab(page, 'Service Tokens');
-    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') });
+    await navigateToTab(page, TOKENS_TAB_LABEL);
+    const connectionsTab = page.locator('button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) });
     await expect(connectionsTab).toHaveClass(/bg-primary-container/);
     await expect(usersTab).not.toHaveClass(/bg-primary-container/);
 

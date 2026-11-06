@@ -5,7 +5,7 @@
 // ABOUTME: Locks every fix from the audit gist 56c1c1d7b54bf16c9d140f54f3210c94
 
 import { test, expect } from '@playwright/test';
-import { setupAndLoginAsAdmin, setupAndLoginAsSuperAdmin, navigateToTab } from './test-helpers';
+import { setupAndLoginAsAdmin, setupAndLoginAsSuperAdmin, navigateToTab, TOKENS_TAB_LABEL } from './test-helpers';
 
 test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
   test('Service Tokens page renders without 500 (audit #19)', async ({ page }) => {
@@ -17,8 +17,8 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
       }),
     );
     await setupAndLoginAsAdmin(page);
-    await navigateToTab(page, 'Service Tokens');
-    await expect(page.getByRole('heading', { name: 'Service Tokens' })).toBeVisible();
+    await navigateToTab(page, TOKENS_TAB_LABEL);
+    await expect(page.getByRole('heading', { name: TOKENS_TAB_LABEL })).toBeVisible();
     await expect(page.getByRole('button', { name: /Create API Token/ })).toBeVisible();
   });
 
@@ -122,7 +122,10 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
 
   test('Notifications page renders only one h1 (audit #18)', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
-    await navigateToTab(page, 'Notifications');
+    await page.evaluate(() => {
+      window.location.hash = 'notifications';
+    });
+    await expect(page.locator('main h1', { hasText: 'Notifications' })).toBeVisible();
     const h1Count = await page.locator('main h1', { hasText: 'Notifications' }).count();
     expect(h1Count).toBe(1);
   });

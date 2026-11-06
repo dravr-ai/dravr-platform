@@ -13,6 +13,7 @@ import {
   mockHomeFirstArrival,
   navigateToTab,
   ONBOARDED_STATUS,
+  TOKENS_TAB_LABEL,
 } from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
@@ -46,7 +47,7 @@ const ADMIN_SURFACES = [
   'Agent Store',
   'Tool Management',
   'Platform Settings',
-  'Service Tokens',
+  TOKENS_TAB_LABEL,
   'Harness Config',
   'Agent Notes Audit',
 ] as const;

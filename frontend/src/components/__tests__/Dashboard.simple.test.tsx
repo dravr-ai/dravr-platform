@@ -122,10 +122,10 @@ describe('Dashboard Component', () => {
     });
 
     // Admin sidebar tabs: Users, Agents, Agent Store, Groups,
-    // Tool Management, Prompts, Activity, Engagement, Notifications,
+    // Tool Management, Prompts, Activity, Engagement,
     // Service Tokens, Analytics (Overview was removed)
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Service Tokens').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^(Service|API) Tokens$/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
@@ -208,7 +208,7 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Service Tokens');
+    const buttons = screen.getAllByText(/^(Service|API) Tokens$/);
     await user.click(buttons[0]);
 
     // Wait for lazy component to load
