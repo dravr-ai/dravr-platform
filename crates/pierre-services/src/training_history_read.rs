@@ -329,11 +329,18 @@ pub async fn load_stored_window(
     let zone = resolve_zone(timezone.as_deref());
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
+    // One copy of each workout per key the backends' reads serve: a Garmin
+    // grant's window carries its usr/pwd session's key too
+    // (`backend_resolver::history_keys`), so both copies still fit the cap.
+    let stored_keys: usize = backends
+        .iter()
+        .map(|backend| backend_resolver::history_keys(&backend.slug).len())
+        .sum();
     let read = read_cached_window(
         sources,
         tenant_id,
         user_id,
-        backends.len(),
+        stored_keys,
         from - Duration::days(warmup),
         to,
     )

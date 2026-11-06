@@ -451,6 +451,7 @@ async fn request_capture(
         // rail's own warm hook; none of them owns a conversation to push to.
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
+        history_import: false,
     })
     .await
 }

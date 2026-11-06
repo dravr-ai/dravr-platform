@@ -616,6 +616,34 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<bool>;
+    /// Re-arm a connection flagged `needs_reauth` only while `reason` is the
+    /// one its flag recorded (`last_error`), as [`Self::mark_active_if_needs_reauth`]
+    /// re-arms it otherwise: a remedy for that reason (the athlete restoring a
+    /// withdrawn permission) never clears a flag raised for another, such as a
+    /// refused refresh.
+    ///
+    /// Returns whether the connection flipped.
+    async fn mark_active_if_flagged_for(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        reason: &str,
+    ) -> AppResult<bool>;
+    /// Re-arm a connection as [`Self::mark_active`] does, unless its flag
+    /// recorded `reason` (`last_error`): a credential that answers proves the
+    /// grant alive, which says nothing about a permission the athlete
+    /// withdrew at the provider. Such a flag stands until a reconnect, or
+    /// the remedy for that reason ([`Self::mark_active_if_flagged_for`]).
+    ///
+    /// Returns whether the connection flipped.
+    async fn mark_active_unless_flagged_for(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        reason: &str,
+    ) -> AppResult<bool>;
     /// Atomically claim the one-time disconnect notification for a `needs_reauth`
     /// connection.
     ///
@@ -702,4 +730,15 @@ pub trait ProviderConnectionRepository: Send + Sync {
     /// server-level app is one client at the provider, whose limit is one
     /// pool across every tenant that signs with it.
     async fn count_server_level_grants(&self, provider: &str) -> AppResult<u32>;
+
+    /// Every user in `tenant_id` whose own `mirror` session (a connection or
+    /// token row) stands beside a token row for `grant` in that tenant: the
+    /// usr/pwd sessions a grant left serving nothing (carnet#1386). A
+    /// delegated connection is someone else's account and is not listed.
+    async fn list_sessions_beside_grant(
+        &self,
+        tenant_id: TenantId,
+        mirror: &str,
+        grant: &str,
+    ) -> AppResult<Vec<Uuid>>;
 }

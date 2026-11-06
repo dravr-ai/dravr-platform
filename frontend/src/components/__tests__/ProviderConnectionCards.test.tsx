@@ -9,6 +9,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
 import { QUERY_KEYS } from '../../constants/queryKeys';
@@ -395,7 +396,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.user.onboardingStatus() });
   });
 
-  describe('a Garmin grant with nothing pushed yet leads to the usr/pwd login (carnet#1302)', () => {
+  describe('a Garmin grant whose history is needed leads to the usr/pwd login (carnet#1386)', () => {
     // The Garmin card connected through its OAuth grant, whose store has
     // received no activity yet: what the server serves after a fresh grant.
     function garminAwaiting(awaiting: boolean) {
@@ -403,7 +404,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
         ...garminCard('oauth'),
         connected: true,
         connected_backend: 'garmin',
-        oauth_awaiting_activities: awaiting,
+        history: { state: awaiting ? ('needed' as const) : ('imported' as const), sign_in_target: 'sciotte_garmin', archive_source: null },
       };
     }
     function grant(provider: string) {
@@ -443,10 +444,30 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       renderCards();
 
       // The row names its state and what it offers, never a bare "Connect".
-      expect(await screen.findByText('Connected — waiting for activities')).toBeInTheDocument();
-      expect(screen.getByText('Import my history')).toBeInTheDocument();
+      expect(await screen.findByText(i18n.t('providers.history.signIn'))).toBeInTheDocument();
       expect(screen.queryByLabelText('Connect to Garmin')).not.toBeInTheDocument();
-      await user.click(screen.getByLabelText('Import my Garmin history'));
+      // Its spoken name carries the visible action words and the provider (WCAG 2.5.3).
+      const signIn = screen.getByRole('button', {
+        name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.signIn')),
+      });
+      await user.click(signIn);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('offers to try again from the card of a copy that did not finish', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...garminAwaiting(true), history: { state: 'incomplete' as const, sign_in_target: 'sciotte_garmin', archive_source: null } }],
+      });
+      const user = userEvent.setup();
+      renderCards();
+
+      const retry = await screen.findByRole('button', {
+        name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.retry')),
+      });
+      expect(screen.queryByText(i18n.t('providers.history.signIn'))).not.toBeInTheDocument();
+      await user.click(retry);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();

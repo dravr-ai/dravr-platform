@@ -18,6 +18,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::helpers::axum_test::AxumTestRequest;
 use secrecy::SecretString;
 
 use std::io;
@@ -35,8 +36,8 @@ use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
 use pierre_core::models::{
-    Activity, ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics, TenantId,
-    UserOAuthToken,
+    Activity, ConnectionStatus, ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics,
+    TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::WellnessWriteMode;
@@ -45,12 +46,15 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
+use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_providers::upload_provider::file_sha256;
+use pierre_routes_auth::AuthRoutes;
 use pierre_test_support::fit::{power as fit_power, FitWorkout};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
+use tokio_util::task::TaskTracker;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -1290,6 +1294,129 @@ async fn a_withdrawn_permission_purges_that_data_and_refuses_later_pushes_of_it(
     );
 }
 
+/// The status of the athlete's Garmin API connection.
+async fn garmin_status(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> ConnectionStatus {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.provider == "garmin")
+        .expect("the Garmin connection exists")
+        .status
+}
+
+/// A permission change that leaves out the activity export withdraws what the
+/// grant exists for, so the connection asks for a reconnect (carnet#1386); one
+/// that keeps it, withdrawing only the health export, does not. Granting the
+/// export again re-arms the connection that withdrawal flagged, and only that
+/// flag: a grant flagged for another reason stays flagged.
+#[tokio::test]
+async fn a_withdrawn_activity_permission_flags_the_garmin_grant() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+
+    push(
+        &resources,
+        "userPermissionsChange",
+        json!([{ "userId": GARMIN_USER, "permissions": ["ACTIVITY_EXPORT"] }]),
+    )
+    .await;
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::Active,
+        "the activity export still flows: nothing to reconnect"
+    );
+
+    push(
+        &resources,
+        "userPermissionsChange",
+        json!([{ "userId": GARMIN_USER, "permissions": ["HEALTH_EXPORT"] }]),
+    )
+    .await;
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: a grant that no longer delivers activities must ask for a reconnect"
+    );
+
+    let restore =
+        json!([{ "userId": GARMIN_USER, "permissions": ["ACTIVITY_EXPORT", "HEALTH_EXPORT"] }]);
+    push(&resources, "userPermissionsChange", restore.clone()).await;
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::Active,
+        "bug: granting the activity export again must lift the reconnect it raised"
+    );
+
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "garmin",
+            Some("invalid_grant"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    push(&resources, "userPermissionsChange", restore).await;
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: a permission report must not lift a flag a refused refresh raised"
+    );
+}
+
+/// A withdrawal reported while the grant is already flagged for a refused
+/// refresh keeps that reason: a dead token is the stronger state, so the
+/// permission granted again never lifts it (carnet#1386).
+#[tokio::test]
+async fn a_withdrawal_never_overwrites_a_refused_grants_flag() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "garmin",
+            Some("grant_refused"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    push(
+        &resources,
+        "userPermissionsChange",
+        json!([{ "userId": GARMIN_USER, "permissions": ["HEALTH_EXPORT"] }]),
+    )
+    .await;
+    push(
+        &resources,
+        "userPermissionsChange",
+        json!([{ "userId": GARMIN_USER, "permissions": ["ACTIVITY_EXPORT", "HEALTH_EXPORT"] }]),
+    )
+    .await;
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the withdrawal overwrote the refused grant's reason, so the restore lifted it"
+    );
+}
+
 #[tokio::test]
 async fn a_batch_stored_before_its_instance_died_is_run_by_the_sweep() {
     let resources = context(None).await;
@@ -2138,5 +2265,131 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
         post_as(&resources, PATH_TOKEN, "pulseox", Some(CLIENT_ID), &pulseox).await,
         StatusCode::NOT_FOUND,
         "a pulseox push is a type Dravr does not ingest"
+    );
+}
+
+/// A file download whose token path hands back no token (the access token
+/// expired, nothing stored to refresh it with) finds the grant dead: the
+/// Garmin connection is flagged once, the card asks for a reconnect, and the
+/// file is never fetched (carnet#1386). A later push finds it already flagged
+/// and claims no second notice.
+#[tokio::test]
+async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
+    let start = Utc::now() - ChronoDuration::days(3);
+    let (base, hits) = mock_garmin_files(FitWorkout::ride(start, 120).encode()).await;
+    // A notification service over the same database, so the notices the flag
+    // sends can be counted.
+    let mut with_notices: ServerContext = (*context(Some(&base)).await).clone();
+    let service = Arc::new(match with_notices.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
+    });
+    with_notices.common.notification_service = Some(Arc::clone(&service));
+    let resources = Arc::new(with_notices);
+    let (user_id, user, tenant_id) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("garmin-refused-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    let now = Utc::now();
+    let dead = UserOAuthToken {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        tenant_id: tenant_id.to_string(),
+        provider: "garmin".to_owned(),
+        access_token: SecretString::from("garmin_access_token_expired".to_owned()),
+        refresh_token: None,
+        token_type: "Bearer".to_owned(),
+        expires_at: Some(now - ChronoDuration::hours(1)),
+        scope: None,
+        provider_user_id: Some(GARMIN_USER.to_owned()),
+        oauth_app_client_id: None,
+        created_at: now,
+        updated_at: now,
+    };
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&dead)
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "garmin", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    push(
+        &resources,
+        "activities",
+        json!([activity("992001", "Ultra", start.timestamp(), 26 * 3_600)]),
+    )
+    .await;
+    let file_push = |id: u64| {
+        json!([{
+            "userId": GARMIN_USER,
+            "summaryId": format!("{id}-file"),
+            "activityId": 992_001,
+            "fileType": "FIT",
+            "callbackURL": format!("{base}/wellness-api/rest/activityFile?id={id}&token=t"),
+            "manual": false,
+        }])
+    };
+
+    push(&resources, "activityFiles", file_push(1)).await;
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "no token, no download");
+    assert_eq!(
+        garmin_status(&resources, user_id, tenant_id).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: a grant nothing can renew must be flagged"
+    );
+
+    push(&resources, "activityFiles", file_push(2)).await;
+    let (rows, _, _) = service
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    let notices = rows
+        .iter()
+        .filter(|row| row.notification_type == "provider_needs_reauth")
+        .count();
+    assert_eq!(
+        notices, 1,
+        "bug: two refusals of one dead grant must send its reconnect notice once"
+    );
+
+    let token = common::generate_test_token(&resources, &user).await;
+    let resp = AxumTestRequest::get("/api/providers")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 200, "bug: the providers endpoint answers");
+    let body: Value = serde_json::from_str(&resp.text()).unwrap();
+    let card = body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["provider"] == "sciotte_garmin")
+        .cloned()
+        .unwrap_or_else(|| panic!("a Garmin card: {body}"));
+    assert_eq!(
+        card["needs_reauth"], true,
+        "bug: the card must ask for a reconnect once the grant is dead: {card}"
     );
 }

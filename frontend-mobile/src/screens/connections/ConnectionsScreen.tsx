@@ -10,11 +10,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  AppState,
   Modal,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -31,13 +32,18 @@ import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import {
   AI_CONSENT_KEYS,
+  HISTORY_ACTION_KEYS,
+  HISTORY_IMPORTING_REFRESH_MS,
+  HISTORY_LINE_KEYS,
+  cardHistoryState,
   coachPlatformName,
   delegationRefusalKey,
+  historyActionKey,
+  historyImporting,
   historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
-  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
@@ -89,23 +95,29 @@ export function ConnectionsScreen() {
   const [justConnected, setJustConnected] = useState<string | null>(null);
 
   // Returns the providers it read (none when the read failed), so a connect
-  // that just came back can judge the row it landed on.
-  const loadConnectionStatus = useCallback(async (): Promise<ExtendedProviderStatus[]> => {
+  // that just came back can judge the row it landed on. A `quiet` read (the
+  // refresh while a history copies) leaves the list on screen.
+  const loadConnectionStatus = useCallback(async (
+    { quiet = false }: { quiet?: boolean } = {},
+  ): Promise<ExtendedProviderStatus[]> => {
     try {
-      setIsLoading(true);
-      setError(null);
+      if (!quiet) {
+        setIsLoading(true);
+        setError(null);
+      }
       const response = await oauthApi.getProvidersStatus();
       const served = response.providers || [];
       setProviders(served);
       return served;
     } catch (err) {
-      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadConnections' });
-      setError(errorMessage);
+      // A quiet refresh that fails keeps the list it already shows; the next
+      // tick reads again.
+      if (!quiet) setError(describeApiError(err, { t, fallbackKey: 'app.failedLoadConnections' }));
       console.error('Failed to load connection status:', err);
       // Don't show alert on auth errors - screen will reload when auth is ready
       return [];
     } finally {
-      setIsLoading(false);
+      if (!quiet) setIsLoading(false);
     }
   }, [t]);
 
@@ -120,11 +132,34 @@ export function ConnectionsScreen() {
     setSciotteTarget(target);
   };
 
+  /**
+   * Open the one-time history sign-in a grant's card offers. The notice owed
+   * is the grant card's own, as on web: no session row stands beside the
+   * grant to carry it (carnet#1386).
+   */
+  const openHistoryLogin = (target: SciotteTarget, card: ExtendedProviderStatus) => {
+    setSciotteConsentRequired(card.consent_required);
+    setSciotteTarget(target);
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       loadConnectionStatus();
     }
   }, [isAuthenticated, loadConnectionStatus]);
+
+  // A row copying its history is read again, while this screen is in view and
+  // the app is not in the background, until the copy settles (carnet#1386).
+  const importing = historyImporting(providers);
+  useFocusEffect(
+    useCallback(() => {
+      if (!importing) return undefined;
+      const timer = setInterval(() => {
+        if (AppState.currentState !== 'background') void loadConnectionStatus({ quiet: true });
+      }, HISTORY_IMPORTING_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [importing, loadConnectionStatus]),
+  );
 
   // Safety net: auto-clear the post-connect spinner after 6 seconds so the
   // user is never pinned on it. The connection-status refetch normally
@@ -189,13 +224,13 @@ export function ConnectionsScreen() {
           // OAuth completed successfully — refresh status and show the
           // post-connect spinner. Mirrors the web onboarding UX so the
           // moment of triumph isn't a modal alert the user has to dismiss.
-          // A Garmin grant with nothing pushed yet goes on to the Garmin
-          // usr/pwd login instead, which reaches the history (carnet#1302).
+          // A Garmin grant whose history is still needed goes on to the
+          // Garmin usr/pwd login instead, which copies it once (carnet#1386).
           const served = await loadConnectionStatus();
           const history = served.find((p) => historyLoginTarget(p) === providerId);
           const historyTarget = history ? historyLoginTarget(history) : null;
-          if (historyTarget) {
-            openCredentialLogin(historyTarget, served);
+          if (history && historyTarget) {
+            openHistoryLogin(historyTarget, history);
           } else {
             setJustConnected(providerName);
           }
@@ -374,19 +409,16 @@ export function ConnectionsScreen() {
           {label}
         </Text>
       );
-    // A usr/pwd session expired beside the grant that still serves the row
-    // reconnects through its own login, the flow the reconnect notice links
-    // to — never the grant's OAuth, which `startConnect` would open.
-    const sessionTarget = sessionReconnectTarget(provider);
-    const reconnect = sessionTarget
-      ? () => openCredentialLogin(sessionTarget, [provider])
-      : () => startConnect(provider);
+    const reconnect = () => startConnect(provider);
     const disconnect = () => handleDisconnect(id, provider.display_name);
     // A connection the athlete's group coach serves: confirmed, it is read
     // through the coach's account and disconnecting it ends the link;
     // proposed, it waits for the athlete's answer in the group.
     const delegation = provider.delegation;
     const isDelegated = isConnected && delegation?.status === 'confirmed';
+    // Where the row's past activities stand: a line under the subtitle, and
+    // for a history still needed, what the sign-in that copies it does.
+    const historyState = cardHistoryState(provider);
     let subtitle = provider.description;
     if (owesAuthorization) {
       subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
@@ -434,35 +466,25 @@ export function ConnectionsScreen() {
           {canConnect && action(t('app.reconnect'), reconnect)}
         </>
       );
-    } else if (sessionTarget) {
-      // The grant still syncs, so disconnecting stays in the row's menu; the
-      // row says the session the reconnect notice named is expired.
-      trailing = (
-        <>
-          <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
-          {action(t('app.reconnect'), reconnect)}
-        </>
-      );
     } else if (isConnected) {
-      // A row connected through an OAuth grant that has received no activity
-      // yet (Garmin before its first push) offers the usr/pwd login for the
-      // history; disconnecting stays in the row's menu (carnet#1302).
+      // A push-fed grant (Garmin) carries only what comes after it: while the
+      // history is needed, or its last copy did not finish, the row offers the
+      // one-time usr/pwd sign-in that copies it; disconnecting stays in the
+      // row's menu (carnet#1386).
       const historyTarget = historyLoginTarget(provider);
       trailing = (
         <>
           <StatusDot tone="success" />
-          <Text className="text-sm font-medium text-text-secondary">
-            {historyTarget ? t('providers.awaitingActivities') : t('app.connected')}
-          </Text>
+          <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
           {historyTarget ? (
             <Text
               className="text-md font-medium text-primary"
-              onPress={() => openCredentialLogin(historyTarget, [provider])}
+              onPress={() => openHistoryLogin(historyTarget, provider)}
               accessibilityRole="button"
-              accessibilityLabel={t('providers.importHistoryAria', { provider: provider.display_name })}
+              accessibilityHint={t(HISTORY_ACTION_KEYS.signInAria, { provider: provider.display_name })}
               testID={`provider-action-${id}`}
             >
-              {t('providers.importHistory')}
+              {t(historyActionKey(provider))}
             </Text>
           ) : (
             canConnect && action(t('app.disconnect'), disconnect)
@@ -485,7 +507,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: needsReauth || owesAuthorization || sessionTarget !== null,
+                    canReconnect: needsReauth || owesAuthorization,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
@@ -525,6 +547,24 @@ export function ConnectionsScreen() {
             >
               {subtitle}
             </Text>
+            {historyState !== 'not_applicable' && (
+              <View testID={`provider-history-${id}`}>
+                <View className="flex-row items-center gap-1.5">
+                  {(historyState === 'needed' || historyState === 'incomplete') && <StatusDot tone="warning" />}
+                  <Text
+                    className={`text-sm ${historyState === 'imported' ? 'text-text-tertiary' : 'text-text-secondary'}`}
+                    accessibilityLiveRegion={historyState === 'importing' ? 'polite' : undefined}
+                  >
+                    {t(HISTORY_LINE_KEYS[historyState], { provider: provider.display_name })}
+                  </Text>
+                </View>
+                {historyState === 'needed' && (
+                  <Text className="text-xs text-text-tertiary">
+                    {t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name })}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
           {trailing !== null && <View className="flex-row items-center gap-2 ml-3">{trailing}</View>}
         </View>

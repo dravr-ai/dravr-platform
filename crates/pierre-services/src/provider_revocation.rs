@@ -33,7 +33,9 @@ use pierre_core::models::{
 use pierre_database::repositories::PurgeReason;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
-use pierre_providers::backend_resolver::{backend_pair_for, is_mirror_backend};
+use pierre_providers::backend_resolver::{
+    backend_pair_for, is_mirror_backend, pushed_backend_for, user_facing_name,
+};
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use secrecy::{ExposeSecret, SecretString};
@@ -43,7 +45,7 @@ use uuid::Uuid;
 
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::forget_coach_roster;
-use crate::garmin_push::API_SOURCE_MARKER;
+use crate::garmin_push::{shares_wellness, API_SOURCE_MARKER};
 use crate::oauth_flow::OAuthService;
 use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 
@@ -889,6 +891,101 @@ pub async fn clear_backend(
 
     purge_provider_data(data, user_id, tenant_id, backend, reason.purge_reason()).await?;
     Ok(outcome)
+}
+
+/// What [`retire_history_session`] did with the session it was handed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryRetirement {
+    /// The session is gone; every row it copied stays.
+    Retired,
+    /// The session stays: the grant beside it withholds the health export,
+    /// so the session is still the only source of the athlete's wellness.
+    KeptForWellness,
+    /// The slug names no scrape mirror; nothing was touched.
+    NotAMirror,
+}
+
+/// Retire the usr/pwd session `mirror` that stood beside a grant once its
+/// one-time history import is over (carnet#1386).
+///
+/// Drops the session from the sciotte service, then deletes its token row
+/// and its connection row, so nothing reads, renews, retries or notifies it
+/// again. Unlike [`clear_backend`] it purges nothing: every activity and
+/// wellness row the session copied stays, served through the grant's window.
+/// Nothing is revoked upstream either, and no disconnect is announced: the
+/// athlete's provider stays connected through the grant.
+///
+/// A session the grant does not replace is kept
+/// ([`HistoryRetirement::KeptForWellness`]): when the grant withholds the
+/// health export, nothing pushes the athlete's wellness, and the session's
+/// daily pull is what still brings their nights in. A `mirror` that is not a
+/// scrape mirror retires nothing, so a wrong slug can never take a grant's
+/// rows. Retiring a session the user does not hold is a no-op.
+///
+/// # Errors
+/// Returns a database error if the grant's permissions cannot be read, or if
+/// either delete fails.
+pub async fn retire_history_session(
+    repos: &RepositoryRegistry,
+    remote: Option<&SciotteClient>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    mirror: &str,
+) -> AppResult<HistoryRetirement> {
+    if !is_mirror_backend(mirror) {
+        return Ok(HistoryRetirement::NotAMirror);
+    }
+    if session_feeds_wellness(repos, user_id, tenant_id, mirror).await? {
+        info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            backend = %mirror,
+            "Kept the session beside the grant: the grant withholds the health export, so the session still brings the wellness in"
+        );
+        return Ok(HistoryRetirement::KeptForWellness);
+    }
+    drop_scrape_session(repos, remote, user_id, tenant_id, mirror).await;
+    repos
+        .oauth_tokens
+        .delete_token(user_id, tenant_id, mirror)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete the session token: {e}")))?;
+    repos
+        .provider_connections
+        .remove_connection(user_id, tenant_id, mirror)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to remove the session connection: {e}")))?;
+    info!(
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        backend = %mirror,
+        "Retired the history session beside the grant; its copied data stays"
+    );
+    Ok(HistoryRetirement::Retired)
+}
+
+/// Whether the session `mirror` is still the user's wellness source.
+///
+/// It is in `tenant_id` when its pushed grant withholds the health export
+/// (as last reported; none reported reads as granted), so the daily pull of
+/// the session is what brings their nights in.
+///
+/// # Errors
+/// Returns a database error if the grant's permissions cannot be read.
+pub async fn session_feeds_wellness(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    mirror: &str,
+) -> AppResult<bool> {
+    let Some(grant) = pushed_backend_for(user_facing_name(mirror)) else {
+        return Ok(false);
+    };
+    let grants = repos
+        .provider_connections
+        .provider_grants(user_id, tenant_id, grant)
+        .await?;
+    Ok(!shares_wellness(grants.as_deref()))
 }
 
 /// End the delegated connections a coaching platform's disconnect takes

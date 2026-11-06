@@ -360,12 +360,12 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
-   * The card is connected through its provider's OAuth grant, whose push-fed
-   * store has received no activity yet, and no live usr/pwd session serves
-   * the card beside it. Garmin's API pushes only what the athlete records
-   * after connecting, so the history is reached through the usr/pwd login:
-   * the card offers it, and a Garmin grant just completed opens it
-   * (`historyLoginTarget` in `@pierre/shared-constants`).
+   * The card is connected through its provider's OAuth grant, and no activity
+   * is held yet under any key its reads serve (its pushes, what a usr/pwd
+   * session imported, an imported archive). Garmin's API pushes only what the athlete records
+   * after connecting. The card's offer of the usr/pwd login that copies the
+   * history reads `history` instead (`historyLoginTarget` in
+   * `@pierre/shared-constants`), which a grant's own pushes leave `needed`.
    */
   oauth_awaiting_activities: boolean;
   /**
@@ -385,16 +385,6 @@ export interface ExtendedProviderStatus {
    * needed" instead of a healthy "Connected".
    */
   needs_reauth: boolean;
-  /**
-   * The card's username-and-password session is flagged for a reconnect while
-   * another of its backends — the provider's OAuth grant — serves the card.
-   * The card still syncs, so `needs_reauth` stays `false`, but the session the
-   * reconnect notice named is expired: the card shows the reconnect and opens
-   * the username-and-password login (`sessionReconnectTarget` in
-   * `@pierre/shared-constants`). A dead grant beside it is `needs_reauth`,
-   * which the card shows first.
-   */
-  session_needs_reauth: boolean;
   capabilities: string[];
   /**
    * For a user-facing provider with more than one auth backend (Strava can be
@@ -458,6 +448,31 @@ export interface ExtendedProviderStatus {
    * answer. Absent when there is none.
    */
   delegation?: ProviderDelegation;
+  /**
+   * Where the card's past workouts stand, and how they can be brought in
+   * (carnet#1386). Present on every card a current server serves; absent
+   * from an older one.
+   */
+  history?: HistoryStatus;
+}
+
+/**
+ * Where a provider card's history stands: `needed` while the grant serves and
+ * nothing from before it is held, `importing` while a one-time copy runs,
+ * `incomplete` when the last copy ended before the history landed,
+ * `imported` once a sign-in's copy or an imported export is held (the
+ * grant's own pushes never count), `not_applicable` for a card whose ongoing
+ * source reads history itself.
+ */
+export type HistoryState = 'needed' | 'importing' | 'incomplete' | 'imported' | 'not_applicable';
+
+/** A provider card's history: where it stands and how it can be brought in. */
+export interface HistoryStatus {
+  state: HistoryState;
+  /** The sign-in that copies the history once; `null` when not applicable. */
+  sign_in_target: string | null;
+  /** The export source this server offers for the provider (`GET /api/imports`), or `null`. */
+  archive_source: string | null;
 }
 
 /** A group coach's link to the user's provider, as the provider card shows it. */

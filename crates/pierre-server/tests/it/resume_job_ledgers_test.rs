@@ -215,6 +215,7 @@ async fn backfill_jobs_are_one_per_user_and_provider_and_resume_after_a_lapsed_l
         leased_until_ms: now - 60_000,
         attempts: 1,
         lease_token: Some(Uuid::new_v4().to_string()),
+        history_import: false,
     };
     assert!(
         ledger.record_backfill_job(&row).await.unwrap(),

@@ -548,6 +548,14 @@ impl fmt::Display for ConnectionStatus {
     }
 }
 
+/// The reason recorded on a connection whose athlete withdrew, at the
+/// provider, the permission the grant exists for (Garmin's activity export).
+///
+/// Only a reconnect, or the provider reporting the permission granted again,
+/// clears it: a token refresh proves the grant alive, never the permission
+/// back (carnet#1386).
+pub const PERMISSION_WITHDRAWN: &str = "permission_withdrawn";
+
 /// What flagging a connection `needs_reauth` after a failed attempt found.
 ///
 /// The flag is guarded on when the attempt began, so a caller that goes on to

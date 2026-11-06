@@ -109,11 +109,10 @@ export function refusalOpensCredentialLogin(provider: string): provider is 'stra
 
 /**
  * The card whose usr/pwd login a completed grant leads to, or `null`: the
- * granted provider's card, read after the grant, is connected through an
- * OAuth grant that has received no activity yet (`historyLoginTarget`).
- * Garmin's API pushes only what the athlete records after connecting, so a
- * fresh Garmin grant chains into the Garmin usr/pwd login for the history —
- * "oauth, no activities, sciotte".
+ * granted provider's card, read after the grant, still needs its history
+ * (`historyLoginTarget`). Garmin's API pushes only what the athlete records
+ * after connecting, so a fresh Garmin grant chains into the Garmin usr/pwd
+ * login that copies the history once.
  */
 export function historyLoginAfterGrant(
   result: Pick<OAuthResult, 'provider' | 'success'>,

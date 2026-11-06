@@ -4,7 +4,7 @@
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
 // ABOUTME: Also holds each scrape-mirror target's login facts, each provider's notice to accept first, and how Intervals.icu links
 
-import type { ExtendedProviderStatus, SciotteTarget } from '@pierre/shared-types';
+import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
 
 /**
  * Every capability slug `GET /api/oauth/providers` can put on a provider card,
@@ -207,34 +207,68 @@ export function sciotteTargetForBackend(provider: string): SciotteTarget | null 
 }
 
 /**
- * The credential-login target a connected card offers for the athlete's
- * history, or `null` when it offers none: the card's OAuth grant has received
- * no activity yet and no usr/pwd session serves it beside the grant
- * (`oauth_awaiting_activities`). Garmin's API pushes only what the athlete
- * records after connecting, so "oauth, no activities" leads to the usr/pwd
- * login, from the card and straight after a Garmin grant completes.
+ * Where a card's history stands, as the card shows it: the server's
+ * `history.state` while the card is connected, `not_applicable` otherwise —
+ * and for a card from a server that serves no `history`, which shows nothing.
  */
-export function historyLoginTarget(
-  card: Pick<ExtendedProviderStatus, 'provider' | 'connected' | 'oauth_awaiting_activities'>,
-): SciotteTarget | null {
-  if (!card.connected || !card.oauth_awaiting_activities) return null;
-  return sciotteTargetForBackend(card.provider);
+export function cardHistoryState(card: Pick<ExtendedProviderStatus, 'connected' | 'history'>): HistoryState {
+  if (!card.connected) return 'not_applicable';
+  return card.history?.state ?? 'not_applicable';
 }
 
 /**
- * The credential-login target that reconnects a card's expired
- * username-and-password session, or `null` when the card shows no such
- * reconnect: the session is flagged while the card's OAuth grant keeps
- * serving it (`session_needs_reauth`). It comes before
- * [`historyLoginTarget`]: a flagged session leaves an empty grant awaiting
- * activities, and the card then asks for the reconnect rather than an import.
- * A dead grant is `needs_reauth`, whose own reconnect the card shows instead.
+ * The credential-login target a connected card offers for the athlete's
+ * history, or `null` when it offers none. A push-fed grant (Garmin) carries
+ * only what the athlete records after connecting, so while the history is
+ * `needed`, or its last copy ended `incomplete`, the card offers the one-time
+ * usr/pwd sign-in that copies it (`history.sign_in_target`, a backend id such
+ * as `sciotte_garmin`, resolved to the login's target) — from the card and
+ * straight after a Garmin grant completes.
  */
-export function sessionReconnectTarget(
-  card: Pick<ExtendedProviderStatus, 'provider' | 'connected' | 'needs_reauth' | 'session_needs_reauth'>,
+export function historyLoginTarget(
+  card: Pick<ExtendedProviderStatus, 'connected' | 'history'>,
 ): SciotteTarget | null {
-  if (!card.connected || card.needs_reauth || !card.session_needs_reauth) return null;
-  return sciotteTargetForBackend(card.provider);
+  const state = cardHistoryState(card);
+  if (state !== 'needed' && state !== 'incomplete') return null;
+  const signIn = card.history?.sign_in_target;
+  return signIn ? sciotteTargetForBackend(signIn) : null;
+}
+
+/**
+ * The line a card shows under its name for each history state; a card whose
+ * history is `not_applicable` shows none. Each takes `{ provider }`.
+ */
+export const HISTORY_LINE_KEYS: Readonly<Record<Exclude<HistoryState, 'not_applicable'>, string>> = {
+  importing: 'providers.history.importing',
+  imported: 'providers.history.imported',
+  incomplete: 'providers.history.incomplete',
+  needed: 'providers.history.needed',
+};
+
+/**
+ * The words of the card's history action, the line that explains it, and the
+ * spoken hint naming the provider. The action's accessible name is its visible
+ * words (`historyActionKey`), so `signInAria` is only ever a hint or a
+ * description, never a label that replaces them (WCAG 2.5.3, label in name).
+ */
+export const HISTORY_ACTION_KEYS = {
+  signIn: 'providers.history.signIn',
+  signInAria: 'providers.history.signInAria',
+  retry: 'providers.history.retry',
+  explainer: 'providers.history.explainer',
+} as const;
+
+/** The words on a card's history action: try again after a copy that did not finish, otherwise sign in. */
+export function historyActionKey(card: Pick<ExtendedProviderStatus, 'connected' | 'history'>): string {
+  return cardHistoryState(card) === 'incomplete' ? HISTORY_ACTION_KEYS.retry : HISTORY_ACTION_KEYS.signIn;
+}
+
+/** How often the provider cards are read again while a card's history is copying. */
+export const HISTORY_IMPORTING_REFRESH_MS = 15_000;
+
+/** Whether any of `cards` is copying its history, so the list is worth reading again. */
+export function historyImporting(cards: readonly Pick<ExtendedProviderStatus, 'connected' | 'history'>[]): boolean {
+  return cards.some((card) => cardHistoryState(card) === 'importing');
 }
 
 /**

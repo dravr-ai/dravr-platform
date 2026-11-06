@@ -45,7 +45,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "health-sync")]
-use crate::oauth::spawn_health_backfill;
+use crate::health_backfill::spawn_health_backfill;
 use crate::AuthRoutesContext;
 
 /// Request body for linking an Intervals.icu account.

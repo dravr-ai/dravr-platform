@@ -129,8 +129,8 @@ struct ConnectProviderCard {
     /// Already connected — the card is shown disabled, unless it
     /// `awaits_activities`.
     connected: bool,
-    /// Connected through the provider's OAuth grant, whose store has received
-    /// no activity yet, with no live usr/pwd session beside it (carnet#1302):
+    /// Connected through the provider's OAuth grant, with no activity held
+    /// yet under any key its reads serve (carnet#1302, carnet#1386):
     /// the card stays pickable and opens the credential form, and a grant the
     /// page just came back from chains straight into it.
     awaits_activities: bool,
@@ -375,7 +375,7 @@ pub(crate) async fn handle_connect_hosted_page(
         token,
         &claims.channel,
         &providers,
-        resources.archive_imports_offered,
+        resources.archive_imports_offered(),
     ))
     .into_response()
 }

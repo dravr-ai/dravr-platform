@@ -59,6 +59,8 @@ export type {
   SessionResponse,
   ExtendedProviderStatus,
   ProviderDelegation,
+  HistoryState,
+  HistoryStatus,
   SciotteTarget,
   ProvidersStatusResponse,
   OAuthApp,

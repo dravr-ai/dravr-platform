@@ -52,7 +52,7 @@ use pierre_core::models::{ReauthMark, TenantId};
 use pierre_notifications::models::{NotificationCategory, TransportPolicy as PushTransportPolicy};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId};
-use pierre_providers::backend_resolver::backend_pair_for;
+use pierre_providers::backend_resolver::{backend_pair_for, session_beside_grant};
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::{brand_name, user_facing_name};
 #[cfg(feature = "client-notifications")]
@@ -85,12 +85,25 @@ pub struct ReauthNotice {
 /// (push and stored row) and to every linked messaging channel, as the module
 /// doc describes. Best-effort: every failure is logged and the flag stands
 /// either way.
+///
+/// A usr/pwd session beside a grant that serves its provider
+/// ([`session_beside_grant`]) is never surfaced: the grant is the ongoing
+/// source, so its session dying asks nothing of the athlete. Nothing is
+/// claimed or sent for it; its flag stands (carnet#1386).
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> ReauthNotice {
+    if session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            "Reconnect notice: the session stands beside a serving grant; nothing sent"
+        );
+        return ReauthNotice::default();
+    }
     if !claim_notice(runtime, user_id, tenant_id, provider).await {
         return ReauthNotice::default();
     }

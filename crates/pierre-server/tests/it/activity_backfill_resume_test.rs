@@ -185,6 +185,7 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
             after: Some(AFTER_TS),
         },
         pierre_conversation_id: conversation_id.map(ToOwned::to_owned),
+        history_import: false,
     }
 }
 
@@ -213,6 +214,7 @@ fn seeded_row(
         leased_until_ms: if lease.is_zero() { 0 } else { now + lease_ms },
         attempts,
         lease_token: Some(Uuid::new_v4().to_string()),
+        history_import: false,
     }
 }
 

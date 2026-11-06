@@ -26,4 +26,8 @@ pub struct OAuthCallbackResponse {
     /// Optional mobile redirect URL from OAuth state (for mobile app flows)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mobile_redirect_url: Option<String>,
+    /// Tenant the token was stored under. Server-side only: what the
+    /// callback starts after the connect runs in this tenant.
+    #[serde(skip)]
+    pub tenant_id: String,
 }

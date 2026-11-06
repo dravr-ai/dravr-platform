@@ -938,6 +938,7 @@ fn test_provider_callback_pages_use_boreal_design_system() {
             expires_at: Some("2026-09-23T00:00:00Z".to_owned()),
             scopes: "read".to_owned(),
             mobile_redirect_url: None,
+            tenant_id: "tenant-1".to_owned(),
         },
     );
     assert!(success.contains("<h1>Strava Connected</h1>"));

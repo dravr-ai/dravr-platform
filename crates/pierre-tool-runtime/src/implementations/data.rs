@@ -720,8 +720,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // turns this `Err` into the `auth_required_provider` metadata
                         // the tool loop scans for, and `auth_recovery` hands back the
                         // short reconnect link this turn. The link is re-sent on EVERY
-                        // such ask until a real reconnect clears the flag via
-                        // `mark_active`.
+                        // such ask until a real reconnect clears the flag via `mark_active`.
                         let fallback = if provider_pinned {
                             None
                         } else {
@@ -758,6 +757,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            history_import: false,
                         };
                         match backfill_inline_and_serve(job, &coverage_params, before).await {
                             InlineHistoricalServe::AuthRequired => {
@@ -793,6 +793,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            history_import: false,
                         })
                         .await;
                         // `started == false` means a backfill for this window is

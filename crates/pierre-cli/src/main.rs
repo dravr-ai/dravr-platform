@@ -162,6 +162,12 @@ enum Command {
         action: commands::zones::ZonesCommand,
     },
 
+    /// Garmin operator commands (retire the usr/pwd sessions beside a grant)
+    Garmin {
+        #[command(subcommand)]
+        action: commands::garmin::GarminCommand,
+    },
+
     /// Coaching harness operator commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
@@ -1173,6 +1179,9 @@ async fn main() -> Result<()> {
             },
             Command::Zones { action } => {
                 commands::zones::dispatch(action, &repos).await?;
+            }
+            Command::Garmin { action } => {
+                commands::garmin::dispatch(action, &repos).await?;
             }
             #[cfg(feature = "tools-verification")]
             Command::Harness { action } => {

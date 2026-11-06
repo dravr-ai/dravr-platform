@@ -52,12 +52,14 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   coachPlatformName,
   delegationRefusalKey,
+  HISTORY_IMPORTING_REFRESH_MS,
+  historyActionKey,
+  historyImporting,
   historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
-  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
@@ -65,6 +67,7 @@ import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
+import ProviderHistoryLine from './ProviderHistoryLine';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import UnitsSettings from './settings/UnitsSettings';
@@ -74,6 +77,9 @@ import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { describeApiError } from '@pierre/ui-logic';
+
+/** The DOM id of a provider's history line, which its sign-in button names as its description. */
+const historyLineId = (provider: string): string => `provider-history-line-${provider}`;
 
 interface OAuthApp {
   provider: string;
@@ -224,6 +230,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     // elsewhere (onboarding/chat OAuth, which uses a different query key) would
     // otherwise show stale t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
+    // A card copying its history is read again until the copy settles.
+    refetchInterval: (query) =>
+      historyImporting(query.state.data?.providers ?? []) ? HISTORY_IMPORTING_REFRESH_MS : false,
   });
 
   // The cards render as the server serves them: it withholds the raw rows a
@@ -871,9 +880,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
                                     {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
                                   </span>
-                                ) : provider.needs_reauth || sessionReconnectTarget(provider) ? (
-                                  // A usr/pwd session expired beside a grant that still
-                                  // serves reads the same: the reconnect notice named it.
+                                ) : provider.needs_reauth ? (
                                   <span
                                     className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
                                     data-testid={`provider-reconnect-needed-${provider.provider}`}
@@ -884,12 +891,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
-                                    {historyLoginTarget(provider) ? t('providers.awaitingActivities') : t('settingsUi.connected')}
+                                    {t('settingsUi.connected')}
                                   </span>
                                 )
                               )}
                             </div>
                             <p className="text-xs text-on-surface-variant truncate">{description}</p>
+                            <ProviderHistoryLine provider={provider} id={historyLineId(provider.provider)} />
                             {provider.provider === 'sciotte' && importedStravaCount > 0 && (
                               <button
                                 type="button"
@@ -952,27 +960,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     {t(AI_CONSENT_KEYS.withdraw)}
                                   </Button>
                                 )}
-                                {/* A usr/pwd session expired beside the grant that still serves
-                                    the card reconnects through its own login, the flow the
-                                    reconnect notice links to — never the grant's OAuth. */}
-                                {sessionReconnectTarget(provider) && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSciotteConsentRequired(provider.consent_required);
-                                      setSciotteModalTarget(sessionReconnectTarget(provider));
-                                    }}
-                                    data-testid={`provider-session-reconnect-${provider.provider}`}
-                                  >
-                                    {t('settingsUi.reconnect')}
-                                  </Button>
-                                )}
-                                {/* A card connected through an OAuth grant that has received no
-                                    activity yet (Garmin before its first push) offers the usr/pwd
-                                    login, which reaches the history (carnet#1302) — unless that
-                                    login is already offered as the reconnect above. */}
-                                {!sessionReconnectTarget(provider) && historyLoginTarget(provider) && (
+                                {/* A push-fed grant (Garmin) carries only what comes after it: while
+                                    the history is needed, or its last copy did not finish, the card
+                                    offers the one-time usr/pwd sign-in that copies it (carnet#1386). */}
+                                {historyLoginTarget(provider) && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -981,9 +972,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                       setSciotteModalTarget(historyLoginTarget(provider));
                                     }}
                                     data-testid={`provider-history-login-${provider.provider}`}
-                                    aria-label={t('providers.importHistoryAria', { provider: provider.display_name })}
+                                    aria-describedby={historyLineId(provider.provider)}
                                   >
-                                    {t('providers.importHistory')}
+                                    {t(historyActionKey(provider))}
                                   </Button>
                                 )}
                                 {(provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (

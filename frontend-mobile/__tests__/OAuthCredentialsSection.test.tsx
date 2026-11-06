@@ -434,7 +434,6 @@ describe('OAuthCredentialsSection', () => {
               connected: false,
               needs_reauth: false,
               oauth_awaiting_activities: false,
-              session_needs_reauth: false,
               capabilities: [],
               consent_required: false,
               own_app_required: true,

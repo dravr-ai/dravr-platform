@@ -379,14 +379,22 @@ test.describe('Text never paints over text', () => {
     });
   }
 
-  test('a connected provider card awaiting activities holds together at 375', async ({ page }) => {
+  test('a connected provider card offering its history copy holds together at 375', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await setupDashboardMocks(page, { role: 'user', language: 'fr', skipProvidersRoute: true });
     await page.route('**/api/providers', (route) =>
       route.fulfill(
         json({
           providers: [
-            { provider: 'sciotte', display_name: 'Strava', description: 'Activités', connected: true, requires_oauth: true, capabilities: [], oauth_awaiting_activities: true },
+            {
+              provider: 'garmin',
+              display_name: 'Garmin',
+              description: 'Activités',
+              connected: true,
+              requires_oauth: true,
+              capabilities: [],
+              history: { state: 'needed', sign_in_target: 'sciotte_garmin', archive_source: null },
+            },
           ],
         }),
       ),
@@ -402,10 +410,11 @@ test.describe('Text never paints over text', () => {
     );
     await page.goto('/');
     await signInThroughHostedPage(page);
-    const row = page.getByTestId('provider-glyph-sciotte').locator('xpath=ancestor::button[1]');
+    const row = page.getByTestId('provider-glyph-garmin').locator('xpath=ancestor::button[1]');
     await expect(row).toBeVisible({ timeout: 15000 });
-    await expect(row).toContainText('Strava');
-    await expect(row).toContainText('Importer mon historique');
+    await expect(row).toContainText('Garmin');
+    // The longest action the card carries, so the one most likely to collide.
+    await expect(row).toContainText('Connecte-toi pour importer ton historique');
     await expectNoCollidingText(page, 'provider row', '[data-testid="onboarding-shell"]', 5);
     const past = await row.evaluate((button) => {
       const edge = button.getBoundingClientRect().right;

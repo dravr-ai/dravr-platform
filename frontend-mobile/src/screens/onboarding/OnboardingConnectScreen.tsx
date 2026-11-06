@@ -40,6 +40,8 @@ import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
+  HISTORY_ACTION_KEYS,
+  historyActionKey,
   historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
@@ -155,6 +157,15 @@ export function OnboardingConnectScreen() {
     },
     [],
   );
+  /**
+   * Open the one-time history sign-in a grant's card offers. The notice owed
+   * is the grant card's own, as on the Connections screen and on web: no
+   * session row stands beside the grant to carry it (carnet#1386).
+   */
+  const openHistoryLogin = useCallback((target: SciotteTarget, card: ExtendedProviderStatus) => {
+    setSciotteConsentRequired(card.consent_required);
+    setSciotteTarget(target);
+  }, []);
   const anyConnected = providers.some((p) => p.connected);
 
   // Standard OAuth flow used by providers with a built-in client_id/secret on
@@ -197,12 +208,12 @@ export function OnboardingConnectScreen() {
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
-            // A Garmin grant with nothing pushed yet goes on to the Garmin
-            // usr/pwd login, which reaches the history (carnet#1302).
+            // A Garmin grant whose history is still needed goes on to the
+            // Garmin usr/pwd login, which copies it once (carnet#1386).
             const served = await finalizeConnection();
             const history = served.find((p) => historyLoginTarget(p) === providerId);
             const historyTarget = history ? historyLoginTarget(history) : null;
-            if (historyTarget) openCredentialLogin(historyTarget, served);
+            if (history && historyTarget) openHistoryLogin(historyTarget, history);
           } else if (error) {
             // Strava or Garmin OAuth came back with an error (e.g. the
             // shared-app athlete cap was actually exceeded in a seat-count
@@ -236,7 +247,7 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection, language, openCredentialLogin, providers, t],
+    [finalizeConnection, language, openCredentialLogin, openHistoryLogin, providers, t],
   );
   // The start-fresh action runs the connect again from inside the callback
   // that defined it, so it reads the current one through a ref.
@@ -334,19 +345,19 @@ export function OnboardingConnectScreen() {
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
               <Text className="text-sm font-medium text-text-secondary">
-                {historyTarget ? t('providers.awaitingActivities') : t('app.connected')}
+                {t('app.connected')}
               </Text>
-              {/* A Garmin grant with nothing pushed yet offers the usr/pwd
-                  login for the history (carnet#1302). */}
+              {/* A Garmin grant whose history is still needed offers the
+                  one-time usr/pwd sign-in that copies it (carnet#1386). */}
               {historyTarget && (
                 <Text
                   className="text-md font-medium text-primary"
-                  onPress={() => openCredentialLogin(historyTarget, [provider])}
+                  onPress={() => openHistoryLogin(historyTarget, provider)}
                   accessibilityRole="button"
-                  accessibilityLabel={t('providers.importHistoryAria', { provider: provider.display_name })}
+                  accessibilityHint={t(HISTORY_ACTION_KEYS.signInAria, { provider: provider.display_name })}
                   testID={`provider-action-${provider.provider}`}
                 >
-                  {t('providers.importHistory')}
+                  {t(historyActionKey(provider))}
                 </Text>
               )}
             </View>

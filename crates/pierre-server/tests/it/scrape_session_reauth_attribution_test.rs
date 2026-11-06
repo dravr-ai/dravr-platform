@@ -10,7 +10,9 @@
 //! the athlete reconnected the grant, which was fine, and the session stayed
 //! dead and unflagged, so every sync and every Home load signed in to it again.
 //! These tests drive the reads against a scraper stand-in that counts what
-//! reaches it and assert which connection is left flagged.
+//! reaches it and assert which connection is left flagged. Since carnet#1386
+//! the grant is Garmin's one ongoing source, so a session beside it is never
+//! read at all.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
@@ -234,33 +236,31 @@ impl Fixture {
     }
 }
 
-/// A `garmin` read the dead session served flags the session, never the
-/// Garmin grant beside it, which was fine.
+/// Beside a Garmin grant the session serves nothing (carnet#1386): a read
+/// naming either Garmin backend goes to the grant, the dead session is never
+/// signed in to, and neither connection is flagged by a read that never
+/// reached it.
 #[tokio::test]
-async fn a_dead_session_beside_a_garmin_grant_is_the_connection_flagged() {
+async fn a_dead_session_beside_a_garmin_grant_is_never_read() {
     let f = fixture("attribution", true).await;
 
     f.read(oauth_providers::GARMIN).await;
+    f.read(oauth_providers::SCIOTTE_GARMIN).await;
 
-    assert_eq!(f.scraper.reads(), 1, "the live session served the read");
     assert_eq!(
-        f.status(oauth_providers::SCIOTTE_GARMIN).await,
-        ConnectionStatus::NeedsReauth,
-        "bug: the session that failed must be the connection flagged"
+        f.scraper.reads(),
+        0,
+        "bug: the session beside the grant must never be signed in to"
     );
     assert_eq!(
         f.status(oauth_providers::GARMIN).await,
         ConnectionStatus::Active,
         "bug: the Garmin grant was fine and must stay active"
     );
-
-    // With the session flagged the grant serves Garmin's reads, so a read
-    // of `garmin` no longer reaches the scraper.
-    f.read(oauth_providers::GARMIN).await;
     assert_eq!(
-        f.scraper.reads(),
-        1,
-        "bug: a flagged session must not be signed in to again"
+        f.status(oauth_providers::SCIOTTE_GARMIN).await,
+        ConnectionStatus::Active,
+        "a read that never reached the session says nothing about it"
     );
 }
 
@@ -390,13 +390,14 @@ mod health_sync {
         );
     }
 
-    /// The scheduled sync of 2026-11-03: the session beside the grant serves
-    /// Garmin's wellness, and Garmin refuses it. The sync reads it once, not
-    /// once per data type and again after the refresh; it flags the session,
-    /// not the grant; and the next sync does not read it at all.
+    /// The scheduled sync of 2026-11-03, for a usr/pwd-only athlete whose
+    /// session serves Garmin's wellness (beside a grant it no longer does,
+    /// carnet#1386), and Garmin refuses it. The sync reads it once, not once
+    /// per data type and again after the refresh; it flags the session; and
+    /// the next sync does not read it at all.
     #[tokio::test]
     async fn a_sync_stops_at_the_first_refusal_and_flags_the_session() {
-        let f = fixture("health-sync", true).await;
+        let f = fixture("health-sync", false).await;
         install_health_sync_refresher(&f.resources);
         let dead = Arc::new(DeadSession::default());
         let reader: Arc<dyn DailySummaryReader> = Arc::<DeadSession>::clone(&dead);
@@ -411,11 +412,6 @@ mod health_sync {
             f.status(oauth_providers::SCIOTTE_GARMIN).await,
             ConnectionStatus::NeedsReauth,
             "bug: the refused session must be the connection flagged"
-        );
-        assert_eq!(
-            f.status(oauth_providers::GARMIN).await,
-            ConnectionStatus::Active,
-            "bug: the Garmin grant was fine and must stay active"
         );
 
         sync(&f, &reader).await;

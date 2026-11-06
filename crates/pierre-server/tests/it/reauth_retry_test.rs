@@ -25,12 +25,14 @@ use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
+use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
-use pierre_tool_runtime::reauth_retry::SCRAPE_SESSION_RETRY_INTERVAL_HOURS;
+use pierre_tool_runtime::reauth_retry::{
+    claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -430,4 +432,118 @@ async fn home_never_retries_a_flagged_oauth_grant() {
         .await
         .unwrap();
     assert!(claimable, "Home never stamped a retry on it");
+}
+
+/// A flagged usr/pwd session beside a grant that serves its provider serves
+/// nothing, so neither the sweep nor Home retries it, however long it has been
+/// flagged (carnet#1386); the scraper is never asked. A TrainingPeaks
+/// session, its provider's only source, keeps its retry.
+#[tokio::test]
+async fn a_flagged_session_beside_a_serving_grant_is_never_retried() {
+    let f = fixture("beside-grant").await;
+    let grant = UserOAuthToken::new(
+        f.user_id,
+        f.tenant.to_string(),
+        "strava".to_owned(),
+        "strava-access".to_owned(),
+        Some("strava-refresh".to_owned()),
+        Some(Utc::now() + Duration::hours(6)),
+        None,
+    );
+    f.resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&grant)
+        .await
+        .unwrap();
+    f.age_past_interval("sciotte").await;
+
+    let report = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        report.retried, 0,
+        "bug: the sweep retried a session beside a grant"
+    );
+    assert!(
+        report
+            .connections
+            .iter()
+            .all(|line| line.provider != "sciotte"),
+        "bug: the session beside the grant is not walked: {:?}",
+        report.connections
+    );
+    let body = f.home().await;
+    f.await_background().await;
+    assert_eq!(f.scraper.reads(), 0, "bug: the scraper was asked: {body}");
+    assert!(
+        !claim_scrape_session_retry(&f.runtime(), f.user_id, f.tenant, "sciotte").await,
+        "bug: no retry is ever claimed for it"
+    );
+    assert_eq!(
+        f.status("sciotte").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the session's own flag stands"
+    );
+
+    f.connect("sciotte_trainingpeaks").await;
+    f.flag("sciotte_trainingpeaks").await;
+    f.age_past_interval("sciotte_trainingpeaks").await;
+    assert!(
+        claim_scrape_session_retry(&f.runtime(), f.user_id, f.tenant, "sciotte_trainingpeaks")
+            .await,
+        "bug: a TrainingPeaks session keeps its throttled retry"
+    );
+}
+
+/// Home never refreshes a live usr/pwd session beside a grant that serves its
+/// provider (carnet#1386): it serves nothing, so the scraper is not asked. The
+/// same live session with no grant beside it is refreshed, so only the
+/// beside-grant rule kept the first load quiet.
+#[tokio::test]
+async fn home_never_refreshes_a_live_session_beside_a_serving_grant() {
+    let f = fixture("home-beside-grant").await;
+    f.resources
+        .common
+        .repos
+        .provider_connections
+        .mark_active(f.user_id, f.tenant, "sciotte")
+        .await
+        .unwrap();
+    let grant = UserOAuthToken::new(
+        f.user_id,
+        f.tenant.to_string(),
+        "strava".to_owned(),
+        "strava-access".to_owned(),
+        Some("strava-refresh".to_owned()),
+        Some(Utc::now() + Duration::hours(6)),
+        None,
+    );
+    let tokens = &f.resources.common.repos.oauth_tokens;
+    tokens.upsert_token(&grant).await.unwrap();
+
+    let body = f.home().await;
+    f.await_background().await;
+    assert_eq!(
+        f.scraper.reads(),
+        0,
+        "bug: Home refreshed a live session beside a grant: {body}"
+    );
+
+    tokens
+        .delete_token(f.user_id, f.tenant, "strava")
+        .await
+        .unwrap();
+    let body = f.home().await;
+    f.await_background().await;
+    assert_eq!(
+        f.scraper.reads(),
+        1,
+        "the session alone is the athlete's Strava and is refreshed: {body}"
+    );
 }

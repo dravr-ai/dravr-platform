@@ -12,6 +12,7 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  historyActionKey,
   historyLoginTarget,
   intervalsConnectPath,
   noticeRequired,
@@ -355,11 +356,14 @@ export default function ProviderConnectionCards({
             onClick={() => handleConnect(provider)}
             disabled={provider.connected && !owesAuthorization && !offersHistory}
             className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
+            // A row offering its history copy is named by what it shows — the
+            // provider, its state and the action's words — so the spoken name
+            // carries the visible label (WCAG 2.5.3).
             aria-label={
               owesAuthorization
                 ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
                 : offersHistory
-                ? t('providers.importHistoryAria', { provider: provider.display_name })
+                ? undefined
                 : provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
@@ -391,7 +395,7 @@ export default function ProviderConnectionCards({
             {provider.connected && !owesAuthorization && (
               <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
-                {offersHistory ? t('providers.awaitingActivities') : t('providers.connected')}
+                {t('providers.connected')}
               </span>
             )}
             {isNonOAuth && !provider.connected && (
@@ -399,7 +403,7 @@ export default function ProviderConnectionCards({
             )}
             {isActionable && (
               <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
-                {offersHistory ? t('providers.importHistory') : t('providers.connect')}
+                {offersHistory ? t(historyActionKey(provider)) : t('providers.connect')}
               </span>
             )}
           </button>

@@ -6,7 +6,10 @@
 
 import React from 'react';
 import { Alert } from 'react-native';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
+import { HISTORY_IMPORTING_REFRESH_MS } from '@pierre/shared-constants';
+import type { HistoryState } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { oauthApi } from '../../../services/api';
@@ -213,21 +216,27 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
   });
 });
 
-describe('ConnectionsScreen — a Garmin grant with nothing pushed yet (carnet#1302)', () => {
+describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1386)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     initMobileOAuth.mockResolvedValue({ authorization_url: 'https://connect.garmin.com/oauth2Confirm' });
   });
 
-  /** The Garmin row once its grant landed, awaiting its first push or not. */
-  function grantedGarmin(awaiting: boolean) {
+  /** The Garmin row once its grant landed, its history at `state`. */
+  function garminAt(state: HistoryState) {
     return {
       ...garminCard('oauth'),
       connected: true,
       connected_backend: 'garmin',
-      oauth_awaiting_activities: awaiting,
+      history: { state, sign_in_target: 'sciotte_garmin', archive_source: null },
     };
   }
+  /** The Garmin row once its grant landed, its history needed or in. */
+  function grantedGarmin(awaiting: boolean) {
+    return garminAt(awaiting ? 'needed' : 'imported');
+  }
+  const line = (state: Exclude<HistoryState, 'not_applicable'>) =>
+    i18n.t(`providers.history.${state}`, { provider: 'Garmin' });
 
   function grantComesBack() {
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=true' });
@@ -271,34 +280,133 @@ describe('ConnectionsScreen — a Garmin grant with nothing pushed yet (carnet#1
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
   });
 
-  it('offers the Garmin login on a row still awaiting activities', async () => {
+  it('says the history is missing, what the sign-in does, and opens the Garmin login', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [grantedGarmin(true)] });
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
-    expect(await screen.findByText('Connected — waiting for activities')).toBeTruthy();
-    expect(screen.queryByText('Connected')).toBeNull();
-    expect(screen.getByLabelText('Import my Garmin history')).toBeTruthy();
-    fireEvent.press(screen.getByText('Import my history'));
+    const history = await screen.findByTestId('provider-history-sciotte_garmin');
+    expect(within(history).getByText(line('needed'))).toBeTruthy();
+    expect(within(history).getByText(i18n.t('providers.history.explainer', { provider: 'Garmin' }))).toBeTruthy();
+    expect(screen.getByText('Connected')).toBeTruthy();
+    const signIn = screen.getByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' }));
+    expect(signIn).toHaveTextContent(i18n.t('providers.history.signIn'));
+    fireEvent.press(signIn);
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
 
-  it('shows an expired Garmin usr/pwd session beside a serving grant and reconnects it through its login', async () => {
-    // The grant still serves the row (`needs_reauth: false`), but the session
-    // the reconnect notice named is expired: the row says so and reconnects
-    // through the usr/pwd login, never the grant's OAuth.
-    getProvidersStatus.mockResolvedValue({
-      providers: [{ ...grantedGarmin(true), session_needs_reauth: true }],
-    });
+  it('asks for the notice the grant card owes before the history sign-in', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{ ...grantedGarmin(true), consent_required: true }] });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' })));
+
+    expect(await screen.findByText('sciotte-modal:garmin:consent')).toBeTruthy();
+  });
+
+  it('offers to try again when the copy did not finish, through the Garmin login', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminAt('incomplete')] });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    const history = await screen.findByTestId('provider-history-sciotte_garmin');
+    expect(within(history).getByText(line('incomplete'))).toBeTruthy();
+    expect(within(history).queryByText(i18n.t('providers.history.explainer', { provider: 'Garmin' }))).toBeNull();
+    fireEvent.press(screen.getByText(i18n.t('providers.history.retry')));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+  });
+
+  it('says the copy is running, quietly, and offers no sign-in', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminAt('importing')] });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    const history = await screen.findByTestId('provider-history-sciotte_garmin');
+    expect(within(history).getByText(line('importing'))).toBeTruthy();
+    expect(screen.queryByText(i18n.t('providers.history.signIn'))).toBeNull();
+    expect(screen.queryByText(i18n.t('providers.history.retry'))).toBeNull();
+  });
+
+  it('confirms the history is in, and asks for nothing', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminAt('imported')] });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    const history = await screen.findByTestId('provider-history-sciotte_garmin');
+    expect(within(history).getByText(line('imported'))).toBeTruthy();
+    expect(screen.queryByText(i18n.t('providers.history.signIn'))).toBeNull();
+    expect(screen.getByText('Disconnect')).toBeTruthy();
+  });
+
+  it('adds nothing to a row whose history is not applicable, or that carries none', async () => {
+    // A row from a server that serves no `history` at all.
+    const noHistory = { ...garminCard('oauth'), connected: true, connected_backend: 'garmin' };
+    getProvidersStatus.mockResolvedValue({ providers: [garminAt('not_applicable')] });
+
+    const first = render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    expect(await screen.findByText('Connected')).toBeTruthy();
+    expect(screen.queryByTestId('provider-history-sciotte_garmin')).toBeNull();
+    expect(screen.queryByText(i18n.t('providers.history.signIn'))).toBeNull();
+    first.unmount();
+
+    getProvidersStatus.mockResolvedValue({ providers: [noHistory] });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    expect(await screen.findByText('Connected')).toBeTruthy();
+    expect(screen.queryByTestId('provider-history-sciotte_garmin')).toBeNull();
+  });
+
+  it('reads the rows again while the copy runs, and stops once it settles', async () => {
+    jest.useFakeTimers();
+    try {
+      getProvidersStatus.mockResolvedValue({ providers: [garminAt('importing')] });
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      await screen.findByTestId('provider-history-sciotte_garmin');
+      const before = getProvidersStatus.mock.calls.length;
+
+      getProvidersStatus.mockResolvedValue({ providers: [garminAt('imported')] });
+      await act(async () => {
+        jest.advanceTimersByTime(HISTORY_IMPORTING_REFRESH_MS);
+      });
+      await waitFor(() => expect(within(screen.getByTestId('provider-history-sciotte_garmin')).getByText(line('imported'))).toBeTruthy());
+      expect(getProvidersStatus.mock.calls.length).toBe(before + 1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(HISTORY_IMPORTING_REFRESH_MS * 2);
+      });
+      expect(getProvidersStatus.mock.calls.length).toBe(before + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the rows on screen when a refresh during the copy fails', async () => {
+    jest.useFakeTimers();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      getProvidersStatus.mockResolvedValue({ providers: [garminAt('importing')] });
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      await screen.findByTestId('provider-history-sciotte_garmin');
+      const before = getProvidersStatus.mock.calls.length;
+
+      getProvidersStatus.mockRejectedValue(new Error('network down'));
+      await act(async () => {
+        jest.advanceTimersByTime(HISTORY_IMPORTING_REFRESH_MS);
+      });
+      await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBe(before + 1));
+      expect(screen.queryByTestId('connections-retry')).toBeNull();
+      expect(within(screen.getByTestId('provider-history-sciotte_garmin')).getByText(line('importing'))).toBeTruthy();
+    } finally {
+      consoleError.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('reconnects a flagged Garmin grant through Garmin OAuth', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{ ...grantedGarmin(false), needs_reauth: true }] });
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     expect(await screen.findByText('Expired')).toBeTruthy();
-    expect(screen.queryByText('Connected — waiting for activities')).toBeNull();
-    expect(screen.queryByText('Import my history')).toBeNull();
     fireEvent.press(screen.getByText('Reconnect'));
 
-    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
-    expect(initMobileOAuth).not.toHaveBeenCalled();
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
   });
 });

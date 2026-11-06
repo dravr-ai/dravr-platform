@@ -322,6 +322,8 @@ mod fortnight_command_test;
 mod garmin_api_e2e_test;
 mod garmin_attribution_reply_test;
 mod garmin_connect_routing_test;
+mod garmin_history_import_settle_test;
+mod garmin_history_import_test;
 mod garmin_normalized_power_reaches_coach_test;
 mod garmin_oauth2_pkce_test;
 mod garmin_provider_test;

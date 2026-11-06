@@ -20,7 +20,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::Utc;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
+use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
@@ -107,6 +107,25 @@ async fn fixture() -> Fixture {
 }
 
 impl Fixture {
+    /// Store a token row for `provider`, as a connect writes it.
+    async fn hold_token(&self, provider: &str) {
+        let token = UserOAuthToken::new(
+            self.user_id,
+            self.tenant.to_string(),
+            provider.to_owned(),
+            format!("{provider}-access"),
+            Some(format!("{provider}-refresh")),
+            Some(Utc::now() + chrono::Duration::hours(6)),
+            None,
+        );
+        self.runtime
+            .repos()
+            .oauth_tokens
+            .upsert_token(&token)
+            .await
+            .unwrap();
+    }
+
     async fn connect(&self, provider: &str) {
         self.runtime
             .repos()
@@ -468,4 +487,81 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
     assert_eq!(chat.len(), 1, "answered in the conversation that asked");
     assert_eq!(chat[0].0, "15145550105");
     assert_eq!(f.app_notices().await.len(), 1);
+}
+
+/// A usr/pwd session beside a grant that serves its provider is flagged when
+/// it dies, but the athlete is never told (carnet#1386): no notice in the app
+/// or on a chat, and a backfill that found it dead answers nothing. The grant
+/// is the ongoing source, so nothing asks them to sign in again. A COROS or
+/// TrainingPeaks session, the provider's only source, is still told.
+#[tokio::test]
+async fn a_session_beside_a_serving_grant_is_flagged_but_never_told() {
+    let f = fixture().await;
+    f.connect("sciotte_garmin").await;
+    f.connect("garmin").await;
+    f.hold_token("garmin").await;
+    f.link_chat("whatsapp", "15145550120").await;
+    let user = f.user_id.to_string();
+    let conversation = seed_conversation(&f.database, &user, f.tenant).await;
+
+    let (mark, notice) = flag_needs_reauth(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        "session_expired",
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(mark, ReauthMark::Flagged, "the flag itself still lands");
+    assert_eq!(
+        f.status("sciotte_garmin").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the session's own flag stands"
+    );
+    assert!(!notice.claimed, "bug: no notice is claimed for it");
+    backfill_session_expired(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        Some(&conversation),
+        Utc::now(),
+    )
+    .await;
+    let direct = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
+    assert!(!direct.claimed, "bug: a direct notice is refused too");
+    assert!(
+        f.chat().is_empty(),
+        "bug: no chat hears of it: {:?}",
+        f.chat()
+    );
+    assert!(
+        f.app_notices().await.is_empty(),
+        "bug: no notification row for it"
+    );
+
+    for only_source in ["sciotte_coros", "sciotte_trainingpeaks"] {
+        f.connect(only_source).await;
+        let (_, notice) = flag_needs_reauth(
+            &f.runtime,
+            f.user_id,
+            f.tenant,
+            only_source,
+            "session_expired",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            notice.claimed,
+            "bug: {only_source} is its provider's only source, so its athlete is told"
+        );
+    }
+    assert_eq!(
+        f.app_notices().await.len(),
+        2,
+        "one notice each for COROS and TrainingPeaks"
+    );
 }

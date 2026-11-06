@@ -23,7 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -32,7 +32,8 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, ConnectionStatus, ConnectionType, TenantId};
+use pierre_config::environment::ProviderEndpointOverride;
+use pierre_core::models::{Activity, ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
@@ -46,7 +47,7 @@ use tokio::net::TcpListener;
 use uuid::Uuid;
 
 use crate::common::{
-    create_test_server_resources, create_test_server_resources_with_sciotte, create_test_user,
+    self, create_test_server_resources, create_test_server_resources_with_sciotte, create_test_user,
 };
 use crate::helpers::sciotte_mock::seed_sciotte_session;
 
@@ -128,7 +129,8 @@ async fn an_active_only_sweep_passes_over_a_connection_nobody_used() {
 
 /// A push-only provider has no list to read: the Garmin API delivers by
 /// pushing, so the sweep passes over its connection (counting it) instead of
-/// attempting a fetch, and the usr/pwd connection beside it is still walked.
+/// attempting a fetch, and the usr/pwd connection beside it (no grant token
+/// stands beside it here) is still walked.
 #[tokio::test]
 async fn a_push_only_connection_is_passed_over_and_counted() {
     let f = fixture_with_connection("garmin").await;
@@ -165,6 +167,25 @@ async fn a_push_only_connection_is_passed_over_and_counted() {
         report.connections.iter().all(|c| c.provider != "garmin"),
         "bug: the sweep must not attempt a push-only provider: {:?}",
         report.connections
+    );
+    // The daily sweep walks only a grant through the token path (carnet#1386):
+    // a connection row with no token behind it holds none to check, so it is
+    // neither walked nor flagged.
+    assert_eq!(report.grants_checked, 0, "{:?}", report.connections);
+    let garmin = f
+        .runtime
+        .repos()
+        .provider_connections
+        .get_for_user(f.user_id, Some(f.tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.provider == "garmin")
+        .expect("the Garmin connection exists");
+    assert_eq!(
+        garmin.status,
+        ConnectionStatus::Active,
+        "bug: a connection with no grant behind it was flagged by the grant check"
     );
     assert!(
         report
@@ -793,5 +814,236 @@ async fn a_capture_missing_its_head_still_rearms_the_connection() {
         cached.is_empty(),
         "the headless capture is served and re-arms, and is still not written through: {:?}",
         ids(&cached)
+    );
+}
+
+/// A Garmin token endpoint that refuses every refresh as Garmin refuses a
+/// dead grant, counting the refreshes it answers.
+async fn refusing_garmin_token_endpoint() -> (String, Arc<AtomicUsize>) {
+    let refreshes = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&refreshes);
+    let app = Router::new().route(
+        "/oauth/token",
+        post(move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "invalid_grant" })),
+                )
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}/oauth/token"), refreshes)
+}
+
+/// Store a Garmin grant for the athlete, its access token expiring at
+/// `expires_at`, and its connection row.
+async fn hold_garmin_grant(f: &Fixture, expires_at: DateTime<Utc>) {
+    let token = UserOAuthToken::new(
+        f.user_id,
+        f.tenant.to_string(),
+        "garmin".to_owned(),
+        "garmin-access".to_owned(),
+        Some("garmin-refresh".to_owned()),
+        Some(expires_at),
+        None,
+    );
+    f.runtime
+        .repos()
+        .oauth_tokens
+        .upsert_token(&token)
+        .await
+        .unwrap();
+}
+
+/// The daily sweep walks every live Garmin grant through the token path
+/// (carnet#1386): a grant whose refresh Garmin refuses is flagged though its
+/// athlete recorded nothing, a grant it honours is left alone, and the
+/// few-hourly sweep of active athletes checks no grant at all.
+#[tokio::test]
+async fn the_daily_sweep_flags_a_garmin_grant_whose_refresh_is_refused() {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let (token_url, refreshes) = refusing_garmin_token_endpoint().await;
+    let mut config = common::test_server_config();
+    common::set_server_app(
+        &mut config,
+        "garmin",
+        "garmin-sweep-client",
+        "garmin-secret",
+    );
+    common::set_provider_endpoints(
+        &mut config,
+        "garmin",
+        ProviderEndpointOverride {
+            token_url: Some(token_url),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .first()
+        .expect("user has a tenant")
+        .id;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let f = Fixture {
+        runtime,
+        user_id,
+        tenant,
+    };
+    hold_garmin_grant(&f, Utc::now() + Duration::hours(12)).await;
+    let status = || async {
+        f.runtime
+            .repos()
+            .provider_connections
+            .get_for_user(f.user_id, Some(f.tenant))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|c| c.provider == "garmin")
+            .expect("the Garmin connection exists")
+            .status
+    };
+
+    let honoured = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(honoured.grants_checked, 1, "{:?}", honoured.connections);
+    assert!(
+        honoured
+            .connections
+            .iter()
+            .any(|line| line.provider == "garmin"
+                && matches!(line.outcome, RefreshOutcome::GrantValid)),
+        "an unexpired grant is honoured: {:?}",
+        honoured.connections
+    );
+    assert_eq!(
+        refreshes.load(Ordering::SeqCst),
+        0,
+        "nothing was due a refresh"
+    );
+    assert_eq!(
+        status().await,
+        ConnectionStatus::Active,
+        "bug: a grant whose token answers stays active"
+    );
+
+    hold_garmin_grant(&f, Utc::now() - Duration::hours(1)).await;
+    let active_only = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection {
+            active_within: Some(Duration::days(7)),
+            skip_fetched_within: Some(Duration::hours(2)),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        active_only.grants_checked, 0,
+        "the few-hourly sweep leaves the grants to the daily one"
+    );
+    assert_eq!(
+        refreshes.load(Ordering::SeqCst),
+        0,
+        "bug: no refresh was due"
+    );
+
+    let refused = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        refreshes.load(Ordering::SeqCst) >= 1,
+        "the due grant's refresh reached Garmin"
+    );
+    assert!(
+        refused
+            .connections
+            .iter()
+            .any(|line| line.provider == "garmin"
+                && matches!(line.outcome, RefreshOutcome::Flagged { .. })),
+        "bug: a grant Garmin refused must be flagged: {:?}",
+        refused.connections
+    );
+    assert_eq!(refused.flagged, 1, "{:?}", refused.connections);
+    assert_eq!(
+        status().await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the refused grant must read Reconnect"
+    );
+}
+
+/// A live usr/pwd session beside a grant that serves its provider serves
+/// nothing (carnet#1386), so the sweep passes over it, counting it, instead of
+/// reading it: for Strava's `sciotte` beside a `strava` grant as for Garmin's.
+/// The session here is Active, so only the beside-grant rule leaves it out.
+#[tokio::test]
+async fn the_sweep_passes_over_a_live_session_beside_a_grant() {
+    let f = fixture_with_connection("sciotte").await;
+    let grant = UserOAuthToken::new(
+        f.user_id,
+        f.tenant.to_string(),
+        "strava".to_owned(),
+        "strava-access".to_owned(),
+        Some("strava-refresh".to_owned()),
+        Some(Utc::now() + Duration::hours(6)),
+        None,
+    );
+    f.runtime
+        .repos()
+        .oauth_tokens
+        .upsert_token(&grant)
+        .await
+        .unwrap();
+
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
+
+    assert!(
+        report.connections.iter().all(|c| c.provider != "sciotte"),
+        "bug: a live session beside a Strava grant was read by the sweep: {:?}",
+        report.connections
+    );
+    assert_eq!(report.attempted, 0, "{:?}", report.connections);
+    assert_eq!(
+        report.passed_over, 1,
+        "bug: the session beside the grant must be counted as passed over"
     );
 }

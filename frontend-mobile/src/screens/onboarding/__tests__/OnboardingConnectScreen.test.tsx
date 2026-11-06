@@ -191,7 +191,15 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     ...overrides,
   });
   const granted = (awaiting: boolean) =>
-    garminRow({ connected: true, connected_backend: 'garmin', oauth_awaiting_activities: awaiting });
+    garminRow({
+      connected: true,
+      connected_backend: 'garmin',
+      history: {
+        state: awaiting ? ('needed' as const) : ('imported' as const),
+        sign_in_target: 'sciotte_garmin',
+        archive_source: null,
+      },
+    });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -236,16 +244,27 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
   });
 
-  it('offers the Garmin login on a row still awaiting activities', async () => {
+  it('offers the Garmin login on a row whose history is needed', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [granted(true)] });
 
     renderScreen();
-    expect(await screen.findByText('Connected — waiting for activities')).toBeTruthy();
-    expect(screen.getByText('Import my history')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Import my Garmin history'));
+    // The spoken name is the visible label; the hint naming the provider explains it.
+    const signIn = await screen.findByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' }));
+    expect(signIn).toHaveTextContent(i18n.t('providers.history.signIn'));
+    expect(signIn.props.accessibilityLabel).toBeUndefined();
+    fireEvent.press(signIn);
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+
+  it('asks for the notice the grant card owes before the history sign-in', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{ ...granted(true), consent_required: true }] });
+
+    renderScreen();
+    fireEvent.press(await screen.findByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' })));
+
+    expect(await screen.findByText('sciotte-modal:garmin:consent')).toBeTruthy();
   });
 });
 

@@ -23,9 +23,11 @@ jest.mock('expo-web-browser', () => ({
 jest.mock('expo-linking', () => ({
   parse: jest.fn(),
 }));
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn() }),
-}));
+jest.mock('expo-router', () =>
+  require('../../../../jest.expo-router').createExpoRouterMock({
+    useRouter: () => ({ push: mockPush, back: jest.fn() }),
+  }),
+);
 jest.mock('../../../utils/oauth', () => ({
   getOAuthCallbackUrl: () => 'dravr://oauth-callback',
 }));
@@ -82,7 +84,6 @@ function provider(
     connected: false,
     needs_reauth: false,
     oauth_awaiting_activities: false,
-    session_needs_reauth: false,
     capabilities: ['activities'],
     consent_required: false,
     own_app_required: false,

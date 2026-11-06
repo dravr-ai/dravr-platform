@@ -246,6 +246,7 @@ impl OAuthService {
             expires_at: expires_at.map(|at| at.to_rfc3339()),
             scopes: token.scope.unwrap_or_else(|| "read".to_owned()),
             mobile_redirect_url,
+            tenant_id: storage_tenant.to_string(),
         })
     }
 

@@ -22,25 +22,21 @@ use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::card_backend;
+use crate::card_history::{card_history, spawn_grant_history_settlement};
 use crate::card_seats::{require_garmin_seat, CardSeats};
+#[cfg(feature = "health-sync")]
+use crate::first_sync::health_sync_backfills;
 use crate::first_sync::spawn_on_demand_first_read;
 #[cfg(feature = "health-sync")]
-use crate::first_sync::{
-    backfill_verdict, health_sync_backfills, spawn_prefetch_landing, BackfillVerdict,
-    CONNECT_RECENT_DAYS,
-};
+use crate::health_backfill::spawn_health_backfill;
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver::{self, OAuthGrant};
-#[cfg(feature = "health-sync")]
-use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_providers::ProviderCapabilities;
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
-#[cfg(feature = "health-sync")]
-use pierre_services::health_sync::wellness_pull_stands_down;
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
@@ -48,8 +44,6 @@ use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{
     ai_consent_state, asks_for_notice, require_notice_accepted,
 };
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_refresh::token_tenant;
 use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
@@ -158,6 +152,12 @@ pub(crate) async fn handle_oauth_callback(
             // session instead (carnet#1155).
             let pushed = backend_resolver::pushed_backend_for(&response.provider)
                 == Some(response.provider.as_str());
+            // The usr/pwd session the grant now stands beside serves nothing:
+            // a live one copies the history once, a dead one is retired at
+            // once (carnet#1386).
+            if pushed {
+                spawn_grant_history_settlement(&resources, &response);
+            }
             #[cfg(feature = "health-sync")]
             if !pushed {
                 spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
@@ -654,11 +654,8 @@ pub(crate) async fn compute_providers_status(
                 &connected_providers,
             )
             .await;
-            let (needs_reauth, session_needs_reauth) = card_backend::reauth_flags(
-                provider_name,
-                connected_backend.as_deref(),
-                &reauth_providers,
-            );
+            let needs_reauth =
+                card_backend::reauth_flag(connected_backend.as_deref(), &reauth_providers);
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {
@@ -675,7 +672,8 @@ pub(crate) async fn compute_providers_status(
 
             let capabilities = capability_names(caps);
 
-            let (recommended_backend, seats_left) = card_seats.recommendation(provider_name);
+            let (recommended_backend, seats_left) =
+                card_seats.recommendation(provider_name, grant.serves());
 
             let (own_app_required, oauth_callback_url) =
                 own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
@@ -692,7 +690,6 @@ pub(crate) async fn compute_providers_status(
                 oauth_awaiting_activities: grant == OAuthGrant::AwaitsActivities,
                 connection_type,
                 needs_reauth,
-                session_needs_reauth,
                 capabilities,
                 recommended_backend,
                 seats_left,
@@ -703,6 +700,7 @@ pub(crate) async fn compute_providers_status(
                 ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),
+                history: card_history(resources, user_id, tenant_id, provider_name, grant).await,
             });
         }
     }
@@ -1086,110 +1084,4 @@ pub(crate) async fn handle_sync_provider(
         "records_synced": result.records_synced,
     }))
     .into_response())
-}
-
-/// Spawn background health data backfill after a provider connects.
-///
-/// Triggers a [`CONNECT_RECENT_DAYS`] backfill via the sync orchestrator so
-/// the user gets recent data immediately after connecting a wearable provider, whether
-/// through OAuth, a pasted API key (intervals.icu) or a scrape login (Garmin,
-/// COROS). `provider` is the name the sync knows it under; a provider the
-/// sync does not manage (Strava's activities, read on demand) has nothing to
-/// backfill. A backfill that fails tells the athlete once, through the
-/// sync-failure notices; one that lands re-arms them.
-///
-/// `after` is the activity pre-fetch a scrape connect started on the same
-/// session: the backfill's first read waits for it, because each read is a
-/// browser on the scraper service and a connect that fires both at once sheds
-/// its own reads (carnet#736). An API connect has none to wait on.
-///
-/// A backfill that lands records is reported to the [`crate::FirstSyncHook`] as the
-/// athlete's data landing (carnet#831); whether it is their first is the
-/// hook's to decide. A provider the sync does not manage lands its data
-/// through the scrape pre-fetch instead, when the connect started one, and
-/// that is reported the same way.
-#[cfg(feature = "health-sync")]
-pub(crate) fn spawn_health_backfill(
-    resources: &AuthRoutesContext,
-    user_id: &str,
-    provider: &str,
-    after: Option<PrefetchWait>,
-) {
-    if !health_sync_backfills(resources, provider) {
-        tracing::debug!(
-            provider,
-            "No health sync for this provider; nothing to backfill"
-        );
-        if let Some(prefetch) = after {
-            spawn_prefetch_landing(resources, user_id, provider, prefetch);
-        }
-        return;
-    }
-    let Some(orchestrator) = resources.sync_orchestrator.clone() else {
-        return;
-    };
-    let user_id = user_id.to_owned();
-    let provider = provider.to_owned();
-    let auth_repos = resources.repos.auth_repos();
-    let repos = Arc::clone(&resources.repos);
-    let notices = resources.sync_failure_notices.clone();
-    let first_sync = Arc::clone(&resources.first_sync);
-    tokio::spawn(async move {
-        if let Some(prefetch) = after {
-            // What the pre-fetch read is the activity readers'; the backfill
-            // only needs the session to itself.
-            drop(prefetch.finished().await);
-        }
-        // Wellness the provider pushes has nothing to pull (carnet#1257).
-        if wellness_pull_stands_down(&repos, &user_id, &provider).await {
-            return;
-        }
-        info!(
-            user_id = %user_id,
-            provider = %provider,
-            days = CONNECT_RECENT_DAYS,
-            "Triggering initial health data backfill after OAuth connection"
-        );
-        let outcome = orchestrator
-            .backfill(&user_id, &provider, CONNECT_RECENT_DAYS)
-            .await;
-        if let Err(e) = &outcome {
-            // `backend` is the connection the sync read: the Garmin grant's
-            // backfill reads the username-and-password session.
-            tracing::error!(
-                error = %e,
-                user_id = %user_id,
-                provider = %provider,
-                backend = %backend_resolver::sync_backend(&provider),
-                "Initial health data backfill failed"
-            );
-        }
-        let verdict = backfill_verdict(outcome.as_ref().map(|landed| {
-            landed
-                .records_created
-                .saturating_add(landed.records_updated)
-        }));
-        // A failure the athlete is not told about (a dead credential, the
-        // shared quota) neither notifies nor re-arms.
-        if verdict == BackfillVerdict::FailedUntold {
-            return;
-        }
-        let Ok(user_uuid) = Uuid::parse_str(&user_id) else {
-            return;
-        };
-        let backend = backend_resolver::sync_backend(&provider);
-        let Some(tenant) = token_tenant(&auth_repos, user_uuid, &backend).await else {
-            return;
-        };
-        if verdict == BackfillVerdict::Failed {
-            notices.sync_failed(user_uuid, tenant, &backend).await;
-            return;
-        }
-        notices.sync_landed(user_uuid, tenant, &backend).await;
-        if verdict == BackfillVerdict::Landed {
-            if let Some(hook) = first_sync.get() {
-                hook.data_landed(user_uuid, tenant, &provider).await;
-            }
-        }
-    });
 }

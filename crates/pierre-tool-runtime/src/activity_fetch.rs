@@ -21,7 +21,7 @@ use pierre_core::civil_time::resolve_zone;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
-use pierre_core::models::{Activity, ConnectionStatus, RefreshConfig, TenantId};
+use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
 use pierre_providers::CoreFitnessProvider;
@@ -40,6 +40,8 @@ use serde_json::{json, Value};
 
 /// A live list read that answers its turn inside the refresh budget
 pub mod budgeted_read;
+/// The athlete's other connections serving a turn its elected one cannot
+mod fallback;
 /// A push-only provider's reads: its cached pushes, never a live read
 pub mod pushed;
 /// The session a cache write lands, and the `per_session` persona digest it sends
@@ -53,7 +55,9 @@ pub mod uploads;
 pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
-use pushed::{pushed_head, pushed_window, reads_pushed_store};
+pub use fallback::{serve_without_primary, FallbackServe};
+pub(crate) use pushed::connection_beside_grant;
+use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
     HeadVerdict, LiveRead,
@@ -191,7 +195,9 @@ async fn fold_other_connections(
             &conn.provider,
         )
         .await;
-        if canonical == primary_backend {
+        if canonical == primary_backend
+            || connection_beside_grant(&context.resources, context.user_id, conn).await
+        {
             continue;
         }
         if let Some(fetched) = fetch_provider_activities(
@@ -206,147 +212,6 @@ async fn fold_other_connections(
             activities.extend(fetched);
         }
     }
-}
-
-/// A window the athlete's other connections served after the elected primary
-/// failed to authenticate, dead or only unreachable just now.
-#[derive(Debug)]
-pub struct FallbackServe {
-    /// The activities those connections produced, every recording of one
-    /// workout merged into a single session.
-    pub activities: Vec<Activity>,
-    /// The groups that merge collapsed and the fields each session gained.
-    pub merge_report: FragmentReport,
-    /// User-facing names of the connections that contributed at least one row,
-    /// so the response names its real sources instead of the dead provider.
-    pub served_by: Vec<String>,
-}
-
-/// Serve the requested window from the athlete's OTHER connections when the
-/// elected primary cannot authenticate.
-///
-/// A multi-source aggregator answers with what it holds: an athlete whose WHOOP
-/// token died, or whose Strava refresh is rate limited, still has years of
-/// history behind a healthy connection, and why the primary is missing belongs
-/// BESIDE that answer rather than instead of it. The caller keeps that signal
-/// (a reconnect prompt, or a "could not be reached" note) and attaches it as a
-/// caveat; only when this returns `None` — no other connection produced a
-/// single row — does the turn become the primary's failure alone.
-///
-/// Health-aware: a sibling already flagged `needs_reauth` is not fetched into the
-/// same failure; its durable cache answers instead, exactly as
-/// [`fetch_provider_activities`] answers the refusal that flagged it — so the
-/// second read of a turn serves the rows the first one did, rather than losing
-/// them to the flag the first read raised. A `revoked` sibling is skipped: the
-/// athlete withdrew that access. Cross-tenant like the peer path, so
-/// a provider connected under the athlete's own tenant answers from a group
-/// conversation. A deep historical window on a scrape-backed mirror reads that
-/// sibling's durable cache rather than scraping inline — the historical branch
-/// exists precisely to keep a multi-year page out of the turn. The union is
-/// merged the same way [`maybe_merge_other_connections`] merges it, so a
-/// watch's misclassified twin of a GPS session collapses into it.
-pub async fn serve_without_primary(
-    context: &ToolExecutionContext,
-    primary_backend: &str,
-    is_historical: bool,
-    params: &ActivityQueryParams,
-) -> Option<FallbackServe> {
-    let tenant = context.tenant_id.map(TenantId::from_uuid);
-    let connections = context
-        .resources
-        .repos()
-        .provider_connections
-        .get_for_user(context.user_id, None)
-        .await
-        .ok()?;
-
-    let mut served: Vec<Activity> = Vec::new();
-    let mut served_by: Vec<String> = Vec::new();
-    // Backends already asked, so two connection rows that resolve to the SAME
-    // backend (an athlete holding both a `strava` row and the `sciotte` mirror
-    // it resolves to) are fetched once instead of returning every session twice.
-    let mut asked: Vec<String> = vec![primary_backend.to_owned()];
-    for conn in &connections {
-        if conn.status == ConnectionStatus::Revoked {
-            continue;
-        }
-        let canonical = backend_resolver::resolve_backend(
-            context.resources.repos(),
-            context.user_id,
-            tenant,
-            &conn.provider,
-        )
-        .await;
-        if asked.contains(&canonical) {
-            continue;
-        }
-        asked.push(canonical.clone());
-        let fetched = if conn.status.requires_reauth() {
-            let Ok(conn_tenant) = TenantId::parse_str(&conn.tenant_id) else {
-                continue;
-            };
-            serve_stale_activities(
-                &context.resources,
-                &canonical,
-                context.user_id,
-                conn_tenant,
-                params,
-            )
-            .await
-        } else if is_historical && backend_resolver::is_mirror_backend(&canonical) {
-            let Ok(conn_tenant) = TenantId::parse_str(&conn.tenant_id) else {
-                continue;
-            };
-            read_cached_window(
-                &context.resources,
-                &canonical,
-                context.user_id,
-                conn_tenant,
-                params,
-            )
-            .await
-        } else {
-            fetch_provider_activities(
-                &context.resources,
-                &conn.provider,
-                context.user_id,
-                &conn.tenant_id,
-                params,
-            )
-            .await
-        };
-        if let Some(rows) = fetched {
-            if !rows.is_empty() {
-                served_by.push(backend_resolver::user_facing_name(&canonical).to_owned());
-                served.extend(rows);
-            }
-        }
-    }
-    let held = uploads::held_user_provided(context).await;
-    for key in held {
-        let rows = uploads::user_provided_window(context, &[key], params).await;
-        if !rows.is_empty() {
-            served_by.push(key.to_owned());
-            served.extend(rows);
-        }
-    }
-
-    if served.is_empty() {
-        return None;
-    }
-    let (served, merge_report) = merge_duplicates(served, &DedupConfig::from_env());
-    warn!(
-        user_id = %context.user_id,
-        primary = %primary_backend,
-        count = served.len(),
-        served_by = %served_by.join(", "),
-        "elected provider could not authenticate; serving the window from the athlete's other connections"
-    );
-    Some(FallbackServe {
-        activities: served,
-        merge_report,
-        served_by,
-    })
 }
 
 /// Record that `provider` just served this athlete's data.
@@ -704,6 +569,10 @@ pub struct HistoricalServe {
 /// names the connection that refused (`reauth_notice::refused_backend`), and a
 /// session already flagged is served from the cache without a read
 /// ([`reauth_retry::flagged_session`]) until a reconnect or a claimed retry.
+///
+/// A usr/pwd session named beside a Garmin grant is read as that grant
+/// (`pushed::serving_slug`, carnet#1386): its flag, cache and verdict are the
+/// grant's, never the session's.
 pub async fn fetch_provider_activities(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -713,6 +582,7 @@ pub async fn fetch_provider_activities(
 ) -> Option<Vec<Activity>> {
     let attempt_started_at = Utc::now();
     let tenant = TenantId::parse_str(tenant_id).ok();
+    let provider_slug = &serving_slug(runtime, provider_slug, user_id, tenant).await;
     if let Some(tenant) = tenant {
         if reauth_retry::flagged_session(runtime, user_id, tenant, provider_slug)
             .await
@@ -782,6 +652,9 @@ pub async fn fetch_provider_activities(
 /// A read the provider answered with a list it did not reject also re-arms a
 /// connection flagged `needs_reauth` ([`rearm_after_live_read`](sync_verdict::rearm_after_live_read)), for every
 /// caller alike: the credential that just served is the one the flag doubted.
+/// A usr/pwd session named beside a Garmin grant is read as that grant
+/// (`pushed::serving_slug`), so it never re-arms the grant or writes under the
+/// session's key.
 ///
 /// # Errors
 ///
@@ -796,6 +669,13 @@ pub async fn fetch_provider_head(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> AppResult<Vec<Activity>> {
+    let provider_slug = &serving_slug(
+        runtime,
+        provider_slug,
+        user_id,
+        TenantId::parse_str(tenant_id).ok(),
+    )
+    .await;
     // The verdict and the write-through see the provider's full answer — the
     // cache is the athlete's — and only what is handed back is filtered for a
     // model (a no-op outside one).
@@ -914,6 +794,7 @@ async fn fetch_and_persist_head(
             WriteThrough {
                 retention_days: activity_cache_retention_days(),
                 read: params,
+                announces_sessions: true,
             },
         )
         .await;
@@ -962,12 +843,7 @@ pub(crate) async fn read_cached_window(
         .and_then(|l| i64::try_from(l).ok())
         .unwrap_or(STALE_FALLBACK_LIMIT);
 
-    match runtime
-        .repos()
-        .activity_cache
-        .get_cached_activities(user_id, &tenant, Some(provider_slug), start, end, limit)
-        .await
-    {
+    match cached_history(runtime, provider_slug, user_id, tenant, (start, end), limit).await {
         // Emptiness is judged on the athlete's rows, so a window that holds
         // only withheld rows still reads as cached and starts no live fetch;
         // what is handed back is filtered for a model (a no-op outside one).
@@ -986,6 +862,42 @@ pub(crate) async fn read_cached_window(
             None
         }
     }
+}
+
+/// Every stored row a read of `provider_slug`'s window serves, newest first,
+/// at most `limit`.
+///
+/// Its own key, and for a push-fed grant the history its usr/pwd session
+/// imported too ([`backend_resolver::history_keys`]), every recording of one
+/// workout merged into one session. A dead Garmin grant keeps serving what
+/// the session stored, as a live one does (carnet#1386).
+pub(super) async fn cached_history(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant: TenantId,
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    limit: i64,
+) -> AppResult<Vec<Activity>> {
+    let cache = &runtime.repos().activity_cache;
+    let keys = backend_resolver::history_keys(provider_slug);
+    if let [key] = keys.as_slice() {
+        return cache
+            .get_cached_activities(user_id, &tenant, Some(key), start, end, limit)
+            .await;
+    }
+    let mut rows = Vec::new();
+    for key in keys {
+        rows.extend(
+            cache
+                .get_cached_activities(user_id, &tenant, Some(key), start, end, limit)
+                .await?,
+        );
+    }
+    let (mut sessions, _) = merge_duplicates(rows, &DedupConfig::from_env());
+    sessions.sort_by_key(|activity| Reverse(activity.start_date()));
+    sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    Ok(sessions)
 }
 
 /// The page of a provider's cached window `params` names: the window read by
@@ -1053,7 +965,8 @@ pub async fn serve_stale_activities(
 /// `after_ts` is a Unix timestamp (seconds) lower bound; `limit_per_provider`
 /// caps how many activities are pulled from each provider. Providers that
 /// fail to authenticate or fetch are skipped (logged at `warn`) rather than
-/// failing the whole call.
+/// failing the whole call, and so is a usr/pwd session beside a grant that
+/// serves its provider (`pushed::connection_beside_grant`).
 pub async fn fetch_recent_activities_all_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -1077,6 +990,11 @@ pub async fn fetch_recent_activities_all_providers(
 
     let mut all = Vec::new();
     for connection in &connections {
+        // A usr/pwd session beside a grant serves nothing: the grant's own
+        // connection reads its window, the session's history included.
+        if connection_beside_grant(runtime, user_id, connection).await {
+            continue;
+        }
         if let Some(activities) =
             fetch_provider_activities(runtime, &connection.provider, user_id, tenant_id, &params)
                 .await

@@ -101,7 +101,7 @@ pub(crate) async fn handle_connect_import_page(
     info!(
         user_id = %user_id,
         channel = %claims.channel,
-        enabled = resources.archive_imports_offered,
+        enabled = resources.archive_imports_offered(),
         locale = strings.locale(),
         "Rendered hosted import page"
     );
@@ -111,7 +111,7 @@ pub(crate) async fn handle_connect_import_page(
             connect_token: token,
             import_token: &import_token,
             channel: &claims.channel,
-            enabled: resources.archive_imports_offered,
+            enabled: resources.archive_imports_offered(),
         },
     ))
     .into_response()

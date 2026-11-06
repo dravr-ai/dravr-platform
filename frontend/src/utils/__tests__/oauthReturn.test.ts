@@ -205,7 +205,7 @@ describe('historyLoginAfterGrant', () => {
       provider: 'sciotte_garmin',
       connected: true,
       connected_backend: 'garmin',
-      oauth_awaiting_activities: awaiting,
+      history: { state: awaiting ? ('needed' as const) : ('imported' as const), sign_in_target: 'sciotte_garmin', archive_source: null },
     }) as ExtendedProviderStatus;
 
   it('leads a Garmin grant with nothing pushed yet to the Garmin card', () => {

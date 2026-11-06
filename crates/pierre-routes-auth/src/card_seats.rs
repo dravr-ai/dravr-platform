@@ -56,18 +56,31 @@ impl CardSeats {
         Self { strava, garmin }
     }
 
-    /// The `recommended_backend` and `seats_left` of `provider_name`'s card.
+    /// The `recommended_backend` and `seats_left` of `provider_name`'s card,
+    /// for an athlete whose own grant serves it when `grant_serves`.
     ///
     /// The Sciotte entries are the user-facing "Strava" and "Garmin" cards:
     /// `oauth` (the card's `hosted_login_target`) while seats remain, else
-    /// `mirror`. Any other card carries neither.
-    pub(crate) fn recommendation(&self, provider_name: &str) -> (Option<String>, Option<u32>) {
+    /// `mirror`. A card the athlete's own grant serves recommends `oauth`
+    /// whatever the pool holds: their reconnect re-signs the seat they hold
+    /// ([`require_garmin_seat`] lets it through), while a usr/pwd session
+    /// signed in beside that grant would serve nothing (carnet#1386). Any
+    /// other card carries neither.
+    pub(crate) fn recommendation(
+        &self,
+        provider_name: &str,
+        grant_serves: bool,
+    ) -> (Option<String>, Option<u32>) {
         let left = match provider_name {
             oauth_providers::SCIOTTE => self.strava,
             oauth_providers::SCIOTTE_GARMIN => self.garmin,
             _ => return (None, None),
         };
-        let backend = if left > 0 { "oauth" } else { "mirror" };
+        let backend = if left > 0 || grant_serves {
+            "oauth"
+        } else {
+            "mirror"
+        };
         (Some(backend.to_owned()), Some(left))
     }
 }
@@ -138,19 +151,36 @@ mod tests {
             garmin: 3,
         };
         assert_eq!(
-            seats.recommendation(oauth_providers::SCIOTTE),
+            seats.recommendation(oauth_providers::SCIOTTE, false),
             (Some("mirror".to_owned()), Some(0)),
             "bug: a full Strava pool recommends the mirror"
         );
         assert_eq!(
-            seats.recommendation(oauth_providers::SCIOTTE_GARMIN),
+            seats.recommendation(oauth_providers::SCIOTTE_GARMIN, false),
             (Some("oauth".to_owned()), Some(3)),
             "bug: a Garmin pool with seats recommends OAuth"
         );
         assert_eq!(
-            seats.recommendation(oauth_providers::WHOOP),
+            seats.recommendation(oauth_providers::WHOOP, false),
             (None, None),
             "bug: an uncapped card carries no recommendation"
         );
+    }
+
+    /// A grant holder reconnects through the OAuth whose seat they hold: a
+    /// usr/pwd session signed in beside their grant serves nothing.
+    #[test]
+    fn a_card_its_own_grant_serves_recommends_oauth_with_the_pool_full() {
+        let seats = CardSeats {
+            strava: 0,
+            garmin: 0,
+        };
+        for card in [oauth_providers::SCIOTTE, oauth_providers::SCIOTTE_GARMIN] {
+            assert_eq!(
+                seats.recommendation(card, true),
+                (Some("oauth".to_owned()), Some(0)),
+                "bug: the {card} card of a grant holder sends a reconnect to the usr/pwd login"
+            );
+        }
     }
 }

@@ -229,6 +229,53 @@ pub(crate) const MARK_ACTIVE_IF_NEEDS_REAUTH_SQL: &str = r"
                AND status = 'needs_reauth'
             ";
 
+/// Re-arm a connection flagged `needs_reauth` for one recorded reason only, so
+/// a remedy that answers that reason never clears a flag raised for another.
+pub(crate) const MARK_ACTIVE_IF_FLAGGED_FOR_SQL: &str = r"
+            UPDATE provider_connections
+               SET status = 'active',
+                   status_changed_at = $1,
+                   last_error = NULL,
+                   notified_at = NULL
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status = 'needs_reauth' AND last_error = $5
+            ";
+
+/// Re-arm a connection as [`MARK_ACTIVE_SQL`] does, except one whose flag
+/// recorded the reason `$5`. `COALESCE` because `SQLite` has no
+/// `IS DISTINCT FROM`, and a NULL `last_error` is no reason at all.
+pub(crate) const MARK_ACTIVE_UNLESS_FLAGGED_FOR_SQL: &str = r"
+            UPDATE provider_connections
+               SET status = 'active',
+                   status_changed_at = $1,
+                   last_error = NULL,
+                   notified_at = NULL
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status != 'active' AND COALESCE(last_error, '') != $5
+            ";
+
+/// The users of tenant `$1` whose own `$2` session (connection or token row)
+/// stands beside a `$3` token row in the same tenant. The token table keys
+/// users by `uuid` on `PostgreSQL` and the connection table by text, so the
+/// join casts the uuid down, never the text up.
+pub(crate) const LIST_SESSIONS_BESIDE_GRANT_SQL: &str = r"
+            SELECT c.user_id AS user_id
+              FROM provider_connections c
+             WHERE c.tenant_id = $1 AND c.provider = $2 AND c.connection_type != $4
+               AND EXISTS (SELECT 1 FROM user_oauth_tokens g
+                            WHERE CAST(g.user_id AS TEXT) = c.user_id
+                              AND g.tenant_id = c.tenant_id
+                              AND g.provider = $3)
+            UNION
+            SELECT CAST(t.user_id AS TEXT) AS user_id
+              FROM user_oauth_tokens t
+             WHERE t.tenant_id = $1 AND t.provider = $2
+               AND EXISTS (SELECT 1 FROM user_oauth_tokens g
+                            WHERE g.user_id = t.user_id
+                              AND g.tenant_id = t.tenant_id
+                              AND g.provider = $3)
+            ";
+
 /// Claim the one-time disconnect notification: only the first caller after
 /// the transition affects a row.
 pub(crate) const CLAIM_REAUTH_NOTIFICATION_SQL: &str = r"
@@ -670,6 +717,44 @@ macro_rules! impl_provider_connection_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn mark_active_if_flagged_for(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                reason: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_ACTIVE_IF_FLAGGED_FOR_SQL)
+                    .bind(Utc::now())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(reason)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn mark_active_unless_flagged_for(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                reason: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_ACTIVE_UNLESS_FLAGGED_FOR_SQL)
+                    .bind(Utc::now())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(reason)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn claim_reauth_notification(
                 &self,
                 user_id: Uuid,
@@ -760,6 +845,29 @@ macro_rules! impl_provider_connection_repository {
                     .fetch_one(self.pool())
                     .await?;
                 Ok(u32::try_from(grants).unwrap_or(u32::MAX))
+            }
+
+            async fn list_sessions_beside_grant(
+                &self,
+                tenant_id: TenantId,
+                mirror: &str,
+                grant: &str,
+            ) -> AppResult<Vec<Uuid>> {
+                let users: Vec<String> = sqlx::query_scalar(LIST_SESSIONS_BESIDE_GRANT_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(mirror)
+                    .bind(grant)
+                    .bind(ConnectionType::Delegated.as_str())
+                    .fetch_all(self.pool())
+                    .await?;
+                users
+                    .iter()
+                    .map(|user| {
+                        Uuid::parse_str(user).map_err(|e| {
+                            AppError::database(format!("session user_id is not a UUID: {e}"))
+                        })
+                    })
+                    .collect()
             }
         }
     };

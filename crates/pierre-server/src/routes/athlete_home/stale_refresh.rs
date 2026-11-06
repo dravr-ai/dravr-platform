@@ -11,7 +11,7 @@ use super::{
     ProviderConnection, RevalidationRegistry, ServerContext, SyncFailure, TenantId, ToolRuntime,
     Utc, Uuid,
 };
-use pierre_providers::backend_resolver::brand_name;
+use pierre_providers::backend_resolver::{brand_name, session_beside_grant};
 use pierre_tool_runtime::reauth_retry::claimed_retry;
 
 /// Whether a last successful fetch is past the bands the chat path refreshes
@@ -51,7 +51,9 @@ pub(super) struct StaleRefreshPlan {
 /// when it is a scrape session ([`retries_flagged_session`]), since one
 /// failed read can be the scraper's and not the session's; a flagged OAuth
 /// grant is dead until the athlete reconnects, and a revoked connection is
-/// theirs to restore.
+/// theirs to restore. A usr/pwd session beside a grant that serves its
+/// provider ([`session_beside_grant`]) is never refreshed: it serves nothing
+/// (carnet#1386), and its flagged retry is refused at the claim.
 pub(super) async fn stale_refresh_plan(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -64,6 +66,17 @@ pub(super) async fn stale_refresh_plan(
     let mut plan = StaleRefreshPlan::default();
     for connection in connections {
         let bucket = match connection.status {
+            ConnectionStatus::Active
+                if session_beside_grant(
+                    resources.repos(),
+                    user_id,
+                    tenant_id,
+                    &connection.provider,
+                )
+                .await =>
+            {
+                continue;
+            }
             ConnectionStatus::Active => &mut plan.active,
             ConnectionStatus::NeedsReauth if retries_flagged_session(&connection.provider) => {
                 &mut plan.flagged

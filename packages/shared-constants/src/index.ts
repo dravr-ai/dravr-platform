@@ -168,6 +168,9 @@ export {
 // catalogue key naming each one)
 export {
   AI_CONSENT_KEYS,
+  HISTORY_ACTION_KEYS,
+  HISTORY_IMPORTING_REFRESH_MS,
+  HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
@@ -176,13 +179,15 @@ export {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   aiConsentCards,
+  cardHistoryState,
+  historyActionKey,
+  historyImporting,
   historyLoginTarget,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
-  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from './providers';
 export type {

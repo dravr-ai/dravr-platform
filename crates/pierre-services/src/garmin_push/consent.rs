@@ -44,13 +44,24 @@ fn grants_include(grants: Option<&[String]>, grant: &str) -> bool {
     grants.is_none_or(|grants| grants.iter().any(|g| g.eq_ignore_ascii_case(grant)))
 }
 
-/// Whether `grants` (as last recorded, `None` read as everything granted)
-/// let the API push the athlete's wellness. When they do not, nothing but
-/// the usr/pwd connection serves that athlete's wellness, so its health pull
-/// runs for them.
-#[cfg(feature = "health-sync")]
-pub(crate) fn shares_wellness(grants: Option<&[String]>) -> bool {
+/// Whether `grants` let the API push the athlete's wellness.
+///
+/// `grants` are as last recorded, `None` read as everything granted. When
+/// they do not, nothing but the usr/pwd connection serves that athlete's
+/// wellness, so its health pull runs for them.
+#[must_use]
+pub fn shares_wellness(grants: Option<&[String]>) -> bool {
     grants_include(grants, GRANT_HEALTH_EXPORT)
+}
+
+/// Whether `grants` let the API push the athlete's activities.
+///
+/// `grants` are as last recorded, `None` read as everything granted. The
+/// grant exists for the activities, so a connection whose athlete withdrew
+/// them is flagged for a reconnect.
+#[must_use]
+pub fn shares_activities(grants: Option<&[String]>) -> bool {
+    grants_include(grants, GRANT_ACTIVITY_EXPORT)
 }
 
 /// Whether a permission notice reporting `now` withdraws `grant`, given the

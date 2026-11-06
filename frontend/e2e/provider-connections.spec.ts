@@ -379,6 +379,62 @@ test.describe('Provider Connections - Disconnect', () => {
   });
 });
 
+test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => {
+  // The Garmin grant's card once its OAuth landed, its one-time history copy
+  // at `state`.
+  const grantAt = (state: string) => ({
+    provider: 'garmin',
+    display_name: 'Garmin',
+    description: 'Activities and health metrics from Garmin devices',
+    requires_oauth: true,
+    connected: true,
+    connected_backend: 'garmin',
+    needs_reauth: false,
+    capabilities: ['activities', 'sleep', 'health'],
+    consent_required: false,
+    oauth_awaiting_activities: false,
+    history: { state, sign_in_target: 'sciotte_garmin', archive_source: null },
+  });
+
+  const lines: Record<string, string> = {
+    needed: "Your past Garmin activities aren't here yet",
+    incomplete: "Your Garmin history didn't finish copying",
+    importing: 'Copying your past Garmin activities',
+    imported: 'Your Garmin history is in',
+  };
+
+  for (const [state, line] of Object.entries(lines)) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`the card reads "${state}" in the ${theme} theme`, async ({ page }, testInfo) => {
+        await setupDashboardMocks(page, { role: 'user' });
+        await page.route('**/api/providers', (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ providers: [grantAt(state)] }),
+          }),
+        );
+        await loginToDashboard(page);
+        await page.goto('/#settings/connections');
+        await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
+
+        const history = page.getByTestId('provider-history-garmin');
+        await expect(history).toContainText(line);
+        await expect(page.getByText(/sciotte/i)).toHaveCount(0);
+        if (state === 'needed') {
+          await expect(page.getByRole('button', { name: 'Sign in to import your history' })).toBeVisible();
+        }
+        if (state === 'incomplete') {
+          await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+        }
+        // Let the theme's transitions land before the picture is taken.
+        await page.waitForTimeout(1500);
+        await page.getByTestId('provider-row-garmin').screenshot({ path: testInfo.outputPath(`garmin-history-${state}-${theme}.png`) });
+      });
+    }
+  }
+});
+
 test.describe('Provider Connections - Error Handling', () => {
   test('handles provider status load failure gracefully', async ({ page }) => {
     await page.route((url) => url.pathname.startsWith('/api/') || url.pathname.startsWith('/oauth/'), async (route) => {

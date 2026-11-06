@@ -324,6 +324,29 @@ impl AuthService {
             .map(|provider| AiGovernedProvider::wrap(provider, registry))
     }
 
+    /// The provider for exactly `backend`, authenticated with its own token
+    /// row: no resolution to the backend that serves the user's reads.
+    ///
+    /// For the one read that must reach a session routing never serves: the
+    /// one-time history import a usr/pwd sign-in beside a Garmin grant runs
+    /// (carnet#1386). [`Self::create_authenticated_provider`] would hand it
+    /// the grant's push window, which holds none of that history.
+    ///
+    /// # Errors
+    /// Returns a boxed `UniversalResponse` error if the backend is unsupported
+    /// or its token is missing or unusable.
+    pub async fn create_session_provider(
+        &self,
+        backend: &str,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let registry = Arc::clone(self.resources.provider_registry());
+        self.authenticate_backend(backend, backend, user_id, tenant_id)
+            .await
+            .map(|provider| AiGovernedProvider::wrap(provider, registry))
+    }
+
     /// The reader of `user_id`'s activities under the user-provided `key`
     /// (an uploaded file's, an imported archive's) in `tenant`
     /// ([`UserProvidedProvider`]). They belong to the tenant they were brought
@@ -368,7 +391,21 @@ impl AuthService {
             requested_provider,
         )
         .await;
-        let provider_name = effective_provider.as_str();
+        self.authenticate_backend(&effective_provider, requested_provider, user_id, tenant_id)
+            .await
+    }
+
+    /// Authenticate the provider for `provider_name`, the backend already
+    /// chosen; `requested_provider` is the name the caller asked for, which
+    /// an unsupported-provider refusal names.
+    async fn authenticate_backend(
+        &self,
+        provider_name: &str,
+        requested_provider: &str,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
 
         // What the athlete brought in (uploaded files, imported archives)
         // answers without a connection or token: the reader is their own rows

@@ -540,6 +540,7 @@ async fn seed_provider_rows(
                 leased_until_ms: 0,
                 attempts: 0,
                 lease_token: Some(Uuid::new_v4().to_string()),
+                history_import: false,
             })
             .await
             .unwrap();

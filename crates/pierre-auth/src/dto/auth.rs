@@ -576,6 +576,42 @@ impl fmt::Debug for OAuthAuthorizationResponse {
     }
 }
 
+/// Where a provider card's history stands (carnet#1386).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryState {
+    /// The grant serves the card, and nothing is held from before it: the
+    /// athlete can sign in once, or import an export, to bring it in.
+    Needed,
+    /// A one-time import of the card's history is running.
+    Importing,
+    /// The last one-time import ended before the history landed (its
+    /// sign-in expired mid-copy), and nothing else brought it in.
+    Incomplete,
+    /// The card holds activities from a history source: what a usr/pwd
+    /// sign-in copied, or an imported export. Rows the grant pushed itself
+    /// start at the day it connected, so they never make the history imported.
+    Imported,
+    /// The card has no history to bring in this way: its ongoing source reads
+    /// history itself, or it is not connected through a grant that does not.
+    NotApplicable,
+}
+
+/// A provider card's history: where it stands and how it can be brought in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoryStatus {
+    /// Where the history stands.
+    pub state: HistoryState,
+    /// The sign-in that copies the history once (the card's usr/pwd login
+    /// backend, e.g. `"sciotte_garmin"`), for a card whose history it can
+    /// bring in; `None` when the state is `not_applicable`.
+    pub sign_in_target: Option<String>,
+    /// The import source this server offers for the provider's own export
+    /// (e.g. `"garmin_archive"`), as `GET /api/imports` lists it; `None` when
+    /// none is offered here.
+    pub archive_source: Option<String>,
+}
+
 /// Connection status for fitness providers
 #[derive(Debug, Serialize)]
 pub struct ConnectionStatus {
@@ -616,12 +652,13 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
-    /// The card is connected through its provider's OAuth grant, whose
-    /// push-fed store has received no activity yet, and no live usr/pwd
-    /// session serves the card beside it (carnet#1302). Garmin's API pushes
-    /// only what the athlete records after connecting, so the history is
-    /// reached through the usr/pwd login: a client offers it from the card,
-    /// and opens it when a Garmin grant it just completed reads `true`.
+    /// The card is connected through its provider's OAuth grant, and no
+    /// activity is held yet under any key its reads serve: its pushes, what a
+    /// usr/pwd session imported, an imported archive (carnet#1302,
+    /// carnet#1386). Garmin's API pushes only what the athlete records after
+    /// connecting, so the history is reached through the usr/pwd login: a
+    /// client offers it from the card, and opens it when a Garmin grant it
+    /// just completed reads `true`.
     pub oauth_awaiting_activities: bool,
     /// How the connection behind a connected card was made, as
     /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
@@ -640,15 +677,6 @@ pub struct ProviderStatus {
     /// refresh failure. Lets the connection screen show "Reconnect needed" instead
     /// of a healthy-looking "Connected" for a session that no longer works.
     pub needs_reauth: bool,
-    /// The card's username-and-password session is flagged for a reconnect
-    /// while another of the card's backends — the provider's OAuth grant —
-    /// serves it. The card still syncs through the grant, so `needs_reauth`
-    /// stays `false` and every "is it syncing" surface reads it healthy, but
-    /// the session it shows beside the grant is expired: a client shows the
-    /// reconnect on the card and starts the username-and-password login, the
-    /// flow the reconnect notice links to. A dead grant beside it is
-    /// `needs_reauth`, which a client shows first.
-    pub session_needs_reauth: bool,
     /// Provider capabilities (e.g., `["activities", "sleep"]`)
     pub capabilities: Vec<String>,
     /// For a user-facing provider with more than one auth backend (Strava and
@@ -706,6 +734,10 @@ pub struct ProviderStatus {
     /// none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegation: Option<ProviderDelegation>,
+    /// Where the card's past workouts stand, and how they can be brought in
+    /// (carnet#1386). Present on every served card; a card with no history
+    /// to bring in reads [`HistoryState::NotApplicable`].
+    pub history: HistoryStatus,
 }
 
 /// A group coach's link to the user's provider, as the provider card shows it.

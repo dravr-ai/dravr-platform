@@ -44,8 +44,11 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_services::health_sync::{wellness_pull_stands_down, PierreSyncStorage};
+use pierre_services::health_sync::{
+    history_import_scope, wellness_pull_stands_down, PierreSyncStorage,
+};
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
+use pierre_services::provider_revocation::retire_history_session;
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -836,7 +839,7 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     an_instance_that_never_saw_the_import_is_imported_once_more(day).await;
 }
 
-// ── carnet#1257: a live usr/pwd session serves Garmin wellness beside a push grant ──
+// ── carnet#1386: a push grant feeds Garmin wellness, whatever usr/pwd session stands beside it ──
 
 /// A Garmin API grant whose connection pushes the athlete's wellness, as the
 /// OAuth callback and Garmin's permission report leave it.
@@ -902,11 +905,11 @@ async fn any_reconnect(repos: &RepositoryRegistry, user_id: Uuid, tenant: Tenant
 }
 
 /// The dev athlete of 2026-11-02: a Garmin API grant pushing wellness and a
-/// live usr/pwd session beside it. The session serves Garmin's reads
-/// (carnet#1302), so it serves the wellness pull too: the athlete stays on the
-/// roster, the sync reads the session, and the night lands as `garmin`.
+/// live usr/pwd session beside it. The grant is Garmin's one ongoing source
+/// (carnet#1386), so the pushes feed the wellness: the athlete leaves the
+/// roster, a refresh stands down quietly, and the live session is never read.
 #[tokio::test]
-async fn a_live_garmin_session_beside_a_push_grant_pulls_the_wellness_through_the_session() {
+async fn a_live_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pushes() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
@@ -917,51 +920,20 @@ async fn a_live_garmin_session_beside_a_push_grant_pulls_the_wellness_through_th
 
     let roster = storage.list_connected_users("garmin").await.unwrap();
     assert!(
-        roster.iter().any(|u| u.user_id == user_id.to_string()),
-        "bug: the live session serves Garmin, so the athlete stays on the roster: {roster:?}"
-    );
-    let credentials = storage
-        .get_credentials(&user_id.to_string(), "garmin")
-        .await
-        .unwrap()
-        .expect("bug: the live usr/pwd session serves the Garmin wellness pull");
-    assert_eq!(
-        credentials.provider, "sciotte_garmin",
-        "bug: the pull reads the usr/pwd session's row"
+        !roster.iter().any(|u| u.user_id == user_id.to_string()),
+        "bug: the grant serves Garmin, so the pushes feed the athlete's days: {roster:?}"
     );
     assert!(
-        !wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
-        "bug: a live session serves Garmin, so the pull does not stand down"
-    );
-
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
-    let result = orchestrator
-        .sync_user(&user_id.to_string(), "garmin")
-        .await
-        .expect("bug: the pull must not end as expired credentials");
-    assert_eq!(
-        result.status,
-        SyncStatus::Completed,
-        "bug: the session pull completes"
+        storage
+            .get_credentials(&user_id.to_string(), "garmin")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a session beside the grant serves no wellness pull"
     );
     assert!(
-        !fake.asked.lock().unwrap().is_empty(),
-        "the session was read"
-    );
-    let (start, end) = window();
-    let nights = repos
-        .sleep
-        .get_sleep_sessions(user_id, &tenant, start, end)
-        .await
-        .unwrap();
-    assert_eq!(
-        nights.len(),
-        1,
-        "bug: the night read from the session lands"
-    );
-    assert_eq!(
-        nights[0].source_name, "garmin",
-        "bug: a night is stamped with the provider, whichever backend fed it"
+        wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
+        "bug: the pull stands down for the pushes, whatever session is live"
     );
 
     let refreshed = refresh_service(&repos, &storage, &reader)
@@ -969,11 +941,19 @@ async fn a_live_garmin_session_beside_a_push_grant_pulls_the_wellness_through_th
         .await;
     assert!(
         refreshed.success,
-        "bug: the refresh through the live session succeeds: {refreshed:?}"
+        "bug: standing down for the pushes is not a failure: {refreshed:?}"
+    );
+    assert_eq!(
+        refreshed.records_synced, 0,
+        "bug: standing down pulls nothing"
+    );
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: the session beside the grant is never read"
     );
     assert!(
         !any_reconnect(&repos, user_id, tenant).await,
-        "bug: a pull that succeeded flags no reconnect"
+        "bug: standing down for the pushes flags no reconnect"
     );
 }
 
@@ -1067,5 +1047,158 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
     assert!(
         fake.asked.lock().unwrap().is_empty(),
         "bug: standing down never reads the dead session"
+    );
+}
+
+// ── carnet#1386 phase 2: the one-time history import reads the session once ──
+
+/// The one sync that reads a session beside a push grant is its history
+/// import: within `history_import_scope` the session's nights land under
+/// `garmin`, and once the session is retired they stay while the roster, the
+/// credentials and the pull have nothing of that session left to read.
+#[tokio::test]
+async fn the_history_import_reads_the_session_beside_a_push_grant_once_and_its_nights_survive() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant).await;
+    connect_garmin_push(&repos, user_id, tenant).await;
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+
+    let today = Utc::now().date_naive();
+    let outside = orchestrator
+        .backfill_between(
+            &user_id.to_string(),
+            "garmin",
+            today - Duration::days(30),
+            today,
+        )
+        .await;
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: outside its import the session beside the grant is never read: {outside:?}"
+    );
+
+    // A grant whose pushes began before the night the session holds: the
+    // push owns that day, and a whole-day write would blank what only it
+    // carries, so the import writes nothing over it even when the read
+    // reaches past the grant's first day.
+    let pushed_long_ago = today - Duration::days(30);
+    let over_the_push = history_import_scope(
+        user_id,
+        pushed_long_ago,
+        orchestrator.backfill_between(&user_id.to_string(), "garmin", pushed_long_ago, today),
+    )
+    .await
+    .unwrap();
+    let (start, end) = window();
+    assert!(
+        repos
+            .sleep
+            .get_sleep_sessions(user_id, &tenant, start, end)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the import never writes a day the push holds: {over_the_push:?}"
+    );
+
+    // The grant was made today: yesterday's night came before it.
+    let imported = history_import_scope(
+        user_id,
+        today,
+        orchestrator.backfill_between(
+            &user_id.to_string(),
+            "garmin",
+            today - Duration::days(30),
+            yesterday(),
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(
+        imported.records_created > 0,
+        "bug: the import copies the session's nights: {imported:?}"
+    );
+    assert!(
+        !fake.asked.lock().unwrap().is_empty(),
+        "bug: the import reads the session"
+    );
+
+    retire_history_session(&repos, None, user_id, tenant, "sciotte_garmin")
+        .await
+        .unwrap();
+
+    let nights = repos
+        .sleep
+        .get_sleep_sessions(user_id, &tenant, start, end)
+        .await
+        .unwrap();
+    assert_eq!(nights.len(), 1, "bug: the copied night survives retirement");
+    assert_eq!(
+        nights[0].source_name, "garmin",
+        "bug: the copied night is filed under the provider's name"
+    );
+    let mornings = repos
+        .recovery
+        .get_recovery_metrics(user_id, &tenant, start, end)
+        .await
+        .unwrap();
+    assert_eq!(
+        mornings.len(),
+        1,
+        "bug: the copied morning survives retirement"
+    );
+
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant, "sciotte_garmin")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: retirement deletes the session's token row"
+    );
+    assert!(
+        !repos
+            .provider_connections
+            .get_for_user(user_id, Some(tenant))
+            .await
+            .unwrap()
+            .iter()
+            .any(|c| c.provider == "sciotte_garmin"),
+        "bug: retirement removes the session's connection row"
+    );
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant, "garmin")
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: retirement never touches the grant"
+    );
+    let asked_before = fake.asked.lock().unwrap().len();
+    let roster = storage.list_connected_users("garmin").await.unwrap();
+    assert!(
+        !roster.iter().any(|u| u.user_id == user_id.to_string()),
+        "bug: after retirement the sync enumerates nothing for the session: {roster:?}"
+    );
+    assert!(
+        history_import_scope(
+            user_id,
+            Utc::now().date_naive(),
+            storage.get_credentials(&user_id.to_string(), "garmin")
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "bug: a retired session hands out no credentials, even to an import"
+    );
+    assert_eq!(
+        fake.asked.lock().unwrap().len(),
+        asked_before,
+        "bug: the retired session is never read again"
     );
 }

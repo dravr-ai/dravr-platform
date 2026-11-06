@@ -21,6 +21,13 @@
 //! only calls are the one-shot activity-file download a push offers and,
 //! through the disconnect chokepoint, nothing at all (a deregistered athlete
 //! has no grant left to revoke).
+//!
+//! The grant is Garmin's one ongoing source (carnet#1386), so the worker is
+//! also where it is found dead: a download whose token path hands back no
+//! token (a refresh Garmin refused, nothing left to refresh with), and a
+//! permission change withdrawing what the grant exists for, flag the `garmin`
+//! connection ([`flag_needs_reauth`]), which the card reads as "Reconnect"
+//! and the athlete is told once.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,11 +37,13 @@ use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::http_client::{api_client, SharedHttpError};
+use pierre_core::models::PERMISSION_WITHDRAWN;
 use pierre_database::repositories::{
     GarminPushInboxRepository, GarminPushInboxRow, InboxClaim, JobLease, PushedDataRepository,
 };
 use pierre_providers::http_client::read_capped;
 use pierre_providers::request_budget::GARMIN_ACTIVITY_FILES;
+use pierre_services::garmin_push::shares_activities;
 use pierre_services::garmin_push::{
     ingest_batch, parse_envelope, ActivityFile, BatchOutcome, GarminOwner, GarminPushHost, Retry,
     SummaryType,
@@ -42,6 +51,7 @@ use pierre_services::garmin_push::{
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::periodic::spawn_periodic;
 use pierre_services::provider_revocation::{clear_backend, DisconnectReason};
+use pierre_tool_runtime::protocol::reauth_notice::flag_needs_reauth;
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use reqwest::{StatusCode, Url};
@@ -310,12 +320,112 @@ fn file_error(what: &str, e: impl Into<SharedHttpError>) -> AppError {
     )
 }
 
+/// The reason recorded on a Garmin connection the worker found dead.
+const GRANT_REFUSED: &str = "grant_refused";
+
+/// Flag `owner`'s Garmin connection, found dead by an attempt that began at
+/// `attempt_started_at`, for `reason`. The flag's notice claim keeps it to
+/// one notice per transition however many paths saw the same dead grant; a
+/// flag that cannot be written is logged and the caller's outcome stands.
+async fn flag_garmin(
+    runtime: &Arc<dyn ToolRuntime>,
+    owner: GarminOwner,
+    reason: &str,
+    attempt_started_at: DateTime<Utc>,
+) {
+    if let Err(e) = flag_needs_reauth(
+        runtime,
+        owner.user_id,
+        owner.tenant_id,
+        GARMIN,
+        reason,
+        attempt_started_at,
+    )
+    .await
+    {
+        warn!(
+            user_id = %owner.user_id,
+            reason,
+            error = %e,
+            "Garmin grant found dead, but its connection could not be flagged"
+        );
+    }
+}
+
 /// The server side of the ingest.
 struct ServerHost {
     resources: Arc<ServerContext>,
 }
 
 impl ServerHost {
+    /// Flag `owner`'s Garmin connection when the permissions Garmin last
+    /// reported leave out the activity export: the grant then delivers no
+    /// activity, so the card asks for a reconnect, which grants it again. A
+    /// later report that grants the export again re-arms a connection this
+    /// flagged, and only that flag: a refused grant stays flagged. A grant
+    /// whose permissions cannot be read is left as it is.
+    async fn flag_if_activities_withdrawn(&self, owner: GarminOwner) {
+        let attempt_started_at = Utc::now();
+        let grants = match self
+            .resources
+            .common
+            .repos
+            .provider_connections
+            .provider_grants(owner.user_id, owner.tenant_id, GARMIN)
+            .await
+        {
+            Ok(grants) => grants,
+            Err(e) => {
+                warn!(
+                    user_id = %owner.user_id,
+                    error = %e,
+                    "Garmin permission change: the recorded permissions could not be read"
+                );
+                return;
+            }
+        };
+        if shares_activities(grants.as_deref()) {
+            self.rearm_if_activities_restored(owner).await;
+            return;
+        }
+        let resources: Arc<ServerContext> = Arc::clone(&self.resources);
+        let runtime: Arc<dyn ToolRuntime> = resources;
+        // A connection already flagged keeps the reason it was flagged for:
+        // that flag is a dead token, the stronger state, and a reconnect
+        // answers both. A later refresh that proves the token alive may then
+        // clear it with the withdrawal unrecorded.
+        flag_garmin(&runtime, owner, PERMISSION_WITHDRAWN, attempt_started_at).await;
+    }
+
+    /// Re-arm `owner`'s Garmin connection when its flag was the activity
+    /// permission the athlete has now granted again ([`PERMISSION_WITHDRAWN`]).
+    async fn rearm_if_activities_restored(&self, owner: GarminOwner) {
+        match self
+            .resources
+            .common
+            .repos
+            .provider_connections
+            .mark_active_if_flagged_for(
+                owner.user_id,
+                owner.tenant_id,
+                GARMIN,
+                PERMISSION_WITHDRAWN,
+            )
+            .await
+        {
+            Ok(true) => info!(
+                user_id = %owner.user_id,
+                "Garmin permission change: the activity export is granted again; connection re-armed"
+            ),
+            Ok(false) => {}
+            Err(e) => warn!(
+                user_id = %owner.user_id,
+                error = %e,
+                "Garmin permission change: the restored connection could not be re-armed"
+            ),
+        }
+    }
+
     /// The callback URL, when it points at the Garmin API this server is
     /// configured for: the owner's bearer token is sent to it, so a URL a
     /// push names on any other origin is refused.
@@ -397,16 +507,22 @@ impl GarminPushHost for ServerHost {
         let resources: Arc<ServerContext> = Arc::clone(&self.resources);
         let runtime: Arc<dyn ToolRuntime> = resources;
         let tenant = owner.tenant_id.to_string();
-        let token = AuthService::new(runtime)
+        let attempt_started_at = Utc::now();
+        // A token path that hands back no token is a grant nothing can renew:
+        // flagged, and the error still returned so the batch retries. A
+        // failure that is not that verdict (a store hiccup, a refresh that
+        // failed without a refusal) flags nothing.
+        let Some(token) = AuthService::new(Arc::clone(&runtime))
             .get_valid_token(owner.user_id, GARMIN, Some(&tenant))
             .await
             .map_err(|e| AppError::new(ErrorCode::ExternalAuthFailed, e.to_string()))?
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::ExternalAuthFailed,
-                    "no Garmin token to fetch the activity file with",
-                )
-            })?;
+        else {
+            flag_garmin(&runtime, owner, GRANT_REFUSED, attempt_started_at).await;
+            return Err(AppError::new(
+                ErrorCode::ExternalAuthFailed,
+                "no Garmin token to fetch the activity file with",
+            ));
+        };
         let response = api_client()
             .get(url)
             .bearer_auth(token.access_token.expose_secret())
@@ -428,10 +544,11 @@ impl GarminPushHost for ServerHost {
     }
 
     async fn landed(&self, owner: GarminOwner, kind: SummaryType, stored: usize) {
-        if matches!(
-            kind,
-            SummaryType::Deregistrations | SummaryType::UserPermissionsChange
-        ) {
+        if kind == SummaryType::UserPermissionsChange {
+            self.flag_if_activities_withdrawn(owner).await;
+            return;
+        }
+        if kind == SummaryType::Deregistrations {
             return;
         }
         let tenant = owner.tenant_id.to_string();

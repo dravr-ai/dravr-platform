@@ -139,6 +139,14 @@ pub(crate) const HELD_USER_PROVIDED_SQL: &str = r"
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive')";
 
+/// How many cached activities the user holds under each key in a tenant.
+pub(crate) const COUNT_BY_PROVIDER_SQL: &str = r"
+    SELECT provider, COUNT(*) AS n
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2
+    GROUP BY provider
+    ORDER BY provider";
+
 /// Delete one cached activity, by the table's uniqueness key.
 pub(crate) const DELETE_CACHED_ACTIVITY_SQL: &str = r"
     DELETE FROM cached_activities
