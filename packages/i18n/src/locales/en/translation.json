@@ -3752,7 +3752,13 @@
         "strava": "Strava",
         "stravaHint": "Your full activity history from Strava's data export",
         "garmin": "Garmin Connect",
-        "garminHint": "Your activities and daily wellness from Garmin's data export"
+        "garminHint": "Your activities and daily wellness from Garmin's data export",
+        "apple": "Apple Health",
+        "appleHint": "Your workouts, sleep and recovery from an Apple Health export",
+        "coros": "COROS",
+        "corosHint": "Your activities from a COROS data export",
+        "whoop": "WHOOP",
+        "whoopHint": "Your workouts, sleep and resting heart rate from a WHOOP data export"
       },
       "state": {
         "awaitingLink": "Waiting for Strava's email · Paste the link",
@@ -3852,6 +3858,67 @@
         },
         "failure": {
           "not_an_export": "That file isn't a Garmin export."
+        }
+      },
+      "apple": {
+        "intro": "History you import from your own Apple Health export is yours and stays in Dravr.",
+        "step1Title": "Step 1 of 3 · Export from the Health app",
+        "step1Body": "On your iPhone, open the Health app, tap your picture, then choose Export All Health Data. Saving the file can take several minutes. Keep it in Files, or send it to the device you are using now.",
+        "step2Title": "Step 2 of 3 · Choose the export file",
+        "pick": "Choose the export file",
+        "pickHint": "It is the ZIP file the Health app saved, usually named export.zip. A large export can take a while, and you can pick up where it stopped.",
+        "resume": "Choose the same file to continue",
+        "resumeHint": "Your upload stopped before it finished. Choose the same file and it continues where it left off.",
+        "uploading": "Uploading your export · {{percent}}%",
+        "keepOpen": "Keep this screen open until the upload finishes.",
+        "stalled": "The upload stopped making progress. Check your connection and choose the file again.",
+        "gone": "This upload can no longer continue. Cancel it and start again.",
+        "progressStarting": "Reading your Apple Health export…",
+        "inProgress": "An import from Apple Health is already running.",
+        "awaitingUpload": "Waiting for your file · Choose your export",
+        "failure": {
+          "not_an_export": "That file isn't an Apple Health export."
+        }
+      },
+      "coros": {
+        "intro": "History you import from your own COROS export is yours and stays in Dravr.",
+        "step1Title": "Step 1 of 3 · Request your export from COROS",
+        "step1Body": "Ask COROS for an export of your data. COROS emails you a link when it is ready: download the ZIP file to this device.",
+        "step2Title": "Step 2 of 3 · Choose the export file",
+        "pick": "Choose the export file",
+        "pickHint": "It is the ZIP file you downloaded from COROS's email. A large export can take a while, and you can pick up where it stopped.",
+        "resume": "Choose the same file to continue",
+        "resumeHint": "Your upload stopped before it finished. Choose the same file and it continues where it left off.",
+        "uploading": "Uploading your export · {{percent}}%",
+        "keepOpen": "Keep this screen open until the upload finishes.",
+        "stalled": "The upload stopped making progress. Check your connection and choose the file again.",
+        "gone": "This upload can no longer continue. Cancel it and start again.",
+        "progressStarting": "Reading your COROS export…",
+        "inProgress": "An import from COROS is already running.",
+        "awaitingUpload": "Waiting for your file · Choose your export",
+        "failure": {
+          "not_an_export": "That file isn't a COROS export."
+        }
+      },
+      "whoop": {
+        "intro": "History you import from your own WHOOP export is yours and stays in Dravr.",
+        "step1Title": "Step 1 of 3 · Request your export from WHOOP",
+        "step1Body": "In the WHOOP app, request an export of your data. When it is ready, download the ZIP file to this device.",
+        "step2Title": "Step 2 of 3 · Choose the export file",
+        "pick": "Choose the export file",
+        "pickHint": "It is the ZIP file you downloaded from WHOOP. A large export can take a while, and you can pick up where it stopped.",
+        "resume": "Choose the same file to continue",
+        "resumeHint": "Your upload stopped before it finished. Choose the same file and it continues where it left off.",
+        "uploading": "Uploading your export · {{percent}}%",
+        "keepOpen": "Keep this screen open until the upload finishes.",
+        "stalled": "The upload stopped making progress. Check your connection and choose the file again.",
+        "gone": "This upload can no longer continue. Cancel it and start again.",
+        "progressStarting": "Reading your WHOOP export…",
+        "inProgress": "An import from WHOOP is already running.",
+        "awaitingUpload": "Waiting for your file · Choose your export",
+        "failure": {
+          "not_an_export": "That file isn't a WHOOP export.",
+          "unknown_columns": "Dravr can't read this WHOOP export yet. It reads WHOOP's data export in English: set WHOOP to English, then request a new export."
         }
       }
     }

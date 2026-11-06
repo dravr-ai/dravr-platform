@@ -3752,7 +3752,13 @@
         "strava": "Strava",
         "stravaHint": "Dein gesamter Aktivitätsverlauf aus dem Datenexport von Strava",
         "garmin": "Garmin Connect",
-        "garminHint": "Deine Aktivitäten und dein tägliches Wohlbefinden aus dem Datenexport von Garmin"
+        "garminHint": "Deine Aktivitäten und dein tägliches Wohlbefinden aus dem Datenexport von Garmin",
+        "apple": "Apple Health",
+        "appleHint": "Deine Workouts, dein Schlaf und deine Erholung aus einem Apple-Health-Export",
+        "coros": "COROS",
+        "corosHint": "Deine Aktivitäten aus einem COROS-Datenexport",
+        "whoop": "WHOOP",
+        "whoopHint": "Deine Workouts, dein Schlaf und dein Ruhepuls aus einem WHOOP-Datenexport"
       },
       "state": {
         "awaitingLink": "Warte auf die E-Mail von Strava · Link einfügen",
@@ -3852,6 +3858,67 @@
         },
         "failure": {
           "not_an_export": "Diese Datei ist kein Garmin-Export."
+        }
+      },
+      "apple": {
+        "intro": "Der Verlauf, den du aus deinem eigenen Apple-Health-Export importierst, gehört dir und bleibt in Dravr.",
+        "step1Title": "Schritt 1 von 3 · Exportiere aus der Health-App",
+        "step1Body": "Öffne auf deinem iPhone die Health-App, tippe auf dein Bild und wähle Alle Gesundheitsdaten exportieren. Das Speichern der Datei kann mehrere Minuten dauern. Bewahre sie in Dateien auf oder sende sie an das Gerät, das du gerade benutzt.",
+        "step2Title": "Schritt 2 von 3 · Wähle die Exportdatei",
+        "pick": "Exportdatei wählen",
+        "pickHint": "Das ist die ZIP-Datei, die die Health-App gespeichert hat. Ein großer Export kann dauern, und du kannst dort weitermachen, wo er angehalten hat.",
+        "resume": "Dieselbe Datei wählen, um fortzufahren",
+        "resumeHint": "Dein Upload wurde vor dem Ende unterbrochen. Wähle dieselbe Datei und er läuft dort weiter, wo er aufgehört hat.",
+        "uploading": "Dein Export wird hochgeladen · {{percent}} %",
+        "keepOpen": "Lass diesen Bildschirm geöffnet, bis der Upload fertig ist.",
+        "stalled": "Der Upload kommt nicht mehr voran. Prüfe deine Verbindung und wähle die Datei erneut.",
+        "gone": "Dieser Upload kann nicht mehr fortgesetzt werden. Brich ihn ab und beginne neu.",
+        "progressStarting": "Dein Apple-Health-Export wird gelesen…",
+        "inProgress": "Ein Import von Apple Health läuft bereits.",
+        "awaitingUpload": "Warte auf deine Datei · Export wählen",
+        "failure": {
+          "not_an_export": "Diese Datei ist kein Apple-Health-Export."
+        }
+      },
+      "coros": {
+        "intro": "Der Verlauf, den du aus deinem eigenen COROS-Export importierst, gehört dir und bleibt in Dravr.",
+        "step1Title": "Schritt 1 von 3 · Fordere deinen Export bei COROS an",
+        "step1Body": "Bitte COROS um einen Export deiner Daten. COROS schickt dir per E-Mail einen Link, sobald er fertig ist: Lade die ZIP-Datei auf dieses Gerät herunter.",
+        "step2Title": "Schritt 2 von 3 · Wähle die Exportdatei",
+        "pick": "Exportdatei wählen",
+        "pickHint": "Das ist die ZIP-Datei, die du über die E-Mail von COROS heruntergeladen hast. Ein großer Export kann dauern, und du kannst dort weitermachen, wo er angehalten hat.",
+        "resume": "Dieselbe Datei wählen, um fortzufahren",
+        "resumeHint": "Dein Upload wurde vor dem Ende unterbrochen. Wähle dieselbe Datei und er läuft dort weiter, wo er aufgehört hat.",
+        "uploading": "Dein Export wird hochgeladen · {{percent}} %",
+        "keepOpen": "Lass diesen Bildschirm geöffnet, bis der Upload fertig ist.",
+        "stalled": "Der Upload kommt nicht mehr voran. Prüfe deine Verbindung und wähle die Datei erneut.",
+        "gone": "Dieser Upload kann nicht mehr fortgesetzt werden. Brich ihn ab und beginne neu.",
+        "progressStarting": "Dein COROS-Export wird gelesen…",
+        "inProgress": "Ein Import von COROS läuft bereits.",
+        "awaitingUpload": "Warte auf deine Datei · Export wählen",
+        "failure": {
+          "not_an_export": "Diese Datei ist kein COROS-Export."
+        }
+      },
+      "whoop": {
+        "intro": "Der Verlauf, den du aus deinem eigenen WHOOP-Export importierst, gehört dir und bleibt in Dravr.",
+        "step1Title": "Schritt 1 von 3 · Fordere deinen Export bei WHOOP an",
+        "step1Body": "Fordere in der WHOOP-App einen Export deiner Daten an. Sobald er fertig ist, lade die ZIP-Datei auf dieses Gerät herunter.",
+        "step2Title": "Schritt 2 von 3 · Wähle die Exportdatei",
+        "pick": "Exportdatei wählen",
+        "pickHint": "Das ist die ZIP-Datei, die du von WHOOP heruntergeladen hast. Ein großer Export kann dauern, und du kannst dort weitermachen, wo er angehalten hat.",
+        "resume": "Dieselbe Datei wählen, um fortzufahren",
+        "resumeHint": "Dein Upload wurde vor dem Ende unterbrochen. Wähle dieselbe Datei und er läuft dort weiter, wo er aufgehört hat.",
+        "uploading": "Dein Export wird hochgeladen · {{percent}} %",
+        "keepOpen": "Lass diesen Bildschirm geöffnet, bis der Upload fertig ist.",
+        "stalled": "Der Upload kommt nicht mehr voran. Prüfe deine Verbindung und wähle die Datei erneut.",
+        "gone": "Dieser Upload kann nicht mehr fortgesetzt werden. Brich ihn ab und beginne neu.",
+        "progressStarting": "Dein WHOOP-Export wird gelesen…",
+        "inProgress": "Ein Import von WHOOP läuft bereits.",
+        "awaitingUpload": "Warte auf deine Datei · Export wählen",
+        "failure": {
+          "not_an_export": "Diese Datei ist kein WHOOP-Export.",
+          "unknown_columns": "Dravr kann diesen WHOOP-Export noch nicht lesen. Dravr liest den WHOOP-Datenexport auf Englisch: Stelle WHOOP auf Englisch um und fordere einen neuen Export an."
         }
       }
     }
