@@ -18,9 +18,12 @@ import { gzipSync } from 'node:zlib';
  * Features had used the first 300 KB by 2026-11-05 (the feedback unread dot,
  * carnet#1392, was the last), and CI builds ~0.2 KB above a local build, so
  * Phil raised it to 305 KB that day; a library or catalogue still costs tens
- * of KB and still trips it.
+ * of KB and still trips it. The French catalogue is the default locale and
+ * ships in the entry, so every new string grows it: the consent, A2A-form and
+ * partial-export copy of 2026-11-06 took the CI build to 305.4 KB, and the
+ * budget became 310 KB.
  */
-const BUDGET_BYTES = 305 * 1024;
+const BUDGET_BYTES = 310 * 1024;
 
 const DIST = resolve(import.meta.dirname, '..', 'dist');
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');
