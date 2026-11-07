@@ -276,6 +276,39 @@ pub(crate) const LIST_SESSIONS_BESIDE_GRANT_SQL: &str = r"
                               AND g.provider = $3)
             ";
 
+/// The users of tenant `$1` whose own `$2` session (connection or token row)
+/// stands with no `$3` token row beside it in the same tenant: the athletes
+/// still served by usr/pwd alone. `$4` is the delegated connection type,
+/// which is someone else's account. The casts follow
+/// [`LIST_SESSIONS_BESIDE_GRANT_SQL`].
+pub(crate) const LIST_MIRROR_ONLY_USERS_SQL: &str = r"
+            SELECT c.user_id AS user_id
+              FROM provider_connections c
+             WHERE c.tenant_id = $1 AND c.provider = $2 AND c.connection_type != $4
+               AND NOT EXISTS (SELECT 1 FROM user_oauth_tokens g
+                                WHERE CAST(g.user_id AS TEXT) = c.user_id
+                                  AND g.tenant_id = c.tenant_id
+                                  AND g.provider = $3)
+            UNION
+            SELECT CAST(t.user_id AS TEXT) AS user_id
+              FROM user_oauth_tokens t
+             WHERE t.tenant_id = $1 AND t.provider = $2
+               AND NOT EXISTS (SELECT 1 FROM user_oauth_tokens g
+                                WHERE g.user_id = t.user_id
+                                  AND g.tenant_id = t.tenant_id
+                                  AND g.provider = $3)
+            ";
+
+/// The users of tenant `$1` whose own `$2` connection is `active`: the
+/// grants still in use there. `$3` is the delegated connection type, which
+/// is someone else's account.
+pub(crate) const LIST_ACTIVE_CONNECTION_USERS_SQL: &str = r"
+            SELECT user_id
+              FROM provider_connections
+             WHERE tenant_id = $1 AND provider = $2 AND status = 'active'
+               AND connection_type != $3
+            ";
+
 /// Claim the one-time disconnect notification: only the first caller after
 /// the transition affects a row.
 pub(crate) const CLAIM_REAUTH_NOTIFICATION_SQL: &str = r"
@@ -854,6 +887,50 @@ macro_rules! impl_provider_connection_repository {
                 grant: &str,
             ) -> AppResult<Vec<Uuid>> {
                 let users: Vec<String> = sqlx::query_scalar(LIST_SESSIONS_BESIDE_GRANT_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(mirror)
+                    .bind(grant)
+                    .bind(ConnectionType::Delegated.as_str())
+                    .fetch_all(self.pool())
+                    .await?;
+                users
+                    .iter()
+                    .map(|user| {
+                        Uuid::parse_str(user).map_err(|e| {
+                            AppError::database(format!("session user_id is not a UUID: {e}"))
+                        })
+                    })
+                    .collect()
+            }
+
+            async fn list_active_connection_users(
+                &self,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<Vec<Uuid>> {
+                let users: Vec<String> = sqlx::query_scalar(LIST_ACTIVE_CONNECTION_USERS_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(ConnectionType::Delegated.as_str())
+                    .fetch_all(self.pool())
+                    .await?;
+                users
+                    .iter()
+                    .map(|user| {
+                        Uuid::parse_str(user).map_err(|e| {
+                            AppError::database(format!("connection user_id is not a UUID: {e}"))
+                        })
+                    })
+                    .collect()
+            }
+
+            async fn list_mirror_only_users(
+                &self,
+                tenant_id: TenantId,
+                mirror: &str,
+                grant: &str,
+            ) -> AppResult<Vec<Uuid>> {
+                let users: Vec<String> = sqlx::query_scalar(LIST_MIRROR_ONLY_USERS_SQL)
                     .bind(tenant_id.to_string())
                     .bind(mirror)
                     .bind(grant)

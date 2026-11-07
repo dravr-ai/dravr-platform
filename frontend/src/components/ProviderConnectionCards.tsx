@@ -1,5 +1,5 @@
 // ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its scheme's ink, name, one line, status, action
-// ABOUTME: Displays fitness providers from server with connection status and OAuth initiation
+// ABOUTME: Each row follows the card's connect plan: connect, reconnect, the move to the official connection, or bringing in its history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,14 +11,18 @@ import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  HISTORY_ACTION_KEYS,
+  HISTORY_IMPORTING_REFRESH_MS,
+  HISTORY_LINE_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  cardStatus,
+  connectPlan,
   historyActionKey,
-  historyLoginTarget,
-  intervalsConnectPath,
+  historyImporting,
   noticeRequired,
   providerGlyphInk,
-  sciotteTargetForBackend,
-  syncAuthorizationOwed,
+  refusalReturnsToCard,
+  type CardStatus,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import SciotteLoginModal from './SciotteLoginModal';
@@ -26,22 +30,54 @@ import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { ProviderNoticeDialog } from './ProviderNotice';
+import BringHistorySheet from './import/BringHistorySheet';
+import ProviderExportLink from './import/ProviderExportLink';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
+import { shownHistoryChoices } from '@pierre/ui-logic';
+import { useImportResultRefresh } from './import/useImportResultRefresh';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
-  historyLoginAfterGrant,
-  refusalOpensCredentialLogin,
+  historyChoiceAfterGrant,
+  refusalAnswer,
   startOAuthInThisTab,
+  type OAuthResult,
 } from '../utils/oauthReturn';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
 
-
 // One row, whichever provider: a 24px glyph, the name with its one line
 // beside it, the status or action on the right, a faint hairline above.
 const ROW_CLASS =
-  'group flex w-full items-center gap-3 rounded-lg border-t ghost-border-faint py-3 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+  'group flex w-full items-center gap-3 rounded-lg py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+// The hairline sits on the row's wrapper, which also holds the card's export link.
+const ROW_WRAPPER_CLASS = 'border-t ghost-border-faint first:border-t-0';
+
+/**
+ * Whether `card` offers its history now: it is still needed or did not
+ * finish, and the card has a way to bring it in that this build can show.
+ * With none, the row offers neither "Add history" nor the sheet.
+ */
+function offersHistoryNow(card: ProviderStatus, status: CardStatus): boolean {
+  return (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(card).length > 0;
+}
+
+/** The card states a tap acts on; the others (connected, copying, copied) leave the row inert. */
+const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
+  'authorize_owed',
+  'reconnect',
+  'migrate',
+  'history_needed',
+  'history_incomplete',
+  'connect',
+]);
+
+/** The account sign-in on screen, and whether it is a card's one-time history copy. */
+interface SignInWindow {
+  target: SciotteTarget;
+  consentRequired: boolean;
+  historyMode: boolean;
+}
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
 // Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
@@ -116,9 +152,11 @@ export default function ProviderConnectionCards({
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
-  const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
-  // Whether the chosen card still needs its exposure notice accepted.
-  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
+  const [signIn, setSignIn] = useState<SignInWindow | null>(null);
+  // The card whose "Bring in your history" sheet is open.
+  const [historySheetCard, setHistorySheetCard] = useState<ProviderStatus | null>(null);
+  // The card whose grant came back refused: its row says so and its tap tries again.
+  const [refusedCard, setRefusedCard] = useState<string | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
   // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
   const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
@@ -134,9 +172,10 @@ export default function ProviderConnectionCards({
     tosConsent: boolean;
   } | null>(null);
   const queryClient = useQueryClient();
-  // The grant (by its result's timestamp) whose usr/pwd follow-up was already
+  // The grant (by its result's timestamp) whose history sheet was already
   // opened, so a later focus does not reopen it while the result stays fresh.
   const chainedGrant = useRef<number | null>(null);
+  useImportResultRefresh();
 
   // Fetch providers from server (includes OAuth and non-OAuth providers).
   //
@@ -144,91 +183,92 @@ export default function ProviderConnectionCards({
   // screen does not see — the hosted connect page a chat link opens, on
   // another device — so it asks while no connection has landed yet, and stops
   // the moment one arrives rather than ticking for as long as the screen is
-  // mounted. A connect started here returns to this tab, which reloads the
-  // status.
+  // mounted. A card copying its history is read again until the copy settles.
+  // A connect started here returns to this tab, which reloads the status.
   const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: query => {
-      const landed = query.state.data?.providers?.some(p => p.connected) ?? false;
-      return landed ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
+      const cards = query.state.data?.providers ?? [];
+      if (historyImporting(cards)) return HISTORY_IMPORTING_REFRESH_MS;
+      return cards.some(p => p.connected) ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
     },
   });
 
-  // OAuth-first with a usr/pwd fallback: the Strava and Garmin cards launch
-  // their provider's OAuth while seats remain. If that attempt fails — the
-  // athlete cap was actually exceeded in a seat-count race, or the provider
-  // rejected the grant — we don't strand the user. The connect returns to this
-  // tab and leaves `pierre_oauth_result`; on a failed Strava or Garmin result
-  // we open the credential login for the same data.
-  // Only *failed* results are consumed — successful results are left
-  // untouched for the success handlers in useOAuthCompletion and UserSettings.
+  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false) =>
+    setSignIn({ target, consentRequired: card?.consent_required ?? false, historyMode });
+
+  // The result a connect started here came back with (`settleOAuthReturn`).
+  // A grant reloads the cards and, when the granted card still needs its
+  // history, opens its "Bring in your history" sheet once. A refused Strava
+  // or Garmin grant is answered on its card (`refusalAnswer`): Strava opens
+  // its sign-in; Garmin follows its plan as the cards now read — the sign-in
+  // when the seats ran out, else "didn't connect, try again" on the row.
+  // Only refusals are consumed — a grant's entry is left for the success
+  // handlers in useOAuthCompletion and UserSettings.
   useEffect(() => {
-    const consumeFailedOAuth = () => {
-      let stored: string | null;
+    const consumeOAuthResult = () => {
+      let result: OAuthResult;
       try {
-        stored = localStorage.getItem(OAUTH_RESULT_KEY);
+        const stored = localStorage.getItem(OAUTH_RESULT_KEY);
+        if (!stored) return;
+        result = JSON.parse(stored);
       } catch {
         return;
       }
-      if (!stored) return;
-      try {
-        const result = JSON.parse(stored);
-        const fresh = result?.timestamp && Date.now() - result.timestamp < OAUTH_RESULT_FRESH_MS;
-        // A grant the connect came back with: the poll stops once any
-        // provider is connected, so a second connection is picked up here.
-        // The onboarding status is refetched too, so this tab leaves the
-        // connect gate and reaches the coach proposal (carnet#1042).
-        // The entry is left for the success handlers in useOAuthCompletion and UserSettings.
-        if (fresh && result.success === true) {
-          // A Garmin grant with nothing pushed yet chains into the Garmin
-          // usr/pwd login, which reaches the history (carnet#1302).
-          void refetch().then(({ data }) => {
-            if (chainedGrant.current === result.timestamp) return;
-            const card = historyLoginAfterGrant(result, data?.providers ?? []);
-            const target = card ? historyLoginTarget(card) : null;
-            if (!card || !target) return;
-            chainedGrant.current = result.timestamp;
-            setSciotteConsentRequired(card.consent_required);
-            setSciotteModalTarget(target);
-          });
-          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
-          return;
-        }
-        // A tombstoned account is resolved on the callback page, which offers
-        // to start fresh; the credential login would be refused the same way.
-        if (
-          fresh &&
-          refusalOpensCredentialLogin(result.provider) &&
-          result.success === false &&
-          !result.tombstoned
-        ) {
-          localStorage.removeItem(OAUTH_RESULT_KEY);
-          setSciotteModalTarget(result.provider);
-        }
-      } catch {
-        // Ignore parse errors — leave the entry for other consumers.
+      const fresh = result?.timestamp && Date.now() - result.timestamp < OAUTH_RESULT_FRESH_MS;
+      if (!fresh) return;
+      // The poll stops once any provider is connected, so a second connection
+      // is picked up here. The onboarding status is refetched too, so this
+      // tab leaves the connect gate and reaches the coach proposal (carnet#1042).
+      if (result.success === true) {
+        void refetch().then(({ data }) => {
+          if (chainedGrant.current === result.timestamp) return;
+          const card = historyChoiceAfterGrant(result, data?.providers ?? []);
+          if (!card) return;
+          chainedGrant.current = result.timestamp;
+          setHistorySheetCard(card);
+        });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
+        return;
       }
+      // Only a refused Strava or Garmin grant is this list's to answer; the
+      // callback page answered any other.
+      if (result.success !== false || result.tombstoned || !refusalReturnsToCard(result.provider)) return;
+      void refetch().then(({ data }) => {
+        const answer = refusalAnswer(result, data?.providers ?? []);
+        if (!answer) return;
+        try {
+          localStorage.removeItem(OAUTH_RESULT_KEY);
+        } catch {
+          // Storage refused: the freshness window ends the entry.
+        }
+        if (answer.kind === 'sign_in') {
+          openSignIn(answer.card, answer.target);
+        } else {
+          setRefusedCard(answer.card.provider);
+        }
+      });
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === OAUTH_RESULT_KEY && e.newValue) consumeFailedOAuth();
+      if (e.key === OAUTH_RESULT_KEY && e.newValue) consumeOAuthResult();
     };
     window.addEventListener('storage', onStorage);
-    window.addEventListener('focus', consumeFailedOAuth);
-    document.addEventListener('visibilitychange', consumeFailedOAuth);
-    consumeFailedOAuth();
+    window.addEventListener('focus', consumeOAuthResult);
+    document.addEventListener('visibilitychange', consumeOAuthResult);
+    consumeOAuthResult();
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('focus', consumeFailedOAuth);
-      document.removeEventListener('visibilitychange', consumeFailedOAuth);
+      window.removeEventListener('focus', consumeOAuthResult);
+      document.removeEventListener('visibilitychange', consumeOAuthResult);
     };
   }, [refetch, queryClient]);
 
   // Launch the OAuth authorization flow for a provider: go, in this tab, to
   // the server's launch route, which 302s to the provider and returns here
-  // (`startOAuthInThisTab`).
-  const connectViaOAuth = (providerName: string, tosConsent = false) => {
-    const card = providersData?.providers?.find((p) => p.provider === providerName);
+  // (`startOAuthInThisTab`). `card` is the card tapped, whose own-app setup
+  // comes first when no app of the server's can authorize it.
+  const connectViaOAuth = (providerName: string, card?: ProviderStatus, tosConsent = false) => {
     const devPortalUrl = ownAppDevPortal(providerName);
     if (card?.own_app_required && devPortalUrl) {
       setOwnAppSetup({ provider: card, devPortalUrl, tosConsent });
@@ -242,75 +282,47 @@ export default function ProviderConnectionCards({
     startOAuthInThisTab(oauthApi.authorizeUrl(providerName, { tosConsent }));
   };
 
-  // Handle provider card click
-  const handleConnect = async (provider: ProviderStatus) => {
-    // A connected WHOOP that owes its owner authorization has stopped
-    // syncing: it asks for the notice, and accepting it reconnects.
-    if (syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required)) {
+  // A tap follows what the card shows (`cardStatus`) and how it connects
+  // (`connectPlan`): a connected WHOOP that owes its owner authorization asks
+  // for the notice; a card still needing its history opens the sheet; any
+  // card to connect, reconnect or move to its official connection follows
+  // its plan's primary way in. Connected cards are inert.
+  const handleConnect = (provider: ProviderStatus) => {
+    const status = cardStatus(provider);
+    if (status === 'authorize_owed') {
       setNoticeProvider(provider.provider);
       return;
     }
-
-    // A card connected through an OAuth grant that has received no activity
-    // yet (Garmin before its first push) offers the usr/pwd login, which
-    // reaches the history the grant does not carry.
-    const historyTarget = historyLoginTarget(provider);
-    if (historyTarget) {
-      setSciotteConsentRequired(provider.consent_required);
-      setSciotteModalTarget(historyTarget);
+    if (status === 'history_needed' || status === 'history_incomplete') {
+      if (offersHistoryNow(provider, status)) setHistorySheetCard(provider);
       return;
     }
-
-    // If already connected, no action needed
-    if (provider.connected) return;
-
-    // The Strava and Garmin cards are named for their mirror backends. While
-    // the provider's OAuth seats remain the server recommends `oauth`, so
-    // connect through the provider's official OAuth flow, named by the card's
-    // target (`strava`, `garmin`). Once the cap is reached the server
-    // recommends `mirror`, and we silently fall back to the credential login —
-    // the user taps the same card either way.
-    const target = sciotteTargetForBackend(provider.provider);
-    if (target && provider.recommended_backend === 'oauth') {
-      await connectViaOAuth(target);
-      return;
+    if (!ACTIONABLE.has(status)) return;
+    setRefusedCard(null);
+    const primary = connectPlan(provider).primary;
+    switch (primary.kind) {
+      case 'oauth':
+        // A provider whose notice the account has not accepted (WHOOP's owner
+        // authorization) shows it first; its Continue starts the flow.
+        if (primary.provider === provider.provider && noticeRequired(provider.provider, provider.consent_required)) {
+          setNoticeProvider(provider.provider);
+          return;
+        }
+        connectViaOAuth(primary.provider, provider);
+        return;
+      case 'sign_in':
+        // The provider's own account sign-in, after its notice when it has one.
+        openSignIn(provider, primary.target);
+        return;
+      case 'intervals':
+        // The authorization first while the server offers it, with the
+        // coach's API-key form one tap away; the key form alone otherwise.
+        setIntervalsModal({ offersAuthorize: primary.path === 'choose' });
+        return;
+      case 'none':
+        // Non-OAuth providers (like synthetic) skip directly to chat.
+        if (onSkip) onSkip();
     }
-    if (provider.provider === 'sciotte') {
-      setSciotteModalTarget('strava');
-      return;
-    }
-
-    // Every other scrape-mirror card (Garmin past its seats, TrainingPeaks)
-    // signs in with the provider's own credentials, after its notice when it
-    // has one.
-    if (target) {
-      setSciotteConsentRequired(provider.consent_required);
-      setSciotteModalTarget(target);
-      return;
-    }
-
-    // Intervals.icu opens its dialog: the authorization first while the
-    // server offers it, with the coach's API-key form one tap away; the key
-    // form alone when no client resolves.
-    if (provider.provider === 'intervals_icu') {
-      setIntervalsModal({ offersAuthorize: intervalsConnectPath(provider) === 'choose' });
-      return;
-    }
-
-    // Non-OAuth providers (like synthetic) skip directly to chat
-    if (!provider.requires_oauth) {
-      if (onSkip) onSkip();
-      return;
-    }
-
-    // A provider whose notice the account has not accepted (WHOOP's owner
-    // authorization) shows it first; its Continue starts the flow.
-    if (noticeRequired(provider.provider, provider.consent_required)) {
-      setNoticeProvider(provider.provider);
-      return;
-    }
-
-    await connectViaOAuth(provider.provider);
   };
 
   if (isLoading) {
@@ -344,73 +356,83 @@ export default function ProviderConnectionCards({
         // canvas; elsewhere — and for a provider with no brand colour — the
         // glyph takes the body ink. `PROVIDER_GLYPH_INK` holds both halves.
         const glyphInk = providerGlyphInk(provider.provider, scheme);
-        const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
-        const owesAuthorization = syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required);
-        const offersHistory = historyLoginTarget(provider) !== null;
-        const isActionable = offersHistory || (!provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu'));
+        const status = cardStatus(provider);
+        const isNonOAuth = connectPlan(provider).primary.kind === 'none';
+        const offersHistory = offersHistoryNow(provider, status);
+        // A card whose history has no way in here is connected and inert.
+        const historyWithoutChoice = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
+        const actionable = ACTIONABLE.has(status) && !historyWithoutChoice;
+        const refused =
+          refusedCard === provider.provider && (status === 'connect' || status === 'reconnect' || status === 'migrate');
+        const name = { provider: provider.display_name };
+        const historyHintId = `provider-history-hint-${provider.provider}`;
 
         return (
-          <button
-            key={provider.provider}
-            type="button"
-            onClick={() => handleConnect(provider)}
-            disabled={provider.connected && !owesAuthorization && !offersHistory}
-            className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
-            // A row offering its history copy is named by what it shows — the
-            // provider, its state and the action's words — so the spoken name
-            // carries the visible label (WCAG 2.5.3).
-            aria-label={
-              owesAuthorization
-                ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
-                : offersHistory
-                ? undefined
-                : provider.connected
-                ? t('providers.isConnectedAria', { provider: provider.display_name })
-                : isNonOAuth
-                  ? `${provider.display_name} - ${provider.description}`
-                  : t('providers.connectToAria', { provider: provider.display_name })
-            }
-          >
-            <span
-              aria-hidden="true"
-              data-testid={`provider-glyph-${provider.provider}`}
-              className={`flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface ${isNonOAuth ? 'opacity-60' : ''}`}
-              style={glyphInk ? { color: glyphInk } : undefined}
+          <div key={provider.provider} className={ROW_WRAPPER_CLASS} data-testid={`provider-card-${provider.provider}`}>
+            <button
+              type="button"
+              onClick={() => handleConnect(provider)}
+              disabled={!actionable}
+              className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
+              data-status={status}
+              // A row offering its history, or the move to the official
+              // connection, is named by what it shows — the provider, its
+              // state and the action's words — so the spoken name carries the
+              // visible label (WCAG 2.5.3); the history hint describes it.
+              aria-describedby={offersHistory ? historyHintId : undefined}
+              aria-label={
+                status === 'authorize_owed'
+                  ? t('providers.authorizeToKeepSyncing', name)
+                  : offersHistory || status === 'migrate' || status === 'reconnect' || status === 'history_importing' || refused
+                  ? undefined
+                  : provider.connected
+                  ? t('providers.isConnectedAria', name)
+                  : isNonOAuth
+                    ? `${provider.display_name} - ${provider.description}`
+                    : t('providers.connectToAria', name)
+              }
             >
-              <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
-            </span>
-            <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
-              <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
-              <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
-            </span>
-            {owesAuthorization && (
               <span
-                className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0"
-                data-testid={`provider-authorization-owed-${provider.provider}`}
+                aria-hidden="true"
+                data-testid={`provider-glyph-${provider.provider}`}
+                className={`flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface ${isNonOAuth ? 'opacity-60' : ''}`}
+                style={glyphInk ? { color: glyphInk } : undefined}
               >
-                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
-                {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
+                <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
               </span>
-            )}
-            {provider.connected && !owesAuthorization && (
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0">
-                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
-                {t('providers.connected')}
+              <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
+                <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
+                <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
               </span>
-            )}
-            {isNonOAuth && !provider.connected && (
-              <span className="flex-shrink-0 text-xs text-outline">{t('providers.demoBadge')}</span>
-            )}
-            {isActionable && (
-              <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
-                {offersHistory ? t(historyActionKey(provider)) : t('providers.connect')}
-              </span>
-            )}
-          </button>
+              <RowStatus status={status} provider={provider.provider} displayName={provider.display_name} refused={refused} />
+              {isNonOAuth && !provider.connected && (
+                <span className="flex-shrink-0 text-xs text-outline">{t('providers.demoBadge')}</span>
+              )}
+              {actionable && status !== 'authorize_owed' && !isNonOAuth && (
+                <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
+                  {offersHistory
+                    ? t(historyActionKey(provider))
+                    : status === 'migrate'
+                      ? t('app.connectProvider', name)
+                      : status === 'reconnect'
+                        ? t('app.reconnect')
+                        : t('providers.connect')}
+                </span>
+              )}
+              {offersHistory && (
+                <span id={historyHintId} className="sr-only">
+                  {t(HISTORY_ACTION_KEYS.addAria, name)}
+                </span>
+              )}
+            </button>
+            <div className="pb-2 pl-9 empty:hidden">
+              <ProviderExportLink provider={provider} />
+            </div>
+          </div>
         );
       })}
 
-      {/* Import your own data: below the providers, never one of them */}
+      {/* Import your own data (Apple Health has no card): below the providers, never one of them */}
       <ImportOwnDataLink />
 
       {/* Skip and start chatting - last row */}
@@ -419,7 +441,7 @@ export default function ProviderConnectionCards({
           type="button"
           onClick={onSkip}
           disabled={isSkipPending}
-          className={ROW_CLASS}
+          className={`${ROW_CLASS} border-t ghost-border-faint first:border-t-0`}
           aria-label={t('providers.skipAndChat')}
         >
           <span aria-hidden="true" className="flex h-6 w-6 flex-shrink-0 items-center justify-center text-primary">
@@ -443,21 +465,31 @@ export default function ProviderConnectionCards({
         </button>
       )}
 
-      {/* Sciotte login modal */}
+      {historySheetCard && (
+        <BringHistorySheet
+          card={historySheetCard}
+          onClose={() => setHistorySheetCard(null)}
+          onSignIn={(target) => openSignIn(historySheetCard, target, true)}
+        />
+      )}
+
+      {/* The provider's own account sign-in */}
       <SciotteLoginModal
-        isOpen={sciotteModalTarget !== null}
-        onClose={() => setSciotteModalTarget(null)}
+        isOpen={signIn !== null}
+        onClose={() => setSignIn(null)}
         onConnected={() => {
           refetch();
-          // Sciotte completes in-process (no OAuth callback URL), so we have to
+          // The sign-in completes in-process (no OAuth callback URL), so we have to
           // explicitly bust the onboarding-status cache here. Without this, the
           // App-level route guard stays on OnboardingConnectProvider until the
           // next poll tick (5s), stranding the user on the connected card.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
-          setSciotteModalTarget(null);
+          setSignIn(null);
         }}
-        target={sciotteModalTarget ?? 'strava'}
-        consentRequired={sciotteConsentRequired}
+        onPlanChanged={() => void refetch()}
+        target={signIn?.target ?? 'strava'}
+        consentRequired={signIn?.consentRequired ?? false}
+        historyMode={signIn?.historyMode ?? false}
       />
 
       <ProviderNoticeDialog
@@ -466,7 +498,7 @@ export default function ProviderConnectionCards({
         onAccept={() => {
           const accepted = noticeProvider;
           setNoticeProvider(null);
-          if (accepted) connectViaOAuth(accepted, true);
+          if (accepted) connectViaOAuth(accepted, served.find((p) => p.provider === accepted), true);
         }}
       />
 
@@ -493,18 +525,62 @@ export default function ProviderConnectionCards({
           intervalsModal?.offersAuthorize
             ? () => {
                 setIntervalsModal(null);
-                connectViaOAuth('intervals_icu');
+                connectViaOAuth('intervals_icu', served.find((p) => p.provider === 'intervals_icu'));
               }
             : undefined
         }
         onConnected={() => {
           refetch();
           // A pasted key connects in-process (no OAuth callback), so bust the
-          // onboarding-status cache explicitly — same reasoning as Sciotte above.
+          // onboarding-status cache explicitly — same reasoning as the sign-in above.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setIntervalsModal(null);
         }}
       />
     </div>
   );
+}
+
+/** The dot and line a row shows for its card's state; nothing for a card still to connect. */
+function RowStatus({
+  status,
+  provider,
+  displayName,
+  refused,
+}: {
+  status: CardStatus;
+  provider: string;
+  displayName: string;
+  refused: boolean;
+}) {
+  const { t } = useTranslation();
+  const name = { provider: displayName };
+  const line = (dot: 'bg-warning' | 'bg-success' | null, text: string, testId?: string, live = false) => (
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-on-surface-variant sm:flex-shrink-0"
+      data-testid={testId}
+      role={live ? 'status' : undefined}
+    >
+      {dot && <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dot}`} />}
+      {text}
+    </span>
+  );
+  if (refused) return line('bg-warning', t('providers.connectRefused', name), `provider-connect-refused-${provider}`, true);
+  switch (status) {
+    case 'authorize_owed':
+      return line('bg-warning', t('providers.authorizeToKeepSyncing', name), `provider-authorization-owed-${provider}`);
+    case 'reconnect':
+      return line('bg-warning', t('providers.reconnectNeeded'), `provider-reconnect-needed-${provider}`);
+    case 'migrate':
+      return line('bg-warning', t('providers.migration.oauthRequired', name), `provider-migrate-${provider}`);
+    case 'history_importing':
+      return line(null, t(HISTORY_LINE_KEYS.importing, name), `provider-history-importing-${provider}`, true);
+    case 'history_needed':
+    case 'history_incomplete':
+    case 'history_imported':
+    case 'connected':
+      return line('bg-success', t('providers.connected'));
+    case 'connect':
+      return null;
+  }
 }

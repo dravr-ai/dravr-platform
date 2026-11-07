@@ -14,6 +14,7 @@ import {
   linkRefusalOf,
   type ArchiveImport,
   type ImportLinkRefusal,
+  type ImportsOverview,
 } from '@pierre/shared-types';
 import {
   countKey,
@@ -299,6 +300,17 @@ export function importStateCopy(
     case 'cancelled':
       return { key: countKey(entry.imported, locale, IMPORT_STOPPED_KEYS), values: { count: entry.imported } };
   }
+}
+
+/**
+ * How many activities the athlete's import of `source` brought in and still
+ * holds, as a provider card with that `history.archive_source` counts them:
+ * the latest import's, once it completed and its history was not deleted;
+ * `0` otherwise, and while the overview is not read yet.
+ */
+export function importedHistoryCount(overview: ImportsOverview | null | undefined, source: string): number {
+  const entry = overview?.imports.find((each) => each.source === source);
+  return entry?.status === 'completed' && entry.history_held ? entry.imported : 0;
 }
 
 /** The import screen's history line for a completed import: how many activities it holds, and when it landed. */

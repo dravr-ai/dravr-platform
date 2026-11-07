@@ -26,6 +26,7 @@
 //! first, the inbox sweep runs it elsewhere (`process_garmin_inbox`). A batch that cannot
 //! be stored is answered 503, which Garmin retries.
 
+mod grant_refresh;
 mod worker;
 
 use std::sync::Arc;
@@ -47,6 +48,9 @@ use pierre_services::garmin_push::{parse_envelope, EnvelopeError, SummaryType};
 
 use crate::mcp::resources::ServerContext;
 
+pub use grant_refresh::{
+    check_garmin_grants, check_garmin_grants_in, start_garmin_grant_refresh, GrantCheck,
+};
 pub use worker::{process_garmin_inbox, start_garmin_push_worker};
 
 /// The header Garmin names the pushing client in.

@@ -755,6 +755,15 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_garmin_push_worker(&resources);
     }
 
+    // Start the daily Garmin grant check (carnet#1454): renews each live
+    // Garmin grant's token and flags one Garmin refused to renew, so a dead
+    // grant reads "Reconnect" even for an athlete who records nothing.
+    #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
+    {
+        use pierre_mcp_server::start_garmin_grant_refresh;
+        start_garmin_grant_refresh(&resources);
+    }
+
     // Start the personal-best seed (carnet#582): walks each Strava athlete's
     // whole history once, one streams request per past run, paced by the
     // background share of the shared Strava budget, so a personal record is

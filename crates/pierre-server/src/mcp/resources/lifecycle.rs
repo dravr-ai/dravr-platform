@@ -699,6 +699,7 @@ impl ServerContext {
             platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
+            common.config.oauth.clone(),
             // The in-app arm's ping. Cloned from the already-assembled common
             // slice, the same handle the commitment sweep is given.
             #[cfg(feature = "client-notifications")]

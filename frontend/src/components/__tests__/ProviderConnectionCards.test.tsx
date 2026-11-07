@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
-// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) started in this tab, the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
+// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) in this tab, the mirror path, refused grants, the history sheet, export links, own-app setup and Intervals.icu
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { HISTORY_IMPORTING_REFRESH_MS, PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
@@ -45,13 +45,19 @@ vi.mock('../SciotteLoginModal', () => ({
     isOpen,
     target,
     consentRequired,
+    historyMode,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
+    historyMode?: boolean;
   }) =>
     isOpen ? (
-      <div data-testid="sciotte-modal" data-consent={String(Boolean(consentRequired))}>
+      <div
+        data-testid="sciotte-modal"
+        data-consent={String(Boolean(consentRequired))}
+        data-history-mode={String(Boolean(historyMode))}
+      >
         {target}
       </div>
     ) : null,
@@ -333,24 +339,136 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
   });
 
-  it('opens the Garmin credential login when the connect comes back refused', async () => {
+  describe('a Garmin grant that comes back refused', () => {
     // The return to this tab leaves the result before the cards mount, so
     // they read it on mount rather than from a `storage` event.
-    const failed = JSON.stringify({
-      type: 'oauth_completed',
-      provider: 'garmin',
-      success: false,
-      hasError: true,
-      tombstoned: false,
-      timestamp: Date.now(),
+    const refused = (reason?: 'no_seat') =>
+      JSON.stringify({
+        type: 'oauth_completed',
+        provider: 'garmin',
+        success: false,
+        hasError: true,
+        tombstoned: false,
+        reason,
+        timestamp: Date.now(),
+      });
+
+    it('says so on the card and tries again from it, never opening the sign-in while a seat is free', async () => {
+      localStorage.setItem('pierre_oauth_result', refused());
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+      const user = userEvent.setup();
+      renderCards();
+
+      expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toHaveTextContent(
+        i18n.t('providers.connectRefused', { provider: 'Garmin' }),
+      );
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
+
+      // Its row's name carries the line it shows, and its tap is the retry.
+      await user.click(
+        screen.getByRole('button', {
+          name: (name) => name.includes(i18n.t('providers.connectRefused', { provider: 'Garmin' })),
+        }),
+      );
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
-    localStorage.setItem('pierre_oauth_result', failed);
-    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+
+    it('falls back to the Garmin sign-in when the seats ran out under the athlete (no_seat)', async () => {
+      localStorage.setItem('pierre_oauth_result', refused('no_seat'));
+      // Read again after the refusal, the card now signs in.
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+      renderCards();
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(screen.queryByTestId('provider-connect-refused-sciotte_garmin')).not.toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('says "try again" for a grant refused for any other reason, even once the card signs in', async () => {
+      localStorage.setItem('pierre_oauth_result', refused());
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+      renderCards();
+
+      expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('says so on a sign-in-only card asked to move, whose tap tries the authorization again', async () => {
+      localStorage.setItem('pierre_oauth_result', refused());
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...garminCard('oauth'),
+            connected: true,
+            connected_backend: 'sciotte_garmin',
+            migration: 'oauth_required' as const,
+          },
+        ],
+      });
+      const user = userEvent.setup();
+      renderCards();
+
+      expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toHaveTextContent(
+        i18n.t('providers.connectRefused', { provider: 'Garmin' }),
+      );
+      expect(screen.getByTestId('provider-card-sciotte_garmin').querySelector('[data-status]')).toHaveAttribute(
+        'data-status',
+        'migrate',
+      );
+      await user.click(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    });
+  });
+
+  it('moves a sign-in-only Garmin card to Garmin\'s authorization', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [
+        {
+          ...garminCard('oauth'),
+          connected: true,
+          connected_backend: 'sciotte_garmin',
+          migration: 'oauth_required' as const,
+        },
+      ],
+    });
+    const user = userEvent.setup();
     renderCards();
 
-    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
-    expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
+    expect(
+      await screen.findByText(i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' })),
+    ).toBeInTheDocument();
+    await user.click(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+  });
+
+  it('names a card needing its reconnect by what it shows, and reconnects it the way it is connected', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...stravaCard('oauth'), connected: true, connected_backend: 'sciotte', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    const row = await screen.findByRole('button', {
+      name: (name) => name.includes('Strava') && name.includes(i18n.t('providers.reconnectNeeded')),
+    });
+    await user.click(row);
+
+    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('connects an old server\'s Garmin card (no history, oauth recommended) through the authorization', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{ ...garminCard('oauth'), history: undefined }] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
   });
 
   it('does NOT consume a successful OAuth result (leaves it for the success handlers)', async () => {
@@ -396,15 +514,15 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.user.onboardingStatus() });
   });
 
-  describe('a Garmin grant whose history is needed leads to the usr/pwd login (carnet#1386)', () => {
-    // The Garmin card connected through its OAuth grant, whose store has
-    // received no activity yet: what the server serves after a fresh grant.
-    function garminAwaiting(awaiting: boolean) {
+  describe('a Garmin grant whose history is needed opens the "Bring in your history" sheet (carnet#1386)', () => {
+    // The Garmin card connected through its OAuth grant, whose history has
+    // not been brought in yet: what the server serves after a fresh grant.
+    function garminAwaiting(awaiting: boolean, archive_source: string | null = null) {
       return {
         ...garminCard('oauth'),
         connected: true,
         connected_backend: 'garmin',
-        history: { state: awaiting ? ('needed' as const) : ('imported' as const), sign_in_target: 'sciotte_garmin', archive_source: null },
+        history: { state: awaiting ? ('needed' as const) : ('imported' as const), sign_in_target: 'sciotte_garmin', archive_source },
       };
     }
     function grant(provider: string) {
@@ -418,12 +536,13 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       });
     }
 
-    it('opens the Garmin login once a Garmin grant comes back with no activities', async () => {
+    it('opens the sheet once a Garmin grant comes back with its history needed, never the sign-in itself', async () => {
       localStorage.setItem('pierre_oauth_result', grant('garmin'));
       getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
       renderCards();
 
-      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
       // The grant is left for the success handlers, as every grant is.
       expect(localStorage.getItem('pierre_oauth_result')).not.toBeNull();
       expect(assign).not.toHaveBeenCalled();
@@ -438,22 +557,43 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
-    it('offers the Garmin login from the card of a grant still awaiting activities', async () => {
+    it('offers "Add history" on the card, whose sheet\'s sign-in opens the Garmin login in history mode', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
       const user = userEvent.setup();
       renderCards();
 
       // The row names its state and what it offers, never a bare "Connect".
-      expect(await screen.findByText(i18n.t('providers.history.signIn'))).toBeInTheDocument();
+      expect(await screen.findByText(i18n.t('providers.history.add'))).toBeInTheDocument();
       expect(screen.queryByLabelText('Connect to Garmin')).not.toBeInTheDocument();
       // Its spoken name carries the visible action words and the provider (WCAG 2.5.3).
-      const signIn = screen.getByRole('button', {
-        name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.signIn')),
+      const add = screen.getByRole('button', {
+        name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.add')),
       });
-      await user.click(signIn);
+      expect(add).toHaveAccessibleDescription(i18n.t('providers.history.addAria', { provider: 'Garmin' }));
+      await user.click(add);
 
-      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      await user.click(await screen.findByTestId('bring-history-sign-in'));
+
+      const modal = await screen.findByTestId('sciotte-modal');
+      expect(modal).toHaveTextContent('garmin');
+      expect(modal).toHaveAttribute('data-history-mode', 'true');
+      expect(screen.queryByTestId('bring-history-sheet')).not.toBeInTheDocument();
       expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('offers no "Add history" and opens no sheet for a card with no choice this build can show', async () => {
+      const bare = {
+        ...garminAwaiting(true),
+        history: { state: 'needed' as const, sign_in_target: null, archive_source: 'fit_zip_archive' },
+      };
+      localStorage.setItem('pierre_oauth_result', grant('garmin'));
+      getProvidersStatus.mockResolvedValue({ providers: [bare] });
+      renderCards();
+
+      expect(await screen.findByLabelText('Garmin is connected')).toBeDisabled();
+      expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
+      expect(screen.queryByTestId('bring-history-sheet')).not.toBeInTheDocument();
     });
 
     it('offers to try again from the card of a copy that did not finish', async () => {
@@ -466,10 +606,10 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       const retry = await screen.findByRole('button', {
         name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.retry')),
       });
-      expect(screen.queryByText(i18n.t('providers.history.signIn'))).not.toBeInTheDocument();
+      expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
       await user.click(retry);
 
-      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
       expect(assign).not.toHaveBeenCalled();
     });
   });
@@ -513,6 +653,34 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
         await vi.advanceTimersByTimeAsync(PROVIDER_LINK_POLL_INTERVAL_MS * 20);
       });
       expect(getProvidersStatus).toHaveBeenCalledTimes(callsWhenLanded);
+    });
+
+    it('keeps reading a connected card while its history is copying, until the copy settles', async () => {
+      const copying = {
+        ...garminCard('oauth'),
+        connected: true,
+        connected_backend: 'garmin',
+        history: { state: 'importing' as const, sign_in_target: 'sciotte_garmin', archive_source: null },
+      };
+      getProvidersStatus.mockResolvedValue({ providers: [copying] });
+      renderCards();
+      expect(await screen.findByTestId('provider-history-importing-sciotte_garmin')).toBeInTheDocument();
+      const before = getProvidersStatus.mock.calls.length;
+
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...copying, history: { ...copying.history, state: 'imported' as const } }],
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS);
+      });
+      await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBeGreaterThan(before));
+      await waitFor(() => expect(screen.queryByTestId('provider-history-importing-sciotte_garmin')).toBeNull());
+
+      const settled = getProvidersStatus.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS * 4);
+      });
+      expect(getProvidersStatus).toHaveBeenCalledTimes(settled);
     });
   });
 });
@@ -616,7 +784,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
 // JF, 2026-10-27: "We will not drop scrape at all, this is major." Importing
 // your own data arrives beside the connections, never in place of one: the
 // Strava and Garmin credential logins stay offered on the same cards, and
-// the import link is one more row under them.
+// each card the server names an export for carries its own export link.
 describe('ProviderConnectionCards — importing your own data sits beside the credential login', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -624,17 +792,25 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     stubNavigation();
   });
 
-  it('keeps the Strava and Garmin credential logins when the seats are gone, with the import link below them', async () => {
-    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror'), garminCard('mirror')] });
+  const withExport = <T extends object>(card: T, archive_source: string | null) => ({
+    ...card,
+    history: { state: 'not_applicable' as const, sign_in_target: null, archive_source },
+  });
+
+  it('keeps the Strava and Garmin credential logins when the seats are gone, each with its export link', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [withExport(stravaCard('mirror'), 'strava_archive'), withExport(garminCard('mirror'), 'garmin_archive')],
+    });
     const user = userEvent.setup();
     renderCards();
 
     const strava = await screen.findByLabelText('Connect to Strava');
-    const link = screen.getByTestId('import-own-data-link');
+    const link = screen.getByTestId('provider-export-sciotte');
     expect(
       strava.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
-      'the import link comes after the provider rows',
+      'the export link comes after its provider row',
     ).toBeTruthy();
+    expect(link).toHaveAccessibleName(`${i18n.t('providers.import.cardLink')} (Strava)`);
 
     await user.click(strava);
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
@@ -643,15 +819,46 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
   });
 
-  it('opens the import window from the link, not a connection', async () => {
-    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+  it('opens the import window on the card\'s export, not a connection', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [withExport(garminCard('oauth'), 'garmin_archive')] });
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByTestId('import-own-data-link'));
+    await user.click(await screen.findByTestId('provider-export-sciotte_garmin'));
 
+    expect(window.open).toHaveBeenCalledWith('/import#garmin', '_blank');
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+  });
+
+  it('lists the import link below the provider rows, opening the source list (Apple Health has no card)', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror'), garminCard('mirror')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    const garmin = await screen.findByLabelText('Connect to Garmin');
+    const link = screen.getByTestId('import-own-data-link');
+    expect(link).toHaveTextContent(i18n.t('providers.import.link'));
+    expect(link).toHaveTextContent(i18n.t('providers.import.linkHint'));
+    expect(
+      garmin.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the import link comes after the provider rows',
+    ).toBeTruthy();
+
+    await user.click(link);
     expect(window.open).toHaveBeenCalledWith('/import', '_blank');
     expect(assign).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+  });
+
+  it('offers no export link where the server names no source, or one this build cannot show', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [withExport(stravaCard('oauth'), null), withExport(garminCard('oauth'), 'fit_zip_archive')],
+    });
+    renderCards();
+
+    await screen.findByLabelText('Connect to Strava');
+    expect(screen.queryByTestId('provider-export-sciotte')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('provider-export-sciotte_garmin')).not.toBeInTheDocument();
   });
 });

@@ -2004,33 +2004,6 @@ async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, ten
         .expect("store the pushed activity");
 }
 
-/// Store one activity under the cache key `key` for the user, as a push, a
-/// usr/pwd session's capture or an archive import stores it.
-async fn store_activity_under(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    key: &str,
-) {
-    let row = ActivityBuilder::new(
-        "18222222222",
-        "Imported Run",
-        SportType::Run,
-        Utc::now() - chrono::Duration::days(30),
-        1_800,
-        key,
-    )
-    .source(oauth_providers::GARMIN)
-    .build();
-    resources
-        .common
-        .repos
-        .activity_cache
-        .upsert_activities_synced_at(user_id, &tenant_id, key, &[row], Utc::now())
-        .await
-        .expect("store the activity");
-}
-
 /// The grant is Garmin's one ongoing source (carnet#1386): a live usr/pwd
 /// session beside it serves nothing, a read naming either backend goes to the
 /// grant, and the session reads as standing beside it.
@@ -2058,8 +2031,8 @@ async fn a_garmin_grant_serves_whatever_session_stands_beside_it() {
 
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::AwaitsActivities,
-        "a grant with no history held anywhere awaits it, whatever session is live"
+        OAuthGrant::Serves,
+        "a grant serves with no history held anywhere, whatever session is live"
     );
     for requested in [oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN] {
         assert_eq!(
@@ -2088,66 +2061,6 @@ async fn a_garmin_grant_serves_whatever_session_stands_beside_it() {
             .await;
     assert_eq!(status.backend_kind, BackendKind::Oauth, "{status:?}");
     assert!(status.connected, "{status:?}");
-}
-
-/// The grant's history is every key its reads serve: what the usr/pwd session
-/// stored under its mirror key, and an imported archive, end the wait as a
-/// push does.
-#[tokio::test]
-async fn a_garmin_grant_holding_history_under_any_key_it_serves_stops_awaiting() {
-    for key in [
-        oauth_providers::SCIOTTE_GARMIN,
-        oauth_providers::GARMIN_ARCHIVE,
-        oauth_providers::GARMIN,
-    ] {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
-        let tenant_id = user_primary_tenant(&resources, user_id).await;
-        seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
-        store_activity_under(&resources, user_id, tenant_id, key).await;
-
-        assert_eq!(
-            backend_resolver::oauth_grant(
-                &resources.common.repos,
-                user_id,
-                tenant_id,
-                oauth_providers::GARMIN
-            )
-            .await,
-            OAuthGrant::Serves,
-            "bug: an activity held under {key} is history the grant's reads serve"
-        );
-    }
-}
-
-/// A push of wellness alone advances the Garmin freshness mark without
-/// storing an activity, so a grant with no session beside it still reads as
-/// awaiting its activities — what the card offers the usr/pwd login on.
-#[tokio::test]
-async fn a_wellness_only_push_leaves_the_garmin_grant_awaiting_activities() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
-    let tenant_id = user_primary_tenant(&resources, user_id).await;
-    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
-    resources
-        .common
-        .repos
-        .activity_cache
-        .record_activity_fetch(user_id, &tenant_id, oauth_providers::GARMIN, Utc::now())
-        .await
-        .expect("record the push");
-
-    assert_eq!(
-        backend_resolver::oauth_grant(
-            &resources.common.repos,
-            user_id,
-            tenant_id,
-            oauth_providers::GARMIN
-        )
-        .await,
-        OAuthGrant::AwaitsActivities,
-        "a freshness mark is not an activity"
-    );
 }
 
 /// The helper is false where no OAuth grant serves the session's provider:
@@ -2224,9 +2137,9 @@ async fn only_a_session_beside_a_serving_grant_stands_aside() {
     );
 }
 
-/// An empty grant keeps serving and reads as awaiting its activities, which
-/// is what the cards offer the usr/pwd login on, whatever session stands
-/// beside it: a session row holding no activity changes neither (carnet#1386).
+/// An empty grant keeps serving whatever session stands beside it: a dead
+/// session row holding no activity never takes over (carnet#1386). Where the
+/// history before the grant stands is the card's `history`, apart.
 #[tokio::test]
 async fn an_empty_garmin_grant_keeps_serving_whatever_session_stands_beside_it() {
     let resources = create_test_server_resources().await.unwrap();
@@ -2237,7 +2150,7 @@ async fn an_empty_garmin_grant_keeps_serving_whatever_session_stands_beside_it()
 
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::AwaitsActivities
+        OAuthGrant::Serves
     );
     assert_eq!(
         backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
@@ -2275,7 +2188,7 @@ async fn an_empty_garmin_grant_keeps_serving_whatever_session_stands_beside_it()
 
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::AwaitsActivities,
+        OAuthGrant::Serves,
         "a session beside the grant never takes over from it"
     );
     assert_eq!(

@@ -119,7 +119,13 @@ struct Fixture {
 
 /// A server and one athlete whose stored locale is `locale`.
 async fn athlete(locale: &str) -> Fixture {
-    let resources = common::create_test_server_resources().await.unwrap();
+    // The hosted login's own pages are under test, not the move to Garmin's
+    // OAuth, so no Garmin seat is offered (carnet#1454).
+    let resources = common::create_test_server_resources_with_config(
+        common::test_server_config_usr_pwd_garmin(),
+    )
+    .await
+    .unwrap();
     let (user_id, _) = common::create_test_user(&resources.agent.database)
         .await
         .unwrap();

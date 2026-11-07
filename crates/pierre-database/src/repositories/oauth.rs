@@ -741,4 +741,28 @@ pub trait ProviderConnectionRepository: Send + Sync {
         mirror: &str,
         grant: &str,
     ) -> AppResult<Vec<Uuid>>;
+
+    /// Every user in `tenant_id` whose own `provider` connection is `active`:
+    /// the grants a periodic refresh keeps alive (Garmin's daily token
+    /// refresh, carnet#1454). A delegated connection is someone else's
+    /// account, and a connection flagged for reconnect has been found dead
+    /// already; neither is listed.
+    async fn list_active_connection_users(
+        &self,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<Uuid>>;
+
+    /// Every user in `tenant_id` whose own `mirror` session (a connection or
+    /// token row) stands with no token row for `grant` beside it in that
+    /// tenant: the athletes served by usr/pwd alone, who have yet to move to
+    /// the provider's OAuth (carnet#1454). A delegated connection is someone
+    /// else's account and is not listed; a user holding the grant is not
+    /// listed, whatever session stands beside it.
+    async fn list_mirror_only_users(
+        &self,
+        tenant_id: TenantId,
+        mirror: &str,
+        grant: &str,
+    ) -> AppResult<Vec<Uuid>>;
 }

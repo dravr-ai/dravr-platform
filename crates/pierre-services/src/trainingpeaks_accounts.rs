@@ -45,7 +45,7 @@ use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountR
 use pierre_database::repositories::OAuthTokenRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
-use pierre_providers::sciotte_error::to_app_error;
+use pierre_providers::sciotte_error::to_app_error_for;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
 use pierre_providers::token_writeback::StoredTokenRow;
@@ -398,7 +398,8 @@ async fn purge_misfiled_activities(
 /// # Errors
 ///
 /// Returns an error when the scraper service is not configured, or when it
-/// cannot import the session or read the profile.
+/// cannot import the session or read the profile. A session the service no
+/// longer holds names `sciotte_trainingpeaks`, whose sign-in renews it.
 pub async fn trainingpeaks_profile(
     registry: &ProviderRegistry,
     tokens: &dyn OAuthTokenRepository,
@@ -414,7 +415,13 @@ pub async fn trainingpeaks_profile(
         |rotated| async move { store_over_row(tokens, read_from, &rotated).await },
     )
     .await
-    .map_err(to_app_error)
+    .map_err(|e| {
+        to_app_error_for(
+            e,
+            SciotteTarget::TrainingPeaks.provider_name(),
+            SciotteTarget::TrainingPeaks.brand(),
+        )
+    })
 }
 
 /// The platform's account role for a `TrainingPeaks` profile: a coach when

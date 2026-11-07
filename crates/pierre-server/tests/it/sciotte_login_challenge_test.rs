@@ -46,9 +46,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
-use common::{
-    create_test_server_resources_with_sciotte, create_test_user_with_email, generate_test_token,
-};
+use common::{create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
@@ -231,9 +229,11 @@ struct Athlete {
 
 impl Athlete {
     async fn new() -> Self {
-        let resources = create_test_server_resources_with_sciotte(&scraper().1)
-            .await
-            .unwrap();
+        let resources = common::create_test_server_resources_with_config(
+            common::test_server_config_with_sciotte_usr_pwd_garmin(&scraper().1),
+        )
+        .await
+        .unwrap();
         Self::in_resources(resources).await
     }
 

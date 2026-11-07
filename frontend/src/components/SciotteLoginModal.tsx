@@ -21,7 +21,9 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
+  refusalReloadsCards,
   providerGlyphInk,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
@@ -48,6 +50,20 @@ interface SciotteLoginModalProps {
    * come before the credentials, and the login carries the acceptance.
    */
   consentRequired?: boolean;
+  /**
+   * The sign-in is the one-time copy of a connected card's history (the
+   * card's "Bring in your history" sheet): the window says so under its
+   * title and on success. The server tells the copy from a connection by
+   * itself; this changes the words only.
+   */
+  historyMode?: boolean;
+  /**
+   * The server refused the sign-in because the card now connects another way
+   * (`oauth_required`: a Garmin seat is free, so a new connection goes
+   * through Garmin's authorization): the caller reads its cards again so the
+   * next tap follows the new plan.
+   */
+  onPlanChanged?: () => void;
 }
 
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
@@ -65,6 +81,8 @@ export default function SciotteLoginModal({
   onConnected,
   target = 'strava',
   consentRequired = false,
+  historyMode = false,
+  onPlanChanged,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -146,6 +164,9 @@ export default function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(providerLabel);
       }
+      if (reason === SIGN_IN_OAUTH_REQUIRED) {
+        return t('hosted.common.signInOauthRequired').split('{0}').join(providerLabel);
+      }
       return describeApiError(err, { online, t, fallbackKey });
     },
     [online, providerLabel, t]
@@ -208,11 +229,12 @@ export default function SciotteLoginModal({
         if (signal.aborted) return;
         setError(refusalMessage(err, 'auth.loginFailed'));
         setPhase('error');
+        if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onPlanChanged, refusalMessage, t]
   );
 
   // What a refused continuation tells the user.
@@ -402,6 +424,11 @@ export default function SciotteLoginModal({
                   under their spinner; repeating it here would print it twice (carnet#1299). */}
               {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && (
                 <p className="text-xs text-on-surface/50">{progressLabel}</p>
+              )}
+              {historyMode && (
+                <p className="text-xs text-on-surface-variant" data-testid="sciotte-history-intro">
+                  {t('providers.history.modalIntro', { provider: providerLabel })}
+                </p>
               )}
             </div>
           </div>
@@ -686,7 +713,11 @@ export default function SciotteLoginModal({
                   <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <p className="text-activity text-lg font-medium">{t('shell.sciotteConnected')}</p>
-                <p className="text-on-surface/50 text-sm mt-1">{t('shell.sciotteConnectedDataReady', { provider: providerLabel })}</p>
+                <p className="text-on-surface/50 text-sm mt-1">
+                  {historyMode
+                    ? t('providers.history.modalCopying')
+                    : t('shell.sciotteConnectedDataReady', { provider: providerLabel })}
+                </p>
               </div>
             </div>
           )}

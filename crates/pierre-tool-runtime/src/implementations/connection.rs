@@ -39,7 +39,12 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+/// The seat refusal [`mint_oauth_authorize_url`] answers with, read where its
+/// callers branch on it.
+pub use pierre_auth::garmin_seats::is_no_seat_refusal;
+use pierre_auth::garmin_seats::require_garmin_seat;
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
+use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::Transport;
 use pierre_mcp_schema::PropertySchema;
@@ -154,12 +159,18 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 /// or the hosted connect picker — never by a model's tool argument. So a provider whose
 /// notice is outstanding for the account is refused here, and nothing is minted.
 ///
+/// Garmin's OAuth takes a seat of a capped pool, so its authorization URL is minted only
+/// while [`require_garmin_seat`] lets this athlete through — the rule every other surface
+/// that starts Garmin's OAuth reads. With the pool full the caller offers the usr/pwd
+/// sign-in instead.
+///
 /// # Errors
 ///
 /// Returns the precondition's refusal (`details.action = "accept_provider_notice"`) while
-/// the provider's notice is outstanding, or an error if no OAuth app (the user's own, the
-/// tenant's or the server's) is configured for the provider, the authorization URL cannot
-/// be generated, or the CSRF state row cannot be persisted.
+/// the provider's notice is outstanding, the seat refusal ([`is_no_seat_refusal`]) for a
+/// Garmin athlete with no grant while the pool is full, or an error if no OAuth app (the
+/// user's own, the tenant's or the server's) is configured for the provider, the
+/// authorization URL cannot be generated, or the CSRF state row cannot be persisted.
 pub async fn mint_oauth_authorize_url(
     resources: &dyn ToolRuntime,
     user_id: uuid::Uuid,
@@ -178,6 +189,15 @@ pub async fn mint_oauth_authorize_url(
         provider,
         &brand,
         false,
+    )
+    .await?;
+    require_garmin_seat(
+        resources.repos().oauth_tokens.as_ref(),
+        resources.repos().provider_connections.as_ref(),
+        &resources.config().oauth,
+        user_id,
+        tenant_id,
+        provider,
     )
     .await?;
 
@@ -573,6 +593,17 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                     "connect_provider: the provider's notice is outstanding, nothing minted"
                 );
                 Ok(notice_required_result(provider, &e.message))
+            }
+            // Garmin's pool is full and the athlete holds no grant: the
+            // usr/pwd sign-in is the way in, handed off as the mirror-default
+            // providers are, to the hosted login the chat pipeline mints.
+            Err(e) if is_no_seat_refusal(&e) => {
+                info!(
+                    user_id = %user_uuid,
+                    provider = provider,
+                    "connect_provider: no Garmin seat left, handing off to the usr/pwd sign-in"
+                );
+                Err(AppError::provider_auth_required(SCIOTTE_GARMIN))
             }
             Err(e) => {
                 // No OAuth app to run under (the athlete has none of their

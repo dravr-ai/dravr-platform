@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback, the own-app setup, Intervals.icu's two paths and the coach-only offer
-// ABOUTME: A failed Strava OAuth falls back to the Sciotte credential login; a coach who does not train sees only the coaching platforms
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: connect plans, the history sheet after a grant, export links, own-app, Intervals.icu, coach-only
+// ABOUTME: A failed Strava OAuth falls back to its sign-in, a refused Garmin grant says so on its row; a coach who does not train sees only the coaching platforms
 
 import React from 'react';
+import { Modal } from 'react-native';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -15,6 +16,12 @@ import * as Linking from 'expo-linking';
 
 jest.mock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn() }));
 jest.mock('expo-linking', () => ({ parse: jest.fn() }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () =>
+  require('../../../../jest.expo-router').createExpoRouterMock({
+    useRouter: () => ({ push: mockPush, replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true }),
+  }),
+);
 jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://oauth-callback' }));
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, user: { id: 'u1', display_name: 'Jean' }, logout: jest.fn() }),
@@ -29,24 +36,45 @@ let mockCoachOnly = false;
 jest.mock('../../../hooks/useOnboardingContext', () => ({
   useOnboardingContext: () => ({ context: { athleteStepsWaived: mockCoachOnly } }),
 }));
+const mockGetOnboardingStatus = jest.fn();
 jest.mock('../../../services/api', () => ({
   oauthApi: { getProvidersStatus: jest.fn(), initMobileOAuth: jest.fn() },
+  userApi: { getOnboardingStatus: (...args: unknown[]) => mockGetOnboardingStatus(...args) },
 }));
 jest.mock('../../../components/SciotteLoginModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
+    // The window as a marker carrying its target, plus the server's
+    // oauth_required refusal, which keeps the window open and tells the screen.
     SciotteLoginModal: ({
       visible,
       target,
       consentRequired,
+      historyMode,
+      onOAuthRequired,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
+      historyMode?: boolean;
+      onOAuthRequired?: () => void;
     }) =>
       visible
-        ? React.createElement(Text, null, `sciotte-modal:${target}${consentRequired ? ':consent' : ''}`)
+        ? React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(
+              Text,
+              null,
+              `sciotte-modal:${target}${consentRequired ? ':consent' : ''}${historyMode ? ':history' : ''}`,
+            ),
+            React.createElement(
+              Text,
+              { testID: 'sciotte-modal-oauth-required', onPress: () => onOAuthRequired?.() },
+              'refuse:oauth_required',
+            ),
+          )
         : null,
   };
 });
@@ -98,6 +126,17 @@ const STRAVA_CARD = {
   recommended_backend: 'oauth' as const,
   seats_left: 3,
 };
+
+/** iOS reports the history sheet gone through its `onDismiss`; a test sends it. */
+function historySheetGone() {
+  const modal = screen.UNSAFE_getAllByType(Modal).find((each) => typeof each.props.onDismiss === 'function');
+  if (!modal) throw new Error('the history sheet has no onDismiss');
+  act(() => modal.props.onDismiss());
+}
+
+beforeEach(() => {
+  mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
+});
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -176,7 +215,7 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
   });
 });
 
-describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (carnet#1302)', () => {
+describe('OnboardingConnectScreen — a Garmin grant whose history is needed (carnet#1386)', () => {
   const garminRow = (overrides: Record<string, unknown> = {}) => ({
     provider: 'sciotte_garmin',
     display_name: 'Garmin',
@@ -190,23 +229,24 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     consent_required: false,
     ...overrides,
   });
-  const granted = (awaiting: boolean) =>
+  const granted = (awaiting: boolean, archive_source: string | null = null) =>
     garminRow({
       connected: true,
       connected_backend: 'garmin',
       history: {
         state: awaiting ? ('needed' as const) : ('imported' as const),
         sign_in_target: 'sciotte_garmin',
-        archive_source: null,
+        archive_source,
       },
     });
+  const addHint = i18n.t('providers.history.addAria', { provider: 'Garmin' });
 
   beforeEach(() => {
     jest.clearAllMocks();
     initMobileOAuth.mockResolvedValue({ authorization_url: 'https://connect.garmin.com/oauth2Confirm' });
   });
 
-  it('goes on to the Garmin login when the grant comes back with no activities', async () => {
+  it('opens the history sheet when the grant comes back with its history needed, then the sign-in that copies it', async () => {
     getProvidersStatus
       .mockResolvedValueOnce({ providers: [garminRow()] })
       .mockResolvedValue({ providers: [granted(true)] });
@@ -216,7 +256,11 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     renderScreen();
     fireEvent.press(await screen.findByLabelText('Connect Garmin'));
 
-    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(await screen.findByTestId('history-sheet')).toBeTruthy();
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+    fireEvent.press(screen.getByTestId('history-choice-sign-in'));
+    historySheetGone();
+    expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
   });
 
   it('stays on the grant once it holds activities', async () => {
@@ -230,10 +274,11 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     fireEvent.press(await screen.findByLabelText('Connect Garmin'));
 
     await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('history-sheet')).toBeNull();
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
-  it('falls back to the Garmin login when the Garmin grant comes back refused', async () => {
+  it('says a refused Garmin grant did not connect, on its row, never the sign-in', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [garminRow()] });
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=denied' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'denied' } });
@@ -241,20 +286,101 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     renderScreen();
     fireEvent.press(await screen.findByLabelText('Connect Garmin'));
 
-    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(await screen.findByTestId('provider-error-sciotte_garmin')).toHaveTextContent(
+      i18n.t('providers.connectRefused', { provider: 'Garmin' }),
+    );
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
-  it('offers the Garmin login on a row whose history is needed', async () => {
+  it('reads the rows again for a Garmin grant that came back refused for want of a seat, and signs in', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow()] })
+      .mockResolvedValue({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=no_seat' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'no_seat' } });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(getProvidersStatus).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('provider-error-sciotte_garmin')).toBeNull();
+  });
+
+  it('says "try again" for a Garmin grant refused for any other reason, reading nothing again', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow()] })
+      .mockResolvedValue({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=denied' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'denied' } });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByTestId('provider-error-sciotte_garmin')).toBeTruthy();
+    expect(getProvidersStatus).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+  });
+
+  it('says on the row that Garmin now connects through its official sign-in when the server refuses the sign-in', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] })
+      .mockResolvedValue({ providers: [garminRow()] });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    fireEvent.press(await screen.findByTestId('sciotte-modal-oauth-required'));
+
+    const refused = await screen.findByTestId('provider-error-sciotte_garmin');
+    expect(refused).toHaveTextContent(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin'));
+    expect(refused).not.toHaveTextContent(i18n.t('providers.connectRefused', { provider: 'Garmin' }));
+    expect(getProvidersStatus).toHaveBeenCalledTimes(2);
+    // The window stays open, saying the same.
+    expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
+  });
+
+  it('says a Garmin start that failed did not connect, on its row, never the sign-in', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminRow()] });
+    initMobileOAuth.mockRejectedValue(new Error('network down'));
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByTestId('provider-error-sciotte_garmin')).toBeTruthy();
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+    consoleError.mockRestore();
+  });
+
+  it('reads the rows again when the start was refused for want of a seat, and signs in once the pool is full', async () => {
+    getProvidersStatus
+      .mockResolvedValueOnce({ providers: [garminRow()] })
+      .mockResolvedValue({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] });
+    initMobileOAuth.mockRejectedValue({ response: { status: 403, data: { details: { reason: 'no_seat' } } } });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(getProvidersStatus).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
+  });
+
+  it('offers the history sheet on a row whose history is needed', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [granted(true)] });
 
     renderScreen();
-    // The spoken name is the visible label; the hint naming the provider explains it.
-    const signIn = await screen.findByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' }));
-    expect(signIn).toHaveTextContent(i18n.t('providers.history.signIn'));
-    expect(signIn.props.accessibilityLabel).toBeUndefined();
-    fireEvent.press(signIn);
+    // The spoken name is the visible words; the hint naming the provider explains it.
+    const add = await screen.findByHintText(addHint);
+    expect(add).toHaveTextContent(i18n.t('providers.history.add'));
+    expect(add.props.accessibilityLabel).toBeUndefined();
+    fireEvent.press(add);
 
-    expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(await screen.findByTestId('history-sheet')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('history-choice-sign-in'));
+    historySheetGone();
+    expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
 
@@ -262,9 +388,73 @@ describe('OnboardingConnectScreen — a Garmin grant with nothing pushed yet (ca
     getProvidersStatus.mockResolvedValue({ providers: [{ ...granted(true), consent_required: true }] });
 
     renderScreen();
-    fireEvent.press(await screen.findByHintText(i18n.t('providers.history.signInAria', { provider: 'Garmin' })));
+    fireEvent.press(await screen.findByHintText(addHint));
+    fireEvent.press(await screen.findByTestId('history-choice-sign-in'));
+    historySheetGone();
 
-    expect(await screen.findByText('sciotte-modal:garmin:consent')).toBeTruthy();
+    expect(await screen.findByText('sciotte-modal:garmin:consent:history')).toBeTruthy();
+  });
+
+  it("opens the export's import inside the connect step, from the sheet and from the row", async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [granted(true, 'garmin_archive')] });
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('provider-export-sciotte_garmin'));
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
+
+    fireEvent.press(screen.getByHintText(addHint));
+    fireEvent.press(await screen.findByTestId('history-choice-archive'));
+    historySheetGone();
+    expect(mockPush).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
+  });
+
+  it('asks a sign-in-only Garmin row to move, through Garmin OAuth', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [garminRow({ connected: true, connected_backend: 'sciotte_garmin', migration: 'oauth_required' })],
+    });
+    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+    renderScreen();
+    expect(await screen.findByTestId('provider-subtitle-sciotte_garmin')).toHaveTextContent(
+      i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' }),
+    );
+    fireEvent.press(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
+
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+
+    // Back on the rows while the authorization is still out (the overlay's
+    // Cancel), the `garmin` authorization's spinner shows on the row it
+    // belongs to, never its "Connected".
+    fireEvent.press(await screen.findByText(i18n.t('app.cancelTryDifferentProvider')));
+    await waitFor(() => expect(screen.getByTestId('provider-action-sciotte_garmin').type).toBe('ActivityIndicator'));
+    expect(screen.queryByText(i18n.t('app.connected'))).toBeNull();
+  });
+});
+
+describe('OnboardingConnectScreen — an import started counts as connected', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [STRAVA_CARD] });
+  });
+
+  it('offers Continue once the server no longer needs a connection, though nothing is connected', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: false });
+
+    renderScreen();
+
+    expect(await screen.findByTestId('onboarding-connect-continue')).toBeTruthy();
+    expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+  });
+
+  it('keeps the skip while the server still needs a connection', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
+
+    renderScreen();
+
+    expect(await screen.findByText(i18n.t('app.continueWithoutConnecting'))).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-connect-continue')).toBeNull();
   });
 });
 

@@ -360,14 +360,14 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
-   * The card is connected through its provider's OAuth grant, and no activity
-   * is held yet under any key its reads serve (its pushes, what a usr/pwd
-   * session imported, an imported archive). Garmin's API pushes only what the athlete records
-   * after connecting. The card's offer of the usr/pwd login that copies the
-   * history reads `history` instead (`historyLoginTarget` in
-   * `@pierre/shared-constants`), which a grant's own pushes leave `needed`.
+   * The move the card asks of an athlete connected by usr/pwd alone:
+   * `'oauth_required'` on the Garmin card of an athlete whose own usr/pwd
+   * session serves it, with no Garmin grant, while a seat is free on Garmin's
+   * OAuth client. The card offers Garmin's official connection; the athlete
+   * keeps their session until they move. Absent otherwise, and always with
+   * the pool full.
    */
-  oauth_awaiting_activities: boolean;
+  migration?: 'oauth_required';
   /**
    * How the connection behind a connected card was made: `"oauth"` for a
    * provider authorization, `"manual"` for a pasted credential (an
@@ -387,15 +387,17 @@ export interface ExtendedProviderStatus {
   needs_reauth: boolean;
   capabilities: string[];
   /**
-   * For a user-facing provider with more than one auth backend (Strava can be
-   * served by shared-app OAuth or by the Sciotte mirror), the backend a NEW
-   * connection should use: `"oauth"` while shared seats remain, otherwise
-   * `"mirror"`. Absent for single-backend providers.
+   * For a user-facing provider with more than one auth backend (Strava and
+   * Garmin can each be served by their OAuth or by the usr/pwd connection),
+   * the backend a NEW connection should use: `"oauth"` while seats remain or
+   * the athlete holds the grant, otherwise `"mirror"`. Absent for
+   * single-backend providers.
    */
   recommended_backend?: 'oauth' | 'mirror';
   /**
-   * Remaining shared-app OAuth athlete seats for this provider when it is
-   * seat-limited (Strava). Absent for providers without a seat cap.
+   * Remaining OAuth seats for this provider when it is seat-limited: Strava's
+   * shared apps and Garmin's Developer Program client. Absent for providers
+   * without a seat cap.
    */
   seats_left?: number;
   /**

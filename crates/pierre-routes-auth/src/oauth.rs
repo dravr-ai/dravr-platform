@@ -33,7 +33,7 @@ use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
-use pierre_providers::backend_resolver::{self, OAuthGrant};
+use pierre_providers::backend_resolver;
 use pierre_providers::ProviderCapabilities;
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
@@ -48,6 +48,7 @@ use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
+use pierre_auth::garmin_seats::NO_SEAT_REASON;
 use pierre_auth::tenant::oauth_manager::find_authorizing_client;
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_DESCRIPTION_COROS, KEY_PROVIDER_DESCRIPTION_GARMIN,
@@ -674,6 +675,20 @@ pub(crate) async fn compute_providers_status(
 
             let (recommended_backend, seats_left) =
                 card_seats.recommendation(provider_name, grant.serves());
+            // Asked only of a usr/pwd-only Garmin card, so the grant lookup
+            // runs for that card alone.
+            let migration = if connected_backend.as_deref() == Some(oauth_providers::SCIOTTE_GARMIN)
+            {
+                card_backend::card_migration(
+                    provider_name,
+                    connected_backend.as_deref(),
+                    connection_type.as_deref(),
+                    card_seats.garmin_left(),
+                    card_backend::garmin_grant_held(resources, user_id, tenant_id).await,
+                )
+            } else {
+                None
+            };
 
             let (own_app_required, oauth_callback_url) =
                 own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
@@ -687,7 +702,7 @@ pub(crate) async fn compute_providers_status(
                 requires_oauth,
                 connected,
                 connected_backend,
-                oauth_awaiting_activities: grant == OAuthGrant::AwaitsActivities,
+                migration,
                 connection_type,
                 needs_reauth,
                 capabilities,
@@ -933,7 +948,18 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
         .await?;
-    require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
+    // A tab opened for Garmin's consent page lands back on the app's OAuth
+    // return with the refusal's reason, never on a JSON body, when the pool
+    // filled since its card was drawn.
+    if let Err(refused) = require_garmin_seat(&resources, user_id, tenant_id, &provider).await {
+        let Some(frontend) = resources.config.frontend_url.as_deref() else {
+            return Err(refused);
+        };
+        info!(provider = %provider, user_id = %user_id, "OAuth authorize refused: no Garmin seat");
+        let base = format!("{}/oauth-callback", frontend.trim_end_matches('/'));
+        let back = oauth_redirects::oauth_return_url(&base, &provider, false, Some(NO_SEAT_REASON));
+        return Ok((StatusCode::FOUND, [(header::LOCATION, back)]).into_response());
+    }
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let authorization = oauth_service

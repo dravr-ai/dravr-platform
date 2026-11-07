@@ -53,6 +53,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
+use pierre_auth::config::oauth::OAuthConfig;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
@@ -82,6 +83,7 @@ use uuid::Uuid;
 use pierre_notifications::NotificationService;
 
 mod format;
+mod reauth_copy;
 use format::{format_activity_line, warmed_window_policy};
 
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
@@ -167,6 +169,9 @@ pub struct ServerBackfillNotifier {
     admin_jwt_secret: Arc<str>,
     /// Server root URL for building the hosted-login link in the reauth nudge.
     base_url: String,
+    /// The server's OAuth clients: whether a seat is free on Garmin's decides
+    /// a dead usr/pwd-only Garmin session's reconnect copy (`reauth_copy`).
+    oauth: OAuthConfig,
     /// Each provider's terms: what of the warmed window the notice, which a
     /// model reads back, may carry.
     terms: Arc<dyn ProviderTerms>,
@@ -203,6 +208,7 @@ impl ServerBackfillNotifier {
         platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
         admin_jwt_secret: Arc<str>,
         base_url: String,
+        oauth: OAuthConfig,
         #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
     ) -> Arc<dyn BackfillNotifier> {
         let resolver = config_adapter_resolver(repos.clone());
@@ -213,6 +219,7 @@ impl ServerBackfillNotifier {
             platform_post,
             admin_jwt_secret,
             base_url,
+            oauth,
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications,
@@ -241,10 +248,20 @@ impl ServerBackfillNotifier {
             platform_post: Arc::new(OnceLock::new()),
             admin_jwt_secret,
             base_url,
+            oauth: OAuthConfig::default(),
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
+    }
+
+    /// The same notifier, weighing Garmin's seats under `oauth`. Test seam for
+    /// the reconnect copy of a usr/pwd-only Garmin session, which the other
+    /// seams build with no Garmin client, so no seat.
+    #[must_use]
+    pub fn with_oauth(mut self, oauth: OAuthConfig) -> Self {
+        self.oauth = oauth;
+        self
     }
 
     /// Build a notifier with an explicit adapter resolver and a pre-installed
@@ -269,6 +286,7 @@ impl ServerBackfillNotifier {
             platform_post: slot,
             admin_jwt_secret,
             base_url,
+            oauth: OAuthConfig::default(),
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
@@ -336,7 +354,8 @@ impl ServerBackfillNotifier {
     /// token both expire within the hour, well before a notice read the next
     /// morning, and the sentence promises a day. It is named without a link,
     /// and reconnected from the app's settings — as is a mirror whose link
-    /// could not be minted.
+    /// could not be minted, and a usr/pwd-only Garmin session while a seat is
+    /// free on Garmin's OAuth, which is told to move there (`reauth_copy`).
     async fn reauth_notice_body(
         &self,
         user_id: Uuid,
@@ -347,6 +366,15 @@ impl ServerBackfillNotifier {
     ) -> ReconnectNotice {
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
+        if let Some(body) = self
+            .oauth_reconnect_body(user_id, tenant_id, provider, display, locale)
+            .await
+        {
+            return ReconnectNotice {
+                body,
+                send_by: None,
+            };
+        }
         let link = if backend_resolver::hosted_login_target(provider).is_some() {
             self.hosted_login_url(user_id, tenant_id, provider, channel)
                 .await
@@ -1022,20 +1050,28 @@ impl BackfillNotifier for ServerBackfillNotifier {
             );
             return;
         }
-        let Some(link) = self
-            .hosted_login_url(user_id, tenant_id, provider, &channel_str)
-            .await
-        else {
-            return;
-        };
-
-        // Render the localized reconnect message ({0}=provider brand, {1}=link)
-        // and send via the shared adapter rail.
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        let body =
-            self.strings
-                .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
+        // A usr/pwd-only Garmin session is told to move to Garmin's OAuth while
+        // a seat is free, with no sign-in link; any other is sent the link
+        // ({0}=provider brand, {1}=link). Either goes by the shared adapter rail.
+        let (body, link) = if let Some(body) = self
+            .oauth_reconnect_body(user_id, tenant_id, provider, display, &locale)
+            .await
+        {
+            (body, None)
+        } else {
+            let Some(link) = self
+                .hosted_login_url(user_id, tenant_id, provider, &channel_str)
+                .await
+            else {
+                return;
+            };
+            let body =
+                self.strings
+                    .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
+            (body, Some(link))
+        };
 
         let outgoing = proactive_text(channel_type, recipient, body);
         let Some((adapter, channel_config)) = self
@@ -1054,8 +1090,8 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // expired and keeps re-asking. The message row lands on the
             // user/session tenant; the queue row lands on the bot/channel-owner
             // tenant so the worker resolves the right channel config on re-send.
-            // The retry is bounded by the link's life and stops once the
-            // connection is reconnected.
+            // The retry is bounded by the link's life, when it carries one, and
+            // stops once the connection is reconnected.
             let reauth_user_id = user_id.to_string();
             if let Err(enqueue_err) = enqueue_failed_outbound(
                 self.repos.messaging.as_ref(),
@@ -1069,7 +1105,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     queue_tenant_id: channel_tenant_id,
                     user_id: Some(&reauth_user_id),
                     channel: &channel_str,
-                    expires_at: Some(link.send_by),
+                    expires_at: link.as_ref().map(|link| link.send_by),
                     reauth: Some(OutboundReauthGuard {
                         tenant_id,
                         provider,

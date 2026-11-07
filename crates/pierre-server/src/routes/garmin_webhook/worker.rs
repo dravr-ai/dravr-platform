@@ -27,7 +27,8 @@
 //! token (a refresh Garmin refused, nothing left to refresh with), and a
 //! permission change withdrawing what the grant exists for, flag the `garmin`
 //! connection ([`flag_needs_reauth`]), which the card reads as "Reconnect"
-//! and the athlete is told once.
+//! and the athlete is told once. The daily grant check (`grant_refresh`)
+//! flags the same way a grant that no push put to the test.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -321,13 +322,13 @@ fn file_error(what: &str, e: impl Into<SharedHttpError>) -> AppError {
 }
 
 /// The reason recorded on a Garmin connection the worker found dead.
-const GRANT_REFUSED: &str = "grant_refused";
+pub(super) const GRANT_REFUSED: &str = "grant_refused";
 
 /// Flag `owner`'s Garmin connection, found dead by an attempt that began at
 /// `attempt_started_at`, for `reason`. The flag's notice claim keeps it to
 /// one notice per transition however many paths saw the same dead grant; a
 /// flag that cannot be written is logged and the caller's outcome stands.
-async fn flag_garmin(
+pub(super) async fn flag_garmin(
     runtime: &Arc<dyn ToolRuntime>,
     owner: GarminOwner,
     reason: &str,

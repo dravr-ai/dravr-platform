@@ -18,14 +18,19 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL, KEY_HOSTED_COMMON_LINKED_FROM,
     KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
     KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_USERNAME_LABEL, KEY_HOSTED_COMMON_VERIFYING_CODE,
-    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_PICKER_DATA_AVAILABLE,
+    KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_USERNAME_LABEL,
+    KEY_HOSTED_COMMON_VERIFYING_CODE, KEY_HOSTED_ERROR_INVALID_LINK,
+    KEY_HOSTED_PICKER_DATA_AVAILABLE, KEY_HOSTED_PICKER_HISTORY_BODY,
+    KEY_HOSTED_PICKER_HISTORY_COPYING, KEY_HOSTED_PICKER_HISTORY_IMPORT_EXPORT,
+    KEY_HOSTED_PICKER_HISTORY_SIGN_IN_NOTE, KEY_HOSTED_PICKER_HISTORY_TITLE,
+    KEY_HOSTED_PICKER_IMPORT_EXPORT_LINK, KEY_HOSTED_PICKER_OAUTH_RETRY,
     KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE, KEY_HOSTED_PICKER_STRAVA_FALLBACK,
     KEY_HOSTED_PICKER_TAG_API_KEY, KEY_HOSTED_PICKER_TAG_AUTHORIZE,
     KEY_HOSTED_PICKER_TAG_CONNECTED, KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD,
-    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY,
-    KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD, KEY_IMPORT_LINK, KEY_IMPORT_LINK_HINT,
+    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING,
+    KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE, KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY,
+    KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL, KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD,
     KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
@@ -34,6 +39,7 @@ use urlencoding::encode;
 
 use crate::hosted_page::{script_json, PageStrings};
 use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON};
+use crate::sciotte_grant_gate::OAUTH_REQUIRED_REASON;
 use crate::sciotte_hosted_templates;
 
 const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
@@ -47,7 +53,8 @@ const INTERVALS_ICU_LABEL: &str = "Intervals.icu";
 /// the page renders.
 ///
 /// `providers` is the array of
-/// `{ provider, display_name, description, connected, kind, target, … }`
+/// `{ provider, display_name, description, connected, history_state,
+/// archive_url?, migrate, kind, target, … }`
 /// [`crate::connect_hosted::build_connect_providers`] produced. It and the
 /// strings the page's script sets go into the `<script>` as JSON, so neither
 /// is ever markup.
@@ -57,7 +64,6 @@ pub(crate) fn render_connect_page(
     link_token: &str,
     channel: &str,
     providers: &Value,
-    offers_import: bool,
 ) -> String {
     let channel_label = strings.channel(channel);
     // What the page's script writes: the card tags, the labels and notes that
@@ -75,6 +81,16 @@ pub(crate) fn render_connect_page(
         "tagEmailPassword": strings.get(KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD),
         "tagEmailOrUsernamePassword": strings.get(KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD),
         "tagImportHistory": strings.get(KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY),
+        "tagHistoryImporting": strings.get(KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING),
+        "tagHistoryIncomplete": strings.get(KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE),
+        "tagMoveToOfficial": strings.get(KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL),
+        "importExportLink": strings.get(KEY_HOSTED_PICKER_IMPORT_EXPORT_LINK),
+        "historyTitle": strings.get(KEY_HOSTED_PICKER_HISTORY_TITLE),
+        "historyBody": strings.get(KEY_HOSTED_PICKER_HISTORY_BODY),
+        "historySignInNote": strings.get(KEY_HOSTED_PICKER_HISTORY_SIGN_IN_NOTE),
+        "historyImportExport": strings.get(KEY_HOSTED_PICKER_HISTORY_IMPORT_EXPORT),
+        "historyCopying": strings.get(KEY_HOSTED_PICKER_HISTORY_COPYING),
+        "oauthRetry": strings.get(KEY_HOSTED_PICKER_OAUTH_RETRY),
         "accountTitle": strings.get(KEY_HOSTED_COMMON_ACCOUNT_TITLE),
         "credentialsNote": strings.get(KEY_HOSTED_COMMON_CREDENTIALS_NOTE),
         "connectingTo": strings.get(KEY_HOSTED_COMMON_CONNECTING_TO),
@@ -86,6 +102,7 @@ pub(crate) fn render_connect_page(
         "signInUnavailable": strings.get(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE),
         "signInChallenged": strings.get(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED),
         "signInExpired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_EXPIRED),
+        "signInOauthRequired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED),
         "linkExpired": strings.get(KEY_HOSTED_ERROR_INVALID_LINK),
         "stravaFallback": strings.get(KEY_HOSTED_PICKER_STRAVA_FALLBACK),
         "signInIncomplete": strings.get(KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE),
@@ -107,37 +124,16 @@ pub(crate) fn render_connect_page(
         "{{DATA_AVAILABLE}}",
         &strings.html(KEY_HOSTED_PICKER_DATA_AVAILABLE, &[&channel_label]),
     )
-    .replace(
-        "{{IMPORT_ENTRY}}",
-        &import_entry(strings, link_token, offers_import),
-    )
     .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
     .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
     .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
+    .replace("{{OAUTH_REQUIRED_REASON}}", OAUTH_REQUIRED_REASON)
     // The JSON goes in last so an escaped token/channel can never close the
     // script context before it.
     .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
     .replace("{{PROVIDERS_JSON}}", &script_json(providers))
-}
-
-/// The picker's "Import your own data" entry below the provider cards: a
-/// link to the hosted import page carrying the same connect link-token, and
-/// the line saying what it brings in. Nothing where this server imports no
-/// history.
-fn import_entry(strings: &PageStrings<'_>, link_token: &str, offers_import: bool) -> String {
-    if !offers_import {
-        return String::new();
-    }
-    let href = format!("/providers/connect/import?token={}", encode(link_token));
-    format!(
-        r#"<a class="btn btn-secondary btn-block" id="import-own-data" href="{}">{}</a>
-            <p class="fineprint">{}</p>"#,
-        escape_html_attribute(&href),
-        strings.html(KEY_IMPORT_LINK, &[]),
-        strings.html(KEY_IMPORT_LINK_HINT, &[]),
-    )
 }
 
 /// Render the hosted Intervals.icu page for the connect link-token, in the

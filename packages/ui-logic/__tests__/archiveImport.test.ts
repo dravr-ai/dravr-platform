@@ -25,6 +25,7 @@ import {
   importSize,
   importSourceCopy,
   importStateCopy,
+  importedHistoryCount,
   linkRefusalKey,
   offeredImportSources,
   startErrorKey,
@@ -326,5 +327,31 @@ describe('an import, as both clients say it', () => {
         expect(typeof lookup(catalogue, key), `${locale}: ${key}`).toBe('string');
       }
     }
+  });
+});
+
+describe('the history a provider card counts (carnet#1386)', () => {
+  const overview = (imports: ArchiveImport[]) => ({ enabled: true, sources: ['strava_archive', 'garmin_archive'], imports });
+
+  it('counts the completed import of the card\'s own source, while its history is held', () => {
+    const imports = [
+      entry('completed', { imported: 412 }),
+      entry('completed', { source: 'garmin_archive', imported: 87 }),
+    ];
+    expect(importedHistoryCount(overview(imports), 'strava_archive')).toBe(412);
+    expect(importedHistoryCount(overview(imports), 'garmin_archive')).toBe(87);
+  });
+
+  it('counts nothing while the import runs or after it stopped', () => {
+    for (const status of ['awaiting_link', 'queued', 'downloading', 'importing', 'failed', 'cancelled'] as const) {
+      expect(importedHistoryCount(overview([entry(status, { source: 'garmin_archive' })]), 'garmin_archive')).toBe(0);
+    }
+  });
+
+  it('counts nothing once the athlete deleted the history, for a source with no import, or before the overview is read', () => {
+    expect(importedHistoryCount(overview([entry('completed', { history_held: false })]), 'strava_archive')).toBe(0);
+    expect(importedHistoryCount(overview([entry('completed')]), 'garmin_archive')).toBe(0);
+    expect(importedHistoryCount(undefined, 'strava_archive')).toBe(0);
+    expect(importedHistoryCount(null, 'strava_archive')).toBe(0);
   });
 });

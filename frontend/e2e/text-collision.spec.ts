@@ -413,8 +413,8 @@ test.describe('Text never paints over text', () => {
     const row = page.getByTestId('provider-glyph-garmin').locator('xpath=ancestor::button[1]');
     await expect(row).toBeVisible({ timeout: 15000 });
     await expect(row).toContainText('Garmin');
-    // The longest action the card carries, so the one most likely to collide.
-    await expect(row).toContainText('Connecte-toi pour importer ton historique');
+    // The action a card still needing its history carries.
+    await expect(row).toContainText("Ajouter l'historique");
     await expectNoCollidingText(page, 'provider row', '[data-testid="onboarding-shell"]', 5);
     const past = await row.evaluate((button) => {
       const edge = button.getBoundingClientRect().right;

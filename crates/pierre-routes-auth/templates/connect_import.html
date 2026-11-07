@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<!-- ABOUTME: Hosted import page the connect picker opens: request the Strava export, paste its link, follow or cancel the import -->
+<!-- ABOUTME: Hosted import page the connect picker opens: request a service's export (Strava, Garmin), paste its link, follow or cancel it -->
 <!-- ABOUTME: Its script calls the import routes with an import link-token, which starts, follows and cancels, and nothing else -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
 <!--
   Hosted import page, reached from the connect picker a chat link opens.
-  The athlete asks Strava for their export, pastes the link Strava emails,
-  and follows the import here. The page was rendered with an import
+  The athlete asks the service (Strava, Garmin) for their export, pastes the
+  link the service emails, and follows the import here. The lines that name
+  the service are its own; the rest are shared. The page was rendered with an import
   link-token, narrowed from the picker's connect token: it starts, follows and
   cancels one source's import for this athlete, and reaches no report, no
   delete and no provider login. Every string arrives in the athlete's locale
@@ -31,7 +32,7 @@
 
         <a class="btn btn-tertiary back-link" href="{{BACK_URL}}">&larr; {{t:hosted.common.back}}</a>
         <h1>{{t:providers.import.title}}</h1>
-        <p class="lead">{{t:providers.import.strava.intro}}</p>
+        <p class="lead">{{INTRO}}</p>
 
         <div id="error-banner" class="alert alert-error" role="alert" hidden></div>
 
@@ -47,26 +48,27 @@
             <p>{{t:providers.import.unavailable}}</p>
         </section>
 
-        <!-- Phase: request the export from Strava -->
+        <!-- Phase: request the export from the service -->
         <section id="phase-request" hidden>
             <p id="last-outcome" hidden></p>
-            <p><strong>{{t:providers.import.strava.step1Title}}</strong></p>
-            <p>{{t:providers.import.strava.step1Body}}</p>
+            <p><strong>{{STEP1_TITLE}}</strong></p>
+            <p>{{STEP1_BODY}}</p>
             <div class="actions">
-                <a class="btn btn-secondary btn-block" href="{{STRAVA_EXPORT_PAGE}}" target="_blank" rel="noopener noreferrer">{{t:providers.import.strava.step1Open}}</a>
+                <a class="btn btn-secondary btn-block" href="{{EXPORT_PAGE}}" target="_blank" rel="noopener noreferrer">{{STEP1_OPEN}}</a>
                 <button type="button" class="btn btn-tertiary btn-block" id="requested">{{t:providers.import.strava.step1Requested}}</button>
             </div>
         </section>
 
-        <!-- Phase: paste the link from Strava's email (after a request, while
+        <!-- Phase: paste the link from the service's email (after a request, while
              an import waits for its link, or to import a newer export) -->
         <section id="phase-link" hidden>
-            <p id="awaiting-line" hidden>{{t:providers.import.state.awaitingLink}}</p>
-            <p><strong>{{t:providers.import.strava.step2Title}}</strong></p>
+            <p id="awaiting-line" hidden>{{AWAITING_LINE}}</p>
+            <p><strong>{{STEP2_TITLE}}</strong></p>
             <form id="link-form" novalidate>
                 <div class="field">
-                    <label for="export-link">{{t:providers.import.strava.linkLabel}}</label>
+                    <label for="export-link">{{LINK_LABEL}}</label>
                     <input type="url" id="export-link" name="url" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="{{t:providers.import.strava.linkPlaceholder}}">
+                    <p class="fineprint" id="link-hint">{{LINK_HINT}}</p>
                 </div>
                 <button type="submit" class="btn btn-primary btn-block" id="start">{{t:providers.import.strava.start}}</button>
             </form>
@@ -105,7 +107,6 @@
                 // athlete's import of `source`, and nothing else.
                 token: "{{IMPORT_TOKEN}}",
                 source: "{{SOURCE}}",
-                enabled: {{ENABLED}},
                 // The strings the script sets, in the athlete's locale. A
                 // `{0}` or `{1}` in one is a slot `fmt` fills.
                 strings: {{STRINGS_JSON}},
@@ -204,7 +205,9 @@
                     return;
                 }
                 const awaiting = entry.status === 'awaiting_link';
-                document.getElementById('awaiting-line').hidden = !awaiting;
+                // A source whose wording has no waiting line keeps it hidden.
+                const awaitingLine = document.getElementById('awaiting-line');
+                awaitingLine.hidden = !awaiting || !awaitingLine.textContent.trim();
                 document.getElementById('cancel-waiting').hidden = !awaiting;
                 document.getElementById('cancel-waiting').disabled = false;
                 if (awaiting) {
@@ -323,11 +326,10 @@
                 document.getElementById('export-link').focus();
             });
 
-            if (!CONFIG.enabled) {
-                show(['unavailable']);
-            } else {
-                refresh();
-            }
+            // A source whose email needs no hint shows none.
+            const linkHint = document.getElementById('link-hint');
+            linkHint.hidden = !linkHint.textContent.trim();
+            refresh();
         })();
     </script>
 </body>

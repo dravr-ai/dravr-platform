@@ -34,7 +34,7 @@ import { openExternal } from '../../utils/openExternal';
 import { UploadIntake } from './UploadIntake';
 
 interface ImportScreenProps {
-  /** Open straight on an offered source's import (`strava_archive`, `whoop_archive`, ...), as the Strava card's history link does. */
+  /** Open straight on an offered source's import (`strava_archive`, `whoop_archive`, ...), as a card's export link and the history sheet do. */
   initialSource?: string;
   /** Leave the screen; shown as a close action where the stack has no header (onboarding). */
   onClose?: () => void;

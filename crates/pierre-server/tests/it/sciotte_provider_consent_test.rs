@@ -28,10 +28,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use common::{
-    create_test_server_resources_with_sciotte, create_test_user, create_test_user_with_email,
-    generate_test_token,
-};
+use common::{create_test_user, create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -150,10 +147,13 @@ fn providers_seen(logins: &Logins) -> Vec<String> {
 #[tokio::test]
 async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     let logins: Logins = Arc::new(Mutex::new(Vec::new()));
-    let resources =
-        create_test_server_resources_with_sciotte(&spawn_recording_scraper(logins.clone()).await)
-            .await
-            .unwrap();
+    let resources = common::create_test_server_resources_with_config(
+        common::test_server_config_with_sciotte_usr_pwd_garmin(
+            &spawn_recording_scraper(logins.clone()).await,
+        ),
+    )
+    .await
+    .unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = generate_test_token(&resources, &user).await;
     let users = &resources.common.repos.users;

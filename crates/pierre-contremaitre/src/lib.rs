@@ -50,6 +50,8 @@ pub mod narration_vocab;
 pub mod notify_routing;
 /// Hot-reloadable coaching-persona contract registry — populated by the sync engine.
 pub mod persona_contracts;
+/// Catalogue keys of the reconnect copy for a connection the provider's OAuth replaces
+pub mod reauth_strings;
 /// In-memory prompt registry with compiled-in fallback
 pub mod registry;
 /// Read-only [`store::PromptStore`] trait and its GitHub backend

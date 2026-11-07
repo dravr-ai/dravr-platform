@@ -26,6 +26,7 @@ import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
+import { signInOauthRequiredLine } from '../utils/connectFlow';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
@@ -35,6 +36,7 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -68,6 +70,19 @@ interface SciotteLoginModalProps {
    * before the credentials, and the login carries the acceptance.
    */
   consentRequired?: boolean;
+  /**
+   * The card is already connected through the provider's authorization and
+   * this sign-in copies its history once: the window says so, and its
+   * success says the copy is running.
+   */
+  historyMode?: boolean;
+  /**
+   * The server refused the sign-in because the provider now connects through
+   * its official authorization (`details.reason` `oauth_required`): the
+   * window stays open and says so, as the web's does, and the caller reads
+   * its cards again, whose plan then leads to that authorization.
+   */
+  onOAuthRequired?: () => void;
 }
 
 /**
@@ -205,6 +220,8 @@ export function SciotteLoginModal({
   onConnected,
   target,
   consentRequired = false,
+  historyMode = false,
+  onOAuthRequired,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   // Closing the window ends the sign-in it started, on the server too.
@@ -327,6 +344,7 @@ export function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(platformName);
       }
+      if (reason === SIGN_IN_OAUTH_REQUIRED) return signInOauthRequiredLine(t, platformName);
       return describeApiError(err, { t, fallbackKey });
     },
     [platformName, t]
@@ -378,10 +396,11 @@ export function SciotteLoginModal({
       if (signal.aborted) return;
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
+      if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onOAuthRequired, refusalMessage, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -844,8 +863,10 @@ export function SciotteLoginModal({
             <CheckCircle2 size={32} color={colors.success} />
           </View>
           <Text className="text-lg font-bold text-text-primary">{t('app.connectedBang')}</Text>
-          <Text className="text-sm text-text-secondary mt-1">
-            {t('app.providerReadyToSync', { provider: platformName })}
+          <Text className="text-sm text-text-secondary mt-1 text-center" testID="sciotte-success-line">
+            {historyMode
+              ? t('providers.history.modalCopying')
+              : t('app.providerReadyToSync', { provider: platformName })}
           </Text>
         </View>
       );
@@ -933,6 +954,10 @@ export function SciotteLoginModal({
                   </Text>
                   {status && phase !== 'choose' && phase !== 'credentials' ? (
                     <Text className="text-xs text-text-tertiary">{status}</Text>
+                  ) : historyMode ? (
+                    <Text className="text-xs text-text-secondary" testID="sciotte-history-intro">
+                      {t('providers.history.modalIntro', { provider: platformName })}
+                    </Text>
                   ) : (
                     <Text className="text-xs text-text-tertiary">{t('app.secureConnection')}</Text>
                   )}

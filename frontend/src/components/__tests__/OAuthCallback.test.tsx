@@ -59,6 +59,16 @@ describe('OAuthCallback', () => {
     expect(screen.getByText('Invalid token')).toBeInTheDocument()
   })
 
+  it.each(['no_seat', 'oauth_required', 'access_denied'])(
+    'words the reason code %s in the app\'s sentence and never prints the code',
+    (code) => {
+      render(<OAuthCallback provider="garmin" error={code} onClose={vi.fn()} />)
+
+      expect(screen.getByText(/Failed to connect your Garmin account/)).toBeInTheDocument()
+      expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument()
+    },
+  )
+
   it('should display default error message when no error provided', () => {
     render(<OAuthCallback provider="strava" onClose={vi.fn()} />)
 

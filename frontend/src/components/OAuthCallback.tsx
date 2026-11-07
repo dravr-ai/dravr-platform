@@ -12,6 +12,19 @@ import { useTranslation } from '@pierre/i18n';
 import { oauthApi, providersApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
+/**
+ * A machine code the return may carry (`no_seat`, `oauth_required`,
+ * `access_denied`…): a lowercase word and underscores. The page words it
+ * itself rather than print it.
+ */
+const ERROR_CODE = /^[a-z][a-z0-9_]*$/;
+
+/** The callback's `error`, when it is a sentence the page may show as it came; a code is never shown raw. */
+function shownCallbackError(error: string | undefined): string | null {
+  if (!error || ERROR_CODE.test(error)) return null;
+  return error;
+}
+
 interface OAuthCallbackProps {
   provider: string;
   error?: string;
@@ -89,7 +102,7 @@ export default function OAuthCallback({ provider, error, tombstone, onClose }: O
             </div>
           ) : (
             <p className="text-sm text-on-surface-variant mb-6">
-              {error || t('app.failedConnectProviderAccount', { provider: providerDisplay })}
+              {shownCallbackError(error) ?? t('app.failedConnectProviderAccount', { provider: providerDisplay })}
             </p>
           )}
 

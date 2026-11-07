@@ -12,13 +12,13 @@
 //! that fails, or a server with no client configured, reads as no seat left,
 //! so a connect is never sent into an OAuth flow that cannot finish.
 
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
 use pierre_auth::{garmin_seats, strava_pool};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 
 /// Seats left on each capped OAuth client.
@@ -56,6 +56,11 @@ impl CardSeats {
         Self { strava, garmin }
     }
 
+    /// Seats left on the Garmin client, as counted for this provider list.
+    pub(crate) const fn garmin_left(&self) -> u32 {
+        self.garmin
+    }
+
     /// The `recommended_backend` and `seats_left` of `provider_name`'s card,
     /// for an athlete whose own grant serves it when `grant_serves`.
     ///
@@ -85,59 +90,29 @@ impl CardSeats {
     }
 }
 
-/// Refuse to start Garmin's OAuth for `user_id` in `tenant_id` when the
-/// Developer Program client has no seat for them: the pool is full (or cannot
-/// be counted, or no client is configured) and they hold no Garmin grant in
-/// that tenant whose seat a reconnect would re-sign.
-///
-/// The card already recommends the usr/pwd connection once the pool is full,
-/// but it is drawn before the connect starts, so two athletes shown the last
-/// seat could both start the flow. This check, at every authorize start,
-/// holds the cap. Any other provider passes.
+/// [`garmin_seats::require_garmin_seat`] over this server's stores: refuse to
+/// start Garmin's OAuth for `user_id` in `tenant_id` when the Developer
+/// Program client has no seat for them. Any other provider passes.
 ///
 /// # Errors
-/// A [`AppError::resource_unavailable`] refusal when no seat is left for
-/// this user; the caller routes them to the usr/pwd connection.
+/// A [`pierre_core::errors::AppError::resource_unavailable`] refusal, with `details.reason`
+/// [`garmin_seats::NO_SEAT_REASON`], when no seat is left for this user; the caller routes
+/// them to the usr/pwd connection.
 pub(crate) async fn require_garmin_seat(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> AppResult<()> {
-    if provider != oauth_providers::GARMIN {
-        return Ok(());
-    }
-    match resources
-        .repos
-        .oauth_tokens
-        .get_token(user_id, tenant_id, oauth_providers::GARMIN)
-        .await
-    {
-        Ok(Some(_)) => return Ok(()),
-        Ok(None) => {}
-        Err(e) => {
-            warn!(error = %e, "Garmin grant lookup failed; weighing the seat pool alone");
-        }
-    }
-    let left = match garmin_seats::garmin_seat_summary(
+    garmin_seats::require_garmin_seat(
+        resources.repos.oauth_tokens.as_ref(),
         resources.repos.provider_connections.as_ref(),
         &resources.config.oauth,
+        user_id,
+        tenant_id,
+        provider,
     )
     .await
-    {
-        Ok(summary) => summary.left(),
-        Err(e) => {
-            debug!(error = %e, "Garmin seats could not be counted; no OAuth start");
-            0
-        }
-    };
-    if left > 0 {
-        return Ok(());
-    }
-    Err(AppError::resource_unavailable(
-        "Garmin OAuth refused: the Developer Program client has no seat left; \
-         connect with the Garmin email and password instead",
-    ))
 }
 
 #[cfg(test)]

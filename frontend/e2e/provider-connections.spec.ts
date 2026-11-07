@@ -259,11 +259,50 @@ test.describe('Provider Connections - OAuth Flow', () => {
     expect(page.context().pages()).toHaveLength(1);
   });
 
-  test('a refused Garmin connect comes back to the same route and offers the credential login', async ({ page }) => {
-    // A refused Garmin grant (a seat-count race, or Garmin said no) has nothing
-    // to say on a callback page: the athlete is put back where they were, with
-    // the usr/pwd login for the same data.
+  test('a refused Garmin connect comes back to the same route and says so, opening no sign-in', async ({ page }) => {
+    // A refused Garmin grant has nothing to say on a callback page: the
+    // athlete is put back where they were, the card's Connect trying again.
+    // While a seat is free it never falls back to the account sign-in.
     await mockGarminRoundTrip(page, 'success=false&error=access_denied');
+
+    await loginToDashboard(page);
+    await page.goto('/#settings/connections');
+    const garminRow = page.getByTestId('provider-row-sciotte_garmin');
+    await expect(garminRow).toBeVisible({ timeout: 10000 });
+
+    await garminRow.getByRole('button', { name: 'Connect' }).click();
+
+    await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
+    await expect(page.getByText('Failed to connect Garmin')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Connection Failed' })).toHaveCount(0);
+    await expect(garminRow.getByRole('button', { name: 'Connect' })).toBeEnabled();
+    expect(page.context().pages()).toHaveLength(1);
+  });
+
+  test('a Garmin connect whose seat went before it started falls back to the Garmin sign-in', async ({ page }) => {
+    // The seats ran out between the card being read and the tap: the server
+    // sends the tab back with `error=no_seat`, and the card, read again,
+    // signs in — while the pool is full a new Garmin connection signs in.
+    await mockGarminRoundTrip(page, 'success=false&error=no_seat');
+    let seatsGone = false;
+    await page.route('**/api/oauth/authorize/garmin', (route) => {
+      seatsGone = true;
+      return route.fulfill({ status: 302, headers: { location: '/?provider=garmin&success=false&error=no_seat' } });
+    });
+    await page.route('**/api/providers', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          providers: mockProviders.providers.map((p) =>
+            p.provider === 'sciotte_garmin'
+              ? { ...p, recommended_backend: seatsGone ? 'mirror' : 'oauth', seats_left: seatsGone ? 0 : 1 }
+              : p,
+          ),
+        }),
+      }),
+    );
 
     await loginToDashboard(page);
     await page.goto('/#settings/connections');
@@ -275,7 +314,6 @@ test.describe('Provider Connections - OAuth Flow', () => {
     await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
     await expect(page.getByRole('dialog', { name: /Garmin/ })).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Connection Failed' })).toHaveCount(0);
-    expect(page.context().pages()).toHaveLength(1);
   });
 });
 
@@ -392,7 +430,6 @@ test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => 
     needs_reauth: false,
     capabilities: ['activities', 'sleep', 'health'],
     consent_required: false,
-    oauth_awaiting_activities: false,
     history: { state, sign_in_target: 'sciotte_garmin', archive_source: null },
   });
 
@@ -422,7 +459,7 @@ test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => 
         await expect(history).toContainText(line);
         await expect(page.getByText(/sciotte/i)).toHaveCount(0);
         if (state === 'needed') {
-          await expect(page.getByRole('button', { name: 'Sign in to import your history' })).toBeVisible();
+          await expect(page.getByRole('button', { name: 'Add history' })).toBeVisible();
         }
         if (state === 'incomplete') {
           await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();

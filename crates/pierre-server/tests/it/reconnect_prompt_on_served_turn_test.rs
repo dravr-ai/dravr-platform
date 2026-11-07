@@ -59,6 +59,9 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
     KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
+use pierre_contremaitre::reauth_strings::{
+    KEY_PROVIDER_REAUTH_OAUTH_REQUIRED, KEY_PROVIDER_REAUTH_OAUTH_SERVED,
+};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -91,7 +94,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::common::{
-    create_test_server_resources, create_test_server_resources_with_chat_provider, create_test_user,
+    create_test_server_resources, create_test_server_resources_with_chat_provider_and_config,
+    create_test_server_resources_with_config, create_test_user, test_server_config_usr_pwd_garmin,
 };
 
 /// The agent's own answer over the sibling's data. Every assertion about what
@@ -104,7 +108,7 @@ const TEST_BASE_URL: &str = "https://api.test.dravr.ai";
 
 /// A `ToolLoopResult` shaped the way a tool loop hands one to the recovery
 /// stages: the agent's text, and whichever re-auth signal the turn raised.
-fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
+pub(crate) fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
     ToolLoopResult {
         content: AGENT_ANSWER.to_owned(),
         usage: None,
@@ -144,9 +148,14 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
 }
 
 fn web_profile() -> SurfaceProfile {
+    profile_in("fr")
+}
+
+/// The web surface, for an athlete reading `locale`.
+fn profile_in(locale: &str) -> SurfaceProfile {
     SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,
-        locale: "fr".to_owned(),
+        locale: locale.to_owned(),
         transport: None,
         prose_contract: None,
     })
@@ -222,7 +231,18 @@ async fn recover(
     tenant: TenantId,
     result: &mut ToolLoopResult,
 ) -> AuthRecovery {
-    let admin_jwt_secret: Arc<str> = Arc::from("test-admin-jwt-secret-for-reconnect-minting");
+    recover_in(resources, user_id, tenant, "fr", result).await
+}
+
+/// [`recover`] for an athlete reading `locale`.
+pub(crate) async fn recover_in(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    locale: &str,
+    result: &mut ToolLoopResult,
+) -> AuthRecovery {
+    let admin_jwt_secret: Arc<str> = Arc::from(RECOVERY_LINK_SECRET);
     let registry = Arc::new(MessagingStringsRegistry::new());
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let short_links = resources.common.repos.short_links.clone();
@@ -236,10 +256,71 @@ async fn recover(
             short_links: &short_links,
         },
         &input,
-        &web_profile(),
+        &profile_in(locale),
         result,
     )
     .await
+}
+
+/// Where the reconnect offer's `url` leads: the target its `<base>/r/<code>`
+/// short link resolves to on this server.
+pub(crate) async fn offer_target(resources: &Arc<ServerContext>, url: &str) -> String {
+    let code = url
+        .strip_prefix(&format!("{TEST_BASE_URL}/r/"))
+        .unwrap_or_else(|| panic!("the offer is a short link on this server: {url}"));
+    resources
+        .common
+        .repos
+        .short_links
+        .resolve_short_link(code)
+        .await
+        .unwrap()
+        .expect("the short link resolves")
+}
+
+/// The token a hosted page link at `target` carries after `{base}{path}?token=`,
+/// or a panic naming where it led instead.
+pub(crate) fn token_after(target: &str, path: &str) -> String {
+    let prefix = format!("{TEST_BASE_URL}{path}?token=");
+    let token = target
+        .strip_prefix(&prefix)
+        .unwrap_or_else(|| panic!("the offer opens {path}: {target}"));
+    urlencoding::decode(token).unwrap().into_owned()
+}
+
+/// The secret [`recover_in`] mints its link tokens with.
+pub(crate) const RECOVERY_LINK_SECRET: &str = "test-admin-jwt-secret-for-reconnect-minting";
+
+/// A new athlete holding a usr/pwd Garmin connection of their own, and the
+/// tenant it lives in.
+pub(crate) async fn usr_pwd_garmin_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .first()
+        .expect("user has a tenant")
+        .id;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            "sciotte_garmin",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    (user_id, tenant)
 }
 
 // ============================================================================
@@ -349,7 +430,9 @@ async fn a_served_turn_yields_the_siblings_data_and_a_clickable_reconnect_prompt
 /// appending is the whole difference from the blank path.
 #[tokio::test]
 async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
-    let resources = create_test_server_resources().await.unwrap();
+    let resources = create_test_server_resources_with_config(test_server_config_usr_pwd_garmin())
+        .await
+        .unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
     let mut result = loop_result(None, Some("sciotte_garmin"));
@@ -459,7 +542,9 @@ async fn a_failed_mint_on_a_served_turn_keeps_the_answer_and_drops_the_control()
 /// before. A single-provider athlete must not lose the deterministic reply.
 #[tokio::test]
 async fn a_sole_dead_connection_still_blanks_to_the_reconnect_message() {
-    let resources = create_test_server_resources().await.unwrap();
+    let resources = create_test_server_resources_with_config(test_server_config_usr_pwd_garmin())
+        .await
+        .unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
     let mut result = loop_result(Some("sciotte_garmin"), None);
@@ -779,9 +864,12 @@ impl LlmProvider for ActivitiesThenAnswer {
 #[tokio::test]
 async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
     let provider: Arc<dyn LlmProvider> = Arc::new(ActivitiesThenAnswer::new());
-    let resources = create_test_server_resources_with_chat_provider(provider)
-        .await
-        .unwrap();
+    let resources = create_test_server_resources_with_chat_provider_and_config(
+        provider,
+        test_server_config_usr_pwd_garmin(),
+    )
+    .await
+    .unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
     let conversation = resources
@@ -1730,4 +1818,74 @@ async fn a_whoop_reconnect_owing_the_owner_authorization_offers_the_hosted_picke
         "an account that accepted reconnects on WHOOP's page: {}",
         prompt.url
     );
+}
+
+/// A dead usr/pwd Garmin session of the athlete's own, while a seat is free on
+/// Garmin's OAuth, is offered the move: the copy names Garmin's official
+/// connection and the link opens the hosted connect picker, never the usr/pwd
+/// sign-in it would have re-signed (carnet#1454). On a served turn the same
+/// move is appended to the answer.
+#[tokio::test]
+async fn a_usr_pwd_only_garmin_reconnect_offers_the_connect_picker_while_a_seat_is_free() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = usr_pwd_garmin_athlete(&resources).await;
+
+    let mut result = loop_result(Some("sciotte_garmin"), None);
+    let prompt = recover(&resources, user_id, tenant, &mut result)
+        .await
+        .prompt
+        .expect("the athlete gets a reconnect control");
+    assert_eq!(
+        prompt.provider, "sciotte_garmin",
+        "bug: the control names the dead connection"
+    );
+    assert!(
+        !prompt.display_name.contains("sciotte"),
+        "never the backend slug: {}",
+        prompt.display_name
+    );
+    assert_eq!(
+        result.content,
+        MessagingStringsRegistry::new().render(
+            KEY_PROVIDER_REAUTH_OAUTH_REQUIRED,
+            "fr",
+            &[prompt.display_name.as_str(), prompt.url.as_str()],
+        ),
+        "bug: the reply names the move to Garmin's official connection"
+    );
+    let target = offer_target(&resources, &prompt.url).await;
+    assert!(
+        !target.contains(HOSTED_SIGNIN_PATH),
+        "bug: a usr/pwd sign-in link would re-sign the session it should move: {target}"
+    );
+    let token = token_after(&target, "/providers/connect");
+    let claims = verify_link_token(&token, RECOVERY_LINK_SECRET, CONNECT_PROVIDER)
+        .expect("a connect-scoped token for the picker");
+    assert_eq!(
+        claims.sub,
+        user_id.to_string(),
+        "bug: the picker link is this athlete's"
+    );
+
+    let mut served = loop_result(None, Some("sciotte_garmin"));
+    let prompt = recover(&resources, user_id, tenant, &mut served)
+        .await
+        .prompt
+        .expect("a served turn keeps its reconnect control");
+    assert!(
+        served.content.starts_with(AGENT_ANSWER),
+        "the answer survives: {}",
+        served.content
+    );
+    assert_eq!(
+        prompt.text,
+        MessagingStringsRegistry::new().render(
+            KEY_PROVIDER_REAUTH_OAUTH_SERVED,
+            "fr",
+            &[prompt.display_name.as_str(), prompt.url.as_str()],
+        ),
+        "bug: the served turn offers the move as well"
+    );
+    let target = offer_target(&resources, &prompt.url).await;
+    token_after(&target, "/providers/connect");
 }

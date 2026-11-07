@@ -38,6 +38,7 @@ use crate::health_backfill::spawn_health_backfill;
 use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
+use crate::sciotte_grant_gate::require_garmin_grant;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
@@ -956,13 +957,17 @@ pub(crate) async fn handle_sciotte_login(
         request.tos_consent,
     )
     .await?;
+    // A new usr/pwd-only Garmin connection is refused while a seat is free
+    // on Garmin's OAuth, whatever client sent it (carnet#1454).
+    let backend = SciotteTarget::from_target_param(target).provider_name();
+    require_garmin_grant(&resources, user_id, TenantId::from_uuid(tenant_id), backend).await?;
 
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would
     // name a flow the service has already reaped.
     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
 
-    let provider = SciotteTarget::from_target_param(target).provider_name();
+    let provider = backend;
 
     // Session short-circuit: a stored Sciotte session written within the reuse
     // window answers a double tap or a refresh-after-connect without a second

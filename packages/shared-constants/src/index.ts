@@ -182,7 +182,6 @@ export {
   cardHistoryState,
   historyActionKey,
   historyImporting,
-  historyLoginTarget,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
@@ -200,6 +199,20 @@ export type {
   ProviderScope,
   SciotteLoginPreset,
 } from './providers';
+
+// What a provider card offers — its connect or reconnect, history choices, the
+// move to the official connection, and where a refused grant goes
+export {
+  OAUTH_NO_SEAT,
+  SIGN_IN_OAUTH_REQUIRED,
+  cardForSlug,
+  cardStatus,
+  connectPlan,
+  credentialFallbackOnRefusal,
+  refusalReloadsCards,
+  refusalReturnsToCard,
+} from './connect-plan';
+export type { CardStatus, ConnectPlanCard, HistoryChoice } from './connect-plan';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

@@ -116,7 +116,7 @@ pub mod startup_banner;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
-pub use crate::routes::garmin_webhook::start_garmin_push_worker;
+pub use crate::routes::garmin_webhook::{start_garmin_grant_refresh, start_garmin_push_worker};
 #[cfg(feature = "tools-config")]
 pub use crate::services::anchor_promotion::start_anchor_promotion;
 pub use crate::services::archive_import::sweeps::start_archive_import_sweeps;

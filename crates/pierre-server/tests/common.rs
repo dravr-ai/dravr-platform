@@ -750,6 +750,24 @@ pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
     config
 }
 
+/// [`test_server_config`] with no Garmin OAuth client, so no Garmin seat is
+/// offered and a usr/pwd Garmin sign-in stays the way in (carnet#1454): for a
+/// test that signs in to Garmin by usr/pwd for what the sign-in itself does,
+/// not for the move to Garmin's OAuth.
+pub(crate) fn test_server_config_usr_pwd_garmin() -> ServerConfig {
+    let mut config = test_server_config();
+    config.oauth.garmin = OAuthProviderConfig::default();
+    config
+}
+
+/// [`test_server_config_usr_pwd_garmin`] with the sciotte scraper service at
+/// `url`.
+pub(crate) fn test_server_config_with_sciotte_usr_pwd_garmin(url: &str) -> ServerConfig {
+    let mut config = test_server_config_with_sciotte(url);
+    config.oauth.garmin = OAuthProviderConfig::default();
+    config
+}
+
 /// [`create_test_server_resources_with_config`] with the sciotte scraper
 /// service at `url`.
 pub(crate) fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContext {

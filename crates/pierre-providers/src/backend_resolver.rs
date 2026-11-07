@@ -45,7 +45,7 @@
 use std::iter;
 
 use chrono::{DateTime, Utc};
-use pierre_core::constants::oauth::providers::{self as oauth_providers, companion_keys};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -285,38 +285,6 @@ async fn has_token_row(
     )
 }
 
-/// Whether the user holds no activity in this tenant under any key a
-/// push-fed `oauth_backend`'s reads serve: the grant's own pushes, what its
-/// mirror's usr/pwd session imported, and the athlete's own imported archive
-/// ([`companion_keys`]). The provider pushes only what the athlete records
-/// after connecting, so a fresh grant with no history beside it holds
-/// nothing, whatever the window.
-///
-/// `false` for a backend that is not push-fed (its API reads history on
-/// request) and when a store cannot be read: a failed read keeps the grant
-/// the user chose rather than moving them on a guess. Existence is read from
-/// the rows themselves, never from `latest_activity_sync`, which a push of
-/// wellness data alone also advances.
-async fn history_store_is_empty(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    oauth_backend: &str,
-) -> bool {
-    if pushed_backend_for(oauth_backend) != Some(oauth_backend) {
-        return false;
-    }
-    let keys = history_keys(oauth_backend)
-        .into_iter()
-        .chain(companion_keys(oauth_backend).iter().copied());
-    for key in keys {
-        if holds_activities(repos, user_id, tenant_id, key).await {
-            return false;
-        }
-    }
-    true
-}
-
 /// Whether the user holds any activity under the cache `key` in this tenant.
 ///
 /// Read from the rows themselves. A store that cannot be read counts as
@@ -350,8 +318,9 @@ pub async fn holds_activities(
 /// history keeps being served beside the pushes (carnet#1386). One key per
 /// backend otherwise.
 ///
-/// The athlete's own uploads ([`companion_keys`]) are not among them: those
-/// are served by their own path.
+/// The athlete's own uploads
+/// ([`companion_keys`](oauth_providers::companion_keys)) are not among them:
+/// those are served by their own path.
 #[must_use]
 pub fn history_keys(backend: &str) -> Vec<&str> {
     let mirror = (pushed_backend_for(backend) == Some(backend))
@@ -415,19 +384,16 @@ pub async fn session_imports_history(
 pub enum OAuthGrant {
     /// The user holds no OAuth token row for the provider.
     Absent,
-    /// The grant serves the provider's reads.
+    /// The grant serves the provider's reads. Where the athlete's history
+    /// from before it stands is the card's own `history`, read apart.
     Serves,
-    /// The grant serves, but no activity is held yet under any key its reads
-    /// serve (`history_store_is_empty`): the clients offer the mirror login
-    /// for the athlete's history.
-    AwaitsActivities,
 }
 
 impl OAuthGrant {
     /// Whether the OAuth backend serves the provider's reads.
     #[must_use]
     pub const fn serves(self) -> bool {
-        matches!(self, Self::Serves | Self::AwaitsActivities)
+        matches!(self, Self::Serves)
     }
 }
 
@@ -437,12 +403,9 @@ impl OAuthGrant {
 ///
 /// Strava's grant serves whenever its row exists: its API reads history on
 /// request. Garmin's grant serves whenever its row exists too, whatever
-/// usr/pwd session stands beside it (carnet#1386): it reads
-/// [`OAuthGrant::AwaitsActivities`] while no activity is held under any key
-/// its reads serve (the clients then offer the usr/pwd login for the
-/// history), [`OAuthGrant::Serves`] once one is. "No activity" is the whole
-/// store, never a requested window, so one user resolves to one backend
-/// whatever they ask for.
+/// usr/pwd session stands beside it (carnet#1386), so one user resolves to
+/// one backend whatever they ask for. Whether the history from before the
+/// grant is in is the card's to say, never the routing's.
 /// Providers whose OAuth backend never serves beside its mirror, and those
 /// with no mirror, read [`OAuthGrant::Absent`].
 pub async fn oauth_grant(
@@ -457,14 +420,7 @@ pub async fn oauth_grant(
     {
         return OAuthGrant::Absent;
     }
-    if pushed_backend_for(user_facing) != Some(user_facing) {
-        return OAuthGrant::Serves;
-    }
-    if history_store_is_empty(repos, user_id, tenant_id, user_facing).await {
-        OAuthGrant::AwaitsActivities
-    } else {
-        OAuthGrant::Serves
-    }
+    OAuthGrant::Serves
 }
 
 /// Resolve a user-facing provider name to the backend that should actually

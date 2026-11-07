@@ -112,12 +112,15 @@ export {
   importSize,
   importSourceCopy,
   importStateCopy,
+  importedHistoryCount,
   linkRefusalKey,
   offeredImportSources,
   startErrorKey,
   uploadErrorKey,
   uploadPercent,
 } from './archiveImport';
+
+export { cardAwaitingHistory, cardExportSource, shownHistoryChoices } from './cardHistory';
 
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';

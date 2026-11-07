@@ -1003,7 +1003,10 @@ async fn a_session_expiring_mid_import_reads_incomplete_and_sends_nothing() {
 #[tokio::test]
 async fn a_usr_pwd_only_garmin_sign_in_is_untouched() {
     let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let resources = server(common::test_server_config_with_sciotte_usr_pwd_garmin(
+        &scraper,
+    ))
+    .await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
 
     let (status, body) = sign_in(&resources, &token).await;

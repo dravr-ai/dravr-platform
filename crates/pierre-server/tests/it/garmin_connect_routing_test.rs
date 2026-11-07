@@ -762,8 +762,12 @@ async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_se
         "bug: the live Garmin OAuth grant must serve the card ahead of the dead usr/pwd session: {after}"
     );
     assert_eq!(
-        after["oauth_awaiting_activities"], true,
-        "a grant with nothing pushed, beside a dead session, offers the usr/pwd login again: {after}"
+        after["history"]["state"], "needed",
+        "a grant with nothing copied, beside a dead session, asks for its history again: {after}"
+    );
+    assert!(
+        after.get("oauth_awaiting_activities").is_none(),
+        "the card carries its history in `history` alone: {after}"
     );
     assert_eq!(
         after["needs_reauth"], false,
@@ -1013,10 +1017,11 @@ async fn a_garmin_api_grant_with_nothing_pushed_and_no_session_answers_empty() {
 }
 
 /// The card reads the same rule (carnet#1386): the grant serves the card
-/// whatever usr/pwd session stands beside it, offering the usr/pwd login
-/// while no history is held anywhere it reads, on the hosted picker too. What
-/// the session stored ends the wait, and the session dying asks nothing: the
-/// card stays "Connected" until the grant itself is flagged.
+/// whatever usr/pwd session stands beside it, its history reading `needed`
+/// while nothing is copied, on the hosted picker too, where the card opens
+/// the history step. What the session stored makes it `imported`, and the
+/// session dying asks nothing: the card stays "Connected" until the grant
+/// itself is flagged.
 #[tokio::test]
 async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -1039,9 +1044,10 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
         "{alone}"
     );
     assert_eq!(
-        alone["oauth_awaiting_activities"], true,
-        "bug: an empty Garmin grant alone must offer the usr/pwd login: {alone}"
+        alone["history"]["state"], "needed",
+        "bug: an empty Garmin grant alone must ask for its history: {alone}"
     );
+    assert!(alone.get("oauth_awaiting_activities").is_none(), "{alone}");
 
     let page = picker_page(&resources, user_id, tenant).await;
     let target = page
@@ -1051,12 +1057,17 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
     let card_end = target + page[target..].find('}').unwrap();
     let picker_card = &page[card_start..card_end];
     assert!(
-        picker_card.contains(r#""awaits_activities":true"#),
-        "the hosted picker offers the credential form too: {picker_card}"
+        picker_card.contains(r#""history_state":"needed""#)
+            && picker_card.contains(r#""history_sign_in":true"#),
+        "the hosted picker opens the history step with its one-time sign-in: {picker_card}"
+    );
+    assert!(
+        !picker_card.contains("awaits_activities"),
+        "the picker card names its history state alone: {picker_card}"
     );
     assert!(
         page.contains(r#""tagImportHistory":"Import my history""#),
-        "the awaiting card's tag is worded in the page's strings"
+        "the card's tag is worded in the page's strings"
     );
 
     connect(
@@ -1075,8 +1086,8 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
         "bug: the grant serves the card beside a live usr/pwd session: {beside}"
     );
     assert_eq!(
-        beside["oauth_awaiting_activities"], true,
-        "a session holding no history yet leaves the grant awaiting it: {beside}"
+        beside["history"]["state"], "needed",
+        "a session holding no history yet leaves the history needed: {beside}"
     );
 
     let imported = ActivityBuilder::new(
@@ -1100,7 +1111,7 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
     let after_import = cards(&resources, &user).await;
     let after_import = card(&after_import, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
-        after_import["oauth_awaiting_activities"], false,
+        after_import["history"]["state"], "imported",
         "bug: what the session stored is the grant's history: {after_import}"
     );
 

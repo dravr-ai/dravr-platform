@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
-// ABOUTME: Also holds each scrape-mirror target's login facts, each provider's notice to accept first, and how Intervals.icu links
+// ABOUTME: Also holds each sign-in target's login facts, each provider's notice to accept first, a card's history words, and how Intervals.icu links
 
 import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
 
@@ -217,24 +217,6 @@ export function cardHistoryState(card: Pick<ExtendedProviderStatus, 'connected' 
 }
 
 /**
- * The credential-login target a connected card offers for the athlete's
- * history, or `null` when it offers none. A push-fed grant (Garmin) carries
- * only what the athlete records after connecting, so while the history is
- * `needed`, or its last copy ended `incomplete`, the card offers the one-time
- * usr/pwd sign-in that copies it (`history.sign_in_target`, a backend id such
- * as `sciotte_garmin`, resolved to the login's target) — from the card and
- * straight after a Garmin grant completes.
- */
-export function historyLoginTarget(
-  card: Pick<ExtendedProviderStatus, 'connected' | 'history'>,
-): SciotteTarget | null {
-  const state = cardHistoryState(card);
-  if (state !== 'needed' && state !== 'incomplete') return null;
-  const signIn = card.history?.sign_in_target;
-  return signIn ? sciotteTargetForBackend(signIn) : null;
-}
-
-/**
  * The line a card shows under its name for each history state; a card whose
  * history is `not_applicable` shows none. Each takes `{ provider }`.
  */
@@ -246,21 +228,23 @@ export const HISTORY_LINE_KEYS: Readonly<Record<Exclude<HistoryState, 'not_appli
 };
 
 /**
- * The words of the card's history action, the line that explains it, and the
- * spoken hint naming the provider. The action's accessible name is its visible
- * words (`historyActionKey`), so `signInAria` is only ever a hint or a
+ * The words of the card's history action, its spoken hint naming the
+ * provider, and the line that explains the one-time sign-in (the sign-in
+ * choice's hint in the history sheet). The action opens the sheet
+ * (`connectPlan(card).history.choices`); its accessible name is its visible
+ * words (`historyActionKey`), so `addAria` is only ever a hint or a
  * description, never a label that replaces them (WCAG 2.5.3, label in name).
  */
 export const HISTORY_ACTION_KEYS = {
-  signIn: 'providers.history.signIn',
-  signInAria: 'providers.history.signInAria',
+  add: 'providers.history.add',
+  addAria: 'providers.history.addAria',
   retry: 'providers.history.retry',
   explainer: 'providers.history.explainer',
 } as const;
 
-/** The words on a card's history action: try again after a copy that did not finish, otherwise sign in. */
+/** The words on a card's history action: try again after a copy that did not finish, otherwise add the history. */
 export function historyActionKey(card: Pick<ExtendedProviderStatus, 'connected' | 'history'>): string {
-  return cardHistoryState(card) === 'incomplete' ? HISTORY_ACTION_KEYS.retry : HISTORY_ACTION_KEYS.signIn;
+  return cardHistoryState(card) === 'incomplete' ? HISTORY_ACTION_KEYS.retry : HISTORY_ACTION_KEYS.add;
 }
 
 /** How often the provider cards are read again while a card's history is copying. */

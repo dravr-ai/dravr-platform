@@ -328,6 +328,7 @@ mod garmin_history_import_settle_test;
 mod garmin_history_import_test;
 mod garmin_normalized_power_reaches_coach_test;
 mod garmin_oauth2_pkce_test;
+mod garmin_oauth_only_test;
 mod garmin_provider_test;
 mod garmin_push_ingest_test;
 mod garmin_push_only_reads_test;
