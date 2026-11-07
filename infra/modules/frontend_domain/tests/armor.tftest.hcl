@@ -106,6 +106,20 @@ run "the_marketplace_allow_sits_between_the_token_and_address_limits" {
   }
 }
 
+run "no_path_pattern_holds_a_group_cloud_armor_refuses" {
+  command = plan
+
+  # Cloud Armor's matcher refuses any parenthesised group in request.path.matches()
+  # ("capture groups are not allowed"), which only an apply against GCP reports.
+  assert {
+    condition = alltrue([
+      for re in [local.armor_protocol_paths, local.armor_waf_paths, local.armor_ban_exempt_paths] :
+      !strcontains(re, "(")
+    ])
+    error_message = "A path pattern holds a group; Cloud Armor refuses it at apply"
+  }
+}
+
 run "the_ban_leaves_senders_and_assets_alone_and_counts_the_app" {
   command = plan
 

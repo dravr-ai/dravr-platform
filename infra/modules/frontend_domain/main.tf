@@ -27,13 +27,15 @@ locals {
   domain_slug = { for d in var.domains : d => replace(d, ".", "-") }
 
   # RE2, as Cloud Armor's request.path.matches() and terraform's regexall() both
-  # read them, so tests/armor.tftest.hcl replays real paths through these.
-  armor_protocol_paths = "^/(mcp(/|$)|a2a/)"
-  armor_waf_paths      = "^/(mcp(/|$)|a2a/|oauth2/)"
+  # read them, so tests/armor.tftest.hcl replays real paths through these. Cloud
+  # Armor refuses any group, capturing or not, so each prefix is anchored on its
+  # own and the alternation has no parentheses.
+  armor_protocol_paths = "^/mcp$|^/mcp/|^/a2a/"
+  armor_waf_paths      = "^/mcp$|^/mcp/|^/a2a/|^/oauth2/"
   # A sender retries from one address, and a CDN-less asset burst is one page
   # load: neither is a flood. /webhooks covers Garmin, Wahoo, COROS, Strava,
   # WHOOP, Stripe and contremaitre; each verifies its own signature or token.
-  armor_ban_exempt_paths = "^/(mcp(/|$)|a2a/|webhooks/|api/messaging/webhook/|api/ops/slack/|assets/)"
+  armor_ban_exempt_paths = "^/mcp$|^/mcp/|^/a2a/|^/webhooks/|^/api/messaging/webhook/|^/api/ops/slack/|^/assets/"
 }
 
 # -----------------------------------------------------------------------------
