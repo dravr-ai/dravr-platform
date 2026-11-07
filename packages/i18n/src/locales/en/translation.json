@@ -2653,6 +2653,7 @@
       "signInUnavailable": "We couldn't sign you in to {0} right now. This is usually temporary — please try again in a few minutes.",
       "signInChallenged": "{0} asked for an extra security check we can't complete automatically right now. Please try again in a little while.",
       "signInPaused": "{0} sign-in is paused while we move to {0}'s official connection.",
+      "signInOauthRequired": "{0} now connects through its official sign-in. Go back and choose {0}.",
       "signInExpired": "This sign-in is no longer active. Please start the sign-in again.",
       "tryAgain": "Try Again"
     },
@@ -2672,8 +2673,20 @@
       "tagEmailPassword": "Email / password",
       "tagEmailOrUsernamePassword": "Email or username / password",
       "tagImportHistory": "Import my history",
+      "tagHistoryImporting": "Copying history…",
+      "tagHistoryIncomplete": "Try again",
+      "tagMoveToOfficial": "Move to {0}'s official connection",
       "stravaFallback": "Strava sign-in didn't complete — you can connect with your Strava email and password instead.",
-      "signInIncomplete": "That sign-in didn't complete. Please go back and try again."
+      "signInIncomplete": "That sign-in didn't complete. Please go back and try again.",
+      "historyTitle": "Bring in your {0} history",
+      "historyBody": "{0} sends what you record from today. Choose how to add what came before.",
+      "historySignIn": "Sign in once to copy your past workouts",
+      "historySignInNote": "Sign in once to copy your history; {0} keeps your new workouts coming.",
+      "historyImportExport": "Import your {0} export",
+      "historyNotNow": "Not now",
+      "historyCopying": "Copying your history — this runs once.",
+      "importExportLink": "Have an export? Import it",
+      "oauthRetry": "{0} didn't connect. Try again."
     },
     "login": {
       "pageTitle": "Connect your account - Dravr",
@@ -3024,11 +3037,15 @@
       }
     },
     "provider": {
-      "reauth_required": "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 24 hours):\n\n{1}\n\nOnce reconnected, ask me again.",
+      "reauth_required": "Your {0} connection has expired — I can't fetch your data right now. Reconnect here:\n\n{1}\n\nOnce reconnected, ask me again.",
       "reauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. Reconnect {0} from your settings, then ask me again.",
-      "reauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} here so I can see everything (link valid for 24 hours):\n\n{1}",
+      "reauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} here so I can see everything:\n\n{1}",
       "reauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} from your settings so I can see everything.",
       "reauth_paused": "Your {0} connection has expired, and {0} sign-in is paused while we move to {0}'s official connection — so I can't read your {0} data for now.",
+      "reauth_oauth_required": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
+      "reauth_oauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
+      "reauth_oauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
+      "reauth_oauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reconnect_button": "Reconnect {0}"
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
@@ -3327,6 +3344,14 @@
       "10k": "10 km",
       "half_marathon": "half marathon",
       "marathon": "marathon"
+    },
+    "provider_oauth_required": {
+      "title": "Move {0} to its official connection",
+      "body": "Your {0} sign-in expired. Connect {0} through its official connection to keep your data coming."
+    },
+    "provider_reauth": {
+      "title": "Reconnect needed",
+      "body": "Reconnect {0} to keep your data coming."
     }
   },
   "oauth": {
@@ -3650,6 +3675,7 @@
   "providers": {
     "add": "Add Provider",
     "connect": "Connect",
+    "connectRefused": "{{provider}} didn't connect. Try again.",
     "connectLater": "Connect providers later",
     "connectToAria": "Connect to {{provider}}",
     "connected": "Connected",
@@ -3676,7 +3702,20 @@
       "signIn": "Sign in to import your history",
       "signInAria": "Sign in to {{provider}} to import your history",
       "retry": "Try again",
-      "explainer": "Sign in once with your {{provider}} account: we copy your past activities and a year of wellness, then forget that sign-in."
+      "explainer": "Sign in once with your {{provider}} account: we copy your past activities and a year of wellness, then forget that sign-in.",
+      "sheetTitle": "Bring in your {{provider}} history",
+      "sheetBody": "{{provider}} sends what you record from today. Choose how to add what came before.",
+      "choiceSignIn": "Sign in once to copy your past workouts",
+      "choiceArchive": "Import your {{provider}} export",
+      "choiceArchiveHint": "Ask {{provider}} for your data, then paste the link it emails you.",
+      "notNow": "Not now",
+      "add": "Add history",
+      "addAria": "Choose how to bring in your {{provider}} history",
+      "modalIntro": "Sign in once to copy your history; {{provider}} keeps your new workouts coming.",
+      "modalCopying": "Copying your history — this runs once."
+    },
+    "migration": {
+      "oauthRequired": "Move to {{provider}}'s official connection"
     },
     "isConnectedAria": "{{provider}} is connected",
     "lastSync": "Last sync",
@@ -3740,6 +3779,7 @@
     "import": {
       "link": "Import your own data",
       "linkHint": "Bring in history you've exported from another service.",
+      "cardLink": "Have an export? Import it",
       "title": "Import your own data",
       "intro": "Bring in the history you exported from another service. Imported activities are yours: they stay in Dravr if you disconnect that service, and you can delete them any time.",
       "unavailable": "Importing your own data isn't available here yet.",

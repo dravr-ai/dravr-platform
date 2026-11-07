@@ -2653,6 +2653,7 @@
       "signInUnavailable": "Impossible de te connecter à {0} pour le moment. C’est généralement temporaire — réessaie dans quelques minutes.",
       "signInChallenged": "{0} a demandé une vérification de sécurité supplémentaire qu’on ne peut pas faire automatiquement pour le moment. Réessaie un peu plus tard.",
       "signInPaused": "La connexion à {0} est en pause le temps de passer à la connexion officielle de {0}.",
+      "signInOauthRequired": "{0} se connecte désormais par sa connexion officielle. Reviens en arrière et choisis {0}.",
       "signInExpired": "Cette connexion n’est plus active. Recommence la connexion.",
       "tryAgain": "Réessayer"
     },
@@ -2672,8 +2673,20 @@
       "tagEmailPassword": "E-mail / mot de passe",
       "tagEmailOrUsernamePassword": "E-mail ou nom d’utilisateur / mot de passe",
       "tagImportHistory": "Importer mon historique",
+      "tagHistoryImporting": "Copie de l'historique…",
+      "tagHistoryIncomplete": "Réessayer",
+      "tagMoveToOfficial": "Passe à la connexion officielle de {0}",
       "stravaFallback": "La connexion à Strava n’a pas abouti — tu peux te connecter avec ton e-mail et ton mot de passe Strava à la place.",
-      "signInIncomplete": "Cette connexion n’a pas abouti. Reviens en arrière et réessaie."
+      "signInIncomplete": "Cette connexion n’a pas abouti. Reviens en arrière et réessaie.",
+      "historyTitle": "Ajoute ton historique {0}",
+      "historyBody": "{0} envoie ce que tu enregistres à partir d'aujourd'hui. Choisis comment ajouter ce qui précède.",
+      "historySignIn": "Connecte-toi une fois pour copier tes anciennes séances",
+      "historySignInNote": "Connecte-toi une fois pour copier ton historique ; {0} continue d'envoyer tes nouvelles séances.",
+      "historyImportExport": "Importer ton export {0}",
+      "historyNotNow": "Pas maintenant",
+      "historyCopying": "Copie de ton historique en cours — une seule fois.",
+      "importExportLink": "Tu as un export ? Importe-le",
+      "oauthRetry": "{0} ne s'est pas connecté. Réessaie."
     },
     "login": {
       "pageTitle": "Connecter ton compte - Dravr",
@@ -3024,11 +3037,15 @@
       }
     },
     "provider": {
-      "reauth_required": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 24 heures) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.",
+      "reauth_required": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.",
       "reauth_required_no_link": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte {0} depuis les réglages, puis repose-moi ta question.",
-      "reauth_served": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. Reconnecte {0} ici pour que je voie tout (lien valide 24 heures) :\n\n{1}",
+      "reauth_served": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. Reconnecte {0} ici pour que je voie tout :\n\n{1}",
       "reauth_served_no_link": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. Reconnecte {0} depuis les réglages pour que je voie tout.",
       "reauth_paused": "La connexion à {0} a expiré, et la connexion à {0} est en pause le temps de passer à la connexion officielle de {0} — je ne peux donc pas lire tes données {0} pour le moment.",
+      "reauth_oauth_required": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. {0} se connecte désormais par sa connexion officielle : connecte-le ici (lien valable 1 heure) :\n\n{1}\n\nUne fois connecté, redemande-moi.",
+      "reauth_oauth_required_no_link": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. {0} se connecte désormais par sa connexion officielle. Ouvre Connexions dans Dravr, choisis Connecter {0}, puis redemande-moi.",
+      "reauth_oauth_served": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. {0} se connecte désormais par sa connexion officielle : connecte-le ici (lien valable 1 heure) :\n\n{1}\n\nUne fois connecté, redemande-moi.",
+      "reauth_oauth_served_no_link": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. {0} se connecte désormais par sa connexion officielle. Ouvre Connexions dans Dravr, choisis Connecter {0}, puis redemande-moi.",
       "reconnect_button": "Reconnecter {0}"
     },
     "quota_exceeded": "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.",
@@ -3327,6 +3344,14 @@
       "10k": "10 km",
       "half_marathon": "semi-marathon",
       "marathon": "marathon"
+    },
+    "provider_oauth_required": {
+      "title": "Passe {0} à sa connexion officielle",
+      "body": "Ta connexion à {0} a expiré. Connecte {0} par sa connexion officielle pour continuer à recevoir tes données."
+    },
+    "provider_reauth": {
+      "title": "Reconnexion nécessaire",
+      "body": "Reconnecte {0} pour continuer à recevoir tes données."
     }
   },
   "oauth": {
@@ -3650,6 +3675,7 @@
   "providers": {
     "add": "Ajouter un fournisseur",
     "connect": "Connecter",
+    "connectRefused": "{{provider}} ne s'est pas connecté. Réessaie.",
     "connectLater": "Connecter des services plus tard",
     "connectToAria": "Se connecter à {{provider}}",
     "connected": "Connecté",
@@ -3676,7 +3702,20 @@
       "signIn": "Connecte-toi pour importer ton historique",
       "signInAria": "Connecte-toi à {{provider}} pour importer ton historique",
       "retry": "Réessayer",
-      "explainer": "Connecte-toi une fois avec ton compte {{provider}} : on copie tes anciennes activités et un an de bien-être, puis on oublie cette connexion."
+      "explainer": "Connecte-toi une fois avec ton compte {{provider}} : on copie tes anciennes activités et un an de bien-être, puis on oublie cette connexion.",
+      "sheetTitle": "Ajoute ton historique {{provider}}",
+      "sheetBody": "{{provider}} envoie ce que tu enregistres à partir d'aujourd'hui. Choisis comment ajouter ce qui précède.",
+      "choiceSignIn": "Connecte-toi une fois pour copier tes anciennes séances",
+      "choiceArchive": "Importer ton export {{provider}}",
+      "choiceArchiveHint": "Demande tes données à {{provider}}, puis colle le lien reçu par e-mail.",
+      "notNow": "Pas maintenant",
+      "add": "Ajouter l'historique",
+      "addAria": "Choisis comment ajouter ton historique {{provider}}",
+      "modalIntro": "Connecte-toi une fois pour copier ton historique ; {{provider}} continue d'envoyer tes nouvelles séances.",
+      "modalCopying": "Copie de ton historique en cours — une seule fois."
+    },
+    "migration": {
+      "oauthRequired": "Passe à la connexion officielle de {{provider}}"
     },
     "isConnectedAria": "{{provider}} est connecté",
     "lastSync": "Dernière synchronisation",
@@ -3738,33 +3777,34 @@
     "connectTombstoned": "Ce compte {{provider}} appartenait à un compte Dravr supprimé le {{date}}. Ses données restent supprimées tant que tu ne choisis pas de repartir de zéro avec lui.",
     "connectTombstonedClear": "Repartir de zéro et connecter",
     "import": {
-      "link": "Importer vos propres données",
-      "linkHint": "Ajoutez l'historique exporté d'un autre service.",
-      "title": "Importer vos propres données",
-      "intro": "Ajoutez l'historique que vous avez exporté d'un autre service. Les activités importées vous appartiennent : elles restent dans Dravr si vous déconnectez ce service, et vous pouvez les supprimer à tout moment.",
-      "unavailable": "L'import de vos propres données n'est pas encore disponible ici.",
+      "link": "Importer tes propres données",
+      "linkHint": "Ajoute l'historique exporté d'un autre service.",
+      "cardLink": "Tu as un export ? Importe-le",
+      "title": "Importer tes propres données",
+      "intro": "Ajoute l'historique que tu as exporté d'un autre service. Les activités importées t'appartiennent : elles restent dans Dravr si tu déconnectes ce service, et tu peux les supprimer à tout moment.",
+      "unavailable": "L'import de tes propres données n'est pas encore disponible ici.",
       "close": "Fermer",
       "back": "Retour",
-      "loading": "Chargement de vos imports…",
+      "loading": "Chargement de tes imports…",
       "historyOnCardOne": "Historique importé : {{count}} activité",
       "historyOnCardN": "Historique importé : {{count}} activités",
       "sources": {
         "strava": "Strava",
-        "stravaHint": "Tout votre historique d'activités, depuis l'export de données de Strava",
+        "stravaHint": "Tout ton historique d'activités, depuis l'export de données de Strava",
         "garmin": "Garmin Connect",
-        "garminHint": "Vos activités et votre bien-être au quotidien, depuis l'export de données de Garmin",
+        "garminHint": "Tes activités et ton bien-être au quotidien, depuis l'export de données de Garmin",
         "apple": "Apple Santé",
-        "appleHint": "Vos entraînements, votre sommeil et votre récupération, depuis un export Apple Santé",
+        "appleHint": "Tes entraînements, ton sommeil et ta récupération, depuis un export Apple Santé",
         "coros": "COROS",
-        "corosHint": "Vos activités, depuis un export de données COROS",
+        "corosHint": "Tes activités, depuis un export de données COROS",
         "whoop": "WHOOP",
-        "whoopHint": "Vos entraînements, votre sommeil et votre fréquence cardiaque au repos, depuis un export de données WHOOP"
+        "whoopHint": "Tes entraînements, ton sommeil et ta fréquence cardiaque au repos, depuis un export de données WHOOP"
       },
       "state": {
-        "awaitingLink": "En attente du courriel de Strava · Collez le lien",
+        "awaitingLink": "En attente du courriel de Strava · Colle le lien",
         "awaitingLinkLate": "Toujours en attente de Strava ?",
-        "queued": "Démarrage de votre import",
-        "downloading": "Téléchargement de votre export",
+        "queued": "Démarrage de ton import",
+        "downloading": "Téléchargement de ton export",
         "importing": "Import · {{processed}} sur {{total}}",
         "completedOne": "{{count}} activité importée · {{date}}",
         "completedN": "{{count}} activités importées · {{date}}",
@@ -3772,15 +3812,15 @@
         "stoppedN": "Import arrêté · {{count}} importées"
       },
       "strava": {
-        "intro": "L'historique importé depuis votre propre export Strava vous appartient et reste, même si vous déconnectez Strava.",
-        "step1Title": "Étape 1 sur 3 · Demandez votre export Strava",
-        "step1Body": "Sur Strava, ouvrez Paramètres, puis Mon compte, puis Télécharger ou supprimer votre compte, et choisissez Demander votre archive. Strava vous envoie un lien par courriel quand il est prêt, en général en quelques heures.",
+        "intro": "L'historique importé depuis ton propre export Strava t'appartient et reste, même si tu déconnectes Strava.",
+        "step1Title": "Étape 1 sur 3 · Demande ton export Strava",
+        "step1Body": "Sur Strava, ouvre Paramètres, puis Mon compte, puis Télécharger ou supprimer votre compte, et choisis Demander votre archive. Strava t'envoie un lien par courriel quand il est prêt, en général en quelques heures.",
         "step1Open": "Ouvrir la page d'export de Strava",
         "step1Requested": "Je l'ai demandé",
-        "step2Title": "Étape 2 sur 3 · Collez le lien du courriel de Strava",
+        "step2Title": "Étape 2 sur 3 · Colle le lien du courriel de Strava",
         "linkLabel": "Lien du courriel de Strava",
         "linkPlaceholder": "https://…",
-        "linkHint": "Dans le courriel de Strava, copiez le lien du bouton de téléchargement et collez-le en entier. Il est valide 7 jours.",
+        "linkHint": "Dans le courriel de Strava, copie le lien du bouton de téléchargement et colle-le en entier. Il est valide 7 jours.",
         "check": "Vérifier le lien",
         "checking": "Vérification…",
         "found": "Export trouvé · environ {{size}}",
@@ -3789,8 +3829,8 @@
         "starting": "Démarrage…",
         "step3Title": "Étape 3 sur 3 · Import en cours",
         "progress": "{{processed}} activités lues sur {{total}}",
-        "progressStarting": "Récupération de votre export depuis Strava…",
-        "leaveHint": "Vous pouvez fermer cette fenêtre : l'import continue.",
+        "progressStarting": "Récupération de ton export depuis Strava…",
+        "leaveHint": "Tu peux fermer cette fenêtre : l'import continue.",
         "cancel": "Annuler l'import",
         "doneTitle": "Activités importées : {{count}}",
         "doneSpan": "Du {{from}} au {{to}}",
@@ -3809,9 +3849,9 @@
         "deleteConfirmActionOne": "Supprimer {{count}} activité",
         "deleteConfirmActionN": "Supprimer {{count}} activités",
         "deleted": "Historique importé supprimé.",
-        "retry": "Collez de nouveau le lien pour reprendre.",
+        "retry": "Colle de nouveau le lien pour reprendre.",
         "inProgress": "Un import depuis Strava est déjà en cours.",
-        "genericError": "Un problème est survenu. Réessayez dans un instant.",
+        "genericError": "Un problème est survenu. Réessaie dans un instant.",
         "outcome": {
           "strava_export_error": "Strava n'a pas pu exporter cette activité",
           "missing_file": "Son fichier manque dans l'export",
@@ -3819,13 +3859,13 @@
           "file_too_large": "Son fichier est trop volumineux",
           "invalid_row": "Sa ligne dans l'export est incomplète",
           "zero_elapsed": "Une saisie manuelle sans durée",
-          "deleted_by_athlete": "Vous avez supprimé cette activité : elle reste supprimée"
+          "deleted_by_athlete": "Tu as supprimé cette activité : elle reste supprimée"
         },
         "refusal": {
-          "link_invalid": "Ce lien ne ressemble pas à un lien d'export. Copiez le lien complet depuis le courriel de Strava.",
+          "link_invalid": "Ce lien ne ressemble pas à un lien d'export. Copie le lien complet depuis le courriel de Strava.",
           "link_host_not_allowed": "Ce lien ne vient pas du courriel d'export de Strava.",
-          "link_expired": "Ce lien a expiré. Demandez un nouvel export à Strava.",
-          "link_unreachable": "Impossible de joindre ce lien. Réessayez dans un instant."
+          "link_expired": "Ce lien a expiré. Demande un nouvel export à Strava.",
+          "link_unreachable": "Impossible de joindre ce lien. Réessaie dans un instant."
         },
         "failure": {
           "download_failed": "Le téléchargement s'est arrêté avant la fin.",
@@ -3834,91 +3874,91 @@
           "archive_unreadable": "L'export n'est pas un fichier ZIP lisible.",
           "archive_limit": "L'export dépasse une limite de sécurité ; il n'a pas été lu.",
           "missing_activities_csv": "L'export ne contient pas de liste d'activités.",
-          "unknown_locale": "La liste d'activités de l'export est dans une langue que Dravr ne sait pas encore lire. Réglez Strava en français ou en anglais, puis demandez un nouvel export.",
+          "unknown_locale": "La liste d'activités de l'export est dans une langue que Dravr ne sait pas encore lire. Règle Strava en français ou en anglais, puis demande un nouvel export.",
           "spool_missing": "L'import a perdu sa copie de l'export.",
           "not_an_export": "Ce fichier n'est pas un export Strava."
         }
       },
       "garmin": {
-        "intro": "L'historique importé depuis votre propre export Garmin vous appartient et reste, même si vous déconnectez Garmin.",
-        "step1Title": "Étape 1 sur 3 · Demandez votre export Garmin",
-        "step1Body": "Sur le site de compte de Garmin, connectez-vous, ouvrez Compte, puis Gestion des données, puis Exporter vos données, et choisissez Demander l'export des données. Garmin vous envoie un lien par courriel quand il est prêt, ce qui peut prendre plusieurs jours.",
+        "intro": "L'historique importé depuis ton propre export Garmin t'appartient et reste, même si tu déconnectes Garmin.",
+        "step1Title": "Étape 1 sur 3 · Demande ton export Garmin",
+        "step1Body": "Sur le site de compte de Garmin, connecte-toi, ouvre Compte, puis Gestion des données, puis Exporter vos données, et choisis Demander l'export des données. Garmin t'envoie un lien par courriel quand il est prêt, ce qui peut prendre plusieurs jours.",
         "step1Open": "Ouvrir la page d'export de Garmin",
-        "step2Title": "Étape 2 sur 3 · Collez le lien du courriel de Garmin",
+        "step2Title": "Étape 2 sur 3 · Colle le lien du courriel de Garmin",
         "linkLabel": "Lien du courriel de Garmin",
-        "linkHint": "Dans le courriel de Garmin, copiez le lien du bouton de téléchargement et collez-le en entier. Il est valide 3 jours. Si Garmin envoie votre export en plusieurs parties, importez chaque lien à tour de rôle.",
-        "progressStarting": "Récupération de votre export depuis Garmin…",
+        "linkHint": "Dans le courriel de Garmin, copie le lien du bouton de téléchargement et colle-le en entier. Il est valide 3 jours. Si Garmin envoie ton export en plusieurs parties, importe chaque lien à tour de rôle.",
+        "progressStarting": "Récupération de ton export depuis Garmin…",
         "inProgress": "Un import depuis Garmin est déjà en cours.",
-        "awaitingLink": "En attente du courriel de Garmin · Collez le lien",
+        "awaitingLink": "En attente du courriel de Garmin · Colle le lien",
         "awaitingLinkLate": "Toujours en attente de Garmin ?",
         "refusal": {
-          "link_invalid": "Ce lien ne ressemble pas à un lien d'export. Copiez le lien complet depuis le courriel de Garmin.",
+          "link_invalid": "Ce lien ne ressemble pas à un lien d'export. Copie le lien complet depuis le courriel de Garmin.",
           "link_host_not_allowed": "Ce lien ne vient pas du courriel d'export de Garmin.",
-          "link_expired": "Ce lien a expiré. Demandez un nouvel export à Garmin."
+          "link_expired": "Ce lien a expiré. Demande un nouvel export à Garmin."
         },
         "failure": {
           "not_an_export": "Ce fichier n'est pas un export Garmin."
         }
       },
       "apple": {
-        "intro": "L'historique importé depuis votre propre export Apple Santé vous appartient et reste dans Dravr.",
-        "step1Title": "Étape 1 sur 3 · Exportez depuis l'app Santé",
-        "step1Body": "Sur votre iPhone, ouvrez l'app Santé, touchez votre photo, puis choisissez Exporter toutes les données de santé. L'enregistrement du fichier peut prendre plusieurs minutes. Gardez-le dans Fichiers, ou envoyez-le sur l'appareil que vous utilisez en ce moment.",
-        "step2Title": "Étape 2 sur 3 · Choisissez le fichier d'export",
+        "intro": "L'historique importé depuis ton propre export Apple Santé t'appartient et reste dans Dravr.",
+        "step1Title": "Étape 1 sur 3 · Exporte depuis l'app Santé",
+        "step1Body": "Sur ton iPhone, ouvre l'app Santé, touche ta photo, puis choisis Exporter toutes les données de santé. L'enregistrement du fichier peut prendre plusieurs minutes. Garde-le dans Fichiers, ou envoie-le sur l'appareil que tu utilises en ce moment.",
+        "step2Title": "Étape 2 sur 3 · Choisis le fichier d'export",
         "pick": "Choisir le fichier d'export",
-        "pickHint": "C'est le fichier ZIP enregistré par l'app Santé. Un gros export peut prendre du temps, et vous pourrez reprendre là où il s'est arrêté.",
+        "pickHint": "C'est le fichier ZIP enregistré par l'app Santé. Un gros export peut prendre du temps, et tu pourras reprendre là où il s'est arrêté.",
         "resume": "Choisir le même fichier pour continuer",
-        "resumeHint": "Votre envoi s'est arrêté avant la fin. Choisissez le même fichier et il reprendra là où il s'est arrêté.",
-        "uploading": "Envoi de votre export · {{percent}} %",
-        "keepOpen": "Gardez cet écran ouvert jusqu'à la fin de l'envoi.",
-        "stalled": "L'envoi n'avance plus. Vérifiez votre connexion et choisissez de nouveau le fichier.",
-        "gone": "Cet envoi ne peut plus continuer. Annulez-le et recommencez.",
-        "progressStarting": "Lecture de votre export Apple Santé…",
+        "resumeHint": "Ton envoi s'est arrêté avant la fin. Choisis le même fichier et il reprendra là où il s'est arrêté.",
+        "uploading": "Envoi de ton export · {{percent}} %",
+        "keepOpen": "Garde cet écran ouvert jusqu'à la fin de l'envoi.",
+        "stalled": "L'envoi n'avance plus. Vérifie ta connexion et choisis de nouveau le fichier.",
+        "gone": "Cet envoi ne peut plus continuer. Annule-le et recommence.",
+        "progressStarting": "Lecture de ton export Apple Santé…",
         "inProgress": "Un import depuis Apple Santé est déjà en cours.",
-        "awaitingUpload": "En attente de votre fichier · Choisissez votre export",
+        "awaitingUpload": "En attente de ton fichier · Choisis ton export",
         "failure": {
           "not_an_export": "Ce fichier n'est pas un export Apple Santé."
         }
       },
       "coros": {
-        "intro": "L'historique importé depuis votre propre export COROS vous appartient et reste dans Dravr.",
-        "step1Title": "Étape 1 sur 3 · Demandez votre export à COROS",
-        "step1Body": "Demandez à COROS un export de vos données. COROS vous envoie un lien par courriel quand il est prêt : téléchargez le fichier ZIP sur cet appareil.",
-        "step2Title": "Étape 2 sur 3 · Choisissez le fichier d'export",
+        "intro": "L'historique importé depuis ton propre export COROS t'appartient et reste dans Dravr.",
+        "step1Title": "Étape 1 sur 3 · Demande ton export à COROS",
+        "step1Body": "Demande à COROS un export de tes données. COROS t'envoie un lien par courriel quand il est prêt : télécharge le fichier ZIP sur cet appareil.",
+        "step2Title": "Étape 2 sur 3 · Choisis le fichier d'export",
         "pick": "Choisir le fichier d'export",
-        "pickHint": "C'est le fichier ZIP téléchargé depuis le courriel de COROS. Un gros export peut prendre du temps, et vous pourrez reprendre là où il s'est arrêté.",
+        "pickHint": "C'est le fichier ZIP téléchargé depuis le courriel de COROS. Un gros export peut prendre du temps, et tu pourras reprendre là où il s'est arrêté.",
         "resume": "Choisir le même fichier pour continuer",
-        "resumeHint": "Votre envoi s'est arrêté avant la fin. Choisissez le même fichier et il reprendra là où il s'est arrêté.",
-        "uploading": "Envoi de votre export · {{percent}} %",
-        "keepOpen": "Gardez cet écran ouvert jusqu'à la fin de l'envoi.",
-        "stalled": "L'envoi n'avance plus. Vérifiez votre connexion et choisissez de nouveau le fichier.",
-        "gone": "Cet envoi ne peut plus continuer. Annulez-le et recommencez.",
-        "progressStarting": "Lecture de votre export COROS…",
+        "resumeHint": "Ton envoi s'est arrêté avant la fin. Choisis le même fichier et il reprendra là où il s'est arrêté.",
+        "uploading": "Envoi de ton export · {{percent}} %",
+        "keepOpen": "Garde cet écran ouvert jusqu'à la fin de l'envoi.",
+        "stalled": "L'envoi n'avance plus. Vérifie ta connexion et choisis de nouveau le fichier.",
+        "gone": "Cet envoi ne peut plus continuer. Annule-le et recommence.",
+        "progressStarting": "Lecture de ton export COROS…",
         "inProgress": "Un import depuis COROS est déjà en cours.",
-        "awaitingUpload": "En attente de votre fichier · Choisissez votre export",
+        "awaitingUpload": "En attente de ton fichier · Choisis ton export",
         "failure": {
           "not_an_export": "Ce fichier n'est pas un export COROS."
         }
       },
       "whoop": {
-        "intro": "L'historique importé depuis votre propre export WHOOP vous appartient et reste dans Dravr.",
-        "step1Title": "Étape 1 sur 3 · Demandez votre export à WHOOP",
-        "step1Body": "Dans l'app WHOOP, demandez un export de vos données. Quand il est prêt, téléchargez le fichier ZIP sur cet appareil.",
-        "step2Title": "Étape 2 sur 3 · Choisissez le fichier d'export",
+        "intro": "L'historique importé depuis ton propre export WHOOP t'appartient et reste dans Dravr.",
+        "step1Title": "Étape 1 sur 3 · Demande ton export à WHOOP",
+        "step1Body": "Dans l'app WHOOP, demande un export de tes données. Quand il est prêt, télécharge le fichier ZIP sur cet appareil.",
+        "step2Title": "Étape 2 sur 3 · Choisis le fichier d'export",
         "pick": "Choisir le fichier d'export",
-        "pickHint": "C'est le fichier ZIP téléchargé depuis WHOOP. Un gros export peut prendre du temps, et vous pourrez reprendre là où il s'est arrêté.",
+        "pickHint": "C'est le fichier ZIP téléchargé depuis WHOOP. Un gros export peut prendre du temps, et tu pourras reprendre là où il s'est arrêté.",
         "resume": "Choisir le même fichier pour continuer",
-        "resumeHint": "Votre envoi s'est arrêté avant la fin. Choisissez le même fichier et il reprendra là où il s'est arrêté.",
-        "uploading": "Envoi de votre export · {{percent}} %",
-        "keepOpen": "Gardez cet écran ouvert jusqu'à la fin de l'envoi.",
-        "stalled": "L'envoi n'avance plus. Vérifiez votre connexion et choisissez de nouveau le fichier.",
-        "gone": "Cet envoi ne peut plus continuer. Annulez-le et recommencez.",
-        "progressStarting": "Lecture de votre export WHOOP…",
+        "resumeHint": "Ton envoi s'est arrêté avant la fin. Choisis le même fichier et il reprendra là où il s'est arrêté.",
+        "uploading": "Envoi de ton export · {{percent}} %",
+        "keepOpen": "Garde cet écran ouvert jusqu'à la fin de l'envoi.",
+        "stalled": "L'envoi n'avance plus. Vérifie ta connexion et choisis de nouveau le fichier.",
+        "gone": "Cet envoi ne peut plus continuer. Annule-le et recommence.",
+        "progressStarting": "Lecture de ton export WHOOP…",
         "inProgress": "Un import depuis WHOOP est déjà en cours.",
-        "awaitingUpload": "En attente de votre fichier · Choisissez votre export",
+        "awaitingUpload": "En attente de ton fichier · Choisis ton export",
         "failure": {
           "not_an_export": "Ce fichier n'est pas un export WHOOP.",
-          "unknown_columns": "Dravr ne sait pas encore lire cet export WHOOP. Il lit l'export de données WHOOP en anglais : réglez WHOOP en anglais, puis demandez un nouvel export."
+          "unknown_columns": "Dravr ne sait pas encore lire cet export WHOOP. Il lit l'export de données WHOOP en anglais : règle WHOOP en anglais, puis demande un nouvel export."
         }
       }
     }

@@ -2653,6 +2653,7 @@
       "signInUnavailable": "Ahora mismo no hemos podido iniciar sesión en {0}. Suele ser algo temporal: inténtalo de nuevo en unos minutos.",
       "signInChallenged": "{0} ha pedido una comprobación de seguridad adicional que ahora mismo no podemos completar automáticamente. Inténtalo de nuevo dentro de un rato.",
       "signInPaused": "El inicio de sesión en {0} está en pausa mientras pasamos a la conexión oficial de {0}.",
+      "signInOauthRequired": "{0} ahora se conecta mediante su inicio de sesión oficial. Vuelve atrás y elige {0}.",
       "signInExpired": "Este inicio de sesión ya no está activo. Empieza de nuevo.",
       "tryAgain": "Reintentar"
     },
@@ -2672,8 +2673,20 @@
       "tagEmailPassword": "Correo / contraseña",
       "tagEmailOrUsernamePassword": "Correo o usuario / contraseña",
       "tagImportHistory": "Importar mi historial",
+      "tagHistoryImporting": "Copiando historial…",
+      "tagHistoryIncomplete": "Reintentar",
+      "tagMoveToOfficial": "Pasa a la conexión oficial de {0}",
       "stravaFallback": "El inicio de sesión en Strava no se completó: puedes conectarte con tu correo y tu contraseña de Strava.",
-      "signInIncomplete": "Ese inicio de sesión no se completó. Vuelve atrás e inténtalo de nuevo."
+      "signInIncomplete": "Ese inicio de sesión no se completó. Vuelve atrás e inténtalo de nuevo.",
+      "historyTitle": "Trae tu historial de {0}",
+      "historyBody": "{0} envía lo que registres a partir de hoy. Elige cómo añadir lo anterior.",
+      "historySignIn": "Inicia sesión una vez para copiar tus entrenamientos anteriores",
+      "historySignInNote": "Inicia sesión una vez para copiar tu historial; {0} sigue enviando tus nuevos entrenamientos.",
+      "historyImportExport": "Importar tu exportación de {0}",
+      "historyNotNow": "Ahora no",
+      "historyCopying": "Copiando tu historial: solo se hace una vez.",
+      "importExportLink": "¿Tienes una exportación? Impórtala",
+      "oauthRetry": "{0} no se conectó. Inténtalo de nuevo."
     },
     "login": {
       "pageTitle": "Conectar tu cuenta - Dravr",
@@ -3024,11 +3037,15 @@
       }
     },
     "provider": {
-      "reauth_required": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 24 horas):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.",
+      "reauth_required": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí:\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.",
       "reauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar {0} desde los ajustes y pregúntame de nuevo.",
-      "reauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} aquí para que lo vea todo (enlace válido durante 24 horas):\n\n{1}",
+      "reauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} aquí para que lo vea todo:\n\n{1}",
       "reauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} desde los ajustes para que lo vea todo.",
       "reauth_paused": "Tu conexión con {0} ha expirado y el inicio de sesión en {0} está en pausa mientras pasamos a la conexión oficial de {0}, así que por ahora no puedo leer tus datos de {0}.",
+      "reauth_oauth_required": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. {0} ahora se conecta mediante su inicio de sesión oficial: conéctalo aquí (enlace válido durante 1 hora):\n\n{1}\n\nCuando esté conectado, vuelve a preguntarme.",
+      "reauth_oauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
+      "reauth_oauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial: conéctalo aquí (enlace válido durante 1 hora):\n\n{1}\n\nCuando esté conectado, vuelve a preguntarme.",
+      "reauth_oauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reconnect_button": "Volver a conectar {0}"
     },
     "quota_exceeded": "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.",
@@ -3327,6 +3344,14 @@
       "10k": "10 km",
       "half_marathon": "media maratón",
       "marathon": "maratón"
+    },
+    "provider_oauth_required": {
+      "title": "Pasa {0} a su conexión oficial",
+      "body": "Tu sesión de {0} caducó. Conecta {0} mediante su conexión oficial para seguir recibiendo tus datos."
+    },
+    "provider_reauth": {
+      "title": "Hay que reconectar",
+      "body": "Vuelve a conectar {0} para seguir recibiendo tus datos."
     }
   },
   "oauth": {
@@ -3650,6 +3675,7 @@
   "providers": {
     "add": "Añadir proveedor",
     "connect": "Conectar",
+    "connectRefused": "{{provider}} no se conectó. Inténtalo de nuevo.",
     "connectLater": "Conectar servicios más tarde",
     "connectToAria": "Conectar con {{provider}}",
     "connected": "Conectado",
@@ -3676,7 +3702,20 @@
       "signIn": "Inicia sesión para importar tu historial",
       "signInAria": "Inicia sesión en {{provider}} para importar tu historial",
       "retry": "Reintentar",
-      "explainer": "Inicia sesión una vez con tu cuenta de {{provider}}: copiamos tus actividades anteriores y un año de bienestar, y luego olvidamos ese inicio de sesión."
+      "explainer": "Inicia sesión una vez con tu cuenta de {{provider}}: copiamos tus actividades anteriores y un año de bienestar, y luego olvidamos ese inicio de sesión.",
+      "sheetTitle": "Trae tu historial de {{provider}}",
+      "sheetBody": "{{provider}} envía lo que registres a partir de hoy. Elige cómo añadir lo anterior.",
+      "choiceSignIn": "Inicia sesión una vez para copiar tus entrenamientos anteriores",
+      "choiceArchive": "Importar tu exportación de {{provider}}",
+      "choiceArchiveHint": "Pide tus datos a {{provider}} y pega el enlace que te envíe por correo.",
+      "notNow": "Ahora no",
+      "add": "Añadir historial",
+      "addAria": "Elige cómo traer tu historial de {{provider}}",
+      "modalIntro": "Inicia sesión una vez para copiar tu historial; {{provider}} sigue enviando tus nuevos entrenamientos.",
+      "modalCopying": "Copiando tu historial: solo se hace una vez."
+    },
+    "migration": {
+      "oauthRequired": "Pasa a la conexión oficial de {{provider}}"
     },
     "isConnectedAria": "{{provider}} está conectado",
     "lastSync": "Última sincronización",
@@ -3740,6 +3779,7 @@
     "import": {
       "link": "Importar tus propios datos",
       "linkHint": "Añade el historial que exportaste de otro servicio.",
+      "cardLink": "¿Tienes una exportación? Impórtala",
       "title": "Importar tus propios datos",
       "intro": "Añade el historial que exportaste de otro servicio. Las actividades importadas son tuyas: se quedan en Dravr si desconectas ese servicio y puedes eliminarlas cuando quieras.",
       "unavailable": "La importación de tus propios datos aún no está disponible aquí.",

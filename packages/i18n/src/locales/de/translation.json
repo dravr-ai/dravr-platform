@@ -2653,6 +2653,7 @@
       "signInUnavailable": "Die Anmeldung bei {0} ist gerade nicht möglich. Das ist meist vorübergehend – versuche es in ein paar Minuten erneut.",
       "signInChallenged": "{0} hat eine zusätzliche Sicherheitsprüfung verlangt, die wir gerade nicht automatisch abschließen können. Versuche es bitte etwas später erneut.",
       "signInPaused": "Die Anmeldung bei {0} ist pausiert, während wir auf die offizielle {0}-Verbindung umstellen.",
+      "signInOauthRequired": "{0} verbindet sich jetzt über die offizielle Anmeldung. Geh zurück und wähle {0}.",
       "signInExpired": "Diese Anmeldung ist nicht mehr aktiv. Starte die Anmeldung bitte erneut.",
       "tryAgain": "Erneut versuchen"
     },
@@ -2672,8 +2673,20 @@
       "tagEmailPassword": "E-Mail / Passwort",
       "tagEmailOrUsernamePassword": "E-Mail oder Benutzername / Passwort",
       "tagImportHistory": "Meinen Verlauf importieren",
+      "tagHistoryImporting": "Verlauf wird kopiert…",
+      "tagHistoryIncomplete": "Erneut versuchen",
+      "tagMoveToOfficial": "Wechsle zur offiziellen {0}-Verbindung",
       "stravaFallback": "Die Anmeldung bei Strava wurde nicht abgeschlossen – du kannst dich stattdessen mit deiner Strava-E-Mail und deinem Passwort verbinden.",
-      "signInIncomplete": "Diese Anmeldung wurde nicht abgeschlossen. Geh zurück und versuche es erneut."
+      "signInIncomplete": "Diese Anmeldung wurde nicht abgeschlossen. Geh zurück und versuche es erneut.",
+      "historyTitle": "Hol dir deinen {0}-Verlauf",
+      "historyBody": "{0} sendet, was du ab heute aufzeichnest. Wähle, wie du Früheres hinzufügst.",
+      "historySignIn": "Melde dich einmal an, um deine bisherigen Trainings zu kopieren",
+      "historySignInNote": "Melde dich einmal an, um deinen Verlauf zu kopieren; {0} liefert deine neuen Trainings weiter.",
+      "historyImportExport": "Deinen {0}-Export importieren",
+      "historyNotNow": "Nicht jetzt",
+      "historyCopying": "Dein Verlauf wird kopiert – das passiert nur einmal.",
+      "importExportLink": "Hast du einen Export? Importiere ihn",
+      "oauthRetry": "{0} wurde nicht verbunden. Versuch es noch einmal."
     },
     "login": {
       "pageTitle": "Konto verbinden - Dravr",
@@ -3024,11 +3037,15 @@
       }
     },
     "provider": {
-      "reauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 24 Stunden gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.",
+      "reauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu:\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.",
       "reauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde {0} in den Einstellungen neu und frag mich dann noch einmal.",
-      "reauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. Verbinde {0} hier neu, damit ich alles sehe (Link 24 Stunden gültig):\n\n{1}",
+      "reauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. Verbinde {0} hier neu, damit ich alles sehe:\n\n{1}",
       "reauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. Verbinde {0} in den Einstellungen neu, damit ich alles sehe.",
       "reauth_paused": "Deine Verbindung zu {0} ist abgelaufen, und die Anmeldung bei {0} ist pausiert, während wir auf die offizielle {0}-Verbindung umstellen — deshalb kann ich deine {0}-Daten gerade nicht lesen.",
+      "reauth_oauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
+      "reauth_oauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
+      "reauth_oauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
+      "reauth_oauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reconnect_button": "{0} neu verbinden"
     },
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
@@ -3327,6 +3344,14 @@
       "10k": "10 km",
       "half_marathon": "Halbmarathon",
       "marathon": "Marathon"
+    },
+    "provider_oauth_required": {
+      "title": "Wechsle bei {0} zur offiziellen Verbindung",
+      "body": "Deine {0}-Anmeldung ist abgelaufen. Verbinde {0} über die offizielle Verbindung, damit deine Daten weiter ankommen."
+    },
+    "provider_reauth": {
+      "title": "Erneute Verbindung nötig",
+      "body": "Verbinde {0} neu, damit deine Daten weiter ankommen."
     }
   },
   "oauth": {
@@ -3650,6 +3675,7 @@
   "providers": {
     "add": "Anbieter hinzufügen",
     "connect": "Verbinden",
+    "connectRefused": "{{provider}} wurde nicht verbunden. Versuch es noch einmal.",
     "connectLater": "Dienste später verbinden",
     "connectToAria": "Mit {{provider}} verbinden",
     "connected": "Verbunden",
@@ -3676,7 +3702,20 @@
       "signIn": "Anmelden, um deinen Verlauf zu importieren",
       "signInAria": "Bei {{provider}} anmelden, um deinen Verlauf zu importieren",
       "retry": "Erneut versuchen",
-      "explainer": "Melde dich einmal mit deinem {{provider}}-Konto an: Wir kopieren deine früheren Aktivitäten und ein Jahr Wellness-Daten und vergessen diese Anmeldung danach."
+      "explainer": "Melde dich einmal mit deinem {{provider}}-Konto an: Wir kopieren deine früheren Aktivitäten und ein Jahr Wellness-Daten und vergessen diese Anmeldung danach.",
+      "sheetTitle": "Hol dir deinen {{provider}}-Verlauf",
+      "sheetBody": "{{provider}} sendet, was du ab heute aufzeichnest. Wähle, wie du Früheres hinzufügst.",
+      "choiceSignIn": "Melde dich einmal an, um deine bisherigen Trainings zu kopieren",
+      "choiceArchive": "Deinen {{provider}}-Export importieren",
+      "choiceArchiveHint": "Fordere deine Daten bei {{provider}} an und füge dann den Link aus der E-Mail ein.",
+      "notNow": "Nicht jetzt",
+      "add": "Verlauf hinzufügen",
+      "addAria": "Wähle, wie du deinen {{provider}}-Verlauf hinzufügst",
+      "modalIntro": "Melde dich einmal an, um deinen Verlauf zu kopieren; {{provider}} liefert deine neuen Trainings weiter.",
+      "modalCopying": "Dein Verlauf wird kopiert – das passiert nur einmal."
+    },
+    "migration": {
+      "oauthRequired": "Wechsle zur offiziellen {{provider}}-Verbindung"
     },
     "isConnectedAria": "{{provider}} ist verbunden",
     "lastSync": "Letzte Synchronisierung",
@@ -3740,6 +3779,7 @@
     "import": {
       "link": "Eigene Daten importieren",
       "linkHint": "Hol dir den Verlauf, den du aus einem anderen Dienst exportiert hast.",
+      "cardLink": "Hast du einen Export? Importiere ihn",
       "title": "Eigene Daten importieren",
       "intro": "Hol dir den Verlauf, den du aus einem anderen Dienst exportiert hast. Importierte Aktivitäten gehören dir: Sie bleiben in Dravr, wenn du diesen Dienst trennst, und du kannst sie jederzeit löschen.",
       "unavailable": "Der Import eigener Daten ist hier noch nicht verfügbar.",
