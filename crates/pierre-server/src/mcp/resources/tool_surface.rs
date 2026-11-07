@@ -42,7 +42,6 @@ use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, Tool
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
-use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -188,6 +187,8 @@ impl ToolSurface for TurnToolSurface {
             // The executor's transport, not the task-local: this listing runs
             // on embacle's host task, where the turn's declaration is gone.
             self.executor.served_transport(),
+            self.executor.granted_scopes(),
+            self.executor.resources.config(),
         )
         .into_iter()
         .map(|s| McpToolDefinition {
@@ -436,11 +437,9 @@ impl HostedToolBridge {
         // is only scoped around a tool body, and this runs in the pipeline
         // task. Without it every loopback call would mint its own turn key and
         // start from a virgin budget.
-        // A chat turn is the athlete acting on their own data through their own
-        // session, not a third party acting for them, so it carries the self
-        // grant. Scopes exist to narrow a THIRD PARTY's reach, and that
-        // narrowing happens at the OAuth and A2A boundaries, where one actually
-        // enters. Bound here for the same reason as the turn token above: this
+        // The turn's own grant: the self grant for the athlete in Dravr's own
+        // surfaces, the token's scopes when a third party acts for them over
+        // A2A. Bound here for the same reason as the turn token above: this
         // runs in the pipeline task, where there is no tool-body task-local to
         // inherit from.
         //
@@ -449,7 +448,7 @@ impl HostedToolBridge {
         // and the executor carries it onto the loopback task its calls run on.
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
-                .with_scopes(OAuthScope::self_grant())
+                .with_scopes(turn.grant.to_vec())
                 .with_conversation_id(turn.conversation_id.to_owned())
                 .with_turn_token(turn.turn_id.0.to_string())
                 // The agent the turn answers as, bound for the reason the

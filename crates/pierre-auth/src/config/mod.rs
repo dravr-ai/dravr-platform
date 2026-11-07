@@ -20,7 +20,9 @@ mod satellites;
 pub mod rate_limit;
 
 pub use google_sign_in::GoogleSignInConfig;
-pub use mcp_resource::{protected_resource_metadata_url, resolve_mcp_resource_aliases};
+pub use mcp_resource::{
+    protected_resource_metadata_url, resolve_mcp_resource_aliases, www_authenticate_challenge,
+};
 pub use oauth::{
     configured_credential, credential_env, provider_callback_uri, resolve_issuer_url,
     resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig,

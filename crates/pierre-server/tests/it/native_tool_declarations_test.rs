@@ -22,6 +22,8 @@
 //! save is pinned in `guided_flow.rs`'s unit tests; the refusal itself in
 //! `training_plan_tools_test.rs`.
 
+use pierre_config::environment::ServerConfig;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::chat_catalogue::{
@@ -416,6 +418,8 @@ fn on_the_coachs_seat_nothing_is_deferred() {
         TurnSeat::Coach,
         &SwitchedOff::default(),
         Some(Transport::WebApp),
+        &OAuthScope::self_grant(),
+        &ServerConfig::default(),
     ));
     assert!(
         tools

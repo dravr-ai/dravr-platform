@@ -18,9 +18,8 @@
 //!
 //! - `initialize`, with the build version redacted and the instructions held
 //!   to the catalogue's prompt rather than to a copy of its words;
-//! - `tools/list` through the admin path;
-//! - the tool names `tools/list` gives through the catalogue path every
-//!   non-admin caller takes, each schema identical to the admin one.
+//! - `tools/list` with the admin bit set;
+//! - the tool names `tools/list` gives without it, each schema identical.
 //!
 //! The contremaitre description overlay starts empty and is only filled when
 //! `CONTREMAITRE_REPO` is set, so these are the compiled-in descriptions — the
@@ -100,9 +99,10 @@ async fn call(
     serde_json::to_value(response).unwrap()
 }
 
-/// The same tenant user seen twice: through the admin path, and through the
-/// catalogue path a non-admin caller takes. `tools/list` branches on the
-/// context's admin bit alone, so one user covers both views.
+/// The same tenant user seen twice, with the admin bit and without it. A global
+/// admin holds the public profile on `/mcp`, so the two views are one list. The
+/// tenant is on the top plan: `tools/list` leaves out what a plan does not cover,
+/// and the fixture freezes every tool an external client can be offered.
 async fn admin_and_member(resources: &ServerContext) -> (ToolContext, ToolContext) {
     let (user, _) = common::create_test_tenant(resources, "surface-fixture@example.com")
         .await
@@ -116,6 +116,14 @@ async fn admin_and_member(resources: &ServerContext) -> (ToolContext, ToolContex
         .await
         .unwrap()
         .remove(0);
+    resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .set_plan(tenant.id, "enterprise")
+        .await
+        .unwrap();
     let mut base = ToolContext::new()
         .with_user(user.id.to_string())
         .with_tenant(tenant.id.to_string());

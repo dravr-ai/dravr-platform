@@ -1,5 +1,5 @@
 // ABOUTME: The OAuth 2.0 discovery documents — authorization server metadata (RFC 8414) and protected resource metadata (RFC 9728)
-// ABOUTME: Names the issuer's endpoints, and the MCP resource identifier of the origin the client dialed
+// ABOUTME: Names the issuer's endpoints, and the MCP or A2A resource identifier of the origin the client dialed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -89,8 +89,9 @@ impl OAuth2Routes {
     /// Handle the path-suffixed Protected Resource Metadata (RFC 9728 §3.1):
     /// `/.well-known/oauth-protected-resource/mcp` describes the resource
     /// `https://<dialed host>/mcp`, the identifier a client given the URL
-    /// `https://<dialed host>/mcp` compares `resource` to. A path this server
-    /// publishes no resource under is a 404.
+    /// `https://<dialed host>/mcp` compares `resource` to, and
+    /// `/.well-known/oauth-protected-resource/a2a` the resource an A2A 401
+    /// points at. A path this server publishes no resource under is a 404.
     pub(super) async fn handle_protected_resource_metadata_at(
         State(context): State<OAuth2Context>,
         Path(path): Path<String>,
@@ -98,8 +99,7 @@ impl OAuth2Routes {
     ) -> Response {
         let Some(resource_url) = context
             .config
-            .mcp_resource_at(dialed_host(&headers), &path)
-            .map(str::to_owned)
+            .protected_resource_at(dialed_host(&headers), &path)
         else {
             return StatusCode::NOT_FOUND.into_response();
         };

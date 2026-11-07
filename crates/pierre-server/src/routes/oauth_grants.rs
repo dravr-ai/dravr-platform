@@ -25,6 +25,7 @@ use axum::{
 use serde::Serialize;
 
 use crate::mcp::resources::ServerContext;
+use pierre_auth::oauth2_server::client_registration::client_display_host;
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
 
@@ -56,6 +57,12 @@ struct GrantView {
     id: String,
     /// OAuth client the user approved.
     client_id: String,
+    /// The name the client registered. It chose that name itself, so it is
+    /// shown with `client_host`; `None` when it registered none.
+    client_name: Option<String>,
+    /// Where the client is: the host of its metadata document, which it cannot
+    /// fake, else the host it receives its authorization code on.
+    client_host: Option<String>,
     /// Scope the grant covers.
     scope: String,
     /// When the grant was made (RFC 3339).
@@ -82,16 +89,26 @@ async fn handle_list_grants(
         .oauth2_server
         .list_client_grants(&auth.user_id.to_string(), &tenant_id)
         .await?;
-    let grants = grants
-        .into_iter()
-        .map(|grant| GrantView {
+    let mut views = Vec::with_capacity(grants.len());
+    for grant in grants {
+        let client = resources
+            .common
+            .repos
+            .oauth2_server
+            .get_client(&grant.client_id)
+            .await?;
+        let redirect_uris = client.as_ref().map_or(&[][..], |c| &c.redirect_uris[..]);
+        let client_host = client_display_host(&grant.client_id, redirect_uris);
+        views.push(GrantView {
             id: grant.id,
+            client_name: client.and_then(|client| client.client_name),
+            client_host,
             client_id: grant.client_id,
             scope: grant.scope,
             granted_at: grant.granted_at.to_rfc3339(),
-        })
-        .collect();
-    Ok(Json(GrantsResponse { grants }).into_response())
+        });
+    }
+    Ok(Json(GrantsResponse { grants: views }).into_response())
 }
 
 /// `DELETE /api/me/oauth-grants/{id}` — revoke one of the caller's grants.
@@ -102,13 +119,25 @@ async fn handle_revoke_grant(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = resolve_tenant_id(&resources, auth.user_id, auth.active_tenant_id).await?;
-    let revoked = resources
-        .common
-        .repos
-        .oauth2_server
-        .revoke_client_grant(&id, &auth.user_id.to_string(), &tenant_id)
+    let user_id = auth.user_id.to_string();
+    let repository = &resources.common.repos.oauth2_server;
+    // Named before the revocation: the resource servers hold the client's
+    // standing by client, and a revoked grant no longer lists.
+    let client_id = repository
+        .list_client_grants(&user_id, &tenant_id)
+        .await?
+        .into_iter()
+        .find(|grant| grant.id == id)
+        .map(|grant| grant.client_id);
+    let revoked = repository
+        .revoke_client_grant(&id, &user_id, &tenant_id)
         .await?;
-    if revoked {
+    if let Some(client_id) = client_id.filter(|_| revoked) {
+        resources
+            .account_service()
+            .grant_standings()
+            .forget(auth.user_id, &tenant_id, &client_id)
+            .await;
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {
         Err(AppError::not_found("OAuth grant"))

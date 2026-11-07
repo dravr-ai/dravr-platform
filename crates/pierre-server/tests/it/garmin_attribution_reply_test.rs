@@ -248,6 +248,7 @@ async fn delivered_reply(
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let ctx = resources.chat_pipeline_context();
     // Tracked the way `turn_service::execute`, the only caller of `run`,

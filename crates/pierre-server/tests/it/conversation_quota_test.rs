@@ -200,6 +200,7 @@ async fn an_exempt_create_ignores_the_cap() {
 /// The row every direct create in this file writes.
 fn thread(user: &str, tenant: TenantId) -> NewConversation<'_> {
     NewConversation {
+        id: None,
         user_id: user,
         tenant_id: tenant,
         title: "Capped thread",

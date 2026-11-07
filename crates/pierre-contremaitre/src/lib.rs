@@ -26,6 +26,8 @@ pub mod cageux_config;
 pub mod command_descriptions;
 /// Environment-based configuration for repo, branch, PAT, and webhook secret
 pub mod config;
+/// Catalogue keys of the OAuth consent screen and its refusal pages
+pub mod consent_strings;
 /// Structured error types mapped to `AppError` via `ErrorCode`
 pub mod errors;
 /// Hot-reloadable evidence registry for the bullshit detector

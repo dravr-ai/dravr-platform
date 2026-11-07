@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::cimd::is_metadata_document_id;
 use super::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Client, OAuth2Error,
 };
@@ -92,6 +93,18 @@ pub(super) fn redirect_uri_matches(registered: &[String], requested: &str) -> bo
 #[must_use]
 pub(super) fn redirects_to_any_local_process(client: &OAuth2Client, redirect_uri: &str) -> bool {
     is_public_client(client) && redirects_to_loopback(redirect_uri)
+}
+
+/// The host to show beside a client's self-chosen name: its metadata
+/// document's, which only its owner can serve from, else where it receives its
+/// authorization code.
+#[must_use]
+pub fn client_display_host(client_id: &str, redirect_uris: &[String]) -> Option<String> {
+    let host_of = |uri: &str| Url::parse(uri).ok()?.host_str().map(str::to_owned);
+    is_metadata_document_id(client_id)
+        .then(|| host_of(client_id))
+        .flatten()
+        .or_else(|| redirect_uris.iter().find_map(|uri| host_of(uri)))
 }
 
 /// Whether `redirect_uri` returns to the machine the request came from.

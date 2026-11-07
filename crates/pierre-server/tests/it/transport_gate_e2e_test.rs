@@ -66,7 +66,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
 
-const RELAY: &str = "nolio";
+pub(crate) const RELAY: &str = "nolio";
 
 /// The key of the note a caller over an external transport reads. Pinned as a
 /// literal on purpose: it is a wire value MCP, A2A and API-key clients parse.
@@ -74,7 +74,7 @@ const UNAVAILABLE_HERE: &str = "_unavailable_over_this_interface";
 
 /// A coach-platform relay whose terms keep its data inside Dravr's own
 /// surfaces (Nolio §6.9).
-struct RelayDescriptor;
+pub(crate) struct RelayDescriptor;
 
 impl ProviderDescriptor for RelayDescriptor {
     fn name(&self) -> &'static str {
@@ -138,7 +138,7 @@ fn session(id: &str, name: &str, days_ago: i64) -> Activity {
     .build()
 }
 
-fn sessions() -> Vec<Activity> {
+pub(crate) fn sessions() -> Vec<Activity> {
     vec![
         session("g1", "Garmin Hills", 1),
         session("g2", "Garmin Tempo", 2),
@@ -212,7 +212,7 @@ impl FitnessProvider for Relay {
     }
 }
 
-fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
+pub(crate) fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
     Box::new(Relay { config })
 }
 
@@ -230,13 +230,13 @@ async fn server_with_relay() -> Arc<ServerContext> {
 }
 
 /// An athlete with the relay connected.
-struct Rider {
-    user: User,
-    user_id: Uuid,
-    tenant: TenantId,
+pub(crate) struct Rider {
+    pub(crate) user: User,
+    pub(crate) user_id: Uuid,
+    pub(crate) tenant: TenantId,
 }
 
-async fn athlete_with_relay(resources: &ServerContext) -> Rider {
+pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
     let email = format!("relay-{}@example.com", Uuid::new_v4());
     let (user_id, user, tenant) =
         create_test_user_with_plan(&resources.agent.database, &email, "starter")
@@ -697,6 +697,7 @@ fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSur
             budget: 64,
             seat: TurnSeat::Subject,
             switched_off: &SwitchedOff::default(),
+            grant: &OAuthScope::self_grant(),
         },
     )
 }
@@ -915,7 +916,7 @@ async fn write_row(
 }
 
 /// A fact the athlete holds, stamped as given.
-async fn write_fact(
+pub(crate) async fn write_fact(
     resources: &Arc<ServerContext>,
     rider: &Rider,
     object: &str,
@@ -1191,61 +1192,75 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
 
     // The Copilot loop calls from another task: the turn's accumulator rides
     // the surface there. A first-party turn that read the relay stamps the
-    // fact it then writes; a turn over the key never read it, so its fact
-    // stays open.
-    for (transport, object, expected) in [
-        (
-            Transport::WebApp,
-            "long climbs after the relay rides",
-            TransportPolicy::FirstPartyOnly,
-        ),
-        (
-            Transport::ApiKey,
-            "short intervals",
-            TransportPolicy::AnyTransport,
-        ),
-    ] {
-        let provenance = ai_scope::Provenance::new();
-        let surface = ai_scope::serve_over(
-            transport,
-            ai_scope::tracking(provenance.clone(), async {
-                copilot_surface(&resources, &rider)
-            }),
-        )
-        .await;
-        let args = remember(object);
-        let reads = serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" });
-        tokio::spawn(async move {
-            surface.call("get_activities", &reads).await;
-            surface.call("remember_fact", &args).await
-        })
+    // fact it then writes. `remember_fact` is refused over the key, so a turn
+    // there writes nothing at all.
+    let object = "long climbs after the relay rides";
+    let provenance = ai_scope::Provenance::new();
+    let surface = ai_scope::serve_over(
+        Transport::WebApp,
+        ai_scope::tracking(provenance.clone(), async {
+            copilot_surface(&resources, &rider)
+        }),
+    )
+    .await;
+    let args = remember(object);
+    let reads = serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" });
+    tokio::spawn(async move {
+        surface.call("get_activities", &reads).await;
+        surface.call("remember_fact", &args).await
+    })
+    .await
+    .unwrap();
+    assert_eq!(provenance.policy(), TransportPolicy::FirstPartyOnly);
+
+    // Called outside a conversation, remember_fact writes a draft; the stamp is
+    // on it either way, and keeping it keeps the stamp.
+    let memory = &resources.common.repos.memory;
+    let user = rider.user_id.to_string();
+    let drafts = memory
+        .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
-        assert_eq!(provenance.policy(), expected, "{transport:?}");
+    let fact = drafts
+        .iter()
+        .find(|f| f.object == object)
+        .expect("the tool wrote the fact");
+    assert_eq!(fact.transport_policy, TransportPolicy::FirstPartyOnly);
+    memory
+        .approve_user_fact(&fact.id, rider.tenant, &user)
+        .await
+        .unwrap();
 
-        // Called outside a conversation, remember_fact writes a draft; the
-        // stamp is on it either way, and keeping it keeps the stamp.
-        let memory = &resources.common.repos.memory;
-        let drafts = memory
-            .list_draft_user_facts(
-                rider.tenant,
-                &rider.user_id.to_string(),
-                50,
-                TransportPolicy::FirstPartyOnly,
-            )
-            .await
-            .unwrap();
-        let fact = drafts
-            .iter()
-            .find(|f| f.object == object)
-            .expect("the tool wrote the fact");
-        assert_eq!(fact.transport_policy, expected, "{transport:?}");
-        memory
-            .approve_user_fact(&fact.id, rider.tenant, &rider.user_id.to_string())
-            .await
-            .unwrap();
-    }
+    let provenance = ai_scope::Provenance::new();
+    let surface = ai_scope::serve_over(
+        Transport::ApiKey,
+        ai_scope::tracking(provenance.clone(), async {
+            copilot_surface(&resources, &rider)
+        }),
+    )
+    .await;
+    let args = remember("written over the key");
+    tokio::spawn(async move { surface.call("remember_fact", &args).await })
+        .await
+        .unwrap();
+    assert_eq!(provenance.policy(), TransportPolicy::AnyTransport);
+    let drafts = memory
+        .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
+        .await
+        .unwrap();
+    assert!(
+        drafts.iter().all(|f| f.object != "written over the key"),
+        "bug: an external turn must not write the athlete's memory: {drafts:?}"
+    );
 
+    // An open fact the athlete's own surfaces wrote is what the key reads back.
+    write_fact(
+        &resources,
+        &rider,
+        "short intervals",
+        TransportPolicy::AnyTransport,
+    )
+    .await;
     let recall = call(
         &resources,
         &rider,

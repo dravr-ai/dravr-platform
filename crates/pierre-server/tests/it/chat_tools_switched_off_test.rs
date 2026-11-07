@@ -13,6 +13,7 @@
 //! from the same `ToolSelectionService` decision `tools/list` uses.
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -62,6 +63,7 @@ async fn loopback_surface(
             budget: 64,
             seat: TurnSeat::Subject,
             switched_off,
+            grant: &OAuthScope::self_grant(),
         })
     })
     .await
@@ -133,6 +135,8 @@ async fn a_tool_switched_off_for_the_user_is_on_no_chat_surface_and_another_user
         TurnSeat::Subject,
         &switched_off,
         Some(Transport::WebApp),
+        &OAuthScope::self_grant(),
+        &resources.common.config,
     ))
     .function_declarations
     .into_iter()

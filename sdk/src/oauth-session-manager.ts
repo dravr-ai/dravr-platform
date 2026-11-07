@@ -148,13 +148,15 @@ interface OAuth2TokenResponse {
 }
 
 interface ValidateRefreshResponse {
-  status: "valid" | "refreshed" | "invalid";
+  status: "valid" | "refreshed" | "invalid" | "retry_later";
   expires_in?: number;
   access_token?: string;
   refresh_token?: string;
   token_type?: string;
   reason?: string;
   requires_full_reauth?: boolean;
+  /** Seconds to wait before retrying (only for `retry_later`). */
+  retry_after?: number;
 }
 
 export class PierreOAuthClientProvider implements OAuthClientProvider {
@@ -728,6 +730,17 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       return;
     }
 
+    if (validationResult.status === "retry_later") {
+      // The server decided nothing about the session: its user's refresh window
+      // is full, or could not be counted. Nothing was rotated, so the stored
+      // credentials stay exactly as they are and a later call retries.
+      this.log(
+        `Dravr asked to retry session validation later${validationResult.retry_after ? ` (in ${validationResult.retry_after}s)` : ""}`,
+      );
+      this.log(`Keeping stored credentials - the next call retries validation`);
+      return;
+    }
+
     if (validationResult.status === "refreshed") {
       // validateAndRefreshToken has already adopted the renewed pair into memory and
       // secure storage, so there is nothing left to write here.
@@ -1235,11 +1248,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
             this.log(`Authorization failed: ${query.error}`);
             res.writeHead(400, { "Content-Type": "text/html" });
             res.end(
-              this.renderErrorTemplate(
-                "MCP host OAuth",
-                `${query.error}`,
-                `${query.error_description || "Please try connecting again."}`,
-              ),
+              this.renderErrorTemplate(),
             );
             this.rejectAuthorizationFromCallback(query);
           } else if (query.code && query.state) {
@@ -1258,11 +1267,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
             this.log(`Invalid callback parameters`);
             res.writeHead(400, { "Content-Type": "text/html" });
             res.end(
-              this.renderErrorTemplate(
-                "MCP host OAuth",
-                "Invalid Request",
-                "Missing required authorization parameters. Please try connecting again.",
-              ),
+              this.renderErrorTemplate(),
             );
           }
         } else {
@@ -1338,16 +1343,12 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       .replace(/'/g, "&#039;");
   }
 
-  private renderErrorTemplate(
-    provider: string,
-    error: string,
-    description: string,
-  ): string {
-    // Security: Escape all user-provided values to prevent reflected XSS
-    // The error and description values come from OAuth callback query parameters
-    return OAUTH_ERROR_TEMPLATE.replace(/\{\{PROVIDER\}\}/g, this.escapeHtml(provider))
-      .replace(/\{\{ERROR\}\}/g, this.escapeHtml(error))
-      .replace(/\{\{DESCRIPTION\}\}/g, this.escapeHtml(description));
+  private renderErrorTemplate(): string {
+    // The bridge runs on the athlete's machine with no string catalogue, so this
+    // page reads in English. It names nothing the callback's query carried.
+    return OAUTH_ERROR_TEMPLATE.replace(/\{\{LANG\}\}/g, "en")
+      .replace(/\{\{T_TITLE\}\}/g, "Connection Failed")
+      .replace(/\{\{DESCRIPTION\}\}/g, "<p>Please try again.</p>");
   }
 
   async validateAndCleanupCachedCredentials(): Promise<void> {

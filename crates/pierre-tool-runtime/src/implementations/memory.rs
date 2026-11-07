@@ -710,6 +710,6 @@ pub fn create_memory_tools() -> Vec<Box<dyn RuntimeTool>> {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(RecallUserMemoryTool => empty);
-crate::declare_security!(RememberFactTool => empty);
-crate::declare_security!(AgentNoteAddTool => empty);
-crate::declare_security!(AgentFollowupScheduleTool => empty);
+crate::declare_security!(RememberFactTool => empty; first_party_only);
+crate::declare_security!(AgentNoteAddTool => empty; first_party_only);
+crate::declare_security!(AgentFollowupScheduleTool => empty; first_party_only);

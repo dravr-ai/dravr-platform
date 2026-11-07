@@ -374,8 +374,8 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
     let resources = common::create_test_server_resources().await?;
     let (user, _session) =
         common::create_test_tenant(&resources, "parity-admin@example.com").await?;
-    // Both surfaces return the unfiltered registry only for a genuine GLOBAL admin
-    // (`User.is_admin`) — not just a tenant owner — so parity is asserted at that tier.
+    // Both surfaces answer one profile for a genuine GLOBAL admin
+    // (`User.is_admin`) as for anyone; parity is asserted at that tier all the same.
     // The wire gate resolves the flag from the DB at request time, so flipping it here
     // makes the admin's API key an admin caller. An API key, because `admin` is never
     // delegated and `/mcp` refuses a first-party session token (carnet#768).
@@ -442,10 +442,11 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user, _session) =
         common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
-    // The wire response must match the FULL in-process registry, which only a global admin
-    // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. Flipping
-    // the flag in the DB makes the admin's API key authenticate as an admin — an API key,
-    // because `admin` is never delegated and `/mcp` refuses a session token (carnet#768).
+    // The wire response must match the in-process registry less what is kept on Dravr's
+    // own surfaces, for a global admin (`User.is_admin`) on the top plan as for anyone.
+    // Flipping the flag in the DB makes the admin's API key authenticate as an admin — an
+    // API key, because `admin` is never delegated and `/mcp` refuses a session token
+    // (carnet#768).
     let token =
         common::issue_test_api_key(&resources.agent.database, user.id, "wire parity admin").await?;
     resources
@@ -456,6 +457,18 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
         .set_admin_status(user.id, true)
         .await
         .map_err(|e| anyhow::anyhow!("promote wire-parity user to global admin failed: {e}"))?;
+    let repositories = resources.agent.database.repositories();
+    let tenant = repositories
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .map_err(|e| anyhow::anyhow!("tenant lookup failed: {e}"))?
+        .remove(0);
+    repositories
+        .tenants
+        .set_plan(tenant.id, "enterprise")
+        .await
+        .map_err(|e| anyhow::anyhow!("set plan failed: {e}"))?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 
@@ -472,8 +485,8 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
     // `/mcp` is an external transport: what it lists is the registry less the
-    // tools kept on Dravr's own surfaces.
-    let mut schemas = registry.all_schemas();
+    // operator tools and the tools kept on Dravr's own surfaces.
+    let mut schemas = registry.user_visible_schemas();
     first_party_tools::retain_served_over(&registry, &mut schemas, Transport::McpHttp);
     let in_process: HashSet<String> = schemas.into_iter().map(|s| s.name).collect();
 
@@ -605,11 +618,11 @@ const PLAN_GATED_TOOLS: [&str; 8] = [
     "predict_performance",
 ];
 
-/// The plan is the athlete's current state, and the tool list a client builds
-/// against must not change when it does: a tool the tenant's plan does not
-/// cover is listed, and `tools/call` refuses it.
+/// `tools/list` offers what `tools/call` runs: a tool the tenant's plan does not
+/// cover is left out, by the same check that refuses it to a client naming it
+/// anyway.
 #[tokio::test]
-async fn test_plan_gated_tools_are_listed_and_refused_at_call_time() -> Result<()> {
+async fn test_plan_gated_tools_are_not_listed_and_refused_at_call_time() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_user, token) =
         common::create_test_mcp_tenant(&resources, "starter-plan-listing@example.com").await?;
@@ -621,8 +634,8 @@ async fn test_plan_gated_tools_are_listed_and_refused_at_call_time() -> Result<(
         extract_tool_names(&post_tools_list(&client, &server.base_url(), Some(&bearer)).await?);
     for tool in PLAN_GATED_TOOLS {
         assert!(
-            listed.contains(tool),
-            "'{tool}' is outside the starter plan but must still be listed"
+            !listed.contains(tool),
+            "'{tool}' is outside the starter plan: tools/list must not offer what tools/call refuses"
         );
     }
 

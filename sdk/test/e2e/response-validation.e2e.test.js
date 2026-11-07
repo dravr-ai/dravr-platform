@@ -10,6 +10,7 @@ const {
   configureValidator,
   hasResponseSchema,
   registerToolOutputSchemas,
+  TOOL_NAMES,
   validateMcpToolResponse,
 } = require('../../dist/index.js');
 
@@ -77,8 +78,10 @@ describe('E2E: tool results conform to the advertised outputSchema', () => {
 
   test('every advertised outputSchema has an object root and compiles', () => {
     const declared = tools.filter((tool) => tool.outputSchema);
-    // A listing with no schemas would make every check below vacuous.
-    expect(declared.length).toBeGreaterThan(100);
+    // A listing with no schemas would make every check below vacuous, so every
+    // tool of the generated roster must declare one: the public profile on /mcp
+    // is that roster, on the top plan the test user's tenant holds.
+    expect(declared.map((tool) => tool.name).sort()).toEqual([...TOOL_NAMES]);
 
     const notObjectRooted = declared
       .filter((tool) => tool.outputSchema.type !== 'object')

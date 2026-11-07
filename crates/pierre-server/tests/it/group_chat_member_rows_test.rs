@@ -24,6 +24,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -438,6 +439,7 @@ mod turns {
                 quota: QuotaState::Ok,
                 mentioned_agent: None,
                 steps_after: None,
+                grant: OAuthScope::self_grant(),
             };
             ai_scope::serve_over(
                 Transport::WebApp,

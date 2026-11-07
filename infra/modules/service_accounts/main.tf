@@ -217,6 +217,12 @@ locals {
     # serverless NEG: the first apply (run 35646635471) created everything up
     # to it and then 403'd on compute.regionNetworkEndpointGroups.create.
     "roles/compute.loadBalancerAdmin",
+    # The Cloud Armor policy on the frontend backend service. The two roles above
+    # hold only compute.securityPolicies.{get,list,use}, and securityAdmin is the
+    # predefined role with create, update and delete (measured with gcloud iam
+    # roles describe). Attaching needs backendServices.setSecurityPolicy, which
+    # loadBalancerAdmin already holds.
+    "roles/compute.securityAdmin",
     # The cost monitor in cost_monitoring.tf (carnet#731): a BigQuery scheduled
     # query and dataset IAM on billing_export. bigquery.admin is the only
     # predefined role carrying bigquery.transfers.update; dataEditor, held

@@ -53,8 +53,6 @@
 
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
-#[cfg(feature = "protocol-a2a")]
-use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::archive_import::ArchiveImports;
@@ -356,9 +354,6 @@ pub struct A2ASlice {
     /// A2A protocol client manager for agent-to-agent communication.
     #[cfg(feature = "protocol-a2a")]
     pub a2a_client_manager: Arc<A2AClientManager>,
-    /// Service for managing A2A system user accounts.
-    #[cfg(feature = "protocol-a2a")]
-    pub a2a_system_user_service: Arc<A2ASystemUserService>,
 }
 
 impl fmt::Debug for A2ASlice {

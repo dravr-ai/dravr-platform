@@ -37,6 +37,7 @@ mod roster_overview_tests {
         Activity, ActivityBuilder, ConnectionType, ConversationTurnId, SportType, Tenant, TenantId,
         User, UserStatus,
     };
+    use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_llm::{
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
@@ -463,6 +464,7 @@ mod roster_overview_tests {
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,
+            grant: OAuthScope::self_grant(),
         };
         let ctx = resources.chat_pipeline_context();
         ai_scope::serve_over(

@@ -162,7 +162,14 @@ fn a_parameter_the_handler_defaults_is_not_required() {
         def!(CompareActivitiesTool),
     ] {
         assert_eq!(required(&tool), vec!["activity_id"], "{}", tool.name);
-        assert!(description(&tool, "provider").contains("Defaults to configured provider"));
+        // The handler elects the athlete's best source (a connection or their
+        // uploads) when none is named, and the description says so.
+        let provider = description(&tool, "provider");
+        assert!(
+            provider.contains("default is their best source"),
+            "{}: {provider}",
+            tool.name
+        );
     }
     let got = required(&def!(AnalyzePerformanceTrendsTool));
     assert!(got.is_empty(), "expected empty, got {got:?}");

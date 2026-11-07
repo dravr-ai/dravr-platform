@@ -14,8 +14,16 @@
 
 use pierre_auth::oauth2_server::cimd::is_metadata_document_id;
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
+use pierre_contremaitre::consent_strings::{
+    KEY_CONSENT_ALLOW, KEY_CONSENT_EXPRESS, KEY_CONSENT_HEALTH, KEY_CONSENT_IN_UNITED_STATES,
+    KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN, KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN,
+    KEY_CONSENT_UNVERIFIED_BODY, KEY_CONSENT_UNVERIFIED_LOOPBACK,
+    KEY_CONSENT_UNVERIFIED_PUBLISHED_BY, KEY_CONSENT_UNVERIFIED_TITLE, KEY_CONSENT_VERIFIED,
+};
 use pierre_core::html::escape_html_attribute;
 use url::Url;
+
+use super::consent_text::ConsentText;
 
 /// A client Dravr knows by its metadata-document URL: the one place a
 /// registered name can be trusted, because the URL is the client's identity
@@ -28,23 +36,32 @@ struct KnownClient {
     product: &'static str,
     /// The company operating it
     operator: &'static str,
-    /// The country where it processes what it receives
-    country: &'static str,
+    /// The catalogue key saying where it processes what it receives
+    processes_in: &'static str,
 }
 
 /// The clients that get a verified badge.
-const KNOWN_CLIENTS: [KnownClient; 2] = [
+const KNOWN_CLIENTS: [KnownClient; 3] = [
     KnownClient {
         client_id: "https://claude.ai/oauth/claude-code-client-metadata",
         product: "Claude Code",
         operator: "Anthropic",
-        country: "the United States",
+        processes_in: KEY_CONSENT_IN_UNITED_STATES,
+    },
+    // Hosted Claude, as observed live on 2026-11-06. Its metadata document
+    // names the redirect https://claude.ai/api/mcp/auth_callback; the redirect
+    // is held by the authorize endpoint, never by this badge.
+    KnownClient {
+        client_id: "https://claude.ai/oauth/mcp-oauth-client-metadata",
+        product: "Claude",
+        operator: "Anthropic",
+        processes_in: KEY_CONSENT_IN_UNITED_STATES,
     },
     KnownClient {
         client_id: "https://chatgpt.com/oauth/client.json",
         product: "ChatGPT",
         operator: "OpenAI",
-        country: "the United States",
+        processes_in: KEY_CONSENT_IN_UNITED_STATES,
     },
 ];
 
@@ -57,8 +74,8 @@ pub(super) enum ClientTrust {
         product: &'static str,
         /// The company operating it
         operator: &'static str,
-        /// Where it processes what it receives
-        country: &'static str,
+        /// The catalogue key saying where it processes what it receives
+        processes_in: &'static str,
     },
     /// Any other client
     Unverified {
@@ -88,40 +105,56 @@ impl ClientTrust {
                 |known| Self::Verified {
                     product: known.product,
                     operator: known.operator,
-                    country: known.country,
+                    processes_in: known.processes_in,
                 },
             )
     }
 }
 
+/// The client's name as the lines print it, escaped.
+pub(super) fn client_span(client_label: &str) -> String {
+    format!(
+        r#"<span class="client">{}</span>"#,
+        escape_html_attribute(client_label)
+    )
+}
+
 /// The line under the heading: a badge for a known client, a warning for any
 /// other, and for one that returns to the athlete's own machine, what that
 /// means.
-pub(super) fn trust_line(trust: &ClientTrust) -> String {
+pub(super) fn trust_line(trust: &ClientTrust, text: &ConsentText<'_>) -> String {
     match trust {
         ClientTrust::Verified {
             product, operator, ..
         } => format!(
-            r#"<p class="fineprint"><strong>Verified: {} by {}</strong></p>"#,
-            escape_html_attribute(product),
-            escape_html_attribute(operator),
+            r#"<p class="fineprint"><strong>{}</strong></p>"#,
+            text.html(
+                KEY_CONSENT_VERIFIED,
+                &[
+                    &escape_html_attribute(product),
+                    &escape_html_attribute(operator)
+                ],
+            ),
         ),
         ClientTrust::Unverified {
             loopback_only,
             document_host,
         } => {
-            let mut line = String::from(
-                r#"<p class="alert alert-error"><strong>Unverified app.</strong> Dravr has not verified who runs this app. Allow access only if you started this connection yourself."#,
+            let mut line = format!(
+                r#"<p class="alert alert-error"><strong>{}</strong> {}"#,
+                text.html(KEY_CONSENT_UNVERIFIED_TITLE, &[]),
+                text.html(KEY_CONSENT_UNVERIFIED_BODY, &[]),
             );
             if let Some(host) = document_host {
-                line.push_str(" It is published by <strong>");
-                line.push_str(&escape_html_attribute(host));
-                line.push_str("</strong>; the name it gives itself is not checked.");
+                line.push(' ');
+                line.push_str(&text.html(
+                    KEY_CONSENT_UNVERIFIED_PUBLISHED_BY,
+                    &[&format!("<strong>{}</strong>", escape_html_attribute(host))],
+                ));
             }
             if *loopback_only {
-                line.push_str(
-                    " It returns you to a program on this device, so only continue if you are running it.",
-                );
+                line.push(' ');
+                line.push_str(&text.html(KEY_CONSENT_UNVERIFIED_LOOPBACK, &[]));
             }
             line.push_str("</p>");
             line
@@ -130,10 +163,10 @@ pub(super) fn trust_line(trust: &ClientTrust) -> String {
 }
 
 /// What the data is, and that it is wellness information.
-pub(super) fn health_line(client_label: &str) -> String {
+pub(super) fn health_line(client_label: &str, text: &ConsentText<'_>) -> String {
     format!(
-        r#"<p class="fineprint">Training, sleep and recovery data you connected to Dravr will be shared with <span class="client">{}</span>. Dravr gives training and wellness information, not medical advice.</p>"#,
-        escape_html_attribute(client_label),
+        r#"<p class="fineprint">{}</p>"#,
+        text.html(KEY_CONSENT_HEALTH, &[&client_span(client_label)]),
     )
 }
 
@@ -141,34 +174,49 @@ pub(super) fn health_line(client_label: &str) -> String {
 /// to whom. Names the operator and country for a known client; says only
 /// that the app may process it elsewhere for any other, since Dravr does not
 /// know where it runs.
-pub(super) fn outside_quebec_line(trust: &ClientTrust, client_label: &str) -> String {
-    let client = escape_html_attribute(client_label);
-    match trust {
+pub(super) fn outside_quebec_line(
+    trust: &ClientTrust,
+    client_label: &str,
+    text: &ConsentText<'_>,
+) -> String {
+    let client = client_span(client_label);
+    let line = match trust {
         ClientTrust::Verified {
-            operator, country, ..
-        } => format!(
-            r#"<p class="fineprint">This information may be communicated outside Québec: <span class="client">{client}</span> is run by {} and processes what it receives in {}.</p>"#,
-            escape_html_attribute(operator),
-            escape_html_attribute(country),
+            operator,
+            processes_in,
+            ..
+        } => text.html(
+            KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN,
+            &[
+                &client,
+                &escape_html_attribute(operator),
+                &text.html(processes_in, &[]),
+            ],
         ),
-        ClientTrust::Unverified { .. } => format!(
-            r#"<p class="fineprint">This information may be communicated outside Québec: Dravr does not know where <span class="client">{client}</span> processes what it receives.</p>"#,
-        ),
-    }
+        ClientTrust::Unverified { .. } => text.html(KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN, &[&client]),
+    };
+    format!(r#"<p class="fineprint">{line}</p>"#)
 }
 
 /// Law 25 s.12: health data is sensitive, so consent is expressly asked for,
-/// in words apart from the scope list.
-pub(super) fn express_consent_line(client_label: &str) -> String {
+/// in words apart from the scope list, naming the button that gives it.
+pub(super) fn express_consent_line(client_label: &str, text: &ConsentText<'_>) -> String {
     format!(
-        r#"<p class="fineprint">Your training, sleep and recovery data is sensitive personal information. By choosing Allow access you expressly consent to Dravr sharing it with <span class="client">{}</span>.</p>"#,
-        escape_html_attribute(client_label),
+        r#"<p class="fineprint">{}</p>"#,
+        text.html(
+            KEY_CONSENT_EXPRESS,
+            &[
+                &text.html(KEY_CONSENT_ALLOW, &[]),
+                &client_span(client_label)
+            ],
+        ),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_contremaitre::MessagingStringsRegistry;
 
     const CHATGPT: &str = "https://chatgpt.com/oauth/client.json";
 
@@ -179,7 +227,7 @@ mod tests {
             ClientTrust::Verified {
                 product: "ChatGPT",
                 operator: "OpenAI",
-                country: "the United States",
+                processes_in: KEY_CONSENT_IN_UNITED_STATES,
             }
         );
         // A dynamically registered client is a random id whatever name it gave.
@@ -190,6 +238,36 @@ mod tests {
                 document_host: None,
             }
         );
+    }
+
+    #[test]
+    fn hosted_claude_is_named_only_by_its_exact_metadata_url() {
+        const HOSTED_CLAUDE: &str = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+        const CALLBACK: &str = "https://claude.ai/api/mcp/auth_callback";
+        assert_eq!(
+            ClientTrust::of(HOSTED_CLAUDE, CALLBACK),
+            ClientTrust::Verified {
+                product: "Claude",
+                operator: "Anthropic",
+                processes_in: KEY_CONSENT_IN_UNITED_STATES,
+            }
+        );
+        // A near miss of the URL is any other client, whatever it returns to.
+        for near_miss in [
+            "https://claude.ai/oauth/mcp-oauth-client-metadata/",
+            "https://claude.ai/oauth/mcp-oauth-client-metadata?x=1",
+            "http://claude.ai/oauth/mcp-oauth-client-metadata",
+            "https://claude.ai.evil.example/oauth/mcp-oauth-client-metadata",
+            "HTTPS://CLAUDE.AI/oauth/mcp-oauth-client-metadata",
+        ] {
+            assert!(
+                matches!(
+                    ClientTrust::of(near_miss, CALLBACK),
+                    ClientTrust::Unverified { .. }
+                ),
+                "{near_miss} must not borrow the badge"
+            );
+        }
     }
 
     #[test]
@@ -230,38 +308,44 @@ mod tests {
                 document_host: Some("chatgpt.com.evil.example".to_owned()),
             }
         );
-        assert!(trust_line(&trust).contains("<strong>chatgpt.com.evil.example</strong>"));
+        let registry = MessagingStringsRegistry::new();
+        let text = ConsentText::new(&registry, "en");
+        assert!(trust_line(&trust, &text).contains("<strong>chatgpt.com.evil.example</strong>"));
     }
 
     #[test]
     fn the_lines_escape_the_client_label_and_say_what_the_law_asks() {
+        let registry = MessagingStringsRegistry::new();
+        let text = ConsentText::new(&registry, "en");
         let hostile = "<script>alert(1)</script>";
         let trust = ClientTrust::Unverified {
             loopback_only: true,
             document_host: None,
         };
         for line in [
-            trust_line(&trust),
-            health_line(hostile),
-            outside_quebec_line(&trust, hostile),
-            express_consent_line(hostile),
+            trust_line(&trust, &text),
+            health_line(hostile, &text),
+            outside_quebec_line(&trust, hostile, &text),
+            express_consent_line(hostile, &text),
         ] {
             assert!(!line.contains("<script>"), "{line}");
         }
-        assert!(trust_line(&trust).contains("Unverified app"));
-        assert!(trust_line(&trust).contains("program on this device"));
-        assert!(health_line("X").contains("not medical advice"));
-        assert!(outside_quebec_line(&trust, "X").contains("outside Québec"));
-        assert!(express_consent_line("X").contains("expressly consent"));
+        assert!(trust_line(&trust, &text).contains("Unverified app"));
+        assert!(trust_line(&trust, &text).contains("program on this device"));
+        assert!(health_line("X", &text).contains("not medical advice"));
+        assert!(outside_quebec_line(&trust, "X", &text).contains("outside Québec"));
+        assert!(express_consent_line("X", &text).contains("expressly consent"));
     }
 
     #[test]
     fn a_verified_client_is_named_with_its_operator_and_country() {
         let trust = ClientTrust::of(CHATGPT, "https://chatgpt.com/cb");
-        assert!(trust_line(&trust).contains("Verified: ChatGPT by OpenAI"));
-        let line = outside_quebec_line(&trust, "ChatGPT");
+        let registry = MessagingStringsRegistry::new();
+        let text = ConsentText::new(&registry, "en");
+        assert!(trust_line(&trust, &text).contains("Verified: ChatGPT by OpenAI"));
+        let line = outside_quebec_line(&trust, "ChatGPT", &text);
         assert!(
-            line.contains("OpenAI") && line.contains("the United States"),
+            line.contains("OpenAI") && line.contains("in the United States"),
             "{line}"
         );
     }

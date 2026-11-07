@@ -26,8 +26,8 @@ const commonOptions = {
 
 console.log('🔨 Building SDK with esbuild (Node 24 target)...\n');
 
-// The OAuth callback pages are the MCP transport's own templates, so the SDK
-// and the server show the same page. They ask for the shared Boreal stylesheet
+// The OAuth callback pages are the server's own templates, so the SDK and the
+// server show the same page. They ask for the shared Boreal stylesheet
 // through {{HOSTED_PAGE_CSS}}, which the server fills with
 // pierre_core::html::with_hosted_page_css; the bundle fills it here from the
 // same generated file. A missing template fails the build: the bundle reads
@@ -42,9 +42,12 @@ if (!existsSync(hostedPageCss)) {
 }
 const css = readFileSync(hostedPageCss, 'utf8');
 
-const templateFiles = ['oauth_success.html', 'oauth_error.html'];
-for (const file of templateFiles) {
-  const src = join(sourceTemplatesDir, file);
+const templateFiles = [
+  ['oauth_success.html', sourceTemplatesDir],
+  ['oauth_error.html', join(__dirname, '..', 'crates', 'pierre-core', 'src')],
+];
+for (const [file, sourceDir] of templateFiles) {
+  const src = join(sourceDir, file);
   if (!existsSync(src)) {
     throw new Error(`OAuth template not found: ${src}`);
   }

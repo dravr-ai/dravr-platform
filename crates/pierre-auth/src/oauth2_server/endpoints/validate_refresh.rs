@@ -7,6 +7,7 @@
 use chrono::Utc;
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::permissions::scopes::OAuthScope;
 use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -55,15 +56,23 @@ impl OAuth2AuthorizationServer {
         match Uuid::parse_str(&claims.sub) {
             // SECURITY: Global lookup — OAuth2 token validation, no tenant context
             Ok(user_id) => match self.users.get_global(user_id).await {
-                Ok(Some(_user)) => Ok(ValidateRefreshResponse {
-                    status: ValidationStatus::Valid,
-                    expires_in: Some(claims.exp - Utc::now().timestamp()),
-                    access_token: None,
-                    refresh_token: None,
-                    token_type: None,
-                    reason: None,
-                    requires_full_reauth: None,
-                }),
+                Ok(Some(_user)) => match self.access_was_withdrawn(user_id, &claims).await {
+                    Ok(false) => Ok(ValidateRefreshResponse {
+                        status: ValidationStatus::Valid,
+                        expires_in: Some(claims.exp - Utc::now().timestamp()),
+                        access_token: None,
+                        refresh_token: None,
+                        token_type: None,
+                        reason: None,
+                        requires_full_reauth: None,
+                        retry_after: None,
+                    }),
+                    Ok(true) => Ok(Self::create_invalid_response("grant_revoked")),
+                    Err(e) => {
+                        error!("Database error while validating token: {}", e);
+                        Ok(Self::create_invalid_response("database_error"))
+                    }
+                },
                 Ok(None) => Ok(Self::create_invalid_response("user_not_found")),
                 Err(e) => {
                     error!("Database error while validating token: {}", e);
@@ -72,6 +81,24 @@ impl OAuth2AuthorizationServer {
             },
             Err(_) => Ok(Self::create_invalid_response("invalid_user_id")),
         }
+    }
+
+    /// Whether the athlete withdrew the consent a delegated token rides on, as
+    /// `/mcp` and A2A would refuse it. This route is not on the path of every
+    /// call, so it reads the grant itself.
+    async fn access_was_withdrawn(&self, user_id: Uuid, claims: &Claims) -> AppResult<bool> {
+        let (Some(client_id), Some(tenant_id)) = (&claims.client_id, &claims.active_tenant_id)
+        else {
+            return Ok(false);
+        };
+        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
+            return Ok(false);
+        }
+        let standing = self
+            .oauth2_server
+            .client_grant_standing(&user_id.to_string(), tenant_id, client_id)
+            .await?;
+        Ok(!standing.admits_token_issued_at(claims.iat))
     }
 
     /// Create a successful refresh response
@@ -87,6 +114,23 @@ impl OAuth2AuthorizationServer {
             token_type: Some("Bearer".to_owned()),
             reason: None,
             requires_full_reauth: None,
+            retry_after: None,
+        }
+    }
+
+    /// The answer to a refresh its user's window refused, or could not count.
+    /// It never reads as a dead token: nothing was rotated and the client keeps
+    /// what it holds.
+    fn create_retry_later_response(refusal: OAuth2Error) -> ValidateRefreshResponse {
+        ValidateRefreshResponse {
+            status: ValidationStatus::RetryLater,
+            expires_in: None,
+            access_token: None,
+            refresh_token: None,
+            token_type: None,
+            reason: Some(refusal.error),
+            requires_full_reauth: Some(false),
+            retry_after: refusal.retry_after,
         }
     }
 
@@ -105,12 +149,22 @@ impl OAuth2AuthorizationServer {
         // Checked before the refresh token is rotated away: a grant bound to a
         // resource this server no longer serves cannot mint a usable token,
         // and a grant whose tenant the user left is revoked.
-        self.check_refresh_grant(refresh_token_value, None)
+        let grant = self
+            .check_refresh_grant(refresh_token_value, None)
             .await
             .map_err(refusal_error)?;
         let audience = self
             .audience(None, refresh_token_data.resource.as_deref())
             .map_err(refusal_error)?;
+
+        // The same window `/oauth2/token` counts a refresh in, before the token
+        // is rotated away, so this route is no way around it.
+        if let Err(refusal) = self
+            .admit_refresh_user(grant.as_ref(), &refresh_token_data.client_id)
+            .await
+        {
+            return Ok(Self::create_retry_later_response(refusal));
+        }
 
         let (_, new_refresh_token_value) = self
             .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
@@ -236,6 +290,7 @@ impl OAuth2AuthorizationServer {
             token_type: None,
             reason: Some(reason.to_owned()),
             requires_full_reauth: Some(true),
+            retry_after: None,
         }
     }
 

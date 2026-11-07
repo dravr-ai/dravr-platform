@@ -18,6 +18,7 @@ use pierre_auth::dto::auth::{
     RegistrationActivation, UserInfo,
 };
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::password::verify_password;
 use pierre_auth::refresh_rotation::{
     consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
@@ -96,6 +97,16 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    /// Where consents to OAuth clients stand, through the cache the resource
+    /// servers read them from, so a change here is one they see.
+    #[must_use]
+    pub fn grant_standings(&self) -> GrantStandings {
+        GrantStandings::new(
+            self.data.repos().oauth2_server.clone(),
+            self.data.cache().clone(),
+        )
+    }
+
     /// Creates a new authentication service
     #[must_use]
     pub const fn new(
@@ -558,6 +569,7 @@ impl AuthService {
             display_name: claims.name.as_deref(),
             provider: &claims.provider,
             signup_source: SignupSource::Firebase,
+            locale: None,
         })
         .await
     }

@@ -95,6 +95,7 @@ fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
         client_manager: resources.a2a.a2a_client_manager.clone(),
         auth_middleware: resources.auth.auth_middleware.clone(),
         tool_runtime,
+        coaching: None,
     };
     A2ARoutes::routes(state)
 }
@@ -394,10 +395,11 @@ async fn test_a2a_refuses_a_first_party_session_token() {
 
 #[tokio::test]
 async fn test_a2a_jsonrpc_send_message_plain_text_is_refused_not_echoed() {
-    // SendMessage executes registered tools addressed by a `data` part. A
-    // plain-text message names no tool, so it is refused with the spec's
-    // ContentTypeNotSupported error — never answered by handing the caller
-    // its own sentence back as the agent's reply.
+    // A build with no coaching pipeline behind it (these routes carry none)
+    // executes only registered tools addressed by a `data` part. A plain-text
+    // message names no tool, so it is refused with the spec's
+    // ContentTypeNotSupported error — never answered by handing the caller its
+    // own sentence back as the agent's reply.
     let resources = create_a2a_test_resources().await;
     let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-auth@example.com")
         .await

@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::{Arc, Mutex};
 
@@ -496,6 +497,7 @@ impl Fixture {
                 quota: QuotaState::Ok,
                 mentioned_agent: None,
                 steps_after: None,
+                grant: OAuthScope::self_grant(),
             },
             &web_profile(),
             &PipelineHooks::none(),

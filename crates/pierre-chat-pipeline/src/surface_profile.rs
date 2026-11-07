@@ -68,14 +68,17 @@ pub enum SurfaceId {
     Slack,
     /// Facebook Messenger bot via Meta Graph API webhook.
     Messenger,
+    /// An external agent speaking A2A for the athlete: a text skill's turn.
+    A2a,
 }
 
 impl SurfaceId {
-    /// Every surface the platform serves a chat turn on.
+    /// Every surface that lays a reply out for an athlete.
     ///
     /// The capability catalogue enumerates this: a row per surface, so a
     /// reader can see what each one renders side by side instead of inferring
-    /// it from whichever one they happen to be looking at.
+    /// it from whichever one they happen to be looking at. [`Self::A2a`] is not
+    /// one: its reply is read by an agent, and no client generates from it.
     pub const ALL: [Self; 7] = [
         Self::Web,
         Self::Mobile,
@@ -97,6 +100,7 @@ impl SurfaceId {
             Self::Discord => "discord",
             Self::Slack => "slack",
             Self::Messenger => "messenger",
+            Self::A2a => "a2a",
         }
     }
 
@@ -114,6 +118,7 @@ impl SurfaceId {
             Self::Discord => "discord",
             Self::Slack => "slack",
             Self::Messenger => "messenger",
+            Self::A2a => "a2a",
         }
     }
 
@@ -125,6 +130,9 @@ impl SurfaceId {
             Self::Telegram | Self::WhatsApp | Self::Discord | Self::Slack | Self::Messenger => {
                 "messaging"
             }
+            // Its own row in `llm_usage`, so what a public agent costs reads
+            // apart from what the athlete's own surfaces cost.
+            Self::A2a => "a2a",
         }
     }
 }
@@ -299,6 +307,18 @@ pub struct MessagingTransportCaps {
     /// native controls instead of degrading it to text.
     pub renders_cards_natively: bool,
 }
+
+/// What the A2A surface can carry: one whole text reply, of any length.
+///
+/// The reply is read by an agent rather than laid out for an athlete. It
+/// resolves through the messaging shape (plain prose, no cards, a fixed tool
+/// budget) because that is the shape of a reply a client cannot render blocks
+/// from.
+pub const A2A_TRANSPORT: MessagingTransportCaps = MessagingTransportCaps {
+    max_message_length: usize::MAX,
+    renders_media_natively: false,
+    renders_cards_natively: false,
+};
 
 /// Everything the boundary knows about a turn's surface before the pipeline
 /// runs.

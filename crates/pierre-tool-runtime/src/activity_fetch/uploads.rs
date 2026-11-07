@@ -140,12 +140,10 @@ pub async fn companion_window(
 }
 
 /// The provider a read answers from: the one [`resolve_provider_for_tool`]
-/// elects, else what the athlete brought in themselves.
+/// elects, uploads and imports included.
 ///
 /// A read pinned to a provider the athlete is not connected to is served from
-/// the history they imported from it ([`companion_stand_in`]); a read no
-/// connection answers is served from their uploads and imports
-/// ([`stand_in_key`]). Neither held, the election's refusal stands.
+/// the history they imported from it ([`companion_stand_in`]).
 ///
 /// # Errors
 ///
@@ -154,33 +152,10 @@ pub async fn resolve_with_own_copies(
     args: &Value,
     context: &ToolExecutionContext,
 ) -> Result<String, ToolResult> {
-    match provider_helpers::resolve_provider_for_tool(args, context).await {
-        Ok(provider) => Ok(companion_stand_in(context, &provider)
-            .await
-            .map_or(provider, str::to_owned)),
-        Err(refusal) => stand_in_key(context, args.get("provider").and_then(Value::as_str))
-            .await
-            .map(str::to_owned)
-            .ok_or(refusal),
-    }
-}
-
-/// The user-provided key that answers a read whose provider could not be resolved.
-///
-/// With nothing connected, that is the athlete's own copy of `requested`'s
-/// history when they hold one (`strava_archive` for `strava`), the key itself
-/// when `requested` names one they hold, else the first key they hold.
-pub async fn stand_in_key(
-    context: &ToolExecutionContext,
-    requested: Option<&str>,
-) -> Option<&'static str> {
-    let held = held_user_provided(context).await;
-    let Some(requested) = requested.filter(|requested| !requested.is_empty()) else {
-        return held.first().copied();
-    };
-    held.iter()
-        .copied()
-        .find(|key| *key == requested || oauth_providers::companion_keys(requested).contains(key))
+    let provider = provider_helpers::resolve_provider_for_tool(args, context).await?;
+    Ok(companion_stand_in(context, &provider)
+        .await
+        .map_or(provider, str::to_owned))
 }
 
 /// The athlete's own copy of `provider`'s history, for a read pinned to it.

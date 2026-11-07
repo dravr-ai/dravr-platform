@@ -194,6 +194,7 @@ fn a_served_resource_with_a_path_binds_only_at_or_below_it() {
 fn platform<'a>(identifiers: &'a [&'a str]) -> ResourceServers<'a> {
     ResourceServers {
         platform: identifiers,
+        a2a: &[],
         satellites: &[],
     }
 }
@@ -205,6 +206,7 @@ const OTHER_SATELLITE: &str = "https://enforme.example.test/mcp";
 fn with_satellites() -> ResourceServers<'static> {
     ResourceServers {
         platform: &[MCP, BASE],
+        a2a: &[],
         satellites: &[SATELLITE, OTHER_SATELLITE],
     }
 }
@@ -565,11 +567,168 @@ fn tokens_bound_to_the_origin_and_to_the_path_are_both_served() {
     );
     let servers = ResourceServers {
         platform: &resources,
+        a2a: &[],
         satellites: &[],
     };
     assert_eq!(
         token_audience(&servers, Some(MCP_WITH_PATH), Some(MCP)).unwrap(),
         Some(MCP_WITH_PATH.to_owned()),
         "a grant made against the origin refreshes into the path-bearing audience"
+    );
+}
+
+/// The deployment `MCP_RESOURCE_URL=https://mcp.example.test/mcp`,
+/// `BASE_URL=https://app.example.test`.
+fn published_door() -> OAuth2ServerConfig {
+    let canonical = "https://mcp.example.test/mcp";
+    OAuth2ServerConfig {
+        issuer_url: "https://app.example.test".to_owned(),
+        mcp_resource_url: canonical.to_owned(),
+        mcp_resource_aliases: resolve_mcp_resource_aliases(
+            canonical,
+            Some("https://app.example.test"),
+        ),
+        ..OAuth2ServerConfig::default()
+    }
+}
+
+#[test]
+fn the_a2a_resource_derives_from_the_mcp_resource_and_is_none_of_its_identifiers() {
+    let config = published_door();
+
+    assert_eq!(config.protocol_origin(), "https://mcp.example.test");
+    assert_eq!(config.a2a_resource_url(), "https://mcp.example.test/a2a");
+    assert_eq!(
+        config.a2a_resources(),
+        [
+            "https://mcp.example.test/a2a",
+            "https://app.example.test/a2a"
+        ],
+        "canonical first, one per origin although two MCP identifiers share the first"
+    );
+    for a2a in config.a2a_resources() {
+        assert!(
+            !config.mcp_resources().contains(&a2a.as_str()),
+            "{a2a} would make a token bound to it good at /mcp"
+        );
+    }
+}
+
+#[test]
+fn the_a2a_resource_follows_the_dialed_host() {
+    let config = published_door();
+
+    assert_eq!(
+        config.a2a_resource_for_host(Some("app.example.test")),
+        "https://app.example.test/a2a"
+    );
+    assert_eq!(
+        config.a2a_resource_for_host(Some("forged.example.test")),
+        "https://mcp.example.test/a2a",
+        "a forged host picks no name of its own"
+    );
+    assert_eq!(
+        config.a2a_resource_for_host(None),
+        "https://mcp.example.test/a2a"
+    );
+}
+
+#[test]
+fn a_path_suffixed_document_exists_for_the_mcp_and_a2a_resources_alone() {
+    let config = published_door();
+    let host = Some("mcp.example.test");
+
+    assert_eq!(
+        config.protected_resource_at(host, "mcp").as_deref(),
+        Some("https://mcp.example.test/mcp")
+    );
+    assert_eq!(
+        config.protected_resource_at(host, "a2a").as_deref(),
+        Some("https://mcp.example.test/a2a")
+    );
+    for other in ["other", "a2a/deeper", "a2ax"] {
+        assert_eq!(config.protected_resource_at(host, other), None, "{other}");
+    }
+}
+
+/// The platform's MCP server, its A2A server, and a satellite.
+fn with_a2a<'a>(platform: &'a [&'a str], a2a: &'a [&'a str]) -> ResourceServers<'a> {
+    ResourceServers {
+        platform,
+        a2a,
+        satellites: &[SATELLITE],
+    }
+}
+
+const MCP_DOOR: &str = "https://mcp.example.test";
+const A2A: &str = "https://mcp.example.test/a2a";
+const A2A_BASE: &str = "https://app.example.test/a2a";
+
+/// `/a2a` sits on an origin that is itself an MCP identifier, so without its
+/// own identifier a token asked for it would be bound to the origin: an MCP
+/// token, refused at `/a2a` and good at `/mcp`.
+#[test]
+fn a_request_naming_the_a2a_resource_binds_it_and_not_the_mcp_origin() {
+    let served = [MCP_DOOR, A2A];
+    assert_eq!(bound_audience(&served, A2A).unwrap(), A2A);
+    assert_eq!(
+        bound_audience(&served, "https://mcp.example.test/a2a/").unwrap(),
+        A2A
+    );
+    assert_eq!(
+        bound_audience(&served, "https://mcp.example.test/a2a/jsonrpc").unwrap(),
+        A2A
+    );
+    assert_eq!(
+        bound_audience(&served, "https://mcp.example.test/mcp").unwrap(),
+        MCP_DOOR
+    );
+}
+
+#[test]
+fn an_mcp_bound_grant_never_mints_for_a2a_nor_the_reverse() {
+    let servers = with_a2a(&[MCP_DOOR], &[A2A, A2A_BASE]);
+
+    assert_eq!(
+        token_audience(&servers, Some(A2A), Some(MCP_DOOR))
+            .unwrap_err()
+            .error,
+        "invalid_target"
+    );
+    assert_eq!(
+        token_audience(&servers, Some(MCP_DOOR), Some(A2A))
+            .unwrap_err()
+            .error,
+        "invalid_target"
+    );
+    assert_eq!(
+        token_audience(&servers, Some(SATELLITE), Some(A2A))
+            .unwrap_err()
+            .error,
+        "invalid_target"
+    );
+}
+
+#[test]
+fn an_a2a_bound_grant_mints_for_a2a_on_any_of_its_hosts() {
+    let servers = with_a2a(&[MCP_DOOR], &[A2A, A2A_BASE]);
+
+    assert_eq!(
+        token_audience(&servers, None, Some(A2A)).unwrap(),
+        Some(A2A.to_owned())
+    );
+    assert_eq!(
+        token_audience(&servers, Some(A2A_BASE), Some(A2A)).unwrap(),
+        Some(A2A_BASE.to_owned())
+    );
+}
+
+#[test]
+fn an_unbound_grant_narrows_to_a2a() {
+    let servers = with_a2a(&[MCP_DOOR], &[A2A, A2A_BASE]);
+
+    assert_eq!(
+        token_audience(&servers, Some(A2A), None).unwrap(),
+        Some(A2A.to_owned())
     );
 }

@@ -38,6 +38,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -563,6 +564,7 @@ impl Fixture {
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
                 hooks: PipelineHooks::none(),
+                grant: OAuthScope::self_grant(),
             },
             &web_profile(),
         )

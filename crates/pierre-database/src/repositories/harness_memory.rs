@@ -304,7 +304,9 @@ pub trait HarnessMemoryRepository: Send + Sync {
     /// `readable` is the strictest stamp a returned row may carry
     /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
     /// out in the statement itself, so `limit` counts only rows the caller
-    /// may read.
+    /// may read. It leaves out every [`pierre_memory::FactKind::Medical`] row
+    /// too, stamped or not: a PAR-Q answer or a coach's flag never leaves on an
+    /// external transport, and every fact list in this trait holds to that.
     async fn list_user_facts(
         &self,
         tenant_id: TenantId,

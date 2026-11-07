@@ -20,6 +20,7 @@
 
 use embacle_tool_host::ToolSession;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 
@@ -70,6 +71,9 @@ pub struct ToolSessionTurn<'a> {
     /// The tools an operator switched off for the caller: the session's
     /// listing leaves them out, as the turn's declarations do.
     pub switched_off: &'a SwitchedOff,
+    /// The grant the turn runs under: its executor's, and what the session's
+    /// listing is narrowed to.
+    pub grant: &'a [OAuthScope],
 }
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.

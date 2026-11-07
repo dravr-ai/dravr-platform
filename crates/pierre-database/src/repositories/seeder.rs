@@ -598,8 +598,8 @@ pub(crate) const INSERT_API_KEY_SQL: &str = "INSERT INTO api_keys \
 pub(crate) const A2A_CLIENT_ID_BY_NAME_SQL: &str =
     "SELECT client_id FROM a2a_clients WHERE name = $1";
 
-/// One A2A client. The seed's `public_key` is the api-key hash, stored as
-/// given; `redirect_uris` takes the column's empty-list default on both
+/// One A2A client. The seed's `public_key` fills `api_key_hash`, which nothing
+/// reads; `redirect_uris` takes the column's empty-list default on both
 /// backends and the quotas are the column defaults spelled out.
 pub(crate) const INSERT_A2A_CLIENT_SQL: &str = "INSERT INTO a2a_clients \
              (client_id, user_id, name, description, api_key_hash, \

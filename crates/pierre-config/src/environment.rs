@@ -184,7 +184,7 @@ impl ServerConfig {
             oauth2_server: OAuth2ServerConfig::from_env(&security.allowed_mobile_redirect_origins),
             security,
             external_services: ExternalServicesConfig::from_env(),
-            usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
+            usda_api_key: usda_key_from(env::var("USDA_API_KEY").ok().as_deref()),
             app_behavior: AppBehaviorConfig::from_env()?,
             http_client: HttpClientConfig::from_env(),
             sse: SseConfig::from_env()?,
@@ -452,6 +452,21 @@ fn website_base_url_from(value: Option<&str>) -> String {
         .to_owned()
 }
 
+/// The USDA key `USDA_API_KEY` holds, without the whitespace around it; `None`
+/// when it is unset or blank.
+///
+/// A secret written with `gcloud secrets versions add` from `echo` ends in a
+/// newline, Cloud Run hands the bytes over as they are, and the key goes in a
+/// query string: USDA read `<key>%0A` as an invalid key and answered every
+/// search on production with 403 `API_KEY_INVALID`, while the same key pasted
+/// by hand answered 200.
+fn usda_key_from(value: Option<&str>) -> Option<SecretString> {
+    value
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(SecretString::from)
+}
+
 /// Report the address the server hands out, beside the one it listens on.
 ///
 /// The listen address is where the process accepts connections; `BASE_URL` is
@@ -479,7 +494,7 @@ pub fn log_effective_base_url(base_url: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        website_base_url_from, DatabaseUrl, OAuthProviderConfig, ServerConfig,
+        usda_key_from, website_base_url_from, DatabaseUrl, OAuthProviderConfig, ServerConfig,
         DEFAULT_WEBSITE_BASE_URL,
     };
     use secrecy::{ExposeSecret, SecretString};
@@ -491,6 +506,35 @@ mod tests {
     const REDIS_PASSWORD: &str = "redis-password-2b90";
     const USDA_KEY: &str = "usda-api-key-77f0";
     const RESEND_KEY: &str = "re_resend-key-1d3a";
+
+    #[test]
+    fn a_usda_key_read_from_a_secret_loses_the_newline_it_was_written_with() {
+        let key = usda_key_from(Some(&format!("{USDA_KEY}\n"))).expect("a key is present");
+        assert_eq!(
+            key.expose_secret(),
+            USDA_KEY,
+            "the trailing newline reached the key"
+        );
+        let key = usda_key_from(Some(&format!("  {USDA_KEY}\r\n"))).expect("a key is present");
+        assert_eq!(
+            key.expose_secret(),
+            USDA_KEY,
+            "the surrounding whitespace reached the key"
+        );
+    }
+
+    #[test]
+    fn a_blank_usda_key_is_no_key() {
+        assert!(usda_key_from(None).is_none(), "an unset key read as a key");
+        assert!(
+            usda_key_from(Some("")).is_none(),
+            "an empty key read as a key"
+        );
+        assert!(
+            usda_key_from(Some(" \n")).is_none(),
+            "a whitespace-only key read as a key"
+        );
+    }
 
     /// What `secrecy` prints in place of a `SecretString`.
     const SECRET_MARKER: &str = "SecretBox<str>([REDACTED])";

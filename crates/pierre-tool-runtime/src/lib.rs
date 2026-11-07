@@ -87,6 +87,8 @@ pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.
 pub mod conversions;
 pub mod decorators;
+/// Tools the deployment is not configured to answer with, left out of an external listing
+pub mod deployment_tools;
 /// Holds a thread opened from an activity to that activity's terms (carnet#769)
 pub mod derived_content;
 /// Tools only Dravr's own surfaces list and run, kept off MCP and A2A.

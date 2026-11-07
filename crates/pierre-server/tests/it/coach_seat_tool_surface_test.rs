@@ -26,6 +26,7 @@
 //! thread's athlete, and the reads of no one's data stay.
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -97,6 +98,7 @@ async fn surface(
             budget: 64,
             seat,
             switched_off: &SwitchedOff::default(),
+            grant: &OAuthScope::self_grant(),
         })
     })
     .await

@@ -521,6 +521,7 @@ mod live_incident_eval {
         let conversation_id = forge_conversation(
             repos,
             ForgeParams {
+                id: None,
                 user_id: &user_id,
                 tenant_id: fixture.athlete_tenant,
                 title_fallback: "DM",

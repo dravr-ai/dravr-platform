@@ -50,6 +50,8 @@ pub mod athlete_gear;
 pub mod calendar_preferences;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
+/// A conversation archived by `/reset` and reactivated: its statements and the bodies behind them.
+pub(crate) mod chat_archive;
 pub(crate) mod chat_backend;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;

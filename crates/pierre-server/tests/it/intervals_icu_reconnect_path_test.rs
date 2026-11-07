@@ -21,6 +21,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -223,6 +224,7 @@ async fn recover(
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,

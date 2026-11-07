@@ -28,7 +28,8 @@
 //! - what the athlete built or said (training plans and weeks, workouts,
 //!   recipes, commitments, facts, notes, follow-ups, conversations and their
 //!   messages, feedback, group membership and room transcript, messaging
-//!   links, sessions and messages, agents they authored);
+//!   links, sessions and messages, agents they authored, the tasks their
+//!   connected agents ran);
 //! - what the service recorded about the account in their name (notifications,
 //!   LLM usage, usage counters, subscription, consent and purge records, and
 //!   the names and creation dates of their API keys and MCP tokens).
@@ -85,12 +86,17 @@ pub struct UserExportTable {
     /// it does not move when the row is updated, so a row changed during an
     /// export is neither dropped nor repeated.
     pub key_columns: &'static [&'static str],
+    /// The type of each column of [`Self::key_columns`], which the `PostgreSQL`
+    /// statement casts a page's start to: `uuid`, `date` or `text`.
+    pub key_kinds: &'static [&'static str],
     /// One page on `SQLite`: `$1` the athlete's id as text, `$2` the limit,
     /// `$3` the key the page starts after.
     pub sqlite_page_sql: &'static str,
     /// One page on `PostgreSQL`: `$1` the athlete's id as text, `$2` the limit,
     /// `$3` the key the page starts after, `$4` the columns to drop, each row
-    /// as one `jsonb`.
+    /// as one `jsonb`. The page starts at its key through the primary key's
+    /// index, and only the rows of the page are turned into documents, so a
+    /// page costs the same however many rows the athlete has.
     pub postgres_page_sql: &'static str,
 }
 
@@ -185,6 +191,17 @@ macro_rules! athlete_rows {
             ")"
         )
     };
+    // A task carries no user column: `session_token` holds the athlete's own
+    // key, or the id of a client they registered.
+    ($backend:tt, [a2a_tasks]) => {
+        concat!(
+            "session_token = 'user:' || ",
+            athlete_id!($backend, text),
+            " OR session_token IN (SELECT c.client_id FROM a2a_clients c WHERE c.user_id = ",
+            athlete_id!($backend, uuid),
+            ")"
+        )
+    };
     ($backend:tt, [sessions]) => {
         concat!(
             "session_id IN (SELECT s.id FROM messaging_sessions s WHERE s.user_id = ",
@@ -235,27 +252,79 @@ macro_rules! tenant_column {
     };
 }
 
-/// A primary-key column as text, in the page key.
+/// A primary-key column as text, in the `SQLite` page key.
 macro_rules! key_column {
     ($column:literal) => {
         concat!("COALESCE(CAST(export_row.", $column, " AS TEXT), '')")
     };
 }
 
-/// A row's page key: its primary-key columns as one text value, joined by a
-/// unit separator so two different keys cannot read the same.
-macro_rules! row_key {
-    (sqlite, $only:literal) => {
+/// A row's `SQLite` page key: its primary-key columns as one text value, joined
+/// by a unit separator so two different keys cannot read the same.
+macro_rules! sqlite_row_key {
+    ($only:literal) => {
         key_column!($only)
     };
-    (postgres, $only:literal) => {
-        key_column!($only)
+    ($first:literal, $($rest:literal),+) => {
+        concat!(key_column!($first), " || char(31) || ", sqlite_row_key!($($rest),+))
     };
-    (sqlite, $first:literal, $($rest:literal),+) => {
-        concat!(key_column!($first), " || char(31) || ", row_key!(sqlite, $($rest),+))
+}
+
+/// The primary-key columns of a `PostgreSQL` page, in key order.
+macro_rules! postgres_key_columns {
+    ($only:literal) => {
+        concat!("export_row.", $only)
     };
-    (postgres, $first:literal, $($rest:literal),+) => {
-        concat!(key_column!($first), " || chr(31) || ", row_key!(postgres, $($rest),+))
+    ($first:literal, $($rest:literal),+) => {
+        concat!("export_row.", $first, ", ", postgres_key_columns!($($rest),+))
+    };
+}
+
+/// The part of `$3`, a JSON array of the key columns, at position `$at` as the
+/// column's own type, so the comparison reaches the column's index. `$3` is
+/// empty on the first page, where the comparison is never decided by this.
+macro_rules! postgres_key_part {
+    (text, $at:literal) => {
+        concat!("NULLIF($3, '')::jsonb->>", $at)
+    };
+    ($kind:ident, $at:literal) => {
+        concat!(
+            "CAST(NULLIF($3, '')::jsonb->>",
+            $at,
+            " AS ",
+            stringify!($kind),
+            ")"
+        )
+    };
+}
+
+/// What a `PostgreSQL` page's key columns compare to, in key order.
+macro_rules! postgres_key_after {
+    ($a:ident) => {
+        postgres_key_part!($a, 0)
+    };
+    ($a:ident, $b:ident) => {
+        concat!(postgres_key_part!($a, 0), ", ", postgres_key_part!($b, 1))
+    };
+    ($a:ident, $b:ident, $c:ident) => {
+        concat!(
+            postgres_key_part!($a, 0),
+            ", ",
+            postgres_key_part!($b, 1),
+            ", ",
+            postgres_key_part!($c, 2)
+        )
+    };
+    ($a:ident, $b:ident, $c:ident, $d:ident) => {
+        concat!(
+            postgres_key_part!($a, 0),
+            ", ",
+            postgres_key_part!($b, 1),
+            ", ",
+            postgres_key_part!($c, 2),
+            ", ",
+            postgres_key_part!($d, 3)
+        )
     };
 }
 
@@ -268,7 +337,7 @@ macro_rules! user_export_tables_sql {
             tenant: $tenant:tt,
             except: [$($excluded:literal),*],
             page: $page:literal,
-            key: [$($key:literal),+] $(,)?
+            key: [$($kind:ident $key:literal),+] $(,)?
         }
     ),+ $(,)?) => {
         /// Every table the export reads, in the order it writes them.
@@ -279,20 +348,27 @@ macro_rules! user_export_tables_sql {
                 excluded: &[$($excluded),*],
                 page_rows: $page,
                 key_columns: &[$($key),+],
+                key_kinds: &[$(stringify!($kind)),+],
                 sqlite_page_sql: concat!(
-                    "SELECT export_row.*, ", row_key!(sqlite, $($key),+), " AS ", "export_key",
+                    "SELECT export_row.*, ", sqlite_row_key!($($key),+), " AS ", "export_key",
                     " FROM ", $name, " AS export_row WHERE (", athlete_rows!(sqlite, $rows), ")",
                     tenant_filter!(sqlite, $tenant),
-                    " AND ", row_key!(sqlite, $($key),+), " > $3",
+                    " AND ", sqlite_row_key!($($key),+), " > $3",
                     " ORDER BY export_key LIMIT $2"
                 ),
+                // The inner statement picks the page and carries each row's
+                // columns as stored; only the outer one reads their documents.
+                // In one statement the database builds a document for every
+                // row it sorts, every page.
                 postgres_page_sql: concat!(
-                    "SELECT to_jsonb(export_row) - $4::text[] AS row, ",
-                    row_key!(postgres, $($key),+), " AS export_key",
+                    "SELECT to_jsonb(page) - $4::text[] - 'export_key' AS row, page.export_key",
+                    " FROM (SELECT export_row.*, jsonb_build_array(",
+                    postgres_key_columns!($($key),+), ")::text AS export_key",
                     " FROM ", $name, " AS export_row WHERE (", athlete_rows!(postgres, $rows), ")",
                     tenant_filter!(postgres, $tenant),
-                    " AND (", row_key!(postgres, $($key),+), ") COLLATE \"C\" > $3",
-                    " ORDER BY (", row_key!(postgres, $($key),+), ") COLLATE \"C\" LIMIT $2"
+                    " AND ($3 = '' OR (", postgres_key_columns!($($key),+), ") > (",
+                    postgres_key_after!($($kind),+), "))",
+                    " ORDER BY ", postgres_key_columns!($($key),+), " LIMIT $2) AS page"
                 ),
             }
         ),+];
@@ -302,95 +378,106 @@ macro_rules! user_export_tables_sql {
 user_export_tables_sql!(
     // The account. The row is the athlete's by its id alone: the tenant it names
     // may be null, and a null must not drop the account from its own export.
-    "users" { rows: [uuid "id"], tenant: none, except: ["password_hash"], page: 5, key: ["id"] },
-    "tenant_users" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "user_profiles" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: ["user_id"] },
-    "user_configurations" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: ["user_id"] },
-    "user_home_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: ["user_id"] },
-    "user_unit_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: ["user_id"] },
-    "user_check_in_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: ["tenant_id", "user_id"] },
-    "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["user_id", "step_id"] },
-    "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: ["tenant_id", "user_id"] },
-    "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: ["tenant_id", "user_id"] },
-    "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: ["id"] },
-    "goals" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: ["id"] },
-    "user_agent_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: ["id"] },
-    "first_run_progress" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["tenant_id", "user_id", "flow_id", "local_date"] },
-    "use_case_exposures" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["tenant_id", "user_id", "use_case_id"] },
-    "user_federated_identities" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: ["provider", "subject"] },
-    "provider_terms_consents" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: ["user_id", "provider"] },
-    "signup_code_redemptions" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: ["user_id"] },
-    "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id"], page: 50, key: ["id"] },
-    "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: ["id"] },
+    "users" { rows: [uuid "id"], tenant: none, except: ["password_hash"], page: 5, key: [uuid "id"] },
+    "tenant_users" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
+    "user_profiles" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
+    "user_configurations" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
+    "user_home_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
+    "user_unit_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
+    "user_check_in_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
+    "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
+    "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
+    "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
+    "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [text "id"] },
+    "goals" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [text "id"] },
+    "user_agent_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },
+    "first_run_progress" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "tenant_id", uuid "user_id", text "flow_id", text "local_date"] },
+    "use_case_exposures" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "tenant_id", uuid "user_id", text "use_case_id"] },
+    "user_federated_identities" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [text "provider", text "subject"] },
+    "provider_terms_consents" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [uuid "user_id", text "provider"] },
+    "signup_code_redemptions" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [uuid "user_id"] },
+    "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id"], page: 50, key: [text "id"] },
+    "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: [text "id"] },
     // What providers delivered.
-    "provider_connections" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "provider_data_purges" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "data_sources" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "cached_activities" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 25, key: ["id"] },
-    "synthetic_activities" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "activity_streams" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: ["tenant_id", "user_id", "provider", "activity_id"] },
-    "activity_route_tracks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 5, key: ["tenant_id", "user_id", "provider", "activity_id"] },
-    "route_summaries" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: ["tenant_id", "user_id", "activity_id"] },
-    "activity_gear" { rows: [uuid "user_id"], tenant: none, except: [], page: 200, key: ["user_id", "provider", "activity_id"] },
-    "athlete_gear" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: ["id"] },
-    "personal_best_efforts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["user_id", "tenant_id", "distance"] },
-    "uploaded_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["tenant_id", "user_id", "file_sha256"] },
-    "pushed_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: ["file_bytes"], page: 200, key: ["tenant_id", "user_id", "provider", "activity_id"] },
-    "sleep_sessions" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "recovery_metrics" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "data_point_series" { rows: [sources], tenant: none, except: [], page: 500, key: ["id"] },
-    "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["tenant_id", "user_id", "provider", "activity_id"] },
+    "provider_connections" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "provider_data_purges" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "data_sources" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "synthetic_activities" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "activity_gear" { rows: [uuid "user_id"], tenant: none, except: [], page: 200, key: [uuid "user_id", text "provider", text "activity_id"] },
+    "athlete_gear" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [uuid "id"] },
+    "personal_best_efforts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "user_id", uuid "tenant_id", text "distance"] },
+    "uploaded_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "file_sha256"] },
+    "pushed_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: ["file_bytes"], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
+    "sleep_sessions" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "recovery_metrics" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
     // Training.
-    "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["tenant_id", "user_id", "date"] },
-    "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: ["id"] },
-    "training_plan_weeks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 25, key: ["id"] },
-    "prescribed_workouts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "workout_templates" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: ["id"] },
-    "recipes" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "recipe_ingredients" { rows: [recipes], tenant: none, except: [], page: 200, key: ["id"] },
+    "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "tenant_id", uuid "user_id", date "date"] },
+    "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },
+    "training_plan_weeks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 25, key: [text "id"] },
+    "prescribed_workouts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "id"] },
+    "workout_templates" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: [uuid "id"] },
+    "recipes" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "recipe_ingredients" { rows: [recipes], tenant: none, except: [], page: 200, key: [text "id"] },
     // What the athlete said and what the agents kept about them.
-    "agents" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 10, key: ["id"] },
-    "agent_authors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: ["id"] },
-    "agent_assignments" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: ["id"] },
-    "agent_sessions" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "agent_notes" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "agent_followups" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "athlete_commitments" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "pending_advice" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "coaching_playbooks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "claim_verdicts" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "user_facts" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "chat_conversations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "chat_messages" { rows: [conversations], tenant: none, except: [], page: 50, key: ["id"] },
-    "chat_message_feedback" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "compaction_blocks" { rows: [conversations], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "conversation_participants" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["conversation_id", "user_id"] },
-    "group_transcript_entries" { rows: [uuid "author_user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "coaching_group_members" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "coach_access_requests" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: ["id"] },
-    "delegated_connections" { rows: [uuid "member_user_id"], tenant: "member_tenant_id", except: [], page: 100, key: ["id"] },
-    "feedback_messages" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
+    "agents" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },
+    "agent_authors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [text "id"] },
+    "agent_assignments" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },
+    "agent_sessions" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "agent_notes" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "agent_followups" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "athlete_commitments" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "pending_advice" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "coaching_playbooks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "claim_verdicts" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "user_facts" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "chat_conversations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "chat_message_feedback" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "conversation_participants" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "conversation_id", uuid "user_id"] },
+    "group_transcript_entries" { rows: [uuid "author_user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
+    "coaching_group_members" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
+    "coach_access_requests" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },
+    "delegated_connections" { rows: [uuid "member_user_id"], tenant: "member_tenant_id", except: [], page: 100, key: [uuid "id"] },
+    "feedback_messages" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     // Messaging.
-    "messaging_channel_links" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: ["id"] },
-    "messaging_sessions" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
-    "messaging_messages" { rows: [sessions], tenant: "tenant_id", except: ["raw_payload"], page: 100, key: ["id"] },
+    "messaging_channel_links" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "messaging_sessions" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     // What the service recorded in their name.
-    "notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: ["id"] },
-    "oauth_notifications" { rows: [uuid "user_id"], tenant: none, except: [], page: 200, key: ["id"] },
-    "device_tokens" { rows: [text "user_id"], tenant: "tenant_id", except: ["expo_push_token"], page: 50, key: ["id"] },
-    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: ["id"] },
-    "usage_counters" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: ["tenant_id", "user_id", "counter_key", "period"] },
-    "subscriptions" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: ["id"] },
-    "user_llm_credentials_audit" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: ["id"] },
+    "notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "id"] },
+    "oauth_notifications" { rows: [uuid "user_id"], tenant: none, except: [], page: 200, key: [text "id"] },
+    "device_tokens" { rows: [text "user_id"], tenant: "tenant_id", except: ["expo_push_token"], page: 50, key: [text "id"] },
+    "usage_counters" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: [text "tenant_id", text "user_id", text "counter_key", text "period"] },
+    "subscriptions" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [uuid "id"] },
+    "user_llm_credentials_audit" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     // The names and dates of the athlete's keys; never the keys.
-    "api_keys" { rows: [uuid "user_id"], tenant: none, except: ["key_hash"], page: 50, key: ["id"] },
-    "user_mcp_tokens" { rows: [uuid "user_id"], tenant: none, except: ["token_hash"], page: 50, key: ["id"] },
-    "a2a_clients" { rows: [uuid "user_id"], tenant: none, except: ["api_key_hash"], page: 50, key: ["client_id"] },
+    "api_keys" { rows: [uuid "user_id"], tenant: none, except: ["key_hash"], page: 50, key: [text "id"] },
+    "user_mcp_tokens" { rows: [uuid "user_id"], tenant: none, except: ["token_hash"], page: 50, key: [text "id"] },
+    "a2a_clients" { rows: [uuid "user_id"], tenant: none, except: ["api_key_hash"], page: 50, key: [text "client_id"] },
+    // The tables that grow with the athlete's history, last, in rough order of
+    // how much each row weighs.
+    // The file stops at its size or time limit, so everything above is written
+    // before these, however long that history is: per-activity terrain,
+    // conversation summaries, messaging and chat turns, one row per model call,
+    // what an agent the athlete connected asked and was answered (each row
+    // holds the task's whole input and output, and unlike `mcp_tasks` a row
+    // does not expire; a tool task is in no conversation), provider sample
+    // series, the activities themselves, then their route tracks and
+    // per-second streams, the largest rows the export reads.
+    "route_summaries" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: [uuid "tenant_id", uuid "user_id", text "activity_id"] },
+    "compaction_blocks" { rows: [conversations], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "messaging_messages" { rows: [sessions], tenant: "tenant_id", except: ["raw_payload"], page: 100, key: [text "id"] },
+    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: [text "id"] },
+    "a2a_tasks" { rows: [a2a_tasks], tenant: none, except: ["session_token"], page: 25, key: [text "task_id"] },
+    "chat_messages" { rows: [conversations], tenant: none, except: [], page: 50, key: [text "id"] },
+    "data_point_series" { rows: [sources], tenant: none, except: [], page: 500, key: [text "id"] },
+    "cached_activities" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 25, key: [text "id"] },
+    "activity_route_tracks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 5, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
+    "activity_streams" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [text "tenant_id", uuid "user_id", text "provider", text "activity_id"] },
 );
 
 /// Tables holding a user-keyed column that the export does not read, each with

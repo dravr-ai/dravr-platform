@@ -31,6 +31,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -75,6 +76,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
         budget: BUDGET_OF_ONE,
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
+        grant: &OAuthScope::self_grant(),
     });
 
     // Installed after the fixtures, before the code under test: the capture is

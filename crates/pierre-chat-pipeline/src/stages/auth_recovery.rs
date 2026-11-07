@@ -66,7 +66,7 @@ use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
-use pierre_providers::backend_resolver;
+use pierre_providers::{ai_scope, backend_resolver};
 use pierre_tool_runtime::implementations::connection::{
     is_no_seat_refusal, is_notice_refusal, mint_oauth_authorize_url,
 };
@@ -254,14 +254,20 @@ pub async fn apply_auth_recovery(
     // The room gets the same sentence a failed mint renders, naming which
     // provider dropped; the athlete picks the actual link up in their own DM
     // or in the app, where the mint path below is unchanged.
-    if !input.is_direct_message {
+    //
+    // Nor does a caller outside Dravr's own surfaces: an agent is not the
+    // athlete, and the link signs in as them.
+    let served_externally =
+        ai_scope::declared_transport().is_some_and(|served| !served.is_first_party());
+    if !input.is_direct_message || served_externally {
         info!(
             user_id = %user_id,
             provider = %provider_slug,
             locale = %locale,
             replaces_reply,
-            "auth_recovery_room_link_suppressed: shared-room turn gets the linkless \
-             reconnect sentence; the user-scoped link is DM-only"
+            served_externally,
+            "auth_recovery_room_link_suppressed: the reply's reader gets the linkless \
+             reconnect sentence; the user-scoped link is for the athlete's own DM"
         );
         return deliver_linkless_sentence(
             &deps,

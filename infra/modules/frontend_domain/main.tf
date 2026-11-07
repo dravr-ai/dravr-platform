@@ -25,6 +25,199 @@
 locals {
   # "app.dravr.ai" -> "app-dravr-ai": the hostname as a GCP resource-name segment.
   domain_slug = { for d in var.domains : d => replace(d, ".", "-") }
+
+  # RE2, as Cloud Armor's request.path.matches() and terraform's regexall() both
+  # read them, so tests/armor.tftest.hcl replays real paths through these.
+  armor_protocol_paths = "^/(mcp(/|$)|a2a/)"
+  armor_waf_paths      = "^/(mcp(/|$)|a2a/|oauth2/)"
+  # A sender retries from one address, and a CDN-less asset burst is one page
+  # load: neither is a flood. /webhooks covers Garmin, Wahoo, COROS, Strava,
+  # WHOOP, Stripe and contremaitre; each verifies its own signature or token.
+  armor_ban_exempt_paths = "^/(mcp(/|$)|a2a/|webhooks/|api/messaging/webhook/|api/ops/slack/|assets/)"
+}
+
+# -----------------------------------------------------------------------------
+# Cloud Armor: the edge limits of the public protocol doors
+# -----------------------------------------------------------------------------
+#
+# Every rule that can refuse a request starts in preview (armor_waf_preview,
+# armor_rate_rules_preview). A preview match is logged and evaluation goes on; an
+# enforced match ends it, and a rate rule's conforming request is an enforced
+# match. So the order is the design:
+#
+#   1000, 1100  WAF on the protocol doors, before anything can end evaluation.
+#   2000        Throttle per bearer token, ABOVE the marketplace allow, because
+#               every Claude athlete shares a few egress addresses and the token
+#               is the only thing that tells them apart.
+#   3000        Allow the marketplace ranges. Below this nothing sees them, so
+#               the per-IP rules need not name the ranges.
+#   3500        Throttle anonymous /mcp and /a2a per address.
+#   4000        Per-address flood ban on the other paths.
+#
+# The header key has two traps. With no Authorization header the key type falls
+# back to ALL ("The key type defaults to ALL if no such header is present"), so
+# one shared counter would refuse every connector's opening 401 handshake: rule
+# 2000 therefore matches only requests that carry the header, and rule 3500 keys
+# the rest on the address. And the key is the first 128 bytes of the value, which
+# for a Dravr JWT ends 26 characters into `sub` (Claims serializes it first; kid
+# key_YYYYMMDD_HHMMSS): the throttle counts per athlete, across their tokens.
+#
+# Limits, against 30 days of the frontend's request log to 2026-11-06 (73,173
+# requests on the load balancer's hostnames; nothing logs the header, so address
+# stands in for token):
+#   2000  300/min   mcp+a2a peak 11/min from one address, 2/min from one Claude one
+#   3500  120/min   anonymous (401) peak 4/min from one address
+#   4000  1200/min  peak 487/min (a /.env scanner), 372/min (a real browser), both
+#         6000/10m  outside /assets; 836 in 10 min. A flood ceiling that leaves
+#                   room for a shared NAT, not a scanner filter: over the first it
+#                   answers 429 and a client retries, and only the second bans.
+#
+# Promoting a rule is its preview variable; the alert and the log query that show
+# what it would refuse are in environments/dev/public_mcp_monitoring.tf.
+resource "google_compute_security_policy" "frontend" {
+  count = var.armor_enabled ? 1 : 0
+
+  name    = "${var.name_prefix}-frontend"
+  project = var.project_id
+  type    = "CLOUD_ARMOR"
+
+  # JSON-RPC and form bodies are inspected by value, not as one string. NORMAL
+  # log level names the matched signature; VERBOSE would copy the matched text,
+  # which can be a credential or an athlete's words, into the log.
+  advanced_options_config {
+    json_parsing = "STANDARD"
+    log_level    = "NORMAL"
+  }
+
+  rule {
+    description = "SQL injection on the protocol doors"
+    priority    = 1000
+    action      = "deny(403)"
+    preview     = var.armor_waf_preview
+    match {
+      expr {
+        expression = "request.path.matches('${local.armor_waf_paths}') && evaluatePreconfiguredWaf('sqli-v33-stable', {'sensitivity': 1})"
+      }
+    }
+  }
+
+  rule {
+    description = "Cross-site scripting on the protocol doors"
+    priority    = 1100
+    action      = "deny(403)"
+    preview     = var.armor_waf_preview
+    match {
+      expr {
+        expression = "request.path.matches('${local.armor_waf_paths}') && evaluatePreconfiguredWaf('xss-v33-stable', {'sensitivity': 1})"
+      }
+    }
+  }
+
+  rule {
+    description = "Throttle /mcp and /a2a per bearer token"
+    priority    = 2000
+    action      = "throttle"
+    preview     = var.armor_rate_rules_preview
+    match {
+      expr {
+        expression = "has(request.headers['authorization']) && request.path.matches('${local.armor_protocol_paths}')"
+      }
+    }
+    rate_limit_options {
+      conform_action      = "allow"
+      exceed_action       = "deny(429)"
+      enforce_on_key      = "HTTP_HEADER"
+      enforce_on_key_name = "authorization"
+      rate_limit_threshold {
+        count        = 300
+        interval_sec = 60
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = length(var.marketplace_egress_cidrs) > 0 ? [var.marketplace_egress_cidrs] : []
+    content {
+      description = "Marketplace egress ranges: past the per-address limits"
+      priority    = 3000
+      action      = "allow"
+      match {
+        versioned_expr = "SRC_IPS_V1"
+        config {
+          src_ip_ranges = rule.value
+        }
+      }
+    }
+  }
+
+  rule {
+    description = "Throttle anonymous /mcp and /a2a per address"
+    priority    = 3500
+    action      = "throttle"
+    preview     = var.armor_rate_rules_preview
+    match {
+      expr {
+        expression = "!has(request.headers['authorization']) && request.path.matches('${local.armor_protocol_paths}')"
+      }
+    }
+    rate_limit_options {
+      conform_action = "allow"
+      exceed_action  = "deny(429)"
+      enforce_on_key = "IP"
+      rate_limit_threshold {
+        count        = 120
+        interval_sec = 60
+      }
+    }
+  }
+
+  # The second clause: nginx resolves a dot segment, so /assets/../api/x could
+  # reach the api while reading as an exempt path here.
+  rule {
+    description = "Per-address flood ban outside the protocol doors, webhooks and assets"
+    priority    = 4000
+    action      = "rate_based_ban"
+    preview     = var.armor_rate_rules_preview
+    match {
+      expr {
+        expression = "!request.path.matches('${local.armor_ban_exempt_paths}') || request.path.urlDecode().contains('..')"
+      }
+    }
+    rate_limit_options {
+      conform_action   = "allow"
+      exceed_action    = "deny(429)"
+      enforce_on_key   = "IP"
+      ban_duration_sec = 600
+      rate_limit_threshold {
+        count        = 1200
+        interval_sec = 60
+      }
+      ban_threshold {
+        count        = 6000
+        interval_sec = 600
+      }
+    }
+  }
+
+  rule {
+    description = "Default: allow"
+    priority    = 2147483647
+    action      = "allow"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+
+  # armor_enabled = false is the rollback. Without this terraform destroys the
+  # policy before it updates the backend that still uses it (measured on a local
+  # probe). The cost: changing the fixed name or type needs a new name, because
+  # the replacement is created while the old policy still holds this one.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -51,6 +244,8 @@ resource "google_compute_backend_service" "frontend" {
   # readiness) and no timeout_sec: the API refuses the field for this backend
   # type, and the timeout is a fixed, non-configurable 60 minutes — well past
   # the 600s the frontend Cloud Run service allows a chat turn.
+
+  security_policy = var.armor_enabled ? google_compute_security_policy.frontend[0].id : null
 
   backend {
     group = google_compute_region_network_endpoint_group.frontend.id

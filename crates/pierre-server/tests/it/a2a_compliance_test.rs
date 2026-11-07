@@ -321,3 +321,14 @@ async fn test_id_preservation_on_auth_errors() {
         );
     }
 }
+
+/// A text part is what every orchestrator sends: it stays a text part on the
+/// wire, and addresses no tool, so it is the coaching skill's to read.
+#[test]
+fn test_text_part_wire_shape_addresses_no_tool() {
+    let part = Part::text("How was my week?".to_owned());
+    let wire = serde_json::to_value(&part).unwrap();
+    assert_eq!(wire["text"], "How was my week?");
+    let message = Message::agent("m-1".to_owned(), vec![part]);
+    assert!(A2AServer::extract_tool_intent(&message).is_none());
+}

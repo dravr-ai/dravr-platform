@@ -21,6 +21,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::{Arc, Mutex};
 
@@ -257,6 +258,7 @@ async fn a_summary_written_mid_turn_reaches_the_model_defanged() {
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

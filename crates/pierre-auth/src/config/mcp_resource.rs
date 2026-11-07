@@ -1,4 +1,4 @@
-// ABOUTME: The identifiers of the MCP resource server (MCP_RESOURCE_URL and its aliases) and the metadata URL of each
+// ABOUTME: The identifiers of the MCP and A2A resource servers (both derive from MCP_RESOURCE_URL and its aliases), the metadata URL of each, and their 401 challenge
 // ABOUTME: A resource is an origin or an origin plus the MCP endpoint's path; the origin form stays an alias so issued tokens keep working
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,6 +7,7 @@
 use std::iter;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction::redact_url;
 use url::Url;
 
@@ -14,6 +15,9 @@ use super::oauth::OAuth2ServerConfig;
 
 /// The well-known path of the RFC 9728 protected resource metadata document.
 const PROTECTED_RESOURCE_WELL_KNOWN: &str = "/.well-known/oauth-protected-resource";
+
+/// The path of the A2A resource on a protocol origin.
+const A2A_RESOURCE_PATH: &str = "/a2a";
 
 /// The origin form of `canonical` when it carries a path, else nothing.
 ///
@@ -79,6 +83,49 @@ pub fn protected_resource_metadata_url(resource: &str) -> String {
         .unwrap_or_default();
     let origin = trimmed.strip_suffix(path.as_str()).unwrap_or(trimmed);
     format!("{origin}{PROTECTED_RESOURCE_WELL_KNOWN}{path}")
+}
+
+/// The scopes a 401 challenge asks a client to request: the default grant, the
+/// read-only scopes any member holds without a step-up.
+///
+/// A client that finds no `scope` in the challenge requests every entry of
+/// `scopes_supported`, write scopes included, and the consent screen then asks
+/// the athlete for all of them. Naming the default grant (MCP authorization,
+/// "Scope Selection Strategy") makes the first connection read-only; a write
+/// tool that needs more answers `insufficient_scope` naming the one it lacks.
+fn challenge_scope() -> String {
+    OAuthScope::default_grant()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Build the RFC 9728 `WWW-Authenticate` challenge value for `resource_url`.
+///
+/// It points clients at the resource's protected resource metadata document
+/// and names the scopes to request first. `error` carries an optional RFC 6750
+/// error code (e.g. `invalid_token`).
+#[must_use]
+pub fn www_authenticate_challenge(resource_url: &str, error: Option<&str>) -> String {
+    let metadata_url = protected_resource_metadata_url(resource_url);
+    let scope = challenge_scope();
+    error.map_or_else(
+        || format!("Bearer resource_metadata=\"{metadata_url}\", scope=\"{scope}\""),
+        |err| {
+            format!(
+                "Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\", scope=\"{scope}\""
+            )
+        },
+    )
+}
+
+/// The bare origin of `resource`; `resource` itself when it is no URL.
+fn origin_of(resource: &str) -> String {
+    Url::parse(resource).map_or_else(
+        |_| resource.trim_end_matches('/').to_owned(),
+        |url| url.origin().ascii_serialization(),
+    )
 }
 
 /// `host[:port]` of `resource`, lowercased; `None` when it is no URL.
@@ -209,5 +256,57 @@ impl OAuth2ServerConfig {
         self.mcp_resources()
             .into_iter()
             .find(|resource| authority_of(resource) == authority && path_of(resource) == wanted)
+    }
+
+    /// The origin of the published protocol door: where agents are told to
+    /// find the A2A endpoints, the same host `MCP_RESOURCE_URL` publishes for
+    /// `/mcp`, so the two cannot name different doors.
+    #[must_use]
+    pub fn protocol_origin(&self) -> String {
+        origin_of(&self.mcp_resource_url)
+    }
+
+    /// The canonical A2A resource identifier: `/a2a` on the protocol origin.
+    #[must_use]
+    pub fn a2a_resource_url(&self) -> String {
+        format!("{}{A2A_RESOURCE_PATH}", self.protocol_origin())
+    }
+
+    /// Every identifier of the A2A resource server, canonical first: `/a2a` on
+    /// each origin that also serves `/mcp`, because the same router answers on
+    /// each of them. None of them is an identifier of the MCP resource server,
+    /// so a token bound to one is good at `/a2a` alone.
+    #[must_use]
+    pub fn a2a_resources(&self) -> Vec<String> {
+        let mut identifiers: Vec<String> = Vec::new();
+        for resource in self.mcp_resources() {
+            let identifier = format!("{}{A2A_RESOURCE_PATH}", origin_of(resource));
+            if !identifiers.contains(&identifier) {
+                identifiers.push(identifier);
+            }
+        }
+        identifiers
+    }
+
+    /// The A2A resource identifier a client that dialed `host` knows the server
+    /// by: RFC 9728 §3.3 has it refuse metadata naming any other. See
+    /// [`Self::mcp_resource_for_host`] for what `host` is.
+    #[must_use]
+    pub fn a2a_resource_for_host(&self, host: Option<&str>) -> String {
+        format!(
+            "{}{A2A_RESOURCE_PATH}",
+            origin_of(self.mcp_resource_for_host(host))
+        )
+    }
+
+    /// The identifier a path-suffixed metadata document describes: the MCP or
+    /// A2A resource at `path` on the dialed host. `None` when this server
+    /// publishes no such resource.
+    #[must_use]
+    pub fn protected_resource_at(&self, host: Option<&str>, path: &str) -> Option<String> {
+        if format!("/{}", path.trim_matches('/')) == A2A_RESOURCE_PATH {
+            return Some(self.a2a_resource_for_host(host));
+        }
+        self.mcp_resource_at(host, path).map(str::to_owned)
     }
 }

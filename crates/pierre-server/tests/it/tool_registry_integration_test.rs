@@ -94,6 +94,15 @@ async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
         .first()
         .expect("the test user owns a tenant")
         .id;
+    // The top plan: the listing leaves out what a plan does not cover.
+    resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .set_plan(tenant_id, "enterprise")
+        .await
+        .expect("set the test tenant's plan");
     let mut context = tronc_context(user_id, Some(tenant_id), true);
     // A first-party session's full grant: the listing narrows to the grant.
     context.scopes = OAuthScope::self_grant()
@@ -821,12 +830,15 @@ async fn test_list_tools_carries_every_declared_output_schema() {
                 .get(name)
                 .is_some_and(|tool| tool.definition().output_schema.is_some())
                 && !first_party_tools::withholds(&registry, name, Some(Transport::McpHttp))
+                && !registry
+                    .get(name)
+                    .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
         })
         .collect();
     declared.sort_unstable();
     assert!(
-        declared.len() > 100,
-        "the typed set should be nearly every tool, found {}",
+        declared.len() > 85,
+        "the typed set should be nearly every tool /mcp serves, found {}",
         declared.len()
     );
 

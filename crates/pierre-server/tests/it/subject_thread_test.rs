@@ -486,6 +486,7 @@ async fn a_subject_thread_holds_no_slot_of_the_conversation_cap() {
     let claimed = chat
         .create_conversation_within_cap(
             &NewConversation {
+                id: None,
                 user_id: &coach,
                 tenant_id: fx.coach.tenant,
                 title: "own thread",

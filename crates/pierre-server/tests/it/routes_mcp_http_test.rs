@@ -857,10 +857,10 @@ async fn test_tools_list_accepts_every_issued_api_key_format() {
 }
 
 #[tokio::test]
-async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
-    // Admin tool visibility is gated on the GLOBAL `User.is_admin` flag, not the
-    // per-tenant Owner/Admin role — so this needs a genuine global admin, which
-    // the default tenant-owner test user is not.
+async fn test_tools_list_global_admin_holds_the_public_profile() {
+    // `/mcp` is an external transport whoever calls it: a genuine global admin
+    // (`User.is_admin`), which the default tenant-owner test user is not, is
+    // offered no operator tool here.
     let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
         .await
         .expect("Setup failed");
@@ -888,10 +888,10 @@ async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
 
     let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
-    // Admin user should see admin tools
+    // The operator tools stay on Dravr's own surfaces
     assert!(
-        tool_names.iter().any(|n| n.starts_with("admin_")),
-        "Admin user should see admin tools in tools/list, got: {:?}",
+        !tool_names.iter().any(|n| n.starts_with("admin_")),
+        "A global admin must not be offered admin tools on /mcp, got: {:?}",
         tool_names
     );
 

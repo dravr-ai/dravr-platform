@@ -7,7 +7,7 @@
 use std::fmt::Debug;
 
 use pierre_contremaitre::MessagingStringsRegistry;
-use pierre_routes_identity::{ConsentHtmlParams, LoginHtmlParams, LoginPageLabels};
+use pierre_routes_identity::{ConsentHtmlParams, ConsentText, LoginHtmlParams, LoginPageLabels};
 
 /// Formats `value` both ways, asserts none of `secrets` appears in either,
 /// and returns the compact form for further checks.
@@ -52,6 +52,7 @@ fn the_login_page_never_prints_its_state_password_or_google_link() {
 
 #[test]
 fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
+    let strings = MessagingStringsRegistry::new();
     let params = ConsentHtmlParams {
         client_id: "mcp-client",
         redirect_uri: "https://client.example/callback",
@@ -66,6 +67,7 @@ fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
         account_email: "athlete@example.com",
         switch_account_url: "/oauth2/login?state=sentinel-switch-7f3a",
         first_party_only_sources: &["Strava"],
+        text: &ConsentText::new(&strings, "en"),
     };
     let printed = printed_without(
         &params,

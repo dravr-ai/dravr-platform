@@ -13,12 +13,25 @@
     clippy::float_cmp
 )]
 
-use pierre_a2a::agent_card::{AgentCard, SecurityScheme, OAUTH2_TOKEN_PATH};
+use pierre_a2a::agent_card::{
+    AgentCard, OAuthFlows, SecurityScheme, COACHING_SKILL_ID, OAUTH2_TOKEN_PATH,
+    SCHEME_CLIENT_CREDENTIALS,
+};
 use pierre_a2a::A2A_VERSION;
+use pierre_auth::config::OAuth2ServerConfig;
+
+/// The card of a deployment whose protocol door and issuer are one host.
+fn card_at(url: &str) -> AgentCard {
+    AgentCard::new(&OAuth2ServerConfig {
+        issuer_url: url.to_owned(),
+        mcp_resource_url: url.to_owned(),
+        ..OAuth2ServerConfig::default()
+    })
+}
 
 #[test]
 fn agent_card_default_constructor_populates_required_fields() {
-    let card = AgentCard::new();
+    let card = card_at("https://api.dravr.ai");
     assert!(!card.name.is_empty(), "agent card must advertise a name");
     assert!(
         !card.version.is_empty(),
@@ -46,7 +59,7 @@ fn agent_card_default_constructor_populates_required_fields() {
 
 #[test]
 fn agent_card_serde_round_trip_preserves_required_fields() {
-    let card = AgentCard::new();
+    let card = card_at("https://api.dravr.ai");
     let json = serde_json::to_string(&card).expect("agent card must serialize to JSON");
     let parsed: AgentCard =
         serde_json::from_str(&json).expect("serialized agent card must round-trip back");
@@ -72,19 +85,17 @@ fn agent_card_advertises_the_client_credentials_token_endpoint() {
     // server at `OAUTH2_TOKEN_PATH`. Advertising the wrong one hands every
     // discovering agent a 400 unsupported_grant_type.
     let base_url = "https://api.dravr.ai";
-    let card = AgentCard::with_base_url(base_url);
+    let card = card_at(base_url);
     let schemes = card
         .security_schemes
         .as_ref()
         .expect("card must declare security schemes");
-    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
-        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
+    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get(SCHEME_CLIENT_CREDENTIALS) else {
+        panic!("{SCHEME_CLIENT_CREDENTIALS} must be an oauth2SecurityScheme");
     };
-    let flow = oauth2
-        .flows
-        .client_credentials
-        .as_ref()
-        .expect("clientCredentials flow");
+    let OAuthFlows::ClientCredentials(flow) = &oauth2.flows else {
+        panic!("{SCHEME_CLIENT_CREDENTIALS} must offer the clientCredentials flow");
+    };
 
     assert_eq!(flow.token_url, format!("{base_url}{OAUTH2_TOKEN_PATH}"));
     assert!(
@@ -95,12 +106,12 @@ fn agent_card_advertises_the_client_credentials_token_endpoint() {
 
 #[test]
 fn agent_card_skill_examples_use_the_accepted_data_part_shape() {
-    // SendMessage acts on a `data` part carrying {tool_name, parameters}
-    // and refuses anything else, so a natural-language example would send
-    // callers down a path the surface rejects.
-    let card = AgentCard::new();
+    // SendMessage runs a tool from a `data` part carrying {tool_name,
+    // parameters}, so a natural-language example on a tool skill would send
+    // callers to the coach instead. Only the coaching skill reads text.
+    let card = card_at("https://api.dravr.ai");
 
-    for skill in &card.skills {
+    for skill in card.skills.iter().filter(|s| s.id != COACHING_SKILL_ID) {
         assert!(
             !skill.examples.is_empty(),
             "skill {} must show how to invoke it",

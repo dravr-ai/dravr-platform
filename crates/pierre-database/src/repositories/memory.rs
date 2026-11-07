@@ -99,7 +99,7 @@ pub(crate) const GET_USER_FACT_BY_ID_SQL: &str = r"
 pub(crate) const LIST_DRAFT_USER_FACTS_SQL: &str = r"
             SELECT * FROM user_facts
             WHERE tenant_id = $1 AND user_id = $2 AND status = 'draft'
-              AND (first_party_only = FALSE OR $4)
+              AND ((first_party_only = FALSE AND kind <> 'medical') OR $4)
             ORDER BY updated_at DESC
             LIMIT $3
             ";
@@ -146,7 +146,7 @@ pub(crate) const APPROVE_USER_FACT_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_AGENT_AND_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND kind = $4
-                      AND (first_party_only = FALSE OR $6)
+                      AND ((first_party_only = FALSE AND kind <> 'medical') OR $6)
                       AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $5
@@ -156,7 +156,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_AND_KIND_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_AGENT_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3
-                      AND (first_party_only = FALSE OR $5)
+                      AND ((first_party_only = FALSE AND kind <> 'medical') OR $5)
                       AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $4
@@ -166,7 +166,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND kind = $3
-                      AND (first_party_only = FALSE OR $5)
+                      AND ((first_party_only = FALSE AND kind <> 'medical') OR $5)
                       AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $4
@@ -176,7 +176,7 @@ pub(crate) const LIST_USER_FACTS_BY_KIND_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2
-                      AND (first_party_only = FALSE OR $4)
+                      AND ((first_party_only = FALSE AND kind <> 'medical') OR $4)
                       AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $3
@@ -187,7 +187,7 @@ pub(crate) const LIST_USER_FACTS_BY_SOURCE_SQL: &str = r"
             SELECT * FROM user_facts
             WHERE tenant_id = $1 AND user_id = $2 AND source = $3
               AND (valid_until IS NULL OR valid_until > $4)
-              AND (first_party_only = FALSE OR $6)
+              AND ((first_party_only = FALSE AND kind <> 'medical') OR $6)
               AND status = 'approved'
             ORDER BY updated_at DESC
             LIMIT $5

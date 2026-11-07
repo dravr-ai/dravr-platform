@@ -96,6 +96,17 @@ export {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
 } from './accountDeletion';
+// What the end of a downloaded data export says about the file.
+export {
+  EXPORT_PARTIAL_KEYS,
+  EXPORT_CUT_SHORT,
+  EXPORT_TAIL_BYTES,
+  type ExportLimit,
+  type ExportPartialKey,
+  type ExportTail,
+  exportPartialKey,
+  readExportTail,
+} from './dataExport';
 // What both clients say about an import of the athlete's own data
 export type { CopyLine, ImportPhase, ImportSourceCopy, LinkSourceCopy, UploadSourceCopy } from './archiveImport';
 export {

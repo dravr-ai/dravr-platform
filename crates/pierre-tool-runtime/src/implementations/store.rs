@@ -459,6 +459,6 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 // Guardian security classifications (see `crate::security`). Install
 // adds a reversible team membership (or, for another tenant's agent, a
 // reversible copy), so it carries no label of its own.
-crate::declare_security!(BrowseAgentStoreTool => empty);
-crate::declare_security!(SearchAgentStoreTool => empty);
-crate::declare_security!(InstallAgentFromStoreTool => empty);
+crate::declare_security!(BrowseAgentStoreTool => empty; first_party_only);
+crate::declare_security!(SearchAgentStoreTool => empty; first_party_only);
+crate::declare_security!(InstallAgentFromStoreTool => empty; first_party_only);

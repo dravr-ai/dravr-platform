@@ -184,6 +184,7 @@ pub(super) async fn forge_fresh_session_conversation(
     let new_id = forge_conversation(
         &resources.common.repos,
         ForgeParams {
+            id: None,
             user_id,
             tenant_id,
             title_fallback: &title_fallback,
@@ -663,6 +664,7 @@ async fn open_new_session(
         forge_conversation(
             &resources.common.repos,
             ForgeParams {
+                id: None,
                 user_id: &user_id,
                 tenant_id,
                 title_fallback: &title_fallback,

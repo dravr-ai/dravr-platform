@@ -611,6 +611,7 @@ fn test_validate_refresh_response_valid() {
         token_type: None,
         reason: None,
         requires_full_reauth: None,
+        retry_after: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -630,6 +631,7 @@ fn test_validate_refresh_response_refreshed() {
         token_type: Some("Bearer".to_owned()),
         reason: None,
         requires_full_reauth: None,
+        retry_after: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -648,6 +650,7 @@ fn test_validate_refresh_response_invalid() {
         token_type: None,
         reason: Some("Token expired".to_owned()),
         requires_full_reauth: Some(true),
+        retry_after: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -666,6 +669,7 @@ fn test_oauth2_error_with_empty_description() {
         error: "server_error".to_owned(),
         error_description: Some(String::new()),
         error_uri: None,
+        retry_after: None,
     };
 
     let json = serde_json::to_string(&error).unwrap();

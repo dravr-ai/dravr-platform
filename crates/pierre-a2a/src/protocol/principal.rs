@@ -13,7 +13,7 @@
 use chrono::Utc;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::a2a::A2AClient;
+use pierre_core::models::a2a::{user_task_key, A2AClient};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
@@ -91,11 +91,17 @@ impl A2AServer {
             ))
         })?;
 
+        // The resource this server is: the platform audience, or a token bound
+        // to the A2A resource itself (RFC 8707). A token bound to any other
+        // resource, `/mcp` included, is refused here.
+        let a2a_resources = resources.ctx.oauth2_server_config().a2a_resources();
+        let a2a_resources: Vec<&str> = a2a_resources.iter().map(String::as_str).collect();
+
         // Validate token signature/expiry
         let claims = resources
             .ctx
             .auth_manager()
-            .validate_token(auth_token, resources.ctx.jwks_manager())
+            .validate_resource_token(auth_token, resources.ctx.jwks_manager(), &a2a_resources)
             .map_err(|_| {
                 Box::new(Self::auth_error(
                     "Invalid authentication token",
@@ -123,12 +129,11 @@ impl A2AServer {
         // executor is bound to `scopes` below), so a delegated OAuth grant is
         // what an agent holds here — and a first-party session token, which
         // is Dravr's own app signed in rather than an agent's credential, is
-        // refused (carnet#768). No resource identifiers: A2A takes the
-        // platform audience only, as the signature check above does.
+        // refused (carnet#768), whatever audience it carries.
         if Uuid::parse_str(&claims.sub).is_ok() {
             let admitted = resources
                 .auth_middleware
-                .authenticate_scoped_request(Some(&format!("Bearer {auth_token}")), &[])
+                .authenticate_scoped_request(Some(&format!("Bearer {auth_token}")), &a2a_resources)
                 .await
                 .map_err(|e| Box::new(Self::auth_refusal(&e, request_id.clone())))?;
             // A delegated grant acts in the tenant it was authorized in; a
@@ -252,7 +257,9 @@ impl A2AServer {
         Ok(())
     }
 
-    /// Get client IDs owned by a user
+    /// The keys a user's tasks are filed under: the clients they registered,
+    /// then their own task key, which is what an athlete who connected an
+    /// agent over OAuth holds, having registered no client.
     pub(super) async fn get_owned_client_ids(
         user_id: &Uuid,
         resources: &A2AResources,
@@ -263,7 +270,13 @@ impl A2AServer {
             .a2a
             .list_clients(user_id)
             .await
-            .map(|clients| clients.into_iter().map(|c| c.id).collect())
+            .map(|clients| {
+                clients
+                    .into_iter()
+                    .map(|c| c.id)
+                    .chain([user_task_key(*user_id)])
+                    .collect()
+            })
             .map_err(|e| format!("Failed to list A2A clients: {e}"))
     }
 
@@ -372,7 +385,7 @@ impl A2AServer {
     /// Create a refusal for a spent request budget. Carries the
     /// `RATE_LIMIT_EXCEEDED` reason and the wait as a `google.rpc.RetryInfo`,
     /// which HTTP bindings map to 429 and `Retry-After`.
-    fn rate_limited_error(
+    pub(super) fn rate_limited_error(
         message: impl Into<String>,
         retry_after_secs: u64,
         request_id: Option<Value>,

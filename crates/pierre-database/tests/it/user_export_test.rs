@@ -246,6 +246,86 @@ async fn every_table_pages_by_its_primary_key() {
     }
 }
 
+// A page's start is cast to the type its key column is declared with here, so a
+// column retyped by a migration would fail its table on every export.
+#[cfg(feature = "postgresql")]
+#[tokio::test]
+async fn every_key_column_is_declared_with_its_type() {
+    let db = create_test_db().await.unwrap();
+    if !matches!(db.backend(), DatabaseBackend::PostgreSQL(_)) {
+        return;
+    }
+    let columns = catalog(&db).await;
+    for table in USER_EXPORT_TABLES {
+        assert_eq!(
+            table.key_columns.len(),
+            table.key_kinds.len(),
+            "{} declares a type for each key column",
+            table.name
+        );
+        for (column, kind) in table.key_columns.iter().zip(table.key_kinds) {
+            let declared = &columns[table.name]
+                .iter()
+                .find(|c| c.name == *column)
+                .unwrap()
+                .declared_type;
+            let holds = match *kind {
+                "text" => declared == "text" || declared.starts_with("character varying"),
+                other => declared == other,
+            };
+            assert!(
+                holds,
+                "{}.{column} is {declared}, and its key says {kind}",
+                table.name
+            );
+        }
+    }
+}
+
+/// The tables whose rows grow with the athlete's history: activities and
+/// their samples, routes and terrain, conversations, model calls, and what an
+/// agent the athlete connected asked and was answered.
+const HEAVY_TABLES: [&str; 10] = [
+    "cached_activities",
+    "activity_streams",
+    "activity_route_tracks",
+    "route_summaries",
+    "data_point_series",
+    "chat_messages",
+    "compaction_blocks",
+    "messaging_messages",
+    "llm_usage",
+    "a2a_tasks",
+];
+
+// The export writes the tables in list order and stops at its size or time
+// limit, naming what it did not reach. A heavy table written early would push
+// every small one past the limit: the account, consents and plans would be the
+// part a long history leaves out.
+#[test]
+fn heavy_tables_come_after_every_other_table() {
+    let position = |name: &str| {
+        USER_EXPORT_TABLES
+            .iter()
+            .position(|table| table.name == name)
+            .unwrap_or_else(|| panic!("{name} is not exported"))
+    };
+    let first_heavy = HEAVY_TABLES
+        .iter()
+        .map(|name| position(name))
+        .min()
+        .unwrap();
+    let tail: BTreeSet<&str> = USER_EXPORT_TABLES[first_heavy..]
+        .iter()
+        .map(|table| table.name)
+        .collect();
+    assert_eq!(
+        tail,
+        HEAVY_TABLES.into_iter().collect::<BTreeSet<_>>(),
+        "a light table is written among the heavy ones"
+    );
+}
+
 /// An API key row for `user_id` named `name`.
 fn api_key(user_id: Uuid, name: &str) -> ApiKey {
     ApiKey {
@@ -489,4 +569,212 @@ async fn an_export_never_carries_a_credential() {
         exported["users"][0].get("password_hash").is_none(),
         "password_hash is a column of the row"
     );
+}
+
+/// What `PostgreSQL` read to serve one page, from its own plan.
+#[cfg(feature = "postgresql")]
+struct PageCost {
+    /// Blocks touched, the documents' out-of-line storage among them.
+    blocks: u64,
+    /// The most rows any step of the plan looked at.
+    rows_examined: u64,
+}
+
+#[cfg(feature = "postgresql")]
+fn most_rows_examined(node: &Value) -> u64 {
+    let rows = node["Actual Rows"].as_f64().unwrap_or(0.0)
+        + node["Rows Removed by Filter"].as_f64().unwrap_or(0.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let own = (rows * node["Actual Loops"].as_f64().unwrap_or(1.0)) as u64;
+    node["Plans"].as_array().map_or(own, |plans| {
+        plans.iter().map(most_rows_examined).fold(own, u64::max)
+    })
+}
+
+/// Run a page statement of `table` under `EXPLAIN ANALYZE`.
+#[cfg(feature = "postgresql")]
+async fn page_cost(
+    pool: &sqlx::PgPool,
+    table: &UserExportTable,
+    user_id: Uuid,
+    after: &str,
+) -> PageCost {
+    use sqlx::Row;
+    let statement = format!(
+        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}",
+        table.postgres_page_sql
+    );
+    let excluded: Vec<String> = table.excluded.iter().map(|c| (*c).to_owned()).collect();
+    let row = sqlx::query(&statement)
+        .bind(user_id.to_string())
+        .bind(table.page_rows)
+        .bind(after)
+        .bind(excluded)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let plan: Value = row.get(0);
+    let root = &plan[0]["Plan"];
+    PageCost {
+        blocks: root["Shared Hit Blocks"].as_u64().unwrap()
+            + root["Shared Read Blocks"].as_u64().unwrap(),
+        rows_examined: most_rows_examined(root),
+    }
+}
+
+#[cfg(feature = "postgresql")]
+fn export_table(name: &str) -> &'static UserExportTable {
+    USER_EXPORT_TABLES.iter().find(|t| t.name == name).unwrap()
+}
+
+// A document past a few KB lives outside its row, so reading it is what costs,
+// and a statement that builds a document for every row it sorts reads them all.
+#[cfg(feature = "postgresql")]
+#[tokio::test]
+async fn a_page_reads_the_documents_of_its_own_rows_only() {
+    let db = create_test_db().await.unwrap();
+    let DatabaseBackend::PostgreSQL(pg) = db.backend() else {
+        return;
+    };
+    let repos = db.repositories();
+    let ana = fresh_user(repos, "documents").await;
+    let tenant = own_tenant(repos, ana.id).await;
+    sqlx::query(
+        "INSERT INTO activity_streams
+             (tenant_id, user_id, provider, activity_id, origin, format_version, streams_json)
+         SELECT $1, $2, 'strava', 'activity-' || i, 'upload', 1,
+                (SELECT string_agg(md5(i::text || ':' || j::text), '') FROM generate_series(1, 1250) j)
+         FROM generate_series(1, 60) i",
+    )
+    .bind(tenant.to_string())
+    .bind(ana.id)
+    .execute(pg.pool())
+    .await
+    .unwrap();
+    let table = export_table("activity_streams");
+
+    let page = repos
+        .user_export
+        .export_page(table, ana.id, "")
+        .await
+        .unwrap();
+    assert_eq!(
+        i64::try_from(page.rows.len()).unwrap(),
+        table.page_rows,
+        "the athlete's rows are what the statement reads"
+    );
+
+    let cost = page_cost(pg.pool(), table, ana.id, "").await;
+    // A document takes several blocks: 60 of them cannot fit under this, and
+    // the page's 5 and the scan of the rows themselves do.
+    assert!(
+        cost.blocks < 150,
+        "a page of {} rows read {} blocks: it built a document for rows outside the page",
+        table.page_rows,
+        cost.blocks
+    );
+}
+
+// With a page's start compared as text, the database reads and sorts every row
+// the athlete has for every page, so the time an export takes grows with the
+// square of its rows: an athlete twice as large runs out of time, not of room.
+#[cfg(feature = "postgresql")]
+#[tokio::test]
+async fn a_page_starts_at_its_key_rather_than_sorting_every_row() {
+    const ROWS: u64 = 3_000;
+    let db = create_test_db().await.unwrap();
+    let DatabaseBackend::PostgreSQL(pg) = db.backend() else {
+        return;
+    };
+    let repos = db.repositories();
+    let ana = fresh_user(repos, "keyset").await;
+    let tenant = own_tenant(repos, ana.id).await;
+    sqlx::query(
+        "INSERT INTO cached_activities
+             (id, user_id, tenant_id, provider, activity_id, start_date, synced_at, data_json)
+         SELECT md5(i::text), $1, $2, 'strava', 'activity-' || i, now(), now(), '{}'
+         FROM generate_series(1, $3::bigint) i",
+    )
+    .bind(ana.id.to_string())
+    .bind(tenant.to_string())
+    .bind(i64::try_from(ROWS).unwrap())
+    .execute(pg.pool())
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE cached_activities")
+        .execute(pg.pool())
+        .await
+        .unwrap();
+    let table = export_table("cached_activities");
+
+    let first = repos
+        .user_export
+        .export_page(table, ana.id, "")
+        .await
+        .unwrap();
+    let after = first.last_key.unwrap();
+    let cost = page_cost(pg.pool(), table, ana.id, &after).await;
+
+    assert!(
+        cost.rows_examined < ROWS / 10,
+        "a page of {} rows looked at {} of {ROWS}: it sorted them all to find its place",
+        table.page_rows,
+        cost.rows_examined
+    );
+}
+
+// Every key shape, walked to its end: a uuid, a date and several columns all
+// come back from the page key as what the column holds, and text that could be
+// mistaken for a separator stays one column.
+#[cfg(feature = "postgresql")]
+#[tokio::test]
+async fn a_key_with_any_column_type_walks_every_row_once() {
+    let db = create_test_db().await.unwrap();
+    let DatabaseBackend::PostgreSQL(pg) = db.backend() else {
+        return;
+    };
+    let repos = db.repositories();
+    let ana = fresh_user(repos, "keys").await;
+    let tenant = own_tenant(repos, ana.id).await;
+    sqlx::query(
+        "INSERT INTO activity_gear (user_id, provider, activity_id, source, start_date, attributed_at)
+         SELECT $1, 'strava', 'run' || chr(31) || 'x\"' || i, 'declared', now(), now()
+         FROM generate_series(1, 7) i",
+    )
+    .bind(ana.id)
+    .execute(pg.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO training_history (tenant_id, user_id, date)
+         SELECT $1, $2, DATE '2026-01-01' + i FROM generate_series(1, 7) i",
+    )
+    .bind(tenant.as_uuid())
+    .bind(ana.id)
+    .execute(pg.pool())
+    .await
+    .unwrap();
+
+    for name in ["activity_gear", "training_history"] {
+        let table = UserExportTable {
+            page_rows: 2,
+            ..*export_table(name)
+        };
+        let mut seen = 0;
+        let mut after = String::new();
+        loop {
+            let page = repos
+                .user_export
+                .export_page(&table, ana.id, &after)
+                .await
+                .unwrap();
+            seen += page.rows.len();
+            let Some(last_key) = page.last_key else {
+                break;
+            };
+            assert!(seen <= 7, "{name} repeated a row");
+            after = last_key;
+        }
+        assert_eq!(seen, 7, "{name} walks every row once");
+    }
 }

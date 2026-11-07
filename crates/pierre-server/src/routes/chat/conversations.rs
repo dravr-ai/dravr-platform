@@ -241,6 +241,7 @@ pub(super) async fn create_for(
             .map(|c| -> &dyn AdminConfigLookup { c }),
     );
     let new = NewConversation {
+        id: None,
         user_id: &user_id_str,
         tenant_id,
         title: &title,

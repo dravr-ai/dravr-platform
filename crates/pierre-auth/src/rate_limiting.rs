@@ -197,6 +197,9 @@ pub enum OAuth2Endpoint {
     Authorize,
     /// `POST /oauth2/token`
     Token,
+    /// `POST /oauth2/token` redeeming a live grant of one user, metered per
+    /// user rather than per address
+    TokenUser,
     /// `POST /oauth2/register`
     Register,
     /// A signed-in account re-confirming its password (`change-password`,
@@ -228,6 +231,7 @@ impl OAuth2Endpoint {
         match self {
             Self::Authorize => "authorize",
             Self::Token => "token",
+            Self::TokenUser => "token_user",
             Self::Register => "register",
             Self::PasswordConfirm => "password_confirm",
             Self::PasswordLogin => "password_login",
@@ -246,6 +250,8 @@ pub struct OAuth2RateLimitConfig {
     pub authorize_rpm: u32,
     /// Requests per minute for token endpoint
     pub token_rpm: u32,
+    /// Grants one user's tokens may redeem at the token endpoint per window
+    pub token_user_rpm: u32,
     /// Requests per minute for registration endpoint
     pub register_rpm: u32,
     /// Password re-confirmations per account per window
@@ -265,8 +271,9 @@ impl OAuth2RateLimitConfig {
         use pierre_core::constants::oauth_rate_limiting;
         Self {
             authorize_rpm: oauth_rate_limiting::AUTHORIZE_RPM, // 1 per second
-            token_rpm: oauth_rate_limiting::TOKEN_RPM,         // 1 per 2 seconds
-            register_rpm: oauth_rate_limiting::REGISTER_RPM,   // 1 per 6 seconds
+            token_rpm: oauth_rate_limiting::TOKEN_RPM,         // 10 per second
+            token_user_rpm: oauth_rate_limiting::TOKEN_USER_RPM,
+            register_rpm: oauth_rate_limiting::REGISTER_RPM, // 1 per 6 seconds
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
             password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
             password_login_account_rpm: oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM,
@@ -280,33 +287,12 @@ impl OAuth2RateLimitConfig {
         Self {
             authorize_rpm: config.oauth_authorize_rpm,
             token_rpm: config.oauth_token_rpm,
+            token_user_rpm: config.oauth_token_user_rpm,
             register_rpm: config.oauth_register_rpm,
             password_confirm_rpm: config.password_confirm_rpm,
             password_login_rpm: config.password_login_rpm,
             password_login_account_rpm: config.password_login_account_rpm,
             sign_up_rpm: config.sign_up_rpm,
-        }
-    }
-
-    /// Create custom `OAuth2` rate limit configuration
-    #[must_use]
-    pub const fn custom(
-        authorize_rpm: u32,
-        token_rpm: u32,
-        register_rpm: u32,
-        password_confirm_rpm: u32,
-        password_login_rpm: u32,
-        password_login_account_rpm: u32,
-        sign_up_rpm: u32,
-    ) -> Self {
-        Self {
-            authorize_rpm,
-            token_rpm,
-            register_rpm,
-            password_confirm_rpm,
-            password_login_rpm,
-            password_login_account_rpm,
-            sign_up_rpm,
         }
     }
 
@@ -316,6 +302,7 @@ impl OAuth2RateLimitConfig {
         match endpoint {
             OAuth2Endpoint::Authorize => self.authorize_rpm,
             OAuth2Endpoint::Token => self.token_rpm,
+            OAuth2Endpoint::TokenUser => self.token_user_rpm,
             OAuth2Endpoint::Register => self.register_rpm,
             OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
             OAuth2Endpoint::PasswordLogin => self.password_login_rpm,

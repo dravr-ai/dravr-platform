@@ -5,43 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::mcp::auth::AuthError;
-use pierre_auth::config::protected_resource_metadata_url;
+use pierre_auth::config::{protected_resource_metadata_url, www_authenticate_challenge};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use tracing::{debug, error};
-
-/// The scopes a 401 challenge asks a client to request: the default grant, the
-/// read-only scopes any member holds without a step-up.
-///
-/// A client that finds no `scope` in the challenge requests every entry of
-/// `scopes_supported`, write scopes included, and the consent screen then asks
-/// the athlete for all of them. Naming the default grant (MCP authorization,
-/// "Scope Selection Strategy") makes the first connection read-only; a write
-/// tool that needs more answers `insufficient_scope` naming the one it lacks.
-fn challenge_scope() -> String {
-    OAuthScope::default_grant()
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Build the RFC 9728 `WWW-Authenticate` challenge value pointing clients at the
-/// protected resource metadata document of `resource_url`, the MCP resource
-/// identifier (`MCP_RESOURCE_URL`), and naming the scopes to request first.
-/// `error` carries an optional RFC 6750 error code (e.g. `invalid_token`).
-pub(super) fn www_authenticate_challenge(resource_url: &str, error: Option<&str>) -> String {
-    let metadata_url = protected_resource_metadata_url(resource_url);
-    let scope = challenge_scope();
-    error.map_or_else(
-        || format!("Bearer resource_metadata=\"{metadata_url}\", scope=\"{scope}\""),
-        |err| {
-            format!(
-                "Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\", scope=\"{scope}\""
-            )
-        },
-    )
-}
 
 /// Build the RFC 6750 §3.1 `insufficient_scope` challenge naming the grant the
 /// caller is missing.

@@ -1364,9 +1364,14 @@ module "frontend_domain" {
   domains                = var.public_domains
   labels                 = merge(var.labels, { component = "frontend" })
 
+  armor_enabled            = var.armor_enabled
+  marketplace_egress_cidrs = var.marketplace_egress_cidrs
+  armor_waf_preview        = var.armor_waf_preview
+  armor_rate_rules_preview = var.armor_rate_rules_preview
+
   # The project module enables certificatemanager.googleapis.com and the
-  # service_accounts module grants the runner its Certificate Manager role;
-  # both must land before the first certificate is created.
+  # service_accounts module grants the runner its Certificate Manager and Cloud
+  # Armor roles; both must land before the first certificate or policy is created.
   depends_on = [module.project, module.service_accounts, module.frontend]
 }
 

@@ -265,6 +265,13 @@ impl UniversalExecutor {
         ai_scope::effective_transport(self.transport)
     }
 
+    /// The grant this executor's calls run under: what a listing beside the
+    /// executor must narrow to, so it offers nothing a call would be refused.
+    #[must_use]
+    pub fn granted_scopes(&self) -> &[OAuthScope] {
+        &self.scopes
+    }
+
     /// Bind the turn's seat. The tools it withholds
     /// ([`TurnSeat::withholds`]) are refused with a reply the model adapts
     /// to.

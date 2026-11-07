@@ -214,6 +214,10 @@ pub struct OAuth2Error {
     /// URI for error information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_uri: Option<String>,
+    /// Seconds a throttled client should wait, answered as `Retry-After`: the
+    /// RFC's body shape has no field for it, so it never reaches the body
+    #[serde(skip)]
+    pub retry_after: Option<u32>,
 }
 
 impl OAuth2Error {
@@ -227,6 +231,7 @@ impl OAuth2Error {
             error: TOO_MANY_REQUESTS.to_owned(),
             error_description: Some(description.to_owned()),
             error_uri: None,
+            retry_after: None,
         }
     }
 
@@ -240,6 +245,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -254,6 +260,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -282,6 +289,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -292,6 +300,7 @@ impl OAuth2Error {
             error: "invalid_client".to_owned(),
             error_description: Some("Client authentication failed".to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc6749#section-5.2".to_owned()),
+            retry_after: None,
         }
     }
 
@@ -302,6 +311,7 @@ impl OAuth2Error {
             error: "invalid_grant".to_owned(),
             error_description: Some(description.to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc6749#section-5.2".to_owned()),
+            retry_after: None,
         }
     }
 
@@ -312,6 +322,7 @@ impl OAuth2Error {
             error: "unsupported_grant_type".to_owned(),
             error_description: Some("Grant type not supported".to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc6749#section-5.2".to_owned()),
+            retry_after: None,
         }
     }
 
@@ -325,6 +336,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -338,6 +350,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.2".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -351,6 +364,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 
@@ -363,6 +377,7 @@ impl OAuth2Error {
             error: "invalid_target".to_owned(),
             error_description: Some(description.to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc8707#section-2".to_owned()),
+            retry_after: None,
         }
     }
 
@@ -376,6 +391,7 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
         }
     }
 }
@@ -440,6 +456,11 @@ pub enum ValidationStatus {
     Refreshed,
     /// Token is invalid, requires full re-authentication
     Invalid,
+    /// Nothing was decided about the token: its user's window is full, or could
+    /// not be counted. The tokens are still good, so the client keeps them and
+    /// retries.
+    #[serde(rename = "retry_later")]
+    RetryLater,
 }
 
 /// Validate and Refresh Response
@@ -473,4 +494,8 @@ pub struct ValidateRefreshResponse {
     /// Whether full re-authentication is required (only for Invalid status)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires_full_reauth: Option<bool>,
+
+    /// Seconds to wait before retrying (only for `RetryLater` status)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<u32>,
 }

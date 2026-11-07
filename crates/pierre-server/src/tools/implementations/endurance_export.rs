@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
@@ -24,7 +23,6 @@ use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_config::environment::default_provider;
 use pierre_core::models::Dossier;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
@@ -32,7 +30,9 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
-use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
+use pierre_tool_runtime::protocol::provider_helpers::{
+    elected_source, fetch_activities_from_provider,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
@@ -97,37 +97,24 @@ async fn fetch_window_activities(
     Ok(merge_duplicates(activities, &DedupConfig::from_env()).0)
 }
 
-/// Resolve the user's active provider for non-LLM read paths (REST routes, MCP
-/// tools that don't accept a `provider` argument). Mirrors the chat-side
-/// `resolve_provider_for_request` priority chain minus the explicit-arg step:
-/// env override → the elected activity source → `AppError::no_provider_connected()`.
+/// Resolve the source of a tool that takes no `provider` argument: the chat-side
+/// priority chain minus the explicit-arg step, or
+/// `AppError::no_provider_connected()`.
 async fn resolve_provider_for_user(
     resources: &Arc<dyn ToolRuntime>,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
 ) -> AppResult<String> {
-    if let Some(env_p) = default_provider() {
-        return Ok(env_p);
-    }
-    match resolve_activity_source(
-        resources.repos().provider_connections.as_ref(),
-        resources.provider_registry(),
-        user_id,
-        Some(tenant_id),
-    )
-    .await
-    {
-        Ok(Some(conn)) => Ok(conn.provider),
-        Ok(None) => {
+    elected_source(resources, user_id, Some(tenant_id))
+        .await?
+        .ok_or_else(|| {
             warn!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,
-                "endurance_export: no provider connected for user — surfacing reconnect signal"
+                "endurance_export: no source for this user — surfacing the connect signal"
             );
-            Err(AppError::no_provider_connected())
-        }
-        Err(e) => Err(e),
-    }
+            AppError::no_provider_connected()
+        })
 }
 
 /// `export_latest_snapshot` — IF / EF / VI / decoupling / zone-distribution

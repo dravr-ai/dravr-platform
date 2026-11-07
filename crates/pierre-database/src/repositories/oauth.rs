@@ -10,10 +10,10 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep,
-    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole,
-    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp,
-    UserOAuthToken,
+    ClientGrantStanding, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
+    OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState,
+    ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder,
+    StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -377,6 +377,31 @@ pub trait OAuth2ServerRepository: Send + Sync {
         user_id: &str,
         tenant_id: &str,
     ) -> AppResult<bool>;
+
+    /// Where the user's consent to `client_id` stands in `tenant_id`, across
+    /// every scope set they granted it. The resource servers' question about a
+    /// self-contained access token; read through
+    /// `pierre_auth::oauth2_server::grant_standing`, which bounds how often.
+    async fn client_grant_standing(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+    ) -> AppResult<ClientGrantStanding>;
+    /// End a client's access at the client's own request: every active grant
+    /// the user gave it in the tenant, its live refresh tokens and its
+    /// unredeemed codes, in one transaction.
+    ///
+    /// A client that has no grant row at all gets a revoked one carrying
+    /// `scope`, so a token it holds reads as withdrawn rather than as a consent
+    /// that was never recorded, which runs to its expiry.
+    async fn withdraw_client_access(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> AppResult<()>;
 
     /// Revoke the live refresh tokens a user holds in a tenant through a client
     /// whose consent they withdrew, and say whether any was. A rotation calls

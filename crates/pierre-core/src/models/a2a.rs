@@ -17,6 +17,16 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
 
+/// The key a user's tasks are filed under when they registered no client.
+///
+/// What an athlete who connected an agent over OAuth holds.
+/// `a2a_tasks.session_token` holds a client id or this, and the account delete
+/// names this prefix (`user_references`, `"a2a_tasks"`).
+#[must_use]
+pub fn user_task_key(user_id: uuid::Uuid) -> String {
+    format!("user:{user_id}")
+}
+
 /// A2A Client registration information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AClient {
@@ -28,9 +38,8 @@ pub struct A2AClient {
     pub name: String,
     /// Description of the client application
     pub description: String,
-    /// Public key for signature verification
-    pub public_key: String,
-    /// List of capabilities this client can access
+    /// Labels the registrant declares about the client. Descriptive only:
+    /// what a call may do is decided by its token's scopes, never by these.
     pub capabilities: Vec<String>,
     /// Allowed OAuth redirect URIs
     pub redirect_uris: Vec<String>,
@@ -42,10 +51,6 @@ pub struct A2AClient {
     pub is_active: bool,
     /// When this client was created
     pub created_at: DateTime<Utc>,
-    // Additional fields for database compatibility
-    /// List of permissions granted to this client
-    #[serde(default = "default_permissions")]
-    pub permissions: Vec<String>,
     /// Maximum requests allowed per window
     #[serde(default = "default_rate_limit_requests")]
     pub rate_limit_requests: u32,
@@ -55,10 +60,6 @@ pub struct A2AClient {
     /// When this client was last updated
     #[serde(default = "chrono::Utc::now")]
     pub updated_at: DateTime<Utc>,
-}
-
-fn default_permissions() -> Vec<String> {
-    vec!["read_activities".into()]
 }
 
 const fn default_rate_limit_requests() -> u32 {

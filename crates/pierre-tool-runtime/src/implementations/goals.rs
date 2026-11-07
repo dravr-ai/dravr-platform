@@ -15,6 +15,7 @@
 //! Uses the goal engine directly for clean, efficient goal management.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -842,7 +843,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -928,7 +929,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -1076,7 +1077,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );

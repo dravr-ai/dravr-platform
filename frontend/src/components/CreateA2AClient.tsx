@@ -63,7 +63,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
   const [redirectUri, setRedirectUri] = useState('');
   const [showCredentials, setShowCredentials] = useState(false);
   const [credentials, setCredentials] = useState<A2AClientCredentials | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
   
   const queryClient = useQueryClient();
 
@@ -78,15 +77,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Clear previous validation error
-    setValidationError(null);
-    
-    if (formData.capabilities.length === 0) {
-      setValidationError(t('a2a.selectCapability'));
-      return;
-    }
-
     createMutation.mutate(formData);
   };
 
@@ -188,25 +178,6 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 variant="secondary"
                 size="sm"
                 onClick={() => copyToClipboard(credentials.client_secret)}
-              >
-                {t('common.copy')}
-              </Button>
-            </div>
-          </div>
-
-          {/* API Key */}
-          <div>
-            <label className="block text-sm font-medium text-on-surface mb-2">
-              {t('a2a.apiKey')}
-            </label>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
-                {credentials.api_key}
-              </code>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => copyToClipboard(credentials.api_key)}
               >
                 {t('common.copy')}
               </Button>
@@ -378,18 +349,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           </div>
         )}
 
-        {/* Validation Error */}
-        {validationError && (
-          <div className="bg-error/15 border border-error/30 text-error px-4 py-3 rounded">
-            {validationError}
-          </div>
-        )}
-
         {/* Actions */}
         <div className="flex gap-3 pt-4">
           <Button
             type="submit"
-            disabled={createMutation.isPending || formData.capabilities.length === 0}
+            disabled={createMutation.isPending}
           >
             {createMutation.isPending ? t('a2a.creating') : t('a2a.registerClient')}
           </Button>

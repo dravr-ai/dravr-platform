@@ -27,6 +27,20 @@ pub fn with_hosted_page_css(template: &str) -> String {
     template.replace(HOSTED_PAGE_CSS_PLACEHOLDER, HOSTED_PAGE_CSS)
 }
 
+/// The page a browser lands on when an authorization or a provider callback
+/// fails. The SDK bridge fills the same file on the athlete's machine.
+const OAUTH_ERROR_PAGE: &str = include_str!("oauth_error.html");
+
+/// The OAuth failure page in `lang`, under `title` and saying `description`,
+/// both already markup: whoever words them escapes what they fill in.
+#[must_use]
+pub fn oauth_error_page(lang: &str, title: &str, description: &str) -> String {
+    with_hosted_page_css(OAUTH_ERROR_PAGE)
+        .replace("{{LANG}}", lang)
+        .replace("{{T_TITLE}}", title)
+        .replace("{{DESCRIPTION}}", &format!("<p>{description}</p>"))
+}
+
 /// Escape a string for safe insertion into HTML attribute values.
 ///
 /// Replaces the five HTML-special characters (`&`, `<`, `>`, `"`, `'`) with their

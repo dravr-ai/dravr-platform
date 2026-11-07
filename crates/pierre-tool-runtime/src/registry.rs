@@ -252,6 +252,15 @@ impl ToolRegistry {
         self.tools.get(name).map(|tool| tool.transport_policy())
     }
 
+    /// Whether the tool named `name` can only fail with no USDA key configured.
+    /// A name the registry does not resolve needs nothing.
+    #[must_use]
+    pub fn requires_food_database(&self, name: &str) -> bool {
+        self.tools
+            .get(name)
+            .is_some_and(|tool| tool.requires_food_database())
+    }
+
     /// The MCP task support a tool declares on its own definition (SEP-2663).
     /// `None` for an unknown tool, or one that declared none — which the spec
     /// reads as "never answers with a task handle".

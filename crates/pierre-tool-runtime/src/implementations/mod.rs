@@ -108,6 +108,10 @@ pub mod connection;
 #[cfg(feature = "tools-data")]
 pub mod athlete_stats;
 
+/// The `get_activities` definition: its arguments and their descriptions
+/// (`tools-data`).
+#[cfg(feature = "tools-data")]
+mod activities_definition;
 /// Detail promotion for `get_activities`: which listed activities are read
 /// in detail, and the stop once a read is refused for rate (`tools-data`).
 #[cfg(feature = "tools-data")]

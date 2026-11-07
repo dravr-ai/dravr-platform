@@ -34,6 +34,7 @@ use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{Duration, Utc};
+use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -2240,9 +2241,10 @@ async fn a_provider_disconnect_that_fails_is_reported_as_interrupted() {
     assert!(repos.users.get_global(user_id).await.unwrap().is_some());
 }
 
-/// An A2A client's API key belongs to the client's system user, so the
-/// cascade from the owner never reached it: the delete removes it with the
-/// client, and the key stops authenticating.
+/// Registration mints no API key, but a client's row can still link one held
+/// by the client's system user. The cascade from the owner never reaches that
+/// key: the delete removes it with the client, and the key stops
+/// authenticating.
 #[tokio::test]
 async fn delete_removes_the_api_key_of_an_a2a_client_the_user_registered() {
     let resources = resources().await;
@@ -2263,22 +2265,45 @@ async fn delete_removes_the_api_key_of_an_a2a_client_the_user_registered() {
         )
         .await
         .unwrap();
-    let system_user = repos
-        .users
-        .get_by_email(&format!("a2a-system-{}@pierre.ai", credentials.client_id))
-        .await
-        .unwrap()
-        .expect("the client's system user exists");
-    assert_eq!(
-        repos
-            .api_keys
-            .get_for_user(system_user.id)
-            .await
-            .unwrap()
-            .len(),
-        1,
-        "the client carries one key"
-    );
+    // The linked key and the system user holding it, seeded as stored rows
+    // because registration writes neither.
+    let (system_user, _, _) = seed_user(repos, "a2a-system-legacy").await;
+    let (legacy_key, _) = ApiKeyManager::new()
+        .create_api_key(
+            system_user,
+            CreateApiKeyRequest {
+                name: "A2A Client: legacy".to_owned(),
+                description: None,
+                tier: ApiKeyTier::Professional,
+                rate_limit_requests: None,
+                expires_in_days: None,
+            },
+        )
+        .unwrap();
+    repos.api_keys.create(&legacy_key).await.unwrap();
+    let link = "INSERT INTO a2a_client_api_keys (client_id, api_key_id, created_at) \
+                VALUES ($1, $2, $3)";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(link)
+                .bind(&credentials.client_id)
+                .bind(&legacy_key.id)
+                .bind(Utc::now())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(link)
+                .bind(&credentials.client_id)
+                .bind(&legacy_key.id)
+                .bind(Utc::now())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
 
     let response = delete_user(&resources, user_id).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -2287,7 +2312,7 @@ async fn delete_removes_the_api_key_of_an_a2a_client_the_user_registered() {
     assert!(
         repos
             .api_keys
-            .get_for_user(system_user.id)
+            .get_for_user(system_user)
             .await
             .unwrap()
             .is_empty(),

@@ -31,6 +31,7 @@ use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::UserStatus;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use regex::Regex;
@@ -216,6 +217,88 @@ async fn an_approval_naming_no_scope_records_the_default_grant_and_is_remembered
     );
 }
 
+/// An approval the server could not write mints nothing: the athlete could
+/// neither see nor revoke the connection it would have started.
+#[tokio::test]
+async fn an_approval_that_cannot_be_recorded_mints_no_code() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (_user, session) = create_test_tenant(&resources, "consent-unwritten@example.test")
+        .await
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+    let token = consent_page(&resources, &client_id, &cookie).await;
+
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query("DROP TABLE oauth_client_grants")
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query("DROP TABLE oauth_client_grants CASCADE")
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+    let refused = submit(&resources, &client_id, &cookie, Some(&token), "approve").await;
+
+    assert_eq!(refused.status(), 303, "{}", refused.text());
+    assert_eq!(redirect_param(&refused, "code"), None, "no record, no code");
+    assert_eq!(
+        redirect_param(&refused, "error").as_deref(),
+        Some("server_error")
+    );
+}
+
+/// A grant keyed to no tenant is no record either. The code's own mint also
+/// needs a tenant, so this pins the outcome rather than the consent's refusal,
+/// which the unwritable table above makes fire.
+#[tokio::test]
+async fn an_approval_with_no_tenant_to_record_it_in_mints_no_code() {
+    const LEAVE: &str = "DELETE FROM tenant_users WHERE user_id = $1";
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (user, _) = create_test_tenant(&resources, "consent-tenantless@example.test")
+        .await
+        .unwrap();
+    // A session naming no tenant leaves the grant's to the membership.
+    let session = resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &resources.auth.jwks_manager)
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+    let token = consent_page(&resources, &client_id, &cookie).await;
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(LEAVE)
+                .bind(user.id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(LEAVE)
+                .bind(user.id)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+
+    let refused = submit(&resources, &client_id, &cookie, Some(&token), "approve").await;
+
+    assert_eq!(refused.status(), 303, "{}", refused.text());
+    assert_eq!(redirect_param(&refused, "code"), None, "no record, no code");
+}
+
 #[tokio::test]
 async fn an_approval_without_the_forms_token_is_refused() {
     common::init_server_config();
@@ -233,8 +316,9 @@ async fn an_approval_without_the_forms_token_is_refused() {
         "a forged approval reaches no client"
     );
     let body = forged.text();
+    // The athlete's stored language is the default, French
     assert!(
-        body.contains("Connection Failed"),
+        body.contains("Échec de la connexion"),
         "the failure page, not a code: {body}"
     );
 }
@@ -356,11 +440,117 @@ async fn the_refusal_an_alert_pages_on_is_the_one_the_server_logs() {
     drop(guard);
 
     let text = page.text();
-    assert!(text.contains("waiting for approval"), "{text}");
+    assert!(text.contains("en attente d’approbation"), "{text}");
     let wanted = format!("OAuth authorization refused: {reason}");
     let logged = messages.lock().unwrap();
     assert!(
         logged.contains(&wanted),
         "the alert pages on {wanted:?}; the server logged {logged:#?}"
     );
+}
+
+/// The consent page a signed-in athlete reads, from a browser asking for
+/// `accept_language`.
+async fn consent_language(
+    resources: &Arc<ServerContext>,
+    client_id: &str,
+    cookie: &str,
+    accept_language: &str,
+) -> String {
+    let page = AxumTestRequest::get(&authorize_uri(client_id))
+        .header("cookie", cookie)
+        .header("accept-language", accept_language)
+        .send(app(resources))
+        .await;
+    assert_eq!(page.status(), 200, "a first authorization asks for consent");
+    page.text()
+}
+
+/// The athlete's stored language wins over the browser's, in both directions.
+#[tokio::test]
+async fn the_consent_page_reads_in_the_stored_language_over_the_browsers() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (user, session) = create_test_tenant(&resources, "consent-lang@example.test")
+        .await
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+    let users = resources.common.repos.users.clone();
+
+    users.update_locale(user.id, "fr").await.unwrap();
+    let french = consent_language(&resources, &client_id, &cookie, "en-US,en;q=0.9").await;
+    assert!(french.contains("<html lang=\"fr\">"), "{french}");
+    assert!(french.contains("vous consentez expressément"), "{french}");
+    assert!(!french.contains("expressly consent"), "{french}");
+
+    users.update_locale(user.id, "en").await.unwrap();
+    let english = consent_language(&resources, &client_id, &cookie, "fr-CA,fr;q=0.9").await;
+    assert!(english.contains("<html lang=\"en\">"), "{english}");
+    assert!(english.contains("expressly consent"), "{english}");
+    assert!(!english.contains("consentez"), "{english}");
+}
+
+/// A refusal after the screen speaks to the athlete in their language too.
+#[tokio::test]
+async fn a_refused_approval_reads_in_the_stored_language() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let client_id = register(&resources).await;
+    let (user, session) = create_test_tenant(&resources, "consent-refused-fr@example.test")
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user.id, "fr")
+        .await
+        .unwrap();
+    let cookie = format!("{}={session}", auth_cookie_name());
+
+    let body = submit(&resources, &client_id, &cookie, None, "approve")
+        .await
+        .text();
+
+    assert!(body.contains("<html lang=\"fr\">"), "{body}");
+    assert!(body.contains("<h1>Échec de la connexion</h1>"), "{body}");
+    assert!(body.contains("L’écran de consentement a expiré"), "{body}");
+    assert!(!body.contains("Connection Failed"), "{body}");
+}
+
+/// With nobody signed in the browser's language decides, and one the platform
+/// does not speak, or none, is English rather than the platform's default.
+#[tokio::test]
+async fn a_refusal_with_no_session_follows_the_browser_then_english() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let refused = |accept_language: Option<&'static str>| {
+        let resources = resources.clone();
+        async move {
+            let mut request = AxumTestRequest::get(&authorize_uri("no-such-client"));
+            if let Some(language) = accept_language {
+                request = request.header("accept-language", language);
+            }
+            request.send(app(&resources)).await.text()
+        }
+    };
+
+    let french = refused(Some("fr-CA,fr;q=0.9,en;q=0.8")).await;
+    assert!(french.contains("<html lang=\"fr\">"), "{french}");
+    assert!(
+        french.contains("<h1>Échec de la connexion</h1>"),
+        "{french}"
+    );
+    assert!(
+        french.contains("Cette application n’est pas reconnue"),
+        "{french}"
+    );
+    assert!(!french.contains("Client authentication failed"), "{french}");
+
+    for language in [Some("ja-JP"), None] {
+        let english = refused(language).await;
+        assert!(english.contains("<html lang=\"en\">"), "{english}");
+        assert!(english.contains("<h1>Connection Failed</h1>"), "{english}");
+    }
 }

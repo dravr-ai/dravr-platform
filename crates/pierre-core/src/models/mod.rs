@@ -224,8 +224,8 @@ pub use oauth_client::OAuthClientState;
 
 // Tenant domain
 pub use tenant::{
-    LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant, TenantId,
-    TenantOAuthCredentials,
+    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant,
+    TenantId, TenantOAuthCredentials,
 };
 
 // Tool selection domain

@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 118
+// Tool count: 93
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -11,182 +11,6 @@
 // ============================================================================
 
 // Note: connect_to_dravr removed - SDK bridge handles authentication locally via RFC 8414 discovery
-
-
-/**
- * Activate an agent for personalized training guidance
- */
-export interface ActivateAgentParams {
-
-  /** ID of the agent to activate */
-  agent_id: string;
-}
-
-
-/**
- * Assign a system agent to a specific user (admin only)
- */
-export interface AdminAssignAgentParams {
-
-  /** ID of the system agent to assign */
-  agent_id: string;
-
-  /** ID of the user to assign the agent to */
-  user_id: string;
-}
-
-
-/**
- * Create a new system agent visible to all tenant users (admin only)
- */
-export interface AdminCreateSystemAgentParams {
-
-  /** Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
-  category?: string;
-
-  /** Description explaining the agent's purpose */
-  description?: string;
-
-  /** Example prompts to show users */
-  sample_prompts?: string[];
-
-  /** System prompt that shapes AI responses */
-  system_prompt: string;
-
-  /** Tags for filtering and organization */
-  tags?: string[];
-
-  /** Display title for the agent */
-  title: string;
-
-  /** Visibility: 'tenant' (default) or 'global'; any other value keeps the agent private to its author */
-  visibility?: string;
-}
-
-
-/**
- * Delete a system agent and remove all assignments (admin only)
- */
-export interface AdminDeleteSystemAgentParams {
-
-  /** ID of the system agent to delete */
-  agent_id: string;
-}
-
-
-/**
- * Get detailed information about a system agent (admin only)
- */
-export interface AdminGetSystemAgentParams {
-
-  /** ID of the system agent to retrieve */
-  agent_id: string;
-
-  /** 'json' (default) or 'toon' (compact). */
-  format?: string;
-}
-
-
-/**
- * List all assignments for a system agent (admin only)
- */
-export interface AdminListAgentAssignmentsParams {
-
-  /** ID of the agent to list assignments for */
-  agent_id: string;
-}
-
-
-/**
- * List all system agents in the tenant (admin only)
- */
-export interface AdminListSystemAgentsParams {
-
-  /** 'json' (default) or 'toon' (compact). */
-  format?: string;
-
-  /** Maximum number of agents to return. Default: 50, max: 100 */
-  limit?: number;
-
-  /** Pagination offset. Default: 0 */
-  offset?: number;
-}
-
-
-/**
- * Remove an agent assignment from a user (admin only)
- */
-export interface AdminUnassignAgentParams {
-
-  /** ID of the system agent to unassign */
-  agent_id: string;
-
-  /** ID of the user to remove the assignment from */
-  user_id: string;
-}
-
-
-/**
- * Update an existing system agent (admin only)
- */
-export interface AdminUpdateSystemAgentParams {
-
-  /** ID of the system agent to update */
-  agent_id: string;
-
-  /** New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
-  category?: string;
-
-  /** New description */
-  description?: string;
-
-  /** New example prompts, replacing the current ones */
-  sample_prompts?: string[];
-
-  /** New system prompt */
-  system_prompt?: string;
-
-  /** New tags, replacing the current ones */
-  tags?: string[];
-
-  /** New display title */
-  title?: string;
-}
-
-
-/**
- * Schedule a future check-in, surfaced to the agent in the next conversation. Use when you tell the user 'I'll check back on X tomorrow.'
- */
-export interface AgentFollowupScheduleParams {
-
-  /** Agent making the promise. */
-  agent_id: string;
-
-  /** Reminder text, ≤ 500 characters, e.g. 'check on Achilles pain after long run'. */
-  content: string;
-
-  /** Originating conversation ID, for provenance. */
-  conversation_id?: string;
-
-  /** RFC3339 timestamp for when to surface the reminder. */
-  due_at?: string;
-}
-
-
-/**
- * Save a private agent note about the user. Use it when you decide something the user said should be remembered across sessions.
- */
-export interface AgentNoteAddParams {
-
-  /** The authoring agent's ID; must match the agent attached to this conversation. */
-  agent_id: string;
-
-  /** The note, plain text without markup, ≤ 2000 characters. */
-  content: string;
-
-  /** Originating conversation ID, for provenance. */
-  conversation_id?: string;
-}
 
 
 /**
@@ -203,7 +27,7 @@ export interface AnalyzeActivityParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -219,7 +43,7 @@ export interface AnalyzeGoalFeasibilityParams {
   /** One of 'distance' (km), 'duration' (hours), 'frequency' (activities). Any other type is answered as unknown. */
   goal_type: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Target total over the timeframe in the goal type's unit (km, hours or activities). */
@@ -261,7 +85,7 @@ export interface AnalyzePerformanceTrendsParams {
   /** 'pace' (default), 'speed', 'heart_rate', 'distance', 'duration', 'elevation' or 'power' */
   metric?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** 'week', 'month' (default), 'quarter' or 'year'; any other value reads as 'month' */
@@ -305,7 +129,7 @@ export interface AnalyzeTrainingLoadParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Sleep provider (e.g., 'whoop'): adds last night's sleep score, duration and HRV as recovery context; the load numbers do not change. */
@@ -324,33 +148,11 @@ export interface AnalyzeWeatherImpactParams {
   /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
   athlete?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Temperature and distance units: 'metric' (default) or 'imperial'. */
   units?: string;
-}
-
-
-/**
- * Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a kind they do not already have. Distinct from `list_agents`, which lists only the agents ALREADY in their library.
- */
-export interface BrowseAgentStoreParams {
-
-  /** Category filter: training, nutrition, recovery, recipes, mobility, analysis, or custom. */
-  category?: string;
-
-  /** A previous call's `next_cursor`, to fetch the next page. */
-  cursor?: string;
-
-  /** 'json' (default) or 'toon' (compact). */
-  format?: string;
-
-  /** Agents per page (1-100, default 20). */
-  limit?: number;
-
-  /** Ordering: 'newest' (default), 'popular' (most installed), or 'title'. */
-  sort_by?: string;
 }
 
 
@@ -393,7 +195,7 @@ export interface CalculateFitnessScoreParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Sleep provider (e.g., 'whoop'): last night's sleep adjusts the score, from +5% (excellent recovery) to -10% (poor). */
@@ -424,8 +226,8 @@ export interface CalculateMetricsParams {
   /** Maximum heart rate in bpm; else the saved one, else estimated from age. With the saved resting heart rate it sets the zones the average heart rate is read on. */
   max_hr?: number;
 
-  /** Fitness provider name */
-  provider: string;
+  /** Provider or `upload`; default is their best source. */
+  provider?: string;
 }
 
 
@@ -483,38 +285,6 @@ export interface CalculateRecoveryScoreParams {
 
 
 /**
- * Retract a commitment the athlete no longer wants to be held to; it is never counted or reported. Use when they drop it or circumstances change (injury, travel, a plan revision). Retracting is not failing: never use it to record that they missed it.
- */
-export interface CommitmentCancelParams {
-
-  /** Id of the commitment to retract, as listed in your open-commitments block. */
-  commitment_id: string;
-}
-
-
-/**
- * Record a commitment the athlete just made, to be checked against their real activity when the window closes. Call it ONLY once the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both and call it on their answer. Not for your own plans or reminders.
- */
-export interface CommitmentCreateParams {
-
-  /** Agent the athlete made the promise to. */
-  agent_id: string;
-
-  /** Last day that counts, YYYY-MM-DD in the athlete's local calendar; for 'this week', the coming Sunday from the current-date anchor. */
-  due_date: string;
-
-  /** How many sessions the athlete committed to (1-30). */
-  sessions: number;
-
-  /** Lowercase sport slug the sessions must match ('run', 'ride', 'swim'); omit to count any activity. */
-  sport?: string;
-
-  /** The promise in the athlete's own terms (≤ 200 characters), e.g. 'three easy runs this week'. */
-  statement: string;
-}
-
-
-/**
  * Compare an activity against similar activities, personal bests, or a specific other activity
  */
 export interface CompareActivitiesParams {
@@ -534,7 +304,7 @@ export interface CompareActivitiesParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -579,47 +349,6 @@ export interface ConnectProviderParams {
 
 
 /**
- * Create a custom AI agent with personalized training guidance
- */
-export interface CreateAgentParams {
-
-  /** Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
-  category?: string;
-
-  /** Description of the agent */
-  description?: string;
-
-  /** Example prompts to show users */
-  sample_prompts?: string[];
-
-  /** System prompt that shapes AI responses */
-  system_prompt: string;
-
-  /** Tags for organization */
-  tags?: string[];
-
-  /** Display title for the agent */
-  title: string;
-}
-
-
-/**
- * Deactivate the current agent and return to default AI guidance
- */
-export interface DeactivateAgentParams {}
-
-
-/**
- * Delete an agent
- */
-export interface DeleteAgentParams {
-
-  /** ID of the agent to delete */
-  agent_id: string;
-}
-
-
-/**
  * Delete a fitness configuration by name
  */
 export interface DeleteFitnessConfigParams {
@@ -656,7 +385,7 @@ export interface DetectPatternsParams {
   /** 'weekly_schedule' (default; training days, consistency), 'training_blocks' (hard/easy share, recovery between hard efforts), 'progression' (weekly volume, spike weeks) or 'overtraining' (heart-rate drift, performance decline, short recovery); any other value is refused. */
   pattern_type?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -811,7 +540,7 @@ export interface ExportRoutesParams {
 
 
 /**
- * Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), altitude (m) and gps_coordinates (lat/lon pairs). A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.
+ * Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.
  */
 export interface ExtractActivityStreamsParams {
 
@@ -820,16 +549,6 @@ export interface ExtractActivityStreamsParams {
 
   /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
   athlete?: string;
-}
-
-
-/**
- * Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.
- */
-export interface ForgetPlaybookParams {
-
-  /** The id of the playbook to forget (from list_coaching_playbooks). */
-  playbook_id: string;
 }
 
 
@@ -844,7 +563,7 @@ export interface GenerateRecommendationsParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** 'all' (default), 'training_plan', 'recovery', 'intensity', 'goal_specific' or 'nutrition'; any other value is refused. */
@@ -888,16 +607,16 @@ export interface GetActivitiesParams {
   /** 'summary' (default, minimal fields) or 'detailed' (full activity data). */
   mode?: string;
 
-  /** Number of activities to skip for pagination. */
+  /** Activities to skip, for paging. */
   offset?: number;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Applied BEFORE `limit`, so the truncated set keeps the right activities: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc', 'duration_desc' (longest time first) or 'duration_asc'. 'longest to shortest' / 'de la plus longue à la plus courte' => distance_desc; 'oldest first' / 'du début' => date_asc. */
   sort_by?: string;
 
-  /** Filter by sport type (e.g., 'run', 'ride', 'swim'). Case-insensitive. */
+  /** Sport type, e.g. 'run', 'ride', 'swim'; case-insensitive. */
   sport_type?: string;
 }
 
@@ -916,7 +635,7 @@ export interface GetActivityIntelligenceParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -945,7 +664,7 @@ export interface GetAthleteParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -1174,7 +893,7 @@ export interface GetStatsParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -1267,32 +986,9 @@ export interface GetYogaPoseParams {
 
 
 /**
- * Hide an agent from listings
- */
-export interface HideAgentParams {
-
-  /** ID of the agent to hide */
-  agent_id: string;
-}
-
-
-/**
  * Import the athlete's FTP, lactate threshold heart rate, max heart rate and threshold pace from their Intervals.icu sport settings, through their own connection or the human coach's link they confirmed. Call it when the athlete asks to bring their thresholds over from Intervals.icu. A threshold is filled only when the profile has none or holds Intervals.icu's earlier value; one the athlete set is never replaced (kept_yours, with both numbers — adopting Intervals.icu's is the athlete's call, via set_physiology). Out-of-range values are skipped with the reason; W′ is never imported (a different model). Quote an imported value as Intervals.icu's estimate ('intervals.icu has your FTP at 285 W'), never as a measurement. Sex is recorded only when Intervals.icu reports one and the profile holds none (sex_recorded). Report only what the result contains.
  */
 export interface ImportProviderThresholdsParams {}
-
-
-/**
- * Install a published Agent Store agent into the athlete's team; it joins as itself, never as a copy. Call it only once the athlete has asked for that specific agent. After installing, `activate_agent` makes it the agent that answers.
- */
-export interface InstallAgentFromStoreParams {
-
-  /** UUID of the published agent, as `browse_agent_store` or `search_agent_store` returned it. */
-  agent_id: string;
-
-  /** 'json' (default) or 'toon' (compact). */
-  format?: string;
-}
 
 
 /**
@@ -1481,7 +1177,7 @@ export interface PredictPerformanceParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 
   /** Only running is modelled: 'Run' (the default) or another running label; any other sport is refused. */
@@ -1659,28 +1355,6 @@ export interface RefreshProviderDataParams {
 
   /** true waits for the sync to finish; false (default) starts it in the background and returns at once. Use true when you need fresh data to answer. */
   wait?: boolean;
-}
-
-
-/**
- * Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.
- */
-export interface RememberFactParams {
-
-  /** Agent attaching the fact; omit for user-wide. */
-  agent_id?: string;
-
-  /** Confidence in [0.0, 1.0]. Direct user confirmation → 0.9+. */
-  confidence: number;
-
-  /** One of: preference | physiology | injury | goal | schedule | equipment | other. */
-  kind: string;
-
-  /** The athlete's own words for the value, verbatim, in the athlete's language — never translated or paraphrased. */
-  object: string;
-
-  /** What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` fits every kind (the object stands alone). Unknown codes are rejected. */
-  predicate_code: string;
 }
 
 
@@ -1997,22 +1671,6 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_agent_from_store`.
- */
-export interface SearchAgentStoreParams {
-
-  /** 'json' (default) or 'toon' (compact). */
-  format?: string;
-
-  /** Max results (1-100, default 20). */
-  limit?: number;
-
-  /** Text to match against a published agent's title, description or tags. */
-  query: string;
-}
-
-
-/**
  * Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
  */
 export interface SearchAgentsParams {
@@ -2188,16 +1846,6 @@ export interface SetPreferredCalendarParams {
 
 
 /**
- * Show a previously hidden agent
- */
-export interface ShowAgentParams {
-
-  /** ID of the agent to show */
-  agent_id: string;
-}
-
-
-/**
  * Suggest up to five fitness goals from the athlete's activity history and fitness level; with a known latitude, out-of-season sports are dropped, not replaced.
  */
 export interface SuggestGoalsParams {
@@ -2205,7 +1853,7 @@ export interface SuggestGoalsParams {
   /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
   athlete?: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -2271,16 +1919,6 @@ export interface SuggestYogaSequenceParams {
 
 
 /**
- * Toggle the favorite status of an agent
- */
-export interface ToggleAgentFavoriteParams {
-
-  /** ID of the agent */
-  agent_id: string;
-}
-
-
-/**
  * Track progress toward a fitness goal: current value vs target, percent complete, whether it is on track, days remaining and projected completion, over activities recorded since the goal was created (only the goal's sport when it names one).
  */
 export interface TrackProgressParams {
@@ -2291,7 +1929,7 @@ export interface TrackProgressParams {
   /** ID of the goal to track progress for */
   goal_id: string;
 
-  /** Fitness provider. Defaults to configured provider. */
+  /** Provider or `upload`; default is their best source. */
   provider?: string;
 }
 
@@ -2322,34 +1960,6 @@ export interface TrackSleepTrendsParams {
 
   /** Read only this source's synced sleep history (whoop, garmin, intervals_icu); omit to merge every source per night */
   sleep_provider?: string;
-}
-
-
-/**
- * Update an existing agent's settings
- */
-export interface UpdateAgentParams {
-
-  /** ID of the agent to update */
-  agent_id: string;
-
-  /** New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
-  category?: string;
-
-  /** New description */
-  description?: string;
-
-  /** New example prompts, replacing the current ones */
-  sample_prompts?: string[];
-
-  /** New system prompt */
-  system_prompt?: string;
-
-  /** New tags, replacing the current ones */
-  tags?: string[];
-
-  /** New title */
-  title?: string;
 }
 
 
@@ -2472,17 +2082,6 @@ export interface McpErrorResponse {
  * name at runtime and the `ToolName` union below read the same list.
  */
 export const TOOL_NAMES = [
-  "activate_agent",
-  "admin_assign_agent",
-  "admin_create_system_agent",
-  "admin_delete_system_agent",
-  "admin_get_system_agent",
-  "admin_list_agent_assignments",
-  "admin_list_system_agents",
-  "admin_unassign_agent",
-  "admin_update_system_agent",
-  "agent_followup_schedule",
-  "agent_note_add",
   "analyze_activity",
   "analyze_goal_feasibility",
   "analyze_meal_nutrition",
@@ -2490,21 +2089,15 @@ export const TOOL_NAMES = [
   "analyze_sleep_quality",
   "analyze_training_load",
   "analyze_weather_impact",
-  "browse_agent_store",
   "calculate_daily_nutrition",
   "calculate_fitness_score",
   "calculate_metrics",
   "calculate_personalized_zones",
   "calculate_recovery_score",
-  "commitment_cancel",
-  "commitment_create",
   "compare_activities",
   "compose_route",
   "compute_training_history",
   "connect_provider",
-  "create_agent",
-  "deactivate_agent",
-  "delete_agent",
   "delete_fitness_config",
   "delete_recipe",
   "detect_patterns",
@@ -2517,7 +2110,6 @@ export const TOOL_NAMES = [
   "export_latest_snapshot",
   "export_routes",
   "extract_activity_streams",
-  "forget_playbook",
   "generate_recommendations",
   "get_active_agent",
   "get_activities",
@@ -2545,9 +2137,7 @@ export const TOOL_NAMES = [
   "get_user_configuration",
   "get_weather_forecast",
   "get_yoga_pose",
-  "hide_agent",
   "import_provider_thresholds",
-  "install_agent_from_store",
   "list_agents",
   "list_coaching_playbooks",
   "list_data_sources",
@@ -2565,10 +2155,8 @@ export const TOOL_NAMES = [
   "recall_user_memory",
   "recommend_plan_flavour",
   "refresh_provider_data",
-  "remember_fact",
   "save_recipe",
   "save_training_plan",
-  "search_agent_store",
   "search_agents",
   "search_food",
   "search_recipes",
@@ -2576,15 +2164,12 @@ export const TOOL_NAMES = [
   "set_goal",
   "set_physiology",
   "set_preferred_calendar",
-  "show_agent",
   "suggest_goals",
   "suggest_rest_day",
   "suggest_stretches_for_activity",
   "suggest_yoga_sequence",
-  "toggle_agent_favorite",
   "track_progress",
   "track_sleep_trends",
-  "update_agent",
   "update_user_configuration",
   "validate_configuration",
   "validate_recipe",
@@ -2601,17 +2186,6 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  * Map of tool names to their parameter types
  */
 export interface ToolParamsMap {
-  "activate_agent": ActivateAgentParams;
-  "admin_assign_agent": AdminAssignAgentParams;
-  "admin_create_system_agent": AdminCreateSystemAgentParams;
-  "admin_delete_system_agent": AdminDeleteSystemAgentParams;
-  "admin_get_system_agent": AdminGetSystemAgentParams;
-  "admin_list_agent_assignments": AdminListAgentAssignmentsParams;
-  "admin_list_system_agents": AdminListSystemAgentsParams;
-  "admin_unassign_agent": AdminUnassignAgentParams;
-  "admin_update_system_agent": AdminUpdateSystemAgentParams;
-  "agent_followup_schedule": AgentFollowupScheduleParams;
-  "agent_note_add": AgentNoteAddParams;
   "analyze_activity": AnalyzeActivityParams;
   "analyze_goal_feasibility": AnalyzeGoalFeasibilityParams;
   "analyze_meal_nutrition": AnalyzeMealNutritionParams;
@@ -2619,21 +2193,15 @@ export interface ToolParamsMap {
   "analyze_sleep_quality": AnalyzeSleepQualityParams;
   "analyze_training_load": AnalyzeTrainingLoadParams;
   "analyze_weather_impact": AnalyzeWeatherImpactParams;
-  "browse_agent_store": BrowseAgentStoreParams;
   "calculate_daily_nutrition": CalculateDailyNutritionParams;
   "calculate_fitness_score": CalculateFitnessScoreParams;
   "calculate_metrics": CalculateMetricsParams;
   "calculate_personalized_zones": CalculatePersonalizedZonesParams;
   "calculate_recovery_score": CalculateRecoveryScoreParams;
-  "commitment_cancel": CommitmentCancelParams;
-  "commitment_create": CommitmentCreateParams;
   "compare_activities": CompareActivitiesParams;
   "compose_route": ComposeRouteParams;
   "compute_training_history": ComputeTrainingHistoryParams;
   "connect_provider": ConnectProviderParams;
-  "create_agent": CreateAgentParams;
-  "deactivate_agent": DeactivateAgentParams;
-  "delete_agent": DeleteAgentParams;
   "delete_fitness_config": DeleteFitnessConfigParams;
   "delete_recipe": DeleteRecipeParams;
   "detect_patterns": DetectPatternsParams;
@@ -2646,7 +2214,6 @@ export interface ToolParamsMap {
   "export_latest_snapshot": ExportLatestSnapshotParams;
   "export_routes": ExportRoutesParams;
   "extract_activity_streams": ExtractActivityStreamsParams;
-  "forget_playbook": ForgetPlaybookParams;
   "generate_recommendations": GenerateRecommendationsParams;
   "get_active_agent": GetActiveAgentParams;
   "get_activities": GetActivitiesParams;
@@ -2674,9 +2241,7 @@ export interface ToolParamsMap {
   "get_user_configuration": GetUserConfigurationParams;
   "get_weather_forecast": GetWeatherForecastParams;
   "get_yoga_pose": GetYogaPoseParams;
-  "hide_agent": HideAgentParams;
   "import_provider_thresholds": ImportProviderThresholdsParams;
-  "install_agent_from_store": InstallAgentFromStoreParams;
   "list_agents": ListAgentsParams;
   "list_coaching_playbooks": ListCoachingPlaybooksParams;
   "list_data_sources": ListDataSourcesParams;
@@ -2694,10 +2259,8 @@ export interface ToolParamsMap {
   "recall_user_memory": RecallUserMemoryParams;
   "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;
-  "remember_fact": RememberFactParams;
   "save_recipe": SaveRecipeParams;
   "save_training_plan": SaveTrainingPlanParams;
-  "search_agent_store": SearchAgentStoreParams;
   "search_agents": SearchAgentsParams;
   "search_food": SearchFoodParams;
   "search_recipes": SearchRecipesParams;
@@ -2705,15 +2268,12 @@ export interface ToolParamsMap {
   "set_goal": SetGoalParams;
   "set_physiology": SetPhysiologyParams;
   "set_preferred_calendar": SetPreferredCalendarParams;
-  "show_agent": ShowAgentParams;
   "suggest_goals": SuggestGoalsParams;
   "suggest_rest_day": SuggestRestDayParams;
   "suggest_stretches_for_activity": SuggestStretchesForActivityParams;
   "suggest_yoga_sequence": SuggestYogaSequenceParams;
-  "toggle_agent_favorite": ToggleAgentFavoriteParams;
   "track_progress": TrackProgressParams;
   "track_sleep_trends": TrackSleepTrendsParams;
-  "update_agent": UpdateAgentParams;
   "update_user_configuration": UpdateUserConfigurationParams;
   "validate_configuration": ValidateConfigurationParams;
   "validate_recipe": ValidateRecipeParams;

@@ -56,6 +56,10 @@ pub enum Reactivation {
 /// The row [`ChatRepository::create_conversation_within_cap`] writes.
 #[derive(Debug, Clone, Copy)]
 pub struct NewConversation<'a> {
+    /// The id the row takes when the caller chose it; `None` mints one. A row
+    /// already holding it fails the insert, so a chosen id never reaches an
+    /// existing thread.
+    pub id: Option<&'a str>,
     /// The owner, written as the `owner` participant too.
     pub user_id: &'a str,
     /// Tenant that owns the row.
@@ -257,6 +261,10 @@ pub trait ChatRepository: Send + Sync {
     /// Owner-only: `user_id` must be the conversation's `user_id` column, not
     /// merely a participant. Returns `false` for a participant who is not the
     /// owner, so the route can tell "not yours to delete" from "not found".
+    ///
+    /// The A2A tasks that ran in it go in the same transaction: each keeps its
+    /// own copy of the question and the reply, keyed by `context_id`, so no
+    /// foreign key takes it along.
     async fn delete_conversation(
         &self,
         conversation_id: &str,
@@ -536,6 +544,15 @@ pub trait ChatRepository: Send + Sync {
         &self,
         user_id: &str,
         tenant_id: TenantId,
+    ) -> AppResult<Option<ConversationRecord>>;
+
+    /// The thread `user_id` last touched on `channel_type` in `tenant_id`, kept
+    /// to their own and alone: not archived, in no room, about no other athlete.
+    async fn latest_channel_thread(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
     ) -> AppResult<Option<ConversationRecord>>;
 
     /// `user_id`'s personal thread in `tenant_id`, or `None` before one is
@@ -900,6 +917,13 @@ pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
     DELETE FROM chat_conversations
     WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
+/// The A2A tasks a deleted conversation's owner ran in it. `a2a_tasks` has no
+/// tenant, and a tool task may name any `contextId`, so the owner's task key
+/// (`user_task_key`) is what holds this to their rows.
+pub(crate) const DELETE_CONVERSATION_TASKS_SQL: &str = r"
+    DELETE FROM a2a_tasks
+    WHERE context_id = $1 AND session_token = $2";
+
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
@@ -962,20 +986,6 @@ pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL AND personal = FALSE
       AND subject_user_id IS NULL";
 
-/// Archive a conversation the caller owns, when it is still active.
-pub(crate) const ARCHIVE_CONVERSATION_SQL: &str = r"
-    UPDATE chat_conversations
-    SET archived_at = $1
-    WHERE id = $2 AND user_id = $3 AND tenant_id = $4 AND archived_at IS NULL";
-
-/// Return an archived conversation the caller owns to the active set. The
-/// cap, when there is one, was checked under the owner slot lock in the same
-/// transaction.
-pub(crate) const REACTIVATE_CONVERSATION_SQL: &str = r"
-    UPDATE chat_conversations
-    SET archived_at = NULL
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND archived_at IS NOT NULL";
-
 /// The owner slot lock: every decision that can take one of a user's
 /// `max_active_conversations` slots runs this first, in its transaction.
 /// `$lock` is the backend's clause — `FOR NO KEY UPDATE` on `PostgreSQL`,
@@ -988,22 +998,6 @@ macro_rules! owner_slot_lock_sql {
     };
 }
 pub(crate) use owner_slot_lock_sql;
-
-/// Whether a conversation the caller owns is archived; no row when it is not
-/// theirs in this tenant.
-pub(crate) const IS_ARCHIVED_SQL: &str = r"
-    SELECT archived_at IS NOT NULL
-    FROM chat_conversations
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// [`IS_ARCHIVED_SQL`], and whether the row holds one of its owner's
-/// `max_active_conversations` slots once active: the personal thread and a
-/// coach's thread about one athlete never do, so neither is refused at the cap.
-pub(crate) const ARCHIVED_SLOT_SQL: &str = r"
-    SELECT archived_at IS NOT NULL AS archived,
-           (personal = FALSE AND subject_user_id IS NULL) AS holds_slot
-    FROM chat_conversations
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
 /// The newest conversations across every tenant, for the operator console.
 pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
@@ -1067,6 +1061,17 @@ pub(crate) const FIND_GROUP_CONVERSATION_SQL: &str = concat!(
      WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.group_id = $3 \
        AND c.archived_at IS NULL \
      ORDER BY c.updated_at DESC \
+     LIMIT 1"
+);
+
+/// The thread a channel continues when a message names none, newest first.
+pub(crate) const LATEST_CHANNEL_THREAD_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.channel_type = $3 \
+       AND c.archived_at IS NULL AND c.group_id IS NULL AND c.subject_user_id IS NULL \
+     ORDER BY c.updated_at DESC, c.id DESC \
      LIMIT 1"
 );
 

@@ -77,9 +77,9 @@ impl McpRoutes {
     ///
     /// Authenticates the caller through [`PierreAuthHook`] and lists tools
     /// through [`PierreToolDispatcher`], so the returned set is identical to
-    /// what JSON-RPC `tools/list` returns for the same bearer: global admins get
-    /// the whole registry, tenant members get their tenant-filtered set minus
-    /// `ADMIN_ONLY` tools, and callers with no valid bearer get a 401 carrying
+    /// what JSON-RPC `tools/list` returns for the same bearer: the tenant-filtered
+    /// set minus operator tools and what is kept on Dravr's own surfaces, for a global admin as for
+    /// anyone else, and callers with no valid bearer get a 401 carrying
     /// the RFC 9728 `WWW-Authenticate` challenge instead of the catalog. A
     /// credential over its request budget gets the 429 and `Retry-After`
     /// `POST /mcp` answers with.

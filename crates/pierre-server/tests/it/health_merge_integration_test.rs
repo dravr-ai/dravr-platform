@@ -818,6 +818,7 @@ async fn an_answer_built_on_a_recovery_read_is_reported_grounded() -> Result<()>
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

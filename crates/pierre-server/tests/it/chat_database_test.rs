@@ -2138,6 +2138,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
     let manager = fx.chat();
     let tenant_id = test_tenant_id();
     let new = |title: &'static str| NewConversation {
+        id: None,
         user_id: fx.athlete(),
         tenant_id,
         title,

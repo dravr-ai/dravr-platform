@@ -378,6 +378,35 @@ variable "public_domains" {
   }
 }
 
+variable "armor_enabled" {
+  description = "Attach the Cloud Armor security policy to the load balancer's backend service. Requires public_domains. The frontend's run.app URLs do not cross the load balancer, so it does not cover them."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.armor_enabled || length(var.public_domains) > 0
+    error_message = "armor_enabled requires public_domains: the policy attaches to the load balancer they create."
+  }
+}
+
+variable "marketplace_egress_cidrs" {
+  description = "Published egress ranges of marketplace hosts, allowed past Cloud Armor's per-address limits."
+  type        = list(string)
+  default     = []
+}
+
+variable "armor_waf_preview" {
+  description = "Keep Cloud Armor's SQL injection and XSS rules in preview. See public_mcp_monitoring.tf for how to promote them."
+  type        = bool
+  default     = true
+}
+
+variable "armor_rate_rules_preview" {
+  description = "Keep Cloud Armor's throttles and ban in preview. See public_mcp_monitoring.tf for how to promote them."
+  type        = bool
+  default     = true
+}
+
 # -----------------------------------------------------------------------------
 # Labels
 # -----------------------------------------------------------------------------

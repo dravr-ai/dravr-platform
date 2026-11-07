@@ -12,6 +12,7 @@ use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::MessagingRepository;
 use tracing::{error, info, warn};
@@ -875,6 +876,8 @@ async fn serve_turn(
         channel_type: &dispatch.channel,
         // A channel the athlete linked is one of Dravr's own surfaces.
         transport: Transport::Messaging,
+        // A linked channel is the athlete acting directly: not narrowed.
+        grant: OAuthScope::self_grant(),
         is_direct_message: !dispatch.is_group_chat,
         // The ingress answered any slash command before this turn was queued,
         // so these only say what the messaging surface's answer is: the

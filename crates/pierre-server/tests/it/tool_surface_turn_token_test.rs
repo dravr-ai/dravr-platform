@@ -21,6 +21,7 @@
 //! blocked — and only if the two calls share a key.
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -111,6 +112,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         budget: AMPLE_BUDGET,
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
+        grant: &OAuthScope::self_grant(),
     });
     let goal = json!({ "goal_type": "distance", "target_value": 100 });
 
@@ -161,6 +163,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         budget: AMPLE_BUDGET,
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
+        grant: &OAuthScope::self_grant(),
     });
     let fresh = next_turn.call(WRITE, &goal).await;
     assert_ne!(
@@ -201,6 +204,7 @@ async fn a_denied_call_stops_the_agents_later_writes_in_the_same_turn() {
         budget: AMPLE_BUDGET,
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
+        grant: &OAuthScope::self_grant(),
     });
 
     let denied = surface

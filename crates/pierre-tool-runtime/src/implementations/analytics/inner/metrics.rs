@@ -8,7 +8,7 @@ use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsIn
 use crate::implementations::configuration::configured_max_hr_algorithm;
 use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
-use crate::protocol::provider_helpers::by_id_reader;
+use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::read_subject;
@@ -398,8 +398,8 @@ pub(crate) fn handle_calculate_metrics(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // `activity_id` and `provider` are both declared required by this tool's
-        // schema, so this is the only way in. A second branch used to accept an
+        // `activity_id` is declared required by this tool's schema, so this is
+        // the only way in. A second branch used to accept an
         // `activity` object inline and skip the fetch, but that shape appears
         // nowhere in the schema — no caller following the tool definition could
         // know to send it, and the only thing that ever did was a test. The
@@ -413,21 +413,23 @@ pub(crate) fn handle_calculate_metrics(
                 ProtocolError::InvalidParameters("activity_id parameter is required".to_owned())
             })?;
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                ProtocolError::InvalidParameters(
-                    "provider parameter required when using activity_id".to_owned(),
-                )
-            })?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(provider) => provider,
+            Err(response) => return Ok(*response),
+        };
 
         fetch_and_calculate_metrics(
             executor,
             &request,
             activity_id,
-            provider_name,
+            &provider_name,
             user_uuid,
             output_format,
         )

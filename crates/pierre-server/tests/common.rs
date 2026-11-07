@@ -623,7 +623,10 @@ pub(crate) fn test_server_config() -> ServerConfig {
     ServerConfig {
         llm_chain: placeholder_llm_chain(),
         oauth: test_oauth_config(),
-        usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
+        // A key the listing can see, whatever the process exports: `tools/list`
+        // leaves out what a keyless deployment can only fail. Nothing here calls
+        // USDA; the live suite injects the real one.
+        usda_api_key: Some(SecretString::from("test-usda-key")),
         // ServerConfig::default() leaves this at 0 (the derived usize default);
         // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
         // every activity-fetch path (group snapshots, the all-provider fetch) read

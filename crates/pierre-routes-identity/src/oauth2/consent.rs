@@ -17,12 +17,31 @@ use pierre_core::models::{OAuthClientGrant, User, UserStatus};
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use super::consent_text::ConsentText;
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::{error_redirect, rejection_response};
 
 /// What a Pending account that waits only on its confirmation link is told
 /// at consent: no operator reviews it, so the link is the next step.
-const AWAITS_EMAIL_PROOF: &str = "Your Dravr account is waiting for you to confirm your email address. Open the confirmation link we emailed you, then connect this app again.";
+pub(super) const AWAITS_EMAIL_PROOF: &str = "Your Dravr account is waiting for you to confirm your email address. Open the confirmation link we emailed you, then connect this app again.";
+/// What a Pending account an operator has yet to approve is told at consent.
+pub(super) const AWAITS_APPROVAL: &str =
+    "Your Dravr account is waiting for approval. Connect this app again once it is approved.";
+/// What a suspended account is told at consent.
+pub(super) const SUSPENDED: &str = "Your Dravr account is suspended";
+/// What a session naming a deleted account is told.
+pub(super) const ACCOUNT_GONE: &str =
+    "The account you are signed in as no longer exists; sign in again";
+/// What a session is told when its account could not be read.
+pub(super) const ACCOUNT_UNAVAILABLE: &str = "The account could not be loaded";
+/// The refusal of an approval that did not come from a form this server rendered.
+pub(super) const CONSENT_EXPIRED: &str =
+    "The consent screen expired or did not come from Dravr; start the connection again";
+/// The refusal when the athlete's approval could not be recorded.
+pub(super) const CONSENT_NOT_RECORDED: &str =
+    "Your approval could not be recorded, so this app was not connected; try again";
+/// The refusal when the consent form's token could not be minted.
+pub(super) const CONSENT_UNAVAILABLE: &str = "The consent screen could not be prepared";
 
 impl OAuth2Routes {
     /// Handle the OAuth consent form submission (POST /oauth2/consent).
@@ -37,7 +56,10 @@ impl OAuth2Routes {
     ) -> Response {
         let request = match Self::parse_authorize_request(&form) {
             Ok(req) => req,
-            Err(error) => return Self::render_oauth_error_response(&error),
+            Err(error) => {
+                let text = Self::reader_text(&context, &headers).await;
+                return Self::render_oauth_error_response(&error, &text);
+            }
         };
         // The form echoes the request the consent screen was rendered for, so
         // it is checked again: only a verified client and redirect_uri may be
@@ -46,7 +68,8 @@ impl OAuth2Routes {
         let checked = match server.check_authorize_request(&request).await {
             Ok(checked) => checked,
             Err(rejection) => {
-                return rejection_response(&context.config.issuer_url, rejection, &request)
+                let text = Self::reader_text(&context, &headers).await;
+                return rejection_response(&context.config.issuer_url, rejection, &request, &text);
             }
         };
         let redirect_uri = request.redirect_uri.clone();
@@ -77,13 +100,15 @@ impl OAuth2Routes {
         let form_token = form.get("csrf_token").map_or("", String::as_str);
         if let Err(e) = context.csrf_manager.validate_token(form_token, user_id) {
             warn!(user_id = %user_id, "OAuth consent refused: {e}");
-            return Self::render_oauth_error_response(&OAuth2Error::access_denied(
-                "The consent screen expired or did not come from Dravr; start the connection again",
-            ));
+            let text = Self::reader_text(&context, &headers).await;
+            return Self::render_oauth_error_response(
+                &OAuth2Error::access_denied(CONSENT_EXPIRED),
+                &text,
+            );
         }
 
         // The account may have been suspended since the screen was rendered.
-        if let Err(refused) = Self::account_gate(&context, user_id).await {
+        if let Err(refused) = Self::account_gate(&context, user_id, &headers).await {
             return *refused;
         }
 
@@ -97,14 +122,24 @@ impl OAuth2Routes {
             );
         }
 
-        Self::record_consent(
+        // No record, no code: the athlete can neither see nor revoke a grant
+        // that was not written, and a code would connect the client anyway.
+        if let Err(error) = Self::record_consent(
             &context,
             &request.client_id,
             &checked.scope,
             user_id,
             tenant_id.clone(),
         )
-        .await;
+        .await
+        {
+            return error_redirect(
+                &context.config.issuer_url,
+                &redirect_uri,
+                request.state.as_deref(),
+                &error,
+            );
+        }
 
         Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
     }
@@ -112,28 +147,46 @@ impl OAuth2Routes {
     /// Record the athlete's approval of `scope`, the grant the authorization
     /// was checked to carry; a duplicate active grant is a no-op at the storage
     /// layer.
+    ///
+    /// # Errors
+    /// `server_error` when the grant's tenant cannot be resolved or the grant
+    /// cannot be written.
     async fn record_consent(
         context: &OAuth2Context,
         client_id: &str,
         scope: &str,
         user_id: Uuid,
         tenant_id: Option<String>,
-    ) {
+    ) -> Result<(), OAuth2Error> {
         let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
-            return;
+            error!(user_id = %user_id, client_id, "OAuth consent not recorded: the grant has no tenant");
+            return Err(OAuth2Error::server_error(CONSENT_NOT_RECORDED));
         };
         let grant = OAuthClientGrant {
             id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
-            tenant_id: tid,
+            tenant_id: tid.clone(),
             client_id: client_id.to_owned(),
             scope: scope.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
         };
-        if let Err(e) = context.oauth2_server.store_client_grant(&grant).await {
-            error!("Failed to persist OAuth client grant: {e}");
-        }
+        context
+            .oauth2_server
+            .store_client_grant(&grant)
+            .await
+            .map_err(|e| {
+                error!(user_id = %user_id, client_id, "Failed to persist OAuth client grant: {e}");
+                OAuth2Error::server_error(CONSENT_NOT_RECORDED)
+            })?;
+        // A resource server may hold this client as withdrawn from before: the
+        // token this consent is about to mint must not be refused on that.
+        context
+            .accounts
+            .grant_standings()
+            .forget(user_id, &tid, client_id)
+            .await;
+        Ok(())
     }
 
     /// The signed-in account, when it may authorize a client: it exists and
@@ -144,16 +197,43 @@ impl OAuth2Routes {
     pub(super) async fn account_gate(
         context: &OAuth2Context,
         user_id: Uuid,
+        headers: &HeaderMap,
     ) -> Result<User, Box<Response>> {
-        let refuse = |error: OAuth2Error| Box::new(Self::render_oauth_error_response(&error));
         let user = Self::signed_in_account(context, user_id)
             .await
-            .map_err(refuse)?;
+            .map_err(|error| {
+                let text = ConsentText::for_browser(&context.strings, headers);
+                Box::new(Self::render_oauth_error_response(&error, &text))
+            })?;
+        let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
+        let refuse =
+            |error: OAuth2Error| Box::new(Self::render_oauth_error_response(&error, &text));
         if context.accounts.awaits_email_proof(&user).await {
             warn!(user_id = %user.id, "OAuth authorization refused: the account waits for its email to be confirmed");
             return Err(refuse(OAuth2Error::access_denied(AWAITS_EMAIL_PROOF)));
         }
         Self::account_refusal(&user).map_or_else(|| Ok(user), |error| Err(refuse(error)))
+    }
+
+    /// The text of a refusal page for whoever this request's session names:
+    /// their stored locale, else the browser's. It reads the account, so it
+    /// is for a refusal already decided, and never for a throttled request,
+    /// whose answer must cost no query.
+    pub(super) async fn reader_text<'a>(
+        context: &'a OAuth2Context,
+        headers: &HeaderMap,
+    ) -> ConsentText<'a> {
+        let stored = match Self::extract_authenticated_user(headers, context).0 {
+            Some(user_id) => context
+                .users
+                .get_global(user_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|user| user.locale),
+            None => None,
+        };
+        ConsentText::for_reader(&context.strings, stored.as_deref(), headers)
     }
 
     /// Sign the athlete in to Dravr's own web or mobile app: a code with no
@@ -168,6 +248,7 @@ impl OAuth2Routes {
         user_id: Uuid,
         tenant_id: Option<String>,
         redirect_uri: String,
+        headers: &HeaderMap,
     ) -> Response {
         let refused = match Self::signed_in_account(context, user_id).await {
             Ok(user) if user.user_status == UserStatus::Suspended => Self::account_refusal(&user),
@@ -175,7 +256,8 @@ impl OAuth2Routes {
             Err(error) => Some(error),
         };
         if let Some(error) = refused {
-            return Self::render_oauth_error_response(&error);
+            let text = Self::reader_text(context, headers).await;
+            return Self::render_oauth_error_response(&error, &text);
         }
         Self::mint_authorization_code(context, request, user_id, tenant_id, redirect_uri).await
     }
@@ -189,13 +271,11 @@ impl OAuth2Routes {
             Ok(Some(user)) => Ok(user),
             Ok(None) => {
                 warn!(user_id = %user_id, "OAuth authorization refused: the session names no account");
-                Err(OAuth2Error::access_denied(
-                    "The account you are signed in as no longer exists; sign in again",
-                ))
+                Err(OAuth2Error::access_denied(ACCOUNT_GONE))
             }
             Err(e) => {
                 error!(user_id = %user_id, "OAuth authorization could not load the account: {e}");
-                Err(OAuth2Error::server_error("The account could not be loaded"))
+                Err(OAuth2Error::server_error(ACCOUNT_UNAVAILABLE))
             }
         }
     }
@@ -214,15 +294,11 @@ impl OAuth2Routes {
             UserStatus::Active => None,
             UserStatus::Pending => {
                 warn!(user_id = %user.id, "OAuth authorization refused: the account awaits approval");
-                Some(OAuth2Error::access_denied(
-                    "Your Dravr account is waiting for approval. Connect this app again once it is approved.",
-                ))
+                Some(OAuth2Error::access_denied(AWAITS_APPROVAL))
             }
             UserStatus::Suspended => {
                 warn!(user_id = %user.id, "OAuth authorization refused: the account is suspended");
-                Some(OAuth2Error::access_denied(
-                    "Your Dravr account is suspended",
-                ))
+                Some(OAuth2Error::access_denied(SUSPENDED))
             }
         }
     }

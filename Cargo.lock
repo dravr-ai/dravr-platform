@@ -3650,11 +3650,10 @@ dependencies = [
 name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
- "bcrypt",
+ "async-trait",
  "chrono",
  "dravr-tronc",
  "pierre-auth",
- "pierre-config",
  "pierre-core",
  "pierre-database",
  "pierre-logging",
@@ -3662,7 +3661,6 @@ dependencies = [
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-tool-runtime",
- "rand 0.9.5",
  "reqwest 0.12.28",
  "secrecy",
  "serde",
@@ -3709,7 +3707,6 @@ dependencies = [
  "ciborium",
  "der 0.7.10",
  "dravr-tronc",
- "ed25519-dalek",
  "http",
  "jsonwebtoken",
  "pierre-cache",
@@ -3731,7 +3728,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "x509-cert",
- "zeroize",
 ]
 
 [[package]]

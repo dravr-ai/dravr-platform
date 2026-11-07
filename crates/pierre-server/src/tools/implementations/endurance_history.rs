@@ -32,8 +32,8 @@ use pierre_tool_runtime::conversions::{
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tool_runtime::training_history_compute::{
-    compute_and_persist_history, default_window, history_rows_for_model, HistoryCoverage,
-    TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
+    compute_and_persist_history, default_window, history_rows_for_model, read_history_from_cache,
+    HistoryCoverage, TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
 };
 use pierre_tools_core::ToolResult;
 
@@ -81,6 +81,10 @@ pub struct TrainingHistoryResult {
     /// fatigue. A run describes accumulated fatigue relative to fitness, not
     /// overtraining.
     pub deep_fatigue_mornings: Vec<DeepFatigueMorning>,
+    /// Why `days` stops short of the window, when it does: the stored history
+    /// does not reach far enough to warm those days. `None` when the rows
+    /// answer the whole ask.
+    pub coverage_note: Option<String>,
     /// What the numbers mean and how they were computed.
     pub interpretation: FormInterpretation,
 }
@@ -218,7 +222,7 @@ impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
             rows_upserted: c.rows_upserted,
             requested_from: c.requested_from.format("%Y-%m-%d").to_string(),
             complete: c.is_complete(),
-            coverage_note: coverage_note(&c),
+            coverage_note: coverage_note(c.coverage, c.requested_from, c.to, c.capture_requested),
             capture_requested: c.capture_requested,
         }
     }
@@ -229,27 +233,30 @@ impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
 /// Says what is missing and forbids estimating it. A fitness number the athlete
 /// cannot trace to their own training is worse than an admission that it is
 /// still being fetched.
-fn coverage_note(c: &TrainingHistoryComputed) -> Option<String> {
-    let fetching = if c.capture_requested {
+fn coverage_note(
+    coverage: HistoryCoverage,
+    requested_from: NaiveDate,
+    to: NaiveDate,
+    capture_requested: bool,
+) -> Option<String> {
+    let fetching = if capture_requested {
         " Their history is being fetched in the background; say so."
     } else {
         ""
     };
-    match c.coverage {
+    match coverage {
         HistoryCoverage::Complete => None,
         HistoryCoverage::NoStoredActivities => Some(format!(
-            "No stored activities cover {} to {}, so no CTL/ATL/TSB rows were \
+            "No stored activities cover {requested_from} to {to}, so no CTL/ATL/TSB rows were \
              computed and no fitness figure exists for this athlete yet. Do not \
              estimate one and do not describe their chronic load. Answer from \
-             the activities you can actually see.{fetching}",
-            c.requested_from, c.to
+             the activities you can actually see.{fetching}"
         )),
         HistoryCoverage::Partial { trustworthy_from } => Some(format!(
-            "Stored history only reaches back far enough to compute from {} \
-             onward, so days between {} and {} have no rows and no fitness \
-             figure. Cite CTL/ATL/TSB only for {} onward, and do not infer \
-             values for the earlier part of the window.{fetching}",
-            trustworthy_from, c.requested_from, trustworthy_from, trustworthy_from
+            "Stored history only reaches back far enough to compute from {trustworthy_from} \
+             onward, so days between {requested_from} and {trustworthy_from} have no rows and no \
+             fitness figure. Cite CTL/ATL/TSB only for {trustworthy_from} onward, and do not \
+             infer values for the earlier part of the window.{fetching}"
         )),
     }
 }
@@ -442,6 +449,19 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 rows = history_rows_for_model(&context.resources, tenant_id, user_id, from, to)
                     .await?;
             }
+            // No persisted row: the read a page makes says why, and answers
+            // from the stored sessions when they do warm the window. It writes
+            // nothing and asks no capture, so a read-only grant stays one.
+            // Without it, an athlete with too short a history read `days: []`
+            // beside a fitness score computed from the same sessions.
+            let mut note = None;
+            if rows.is_empty() {
+                let read =
+                    read_history_from_cache(&context.resources, tenant_id, user_id, from, to)
+                        .await?;
+                note = coverage_note(read.coverage, from, to, false);
+                rows = read.states;
+            }
 
             // Every row carries its own form reading, and the payload carries
             // the method that produced it. This is the tool the endurance agent
@@ -471,6 +491,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                     days,
                     sources,
                     deep_fatigue_mornings,
+                    coverage_note: note,
                     interpretation: FormReading::interpretation(
                         params.training_load_ctl_days,
                         params.training_load_atl_days,

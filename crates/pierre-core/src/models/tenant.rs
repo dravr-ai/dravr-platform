@@ -308,6 +308,36 @@ pub struct OAuthClientGrant {
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
+/// Where a user's consent to one OAuth client stands in one tenant.
+///
+/// What a resource server asks of an access token it holds: the token is
+/// self-contained, so only this says whether the athlete has since taken the
+/// access back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientGrantStanding {
+    /// Whether an un-revoked grant exists for the client
+    pub active: bool,
+    /// When a grant for the client was last revoked; `None` when none ever was
+    pub last_revoked_at: Option<DateTime<Utc>>,
+}
+
+impl ClientGrantStanding {
+    /// Whether an access token issued at `issued_at` (seconds since the epoch,
+    /// the `iat` claim) still speaks for the athlete.
+    ///
+    /// A client with no grant row was never withdrawn: consent predates the
+    /// table, or was recorded before a write could refuse it, and its token
+    /// runs to its expiry. Revoking ends every token the client held, so one
+    /// issued before the last revocation stays refused after the athlete
+    /// consents again: `iat` has one-second resolution, and a token issued in
+    /// the revocation's own second counts as before it.
+    #[must_use]
+    pub fn admits_token_issued_at(&self, issued_at: i64) -> bool {
+        self.last_revoked_at
+            .is_none_or(|revoked_at| self.active && issued_at > revoked_at.timestamp())
+    }
+}
+
 /// Database record for LLM credentials
 #[derive(Debug, Clone)]
 pub struct LlmCredentialRecord {

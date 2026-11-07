@@ -48,6 +48,7 @@ mod turn_service_quota_tests {
     };
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{ConversationTurnId, Tenant, TenantId, User, UserStatus};
+    use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
@@ -410,6 +411,7 @@ mod turn_service_quota_tests {
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
                 hooks: PipelineHooks::none(),
+                grant: OAuthScope::self_grant(),
             },
             &profile,
         )

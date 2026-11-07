@@ -604,6 +604,7 @@ impl ProviderToolRouter {
             // sidesteps the pierre-runtime-context ↔ pierre-a2a cycle that
             // would arise from adding `a2a_client_manager()` /
             // `tool_runtime()` accessors to A2ACtx directly.
+            use crate::services::a2a_coaching::coaching_turns;
             use pierre_tool_runtime::runtime::ToolRuntime;
             let tool_runtime: Arc<dyn ToolRuntime> = resources.clone(); // Safe: Arc clone coerced into trait object
             let a2a_state = A2ARoutesState {
@@ -611,6 +612,7 @@ impl ProviderToolRouter {
                 client_manager: resources.a2a.a2a_client_manager.clone(), // Safe: Arc clone for shared client manager
                 auth_middleware: resources.auth.auth_middleware.clone(), // Safe: Arc clone for shared middleware
                 tool_runtime,
+                coaching: coaching_turns(resources),
             };
             app.merge(A2ARoutes::routes(a2a_state))
         };

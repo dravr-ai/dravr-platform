@@ -19,6 +19,7 @@ use super::models::{
     OAuth2Error, TokenRequest, TokenResponse,
 };
 use super::pkce::{check_code_challenge, check_pkce};
+use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
@@ -42,6 +43,7 @@ use uuid::Uuid;
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
+pub use grant_checks::TokenGrant;
 mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
@@ -95,6 +97,10 @@ pub struct OAuth2AuthorizationServer {
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
     resources: Vec<String>,
+    /// Identifiers of the A2A resource server this authorization server also
+    /// mints for: `/a2a` on those origins; empty until
+    /// [`Self::with_a2a_resources`] names them
+    a2a_resources: Vec<String>,
     /// Identifiers of the satellite MCP servers this authorization server also
     /// mints for, one each; empty until [`Self::with_satellite_resources`]
     satellites: Vec<String>,
@@ -106,6 +112,10 @@ pub struct OAuth2AuthorizationServer {
     /// Pending registrations that may exist at once, new metadata-document
     /// clients included
     max_pending_registrations: u64,
+    /// Meters the grants each user's tokens redeem; `None` until
+    /// [`Self::with_token_limiter`] names it, which meters nobody per user.
+    /// Shared with the routes' limiter, so one store counts every window
+    token_limiter: Option<Arc<OAuth2RateLimiter>>,
 }
 
 impl fmt::Debug for OAuth2AuthorizationServer {
@@ -152,10 +162,12 @@ impl OAuth2AuthorizationServer {
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
             resources,
+            a2a_resources: Vec::new(),
             satellites: Vec::new(),
             first_party: FirstPartyRedirects::default(),
             metadata_fetcher: cimd::production_fetcher(),
             max_pending_registrations: ClientRetentionConfig::default().max_pending_registrations,
+            token_limiter: None,
         }
     }
 
@@ -189,6 +201,7 @@ impl OAuth2AuthorizationServer {
                 .map(str::to_owned)
                 .collect(),
         )
+        .with_a2a_resources(config.a2a_resources())
         .with_satellite_resources(config.satellite_resources.clone())
         .with_first_party_redirects(config.first_party_redirects.clone())
         .with_max_pending_registrations(config.client_retention.max_pending_registrations)
@@ -202,11 +215,30 @@ impl OAuth2AuthorizationServer {
         self
     }
 
+    /// Meter each user's grant redemptions at [`Self::token`] in `limiter`'s
+    /// per-user window. The per-address window stays the route's; this one has
+    /// to be counted here, once the client authenticated and the grant named a
+    /// user, and before the grant is spent.
+    #[must_use]
+    pub fn with_token_limiter(mut self, limiter: Arc<OAuth2RateLimiter>) -> Self {
+        self.token_limiter = Some(limiter);
+        self
+    }
+
     /// Read client metadata documents through `fetcher` instead of the SSRF
     /// guarded client; for a test that serves them itself.
     #[must_use]
     pub fn with_metadata_fetcher(mut self, fetcher: Arc<dyn MetadataFetcher>) -> Self {
         self.metadata_fetcher = fetcher;
+        self
+    }
+
+    /// Also mint for the A2A resource server, known by `a2a_resources`
+    /// (`OAuth2ServerConfig::a2a_resources`): a grant bound to it never mints
+    /// for the MCP resource server, or the reverse.
+    #[must_use]
+    pub fn with_a2a_resources(mut self, a2a_resources: Vec<String>) -> Self {
+        self.a2a_resources = a2a_resources;
         self
     }
 
@@ -232,6 +264,7 @@ impl OAuth2AuthorizationServer {
     fn served(&self) -> Vec<&str> {
         self.resources
             .iter()
+            .chain(&self.a2a_resources)
             .chain(&self.satellites)
             .map(String::as_str)
             .collect()
@@ -575,6 +608,9 @@ impl OAuth2AuthorizationServer {
         // spent, so a client that named the wrong one can still correct it.
         self.check_requested_resource(request.resource.as_deref())?;
 
+        self.admit_code_user(&code, &request.client_id, &redirect_uri)
+            .await?;
+
         // Validate and consume authorization code (with PKCE verification)
         let auth_code = self
             .validate_and_consume_auth_code(
@@ -706,11 +742,14 @@ impl OAuth2AuthorizationServer {
         // server, is refused before the refresh token is rotated away, and a
         // grant whose tenant the user left is revoked.
         self.check_requested_resource(request.resource.as_deref())?;
-        self.check_refresh_grant(
-            refresh_token_value.expose_secret(),
-            request.resource.as_deref(),
-        )
-        .await?;
+        let grant = self
+            .check_refresh_grant(
+                refresh_token_value.expose_secret(),
+                request.resource.as_deref(),
+            )
+            .await?;
+        self.admit_refresh_user(grant.as_ref(), &request.client_id)
+            .await?;
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead

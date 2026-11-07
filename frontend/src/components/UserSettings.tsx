@@ -1461,7 +1461,10 @@ Authorization: Bearer <your-token-here>`}
                                 className="flex items-start justify-between gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                               >
                                 <div className="min-w-0">
-                                  <p className="font-medium text-on-surface break-all">{app.client_id}</p>
+                                  <p className="font-medium text-on-surface break-all">{app.client_name || app.client_id}</p>
+                                  {app.client_host && (
+                                    <p className="text-sm text-on-surface-variant break-all">{app.client_host}</p>
+                                  )}
                                   <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
@@ -1618,7 +1621,7 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setAppToRevoke(null)}
         onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
         title={t('tokens.revokeAccess')}
-        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_id ?? '' })}
+        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
         confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revokeConnectedAppMutation.isPending}

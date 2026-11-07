@@ -14,6 +14,7 @@
 //! pipeline's prefetch stage calls those same handlers directly.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -92,7 +93,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -278,7 +279,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );

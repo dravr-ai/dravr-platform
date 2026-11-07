@@ -47,6 +47,7 @@ fn a2a_routes(resources: &Arc<ServerContext>) -> axum::Router {
         client_manager: resources.a2a.a2a_client_manager.clone(),
         auth_middleware: resources.auth.auth_middleware.clone(),
         tool_runtime,
+        coaching: None,
     })
 }
 

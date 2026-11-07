@@ -14,7 +14,8 @@
 //! { "format": "dravr-user-export", "format_version": 1, "generated_at": "…",
 //!   "user_id": "…", "withheld": [{"table": "…", "reason": "…"}],
 //!   "tables": { "users": [ {…} ], "cached_activities": [ … ], … },
-//!   "complete": true, "failed_tables": [], "skipped_tables": [] }
+//!   "complete": true, "limit_reached": null, "failed_tables": [],
+//!   "skipped_tables": [] }
 //! ```
 //!
 //! Each key of `tables` is a database table and each row an object of its
@@ -59,12 +60,16 @@
 //! while the file is being written is neither dropped nor repeated; a row added
 //! meanwhile may or may not appear, since the file is not one snapshot. A client that disconnects stops the task. A file
 //! past [`MAX_EXPORT_BYTES`] stops there and says so (`complete: false`,
-//! `skipped_tables`) rather than growing without end, and so does one still
-//! being written at [`MAX_EXPORT_DURATION`], so the load balancer's limit on a
-//! request never cuts the document in two. Each account may export
+//! `limit_reached: "size"`, `skipped_tables`) rather than growing without end,
+//! and so does one still being written at [`MAX_EXPORT_DURATION`]
+//! (`limit_reached: "time"`), so the load balancer's limit on a request never
+//! cuts the document in two. The clients read `limit_reached` off the end of
+//! the file to tell the athlete which limit cut it short, so `skipped_tables`
+//! stays the last field. Each account may export
 //! [`MAX_EXPORTS_PER_WINDOW`] times an hour, and the server runs at most
 //! [`MAX_CONCURRENT_EXPORTS`] at once.
 
+use std::future::Future;
 use std::io;
 use std::mem;
 use std::sync::{Arc, LazyLock};
@@ -82,7 +87,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, field::Empty, info, warn, Span};
 use uuid::Uuid;
@@ -160,6 +165,8 @@ struct ExportSummary {
     /// Tables not read, or not read to their end, because the file reached its
     /// size or time limit.
     skipped_tables: Vec<&'static str>,
+    /// The limit that stopped the file, when one did.
+    limit_reached: Option<ExportLimit>,
     /// The client went away before the end.
     disconnected: bool,
 }
@@ -169,6 +176,25 @@ impl ExportSummary {
     fn mark_failed(&mut self, table: &'static str) {
         if !self.failed_tables.contains(&table) {
             self.failed_tables.push(table);
+        }
+    }
+}
+
+/// The limit a file stopped at, as the document names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExportLimit {
+    /// [`ExportLimits::max_bytes`].
+    Size,
+    /// [`ExportLimits::max_duration`].
+    Time,
+}
+
+impl ExportLimit {
+    /// The value of the document's `limit_reached` field.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Size => "size",
+            Self::Time => "time",
         }
     }
 }
@@ -184,10 +210,15 @@ struct Writer<'sink, S: ChunkSink> {
 }
 
 impl<S: ChunkSink> Writer<'_, S> {
-    /// Whether the file has reached its size or time limit.
-    fn out_of_room(&self) -> bool {
-        self.written() >= self.limits.max_bytes
-            || self.started.elapsed() >= self.limits.max_duration
+    /// The limit the file has reached, if any; size is checked first.
+    fn out_of_room(&self) -> Option<ExportLimit> {
+        if self.written() >= self.limits.max_bytes {
+            Some(ExportLimit::Size)
+        } else if self.started.elapsed() >= self.limits.max_duration {
+            Some(ExportLimit::Time)
+        } else {
+            None
+        }
     }
 
     /// Append `bytes`, sending a chunk when the buffer is full.
@@ -260,7 +291,8 @@ async fn write_export<S: ChunkSink>(
         if writer.disconnected {
             break;
         }
-        if writer.out_of_room() {
+        if let Some(limit) = writer.out_of_room() {
+            summary.limit_reached = Some(limit);
             summary.skipped_tables.extend(
                 USER_EXPORT_TABLES[index..]
                     .iter()
@@ -278,6 +310,7 @@ async fn write_export<S: ChunkSink>(
         "complete": summary.failed_tables.is_empty()
             && summary.skipped_tables.is_empty()
             && !writer.disconnected,
+        "limit_reached": summary.limit_reached.map(ExportLimit::as_str),
         "failed_tables": summary.failed_tables,
         "skipped_tables": summary.skipped_tables,
     });
@@ -317,7 +350,8 @@ async fn write_table<S: ChunkSink>(
         };
         let read = i64::try_from(page.rows.len()).unwrap_or(i64::MAX);
         for row in &page.rows {
-            if writer.out_of_room() {
+            if let Some(limit) = writer.out_of_room() {
+                summary.limit_reached = Some(limit);
                 summary.skipped_tables.push(table.name);
                 writer.put(b"]").await;
                 return;
@@ -415,6 +449,38 @@ fn refusal(status: StatusCode, error: &str, message: &str, retry_after: u64) -> 
     response
 }
 
+/// A slot for the export, or the refusal to answer with.
+///
+/// The slot comes first: "busy, retry in a moment" must not spend one of the
+/// hour's exports, or retrying as it asks ends in the hourly refusal.
+async fn admit_export<F>(
+    slots: &Arc<Semaphore>,
+    meter: impl FnOnce() -> F,
+) -> AppResult<Result<OwnedSemaphorePermit, Response>>
+where
+    F: Future<Output = AppResult<Option<u64>>>,
+{
+    let Ok(permit) = Arc::clone(slots).try_acquire_owned() else {
+        return Ok(Err(refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "export_busy",
+            "Exports are busy; retry in a moment",
+            BUSY_RETRY_SECS,
+        )));
+    };
+    let used_up = meter().await?;
+    if let Some(retry_after) = used_up {
+        info!("User export refused: the hour's exports are used");
+        return Ok(Err(refusal(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_exports",
+            "You have exported your data several times this hour; retry later",
+            retry_after,
+        )));
+    }
+    Ok(Ok(permit))
+}
+
 /// `GET /api/user/export` — stream the signed-in athlete's data as JSON.
 ///
 /// Refuses with 429 once the account has used its exports for the hour, and
@@ -434,22 +500,10 @@ pub(crate) async fn handle_user_export(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let user_id = session_user_id(&resources, &headers).await?;
-    if let Some(retry_after) = meter_export(&resources, user_id).await? {
-        info!(user_id = %user_id, "User export refused: the hour's exports are used");
-        return Ok(refusal(
-            StatusCode::TOO_MANY_REQUESTS,
-            "too_many_exports",
-            "You have exported your data several times this hour; retry later",
-            retry_after,
-        ));
-    }
-    let Ok(permit) = Arc::clone(&*EXPORT_SLOTS).try_acquire_owned() else {
-        return Ok(refusal(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "export_busy",
-            "Exports are busy; retry in a moment",
-            BUSY_RETRY_SECS,
-        ));
+    let admitted = admit_export(&EXPORT_SLOTS, || meter_export(&resources, user_id)).await?;
+    let permit = match admitted {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(refused),
     };
 
     let repos = Arc::clone(&resources.repos);
@@ -476,6 +530,7 @@ pub(crate) async fn handle_user_export(
             bytes = summary.bytes,
             failed_tables = summary.failed_tables.len(),
             skipped_tables = summary.skipped_tables.len(),
+            limit_reached = summary.limit_reached.map(ExportLimit::as_str),
             disconnected = summary.disconnected,
             "User data export finished"
         );
@@ -586,6 +641,44 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn a_busy_refusal_spends_none_of_the_hours_exports() {
+        let full = Arc::new(Semaphore::new(0));
+        let mut metered = false;
+        let answer = admit_export(&full, || {
+            metered = true;
+            async { Ok(None) }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            answer.err().map(|refused| refused.status()),
+            Some(StatusCode::SERVICE_UNAVAILABLE),
+            "a full server answers busy"
+        );
+        assert!(!metered, "a refused export was counted against the hour");
+    }
+
+    #[tokio::test]
+    async fn an_hourly_refusal_hands_back_its_slot() {
+        let slots = Arc::new(Semaphore::new(1));
+        let answer = admit_export(&slots, || async { Ok(Some(60)) })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            answer.err().map(|refused| refused.status()),
+            Some(StatusCode::TOO_MANY_REQUESTS),
+            "a used-up hour answers too many exports"
+        );
+        assert_eq!(
+            slots.available_permits(),
+            1,
+            "a refused export kept its slot"
+        );
+    }
+
+    #[tokio::test]
     async fn the_document_is_valid_json_with_every_table() {
         let repository = FakeRepository {
             rows_per_table: 7,
@@ -598,6 +691,11 @@ mod tests {
         let doc = document(&sink);
         assert_eq!(doc["format"], "dravr-user-export");
         assert_eq!(doc["complete"], true);
+        assert_eq!(
+            doc["limit_reached"],
+            Value::Null,
+            "a complete file names no limit"
+        );
         let tables = doc["tables"].as_object().unwrap();
         assert_eq!(
             tables.len(),
@@ -611,6 +709,36 @@ mod tests {
             USER_EXPORT_EXCLUDED_TABLES.len(),
             "the document names what it leaves out"
         );
+    }
+
+    // Both clients take a download that does not end like this for one cut
+    // short (`DOCUMENT_END` in packages/ui-logic's dataExport.ts): a field
+    // written after `skipped_tables` would fail every export they save.
+    #[tokio::test]
+    async fn the_document_ends_in_its_skipped_tables() {
+        let repository = FakeRepository {
+            rows_per_table: 1,
+            row_bytes: 10,
+            failing: None,
+        };
+        for max_duration in [Duration::from_secs(3600), Duration::ZERO] {
+            let mut sink = collector();
+            let limits = ExportLimits {
+                max_duration,
+                ..ROOMY
+            };
+            write_export(&repository, Uuid::new_v4(), &mut sink, limits).await;
+
+            let bytes: Vec<u8> = sink.chunks.iter().flat_map(|c| c.to_vec()).collect();
+            let text = String::from_utf8(bytes).unwrap();
+            let tail = &text[text.rfind(",\"skipped_tables\":[").unwrap()..];
+            assert!(tail.ends_with("]}"), "the document ends in: {tail}");
+            assert_eq!(
+                tail.matches(']').count(),
+                1,
+                "nothing follows the list: {tail}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -630,6 +758,10 @@ mod tests {
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
         assert_eq!(
+            doc["limit_reached"], "time",
+            "it names the limit it reached"
+        );
+        assert_eq!(
             doc["skipped_tables"].as_array().unwrap().len(),
             USER_EXPORT_TABLES.len(),
             "it names every table it did not reach"
@@ -648,6 +780,7 @@ mod tests {
 
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
+        assert_eq!(doc["limit_reached"], Value::Null, "no limit cut it short");
         assert_eq!(doc["failed_tables"], json!(["recipes"]));
         assert_eq!(doc["tables"]["training_plans"].as_array().unwrap().len(), 3);
     }
@@ -678,6 +811,10 @@ mod tests {
 
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
+        assert_eq!(
+            doc["limit_reached"], "size",
+            "it names the limit it reached"
+        );
         assert_ne!(doc["skipped_tables"], json!([]));
         // The limit is on rows written; the closing fields come after it.
         assert!(

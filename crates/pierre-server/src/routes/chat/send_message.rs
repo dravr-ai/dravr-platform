@@ -42,6 +42,7 @@ use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
@@ -339,6 +340,8 @@ impl TurnEgress {
             quote: self.quote.clone(),
             channel_type: &self.channel_type,
             transport: self.transport,
+            // The athlete's own session, or their own API key: not narrowed.
+            grant: OAuthScope::self_grant(),
             // A thread bound to a coaching group is a group thread, whichever
             // surface it is read on: `/agent add` binds the group's agent there
             // and `/group …` acts on that group. Unbound, the athlete is alone

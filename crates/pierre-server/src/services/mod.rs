@@ -105,6 +105,9 @@ pub mod adapter_resolver;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// The coaching text skill's turns: an A2A message entering the chat pipeline.
+#[cfg(feature = "protocol-a2a")]
+pub mod a2a_coaching;
 /// A verified coach post the platform makes on its own initiative.
 #[cfg(feature = "client-messaging")]
 pub mod platform_post;

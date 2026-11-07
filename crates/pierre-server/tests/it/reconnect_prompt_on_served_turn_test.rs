@@ -144,6 +144,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     }
 }
 
@@ -326,6 +327,37 @@ pub(crate) async fn usr_pwd_garmin_athlete(resources: &Arc<ServerContext>) -> (U
 // ============================================================================
 // The served turn
 // ============================================================================
+
+/// An agent is not the athlete: the link signs in as them, so a turn served over
+/// an external transport names the dropped connection and carries no link, in a
+/// direct message too (carnet#1368).
+#[tokio::test]
+async fn a_turn_served_to_an_external_agent_gets_no_login_link() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+
+    let mut result = loop_result(None, Some("sciotte_garmin"));
+    let recovery = ai_scope::serve_over(
+        Transport::A2a,
+        recover(&resources, user_id, tenant, &mut result),
+    )
+    .await;
+
+    assert!(
+        recovery.prompt.is_none(),
+        "no reconnect offer reaches an external agent"
+    );
+    assert!(
+        !result.content.contains(TEST_BASE_URL),
+        "no link in the prose either, got: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Garmin"),
+        "the agent is still told which connection dropped, got: {}",
+        result.content
+    );
+}
 
 /// The whole bridge: a served window names the dead BACKEND, the tool loop reads
 /// that as its soft signal, and the athlete gets both the sibling's real rides

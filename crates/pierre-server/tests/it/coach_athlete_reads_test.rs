@@ -900,6 +900,15 @@ pub(crate) async fn post_mcp(
 #[tokio::test]
 async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
     let f = fixture().await;
+    // tools/list leaves out what the plan refuses, and `predict_performance`
+    // is an enterprise tool: the coach's plan covers every training read.
+    f.res
+        .common
+        .repos
+        .tenants
+        .set_plan(f.coach.tenant, "enterprise")
+        .await
+        .unwrap();
     let app = ProviderToolRouter::build_http_app(&f.res);
     let grant = format!(
         "Bearer {}",

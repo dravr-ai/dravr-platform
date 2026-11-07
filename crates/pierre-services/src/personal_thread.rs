@@ -290,6 +290,7 @@ async fn forge_personal(
     let forged_id = forge_conversation(
         repos,
         ForgeParams {
+            id: None,
             user_id,
             tenant_id,
             title_fallback: forge.title_fallback,

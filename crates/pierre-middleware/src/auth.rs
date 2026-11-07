@@ -10,6 +10,7 @@ use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims, ImpersonationGrant};
+use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
 };
@@ -217,6 +218,10 @@ pub struct McpAuthMiddleware {
     api_key_manager: ApiKeyManager,
     repos: Arc<RepositoryRegistry>,
     jwks_manager: Arc<JwksManager>,
+    /// Bounds the grant read each delegated call asks for; `None` until
+    /// [`Self::with_grant_standings`] names them, which reads the grant on
+    /// every call
+    grant_standings: Option<GrantStandings>,
 }
 
 impl McpAuthMiddleware {
@@ -232,7 +237,15 @@ impl McpAuthMiddleware {
             api_key_manager: ApiKeyManager::new(),
             repos,
             jwks_manager,
+            grant_standings: None,
         }
+    }
+
+    /// Read where a delegated token's consent stands through `standings`.
+    #[must_use]
+    pub fn with_grant_standings(mut self, standings: GrantStandings) -> Self {
+        self.grant_standings = Some(standings);
+        self
     }
 
     /// Authenticate request using headers (supports cookies and Authorization header)
@@ -859,22 +872,12 @@ impl McpAuthMiddleware {
                 .ok()
         });
 
-        // SECURITY: Global lookup — JWT validation, no tenant context yet
-        let user = self
-            .repos
-            .users
-            .get_global(user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+        let user = self.standing_account(user_id).await?;
 
-        // SECURITY: Enforce account status on every API request.
-        // Login endpoints let pending users authenticate (so the frontend can show
-        // the "pending approval" page), but API routes must not serve data.
-        // Same gate runs in services::messaging_ingress so Telegram / WhatsApp /
-        // Discord / Slack / Messenger channel traffic can't bypass approval.
-        enforce_user_status(user.user_status).inspect_err(|e| {
-            warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
-        })?;
+        // A delegated token speaks for the athlete only while they let it. It
+        // is refused before it spends anything of theirs, as any bad credential.
+        self.require_unwithdrawn_grant(&claims, user_id, is_session, policy)
+            .await?;
 
         // The user's month-to-date requests against its monthly limit (an
         // admin's override, else the tier's), both read in one statement. A
@@ -912,6 +915,85 @@ impl McpAuthMiddleware {
             },
             budget,
         })
+    }
+
+    /// The account a JWT acts for, when it exists and may be served.
+    ///
+    /// # Errors
+    /// `NotFound` for a deleted account, the status gate's refusal for one that
+    /// is pending or suspended, a database error when it cannot be read.
+    async fn standing_account(&self, user_id: uuid::Uuid) -> AppResult<User> {
+        // SECURITY: Global lookup — JWT validation, no tenant context yet
+        let user = self
+            .repos
+            .users
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+
+        // SECURITY: Enforce account status on every API request.
+        // Login endpoints let pending users authenticate (so the frontend can show
+        // the "pending approval" page), but API routes must not serve data.
+        // Same gate runs in services::messaging_ingress so Telegram / WhatsApp /
+        // Discord / Slack / Messenger channel traffic can't bypass approval.
+        enforce_user_status(user.user_status).inspect_err(|e| {
+            warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
+        })?;
+        Ok(user)
+    }
+
+    /// Refuse a delegated token whose athlete has withdrawn the client's access.
+    ///
+    /// The JWT stays good until it expires, so this is what makes revocation
+    /// take effect within seconds on the paths that take such a token. A
+    /// first-party session, or a token naming no client, is not one a grant
+    /// governs. A read that fails refuses the request, as a quota that cannot
+    /// be read does.
+    ///
+    /// # Errors
+    /// `AuthInvalid` when the consent was withdrawn, so a client re-authorizes;
+    /// a database error when the tenant or the grant cannot be read.
+    async fn require_unwithdrawn_grant(
+        &self,
+        claims: &Claims,
+        user_id: uuid::Uuid,
+        is_session: bool,
+        policy: GrantPolicy<'_>,
+    ) -> AppResult<()> {
+        let GrantPolicy::ScopesEnforced { .. } = policy else {
+            return Ok(());
+        };
+        let Some(client_id) = claims.client_id.as_deref().filter(|_| !is_session) else {
+            return Ok(());
+        };
+        let tenant_id = match claims.active_tenant_id.clone() {
+            Some(tenant_id) => tenant_id,
+            None => match self.repos.tenants.first_for_user(user_id).await? {
+                Some(tenant_id) => tenant_id.to_string(),
+                // No tenant, no grant the client could have been given here.
+                None => return Ok(()),
+            },
+        };
+        let standing = match &self.grant_standings {
+            Some(standings) => standings.read(user_id, &tenant_id, client_id).await?,
+            None => {
+                self.repos
+                    .oauth2_server
+                    .client_grant_standing(&user_id.to_string(), &tenant_id, client_id)
+                    .await?
+            }
+        };
+        if standing.admits_token_issued_at(claims.iat) {
+            return Ok(());
+        }
+        warn!(
+            user_id = %user_id,
+            client_id = %client_id,
+            "Delegated token refused: the athlete withdrew this client's access"
+        );
+        Err(AppError::auth_invalid(
+            "The athlete withdrew this application's access; authorize it again",
+        ))
     }
 
     /// Refuse an impersonation token whose session was ended, or that names a

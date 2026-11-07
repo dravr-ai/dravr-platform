@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use pierre_auth::oauth2_server::models::{AuthorizeRejection, AuthorizeRequest, OAuth2Error};
 use tracing::info;
 
-use crate::oauth2::OAuth2Routes;
+use crate::oauth2::{ConsentText, OAuth2Routes};
 
 /// `redirect_uri` with `params` appended as query parameters, each value
 /// percent-encoded, keeping any query the registered URI already carries
@@ -79,9 +79,12 @@ pub(crate) fn rejection_response(
     issuer: &str,
     rejection: AuthorizeRejection,
     request: &AuthorizeRequest,
+    text: &ConsentText<'_>,
 ) -> Response {
     match rejection {
-        AuthorizeRejection::ShownToUser(error) => OAuth2Routes::render_oauth_error_response(&error),
+        AuthorizeRejection::ShownToUser(error) => {
+            OAuth2Routes::render_oauth_error_response(&error, text)
+        }
         AuthorizeRejection::RedirectedToClient(error) => error_redirect(
             issuer,
             &request.redirect_uri,

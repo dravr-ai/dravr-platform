@@ -79,7 +79,7 @@ pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChat
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
     BlockSupport, MessagingTransportCaps, ProgressiveSupport, ProseFormat, RenderCapabilities,
-    SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+    SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget, A2A_TRANSPORT,
 };
 pub use turn_service::{
     dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,

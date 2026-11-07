@@ -26,6 +26,7 @@ mod coach_tools_external_surface_tests {
     use crate::helpers::coach_roster_fixtures::{
         coach, coached_group, group_agent, join, person, seed_ride, Person,
     };
+    use crate::public_tool_surface_test::HIDDEN_TOOLS;
 
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -150,7 +151,7 @@ mod coach_tools_external_surface_tests {
     }
 
     #[tokio::test]
-    async fn the_registry_keeps_exactly_the_coach_family_on_dravrs_own_surfaces() {
+    async fn the_registry_keeps_exactly_the_declared_tools_on_dravrs_own_surfaces() {
         let res = create_test_server_resources().await.unwrap();
         let registry = &res.mcp.tool_registry;
         let first_party_only: BTreeSet<String> = registry
@@ -159,7 +160,10 @@ mod coach_tools_external_surface_tests {
             .filter(|name| registry.transport_policy(name) == Some(TransportPolicy::FirstPartyOnly))
             .map(ToOwned::to_owned)
             .collect();
-        assert_eq!(first_party_only, coach_tools());
+        // Design §7's hidden rows: the coach family and the other first-party tools.
+        let mut declared = coach_tools();
+        declared.extend(HIDDEN_TOOLS.map(str::to_owned));
+        assert_eq!(first_party_only, declared);
     }
 
     #[tokio::test]
@@ -247,6 +251,8 @@ mod coach_tools_external_surface_tests {
                 TurnSeat::Subject,
                 &SwitchedOff::default(),
                 transport,
+                &OAuthScope::self_grant(),
+                &res.common.config,
             )
             .into_iter()
             .map(|schema| schema.name)
@@ -320,6 +326,7 @@ mod coach_tools_external_surface_tests {
                     budget: 64,
                     seat: TurnSeat::Subject,
                     switched_off: &SwitchedOff::default(),
+                    grant: &OAuthScope::self_grant(),
                 })
             })
         };

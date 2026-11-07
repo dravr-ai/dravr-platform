@@ -19,19 +19,22 @@
 //! snapshot plus a live event receiver.
 
 use crate::agent_card::{AgentCard, AgentSkill};
+use crate::coaching::CoachingTurns;
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
     error_info, A2ASpecError, Artifact, Message, Part, PartContent, SendMessageRequest,
-    StreamResponse, Task, TaskArtifactUpdateEvent, TaskState, WireTaskStatus,
+    StreamResponse, Task, TaskState, WireTaskStatus,
 };
 use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
 use chrono::SecondsFormat;
+use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
+use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::{
     guardian_block_reason, UniversalRequest, UniversalResponse, UniversalToolExecutor,
@@ -47,21 +50,22 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+mod finalize;
 mod params;
 mod principal;
 mod push_config;
 mod tasks;
+mod text_turn;
 use principal::AuthPrincipal;
+use text_turn::AdmittedTextTurn;
 
 use params::SubscribeParams;
 
-/// Caller-facing explanation for a message that addresses no registered
-/// tool. The A2A surface executes named tools supplied as a structured
-/// `data` part; text parts alone carry no instruction the agent can run.
+/// Caller-facing explanation for a message that holds nothing to run: no text
+/// for the coach, and no data part naming a registered tool.
 const NO_TOOL_INTENT_MESSAGE: &str =
-    "A2A messages must address a registered tool with a data part shaped \
-     {\"tool_name\": \"<tool>\", \"parameters\": {...}}. \
-     Text parts alone name no tool to execute.";
+    "A2A messages must carry a text part for the coach, or address a registered tool with a \
+     data part shaped {\"tool_name\": \"<tool>\", \"parameters\": {...}}.";
 
 /// Bundle of runtime handles required for full A2A protocol operation.
 ///
@@ -80,12 +84,16 @@ pub struct A2AResources {
     /// The auth pipeline every other route admits a user credential through:
     /// account status, request budget, usage row and budget report.
     pub auth_middleware: Arc<McpAuthMiddleware>,
+    /// The coaching pipeline a text message runs in. `None` in a build without
+    /// it, where a text message is refused as a message with nothing to run.
+    pub coaching: Option<Arc<dyn CoachingTurns>>,
 }
 
 impl fmt::Debug for A2AResources {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("A2AResources")
             .field("auth_middleware", &self.auth_middleware)
+            .field("coaching", &self.coaching.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -104,6 +112,9 @@ struct PreparedSend {
     context_id: String,
     user_message: Message,
     history: Vec<Message>,
+    /// The coaching turn the message was admitted to, when it is a text
+    /// message; `None` runs the tool intent.
+    text_turn: Option<AdmittedTextTurn>,
 }
 
 /// Why a message produced no tool output.
@@ -130,6 +141,11 @@ impl SendFailure {
 enum SendOutcome {
     /// A named tool ran successfully and produced this result
     Tool(String, Value),
+    /// The coach answered the message
+    Coach(String),
+    /// The caller canceled the task while the coach was answering: the task
+    /// already stands where they put it
+    Canceled,
     /// The message produced no tool output
     Failure(SendFailure),
 }
@@ -155,12 +171,14 @@ impl A2AServer {
         ctx: Arc<dyn A2ACtx>,
         tool_runtime: Arc<dyn ToolRuntime>,
         auth_middleware: Arc<McpAuthMiddleware>,
+        coaching: Option<Arc<dyn CoachingTurns>>,
     ) -> Self {
         Self {
             resources: Some(A2AResources {
                 ctx,
                 tool_runtime,
                 auth_middleware,
+                coaching,
             }),
         }
     }
@@ -435,7 +453,7 @@ impl A2AServer {
             return Self::server_not_configured_error(request.id);
         };
 
-        let mut card = AgentCard::with_base_url(resources.ctx.base_url());
+        let mut card = AgentCard::new(resources.ctx.oauth2_server_config());
         let public_skill_ids: Vec<String> =
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
         let registry = resources.tool_runtime.tool_registry();
@@ -443,6 +461,11 @@ impl A2AServer {
         // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
         // not offered as a skill, and is refused if the agent names it anyway.
         first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);
+        deployment_tools::retain_answerable(
+            registry,
+            &mut schemas,
+            resources.tool_runtime.config(),
+        );
         for schema in schemas {
             if public_skill_ids.contains(&schema.name) {
                 continue;
@@ -471,21 +494,26 @@ impl A2AServer {
 
     /// Handle A2A 1.0 `SendMessage`.
     ///
-    /// The surface accepts one intent: **tool invocation**. When the message
+    /// The surface accepts two intents. **Tool invocation**: when the message
     /// carries a `data` part with `{"tool_name": ..., "parameters": {...}}`,
     /// the named tool executes against the authenticated user's tenant
     /// through the shared registry path; the output lands on the task as an
-    /// artifact.
+    /// artifact. **A coaching turn**: a `text` part addressing no tool runs
+    /// one turn of the coaching pipeline for the athlete the token acts for
+    /// ([`text_turn`]); the reply lands on the task as text.
     ///
-    /// A message that addresses no registered tool is refused with the spec's
-    /// `ContentTypeNotSupported` (`-32005`) error naming the accepted shape;
+    /// A message holding neither is refused with the spec's
+    /// `ContentTypeNotSupported` (`-32005`) error naming the accepted shapes;
     /// when it references an existing task, the task transitions to
     /// `failed` carrying the same explanation.
     ///
     /// With `configuration.returnImmediately == false` (the default) the
     /// call blocks until the task reaches a terminal state and returns the
     /// final task snapshot; with `true` it returns the submitted snapshot
-    /// and execution continues in the background.
+    /// and execution continues in the background. A coaching turn blocks
+    /// detached from the request, under a budget inside the HTTP door's 600 s,
+    /// so a client that drops the connection neither kills the turn nor leaves
+    /// its task `working`.
     async fn handle_send_message(
         &self,
         request: A2ARequest,
@@ -511,11 +539,22 @@ impl A2AServer {
         }
 
         let configuration = params.configuration.clone().unwrap_or_default(); // Safe: config ownership for send flow
+        let mut message = params.message;
 
-        // A message that addresses no registered tool and references no
-        // task has nothing to execute: reject it instead of opening a task
-        // that cannot make progress.
-        if Self::extract_tool_intent(&params.message).is_none() && params.message.task_id.is_none()
+        let text_turn =
+            match Self::admit_text_turn(resources, &principal, &mut message, request.id.as_ref())
+                .await
+            {
+                Ok(text_turn) => text_turn,
+                Err(err) => return *err,
+            };
+
+        // A message that holds no text for the coach, addresses no registered
+        // tool and references no task has nothing to execute: reject it
+        // instead of opening a task that cannot make progress.
+        if text_turn.is_none()
+            && Self::extract_tool_intent(&message).is_none()
+            && message.task_id.is_none()
         {
             return Self::spec_error_with_message(
                 A2ASpecError::ContentTypeNotSupported,
@@ -524,13 +563,19 @@ impl A2AServer {
             );
         }
 
-        let prepared =
-            match Self::prepare_send(resources, &principal, params.message, request.id.as_ref())
-                .await
-            {
-                Ok(prepared) => prepared,
-                Err(err) => return *err,
-            };
+        let mut prepared = match Self::prepare_send(
+            resources,
+            &principal,
+            message,
+            text_turn.is_some(),
+            request.id.as_ref(),
+        )
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(err) => return *err,
+        };
+        prepared.text_turn = text_turn;
 
         if let Some(config_input) = configuration.push_notification_config {
             if let Err(err) = Self::store_push_config(
@@ -572,7 +617,11 @@ impl A2AServer {
         }
 
         let (ctx, runtime) = (&resources.ctx, &resources.tool_runtime);
-        Self::run_task_message(ctx, runtime, principal.clone(), prepared).await;
+        if prepared.text_turn.is_some() {
+            Self::run_detached_and_wait(ctx, runtime, principal.clone(), prepared).await;
+        } else {
+            Self::run_task_message(ctx, runtime, principal.clone(), prepared).await;
+        }
 
         match Self::load_owned_task(resources, &task_id, &principal, request.id.as_ref()).await {
             Ok(record) => {
@@ -585,7 +634,8 @@ impl A2AServer {
 
     /// The client a new task is keyed to: client-credentials callers key
     /// tasks to themselves; user JWTs fall back to the user's first
-    /// registered client.
+    /// registered client, or to the user's own task key when they registered
+    /// none, as an athlete who connected an agent over OAuth has not.
     async fn resolve_task_client(
         principal: &AuthPrincipal,
         resources: &A2AResources,
@@ -605,15 +655,13 @@ impl A2AServer {
                     request_id.cloned(),
                 ))
             })?;
-        owned.first().map_or_else(
-            || {
-                Err(Box::new(Self::invalid_params(
-                    "No A2A client is registered for this user",
-                    request_id.cloned(),
-                )))
-            },
-            |client_id| Ok(client_id.clone()), // Safe: String ownership for task record
-        )
+        owned.into_iter().next().ok_or_else(|| {
+            Box::new(Self::a2a_error(
+                -32000,
+                "Failed to resolve client ownership",
+                request_id.cloned(),
+            ))
+        })
     }
 
     /// Resolve the target task for an incoming message (continuation or
@@ -623,6 +671,7 @@ impl A2AServer {
         resources: &A2AResources,
         principal: &AuthPrincipal,
         mut message: Message,
+        for_text_turn: bool,
         request_id: Option<&Value>,
     ) -> Result<PreparedSend, Box<A2AResponse>> {
         let repos = resources.ctx.repos();
@@ -631,7 +680,9 @@ impl A2AServer {
             // Continuation: the referenced task must exist (client-created
             // task ids are unsupported in A2A 1.0) and belong to the caller.
             let record = Self::load_owned_task(resources, &task_id, principal, request_id).await?;
-            if record.status.is_terminal() {
+            // A running task is its own: a second message would end it under
+            // the turn still answering. A text turn continues by `contextId`.
+            if record.status.is_terminal() || record.status == TaskStatus::Working {
                 return Err(Box::new(Self::spec_error(
                     A2ASpecError::UnsupportedOperation,
                     request_id.cloned(),
@@ -660,7 +711,14 @@ impl A2AServer {
                 .clone() // Safe: String ownership for task record
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-            let client_id = Self::resolve_task_client(principal, resources, request_id).await?;
+            // A coaching reply is the athlete's, and stays out of reach of any
+            // client they registered, whose client-credentials token acts for
+            // no athlete.
+            let client_id = if for_text_turn {
+                user_task_key(principal.user_id)
+            } else {
+                Self::resolve_task_client(principal, resources, request_id).await?
+            };
 
             let input = to_value(&message).map_err(|e| {
                 error!("Failed to serialize A2A message: {e}");
@@ -718,6 +776,7 @@ impl A2AServer {
             context_id,
             user_message: message,
             history,
+            text_turn: None,
         })
     }
 
@@ -738,22 +797,46 @@ impl A2AServer {
             context_id,
             user_message,
             history,
+            text_turn,
         } = prepared;
 
         Self::transition_status(ctx, &task_id, &context_id, TaskState::Working, None).await;
 
-        let outcome = match Self::extract_tool_intent(&user_message) {
-            Some((tool_name, params)) => {
+        let outcome = match (text_turn, Self::extract_tool_intent(&user_message)) {
+            (Some(turn), _) => Self::run_text_turn(ctx, &task_id, turn).await,
+            (None, Some((tool_name, params))) => {
                 Self::execute_registered_tool(ctx, tool_runtime, &principal, &tool_name, params)
                     .await
                     .map_or_else(SendOutcome::Failure, |r| SendOutcome::Tool(tool_name, r))
             }
             // A message addressing no registered tool has nothing to run:
             // the task fails with the shape the surface accepts.
-            None => SendOutcome::Failure(SendFailure::text(NO_TOOL_INTENT_MESSAGE)),
+            (None, None) => SendOutcome::Failure(SendFailure::text(NO_TOOL_INTENT_MESSAGE)),
         };
 
         match outcome {
+            // The cancel closed the stream and notified the webhooks.
+            SendOutcome::Canceled => return,
+            SendOutcome::Coach(reply) => {
+                let artifact = Artifact {
+                    artifact_id: Uuid::new_v4().to_string(),
+                    parts: vec![Part::text(reply.clone())], // Safe: String ownership for part
+                    name: Some(text_turn::REPLY_ARTIFACT_NAME.to_owned()),
+                    description: None,
+                    extensions: Vec::new(),
+                    metadata: None,
+                };
+                Self::finalize_completed(
+                    ctx,
+                    &task_id,
+                    &context_id,
+                    history,
+                    Some(artifact),
+                    reply,
+                    None,
+                )
+                .await;
+            }
             SendOutcome::Failure(failure) => {
                 Self::finalize_failed(ctx, &task_id, &context_id, history, failure).await;
             }
@@ -782,137 +865,6 @@ impl A2AServer {
         // Terminal state reached: end all subscriptions and notify webhooks.
         TASK_EVENTS.close(&task_id);
         Self::notify_webhooks(ctx, &task_id).await;
-    }
-
-    /// Build the agent reply for a terminal transition, stamped with the
-    /// task/context ids and appended to the history.
-    fn build_reply(
-        task_id: &str,
-        context_id: &str,
-        text: String,
-        history: &mut Vec<Message>,
-    ) -> Message {
-        Self::build_reply_with(task_id, context_id, text, Vec::new(), history)
-    }
-
-    /// [`Self::build_reply`] with `extra_parts` after the text.
-    fn build_reply_with(
-        task_id: &str,
-        context_id: &str,
-        text: String,
-        extra_parts: Vec<Part>,
-        history: &mut Vec<Message>,
-    ) -> Message {
-        let mut parts = vec![Part::text(text)];
-        parts.extend(extra_parts);
-        let mut reply = Message::agent(Uuid::new_v4().to_string(), parts);
-        reply.task_id = Some(task_id.to_owned());
-        reply.context_id = Some(context_id.to_owned());
-        history.push(reply.clone()); // Safe: Message ownership for history
-        reply
-    }
-
-    /// Terminal `failed` transition: explanatory agent reply, persisted
-    /// history and status, and a status-update stream event.
-    async fn finalize_failed(
-        ctx: &Arc<dyn A2ACtx>,
-        task_id: &str,
-        context_id: &str,
-        mut history: Vec<Message>,
-        failure: SendFailure,
-    ) {
-        let SendFailure { reason, data } = failure;
-        let extra_parts = data.iter().cloned().map(Part::data).collect();
-        let reply = Self::build_reply_with(task_id, context_id, reason, extra_parts, &mut history);
-        Self::persist_history(ctx, task_id, &history).await;
-
-        let status_message = to_value(&reply).ok();
-        if let Err(e) = ctx
-            .repos()
-            .a2a
-            .update_task_status(
-                task_id,
-                &TaskState::Failed,
-                data.as_ref(),
-                status_message.as_ref(),
-            )
-            .await
-        {
-            error!("Failed to persist A2A task failure: {e}");
-        }
-        Self::publish_status(task_id, context_id, TaskState::Failed, Some(reply));
-    }
-
-    /// Terminal `completed` transition: agent reply, optional artifact with
-    /// its stream event, persisted wire state and status, and the final
-    /// status-update stream event.
-    async fn finalize_completed(
-        ctx: &Arc<dyn A2ACtx>,
-        task_id: &str,
-        context_id: &str,
-        mut history: Vec<Message>,
-        artifact: Option<Artifact>,
-        reply_text: String,
-        result: Option<Value>,
-    ) {
-        let reply = Self::build_reply(task_id, context_id, reply_text, &mut history);
-
-        let artifacts_json = artifact
-            .as_ref()
-            .and_then(|artifact| to_value(vec![artifact]).ok());
-        let history_json = to_value(&history).ok();
-        if let Err(e) = ctx
-            .repos()
-            .a2a
-            .update_task_wire_state(task_id, history_json.as_ref(), artifacts_json.as_ref())
-            .await
-        {
-            error!("Failed to persist A2A task wire state: {e}");
-        }
-
-        if let Some(artifact) = artifact {
-            TASK_EVENTS.publish(
-                task_id,
-                &StreamResponse::ArtifactUpdate(TaskArtifactUpdateEvent {
-                    task_id: task_id.to_owned(),
-                    context_id: context_id.to_owned(),
-                    artifact,
-                    append: false,
-                    last_chunk: true,
-                    metadata: None,
-                }),
-            );
-        }
-
-        let status_message = to_value(&reply).ok();
-        if let Err(e) = ctx
-            .repos()
-            .a2a
-            .update_task_status(
-                task_id,
-                &TaskState::Completed,
-                result.as_ref(),
-                status_message.as_ref(),
-            )
-            .await
-        {
-            error!("Failed to persist A2A task completion: {e}");
-        }
-        Self::publish_status(task_id, context_id, TaskState::Completed, Some(reply));
-    }
-
-    /// Persist the task's message history, logging (not propagating) failures.
-    async fn persist_history(ctx: &Arc<dyn A2ACtx>, task_id: &str, history: &[Message]) {
-        if let Ok(history_json) = to_value(history) {
-            if let Err(e) = ctx
-                .repos()
-                .a2a
-                .update_task_wire_state(task_id, Some(&history_json), None)
-                .await
-            {
-                error!("Failed to persist A2A task history: {e}");
-            }
-        }
     }
 
     /// Persist and publish a non-terminal status transition.
@@ -1062,9 +1014,20 @@ impl A2AServer {
         }
 
         let configuration = params.configuration.unwrap_or_default();
+        let mut message = params.message;
 
-        let prepared =
-            Self::prepare_send(resources, &principal, params.message, request.id.as_ref()).await?;
+        let text_turn =
+            Self::admit_text_turn(resources, &principal, &mut message, request.id.as_ref()).await?;
+
+        let mut prepared = Self::prepare_send(
+            resources,
+            &principal,
+            message,
+            text_turn.is_some(),
+            request.id.as_ref(),
+        )
+        .await?;
+        prepared.text_turn = text_turn;
 
         if let Some(config_input) = configuration.push_notification_config {
             Self::store_push_config(

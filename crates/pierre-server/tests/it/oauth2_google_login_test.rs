@@ -51,8 +51,8 @@ use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    ApiKey, ApiKeyTier, CreateUserMcpTokenRequest, OAuth2RefreshToken, User, UserStatus,
-    FEDERATED_ONLY_PASSWORD_HASH,
+    default_locale, ApiKey, ApiKeyTier, CreateUserMcpTokenRequest, OAuth2RefreshToken, User,
+    UserStatus, FEDERATED_ONLY_PASSWORD_HASH,
 };
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -518,17 +518,18 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
         "the Google sign-in cookie is no first-party session (carnet#787)"
     );
 
-    // Consent, naming the client, where it returns, and the account.
+    // Consent, naming the client, where it returns, and the account, in the
+    // language a new account is stored with: the default, French.
     let consent = authorize_page(&f, &location, &jwt).await;
     assert_eq!(consent.status(), 200, "{}", consent.body_text());
     let page = consent.body_text();
     assert!(page.contains(CLIENT_NAME), "{page}");
     assert!(
-        page.contains("It will return you to client.example.test"),
+        page.contains("Vous reviendrez ensuite sur client.example.test"),
         "{page}"
     );
     assert!(
-        page.contains("Signed in as new.athlete@gmail.com"),
+        page.contains("Compte connecté : new.athlete@gmail.com"),
         "{page}"
     );
     let csrf_token = page
@@ -629,6 +630,7 @@ async fn a_firebase_account_keeps_its_firebase_uid_and_both_paths_meet_on_the_go
             display_name: None,
             provider: "google.com",
             signup_source: SignupSource::Firebase,
+            locale: None,
         })
         .await
         .unwrap();
@@ -1028,7 +1030,7 @@ async fn a_pending_account_signs_in_but_is_not_shown_consent() {
     let page = authorize_page(&f, callback.header("location").unwrap(), &jwt).await;
     assert_eq!(page.status(), 400);
     let text = page.body_text();
-    assert!(text.contains("waiting for approval"), "{text}");
+    assert!(text.contains("en attente d’approbation"), "{text}");
     assert!(!text.contains("csrf_token"), "no consent form: {text}");
     assert!(page.header("location").is_none(), "no code for the client");
 }
@@ -1538,6 +1540,7 @@ async fn the_firebase_path_retires_an_unverified_accounts_credentials_the_same_w
             display_name: None,
             provider: "google.com",
             signup_source: SignupSource::Firebase,
+            locale: None,
         })
         .await
         .unwrap();
@@ -1697,7 +1700,7 @@ async fn the_password_form_refuses_a_suspended_account_and_gates_a_pending_one()
     let jwt = session(&signed_in).expect("the password sets the same session cookie");
     let page = authorize_page(&f, signed_in.header("location").unwrap(), &jwt).await;
     assert!(
-        page.body_text().contains("waiting for approval"),
+        page.body_text().contains("en attente d’approbation"),
         "{}",
         page.body_text()
     );
@@ -1988,7 +1991,7 @@ async fn without_self_activation_a_fresh_google_identity_waits_and_consent_says_
     assert_eq!(page.status(), 400);
     let text = page.body_text();
     assert!(
-        text.contains("waiting for approval") && text.contains("once it is approved"),
+        text.contains("en attente d’approbation") && text.contains("une fois le compte approuvé"),
         "the next step is an operator's approval: {text}"
     );
     assert!(!text.contains("csrf_token"), "no consent form: {text}");
@@ -2032,9 +2035,68 @@ async fn a_self_activating_account_not_yet_confirmed_is_told_to_confirm_its_emai
     assert_eq!(page.status(), 400);
     let text = page.body_text();
     assert!(
-        text.contains("confirm your email address"),
+        text.contains("la confirmation de votre adresse courriel"),
         "no operator reviews it, so the link is the next step: {text}"
     );
-    assert!(!text.contains("waiting for approval"), "{text}");
+    assert!(!text.contains("en attente d’approbation"), "{text}");
     assert!(!text.contains("csrf_token"), "no consent form: {text}");
+}
+
+/// An account born in a third party's flow starts in the reader's language, so
+/// its login and its consent read alike; a language the platform does not speak
+/// falls back as the consent screen does, never to the platform's default.
+#[tokio::test]
+async fn a_new_account_in_a_third_partys_flow_starts_in_the_browsers_language() {
+    for (accept, email, expected) in [
+        ("en-US,en;q=0.9", "english.reader@gmail.com", "en"),
+        ("ja-JP", "japanese.reader@gmail.com", "en"),
+        ("de-CH,fr;q=0.5", "german.reader@gmail.com", "de"),
+    ] {
+        let f = Fixture::new().await;
+        f.allow(email).await;
+        let started = f.start().await;
+        f.google
+            .set_id_token(&f.signer.mint(&GoogleIdClaims::issued(
+                "108000000000000000042",
+                email,
+                &started.nonce,
+            )));
+        let callback = AxumTestRequest::get(&format!(
+            "/oauth2/login/google/callback?state={}&code={}",
+            urlencoding::encode(&started.state),
+            fresh_code()
+        ))
+        .header("cookie", &started.cookie)
+        .header("accept-language", accept)
+        .send(f.routes())
+        .await;
+        assert_eq!(callback.status(), 303, "{}", callback.body_text());
+
+        let user = f.user(email).await.expect("the sign-in made the account");
+        assert_eq!(user.locale, expected, "{accept}");
+    }
+}
+
+/// Only a sign-up in that flow reads the browser: any other keeps the platform's
+/// default, which the sign-up's caller leaves unset.
+#[tokio::test]
+async fn a_federated_sign_up_naming_no_language_keeps_the_default() {
+    let f = Fixture::new().await;
+    f.allow("default.reader@gmail.com").await;
+    f.resources
+        .account_service()
+        .login_with_federated_identity(FederatedIdentity {
+            firebase_uid: Some("fb-default"),
+            google_subject: Some("108000000000000000043"),
+            email: "default.reader@gmail.com".to_owned(),
+            email_verified: true,
+            display_name: None,
+            provider: "google.com",
+            signup_source: SignupSource::Firebase,
+            locale: None,
+        })
+        .await
+        .unwrap();
+    let user = f.user("default.reader@gmail.com").await.unwrap();
+    assert_eq!(user.locale, default_locale());
 }

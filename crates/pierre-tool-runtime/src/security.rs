@@ -96,6 +96,13 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     fn transport_policy(&self) -> TransportPolicy {
         TransportPolicy::AnyTransport
     }
+
+    /// Whether the tool can only fail on a deployment holding no USDA key
+    /// ([`crate::deployment_tools`]). A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `food_database` arm.
+    fn requires_food_database(&self) -> bool {
+        false
+    }
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
@@ -110,7 +117,9 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 ///
 /// The trailing `; first_party_only` also declares the tool
 /// [`TransportPolicy::FirstPartyOnly`] ([`RuntimeTool::transport_policy`]):
-/// listed and run on Dravr's own surfaces only.
+/// listed and run on Dravr's own surfaces only. `; food_database` declares
+/// that the tool needs the deployment's USDA key
+/// ([`RuntimeTool::requires_food_database`]).
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -121,6 +130,17 @@ macro_rules! declare_security {
         impl $crate::security::RuntimeTool for $t {
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
+            }
+        }
+    };
+    ($t:ty => empty ; food_database $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn requires_food_database(&self) -> bool {
+                true
             }
         }
     };

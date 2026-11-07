@@ -1,5 +1,5 @@
 // ABOUTME: RFC 8707 resource indicators — which resource server an access token is minted for
-// ABOUTME: Checks a requested `resource` against the MCP and satellite resources and names the audience it binds
+// ABOUTME: Checks a requested `resource` against the MCP, A2A and satellite resources and names the audience it binds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,9 @@
 //! authorization server mints for the platform's MCP resource server, known by
 //! each origin that serves `/mcp` (`MCP_RESOURCE_URL` and its aliases): the
 //! one a client dialed is what `/.well-known/oauth-protected-resource`
-//! publishes to it. It also mints for each satellite MCP server named in
+//! publishes to it. It mints for the platform's A2A resource server, `/a2a` on
+//! those same origins, a server of its own. It also mints for each satellite
+//! MCP server named in
 //! `OAUTH2_SATELLITE_RESOURCES`, which verifies the token against this
 //! server's JWKS and accepts only its own audience. A request naming anything
 //! else is refused with `invalid_target` rather than answered with a token no
@@ -89,23 +91,27 @@ fn names_resource(requested: &Url, served: &str) -> bool {
 /// The platform's MCP resource server answers to several identifiers (each
 /// origin that serves `/mcp`), and they are interchangeable: a grant bound to
 /// one may mint for another, which is what keeps the clients of a moved host
-/// working. Each satellite is its own resource server, known by one
-/// identifier, and never interchangeable with the platform or with another
-/// satellite.
+/// working. The A2A resource server's identifiers are interchangeable the same
+/// way, and never with the MCP server's: the athlete authorized one surface.
+/// Each satellite is its own resource server, known by one identifier, and
+/// never interchangeable with the platform or with another satellite.
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceServers<'a> {
     /// Every identifier of the platform's MCP resource server.
     pub platform: &'a [&'a str],
+    /// Every identifier of the platform's A2A resource server.
+    pub a2a: &'a [&'a str],
     /// One identifier per satellite MCP resource server.
     pub satellites: &'a [&'a str],
 }
 
 impl ResourceServers<'_> {
-    /// Every identifier this authorization server mints for: the platform's,
-    /// then the satellites'.
+    /// Every identifier this authorization server mints for: the platform's
+    /// MCP and A2A servers', then the satellites'.
     fn identifiers(&self) -> Vec<&str> {
         self.platform
             .iter()
+            .chain(self.a2a)
             .chain(self.satellites)
             .copied()
             .collect()
@@ -113,7 +119,9 @@ impl ResourceServers<'_> {
 
     /// Whether `a` and `b` name the same resource server.
     fn same_server(&self, a: &str, b: &str) -> bool {
-        a == b || (self.platform.contains(&a) && self.platform.contains(&b))
+        a == b
+            || (self.platform.contains(&a) && self.platform.contains(&b))
+            || (self.a2a.contains(&a) && self.a2a.contains(&b))
     }
 }
 
@@ -125,8 +133,8 @@ impl ResourceServers<'_> {
 /// authorized for: a grant bound to the platform can mint for any of the
 /// platform's identifiers, a grant bound to a satellite for that satellite
 /// alone. A grant bound to no resource (the platform audience) can be narrowed
-/// to the platform's identifiers, never to a satellite the athlete did not
-/// consent to.
+/// to the platform's identifiers, MCP or A2A, both of which already accept it,
+/// never to a satellite the athlete did not consent to.
 ///
 /// # Errors
 /// `invalid_target` when `requested` is refused, or names a resource server
@@ -149,7 +157,7 @@ pub fn token_audience(
     };
     let bound = bound_audience(&identifiers, requested)?;
     let within_grant = granted.map_or_else(
-        || servers.platform.contains(&bound.as_str()),
+        || servers.platform.contains(&bound.as_str()) || servers.a2a.contains(&bound.as_str()),
         |granted| servers.same_server(granted, &bound),
     );
     if within_grant {

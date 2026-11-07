@@ -36,6 +36,7 @@ use chrono::Utc;
 use pierre_auth::google_oidc::{
     google_callback_url, GoogleIdentity, GoogleOidcClient, GOOGLE_PROVIDER, GOOGLE_SIGN_IN_TTL,
 };
+use pierre_auth::oauth2_server::first_party::is_first_party;
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_auth::security::cookies::{
     get_cookie_value, host_cookie_name, SameSitePolicy, SecureCookieConfig,
@@ -49,6 +50,7 @@ use pierre_services::signup_policy::{self, SIGNUP_PAUSED};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
+use super::consent_text::ConsentText;
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::rejection_response;
 use crate::oauth2_rate_limited::page_refusal;
@@ -67,11 +69,11 @@ const MAX_SEALED_TRANSACTION_BYTES: usize = 3800;
 
 /// The refusal shown for any sign-in Google or the account rules turned
 /// down; the reason stays in the log
-const SIGN_IN_REFUSED: &str = "Google sign-in could not be completed for this account.";
+pub(super) const SIGN_IN_REFUSED: &str = "Google sign-in could not be completed for this account.";
 
 /// The refusal shown for a callback this browser did not start, or started
 /// too long ago
-const TRANSACTION_REFUSED: &str =
+pub(super) const TRANSACTION_REFUSED: &str =
     "This Google sign-in expired or was started in another browser. Start again from the app you are connecting.";
 
 /// Google sign-in on the hosted login page, as the routes hold it.
@@ -162,17 +164,18 @@ impl OAuth2Routes {
         headers: HeaderMap,
         Query(params): Query<HashMap<String, String>>,
     ) -> Response {
-        let render = Self::render_oauth_error_response;
+        let text = ConsentText::for_browser(&context.strings, &headers);
+        let render = |error: &OAuth2Error| Self::render_oauth_error_response(error, &text);
         if let Some(refused) = page_refusal(&context.rate_limiter, addr, &headers, render).await {
             return no_store(refused);
         }
         let Some(google) = context.google_sign_in.as_ref() else {
-            return no_store(Self::google_unavailable());
+            return no_store(Self::google_unavailable(&text));
         };
 
         let request = match Self::parse_authorize_request(&params) {
             Ok(request) => request,
-            Err(error) => return no_store(Self::render_oauth_error_response(&error)),
+            Err(error) => return no_store(Self::render_oauth_error_response(&error, &text)),
         };
         // Only a request this server would authorize is carried to Google
         // and back: an unknown client or unregistered redirect_uri is refused
@@ -185,13 +188,14 @@ impl OAuth2Routes {
                 &context.config.issuer_url,
                 rejection,
                 &request,
+                &text,
             ));
         }
 
         let redirect_uri = google_callback_url(&context.config.issuer_url);
         let start = match google.oidc.begin(&redirect_uri) {
             Ok(start) => start,
-            Err(e) => return no_store(Self::google_refusal(&e)),
+            Err(e) => return no_store(Self::google_refusal(&e, &text)),
         };
         let expires_at = Utc::now().timestamp()
             + i64::try_from(GOOGLE_SIGN_IN_TTL.as_secs()).unwrap_or(i64::MAX);
@@ -204,7 +208,7 @@ impl OAuth2Routes {
         };
         let sealed = match google.seal(&transaction) {
             Ok(sealed) => sealed,
-            Err(e) => return no_store(Self::google_refusal(&e)),
+            Err(e) => return no_store(Self::google_refusal(&e, &text)),
         };
         if sealed.len() > MAX_SEALED_TRANSACTION_BYTES {
             warn!(
@@ -213,6 +217,7 @@ impl OAuth2Routes {
             );
             return no_store(Self::render_oauth_error_response(
                 &OAuth2Error::invalid_request("This sign-in request is too large"),
+                &text,
             ));
         }
 
@@ -231,12 +236,13 @@ impl OAuth2Routes {
         headers: HeaderMap,
         Query(params): Query<HashMap<String, String>>,
     ) -> Response {
-        let render = Self::render_oauth_error_response;
+        let text = ConsentText::for_browser(&context.strings, &headers);
+        let render = |error: &OAuth2Error| Self::render_oauth_error_response(error, &text);
         if let Some(refused) = page_refusal(&context.rate_limiter, addr, &headers, render).await {
             return no_store(refused);
         }
         let Some(google) = context.google_sign_in.as_ref() else {
-            return no_store(Self::google_unavailable());
+            return no_store(Self::google_unavailable(&text));
         };
 
         let secure = Self::cookies_secure(&context);
@@ -252,6 +258,7 @@ impl OAuth2Routes {
                 warn!("Google sign-in refused: the transaction expired");
                 let mut response = Self::render_oauth_error_response(
                     &OAuth2Error::invalid_request(TRANSACTION_REFUSED),
+                    &text,
                 );
                 append_cookie(&mut response, &clear);
                 return no_store(response);
@@ -264,13 +271,15 @@ impl OAuth2Routes {
                 );
                 return no_store(Self::render_oauth_error_response(
                     &OAuth2Error::invalid_request(TRANSACTION_REFUSED),
+                    &text,
                 ));
             }
         };
 
         // The transaction is spent from here on, whatever the outcome.
         let mut response =
-            Self::finish_google_sign_in(&context, google, &params, &transaction).await;
+            Self::finish_google_sign_in(&context, google, &params, &transaction, &text, &headers)
+                .await;
         append_cookie(&mut response, &clear);
         no_store(response)
     }
@@ -283,15 +292,18 @@ impl OAuth2Routes {
         google: &GoogleSignIn,
         params: &HashMap<String, String>,
         transaction: &GoogleSignInTransaction,
+        text: &ConsentText<'_>,
+        headers: &HeaderMap,
     ) -> Response {
         let request = &transaction.request;
         if let Some(error) = params.get("error") {
-            return Self::google_error_answer(error, request);
+            return Self::google_error_answer(error, request, text);
         }
         let Some(code) = params.get("code").filter(|code| !code.is_empty()) else {
-            return Self::render_oauth_error_response(&OAuth2Error::invalid_request(
-                "Google returned no authorization code",
-            ));
+            return Self::render_oauth_error_response(
+                &OAuth2Error::invalid_request("Google returned no authorization code"),
+                text,
+            );
         };
 
         // The client may have been deleted while the athlete was at Google.
@@ -299,19 +311,26 @@ impl OAuth2Routes {
             .check_authorize_request(request)
             .await
         {
-            return rejection_response(&context.config.issuer_url, rejection, request);
+            return rejection_response(&context.config.issuer_url, rejection, request, text);
         }
 
         let redirect_uri = google_callback_url(&context.config.issuer_url);
         let identity =
             match Self::verified_google_identity(google, code, &redirect_uri, transaction).await {
                 Ok(identity) => identity,
-                Err(e) => return Self::google_refusal(&e),
+                Err(e) => return Self::google_refusal(&e, text),
             };
 
-        let token = match Self::google_session(context, &identity).await {
+        // An account born in a third party's flow reads its consent next, so a
+        // browser that names its languages starts it in the one that consent
+        // would be in. Dravr's own apps set theirs, and a request naming none
+        // says nothing about its reader.
+        let new_account_locale = (!is_first_party(&request.client_id)
+            && headers.contains_key(header::ACCEPT_LANGUAGE))
+        .then(|| text.lang());
+        let token = match Self::google_session(context, &identity, new_account_locale).await {
             Ok(token) => token,
-            Err(e) => return Self::google_refusal(&e),
+            Err(e) => return Self::google_refusal(&e, text),
         };
 
         info!(
@@ -331,7 +350,11 @@ impl OAuth2Routes {
     /// The answer to Google returning `error` instead of a code: back to
     /// the login page when the athlete cancelled at the chooser, a refusal
     /// page otherwise.
-    fn google_error_answer(error: &str, request: &AuthorizeRequest) -> Response {
+    fn google_error_answer(
+        error: &str,
+        request: &AuthorizeRequest,
+        text: &ConsentText<'_>,
+    ) -> Response {
         if error == "access_denied" {
             info!("Google sign-in cancelled by the athlete; back to the login page");
             let mut response = StatusCode::SEE_OTHER.into_response();
@@ -348,7 +371,7 @@ impl OAuth2Routes {
             "unrecognized"
         };
         warn!(error = code, "Google sign-in refused by Google");
-        Self::render_oauth_error_response(&OAuth2Error::access_denied(SIGN_IN_REFUSED))
+        Self::render_oauth_error_response(&OAuth2Error::access_denied(SIGN_IN_REFUSED), text)
     }
 
     /// Sign the proven Google identity in by the account rules the web app
@@ -356,6 +379,7 @@ impl OAuth2Routes {
     async fn google_session(
         context: &OAuth2Context,
         identity: &GoogleIdentity,
+        new_account_locale: Option<&str>,
     ) -> AppResult<String> {
         let login = context
             .accounts
@@ -367,6 +391,7 @@ impl OAuth2Routes {
                 display_name: identity.name.as_deref(),
                 provider: GOOGLE_PROVIDER,
                 signup_source: SignupSource::Google,
+                locale: new_account_locale,
             })
             .await?;
         Self::authorization_session(context, &login).await
@@ -395,12 +420,13 @@ impl OAuth2Routes {
     /// refused (kill switch closed, 24-hour ceiling reached) is told sign-up
     /// is paused, since nothing about the account is wrong; anything else is
     /// a refusal of this account, logged at WARN. No page carries the reason.
-    fn google_refusal(error: &AppError) -> Response {
+    fn google_refusal(error: &AppError, text: &ConsentText<'_>) -> Response {
         if signup_policy::is_signup_paused(error) {
             warn!("Google sign-up refused: the operator's sign-up bounds admit no new account");
-            return Self::render_oauth_error_response(&OAuth2Error::too_many_requests(
-                SIGNUP_PAUSED,
-            ));
+            return Self::render_oauth_error_response(
+                &OAuth2Error::too_many_requests(SIGNUP_PAUSED),
+                text,
+            );
         }
         if error.is_server_fault() {
             error!("Google sign-in could not complete: {error}");
@@ -411,17 +437,18 @@ impl OAuth2Routes {
             } else {
                 OAuth2Error::server_error("Google sign-in could not be completed")
             };
-            return Self::render_oauth_error_response(&shown);
+            return Self::render_oauth_error_response(&shown, text);
         }
         warn!("Google sign-in refused: {error}");
-        Self::render_oauth_error_response(&OAuth2Error::access_denied(SIGN_IN_REFUSED))
+        Self::render_oauth_error_response(&OAuth2Error::access_denied(SIGN_IN_REFUSED), text)
     }
 
     /// The page both routes answer when Google sign-in is not configured.
-    fn google_unavailable() -> Response {
-        Self::render_oauth_error_response(&OAuth2Error::invalid_request(
-            "Google sign-in is not available on this server",
-        ))
+    fn google_unavailable(text: &ConsentText<'_>) -> Response {
+        Self::render_oauth_error_response(
+            &OAuth2Error::invalid_request("Google sign-in is not available on this server"),
+            text,
+        )
     }
 
     /// The transaction cookie carrying `value` for `max_age_secs`; an empty

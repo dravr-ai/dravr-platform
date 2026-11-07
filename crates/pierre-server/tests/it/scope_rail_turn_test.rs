@@ -21,6 +21,7 @@
 #![allow(missing_docs)]
 
 use crate::scope_probes;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -229,6 +230,7 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let profile = SurfaceProfile::resolve(&messaging_surface_request(
         ChannelType::Slack,

@@ -47,6 +47,7 @@ pub use inner::{generate_nutrition_recommendations, load_nutrition_athlete, Nutr
 pub use inner::generate_training_recommendations;
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -117,7 +118,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -190,7 +191,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -263,7 +264,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -350,7 +351,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -454,7 +455,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -525,7 +526,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -562,10 +563,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, Some(vec!["activity_id".to_owned()]));
         answers_with::<Formatted<ActivityMetricsResult>>(task_capable(tool_definition(
             "calculate_metrics",
             "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
@@ -615,7 +613,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -700,7 +698,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -784,7 +782,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -860,7 +858,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );

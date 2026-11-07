@@ -91,6 +91,10 @@ pub(crate) struct ExtractedTurn<'a> {
 /// either, so it is filed on nobody's account. The one exception is a guided
 /// walk the coach runs on themselves in their room, whose answers are theirs.
 pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
+    if !turn.input.may_learn() {
+        debug!("the turn's grant does not write fitness data: no fact is extracted");
+        return;
+    }
     let ExtractedTurn {
         ctx,
         input,

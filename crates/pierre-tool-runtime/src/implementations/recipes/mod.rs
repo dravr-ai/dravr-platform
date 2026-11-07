@@ -676,4 +676,4 @@ crate::declare_security!(GetRecipeTool => empty);
 crate::declare_security!(ListRecipesTool => empty);
 crate::declare_security!(SaveRecipeTool => empty);
 crate::declare_security!(SearchRecipesTool => empty);
-crate::declare_security!(ValidateRecipeTool => empty);
+crate::declare_security!(ValidateRecipeTool => empty; food_database);

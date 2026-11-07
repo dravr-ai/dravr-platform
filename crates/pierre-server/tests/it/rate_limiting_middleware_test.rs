@@ -77,20 +77,18 @@ async fn stored_key(database: &Database) -> ApiKey {
     api_key
 }
 
-/// A stored A2A client registered by `key`'s owner against `key`.
+/// A stored A2A client registered by `key`'s owner.
 async fn stored_a2a_client(database: &Database, key: &ApiKey) -> A2AClient {
     let client = A2AClient {
         id: format!("a2a_client_{}", Uuid::new_v4()),
         user_id: key.user_id,
         name: format!("layer test client {}", Uuid::new_v4()),
         description: "layer test client".to_owned(),
-        public_key: "layer-test-public-key".to_owned(),
         capabilities: vec!["training-analytics".to_owned()],
         redirect_uris: Vec::new(),
         contact_email: None,
         is_active: true,
         created_at: Utc::now(),
-        permissions: vec!["read_activities".to_owned()],
         rate_limit_requests: 100,
         rate_limit_window_seconds: 3_600,
         updated_at: Utc::now(),
@@ -98,7 +96,7 @@ async fn stored_a2a_client(database: &Database, key: &ApiKey) -> A2AClient {
     database
         .repositories()
         .a2a
-        .create_client(&client, &key.id)
+        .create_client(&client)
         .await
         .unwrap();
     client

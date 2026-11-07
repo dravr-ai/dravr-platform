@@ -261,6 +261,27 @@ pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
             RETURNING client_id
             ";
 
+/// Every grant, live or revoked, a user gave one client in one tenant.
+pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
+            ";
+
+/// Soft-delete every active grant a user gave one client in one tenant.
+pub(crate) const WITHDRAW_CLIENT_GRANTS_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND revoked_at IS NULL
+            ";
+
+/// Record a client's access as withdrawn when it has no grant row to revoke.
+pub(crate) const STORE_WITHDRAWN_CLIENT_GRANT_SQL: &str = r"
+            INSERT INTO oauth_client_grants
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ";
+
 /// Revoke every live refresh token one user holds in one tenant through one
 /// client: every family the revoked grant started.
 pub(crate) const REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
@@ -852,6 +873,90 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(revoke_error)?;
                 Ok(true)
+            }
+
+            async fn client_grant_standing(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                client_id: &str,
+            ) -> AppResult<ClientGrantStanding> {
+                let rows = sqlx::query(LIST_CLIENT_GRANT_HISTORY_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(client_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read OAuth client grants: {e}"))
+                    })?;
+                let grants = rows
+                    .iter()
+                    .map(client_grant_from_row)
+                    .collect::<AppResult<Vec<_>>>()?;
+                Ok(ClientGrantStanding {
+                    active: grants.iter().any(|grant| grant.revoked_at.is_none()),
+                    last_revoked_at: grants.iter().filter_map(|grant| grant.revoked_at).max(),
+                })
+            }
+
+            async fn withdraw_client_access(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                client_id: &str,
+                scope: &str,
+            ) -> AppResult<()> {
+                let withdraw_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to withdraw OAuth client access: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(withdraw_error)?;
+
+                let withdrawn = sqlx::query(WITHDRAW_CLIENT_GRANTS_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?
+                    .rows_affected();
+                if withdrawn == 0 {
+                    let history = sqlx::query(LIST_CLIENT_GRANT_HISTORY_SQL)
+                        .bind(user_id)
+                        .bind(tenant_id)
+                        .bind(client_id)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(withdraw_error)?;
+                    if history.is_none() {
+                        sqlx::query(STORE_WITHDRAWN_CLIENT_GRANT_SQL)
+                            .bind(Uuid::new_v4().to_string())
+                            .bind(user_id)
+                            .bind(tenant_id)
+                            .bind(client_id)
+                            .bind(scope)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(withdraw_error)?;
+                    }
+                }
+
+                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?;
+                sqlx::query(REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?;
+
+                tx.commit().await.map_err(withdraw_error)
             }
 
             async fn revoke_refresh_tokens_of_withdrawn_grant(

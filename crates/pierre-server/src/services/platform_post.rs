@@ -38,6 +38,7 @@ use pierre_chat_pipeline::{
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId, CHANNEL_TYPE_WEB};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -206,6 +207,8 @@ impl PlatformPost for PipelinePlatformPost {
             // The platform answers on its own initiative, into the athlete's
             // own surface.
             transport: Transport::PlatformJob,
+            // The platform acting for the athlete on their own surface.
+            grant: OAuthScope::self_grant(),
             is_direct_message: true,
             // The surface's own answers. The prompt is platform-authored and
             // never a command, so these only keep the surface's contract

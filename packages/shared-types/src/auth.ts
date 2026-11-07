@@ -598,8 +598,12 @@ export interface OAuthProvider {
 export interface OAuthGrant {
   /** Grant id — pass to the revoke endpoint. */
   id: string;
-  /** OAuth client the user approved (shown as the app name). */
+  /** OAuth client the user approved. */
   client_id: string;
+  /** The name the client registered, which it chose for itself; show it with `client_host`. */
+  client_name: string | null;
+  /** Where the client is: its metadata document's host, else where it receives its code. */
+  client_host: string | null;
   /** Scope the grant covers (space-delimited). */
   scope: string;
   /** When the grant was made (RFC 3339). */

@@ -38,7 +38,7 @@ use pierre_providers::ProviderCapabilities;
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
-    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
+    extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
 use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{
@@ -47,9 +47,11 @@ use pierre_services::provider_notice::{
 use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
+use crate::short_link::preferred_locale;
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::garmin_seats::NO_SEAT_REASON;
 use pierre_auth::tenant::oauth_manager::find_authorizing_client;
+use pierre_contremaitre::consent_strings::{KEY_ERROR_TITLE, KEY_ERROR_TRY_AGAIN};
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_DESCRIPTION_COROS, KEY_PROVIDER_DESCRIPTION_GARMIN,
     KEY_PROVIDER_DESCRIPTION_GENERIC, KEY_PROVIDER_DESCRIPTION_INTERVALS_ICU,
@@ -57,6 +59,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_DESCRIPTION_SYNTHETIC_SLEEP, KEY_PROVIDER_DESCRIPTION_TERRA,
     KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, KEY_PROVIDER_DESCRIPTION_WHOOP,
 };
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_services::locale::resolve_user_locale;
 use uuid::Uuid;
@@ -79,8 +82,13 @@ pub(crate) async fn handle_oauth_callback(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let oauth_routes = OAuthService::new(resources.data.clone(), resources.config.clone());
+    let failure_text = FailureText {
+        strings: &resources.messaging_strings,
+        locale: preferred_locale(&headers),
+    };
 
     // Check if we should redirect to a separate frontend URL
     let frontend_url = &resources.config.frontend_url.clone();
@@ -137,6 +145,7 @@ pub(crate) async fn handle_oauth_callback(
                 &provider,
                 &e,
                 None,
+                &failure_text,
             ))
         }
     };
@@ -217,6 +226,7 @@ pub(crate) async fn handle_oauth_callback(
             &provider,
             &e,
             verified_mobile_url.as_deref(),
+            &failure_text,
         )),
     }
 }
@@ -251,6 +261,12 @@ fn log_callback_failure(e: &AppError) {
     }
 }
 
+/// What a failed callback's page says, in the language the browser asks for.
+struct FailureText<'a> {
+    strings: &'a MessagingStringsRegistry,
+    locale: &'static str,
+}
+
 /// The response to an OAuth callback that failed.
 ///
 /// `mobile_url` is the redirect from a state this server redeemed, or `None`
@@ -262,11 +278,9 @@ fn callback_failure_response(
     provider: &str,
     e: &AppError,
     mobile_url: Option<&str>,
+    text: &FailureText<'_>,
 ) -> Response {
     log_callback_failure(e);
-
-    // Determine error message and description based on error type
-    let (error_msg, description) = categorize_oauth_error(e);
 
     if let Some(mobile_url) = mobile_url {
         let redirect_url =
@@ -285,7 +299,11 @@ fn callback_failure_response(
         return (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response();
     }
 
-    let html = OAuthTemplateRenderer::render_error_template(provider, error_msg, description);
+    let html = OAuthTemplateRenderer::render_error_template(
+        text.locale,
+        &text.strings.get(KEY_ERROR_TITLE, text.locale),
+        &text.strings.get(KEY_ERROR_TRY_AGAIN, text.locale),
+    );
     let status = if e.is_server_fault() {
         StatusCode::INTERNAL_SERVER_ERROR
     } else {

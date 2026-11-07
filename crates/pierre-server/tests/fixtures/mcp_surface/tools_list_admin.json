@@ -1,1041 +1,6 @@
 {
   "tools": [
     {
-      "name": "activate_agent",
-      "description": "Activate an agent for personalized training guidance",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to activate",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `activate_agent` answers with.",
-        "properties": {
-          "category": {
-            "description": "Which shelf it sits on.",
-            "type": "string"
-          },
-          "description": {
-            "description": "What it is for; absent when none was given.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "description": "Identifier of the agent now active.",
-            "type": "string"
-          },
-          "is_active": {
-            "description": "Always true: the tool errors rather than reporting a failed activation.",
-            "type": "boolean"
-          },
-          "system_prompt": {
-            "description": "The instructions it runs on.",
-            "type": "string"
-          },
-          "title": {
-            "description": "Display name.",
-            "type": "string"
-          },
-          "token_count": {
-            "description": "Estimated size of the system prompt, in tokens.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "description",
-          "system_prompt",
-          "category",
-          "is_active",
-          "token_count"
-        ],
-        "title": "ActivateAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Activate agent",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_assign_agent",
-      "description": "Assign a system agent to a specific user (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the system agent to assign",
-            "type": "string"
-          },
-          "user_id": {
-            "description": "ID of the user to assign the agent to",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id",
-          "user_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_assign_agent` answers with.\n\nEchoes both the operator and the athlete, so an audit reader has the whole\nact from the reply alone.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was assigned.",
-            "type": "string"
-          },
-          "agent_title": {
-            "description": "Its display name, so the reply is readable without a second call.",
-            "type": "string"
-          },
-          "assigned": {
-            "description": "Always true: the tool errors rather than reporting a failed assign.",
-            "type": "boolean"
-          },
-          "assigned_by": {
-            "description": "The operator who assigned it.",
-            "type": "string"
-          },
-          "user_id": {
-            "description": "The athlete it was assigned to.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "assigned",
-          "agent_id",
-          "agent_title",
-          "user_id",
-          "assigned_by"
-        ],
-        "title": "AdminAssignAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Assign agent to user (admin)",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_create_system_agent",
-      "description": "Create a new system agent visible to all tenant users (admin only)",
-      "inputSchema": {
-        "properties": {
-          "category": {
-            "description": "Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "description": {
-            "description": "Description explaining the agent's purpose",
-            "type": "string"
-          },
-          "sample_prompts": {
-            "description": "Example prompts to show users",
-            "items": {
-              "description": "Sample prompt text",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "system_prompt": {
-            "description": "System prompt that shapes AI responses",
-            "type": "string"
-          },
-          "tags": {
-            "description": "Tags for filtering and organization",
-            "items": {
-              "description": "Tag label",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display title for the agent",
-            "type": "string"
-          },
-          "visibility": {
-            "description": "Visibility: 'tenant' (default) or 'global'; any other value keeps the agent private to its author",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "system_prompt"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_create_system_agent` answers with.\n\nNo `system_prompt` and no `updated_at`: the caller just sent the prompt,\nand an agent created this instant has no edit to report.",
-        "properties": {
-          "category": {
-            "description": "Which shelf it sits on.",
-            "type": "string"
-          },
-          "created_at": {
-            "description": "RFC 3339 creation timestamp.",
-            "type": "string"
-          },
-          "description": {
-            "description": "What it is for; absent when none was given.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "description": "Identifier of the new agent.",
-            "type": "string"
-          },
-          "is_system": {
-            "description": "Always true: this tool only creates system agents.",
-            "type": "boolean"
-          },
-          "tags": {
-            "description": "Free-form labels.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display name.",
-            "type": "string"
-          },
-          "token_count": {
-            "description": "Estimated size of the system prompt, in tokens.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "visibility": {
-            "description": "Who can see it.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "description",
-          "category",
-          "tags",
-          "token_count",
-          "visibility",
-          "is_system",
-          "created_at"
-        ],
-        "title": "AdminCreateSystemAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Create system agent (admin)",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_delete_system_agent",
-      "description": "Delete a system agent and remove all assignments (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the system agent to delete",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_delete_system_agent` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was removed, echoed back.",
-            "type": "string"
-          },
-          "deleted": {
-            "description": "Always true: the tool errors rather than reporting a failed delete.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted",
-          "agent_id"
-        ],
-        "title": "AdminDeleteSystemAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Delete system agent (admin)",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_get_system_agent",
-      "description": "Get detailed information about a system agent (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the system agent to retrieve",
-            "type": "string"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AdminGetSystemAgentResult": {
-            "description": "What `admin_get_system_agent` answers with.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "created_at": {
-                "description": "RFC 3339 creation timestamp.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What it is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier.",
-                "type": "string"
-              },
-              "is_system": {
-                "description": "Whether it ships with the platform.",
-                "type": "boolean"
-              },
-              "system_prompt": {
-                "description": "The instructions the agent runs on.",
-                "type": "string"
-              },
-              "tags": {
-                "description": "Free-form labels.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "updated_at": {
-                "description": "RFC 3339 timestamp of the last edit.",
-                "type": "string"
-              },
-              "visibility": {
-                "description": "Who can see it.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "system_prompt",
-              "category",
-              "tags",
-              "token_count",
-              "visibility",
-              "is_system",
-              "created_at",
-              "updated_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/AdminGetSystemAgentResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/AdminGetSystemAgentResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get system agent (admin)",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_list_agent_assignments",
-      "description": "List all assignments for a system agent (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to list assignments for",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AgentAssignmentEntry": {
-            "description": "One assignment as `admin_list_agent_assignments` reports it.",
-            "properties": {
-              "assigned_at": {
-                "description": "RFC 3339 timestamp of the assignment.",
-                "type": "string"
-              },
-              "assigned_by": {
-                "description": "The operator who made it. Absent for assignments made before the\ncolumn existed, and for any the system made on nobody's behalf.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "user_email": {
-                "description": "Their email, so the operator can recognise them. Absent when the\njoin could not resolve the account — a deleted user leaves the\nassignment row behind.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "user_id": {
-                "description": "The athlete the agent is assigned to.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "user_id",
-              "user_email",
-              "assigned_at",
-              "assigned_by"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_list_agent_assignments` answers with.\n\nThe listing is capped: a popular system agent in a large tenant can carry\nan assignment per athlete. `truncated` states that in the payload rather\nthan letting the operator read a short list as a complete one.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent whose assignments these are.",
-            "type": "string"
-          },
-          "assignments": {
-            "description": "The assignments, up to the cap.",
-            "items": {
-              "$ref": "#/$defs/AgentAssignmentEntry"
-            },
-            "type": "array"
-          },
-          "count": {
-            "description": "How many are in this reply.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total": {
-            "description": "How many exist, which is larger than `count` when truncated.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "truncated": {
-            "description": "Whether the cap was hit and rows were left out.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent_id",
-          "assignments",
-          "count",
-          "total",
-          "truncated"
-        ],
-        "title": "AdminListAgentAssignmentsResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List agent assignments (admin)",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_list_system_agents",
-      "description": "List all system agents in the tenant (admin only)",
-      "inputSchema": {
-        "properties": {
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Maximum number of agents to return. Default: 50, max: 100",
-            "type": "integer"
-          },
-          "offset": {
-            "description": "Pagination offset. Default: 0",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AdminListSystemAgentsResult": {
-            "description": "What `admin_list_system_agents` answers with.",
-            "properties": {
-              "agents": {
-                "description": "The agents on this page.",
-                "items": {
-                  "$ref": "#/$defs/SystemAgentEntry"
-                },
-                "type": "array"
-              },
-              "count": {
-                "description": "How many came back on this page.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "offset": {
-                "description": "The paging offset these start at.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "total": {
-                "description": "How many the tenant has in total, ignoring paging.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "agents",
-              "count",
-              "total",
-              "offset"
-            ],
-            "type": "object"
-          },
-          "SystemAgentEntry": {
-            "description": "One system agent, as `admin_list_system_agents` reports it.\n\nNo `system_prompt`: a listing of agents is for choosing one, and the\nprompt is long. `admin_get_system_agent` is what returns it.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "created_at": {
-                "description": "RFC 3339 creation timestamp.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What the agent is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier the other admin tools take.",
-                "type": "string"
-              },
-              "tags": {
-                "description": "Free-form labels for filtering and search.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "updated_at": {
-                "description": "RFC 3339 timestamp of the last edit.",
-                "type": "string"
-              },
-              "visibility": {
-                "description": "Who can see it — the operator's decision, which is why every admin\nprojection carries it and no athlete-facing one does.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "token_count",
-              "visibility",
-              "created_at",
-              "updated_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/AdminListSystemAgentsResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/AdminListSystemAgentsResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List system agents (admin)",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_unassign_agent",
-      "description": "Remove an agent assignment from a user (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the system agent to unassign",
-            "type": "string"
-          },
-          "user_id": {
-            "description": "ID of the user to remove the assignment from",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id",
-          "user_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_unassign_agent` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was unassigned.",
-            "type": "string"
-          },
-          "unassigned": {
-            "description": "Always true: an assignment that was not there is an error, not a\nquiet success, because the operator asked to remove something.",
-            "type": "boolean"
-          },
-          "user_id": {
-            "description": "The athlete it was removed from.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "unassigned",
-          "agent_id",
-          "user_id"
-        ],
-        "title": "AdminUnassignAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Unassign agent from user (admin)",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "admin_update_system_agent",
-      "description": "Update an existing system agent (admin only)",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the system agent to update",
-            "type": "string"
-          },
-          "category": {
-            "description": "New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "description": {
-            "description": "New description",
-            "type": "string"
-          },
-          "sample_prompts": {
-            "description": "New example prompts, replacing the current ones",
-            "items": {
-              "description": "Sample prompt text",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "system_prompt": {
-            "description": "New system prompt",
-            "type": "string"
-          },
-          "tags": {
-            "description": "New tags, replacing the current ones",
-            "items": {
-              "description": "Tag label",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "New display title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `admin_update_system_agent` answers with.",
-        "properties": {
-          "category": {
-            "description": "Which shelf it sits on.",
-            "type": "string"
-          },
-          "description": {
-            "description": "What it is for; absent when none is set.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "description": "Identifier.",
-            "type": "string"
-          },
-          "is_system": {
-            "description": "Whether it ships with the platform.",
-            "type": "boolean"
-          },
-          "system_prompt": {
-            "description": "The instructions after the edit.",
-            "type": "string"
-          },
-          "tags": {
-            "description": "Free-form labels.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display name after the edit.",
-            "type": "string"
-          },
-          "token_count": {
-            "description": "Estimated size of the system prompt after the edit, in tokens.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "updated_at": {
-            "description": "RFC 3339 timestamp of this edit.",
-            "type": "string"
-          },
-          "visibility": {
-            "description": "Who can see it.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "description",
-          "system_prompt",
-          "category",
-          "tags",
-          "token_count",
-          "visibility",
-          "is_system",
-          "updated_at"
-        ],
-        "title": "AdminUpdateSystemAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Update system agent (admin)",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "agent_followup_schedule",
-      "description": "Schedule a future check-in, surfaced to the agent in the next conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "Agent making the promise.",
-            "type": "string"
-          },
-          "content": {
-            "description": "Reminder text, ≤ 500 characters, e.g. 'check on Achilles pain after long run'.",
-            "type": "string"
-          },
-          "conversation_id": {
-            "description": "Originating conversation ID, for provenance.",
-            "type": "string"
-          },
-          "due_at": {
-            "description": "RFC3339 timestamp for when to surface the reminder.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "content",
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `agent_followup_schedule` answers with.",
-        "properties": {
-          "due_at": {
-            "description": "When it comes due, RFC 3339. Absent when the agent scheduled no date —\nthe follow-up then rides the next conversation rather than a clock.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "followup_id": {
-            "description": "Identifier of the scheduled follow-up.",
-            "type": "string"
-          },
-          "status": {
-            "description": "Always `pending` on creation; a value rather than an inference, so a\nclient reads state instead of assuming it from a successful call.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "followup_id",
-          "status",
-          "due_at"
-        ],
-        "title": "AgentFollowupScheduleResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Schedule agent follow-up",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "agent_note_add",
-      "description": "Save a private agent note about the user. Use it when you decide something the user said should be remembered across sessions.",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "The authoring agent's ID; must match the agent attached to this conversation.",
-            "type": "string"
-          },
-          "content": {
-            "description": "The note, plain text without markup, ≤ 2000 characters.",
-            "type": "string"
-          },
-          "conversation_id": {
-            "description": "Originating conversation ID, for provenance.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "content",
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `agent_note_add` answers with.",
-        "properties": {
-          "created_at": {
-            "description": "RFC 3339 timestamp it was stored at.",
-            "type": "string"
-          },
-          "note_id": {
-            "description": "Identifier of the stored note.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "note_id",
-          "created_at"
-        ],
-        "title": "AgentNoteAddResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Add agent note",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "analyze_activity",
       "description": "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
       "inputSchema": {
@@ -1053,7 +18,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -1383,7 +348,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "target_value": {
@@ -1726,7 +691,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "timeframe": {
@@ -2322,7 +1287,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "sleep_provider": {
@@ -2809,7 +1774,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "units": {
@@ -3080,200 +2045,6 @@
       }
     },
     {
-      "name": "browse_agent_store",
-      "description": "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a kind they do not already have. Distinct from `list_agents`, which lists only the agents ALREADY in their library.",
-      "inputSchema": {
-        "properties": {
-          "category": {
-            "description": "Category filter: training, nutrition, recovery, recipes, mobility, analysis, or custom.",
-            "type": "string"
-          },
-          "cursor": {
-            "description": "A previous call's `next_cursor`, to fetch the next page.",
-            "type": "string"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Agents per page (1-100, default 20).",
-            "type": "integer"
-          },
-          "sort_by": {
-            "description": "Ordering: 'newest' (default), 'popular' (most installed), or 'title'.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "BrowseAgentStoreResult": {
-            "description": "What `browse_agent_store` answers with.",
-            "properties": {
-              "agents": {
-                "description": "The agents on this page.",
-                "items": {
-                  "$ref": "#/$defs/StoreAgentEntry"
-                },
-                "type": "array"
-              },
-              "count": {
-                "description": "How many came back.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "has_more": {
-                "description": "Whether another page follows.",
-                "type": "boolean"
-              },
-              "next_cursor": {
-                "description": "The cursor that fetches it; absent on the last page.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "agents",
-              "count",
-              "has_more",
-              "next_cursor"
-            ],
-            "type": "object"
-          },
-          "StoreAgentEntry": {
-            "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What the agent is for; absent when its author gave none.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier `install_agent_from_store` takes.",
-                "type": "string"
-              },
-              "install_count": {
-                "description": "How many athletes have installed it.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "published_at": {
-                "description": "RFC 3339 timestamp of publication; absent while unpublished.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "sample_prompts": {
-                "description": "Openers the author suggests, for a client to offer as chips.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "tags": {
-                "description": "Free-form labels its author set.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name, as its author wrote it.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "sample_prompts",
-              "install_count",
-              "published_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/BrowseAgentStoreResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/BrowseAgentStoreResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Browse agent store",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "calculate_daily_nutrition",
       "description": "Calculate daily calorie and macronutrient needs from biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
       "inputSchema": {
@@ -3482,7 +2253,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "sleep_provider": {
@@ -3938,12 +2709,11 @@
             "type": "number"
           },
           "provider": {
-            "description": "Fitness provider name",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
         "required": [
-          "provider",
           "activity_id"
         ],
         "type": "object"
@@ -5202,136 +3972,6 @@
       }
     },
     {
-      "name": "commitment_cancel",
-      "description": "Retract a commitment the athlete no longer wants to be held to; it is never counted or reported. Use when they drop it or circumstances change (injury, travel, a plan revision). Retracting is not failing: never use it to record that they missed it.",
-      "inputSchema": {
-        "properties": {
-          "commitment_id": {
-            "description": "Id of the commitment to retract, as listed in your open-commitments block.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "commitment_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `commitment_cancel` answers with.",
-        "properties": {
-          "cancelled": {
-            "description": "Whether one was actually cancelled. False when nothing open matched,\nwhich is a success: the athlete is not committed either way.",
-            "type": "boolean"
-          },
-          "commitment_id": {
-            "description": "The commitment that was asked about, echoed back.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "commitment_id",
-          "cancelled"
-        ],
-        "title": "CommitmentCancelResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Cancel commitment",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "commitment_create",
-      "description": "Record a commitment the athlete just made, to be checked against their real activity when the window closes. Call it ONLY once the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both and call it on their answer. Not for your own plans or reminders.",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "Agent the athlete made the promise to.",
-            "type": "string"
-          },
-          "due_date": {
-            "description": "Last day that counts, YYYY-MM-DD in the athlete's local calendar; for 'this week', the coming Sunday from the current-date anchor.",
-            "type": "string"
-          },
-          "sessions": {
-            "description": "How many sessions the athlete committed to (1-30).",
-            "type": "integer"
-          },
-          "sport": {
-            "description": "Lowercase sport slug the sessions must match ('run', 'ride', 'swim'); omit to count any activity.",
-            "type": "string"
-          },
-          "statement": {
-            "description": "The promise in the athlete's own terms (≤ 200 characters), e.g. 'three easy runs this week'.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "statement",
-          "sessions",
-          "due_date",
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `commitment_create` answers with.",
-        "properties": {
-          "commitment_id": {
-            "description": "The commitment the agent can later cancel or check against.",
-            "type": "string"
-          },
-          "duplicate_of_open_commitment": {
-            "description": "Whether an open commitment already covered this. A duplicate is\ndropped rather than stacked, so the agent can say \"already noted\"\ninstead of promising a second check. Always the inverse of `recorded`;\nboth are on the wire because they answer different questions.",
-            "type": "boolean"
-          },
-          "recorded": {
-            "description": "Whether this call created it. False when an identical open commitment\nalready existed, which is a success — see\n`duplicate_of_open_commitment`.",
-            "type": "boolean"
-          },
-          "sessions": {
-            "description": "How many sessions the athlete committed to.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "sport": {
-            "description": "The sport, when the commitment named one.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "window_end": {
-            "description": "RFC 3339 timestamp the window closes at.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "commitment_id",
-          "recorded",
-          "sessions",
-          "sport",
-          "window_end",
-          "duplicate_of_open_commitment"
-        ],
-        "title": "CommitmentCreateResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Record commitment",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "compare_activities",
       "description": "Compare an activity against similar activities, personal bests, or a specific other activity",
       "inputSchema": {
@@ -5357,7 +3997,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -5949,184 +4589,6 @@
       }
     },
     {
-      "name": "create_agent",
-      "description": "Create a custom AI agent with personalized training guidance",
-      "inputSchema": {
-        "properties": {
-          "category": {
-            "description": "Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "description": {
-            "description": "Description of the agent",
-            "type": "string"
-          },
-          "sample_prompts": {
-            "description": "Example prompts to show users",
-            "items": {
-              "description": "Sample prompt text",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "system_prompt": {
-            "description": "System prompt that shapes AI responses",
-            "type": "string"
-          },
-          "tags": {
-            "description": "Tags for organization",
-            "items": {
-              "description": "Tag label",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display title for the agent",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "system_prompt"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `create_agent` answers with.\n\nDeliberately does not echo `system_prompt` or the `sample_prompts` the tool\naccepts: the caller just sent them, and the prompt is long.",
-        "properties": {
-          "category": {
-            "description": "Which shelf it sits on.",
-            "type": "string"
-          },
-          "created_at": {
-            "description": "RFC 3339 creation timestamp.",
-            "type": "string"
-          },
-          "description": {
-            "description": "What it is for; absent when none was given.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "description": "Identifier of the new agent.",
-            "type": "string"
-          },
-          "tags": {
-            "description": "Free-form labels.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display name.",
-            "type": "string"
-          },
-          "token_count": {
-            "description": "Estimated size of the system prompt, in tokens.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "description",
-          "category",
-          "tags",
-          "token_count",
-          "created_at"
-        ],
-        "title": "CreateAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Create agent",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "deactivate_agent",
-      "description": "Deactivate the current agent and return to default AI guidance",
-      "inputSchema": {
-        "properties": {},
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `deactivate_agent` answers with.",
-        "properties": {
-          "deactivated": {
-            "description": "Whether an agent was actually deactivated. False when none was active,\nwhich is a success rather than an error.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deactivated"
-        ],
-        "title": "DeactivateAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Deactivate agent",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "delete_agent",
-      "description": "Delete an agent",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to delete",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `delete_agent` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was removed, echoed back.",
-            "type": "string"
-          },
-          "deleted": {
-            "description": "Always true: the tool errors rather than reporting a failed delete.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted",
-          "agent_id"
-        ],
-        "title": "DeleteAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Delete agent",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "delete_fitness_config",
       "description": "Delete a fitness configuration by name",
       "inputSchema": {
@@ -6251,7 +4713,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -9681,7 +8143,7 @@
     },
     {
       "name": "extract_activity_streams",
-      "description": "Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), altitude (m) and gps_coordinates (lat/lon pairs). A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.",
+      "description": "Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.",
       "inputSchema": {
         "properties": {
           "activity_id": {
@@ -9861,7 +8323,7 @@
               },
               "streams": {
                 "$ref": "#/$defs/TimeSeriesData",
-                "description": "Heart rate, power, cadence, GPS and altitude as recorded; a missed\nsample is a gap (`null`), never a value."
+                "description": "Heart rate, power, cadence, speed and altitude as recorded, and the GPS\ntrack inside the Dravr app only; a missed sample is a gap (`null`),\nnever a value."
               }
             },
             "required": [
@@ -9929,51 +8391,6 @@
       }
     },
     {
-      "name": "forget_playbook",
-      "description": "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",
-      "inputSchema": {
-        "properties": {
-          "playbook_id": {
-            "description": "The id of the playbook to forget (from list_coaching_playbooks).",
-            "type": "string"
-          }
-        },
-        "required": [
-          "playbook_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `forget_playbook` answers with.",
-        "properties": {
-          "deleted": {
-            "description": "Rows removed. A COUNT, not a flag: it is 0 when the id was not this\nathlete's, which is the same answer as \"no such playbook\" on purpose —\na caller must not be able to probe another athlete's ids by the shape\nof the reply.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "playbook_id": {
-            "description": "The id that was asked for, echoed back.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "deleted",
-          "playbook_id"
-        ],
-        "title": "ForgetPlaybookResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Forget coaching playbook",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "generate_recommendations",
       "description": "Generate personalized training recommendations. `training_plan`, `recovery` and `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In `nutrition` mode an athlete with a medical/PAR-Q flag on file gets foods and timing with no amounts, plus `figures_withheld` (their clinician sets those); the session is still described. Calories burned: the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex, else null with `calories_unavailable` saying why.",
       "inputSchema": {
@@ -9987,7 +8404,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "recommendation_type": {
@@ -10921,11 +9338,11 @@
             "type": "string"
           },
           "offset": {
-            "description": "Number of activities to skip for pagination.",
+            "description": "Activities to skip, for paging.",
             "type": "integer"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "sort_by": {
@@ -10933,7 +9350,7 @@
             "type": "string"
           },
           "sport_type": {
-            "description": "Filter by sport type (e.g., 'run', 'ride', 'swim'). Case-insensitive.",
+            "description": "Sport type, e.g. 'run', 'ride', 'swim'; case-insensitive.",
             "type": "string"
           }
         },
@@ -11470,7 +9887,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -11948,7 +10365,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -16437,7 +14854,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -17117,6 +15534,13 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "What `get_training_history` answers with.\n\nEvery row carries its own form reading, and the payload carries the method\nthat produced it. This is the tool the endurance agent prompt calls first;\nshipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a\ndiagnosis nobody could explain (registre#199). Beside the rows ride the\nevidence a \"why\" traces them to: the services whose sessions they are\ncomputed from, and the run of deep-fatigue days a reading closes\n(carnet#1387).",
         "properties": {
+          "coverage_note": {
+            "description": "Why `days` stops short of the window, when it does: the stored history\ndoes not reach far enough to warm those days. `None` when the rows\nanswer the whole ask.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "days": {
             "description": "One entry per day that has a rollup.",
             "items": {
@@ -17157,6 +15581,7 @@
           "days",
           "sources",
           "deep_fatigue_mornings",
+          "coverage_note",
           "interpretation"
         ],
         "title": "TrainingHistoryResult",
@@ -20393,49 +18818,6 @@
       }
     },
     {
-      "name": "hide_agent",
-      "description": "Hide an agent from listings",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to hide",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `hide_agent` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was hidden.",
-            "type": "string"
-          },
-          "is_hidden": {
-            "description": "Always true here; `show_agent` sends the same field as false.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent_id",
-          "is_hidden"
-        ],
-        "title": "HideAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Hide agent",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "import_provider_thresholds",
       "description": "Import the athlete's FTP, lactate threshold heart rate, max heart rate and threshold pace from their Intervals.icu sport settings, through their own connection or the human coach's link they confirmed. Call it when the athlete asks to bring their thresholds over from Intervals.icu. A threshold is filled only when the profile has none or holds Intervals.icu's earlier value; one the athlete set is never replaced (kept_yours, with both numbers — adopting Intervals.icu's is the athlete's call, via set_physiology). Out-of-range values are skipped with the reason; W′ is never imported (a different model). Quote an imported value as Intervals.icu's estimate ('intervals.icu has your FTP at 285 W'), never as a measurement. Sex is recorded only when Intervals.icu reports one and the profile holds none (sex_recorded). Report only what the result contains.",
       "inputSchema": {
@@ -21974,178 +20356,6 @@
       },
       "annotations": {
         "title": "Import provider thresholds",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "install_agent_from_store",
-      "description": "Install a published Agent Store agent into the athlete's team; it joins as itself, never as a copy. Call it only once the athlete has asked for that specific agent. After installing, `activate_agent` makes it the agent that answers.",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "UUID of the published agent, as `browse_agent_store` or `search_agent_store` returned it.",
-            "type": "string"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "InstallAgentFromStoreResult": {
-            "description": "What `install_agent_from_store` answers with.",
-            "properties": {
-              "agent": {
-                "$ref": "#/$defs/StoreAgentEntry",
-                "description": "The installed agent, in the same shape browse and search send: the\ncatalogue agent itself (its own id and handle) for a system agent, or\nthe athlete's copy of another tenant's published agent."
-              },
-              "installed": {
-                "description": "Always true: the tool errors rather than reporting a failed install.",
-                "type": "boolean"
-              },
-              "message": {
-                "description": "What to tell the athlete, already written for them.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "installed",
-              "agent",
-              "message"
-            ],
-            "type": "object"
-          },
-          "StoreAgentEntry": {
-            "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What the agent is for; absent when its author gave none.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier `install_agent_from_store` takes.",
-                "type": "string"
-              },
-              "install_count": {
-                "description": "How many athletes have installed it.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "published_at": {
-                "description": "RFC 3339 timestamp of publication; absent while unpublished.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "sample_prompts": {
-                "description": "Openers the author suggests, for a client to offer as chips.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "tags": {
-                "description": "Free-form labels its author set.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name, as its author wrote it.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "sample_prompts",
-              "install_count",
-              "published_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/InstallAgentFromStoreResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/InstallAgentFromStoreResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Install agent from store",
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
@@ -24861,7 +23071,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
           "target_sport": {
@@ -27415,79 +25625,6 @@
       }
     },
     {
-      "name": "remember_fact",
-      "description": "Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "Agent attaching the fact; omit for user-wide.",
-            "type": "string"
-          },
-          "confidence": {
-            "description": "Confidence in [0.0, 1.0]. Direct user confirmation → 0.9+.",
-            "type": "number"
-          },
-          "kind": {
-            "description": "One of: preference | physiology | injury | goal | schedule | equipment | other.",
-            "type": "string"
-          },
-          "object": {
-            "description": "The athlete's own words for the value, verbatim, in the athlete's language — never translated or paraphrased.",
-            "type": "string"
-          },
-          "predicate_code": {
-            "description": "What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` fits every kind (the object stands alone). Unknown codes are rejected.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "predicate_code",
-          "object",
-          "confidence"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `remember_fact` answers with.",
-        "properties": {
-          "confidence": {
-            "description": "Extractor confidence, 0.0 to 1.0.",
-            "format": "float",
-            "type": "number"
-          },
-          "fact_id": {
-            "description": "Identifier of the stored fact.",
-            "type": "string"
-          },
-          "kind": {
-            "description": "Which category it was filed under.",
-            "type": "string"
-          },
-          "status": {
-            "description": "`approved` when the athlete's latest message says it in these words,\nand the agent reads it from now on. `draft` otherwise: it waits for the\nathlete to keep it on their Memory screen, so say it was noted for them\nto confirm, not that it is remembered.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "fact_id",
-          "kind",
-          "confidence",
-          "status"
-        ],
-        "title": "RememberFactResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Remember fact about user",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "save_recipe",
       "description": "Save a validated recipe to your collection",
       "inputSchema": {
@@ -28535,187 +26672,6 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "search_agent_store",
-      "description": "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_agent_from_store`.",
-      "inputSchema": {
-        "properties": {
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Max results (1-100, default 20).",
-            "type": "integer"
-          },
-          "query": {
-            "description": "Text to match against a published agent's title, description or tags.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "SearchAgentStoreResult": {
-            "description": "What `search_agent_store` answers with.\n\nNo cursor: search is a single ranked page, so there is nothing to page to.",
-            "properties": {
-              "agents": {
-                "description": "The matches.",
-                "items": {
-                  "$ref": "#/$defs/StoreAgentEntry"
-                },
-                "type": "array"
-              },
-              "count": {
-                "description": "How many matched.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "query": {
-                "description": "The query, echoed back.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "query",
-              "count",
-              "agents"
-            ],
-            "type": "object"
-          },
-          "StoreAgentEntry": {
-            "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What the agent is for; absent when its author gave none.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier `install_agent_from_store` takes.",
-                "type": "string"
-              },
-              "install_count": {
-                "description": "How many athletes have installed it.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "published_at": {
-                "description": "RFC 3339 timestamp of publication; absent while unpublished.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "sample_prompts": {
-                "description": "Openers the author suggests, for a client to offer as chips.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "tags": {
-                "description": "Free-form labels its author set.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name, as its author wrote it.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "sample_prompts",
-              "install_count",
-              "published_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/SearchAgentStoreResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/SearchAgentStoreResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Search agent store",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
         "openWorldHint": false
       }
     },
@@ -30614,54 +28570,6 @@
       }
     },
     {
-      "name": "show_agent",
-      "description": "Show a previously hidden agent",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to show",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `show_agent` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent that was un-hidden.",
-            "type": "string"
-          },
-          "is_hidden": {
-            "description": "Always false here; `hide_agent` sends the same field as true.",
-            "type": "boolean"
-          },
-          "removed_preference": {
-            "description": "Whether a stored hide preference was actually removed. False when the\nagent was not hidden to begin with, which is a success.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent_id",
-          "is_hidden",
-          "removed_preference"
-        ],
-        "title": "ShowAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Show agent",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "suggest_goals",
       "description": "Suggest up to five fitness goals from the athlete's activity history and fitness level; with a known latitude, out-of-season sports are dropped, not replaced.",
       "inputSchema": {
@@ -30671,7 +28579,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -31461,49 +29369,6 @@
       }
     },
     {
-      "name": "toggle_agent_favorite",
-      "description": "Toggle the favorite status of an agent",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `toggle_agent_favorite` answers with.",
-        "properties": {
-          "agent_id": {
-            "description": "The agent whose star was flipped.",
-            "type": "string"
-          },
-          "is_favorite": {
-            "description": "Its state AFTER the flip, so a caller need not track the previous one.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "agent_id",
-          "is_favorite"
-        ],
-        "title": "ToggleAgentFavoriteResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Toggle agent favorite",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "track_progress",
       "description": "Track progress toward a fitness goal: current value vs target, percent complete, whether it is on track, days remaining and projected completion, over activities recorded since the goal was created (only the goal's sport when it names one).",
       "inputSchema": {
@@ -31517,7 +29382,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Fitness provider. Defaults to configured provider.",
+            "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           }
         },
@@ -31927,119 +29792,6 @@
       "annotations": {
         "title": "Track sleep trends",
         "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "update_agent",
-      "description": "Update an existing agent's settings",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to update",
-            "type": "string"
-          },
-          "category": {
-            "description": "New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "description": {
-            "description": "New description",
-            "type": "string"
-          },
-          "sample_prompts": {
-            "description": "New example prompts, replacing the current ones",
-            "items": {
-              "description": "Sample prompt text",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "system_prompt": {
-            "description": "New system prompt",
-            "type": "string"
-          },
-          "tags": {
-            "description": "New tags, replacing the current ones",
-            "items": {
-              "description": "Tag label",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "New title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `update_agent` answers with.",
-        "properties": {
-          "category": {
-            "description": "Which shelf it sits on.",
-            "type": "string"
-          },
-          "description": {
-            "description": "What it is for; absent when none is set.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "description": "Identifier.",
-            "type": "string"
-          },
-          "system_prompt": {
-            "description": "The instructions after the edit.",
-            "type": "string"
-          },
-          "tags": {
-            "description": "Free-form labels.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": {
-            "description": "Display name after the edit.",
-            "type": "string"
-          },
-          "token_count": {
-            "description": "Estimated size of the system prompt after the edit, in tokens.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "updated_at": {
-            "description": "RFC 3339 timestamp of this edit.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "description",
-          "system_prompt",
-          "category",
-          "tags",
-          "token_count",
-          "updated_at"
-        ],
-        "title": "UpdateAgentResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Update agent",
-        "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false

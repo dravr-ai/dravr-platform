@@ -21,7 +21,7 @@
 //! - [`PierreMethodHandler`] — serves the protocol areas the engine leaves open:
 //!   `resources/*` and `prompts/*`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,16 +40,17 @@ use dravr_tronc::mcp::tasks::{
 };
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
-use pierre_auth::config::DIALED_HOST_HEADERS;
+use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
-use pierre_core::models::{EffectiveTool, TenantId};
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -79,7 +80,7 @@ use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 mod auth_challenge;
 mod scope_listing;
 
-use auth_challenge::{auth_refusal, insufficient_scope_challenge, www_authenticate_challenge};
+use auth_challenge::{auth_refusal, insufficient_scope_challenge};
 
 /// Supported MCP protocol revisions advertised by the platform server, in
 /// preference order.
@@ -577,51 +578,18 @@ impl PierreToolDispatcher {
     pub fn task_manager(&self) -> &Arc<TaskManager> {
         &self.task_manager
     }
-    /// Every tool, admin-only ones included, less those an operator switched
-    /// off: globally, for the tenant, or for this user
-    /// ([`EffectiveTool::is_switched_off`]).
+    /// Resolve the tenant-filtered schemas for a caller.
     ///
-    /// The same `is_tool_enabled_for_user` precedence the call path enforces,
-    /// read in one pass, except that a tool the tenant's plan does not cover
-    /// stays listed and is refused at call time. A tool the catalogue does
-    /// not track stays listed, because the call path lets it run.
-    async fn admin_schemas(&self, tenant_id: TenantId, user_id: Uuid) -> Vec<ToolSchema> {
-        let mut schemas = self.resources.mcp.tool_registry.all_schemas();
-        match self
-            .resources
-            .mcp
-            .tool_selection
-            .get_effective_tools_for_user(tenant_id, user_id)
-            .await
-        {
-            Ok(effective) => {
-                let disabled: HashSet<String> = effective
-                    .into_iter()
-                    .filter(EffectiveTool::is_switched_off)
-                    .map(|tool| tool.tool_name)
-                    .collect();
-                schemas.retain(|schema| !disabled.contains(&schema.name));
-            }
-            Err(e) => {
-                warn!(
-                    tenant_id = %tenant_id,
-                    error = %e,
-                    "tools/list: admin enablement lookup failed; listing every tool"
-                );
-            }
-        }
-        schemas
-    }
-
-    /// Resolve the tenant-filtered schemas for a non-admin caller.
+    /// Combines the `ToolSelectionService` catalog (non-admin tools enabled for
+    /// this caller) with feature-flag tools not tracked by the catalog (agents,
+    /// mobility). When `user_id` is present, per-user tool overrides are
+    /// overlaid on top of the tenant computation so a tool disabled for this
+    /// user is hidden from discovery (and a user-enabled tool becomes visible).
     ///
-    /// Combines the `ToolSelectionService` catalog (non-admin tools no operator
-    /// switched off, see [`EffectiveTool::is_switched_off`]) with feature-flag
-    /// tools not tracked by the catalog (agents, mobility). When `user_id` is
-    /// present, per-user tool overrides are overlaid on top of the tenant
-    /// computation so a tool disabled for this user is hidden from discovery
-    /// (and a user-enabled tool becomes visible). A tool the tenant's plan
-    /// does not cover stays listed and is refused at call time.
+    /// `is_enabled` is the bit `tools/call` refuses on
+    /// (`is_tool_enabled_for_user`), so a tool the tenant's plan does not cover
+    /// is left out here instead of being offered and refused. A client's list
+    /// therefore moves when the plan does.
     async fn tenant_filtered_schemas(
         &self,
         tenant_id: TenantId,
@@ -647,7 +615,7 @@ impl PierreToolDispatcher {
             Ok(all_effective_tools) => {
                 let enabled_names: Vec<String> = all_effective_tools
                     .iter()
-                    .filter(|t| !t.is_switched_off())
+                    .filter(|t| t.is_enabled)
                     .map(|t| t.tool_name.clone())
                     .collect();
                 let all_catalogued_names: Vec<String> = all_effective_tools
@@ -696,7 +664,7 @@ impl PierreToolDispatcher {
 
 #[async_trait]
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
-    async fn list_tools(&self, _state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
+    async fn list_tools(&self, state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
         record_caller(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
@@ -705,9 +673,9 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             // (`run_dispatch`), so such a caller — the stdio transport, which
             // carries no bearer — is offered nothing to invoke.
             (None, _) | (_, None) => Vec::new(),
-            (Some(tenant_id), Some(user_id)) if ctx.is_admin => {
-                self.admin_schemas(tenant_id, user_id).await
-            }
+            // A global admin is listed the same public profile: this dispatcher
+            // only ever serves external transports. `ADMIN_ONLY` still gates a
+            // call that names an operator tool.
             (Some(tenant_id), Some(user_id)) => {
                 self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
             }
@@ -721,6 +689,13 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             &self.resources.mcp.tool_registry,
             &mut schemas,
             Transport::McpHttp,
+        );
+
+        // A tool this deployment can only fail is not offered.
+        deployment_tools::retain_answerable(
+            &self.resources.mcp.tool_registry,
+            &mut schemas,
+            state.config(),
         );
 
         // The credential's grant narrows the listing too: a token holding

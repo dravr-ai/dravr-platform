@@ -9,8 +9,6 @@ use super::ServerContext;
 use super::ServerContextOptions;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
-#[cfg(feature = "protocol-a2a")]
-use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::archive_import::ArchiveImports;
@@ -31,6 +29,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::human_check::{HumanCheck, TurnstileCheck};
 use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
+use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::oauth2_server::play_integrity_decoder::GooglePlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::oauth2_server::KnownDeviceKey;
@@ -297,14 +296,9 @@ impl ServerContext {
 
         // Create A2A services for agent-to-agent communication
         #[cfg(feature = "protocol-a2a")]
-        let a2a_system_user_service = Arc::new(A2ASystemUserService::new(repos.users.clone()));
-        #[cfg(feature = "protocol-a2a")]
         let a2a_auth_repos = repos.auth_repos();
         #[cfg(feature = "protocol-a2a")]
-        let a2a_client_manager = Arc::new(A2AClientManager::new(
-            &a2a_auth_repos,
-            a2a_system_user_service.clone(),
-        ));
+        let a2a_client_manager = Arc::new(A2AClientManager::new(&a2a_auth_repos));
 
         // Wrap cache in Arc for shared access across handlers
         let cache_arc = Arc::new(cache);
@@ -329,11 +323,17 @@ impl ServerContext {
         let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
 
         // Create auth middleware after jwks_manager is initialized
-        let auth_middleware = Arc::new(McpAuthMiddleware::new(
-            (*auth_manager_arc).clone(),
-            repos.clone(),
-            jwks_manager_arc.clone(),
-        ));
+        let auth_middleware = Arc::new(
+            McpAuthMiddleware::new(
+                (*auth_manager_arc).clone(),
+                repos.clone(),
+                jwks_manager_arc.clone(),
+            )
+            .with_grant_standings(GrantStandings::new(
+                repos.oauth2_server.clone(),
+                cache_arc.clone(),
+            )),
+        );
 
         // On Redis every replica counts into the same OAuth2 window; an
         // in-process cache is not shared, so the limiter keeps its own store
@@ -672,8 +672,6 @@ impl ServerContext {
         let a2a = super::slices::A2ASlice {
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
-            #[cfg(feature = "protocol-a2a")]
-            a2a_system_user_service,
         };
 
         let billing = super::slices::BillingSlice {

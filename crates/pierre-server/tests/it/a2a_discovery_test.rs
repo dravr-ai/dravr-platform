@@ -15,20 +15,49 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::a2a::agent_card::{
-    AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC, OAUTH2_TOKEN_PATH,
+    AgentCard, ClientCredentialsOAuthFlow, OAuthFlows, SecurityScheme, BINDING_HTTP_JSON,
+    BINDING_JSONRPC, COACHING_SKILL_ID, OAUTH2_TOKEN_PATH, SCHEME_AUTHORIZATION_CODE,
+    SCHEME_CLIENT_CREDENTIALS,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 use serde_json::Value;
 
+/// The card of a deployment whose protocol door and issuer are one host.
+fn card_at(url: &str) -> AgentCard {
+    AgentCard::new(&OAuth2ServerConfig {
+        issuer_url: url.to_owned(),
+        mcp_resource_url: url.to_owned(),
+        ..OAuth2ServerConfig::default()
+    })
+}
+
+/// The card of the default configuration.
+fn default_card() -> AgentCard {
+    AgentCard::new(&OAuth2ServerConfig::default())
+}
+
+/// The card's client-credentials flow.
+fn client_credentials_flow(card: &AgentCard) -> &ClientCredentialsOAuthFlow {
+    let schemes = card.security_schemes.as_ref().expect("securitySchemes");
+    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get(SCHEME_CLIENT_CREDENTIALS) else {
+        panic!("{SCHEME_CLIENT_CREDENTIALS} must be an oauth2SecurityScheme");
+    };
+    let OAuthFlows::ClientCredentials(flow) = &oauth2.flows else {
+        panic!("{SCHEME_CLIENT_CREDENTIALS} must offer the clientCredentials flow");
+    };
+    flow
+}
+
 #[test]
 fn test_agent_card_structure() {
-    let card = AgentCard::new();
+    let card = default_card();
 
     // Required A2A 1.0 fields
     assert_eq!(card.name, "Dravr AI");
@@ -77,7 +106,7 @@ fn test_agent_card_structure() {
 
 #[test]
 fn test_agent_card_skills() {
-    let card = AgentCard::new();
+    let card = default_card();
 
     let skill_ids: Vec<&str> = card.skills.iter().map(|s| s.id.as_str()).collect();
     assert!(skill_ids.contains(&"get_activities"));
@@ -94,15 +123,19 @@ fn test_agent_card_skills() {
     }
 }
 
-/// `SendMessage` acts on a `data` part carrying `{tool_name, parameters}` and
-/// refuses anything else, so every advertised example must be written in
-/// that shape and name its own skill. A natural-language example would send
-/// a caller down a path the surface rejects.
+/// `SendMessage` runs a tool from a `data` part carrying `{tool_name,
+/// parameters}`, so every tool skill's example must be written in that shape
+/// and name its own skill. A natural-language example would send a caller down
+/// the coaching path instead; only the skill that reads text shows one.
 #[test]
 fn test_agent_card_skill_examples_are_executable_data_parts() {
-    let card = AgentCard::new();
+    let card = default_card();
 
-    for skill in &card.skills {
+    for skill in card
+        .skills
+        .iter()
+        .filter(|skill| skill.id != COACHING_SKILL_ID)
+    {
         assert!(
             !skill.examples.is_empty(),
             "skill {} must show how to invoke it",
@@ -125,16 +158,16 @@ fn test_agent_card_skill_examples_are_executable_data_parts() {
         }
     }
 
-    // The card declares only the media type the data part travels in.
+    // The card declares the media types a data part and a text part travel in.
     assert_eq!(
         card.default_input_modes,
-        vec!["application/json".to_owned()]
+        vec!["application/json".to_owned(), "text/plain".to_owned()]
     );
 }
 
 #[test]
 fn test_agent_card_serialization() {
-    let card = AgentCard::new();
+    let card = default_card();
 
     let json = card.to_json().expect("Agent card should serialize to JSON");
 
@@ -166,7 +199,7 @@ fn test_agent_card_serialization() {
 
 #[test]
 fn test_security_schemes() {
-    let card = AgentCard::new();
+    let card = default_card();
 
     let schemes = card.security_schemes.as_ref().expect("securitySchemes");
 
@@ -178,14 +211,7 @@ fn test_security_schemes() {
     assert_eq!(bearer.bearer_format.as_deref(), Some("JWT"));
 
     // OAuth2 client-credentials flow with a token URL and scopes.
-    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
-        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
-    };
-    let flow = oauth2
-        .flows
-        .client_credentials
-        .as_ref()
-        .expect("clientCredentials flow");
+    let flow = client_credentials_flow(&card);
     // The advertised token_url must be the route that actually serves the
     // client_credentials grant. `/oauth/token` is the ROPC bridge and
     // rejects every grant type but `password`, so a card pointing there
@@ -200,6 +226,16 @@ fn test_security_schemes() {
         "the ROPC bridge at /oauth/token does not serve client_credentials"
     );
     assert!(!flow.scopes.is_empty());
+
+    // The marketplace path: an athlete delegates with authorization code + PKCE.
+    let Some(SecurityScheme::OAuth2(delegated)) = schemes.get(SCHEME_AUTHORIZATION_CODE) else {
+        panic!("{SCHEME_AUTHORIZATION_CODE} must be an oauth2SecurityScheme");
+    };
+    let OAuthFlows::AuthorizationCode(flow) = &delegated.flows else {
+        panic!("{SCHEME_AUTHORIZATION_CODE} must offer the authorizationCode flow");
+    };
+    assert!(flow.pkce_required);
+    assert!(delegated.oauth2_metadata_url.is_some());
 
     // The card requires at least one satisfiable security requirement.
     assert!(!card.security_requirements.is_empty());
@@ -216,7 +252,7 @@ fn test_security_schemes() {
 #[test]
 fn test_agent_card_with_custom_base_url() {
     let base_url = "https://api.pierre.ai";
-    let card = AgentCard::with_base_url(base_url);
+    let card = card_at(base_url);
 
     for interface in &card.supported_interfaces {
         assert!(
@@ -226,15 +262,7 @@ fn test_agent_card_with_custom_base_url() {
         );
     }
 
-    let schemes = card.security_schemes.as_ref().unwrap();
-    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
-        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
-    };
-    assert!(oauth2
-        .flows
-        .client_credentials
-        .as_ref()
-        .unwrap()
+    assert!(client_credentials_flow(&card)
         .token_url
         .starts_with(base_url));
 }
@@ -298,16 +326,8 @@ async fn test_advertised_token_url_is_mounted_and_is_not_the_password_bridge() {
     let resources = common::create_test_server_resources().await.unwrap();
 
     let base_url = "https://api.dravr.ai";
-    let card = AgentCard::with_base_url(base_url);
-    let schemes = card.security_schemes.as_ref().expect("securitySchemes");
-    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
-        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
-    };
-    let path = oauth2
-        .flows
-        .client_credentials
-        .as_ref()
-        .expect("clientCredentials flow")
+    let card = card_at(base_url);
+    let path = client_credentials_flow(&card)
         .token_url
         .strip_prefix(base_url)
         .expect("token_url must be built from the card's base URL")
@@ -354,16 +374,8 @@ async fn test_advertised_token_url_is_mounted_and_is_not_the_password_bridge() {
 /// scope its advertised `set_goal` skill needs.
 #[test]
 fn test_card_scopes_are_the_authorization_server_vocabulary() {
-    let card = AgentCard::with_base_url("https://api.dravr.ai");
-    let schemes = card.security_schemes.as_ref().expect("securitySchemes");
-    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
-        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
-    };
-    let flow = oauth2
-        .flows
-        .client_credentials
-        .as_ref()
-        .expect("clientCredentials flow");
+    let card = card_at("https://api.dravr.ai");
+    let flow = client_credentials_flow(&card);
 
     let advertised: Vec<&str> = flow.scopes.keys().map(String::as_str).collect();
     assert_eq!(
@@ -382,4 +394,31 @@ fn test_card_scopes_are_the_authorization_server_vocabulary() {
         .scopes
         .values()
         .all(|description| !description.is_empty()));
+}
+
+/// carnet#1368: an orchestrator picks a skill from the card and sends text.
+#[test]
+fn test_card_advertises_the_coaching_skill_and_reads_text() {
+    let card = default_card();
+    assert!(
+        card.default_input_modes
+            .iter()
+            .any(|mode| mode == "text/plain"),
+        "{:?}",
+        card.default_input_modes
+    );
+    let coaching = card
+        .skills
+        .iter()
+        .find(|skill| skill.id == COACHING_SKILL_ID)
+        .expect("the coaching skill is on the public card");
+    assert_eq!(coaching.input_modes, vec!["text/plain".to_owned()]);
+    assert_eq!(coaching.output_modes, vec!["text/plain".to_owned()]);
+    assert!(
+        !coaching
+            .examples
+            .iter()
+            .any(|example| example.contains("tool_name")),
+        "the examples are what a text part carries, not a data part"
+    );
 }

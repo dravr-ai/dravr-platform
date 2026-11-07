@@ -12,8 +12,8 @@
 //! interface `protocolVersion`, oneof-wrapped security schemes).
 
 use std::collections::BTreeMap;
-use std::env;
 
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_core::permissions::scopes::OAuthScope;
 use serde::{Deserialize, Serialize};
 
@@ -24,18 +24,48 @@ pub const BINDING_JSONRPC: &str = "JSONRPC";
 /// Protocol binding identifier for the HTTP+JSON/REST interface (spec §5.2)
 pub const BINDING_HTTP_JSON: &str = "HTTP+JSON";
 
-/// Media type of the structured `data` part that carries a tool invocation.
-/// The message surface acts on that part alone, so it is the card's only
-/// declared input mode.
+/// Media type of the structured `data` part that carries a tool invocation:
+/// what every tool skill reads.
 pub const DATA_PART_MEDIA_TYPE: &str = "application/json";
+/// The skill a `text` part reaches: a coaching turn, not a registered tool.
+pub const COACHING_SKILL_ID: &str = "coaching";
+/// The grant the coaching skill needs: a turn's prompt carries the athlete's
+/// training and who they are, whatever tool it goes on to call. The card's
+/// authorization-code requirement names both, so a client that asks for what
+/// the card requires can use every skill an athlete's grant reaches.
+pub(crate) const COACHING_SKILL_SCOPES: [OAuthScope; 2] =
+    [OAuthScope::FitnessRead, OAuthScope::ProfileRead];
+/// Media type of a `text` part: what the coaching skill reads and writes.
+pub const TEXT_PART_MEDIA_TYPE: &str = "text/plain";
 
 /// Path of the OAuth 2.0 authorization server's token endpoint.
 ///
-/// This is the route that serves the `client_credentials` grant advertised by
-/// the card's `oauth2ClientCredentials` scheme. Mounted by
+/// This is the route that serves the `authorization_code` and
+/// `client_credentials` grants the card's OAuth schemes advertise. Mounted by
 /// `pierre-routes-identity` and published as `token_endpoint` in the RFC 8414
 /// discovery document.
 pub const OAUTH2_TOKEN_PATH: &str = "/oauth2/token";
+
+/// Path of the OAuth 2.0 authorization server's authorization endpoint,
+/// published as `authorization_endpoint` in the RFC 8414 discovery document.
+pub const OAUTH2_AUTHORIZE_PATH: &str = "/oauth2/authorize";
+
+/// Path of the RFC 8414 authorization server metadata document on the issuer.
+pub const OAUTH2_METADATA_PATH: &str = "/.well-known/oauth-authorization-server";
+
+/// Where a person reads about the agent.
+const DOCUMENTATION_URL: &str = "https://dravr.ai/docs";
+
+/// Path of the agent's icon on the protocol door, a static file of the web app.
+pub const ICON_PATH: &str = "/pwa-512.png";
+
+/// Name of the card's authorization-code scheme: an athlete delegates to an
+/// agent, the marketplace path.
+pub const SCHEME_AUTHORIZATION_CODE: &str = "oauth2AuthorizationCode";
+
+/// Name of the card's client-credentials scheme: a registered B2B client, which
+/// acts as the user who registered it.
+pub const SCHEME_CLIENT_CREDENTIALS: &str = "oauth2ClientCredentials";
 
 /// A2A 1.0 Agent Card for Pierre
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +95,9 @@ pub struct AgentCard {
     /// Human-readable documentation URL
     #[serde(rename = "documentationUrl", skip_serializing_if = "Option::is_none")]
     pub documentation_url: Option<String>,
+    /// URL of an icon for the agent
+    #[serde(rename = "iconUrl", skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Named security schemes accepted by this agent
     #[serde(rename = "securitySchemes", skip_serializing_if = "Option::is_none")]
     pub security_schemes: Option<BTreeMap<String, SecurityScheme>>,
@@ -201,22 +234,29 @@ pub struct ApiKeySecurityScheme {
 /// OAuth 2.0 scheme details.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2SecurityScheme {
-    /// Supported OAuth 2.0 flows (required)
+    /// The OAuth 2.0 flow this scheme offers (required)
     pub flows: OAuthFlows,
     /// Human-readable description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// URL of the authorization server's RFC 8414 metadata document
+    #[serde(rename = "oauth2MetadataUrl", skip_serializing_if = "Option::is_none")]
+    pub oauth2_metadata_url: Option<String>,
 }
 
-/// OAuth 2.0 flow configurations (A2A 1.0 `OAuthFlows`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct OAuthFlows {
-    /// Client-credentials flow
-    #[serde(rename = "clientCredentials", skip_serializing_if = "Option::is_none")]
-    pub client_credentials: Option<ClientCredentialsOAuthFlow>,
+/// OAuth 2.0 flow configuration (A2A 1.0 `OAuthFlows`).
+///
+/// A `oneof` in the normative proto: one scheme offers exactly one flow, so an
+/// agent offering two publishes two schemes.
+#[non_exhaustive]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OAuthFlows {
     /// Authorization-code flow
-    #[serde(rename = "authorizationCode", skip_serializing_if = "Option::is_none")]
-    pub authorization_code: Option<AuthorizationCodeOAuthFlow>,
+    #[serde(rename = "authorizationCode")]
+    AuthorizationCode(AuthorizationCodeOAuthFlow),
+    /// Client-credentials flow
+    #[serde(rename = "clientCredentials")]
+    ClientCredentials(ClientCredentialsOAuthFlow),
 }
 
 /// OAuth 2.0 client-credentials flow configuration.
@@ -251,35 +291,30 @@ pub struct AuthorizationCodeOAuthFlow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityRequirement {
     /// Scheme name → required scopes (proto `map<string, StringList>`)
-    pub schemes: BTreeMap<String, StringListValue>,
+    pub schemes: BTreeMap<String, StringList>,
 }
 
 /// `ProtoJSON` form of the proto `StringList` message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StringListValue {
-    /// The list values
+pub struct StringList {
+    /// The individual values
     #[serde(default)]
-    pub values: Vec<String>,
+    pub list: Vec<String>,
 }
 
 impl AgentCard {
-    /// Fallback base URL when `BASE_URL` env var is not set
-    const FALLBACK_BASE_URL: &'static str = "http://localhost:8081";
-
-    /// Resolve the base URL from `BASE_URL` env var, falling back to localhost
-    #[must_use]
-    fn resolve_base_url() -> String {
-        env::var("BASE_URL").unwrap_or_else(|_| Self::FALLBACK_BASE_URL.to_owned())
-    }
-
-    /// Create a new Agent Card for Pierre with specified base URL
+    /// The Agent Card of this deployment.
     ///
-    /// Prefer this constructor when you have access to server configuration.
+    /// The protocol URLs name the published protocol door
+    /// ([`OAuth2ServerConfig::protocol_origin`], from `MCP_RESOURCE_URL`), so
+    /// the card is the same whichever host serves it. The OAuth URLs name the
+    /// issuer, as its RFC 8414 document does, which may be another host.
     #[must_use]
-    pub fn with_base_url(base_url: &str) -> Self {
+    pub fn new(config: &OAuth2ServerConfig) -> Self {
+        let base_url = config.protocol_origin();
         Self {
             name: "Dravr AI".into(),
-            description: "AI-powered fitness data analysis and insights platform providing comprehensive activity analysis, performance tracking, and intelligent recommendations for athletes and fitness enthusiasts. Skills are invoked as structured tool calls: a message carries a data part shaped {\"tool_name\": \"<skill id>\", \"parameters\": {...}}.".into(),
+            description: "AI-powered fitness data analysis and insights platform providing comprehensive activity analysis, performance tracking, and intelligent recommendations for athletes and fitness enthusiasts. Tool skills are invoked as structured tool calls: a message carries a data part shaped {\"tool_name\": \"<skill id>\", \"parameters\": {...}}. The coaching skill reads a plain text part.".into(),
             version: "1.0.0".into(),
             supported_interfaces: vec![
                 AgentInterface {
@@ -301,52 +336,50 @@ impl AgentCard {
                 extended_agent_card: true,
                 extensions: Vec::new(),
             },
-            default_input_modes: vec![DATA_PART_MEDIA_TYPE.into()],
+            default_input_modes: vec![DATA_PART_MEDIA_TYPE.into(), TEXT_PART_MEDIA_TYPE.into()],
             default_output_modes: vec!["application/json".into(), "text/plain".into()],
             skills: Self::create_skills(),
             provider: Some(AgentProvider {
                 url: "https://dravr.ai".into(),
                 organization: "dravr.ai".into(),
             }),
-            documentation_url: Some("https://docs.pierre.ai/a2a".into()),
-            security_schemes: Some(Self::create_security_schemes(base_url)),
+            documentation_url: Some(DOCUMENTATION_URL.into()),
+            icon_url: Some(format!("{base_url}{ICON_PATH}")),
+            security_schemes: Some(Self::create_security_schemes(&config.issuer_url)),
             security_requirements: vec![
-                SecurityRequirement {
-                    schemes: BTreeMap::from([(
-                        "bearerAuth".to_owned(),
-                        StringListValue { values: Vec::new() },
-                    )]),
-                },
-                SecurityRequirement {
-                    schemes: BTreeMap::from([(
-                        "oauth2ClientCredentials".to_owned(),
-                        StringListValue {
-                            values: vec![OAuthScope::FitnessRead.as_str().to_owned()],
-                        },
-                    )]),
-                },
+                Self::requirement(
+                    SCHEME_AUTHORIZATION_CODE,
+                    COACHING_SKILL_SCOPES
+                        .iter()
+                        .map(|scope| scope.as_str().to_owned())
+                        .collect(),
+                ),
+                // A client-credentials token acts for no athlete, so it never
+                // reaches the coaching skill and is asked for the read grant only.
+                Self::requirement(SCHEME_CLIENT_CREDENTIALS, vec![read_scope()]),
+                Self::requirement("bearerAuth", Vec::new()),
             ],
         }
     }
 
-    /// Create a new Agent Card for Pierre using `BASE_URL` env var
-    ///
-    /// Falls back to `http://localhost:8081` if `BASE_URL` is not set.
-    /// For explicit URL control, use `with_base_url()`.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::with_base_url(&Self::resolve_base_url())
+    /// A security requirement of one scheme.
+    fn requirement(scheme: &str, scopes: Vec<String>) -> SecurityRequirement {
+        SecurityRequirement {
+            schemes: BTreeMap::from([(scheme.to_owned(), StringList { list: scopes })]),
+        }
     }
 
     /// Named security schemes advertised by the card
-    fn create_security_schemes(base_url: &str) -> BTreeMap<String, SecurityScheme> {
+    fn create_security_schemes(issuer: &str) -> BTreeMap<String, SecurityScheme> {
         // The same vocabulary `scopes_supported` publishes: every scope the
         // authorization server can grant a client, and nothing it would refuse.
-        let scopes = OAuthScope::ALL
+        let scopes: BTreeMap<String, String> = OAuthScope::ALL
             .into_iter()
             .filter(|scope| scope.is_delegable())
             .map(|scope| (scope.as_str().to_owned(), scope.description().to_owned()))
             .collect();
+        let token_url = format!("{issuer}{OAUTH2_TOKEN_PATH}");
+        let metadata_url = format!("{issuer}{OAUTH2_METADATA_PATH}");
 
         BTreeMap::from([
             (
@@ -354,22 +387,38 @@ impl AgentCard {
                 SecurityScheme::HttpAuth(HttpAuthSecurityScheme {
                     scheme: "bearer".into(),
                     bearer_format: Some("JWT".into()),
-                    description: Some("Pierre-issued JWT in the Authorization header".into()),
+                    description: Some(
+                        "Dravr-issued OAuth access token in the Authorization header".into(),
+                    ),
                 }),
             ),
             (
-                "oauth2ClientCredentials".to_owned(),
+                SCHEME_AUTHORIZATION_CODE.to_owned(),
                 SecurityScheme::OAuth2(OAuth2SecurityScheme {
-                    flows: OAuthFlows {
-                        client_credentials: Some(ClientCredentialsOAuthFlow {
-                            token_url: format!("{base_url}{OAUTH2_TOKEN_PATH}"),
-                            scopes,
-                        }),
-                        authorization_code: None,
-                    },
+                    flows: OAuthFlows::AuthorizationCode(AuthorizationCodeOAuthFlow {
+                        authorization_url: format!("{issuer}{OAUTH2_AUTHORIZE_PATH}"),
+                        token_url: token_url.clone(), // Safe: String ownership for both flows
+                        scopes: scopes.clone(),       // Safe: BTreeMap ownership for both flows
+                        pkce_required: true,
+                    }),
+                    description: Some(
+                        "An athlete authorizes the agent to act for them (authorization code with PKCE)"
+                            .into(),
+                    ),
+                    oauth2_metadata_url: Some(metadata_url.clone()), // Safe: String ownership for both flows
+                }),
+            ),
+            (
+                SCHEME_CLIENT_CREDENTIALS.to_owned(),
+                SecurityScheme::OAuth2(OAuth2SecurityScheme {
+                    flows: OAuthFlows::ClientCredentials(ClientCredentialsOAuthFlow {
+                        token_url,
+                        scopes,
+                    }),
                     description: Some(
                         "OAuth2 client-credentials flow for registered A2A clients".into(),
                     ),
+                    oauth2_metadata_url: Some(metadata_url),
                 }),
             ),
         ])
@@ -377,11 +426,26 @@ impl AgentCard {
 
     /// Skills advertised by the card.
     ///
-    /// A skill is invoked by sending it as a `SendMessage` `data` part, so
-    /// every example is written in that literal wire shape — the only form
-    /// the message surface accepts.
+    /// A tool skill is invoked by sending it as a `SendMessage` `data` part, so
+    /// its examples are written in that literal wire shape. The coaching skill
+    /// is the one a `text` part reaches, and its examples are plain sentences.
     fn create_skills() -> Vec<AgentSkill> {
         vec![
+            AgentSkill {
+                id: COACHING_SKILL_ID.into(),
+                name: "Coaching".into(),
+                description: "Ask the athlete's coach a question in plain language and get a \
+                              written answer grounded in their training. Needs a grant the \
+                              athlete authorized, holding fitness:read and profile:read."
+                    .into(),
+                tags: vec!["fitness".into(), "coaching".into(), "conversation".into()],
+                examples: vec![
+                    "How did my training go this week?".into(),
+                    "Should I run long tomorrow or take the day off?".into(),
+                ],
+                input_modes: vec![TEXT_PART_MEDIA_TYPE.into()],
+                output_modes: vec![TEXT_PART_MEDIA_TYPE.into()],
+            },
             AgentSkill {
                 id: "get_activities".into(),
                 name: "Get Activities".into(),
@@ -456,8 +520,7 @@ impl AgentCard {
     }
 }
 
-impl Default for AgentCard {
-    fn default() -> Self {
-        Self::new()
-    }
+/// The scope a client-credentials connection asks for.
+fn read_scope() -> String {
+    OAuthScope::FitnessRead.as_str().to_owned()
 }

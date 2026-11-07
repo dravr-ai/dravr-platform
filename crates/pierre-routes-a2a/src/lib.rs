@@ -39,6 +39,7 @@ pub mod binding;
 use axum::{
     extract::{FromRequestParts, Path, State},
     http::{request::Parts, StatusCode},
+    middleware,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -46,6 +47,7 @@ use axum::{
 use pierre_a2a::{
     agent_card::AgentCard,
     client::{A2AClientManager, ClientRegistrationRequest},
+    coaching::CoachingTurns,
     A2AError,
 };
 use pierre_auth::auth::AuthResult;
@@ -119,6 +121,9 @@ pub struct A2ARoutesState<C: MiddlewareCtx + A2ACtx> {
     /// Tool runtime — backs the universal tool executor the protocol
     /// bindings hand to the A2A server for tool-intent messages.
     pub tool_runtime: Arc<dyn ToolRuntime>,
+    /// The coaching pipeline a text message runs in; `None` in a build without
+    /// it, which refuses a text message.
+    pub coaching: Option<Arc<dyn CoachingTurns>>,
 }
 
 impl<C: MiddlewareCtx + A2ACtx> fmt::Debug for A2ARoutesState<C> {
@@ -140,6 +145,7 @@ impl<C: MiddlewareCtx + A2ACtx> Clone for A2ARoutesState<C> {
             client_manager: self.client_manager.clone(), // Safe: Arc clone for shared client manager
             auth_middleware: self.auth_middleware.clone(), // Safe: Arc clone for shared middleware
             tool_runtime: self.tool_runtime.clone(),     // Safe: Arc clone of trait object
+            coaching: self.coaching.clone(),             // Safe: Arc clone of trait object
         }
     }
 }
@@ -153,12 +159,8 @@ pub struct A2AClientResponse {
     pub name: String,
     /// Description of the client application
     pub description: String,
-    /// Public key for identification
-    pub public_key: String,
-    /// List of capabilities this client can access
+    /// Labels the registrant declared; descriptive only, never an authorization
     pub capabilities: Vec<String>,
-    /// List of permissions granted to this client
-    pub permissions: Vec<String>,
     /// Contact address of the client's administrator, in its stored
     /// (normalized) form; omitted for a client registered without one
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,7 +184,8 @@ struct CreateA2AClientRequest {
     name: String,
     /// Description of the client's purpose
     description: String,
-    /// List of agent capabilities this client provides
+    /// Labels describing the client; descriptive only, never an authorization
+    #[serde(default)]
     capabilities: Vec<String>,
     /// `OAuth2` redirect URIs for authorization flows (optional)
     #[serde(default)]
@@ -199,16 +202,6 @@ struct CreateA2AClientResponse {
     /// Client secret for authentication
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
     client_secret: SecretString,
-    /// API key for direct API access
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
-    api_key: SecretString,
-    /// Ed25519 public key for signature verification
-    public_key: String,
-    /// Ed25519 private key for signing
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
-    private_key: SecretString,
-    /// Key type identifier
-    key_type: String,
 }
 
 /// Request body of `POST /a2a/credentials`: provider name to OAuth
@@ -229,7 +222,10 @@ impl A2ARoutes {
     /// Protocol surface (A2A 1.0, version-gated via `A2A-Version`):
     /// - POST /a2a/jsonrpc - JSONRPC binding (SSE for streaming methods)
     /// - POST /a2a/message:send, /a2a/message:stream - HTTP+JSON binding
-    /// - GET/POST /a2a/tasks, /a2a/tasks/{id}[:cancel|:subscribe]
+    /// - GET /a2a/tasks, GET /a2a/tasks/{id}
+    /// - POST /a2a/tasks/{id}:cancel
+    /// - GET and POST /a2a/tasks/{id}:subscribe (the path parameter holds the
+    ///   verb, so both reach their handler through /a2a/tasks/{id})
     /// - `/a2a/tasks/{id}/pushNotificationConfigs[/{config_id}]`
     /// - GET `/a2a/extendedAgentCard`
     /// - GET /.well-known/agent-card.json - Agent card discovery
@@ -237,14 +233,12 @@ impl A2ARoutes {
     /// Management surface (frontend API expectations):
     /// - /a2a/status, `/a2a/clients[/{client_id}]`
     /// - POST /a2a/credentials - store per-user OAuth app credentials
+    ///
+    /// A 401 on the protocol surface carries the `WWW-Authenticate` challenge.
+    /// The management surface answers Dravr's own signed-in app, not an agent,
+    /// and a delegated token is refused there, so it has no resource to name.
     pub fn routes<C: MiddlewareCtx + A2ACtx>(state: A2ARoutesState<C>) -> Router {
         Router::new()
-            // Public routes (no auth required)
-            .route("/a2a/status", get(Self::handle_status))
-            .route(
-                "/.well-known/agent-card.json",
-                get(Self::handle_agent_card_discovery::<C>),
-            )
             // A2A 1.0 protocol bindings. Per-method auth is enforced inside
             // `A2AServer`, so the routes are not behind the `A2AAuth`
             // extractor; version negotiation happens in `binding`.
@@ -270,6 +264,16 @@ impl A2ARoutes {
             .route(
                 "/a2a/extendedAgentCard",
                 get(binding::rest_extended_card::<C>),
+            )
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(), // Safe: every field is an Arc
+                binding::challenge_unauthorized::<C>,
+            ))
+            // Public routes (no auth required)
+            .route("/a2a/status", get(Self::handle_status))
+            .route(
+                "/.well-known/agent-card.json",
+                get(Self::handle_agent_card_discovery::<C>),
             )
             // Client management routes (auth required)
             .route(
@@ -314,7 +318,7 @@ impl A2ARoutes {
     ) -> Json<AgentCard> {
         // Yield to scheduler for cooperative multitasking
         task::yield_now().await;
-        Json(AgentCard::with_base_url(state.ctx.base_url()))
+        Json(AgentCard::new(state.ctx.oauth2_server_config()))
     }
 
     /// Store per-user OAuth application credentials supplied by an A2A
@@ -385,9 +389,7 @@ impl A2ARoutes {
                 id: c.id,
                 name: c.name,
                 description: c.description,
-                public_key: c.public_key,
                 capabilities: c.capabilities,
-                permissions: c.permissions,
                 contact_email: c.contact_email,
                 is_active: c.is_active,
                 created_at: c.created_at.to_rfc3339(),
@@ -436,10 +438,6 @@ impl A2ARoutes {
         let response = CreateA2AClientResponse {
             client_id: credentials.client_id,
             client_secret: credentials.client_secret,
-            api_key: credentials.api_key,
-            public_key: credentials.public_key,
-            private_key: credentials.private_key,
-            key_type: credentials.key_type,
         };
 
         info!(
@@ -474,9 +472,7 @@ impl A2ARoutes {
             id: client.id,
             name: client.name,
             description: client.description,
-            public_key: client.public_key,
             capabilities: client.capabilities,
-            permissions: client.permissions,
             contact_email: client.contact_email,
             is_active: client.is_active,
             created_at: client.created_at.to_rfc3339(),
@@ -508,7 +504,8 @@ impl A2ARoutes {
             return Err(AppError::not_found(format!("A2A client {client_id}")));
         }
 
-        // Deactivate the client, its credentials, sessions and API keys
+        // Deactivate the client, its credentials, its sessions and any API key
+        // linked to it
         state
             .client_manager
             .deactivate_client(&client_id)

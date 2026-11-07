@@ -16,6 +16,8 @@ pub mod client_registration;
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
+/// Where a user's consent to a client stands, read through a short-lived cache
+pub mod grant_standing;
 /// The known-device cookie that lets a browser skip the account sign-in window
 pub mod known_device;
 /// The mobile app's attestation evidence on its code exchange

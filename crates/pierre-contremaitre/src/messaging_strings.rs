@@ -1770,6 +1770,17 @@ impl MessagingStringsRegistry {
             .unwrap_or_default()
     }
 
+    /// The text of `key` in `locale` only, with no fallback; a blank entry is
+    /// no text. For a page whose fallback language is not [`DEFAULT_LOCALE`].
+    #[must_use]
+    pub fn get_exact(&self, key: &str, locale: &str) -> Option<String> {
+        self.read()
+            .get(key)?
+            .get(locale)
+            .map(|entry| entry.content.clone())
+            .filter(|content| !content.trim().is_empty())
+    }
+
     /// Render a template for `(key, locale)` with positional arguments.
     ///
     /// Convenience wrapper around [`Self::get`] + [`format_template`]; keeps

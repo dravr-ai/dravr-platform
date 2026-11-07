@@ -6,17 +6,22 @@
 
 //! Tools kept on Dravr's own surfaces.
 //!
-//! Some tools only make sense inside Dravr's own apps and channels. The coach
-//! family is the first: its tools read other athletes' data for the coach who
-//! leads their group, under consents those athletes gave inside Dravr. An MCP
-//! client or an A2A agent acting for the coach is outside that agreement, so
-//! those tools are not offered there at all.
+//! Some tools only make sense inside Dravr's own apps and channels, and are not
+//! offered to an MCP client or an A2A agent at all:
+//!
+//! - the coach family reads other athletes' data for the coach who leads their
+//!   group, under consents those athletes gave inside Dravr;
+//! - agent store and agent CRUD manage the personas of Dravr's own chat;
+//! - memory and self-steering (`remember_fact`, `agent_note_add`,
+//!   `agent_followup_schedule`, the commitments, `forget_playbook`) write what
+//!   Dravr's own chat later reads as the athlete's record, which an assistant's
+//!   text does not get to become.
 //!
 //! A tool declares this as a property of itself
 //! ([`RuntimeTool::transport_policy`](crate::security::RuntimeTool::transport_policy)),
 //! with the same [`TransportPolicy`] a provider declares for its data, and the
 //! same [`Transport::is_first_party`] decides. There is no list of names: a
-//! coach tool added later is kept off external transports by declaring it.
+//! tool added later is kept off external transports by declaring it.
 //!
 //! Listing and execution ask the same question, the way
 //! [`crate::coach_seat`] does for the coach's seat: an external listing leaves
@@ -69,8 +74,8 @@ pub fn retain_served_over(
 /// The in-band refusal for `tool_name` when `transport` withholds it.
 ///
 /// In band, like the coach seat's: the caller adapts to "not over this
-/// interface" the way it adapts to a tenant-disabled tool. Nothing about the
-/// athletes the tool would have read is looked up before it.
+/// interface" the way it adapts to a tenant-disabled tool. Nothing the tool
+/// would have read is looked up before it.
 #[must_use]
 pub fn refusal(
     registry: &ToolRegistry,
@@ -90,10 +95,7 @@ pub fn refusal(
 
 /// What the caller reads when it names a tool kept on Dravr's own surfaces.
 fn refusal_message(tool_name: &str) -> String {
-    format!(
-        "'{tool_name}' is not available over this interface: a coach reads their athletes' \
-         data from Dravr's own app or channels."
-    )
+    format!("'{tool_name}' is not available over this interface: it runs in Dravr's own app or channels.")
 }
 
 #[cfg(test)]
@@ -186,29 +188,35 @@ mod tests {
         #[test]
         fn a_tool_on_every_transport_is_never_withheld() {
             let registry = registry();
-            for name in registry.tools_in_category("memory") {
-                for transport in ALL {
-                    assert!(!withholds(&registry, name, Some(transport)), "{name}");
-                }
-                assert!(!withholds(&registry, name, None), "{name}");
+            let name = "recall_user_memory";
+            for transport in ALL {
+                assert!(
+                    !withholds(&registry, name, Some(transport)),
+                    "bug: {name} is served on every transport, yet {transport:?} withholds it"
+                );
             }
+            assert!(
+                !withholds(&registry, name, None),
+                "bug: {name} is served on every transport, yet an undeclared one withholds it"
+            );
         }
 
         #[test]
-        fn an_external_listing_loses_the_coach_tools_and_keeps_the_rest() {
+        fn an_external_listing_loses_the_withheld_tools_and_keeps_the_rest() {
             let registry = registry();
             let mut schemas = registry.all_schemas();
             let before = schemas.len();
             retain_served_over(&registry, &mut schemas, Transport::McpHttp);
             assert_eq!(
                 before - schemas.len(),
-                5,
-                "bug: an external listing must drop exactly the five coach tools"
+                8,
+                "bug: an external listing must drop the five coach tools and the three \
+                 memory writes"
             );
-            assert!(
-                schemas
-                    .iter()
-                    .all(|schema| registry.category_for_tool(&schema.name) == Some("memory")),
+            let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
+            assert_eq!(
+                kept,
+                ["recall_user_memory"],
                 "bug: an external listing must keep every tool served on every transport"
             );
 

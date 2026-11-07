@@ -660,6 +660,18 @@ pub mod oauth_rate_limiting {
     /// egress addresses; a window keyed on `client_id` instead would let anyone
     /// exhaust a public client's window, since that identifier is public.
     pub const TOKEN_RPM: u32 = 600;
+    /// Grants one athlete's tokens may redeem at the token endpoint per
+    /// window, from any address and through any client.
+    ///
+    /// An access token lives 3,600 s, so one connection refreshes at most once
+    /// an hour; the one connector refreshing on production when this was set
+    /// did so every ~8 h (`Refresh token rotated`, 7 days of logs to
+    /// 2026-11-06). Thirty a minute covers an athlete whose every connector
+    /// reconnects in the same minute and retries, while a stolen grant looping
+    /// on rotation stops here. A stranger cannot spend it the way they could a
+    /// `client_id` window: only a request naming a live grant of the athlete
+    /// counts, and only after its client authenticated.
+    pub const TOKEN_USER_RPM: u32 = 30;
     /// Registration endpoint rate limit (requests per minute)
     pub const REGISTER_RPM: u32 = 10;
     /// Password re-confirmations a signed-in account may attempt per window

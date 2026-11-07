@@ -612,6 +612,8 @@ pub(crate) async fn assemble_prompt_and_messages(
         seat,
         switched_off,
         ai_scope::declared_transport(),
+        &input.grant,
+        &ctx.config,
     )
     .into_iter()
     .map(|s| s.name)

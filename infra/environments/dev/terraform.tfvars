@@ -43,6 +43,14 @@ frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.
 # scripts/ci/first-party-sign-in-smoke.sh, carnet#1152).
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
+# Cloud Armor on that load balancer. Every rule that can refuse a request is in
+# preview until armor_waf_preview / armor_rate_rules_preview are set false here
+# (procedure in public_mcp_monitoring.tf). The ranges are Anthropic's outbound
+# IPv4 list, https://platform.claude.com/docs/en/api/ip-addresses (it publishes
+# no outbound IPv6), checked 2026-11-06.
+armor_enabled            = true
+marketplace_egress_cidrs = ["160.79.104.0/21", "153.61.208.0/20"]
+
 # The MCP resource identifier (MCP_RESOURCE_URL): the URL a user enters in the
 # client, with the MCP endpoint's path, because claude.ai requires the RFC 9728
 # `resource` to equal it. Apply this only once an image that accepts a path is

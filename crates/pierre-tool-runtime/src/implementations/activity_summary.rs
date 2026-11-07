@@ -34,6 +34,13 @@ const MAX_AUTHOR_CHARS: usize = 60;
 /// overview, which [`detail_json`] never hands the model.
 const ROUTE_OVERVIEW_KEY: &str = "summary_polyline";
 
+/// The serialized [`Activity`] key holding its per-sample streams.
+const STREAMS_KEY: &str = "time_series_data";
+
+/// The stream channel holding every recorded position, which [`detail_json`]
+/// never hands the model.
+const GPS_TRACK_KEY: &str = "gps_coordinates";
+
 /// The serialized [`Activity`] key naming the provider a row came from.
 const PROVIDER_KEY: &str = "provider";
 
@@ -201,8 +208,12 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// The route overview (`summary_polyline`) is left out. It is an encoded
 /// polyline — hundreds of characters a model cannot read as a route — and it
 /// is the provider's untrimmed line, starting and ending at the athlete's
+/// door. So is the GPS channel of the streams (`gps_coordinates`), which a
+/// detail read carries when the provider's detail answer holds the track (a
+/// scraped Garmin or TrainingPeaks page does): every recorded point, door to
 /// door. Geometry leaves the server only through the privacy-trimmed route
-/// track, never as the provider sent it.
+/// track, never as the provider sent it. Where the activity took place stays:
+/// its start coordinates, city, region and country.
 ///
 /// Each row's `provider` names the service the athlete connected
 /// ([`backend_resolver::activity_origin`]): a row a mirror backend read carries the backend's
@@ -220,6 +231,9 @@ pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
             };
             fence_self_report(row);
             row.remove(ROUTE_OVERVIEW_KEY);
+            if let Some(Value::Object(streams)) = row.get_mut(STREAMS_KEY) {
+                streams.remove(GPS_TRACK_KEY);
+            }
             row.insert(
                 PROVIDER_KEY.to_owned(),
                 Value::String(

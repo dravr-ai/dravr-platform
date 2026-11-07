@@ -50,6 +50,7 @@ use async_trait::async_trait;
 use dravr_tronc::http_client::guard::FetchPolicy;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::billing::BillingProvider;
@@ -192,9 +193,10 @@ pub trait A2ACtx: Send + Sync + 'static {
     /// (a2a clients, sessions, tasks, push-notification configs, usage).
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
-    /// Configured server base URL — used to construct the agent card's
-    /// `supportedInterfaces` URLs.
-    fn base_url(&self) -> &str;
+    /// The authorization server's configuration: the issuer and the protocol
+    /// door the agent card publishes, and the A2A resource identifiers a
+    /// token may be bound to.
+    fn oauth2_server_config(&self) -> &OAuth2ServerConfig;
 
     /// Run a task's execution after its request has answered.
     ///

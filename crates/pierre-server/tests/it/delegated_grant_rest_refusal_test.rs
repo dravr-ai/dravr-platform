@@ -590,7 +590,7 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     );
     let page = response.text();
     assert!(
-        page.contains("<li>fitness:read</li>") && page.contains("<li>profile:read</li>"),
+        page.contains("(fitness:read)</li>") && page.contains("(profile:read)</li>"),
         "the consent screen shows the default grant the code will carry"
     );
 }

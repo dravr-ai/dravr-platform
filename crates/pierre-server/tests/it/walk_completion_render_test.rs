@@ -27,6 +27,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
@@ -950,6 +951,7 @@ impl Athlete {
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,
+            grant: OAuthScope::self_grant(),
         };
         let profile = SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

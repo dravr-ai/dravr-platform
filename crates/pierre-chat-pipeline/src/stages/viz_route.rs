@@ -34,7 +34,6 @@ use std::sync::Arc;
 
 use pierre_cache::Cache;
 use pierre_core::models::{TenantId, TimeSeriesData};
-use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -178,9 +177,9 @@ pub async fn read_route_tracks(
     }
     let (read_now, past_budget) = within_budget(wanted, tracks.len());
     // Same construction as tool dispatch (stage 9) and the capability-recovery
-    // fetch: the athlete's own turn, on the turn's Guardian budget.
+    // fetch: the turn's own grant, on the turn's Guardian budget.
     let executor = UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-        .with_scopes(OAuthScope::self_grant())
+        .with_scopes(input.grant.clone())
         .with_conversation_id(input.conversation_id.clone())
         .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
         .with_turn_token(input.turn_id.0.to_string());

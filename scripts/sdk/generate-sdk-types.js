@@ -77,8 +77,7 @@ function isApiKey(token) {
  *
  * `/mcp/tools` is the MCP surface, which refuses a first-party session token
  * (carnet#768): it takes the athlete's own API key or a delegated OAuth grant.
- * An API key carries the self grant, so the global admin it belongs to still
- * sees the complete registry.
+ * An API key carries the self grant, so it is shown everything /mcp serves.
  */
 async function exchangeSessionForApiKey(sessionToken) {
   const body = JSON.stringify({ name: 'SDK type generation' });
@@ -123,9 +122,10 @@ async function revokeApiKey(sessionToken, keyId) {
  * deletes the API key this run minted from a session, and is a no-op for a
  * configured API key.
  *
- * `GET /mcp/tools` is tiered exactly like JSON-RPC `tools/list`, so only a
- * global admin (`User.is_admin`) sees the complete registry — which is what the
- * generated types must describe. Resolution order, most explicit first:
+ * `GET /mcp/tools` answers exactly like JSON-RPC `tools/list`: the public
+ * profile an external client is offered, for a global admin as for anyone, which
+ * is what the generated types describe. An admin's tenant is on the top plan, so
+ * no tool is left out by a plan. Resolution order, most explicit first:
  *
  *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token (an API
  *      key, or an admin session JWT this exchanges for one).
@@ -173,10 +173,9 @@ async function resolveAdminSessionOrKey() {
 /**
  * Fetch tool schemas from the Pierre server's discovery endpoint.
  *
- * `GET /mcp/tools` applies the same capability tiering as JSON-RPC
- * `tools/list`: an anonymous caller gets a 401, a tenant member gets their
- * filtered set, and a global admin gets every registered tool. Type generation
- * needs the complete catalog, so it authenticates as an admin.
+ * `GET /mcp/tools` applies the same filtering as JSON-RPC `tools/list`: an
+ * anonymous caller gets a 401 and anyone else what their plan and grant cover.
+ * Type generation authenticates as an admin for the top plan and the full grant.
  */
 async function fetchToolSchemas(token) {
   const { statusCode, body } = await httpRequest({
