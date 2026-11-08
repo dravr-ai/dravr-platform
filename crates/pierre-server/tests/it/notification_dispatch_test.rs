@@ -1540,25 +1540,18 @@ mod dispatch_tests {
     }
 
     /// The wire spelling of every category dravr-commere's enum parses, in its
-    /// own order. The clients offer the first five (`NOTIFICATION_CATEGORIES` in
+    /// own order, all five offered by the clients (`NOTIFICATION_CATEGORIES` in
     /// `@pierre/shared-constants`, asserted by `categories.test.ts` on web and on
-    /// mobile). `ai` and `reminders` have no surface since carnet#1436 and stay
-    /// here because a stored row can still name them, and commere fails the
-    /// whole read on a row it cannot parse.
-    const CATEGORY_WIRE_STRINGS: [&str; 7] = [
-        "training",
-        "recovery",
-        "coach",
-        "achievement",
-        "system",
-        "ai",
-        "reminders",
-    ];
+    /// mobile). `ai` and `reminders` left commere in 0.8.0 (carnet#1436), after
+    /// migration 20261106140000 deleted every row that named them.
+    const CATEGORY_WIRE_STRINGS: [&str; 5] =
+        ["training", "recovery", "coach", "achievement", "system"];
 
     // Every category serializes to its snake_case wire string and comes back
     // from it — through serde and through `from_str_opt` alike — while the
-    // string a migration retired ('social') and the one nothing ever produced
-    // ('group') are refused on both paths, so no stored row can resurrect them.
+    // strings migrations retired ('social', 'ai', 'reminders') and the one
+    // nothing ever produced ('group') are refused on both paths, so no stored
+    // row can resurrect them.
     #[test]
     fn test_category_wire_representation_round_trips() {
         let wire: Vec<&str> = NotificationCategory::all()
@@ -1579,7 +1572,7 @@ mod dispatch_tests {
             assert_eq!(category.to_string(), category.as_str());
         }
 
-        for retired in ["social", "group"] {
+        for retired in ["social", "ai", "reminders", "group"] {
             assert_eq!(NotificationCategory::from_str_opt(retired), None);
             assert!(
                 serde_json::from_str::<NotificationCategory>(&format!("\"{retired}\"")).is_err()
