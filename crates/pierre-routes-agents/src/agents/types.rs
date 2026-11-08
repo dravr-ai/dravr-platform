@@ -445,8 +445,12 @@ pub struct ListVersionsQuery {
 // Admin Request/Response Types
 // ============================================
 
-/// Request body for creating a system agent
+/// Request body for creating a system agent.
+///
+/// Unknown fields are refused rather than dropped: a system agent stores only
+/// these, so a field it cannot keep is a 422, never a silent loss.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminCreateAgentBody {
     /// Display title for the agent
     pub title: String,
@@ -481,6 +485,51 @@ impl From<AdminCreateAgentBody> for DbCreateSystemAgentRequest {
             visibility: body
                 .visibility
                 .map_or(AgentVisibility::Tenant, |v| AgentVisibility::parse(&v)),
+        }
+    }
+}
+
+/// Request body for updating a system agent: the fields
+/// `update_system_agent` writes, and no other.
+///
+/// The user-agent body carries more (the structured sections, a startup query,
+/// data requirements, a tool budget) that a system agent's update does not
+/// store, so this body refuses them instead of accepting and dropping them.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminUpdateAgentBody {
+    /// New title (if provided)
+    pub title: Option<String>,
+    /// New description (if provided)
+    pub description: Option<String>,
+    /// New system prompt (if provided)
+    pub system_prompt: Option<String>,
+    /// New category (if provided)
+    pub category: Option<String>,
+    /// New tags (if provided)
+    pub tags: Option<Vec<String>>,
+    /// New sample prompts (if provided)
+    pub sample_prompts: Option<Vec<String>>,
+}
+
+impl From<AdminUpdateAgentBody> for UpdateAgentRequest {
+    fn from(body: AdminUpdateAgentBody) -> Self {
+        Self {
+            title: body.title,
+            description: body.description,
+            system_prompt: body.system_prompt,
+            category: body.category.map(|c| AgentCategory::parse(&c)),
+            tags: body.tags,
+            sample_prompts: body.sample_prompts,
+            startup_query: None,
+            data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
+            max_tool_iterations: FieldUpdate::Keep,
         }
     }
 }

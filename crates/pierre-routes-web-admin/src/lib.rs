@@ -53,15 +53,17 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_database::repositories::LlmUsageScope;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
-use pierre_runtime_context::DataContext;
+use pierre_runtime_context::{scope_caller, DataContext};
 use pierre_services::admin_ops;
-use pierre_services::pricing::cost_for_aggregate;
+use pierre_services::pricing::costs_of_usage_groups;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 
 /// Shared state for every web-admin route handler in this crate.
@@ -192,6 +194,13 @@ struct AdminListResponse {
     admins: Vec<AdminListEntry>,
 }
 
+/// Query parameters for `GET /api/admin/analytics/recent-activity`.
+#[derive(Debug, Deserialize)]
+pub struct RecentActivityQuery {
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
+}
+
 /// Query parameters for the per-user usage-range endpoints.
 #[derive(Debug, Deserialize)]
 pub struct UsageRangeQuery {
@@ -202,7 +211,7 @@ pub struct UsageRangeQuery {
 /// Query parameters for the bulk CSV/JSON export endpoint.
 #[derive(Debug, Deserialize)]
 pub struct BillingExportQuery {
-    /// `YYYY-MM` period.
+    /// `YYYY-MM` month, UTC: only the calls made in it are exported.
     pub period: String,
     /// `csv` (default) or `json`.
     pub format: Option<String>,
@@ -321,12 +330,46 @@ impl WebAdminRoutes {
         Ok(auth)
     }
 
+    /// The tenant a read of `target_user_id`'s usage is limited to: `None` for a
+    /// super admin, and for anyone else the tenant they act in, since sharing a
+    /// tenant with a user grants none of the rows billed to their other tenants
+    /// (carnet#1440). A target outside that tenant is refused rather than read as
+    /// empty rows.
+    async fn usage_read_tenant(
+        resources: &WebAdminContext,
+        auth: &AuthResult,
+        target_user_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let scope = scope_caller(&Arc::new(resources.clone()), auth)
+            .await?
+            .resolve(None)?;
+        let AdminScope::Tenant { tenant_id } = scope else {
+            return Ok(None);
+        };
+        let target = Uuid::parse_str(target_user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+        if resources
+            .repos
+            .tenants
+            .get_user_role(target, tenant_id)
+            .await?
+            .is_none()
+        {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Admin is not permitted to view this user's financial data",
+            ));
+        }
+        Ok(Some(tenant_id.to_string()))
+    }
+
     /// Authorize the acting admin to read a target user's per-user financial data
     /// (CWE-863). Super-admins (global operators) may read any user's; a
     /// tenant-scoped admin may read only for a user who shares one of their
-    /// tenants. Returns `NotFound` for a missing target (404 before 403). This is
-    /// the single source of truth for per-user financial authz — the sibling
-    /// endpoints drifting out of sync is exactly what caused this disclosure.
+    /// tenants. Returns `NotFound` for a missing target (404 before 403). Every
+    /// per-user financial endpoint passes through here, since the sibling endpoints
+    /// drifting out of sync is exactly what caused this disclosure; the usage read
+    /// then narrows further through [`Self::usage_read_tenant`].
     async fn authorize_admin_for_user(
         resources: &WebAdminContext,
         admin_user_id: Uuid,
@@ -558,25 +601,32 @@ impl WebAdminRoutes {
     /// GET `/api/admin/analytics/recent-activity` - Real-time activity feed for admin dashboard
     ///
     /// Returns recent LLM calls, recent conversations, and summary stats for the
-    /// activity tab polling endpoint.
+    /// activity tab polling endpoint, over the tenants the caller may read
+    /// (carnet#1440), and states that scope.
     async fn handle_recent_activity(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
+        Query(params): Query<RecentActivityQuery>,
     ) -> Result<Response, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        let scope = scope_caller(&Arc::new(resources.clone()), &auth)
+            .await?
+            .resolve(params.tenant_id.as_deref())?;
 
-        let activity = admin_ops::fetch_recent_activity(&resources.data).await?;
+        let activity = admin_ops::fetch_recent_activity(&resources.data, scope).await?;
 
         Ok((
             StatusCode::OK,
             Json(serde_json::json!({
                 "recent_llm_calls": activity.recent_llm_calls,
                 "recent_conversations": activity.recent_conversations,
+                "recent_limit": admin_ops::RECENT_ACTIVITY_LIMIT,
+                "scope": scope,
                 "summary": {
                     "active_conversations": activity.summary.active_conversations,
                     "llm_calls_today": activity.summary.llm_calls_today,
                     "total_tokens_today": activity.summary.total_tokens_today,
-                    "estimated_cost_today": activity.summary.estimated_cost_today,
+                    "cost_today_usd": activity.summary.cost_today_usd,
                 }
             })),
         )
@@ -703,25 +753,40 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
         Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+        let tenant = Self::usage_read_tenant(&resources, &auth, &user_id).await?;
 
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
-        let raw_rows = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_aggregates_by_user(&user_id, &from)
-            .await?;
-        let daily = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_daily_series_by_user(&user_id, &from)
-            .await?;
+        let usage = resources.repos.llm_usage.as_ref();
+        let (raw_rows, daily, scope) = if let Some(tenant_id) = tenant.as_deref() {
+            (
+                usage
+                    .get_llm_usage_aggregates_by_user_in_tenant(&user_id, tenant_id, &from)
+                    .await?,
+                usage
+                    .get_llm_usage_daily_series_by_user_in_tenant(&user_id, tenant_id, &from)
+                    .await?,
+                LlmUsageScope::UserInTenant {
+                    user_id: &user_id,
+                    tenant_id,
+                },
+            )
+        } else {
+            (
+                usage
+                    .get_llm_usage_aggregates_by_user(&user_id, &from)
+                    .await?,
+                usage
+                    .get_llm_usage_daily_series_by_user(&user_id, &from)
+                    .await?,
+                LlmUsageScope::User(&user_id),
+            )
+        };
 
+        let costs = costs_of_usage_groups(usage, scope, &raw_rows, &from).await?;
         let by_model: Vec<LlmUsageAggregateRowWithCost> = raw_rows
             .into_iter()
-            .map(|row| {
-                let cost_usd = cost_for_aggregate(&row);
-                LlmUsageAggregateRowWithCost { row, cost_usd }
-            })
+            .zip(costs)
+            .map(|(row, cost_usd)| LlmUsageAggregateRowWithCost { row, cost_usd })
             .collect();
         let total_cost_usd: f64 = by_model.iter().map(|r| r.cost_usd).sum();
 
@@ -762,12 +827,12 @@ impl WebAdminRoutes {
                 "Super-admin privileges required to export platform-wide billing",
             ));
         }
-        let _ = parse_month_period(&q.period)?;
+        let (start, end) = parse_month_period(&q.period)?;
         let limit = q.limit.unwrap_or(1_000).clamp(1, 10_000);
         let records = resources
             .repos
             .llm_usage
-            .get_recent_llm_calls_admin(limit)
+            .get_llm_calls_between(None, start, end, limit)
             .await?;
         let format = q.format.as_deref().unwrap_or("csv").to_lowercase();
         if format == "json" {

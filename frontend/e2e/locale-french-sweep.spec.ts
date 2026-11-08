@@ -369,3 +369,56 @@ test.describe('French rendering sweep', () => {
     expect(leaked, `Corpus keys painted as text:\n${leaked.join('\n')}`).toEqual([]);
   });
 });
+
+test.describe('the admin console in a French session', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('pierre_app_language', 'fr');
+      } catch { /* */ }
+    });
+    await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+    await loginToDashboard(page);
+  });
+
+  test('the rail and the admin screens read English, and a settings pane stays French', async ({ page }) => {
+    const rail = page.locator('aside nav');
+    for (const name of [
+      'Users',
+      'Agents',
+      'Agent Store',
+      'Tool Management',
+      'Prompts',
+      'Myth Busting',
+      'Agent Grades',
+      'Engagement',
+      'API Tokens',
+      'Harness Config',
+      'Impersonation log',
+    ]) {
+      await expect(rail.getByRole('button', { name, exact: true })).toBeVisible();
+    }
+    // Spelled out, not read from the catalogue: these keys have no reader left.
+    for (const name of ['Utilisateurs', 'Gestion des outils', "Journal d'emprunt d'identité"]) {
+      await expect(rail.getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
+    await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+    await expect(page.locator('aside').getByText('Super Admin', { exact: true })).toBeVisible();
+
+    // An admin-only screen's body, and the screen header that names it.
+    await page.route('**/api/admin/impersonate/sessions', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sessions: [] }) }),
+    );
+    await rail.getByRole('button', { name: 'Impersonation log', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Impersonation log', level: 1 })).toBeVisible();
+    await expect(
+      page.getByText('Every session in which a super admin acted as another user, newest first.'),
+    ).toBeVisible();
+    await expect(page.getByText('No impersonation sessions yet.')).toBeVisible();
+
+    // What an athlete also renders keeps the session's language: without this
+    // the assertions above would pass in a session that never turned French.
+    await page.evaluate(() => { window.location.hash = '#settings'; });
+    await expect(page.getByRole('heading', { name: frenchValue('shell.navSettings'), level: 1 })).toBeVisible();
+  });
+});

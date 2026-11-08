@@ -9,8 +9,7 @@
 //! The full prompt-building pipeline for a turn is driven by
 //! [`super::super::run`], which composes agent/default text,
 //! [`super::super::stages::refresh`] freshness hints, Tier 2 memory recall
-//! ([`super::memory`]), Tier 4 followups ([`super::followups`]), and the
-//! channel-profile response-constraints suffix. This module owns the
+//! ([`super::memory`]), and the channel-profile response-constraints suffix. This module owns the
 //! final mechanical step: turning the assembled system prompt and the
 //! prior message history into a flat `Vec<ChatMessage>` for the LLM.
 

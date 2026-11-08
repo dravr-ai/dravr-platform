@@ -120,7 +120,9 @@ strict coach";
     let cfg_mixed = VerificationConfig::parse_from_system_prompt(prompt_mixed);
     let cfg_strong = VerificationConfig::parse_from_system_prompt(prompt_strong);
 
-    let reply = "Aim for 1.6 grams per kg of protein daily.";
+    // Says what a study says, so the corpus settles it. A sentence sharing fewer
+    // than three distinctive words with a record goes to the judge instead.
+    let reply = "Total daily protein intake is the primary emphasis for exercising individuals.";
     let mixed_verdicts = verify_reply_with_config(reply, &cfg_mixed);
     let strong_verdicts = verify_reply_with_config(reply, &cfg_strong);
 

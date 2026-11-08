@@ -63,6 +63,103 @@ fn evidence_retrieval_finds_supporting_citation() {
     assert!(outcome.evidence_refs.is_some());
 }
 
+/// A sentence that shares only everyday words with a study is not backed by it.
+/// Every sentence here used to read Supported at 0.8, with a citation, on the
+/// strength of a word like `with` or `training`, and never reached the judge.
+#[test]
+fn a_sentence_sharing_only_common_words_with_a_study_is_not_supported() {
+    let corpus = EvidenceCorpus::compiled_in().expect("compiled-in corpus parses");
+    for (text, category) in [
+        (
+            "Keep the long run gentle this week, training with a friend helps.",
+            ClaimCategory::TrainingPrescription,
+        ),
+        (
+            "Pair your breakfast with something you actually enjoy eating.",
+            ClaimCategory::Nutrition,
+        ),
+        (
+            "Recovery after a hard week comes with patience and good habits.",
+            ClaimCategory::Recovery,
+        ),
+    ] {
+        let claim = ExtractedClaim {
+            text: text.into(),
+            category,
+            source: ClaimSource::Reply,
+        };
+        let outcome = check_claim(&claim, &[], &corpus, EvidenceStrength::Mixed, None, None);
+        assert_eq!(
+            outcome.status,
+            ClaimStatus::Unsupported,
+            "{text}: {}",
+            outcome.explanation
+        );
+        assert_eq!(outcome.evidence_refs, None, "{text} must cite nothing");
+    }
+}
+
+/// The other side of the minimum: a claim that says what a study says stays
+/// settled by the corpus, with no judge call.
+#[test]
+fn a_sentence_restating_a_study_stays_supported_by_the_corpus() {
+    let corpus = EvidenceCorpus::compiled_in().expect("compiled-in corpus parses");
+    for (text, category) in [
+        (
+            "Adults need 7 to 9 hours of sleep per night for recovery.",
+            ClaimCategory::Recovery,
+        ),
+        (
+            "Beta-alanine increases muscle carnosine and exercise capacity.",
+            ClaimCategory::Supplement,
+        ),
+    ] {
+        let claim = ExtractedClaim {
+            text: text.into(),
+            category,
+            source: ClaimSource::Reply,
+        };
+        let outcome = check_claim(&claim, &[], &corpus, EvidenceStrength::Mixed, None, None);
+        assert_eq!(
+            outcome.status,
+            ClaimStatus::Supported,
+            "{text}: {}",
+            outcome.explanation
+        );
+        assert_eq!(outcome.layer_fired, VerdictLayer::Evidence);
+    }
+}
+
+/// Word by word, not substring: `pain` does not match `painstaking`.
+#[test]
+fn overlap_counts_whole_words_only() {
+    const CORPUS: &str = r#"{"id":"doi:10.1/w","category":"injury_rehab","proposition":"Painstaking rehabilitation restores tendons","strength":"strong","citation":"W 2020"}"#;
+    let corpus = EvidenceCorpus::from_jsonl(CORPUS).expect("parse");
+    assert!(
+        corpus
+            .retrieve("pain rehab tend", ClaimCategory::InjuryRehab, 3)
+            .is_empty(),
+        "no whole word is shared"
+    );
+}
+
+#[test]
+fn a_weak_match_says_so_in_its_explanation() {
+    const CORPUS: &str = r#"{"id":"doi:10.1/w","category":"nutrition","proposition":"Beetroot nitrate improves cycling economy","strength":"strong","citation":"W 2020"}"#;
+    let corpus = EvidenceCorpus::from_jsonl(CORPUS).expect("parse");
+    let claim = ExtractedClaim {
+        text: "Beetroot tastes better roasted slowly tonight.".into(),
+        category: ClaimCategory::Nutrition,
+        source: ClaimSource::Reply,
+    };
+    let outcome = check_claim(&claim, &[], &corpus, EvidenceStrength::Mixed, None, None);
+    assert_eq!(outcome.status, ClaimStatus::Unsupported);
+    assert_eq!(
+        outcome.explanation,
+        "Best evidence shares only 1 of the claim's 6 distinctive words, too few to speak for it"
+    );
+}
+
 #[test]
 fn evidence_layer_falls_through_to_unsupported() {
     let claim = ExtractedClaim {

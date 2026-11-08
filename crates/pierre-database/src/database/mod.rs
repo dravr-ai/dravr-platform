@@ -60,6 +60,8 @@ pub mod commitments;
 pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
 pub mod email_verification_tokens;
+/// The admin Engagement screen's scoped reads (`SQLite`) backing `EngagementRepository`.
+pub mod engagement;
 /// Database error types
 pub mod errors;
 /// Tenant defaults + per-user overrides (`SQLite`) backing `FeatureFlagsRepository`.
@@ -90,7 +92,7 @@ pub mod llm_credentials;
 pub mod llm_usage;
 /// MCP Tasks extension handle persistence
 pub mod mcp_tasks;
-/// Coaching harness memory foundations (facts, compaction, notes, followups, sessions)
+/// Coaching harness memory foundations (facts, compaction, sessions)
 pub mod memory;
 /// Post-turn memory extractions still owed, leased to one re-runner at a time
 pub mod memory_extraction_jobs;

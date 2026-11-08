@@ -1539,11 +1539,12 @@ mod dispatch_tests {
         assert!(prefs.iter().all(|p| !p.enabled));
     }
 
-    /// The wire spelling of every category, in the display order both clients
-    /// pin (`NOTIFICATION_CATEGORIES` in `@pierre/shared-constants`, asserted by
-    /// `categories.test.ts` on web and on mobile). dravr-commere's enum is the
-    /// platform's only `NotificationCategory`, so this is the contract a client
-    /// list has to match.
+    /// The wire spelling of every category dravr-commere's enum parses, in its
+    /// own order. The clients offer the first five (`NOTIFICATION_CATEGORIES` in
+    /// `@pierre/shared-constants`, asserted by `categories.test.ts` on web and on
+    /// mobile). `ai` and `reminders` have no surface since carnet#1436 and stay
+    /// here because a stored row can still name them, and commere fails the
+    /// whole read on a row it cannot parse.
     const CATEGORY_WIRE_STRINGS: [&str; 7] = [
         "training",
         "recovery",

@@ -81,9 +81,6 @@ function renderView() {
 }
 
 /** A stand-in for `t`: the key, then its interpolation values. */
-const fakeT = ((key: string, options?: Record<string, unknown>) =>
-  options ? `${key}:${JSON.stringify(options)}` : key) as Parameters<typeof sinceSignup>[2]
-
 describe('NewUsersView', () => {
   beforeEach(() => {
     vi.mocked(adminApi.getNewUsers).mockReset()
@@ -157,19 +154,19 @@ describe('sinceSignup', () => {
   const signup = '2026-11-01T09:00:00Z'
 
   it('reads minutes under an hour', () => {
-    expect(sinceSignup(signup, '2026-11-01T09:25:00Z', fakeT)).toBe('newUsers.afterMinutes:{"count":25}')
+    expect(sinceSignup(signup, '2026-11-01T09:25:00Z')).toBe('+25 min')
   })
 
   it('reads hours under two days', () => {
-    expect(sinceSignup(signup, '2026-11-02T21:00:00Z', fakeT)).toBe('newUsers.afterHours:{"count":36}')
+    expect(sinceSignup(signup, '2026-11-02T21:00:00Z')).toBe('+36 h')
   })
 
   it('reads days after that', () => {
-    expect(sinceSignup(signup, '2026-11-04T09:00:00Z', fakeT)).toBe('newUsers.afterDays:{"count":3}')
+    expect(sinceSignup(signup, '2026-11-04T09:00:00Z')).toBe('+3 d')
   })
 
   it('never reads a negative duration', () => {
-    expect(sinceSignup(signup, '2026-11-01T08:00:00Z', fakeT)).toBe('newUsers.afterMinutes:{"count":0}')
+    expect(sinceSignup(signup, '2026-11-01T08:00:00Z')).toBe('+0 min')
   })
 })
 

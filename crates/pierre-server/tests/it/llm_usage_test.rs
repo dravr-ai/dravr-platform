@@ -593,7 +593,7 @@ async fn cache_write_and_reasoning_counts_survive_a_round_trip() {
 
     let rows = repos
         .llm_usage
-        .get_recent_llm_calls_admin(10)
+        .get_recent_llm_calls_admin(None, 10)
         .await
         .unwrap();
     let row = rows
@@ -646,7 +646,7 @@ async fn aggregates_sum_cache_write_and_reasoning_counts() {
 
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("tenant-agg-cw", "1970-01-01T00:00:00Z")
+        .get_llm_usage_aggregates(Some("tenant-agg-cw"), "1970-01-01T00:00:00Z")
         .await
         .unwrap();
     let row = aggregates

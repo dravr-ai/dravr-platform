@@ -1,5 +1,5 @@
 // ABOUTME: Service layer for dashboard data visualization and analytics
-// ABOUTME: Provides business logic for usage analytics: the daily series, latency, and top tools
+// ABOUTME: Provides business logic for usage analytics: the daily series and latency
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,9 @@
 
 use chrono::{Duration, Utc};
 use pierre_auth::auth::AuthResult;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{LlmUsageDailyRow, ToolUsage};
+use pierre_core::models::LlmUsageDailyRow;
 use pierre_runtime_context::DashboardCtx;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -24,10 +25,10 @@ const MAX_ANALYTICS_DAYS: u32 = 365;
 /// Detailed usage analytics with time series data
 #[derive(Debug, Serialize)]
 pub struct UsageAnalytics {
+    /// The tenants the time series covers
+    pub scope: AdminScope,
     /// Time series of usage data points
     pub time_series: Vec<UsageDataPoint>,
-    /// Most frequently used tools
-    pub top_tools: Vec<ToolUsage>,
     /// Average response time across all requests (ms)
     pub average_response_time: f64,
 }
@@ -72,6 +73,7 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         &self,
         auth: AuthResult,
         days: u32,
+        scope: AdminScope,
     ) -> AppResult<UsageAnalytics> {
         debug!("Dashboard analytics request received for {} days", days);
 
@@ -103,16 +105,11 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
 
         // Use LLM usage daily series (covers all requests, not just API key ones)
         let since = window_start.format("%Y-%m-%d").to_string();
-        let tenant_id = auth
-            .active_tenant_id
-            .map_or_else(String::new, |tid| tid.to_string());
-        let llm_daily = self
-            .resources
-            .repos()
-            .llm_usage
-            .get_llm_usage_daily_series(&tenant_id, &since)
-            .await
-            .unwrap_or_default();
+        let usage = &self.resources.repos().llm_usage;
+        let tenant_text = scope.tenant_filter().map(|t| t.to_string());
+        let llm_daily = usage
+            .get_llm_usage_daily_series(tenant_text.as_deref(), &since)
+            .await?;
 
         let llm_by_date: HashMap<String, &LlmUsageDailyRow> =
             llm_daily.iter().map(|r| (r.date.clone(), r)).collect();
@@ -134,14 +131,6 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
                 average_response_time: avg_response_ms,
             });
         }
-
-        // The caller's ten most-called tools across all of their API keys.
-        let top_tools = self
-            .resources
-            .repos()
-            .usage
-            .get_top_tools_analysis(user_id, start_date, Utc::now())
-            .await?;
 
         // Overall metrics.
         // Latency is observed per call, so each day carries the weight of the
@@ -173,8 +162,8 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         // absence. Reinstating it needs a failure signal at the write site
         // first, not a computation here.
         Ok(UsageAnalytics {
+            scope,
             time_series,
-            top_tools,
             average_response_time,
         })
     }

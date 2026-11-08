@@ -7,18 +7,16 @@
 import { NOTIFICATION_CATEGORIES, NOTIFICATION_CATEGORY_META } from '@pierre/shared-constants';
 
 describe('notification categories', () => {
-  // dravr-commere `NotificationCategory::all()`, in display order. Social left
-  // with commere 0.2.0 when the Chat-First Cutover retired Insights and
-  // Friends; a toggle for it would mute a category the server cannot store.
-  it('offers exactly the categories the server stores, each with metadata', () => {
+  // In display order. Social left with commere 0.2.0 when the Chat-First Cutover
+  // retired Insights and Friends; AI Insights and Reminders left on carnet#1436,
+  // the first having no writer and the second only a route no client called.
+  it('offers exactly the live categories, each with metadata', () => {
     expect(NOTIFICATION_CATEGORIES).toEqual([
       'training',
       'recovery',
       'coach',
       'achievement',
       'system',
-      'ai',
-      'reminders',
     ]);
     expect(Object.keys(NOTIFICATION_CATEGORY_META).sort()).toEqual(
       [...NOTIFICATION_CATEGORIES].sort(),

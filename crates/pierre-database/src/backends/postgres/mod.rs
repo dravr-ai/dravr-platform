@@ -66,6 +66,8 @@ pub mod delegated_connections;
 pub mod email_verification;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
+/// The admin Engagement screen's scoped reads (`Postgres`) backing `EngagementRepository`.
+pub mod engagement;
 /// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
 /// The external sign-in identities (a Google account id) each account is reached by (Postgres)
@@ -94,7 +96,7 @@ pub mod llm_credentials;
 pub mod llm_usage;
 /// MCP Tasks extension handle repository implementation
 pub mod mcp_tasks;
-/// Coaching harness memory (compaction, facts, notes, followups, sessions)
+/// Coaching harness memory (compaction, facts, sessions)
 pub mod memory;
 /// Post-turn memory extractions still owed, leased to one re-runner at a time
 pub mod memory_extraction_jobs;

@@ -107,14 +107,14 @@ describe('RejectedCoachesList', () => {
     expect(screen.getByText('Duplicate Coach')).toBeInTheDocument();
   });
 
-  it('stamps each rejection with a date and time in the reader language', async () => {
+  it('stamps each rejection in English in a French session', async () => {
     await i18n.changeLanguage('fr');
     try {
       renderRejectedCoachesList();
 
       // The hour depends on the runner's zone; the day and month spelling do not.
-      expect(await screen.findByText(/^15 janv\. 2024, \d{2}:\d{2}$/)).toBeInTheDocument();
-      expect(screen.queryByText(/Jan 15, 2024/)).toBeNull();
+      expect(await screen.findByText(/^Jan 15, 2024, /)).toBeInTheDocument();
+      expect(screen.queryByText(/15 janv\. 2024/)).toBeNull();
     } finally {
       await i18n.changeLanguage('en');
     }

@@ -68,3 +68,67 @@ async fn test_admin_authentication_flow() {
         .permissions
         .has_permission(&AdminPermission::ProvisionKeys));
 }
+
+/// Each authenticated use counts on the token's row, which the console's token
+/// list reads as Requests and Last used.
+#[tokio::test]
+async fn each_authenticated_use_counts_on_the_token_row() {
+    let database = common::create_test_database().await.unwrap();
+    let jwks_manager = common::get_shared_test_jwks();
+    let repos = database.repositories();
+    let auth_service = AdminAuthService::new(repos.admin.clone(), jwks_manager.clone());
+    let generated = repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "counted_service".to_owned(),
+                service_description: None,
+                permissions: None,
+                expires_in_days: Some(1),
+                is_super_admin: false,
+                tenant_id: None,
+                operator_user_id: None,
+            },
+            "test_jwt_secret_for_admin_auth",
+            &*jwks_manager,
+        )
+        .await
+        .unwrap();
+    let token = generated.jwt_token.expose_secret().to_owned();
+
+    let fresh = repos
+        .admin
+        .get_token_by_id(&generated.token_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fresh.usage_count, 0);
+    assert_eq!(fresh.last_used_at, None);
+
+    // A second of slack: Postgres keeps microseconds, so the stored instant
+    // can round below a nanosecond `now`.
+    let before = chrono::Utc::now() - chrono::Duration::seconds(1);
+    auth_service
+        .authenticate(&token, Some("127.0.0.1"))
+        .await
+        .unwrap();
+    auth_service.authenticate(&token, None).await.unwrap();
+
+    let used = repos
+        .admin
+        .get_token_by_id(&generated.token_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(used.usage_count, 2, "bug: every authenticated use counts");
+    assert!(
+        used.last_used_at.is_some_and(|at| at >= before),
+        "bug: the last use is stamped: {:?}",
+        used.last_used_at
+    );
+    assert_eq!(
+        used.last_used_ip.as_deref(),
+        Some("127.0.0.1"),
+        "a use with no address keeps the last one known"
+    );
+}

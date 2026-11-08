@@ -24,6 +24,9 @@ mod cutover_tests {
     const CATEGORY_CHECK_MIGRATION_SQL: &str = include_str!(
         "../../../../migrations/20260826000007_notification_preferences_category_check.sql"
     );
+    const DELETE_AI_AND_REMINDERS_ROWS_MIGRATION_SQL: &str = include_str!(
+        "../../../../migrations/20261106140000_delete_ai_and_reminders_notification_rows.sql"
+    );
     /// The name 20260826000007 gives the category CHECK, so a violation
     /// reports it.
     const CATEGORY_CHECK_CONSTRAINT: &str = "notification_preferences_category_check";
@@ -86,6 +89,26 @@ mod cutover_tests {
         .bind(format!("{category}_event"))
         .bind("title")
         .bind("body")
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_schedule(
+        pool: &sqlx::SqlitePool,
+        user_id: Uuid,
+        tenant_id: Uuid,
+        notification_type: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO scheduled_notifications
+                (id, user_id, tenant_id, notification_type, schedule_cron)
+             VALUES (?, ?, ?, ?, '0 8 * * 1')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(notification_type)
         .execute(pool)
         .await
         .unwrap();
@@ -189,6 +212,78 @@ mod cutover_tests {
             .unwrap();
         assert_eq!(prefs.len(), 1);
         assert_eq!(prefs[0].category, NotificationCategory::Training);
+    }
+
+    // carnet#1436: AI Insights and Reminders rows go from both tables, and every
+    // other category's stay.
+    #[tokio::test]
+    async fn test_migration_deletes_the_stored_ai_and_reminders_rows_and_nothing_else() {
+        let pool = original_schema_pool().await;
+        let user_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        for category in ["ai", "reminders", "training", "coach"] {
+            insert_preference(&pool, user_id, tenant_id, category)
+                .await
+                .unwrap();
+            insert_notification(&pool, user_id, tenant_id, category).await;
+        }
+
+        sqlx::raw_sql(DELETE_AI_AND_REMINDERS_ROWS_MIGRATION_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notification_preferences WHERE category IN ('ai', 'reminders')"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notifications WHERE category IN ('ai', 'reminders')"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count_rows(&pool, "SELECT COUNT(*) FROM notification_preferences").await,
+            2
+        );
+        assert_eq!(
+            count_rows(&pool, "SELECT COUNT(*) FROM notifications").await,
+            2
+        );
+    }
+
+    // carnet#1436: nothing can create or manage a schedule any more, so every row
+    // goes whatever its type, and the table stays.
+    #[tokio::test]
+    async fn test_migration_deletes_every_schedule() {
+        let pool = original_schema_pool().await;
+        let user_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        for notification_type in [
+            "weekly_training_summary",
+            "workout_reminder",
+            "weekly_digest",
+            "some_other_type",
+        ] {
+            insert_schedule(&pool, user_id, tenant_id, notification_type).await;
+        }
+
+        sqlx::raw_sql(DELETE_AI_AND_REMINDERS_ROWS_MIGRATION_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            count_rows(&pool, "SELECT COUNT(*) FROM scheduled_notifications").await,
+            0
+        );
     }
 
     // The original CHECK admitted 'social' and never admitted 'group'. Run in

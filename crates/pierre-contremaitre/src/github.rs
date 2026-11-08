@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use pierre_core::http_client::api_client;
 
 use super::errors::ContremaitreError;
-use super::manifest::{parse_manifest, Manifest};
+use super::manifest::{compute_sha256, parse_manifest, with_entry_sha256, Manifest};
 
 /// GitHub API base URL.
 const GITHUB_API_BASE: &str = "https://api.github.com";
@@ -212,5 +212,43 @@ impl GitHubContentsClient {
             .to_owned();
 
         Ok(commit_sha)
+    }
+
+    /// Commit an edited system prompt and the manifest hash that announces it.
+    ///
+    /// Every instance's sync poll compares the manifest's hash of a file with
+    /// the one it holds, so the file alone would reach no other instance; the
+    /// manifest commit is what fans the edit out. The manifest is patched and
+    /// checked before anything is written, so a key it does not list commits
+    /// nothing. Returns the manifest commit's SHA, the one that completes the edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the manifest does not list the prompt, or when a
+    /// read or either commit fails. A failure after the prompt's commit leaves
+    /// that file committed under the old manifest hash; a retry commits both.
+    pub async fn commit_system_prompt(
+        &self,
+        key: &str,
+        content: &str,
+        message: &str,
+    ) -> Result<String, ContremaitreError> {
+        let path = format!("prompts/system/{key}.md");
+        let manifest = self.read_file("manifest.json").await?;
+        let patched = with_entry_sha256(
+            &manifest.content,
+            &path,
+            &compute_sha256(content.as_bytes()),
+        )?;
+        let file_sha = self.read_file(&path).await?.sha;
+        self.commit_file(&path, content, message, Some(&file_sha))
+            .await?;
+        self.commit_file(
+            "manifest.json",
+            &patched,
+            &format!("{message} (manifest hash)"),
+            Some(&manifest.sha),
+        )
+        .await
     }
 }

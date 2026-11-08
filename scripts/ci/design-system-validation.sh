@@ -38,7 +38,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # comment and explaining why in the commit, because it means the design system
 # lost ground.
 # ============================================================================
-BASELINE_WEB_RAW_INPUT=29
+BASELINE_WEB_RAW_INPUT=28
 BASELINE_WEB_RAW_PALETTE=2
 BASELINE_WEB_WHITE_LITERAL=9
 BASELINE_MOBILE_RAW_PALETTE=0
@@ -53,9 +53,9 @@ BASELINE_WEB_HERO_GRADIENT=4
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=116
+BASELINE_WEB_CARD_SITES=99
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
-BASELINE_WEB_LARGE_TEXT=60
+BASELINE_WEB_LARGE_TEXT=49
 
 # Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): the density and token
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration

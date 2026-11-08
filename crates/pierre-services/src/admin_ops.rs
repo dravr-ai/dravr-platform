@@ -4,14 +4,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::pricing::cost_for_record;
+use crate::pricing::{cost_for_record, costs_of_usage_groups};
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::models::{MonthlyLimitOverride, OperatorRosterGrant, User, UserStatus};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::analytics::next_utc_month_start;
+use pierre_database::repositories::LlmUsageScope;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
 use pierre_runtime_context::DataContext;
@@ -90,7 +92,8 @@ pub struct UserActivityResult {
     pub user_id: String,
     /// Length of the aggregation window, in days
     pub period_days: i64,
-    /// Total requests across all tools in the window
+    /// Requests the user's API keys made in the window, on every endpoint. Chat
+    /// and token-authenticated traffic is not in this ledger.
     pub total_requests: u64,
     /// Per-tool usage breakdown, ordered by frequency
     pub top_tools: Vec<ToolUsageEntry>,
@@ -192,16 +195,20 @@ pub struct ActivitySummary {
     pub llm_calls_today: i64,
     /// Total tokens consumed since midnight UTC today
     pub total_tokens_today: i64,
-    /// Estimated USD spend since midnight UTC today
-    pub estimated_cost_today: f64,
+    /// USD cost of those calls, summed at current prices
+    pub cost_today_usd: f64,
 }
+
+/// How many rows each recent-activity list carries. The two lists fill up
+/// independently, so they can span different periods.
+pub const RECENT_ACTIVITY_LIMIT: i64 = 20;
 
 /// Full recent activity payload for the admin dashboard
 #[derive(Debug)]
 pub struct RecentActivityResult {
-    /// Most recent LLM call records
+    /// Most recent LLM call records, at most [`RECENT_ACTIVITY_LIMIT`]
     pub recent_llm_calls: Vec<LlmCallEntry>,
-    /// Most recent conversations
+    /// Most recent conversations, at most [`RECENT_ACTIVITY_LIMIT`]
     pub recent_conversations: Vec<ConversationEntry>,
     /// Aggregated counts for the day
     pub summary: ActivitySummary,
@@ -774,15 +781,17 @@ pub async fn compute_user_activity(
     let now = Utc::now();
     let start_time = now - Duration::days(days);
 
-    // Get top tools usage
-    let top_tools_raw = repos
-        .usage
-        .get_top_tools_analysis(target_user_id, start_time, now)
-        .await
-        .unwrap_or_default();
+    // The list stops at the busiest endpoints, the count does not, so a share is
+    // of everything the keys did.
+    let (top_tools_raw, total_requests) = tokio::try_join!(
+        repos
+            .usage
+            .get_top_tools_analysis(target_user_id, start_time, now),
+        repos
+            .usage
+            .count_api_key_requests(target_user_id, start_time, now),
+    )?;
 
-    // Calculate total requests and percentages
-    let total_requests: u64 = top_tools_raw.iter().map(|t| t.request_count).sum();
     let top_tools: Vec<ToolUsageEntry> = top_tools_raw
         .into_iter()
         .map(|t| {
@@ -924,19 +933,18 @@ pub async fn compute_user_admin_profile(
 // Auto-approval settings
 // =========================================================================
 
-/// Fetch recent LLM calls, conversations, and summary stats for the admin dashboard.
+/// Fetch recent LLM calls, conversations, and summary stats for the admin dashboard,
+/// over the tenants `scope` covers.
 ///
-/// Resolves user emails for conversations and estimates costs using the LLM pricing model.
+/// A summary is either true or an error: a failed read never renders as zero.
 ///
 /// # Errors
 ///
-/// Currently no failure path returns an error — all repository calls have
-/// per-call defaults applied (empty/zero on failure). The `Result` is preserved
-/// for forward compatibility with stricter error propagation.
-pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityResult, AppError> {
-    // Limit for recent items
-    let recent_limit: i64 = 20;
-
+/// Returns an error if any repository read fails.
+pub async fn fetch_recent_activity(
+    data: &DataContext,
+    scope: AdminScope,
+) -> Result<RecentActivityResult, AppError> {
     // Time boundary for "today" stats
     let today_start = Utc::now()
         .date_naive()
@@ -949,27 +957,37 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
     // Time boundary for "active conversations" (last 15 minutes)
     let fifteen_min_ago = (Utc::now() - Duration::minutes(15)).to_rfc3339();
 
-    // Fetch all data concurrently
-    let (recent_llm, recent_convos, llm_calls_today, active_convos, llm_totals) = tokio::join!(
-        data.repos()
+    let repos = data.repos();
+    let tenant_text = scope.tenant_filter().map(|t| t.to_string());
+    let (recent_llm, recent_convos, active_convos, usage_today) = tokio::try_join!(
+        repos
             .llm_usage
-            .get_recent_llm_calls_admin(recent_limit),
-        data.repos()
+            .get_recent_llm_calls_admin(tenant_text.as_deref(), RECENT_ACTIVITY_LIMIT),
+        repos
             .chat
-            .get_recent_conversations_admin(recent_limit),
-        data.repos().llm_usage.count_llm_calls_since(&today_str),
-        data.repos()
+            .get_recent_conversations_admin(scope, RECENT_ACTIVITY_LIMIT),
+        repos
             .chat
-            .count_active_conversations_since(&fifteen_min_ago),
-        data.repos().llm_usage.sum_llm_usage_since(&today_str),
-    );
+            .count_active_conversations_since(scope, &fifteen_min_ago),
+        repos
+            .llm_usage
+            .get_llm_usage_aggregates(tenant_text.as_deref(), &today_str),
+    )?;
 
-    // Resolve results, defaulting to empty/zero on error
-    let recent_llm = recent_llm.unwrap_or_default();
-    let recent_convos = recent_convos.unwrap_or_default();
-    let llm_calls_today = llm_calls_today.unwrap_or(0);
-    let active_convos = active_convos.unwrap_or(0);
-    let (total_calls_today, total_tokens_today) = llm_totals.unwrap_or((0, 0));
+    let llm_calls_today = usage_today.iter().map(|row| row.calls).sum();
+    let total_tokens_today = usage_today.iter().map(|row| row.total_tokens).sum();
+    let usage_scope = tenant_text
+        .as_deref()
+        .map_or(LlmUsageScope::AllTenants, LlmUsageScope::Tenant);
+    let cost_today_usd: f64 = costs_of_usage_groups(
+        repos.llm_usage.as_ref(),
+        usage_scope,
+        &usage_today,
+        &today_str,
+    )
+    .await?
+    .iter()
+    .sum();
 
     // Build LLM calls response with cost estimation
     let llm_calls: Vec<LlmCallEntry> = recent_llm
@@ -992,39 +1010,27 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
         })
         .collect();
 
-    // Build conversations response — look up user emails for display
-    let mut conversations: Vec<ConversationEntry> = Vec::with_capacity(recent_convos.len());
-    for convo in &recent_convos {
-        // Resolve user email for display (non-critical, use empty on failure)
-        let user_email = if let Ok(user_uuid) = convo.user_id.parse::<Uuid>() {
-            data.repos()
-                .users
-                .get_global(user_uuid)
-                .await
-                .ok()
-                .flatten()
-                .map(|u| u.email)
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        conversations.push(ConversationEntry {
+    // One read for every owner: this runs on each 10-second poll.
+    let owners: Vec<Uuid> = recent_convos
+        .iter()
+        .filter_map(|convo| convo.user_id.parse().ok())
+        .collect();
+    let users = data.repos().users.get_global_many(&owners).await?;
+    let conversations: Vec<ConversationEntry> = recent_convos
+        .iter()
+        .map(|convo| ConversationEntry {
             id: convo.id.clone(),
             title: convo.title.clone(),
             updated_at: convo.updated_at.clone(),
-            user_email,
-        });
-    }
-
-    // Estimate cost for today using pricing
-    let estimated_cost_today = if total_calls_today > 0 {
-        // Use average cost per token from recent calls as approximation
-        recent_llm.iter().map(cost_for_record).sum::<f64>() / recent_llm.len().max(1) as f64
-            * total_calls_today as f64
-    } else {
-        0.0
-    };
+            user_email: convo
+                .user_id
+                .parse()
+                .ok()
+                .and_then(|id: Uuid| users.get(&id))
+                .map(|user| user.email.clone())
+                .unwrap_or_default(),
+        })
+        .collect();
 
     Ok(RecentActivityResult {
         recent_llm_calls: llm_calls,
@@ -1033,7 +1039,7 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
             active_conversations: active_convos,
             llm_calls_today,
             total_tokens_today,
-            estimated_cost_today,
+            cost_today_usd,
         },
     })
 }

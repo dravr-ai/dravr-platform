@@ -5,6 +5,7 @@
 // ABOUTME: Web-only; the calling user's own quota counters come from @pierre/api-client's usage domain
 
 import { axios } from './client';
+import type { AdminScope } from '../../hooks/useAdminScope';
 
 /** LLM consumption breakdown item */
 export interface ConsumptionBreakdownItem {
@@ -26,6 +27,7 @@ export interface DailyConsumptionPoint {
 
 /** LLM consumption response from GET /admin/usage/llm-consumption */
 export interface LlmConsumptionResponse {
+  scope: AdminScope;
   summary: {
     total_tokens: number;
     total_calls: number;
@@ -45,6 +47,7 @@ export interface ToolUsageBreakdownItem {
 
 /** Tool-usage analytics response from GET /admin/tool-usage */
 export interface ToolUsageResponse {
+  scope: AdminScope;
   summary: {
     total_invocations: number;
     unique_tools: number;

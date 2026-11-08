@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   NOTIFICATION_CATEGORIES,
   defaultNotificationPreference,
+  displayNotificationCategory,
   mergeNotificationPreferences,
 } from '@pierre/shared-constants';
 import type { NotificationPreferenceItem } from '@pierre/shared-types';
@@ -65,5 +66,34 @@ describe('notification preference defaults', () => {
 
     expect(rows).toHaveLength(NOTIFICATION_CATEGORIES.length + 1);
     expect(rows[rows.length - 1].category).toBe('weather');
+  });
+
+  // carnet#1436: a preference saved while AI Insights and Reminders had switches
+  // stays stored and the server keeps returning it. Appended like an unknown
+  // category, it comes back as a settings row nothing can act on.
+  it('drops a preference naming a removed category and keeps the others as saved', () => {
+    const muted = { ...defaultNotificationPreference('training'), enabled: false, max_per_day: 3 };
+    const retired = ['ai', 'reminders'].map((category) => ({
+      ...defaultNotificationPreference('coach'),
+      category: category as NotificationPreferenceItem['category'],
+      enabled: false,
+    }));
+
+    const rows = mergeNotificationPreferences([...retired, muted]);
+
+    expect(rows.map((r) => r.category)).toEqual([...NOTIFICATION_CATEGORIES]);
+    expect(rows.find((r) => r.category === 'training')).toEqual(muted);
+    expect(rows.find((r) => r.category === 'coach')?.enabled).toBe(true);
+  });
+});
+
+describe('displayNotificationCategory', () => {
+  it('keeps a live category and files any other stored value under system', () => {
+    for (const category of NOTIFICATION_CATEGORIES) {
+      expect(displayNotificationCategory(category)).toBe(category);
+    }
+    for (const stored of ['ai', 'reminders', 'weather']) {
+      expect(displayNotificationCategory(stored)).toBe('system');
+    }
   });
 });

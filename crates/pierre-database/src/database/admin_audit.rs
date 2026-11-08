@@ -15,7 +15,8 @@ use crate::database::Database;
 use crate::repositories::admin_audit::{
     action_prefix_pattern, audit_column_error, impl_admin_audit_repository, severity_for,
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, NewAuditEvent,
-    AUDIT_PAGE_MAX, INSERT_AUDIT_EVENT_SQL, LIST_AUDIT_EVENTS_SQL,
+    RecentReadKey, AUDIT_PAGE_MAX, HAS_RECENT_READ_SQL, INSERT_AUDIT_EVENT_SQL,
+    LIST_AUDIT_EVENTS_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 

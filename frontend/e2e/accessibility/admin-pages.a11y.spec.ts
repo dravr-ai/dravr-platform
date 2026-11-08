@@ -68,6 +68,7 @@ async function mockAdminSettings(page: Page) {
         branch: 'main',
         system_prompt_count: 2,
         agent_prompt_count: 3,
+        persona_count: 0,
         compiled_in_count: 0,
         contremaitre_count: 5,
       }),
@@ -83,6 +84,16 @@ async function mockAdminSettings(page: Page) {
           { key: 'coaching_persona', sha256: 'a1', source: 'contremaitre', loaded_at: '2026-10-14T12:00:00Z', content_length: 1200 },
           { key: 'turn_directive', sha256: 'b2', source: 'compiled_in', loaded_at: '2026-10-14T12:00:00Z', content_length: 800 },
         ],
+      }),
+    }),
+  );
+  await page.route('**/api/admin/contremaitre/agent-prompts', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: 1,
+        prompts: [{ key: 'endurance-agent', locales: ['de', 'en', 'es', 'fr', 'pt'] }],
       }),
     }),
   );
@@ -127,7 +138,7 @@ test.describe('Admin console pages — accessible names and heading order', () =
 
   test('Prompts steps down from the page heading one level at a time', async ({ page }) => {
     await navigateToTab(page, 'Prompts');
-    await expect(page.getByRole('heading', { level: 2, name: 'System Prompts' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Prompts', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { level: 3 }).first()).toBeVisible();
     await scan(page, 'prompts');
   });

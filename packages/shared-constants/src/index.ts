@@ -63,6 +63,7 @@ export {
   defaultNotificationPreference,
   localTimezone,
   notificationCapLabel,
+  displayNotificationCategory,
   mergeNotificationPreferences,
   notificationPreferenceUpdate,
   formatNotificationTime,

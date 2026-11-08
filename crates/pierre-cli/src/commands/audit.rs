@@ -31,9 +31,14 @@ pub(crate) enum AuditCommand {
         #[arg(long)]
         outcome: Option<String>,
 
-        /// Only rows older than this RFC 3339 instant (the previous page's last time)
+        /// Resume after this RFC 3339 instant (the previous page's last time)
         #[arg(long)]
         before: Option<String>,
+
+        /// Resume after this event id among those of that instant (the previous
+        /// page's last id); without it the page starts strictly older
+        #[arg(long, requires = "before")]
+        before_id: Option<String>,
 
         /// Print the rows as JSON instead of one line each
         #[arg(long)]
@@ -55,8 +60,14 @@ fn list_query(
     action: Option<&str>,
     outcome: Option<&str>,
     before: Option<&str>,
+    before_id: Option<&str>,
 ) -> String {
-    let filters = [("action", action), ("outcome", outcome), ("before", before)];
+    let filters = [
+        ("action", action),
+        ("outcome", outcome),
+        ("before", before),
+        ("before_id", before_id),
+    ];
     let mut parts = vec![format!("limit={limit}")];
     parts.extend(filters.into_iter().filter_map(|(key, value)| {
         value.map(|value| format!("{key}={}", urlencoding::encode(value)))
@@ -93,6 +104,7 @@ pub(crate) async fn dispatch(command: AuditCommand) -> AppResult<()> {
             action,
             outcome,
             before,
+            before_id,
             json,
             server,
             token,
@@ -103,6 +115,7 @@ pub(crate) async fn dispatch(command: AuditCommand) -> AppResult<()> {
                 action.as_deref(),
                 outcome.as_deref(),
                 before.as_deref(),
+                before_id.as_deref(),
             );
             let body = client
                 .get_json(&format!("/admin/audit-events?{query}"))
@@ -127,8 +140,11 @@ pub(crate) async fn dispatch(command: AuditCommand) -> AppResult<()> {
             for event in events {
                 println!("{}", event_line(event));
             }
-            if let Some(next) = data.get("next_before").and_then(Value::as_str) {
-                println!("More: --before {next}");
+            if let (Some(next), Some(next_id)) = (
+                data.get("next_before").and_then(Value::as_str),
+                data.get("next_before_id").and_then(Value::as_str),
+            ) {
+                println!("More: --before {next} --before-id {next_id}");
             }
             Ok(())
         }
@@ -143,19 +159,30 @@ mod tests {
     #[test]
     fn the_query_names_only_the_filters_given() {
         assert_eq!(
-            list_query(10, None, None, None),
+            list_query(10, None, None, None, None),
             "limit=10",
             "bug: no filter given, none sent"
         );
         assert_eq!(
-            list_query(5, Some("user."), Some("refused"), None),
+            list_query(5, Some("user."), Some("refused"), None, None),
             "limit=5&action=user.&outcome=refused",
             "bug: each given filter is sent once"
         );
         assert_eq!(
-            list_query(1, None, None, Some("2026-11-04T20:31:45+00:00")),
+            list_query(1, None, None, Some("2026-11-04T20:31:45+00:00"), None),
             "limit=1&before=2026-11-04T20%3A31%3A45%2B00%3A00",
             "bug: a cursor's `+` must be percent-encoded or the server reads a space"
+        );
+        assert_eq!(
+            list_query(
+                1,
+                None,
+                None,
+                Some("2026-11-04T20:31:45+00:00"),
+                Some("ev-1")
+            ),
+            "limit=1&before=2026-11-04T20%3A31%3A45%2B00%3A00&before_id=ev-1",
+            "bug: the cursor's id travels with its instant"
         );
     }
 

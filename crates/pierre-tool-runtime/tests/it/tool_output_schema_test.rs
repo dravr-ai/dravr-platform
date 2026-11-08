@@ -138,7 +138,6 @@ use pierre_tool_runtime::implementations::lactate_thresholds_output::{
     DeterminedThreshold, LactateThresholdsResult, UndeterminedThreshold,
 };
 use pierre_tool_runtime::implementations::memory::{
-    AgentFollowupScheduleResult, AgentFollowupScheduleTool, AgentNoteAddResult, AgentNoteAddTool,
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
     RememberFactTool,
 };
@@ -532,40 +531,6 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
         &output_schema_for::<GoalFeasibilityResult>(),
         &sample,
         "analyze_goal_feasibility",
-    );
-}
-
-#[test]
-fn agent_note_add_declares_a_schema_that_accepts_its_payload() {
-    let sample = AgentNoteAddResult {
-        note_id: "note-1".to_owned(),
-        created_at: "2026-09-05T09:00:00+00:00".to_owned(),
-    };
-    assert_declares_and_accepts(
-        <AgentNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&AgentNoteAddTool).output_schema,
-        &output_schema_for::<AgentNoteAddResult>(),
-        &sample,
-        "agent_note_add",
-    );
-}
-
-#[test]
-fn agent_followup_schedule_accepts_a_followup_with_no_due_date() {
-    // due_at is None when the agent scheduled no date — the follow-up rides the
-    // next conversation instead of a clock, and that is the common case.
-    let sample = AgentFollowupScheduleResult {
-        followup_id: "fu-1".to_owned(),
-        status: "pending".to_owned(),
-        due_at: None,
-    };
-    assert_declares_and_accepts(
-        <AgentFollowupScheduleTool as McpTool<dyn ToolRuntime>>::definition(
-            &AgentFollowupScheduleTool,
-        )
-        .output_schema,
-        &output_schema_for::<AgentFollowupScheduleResult>(),
-        &sample,
-        "agent_followup_schedule",
     );
 }
 

@@ -153,8 +153,12 @@ impl AdminAuthService {
         // device grant; the signed claims carry no identity of their own.
         validated_token.operator_user_id = stored_token.operator_user_id;
 
-        // Step 5: Log usage (no permission check)
+        // Step 5: Log usage (no permission check), and count the use on the
+        // token's own row, which the token list reads.
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
+            .await?;
+        self.admin
+            .record_token_use(&stored_token.id, chrono::Utc::now(), ip_address)
             .await?;
 
         info!(

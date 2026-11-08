@@ -3898,6 +3898,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4005,6 +4006,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dravr-contremaitre",
+ "futures-util",
  "pierre-core",
  "pierre-llm",
  "pierre-memory",

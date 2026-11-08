@@ -1,6 +1,4 @@
 [
-  "agent_followup_schedule",
-  "agent_note_add",
   "analyze_activity",
   "analyze_goal_feasibility",
   "analyze_meal_nutrition",

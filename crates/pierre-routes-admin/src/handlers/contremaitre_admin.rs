@@ -9,24 +9,30 @@
 //! Backed by the `pierre-contremaitre` registries carried on
 //! [`crate::AdminApiContext`]. All endpoints are gated by the cookie-admin
 //! middleware via [`crate::AdminRoutes::cookie_admin_routes`]; the
-//! injected `ValidatedAdminToken` handles authorization here.
+//! injected `ValidatedAdminToken` handles authorization here, except on the
+//! two agent-prompt reads, which every console admin may make: the middleware's
+//! role check is their gate. System prompts, the sync state and every write stay
+//! behind `ViewConfiguration` and `ManageConfiguration`.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::models::SUPPORTED_LOCALES;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use pierre_contremaitre::github::GitHubContentsClient;
 use pierre_contremaitre::manifest::compute_sha256;
-use pierre_contremaitre::registry::PromptSource;
-use pierre_contremaitre::sync::{full_sync, ContremaitreRegistries};
+use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
+use pierre_contremaitre::sync::{
+    full_sync, system_prompt_content_is_valid, ContremaitreRegistries,
+};
 
 use crate::context::AdminApiContext;
 
@@ -43,6 +49,14 @@ pub fn admin_routes(context: Arc<AdminApiContext>) -> Router {
         .route(
             "/api/admin/contremaitre/prompts/{key}",
             get(handle_get_system_prompt).put(handle_update_system_prompt),
+        )
+        .route(
+            "/api/admin/contremaitre/agent-prompts",
+            get(handle_list_agent_prompts),
+        )
+        .route(
+            "/api/admin/contremaitre/agent-prompts/{slug}",
+            get(handle_get_agent_prompt),
         )
         .route("/api/admin/contremaitre/status", get(handle_status))
         .route("/api/admin/contremaitre/sync", post(handle_manual_sync))
@@ -88,6 +102,51 @@ struct SystemPromptDetail {
     loaded_at: String,
 }
 
+/// Response for listing the agent prompts the registry holds.
+#[derive(Serialize)]
+struct ListAgentPromptsResponse {
+    /// Number of agents
+    total: usize,
+    /// One entry per agent, sorted by slug
+    prompts: Vec<AgentPromptSummary>,
+}
+
+/// Summary of one agent's prompts.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct AgentPromptSummary {
+    /// Agent slug (e.g., `"endurance-agent"`)
+    key: String,
+    /// The locales the registry holds this agent in, sorted
+    locales: Vec<String>,
+}
+
+/// The locale an agent prompt is requested in.
+#[derive(Deserialize)]
+struct AgentPromptQuery {
+    /// One of `SUPPORTED_LOCALES`
+    locale: String,
+}
+
+/// The agent prompt a turn in `requested_locale` is served.
+#[derive(Debug, Serialize)]
+struct AgentPromptDetail {
+    /// Agent slug
+    key: String,
+    /// The locale the admin asked for
+    requested_locale: String,
+    /// The locale `content` is written in; differs from `requested_locale`
+    /// when the default locale stands in for a missing translation
+    locale: String,
+    /// Full prompt content
+    content: String,
+    /// SHA-256 content hash
+    sha256: String,
+    /// Where this prompt was loaded from
+    source: String,
+    /// When this entry was last loaded
+    loaded_at: String,
+}
+
 /// Request body for updating a system prompt.
 #[derive(Deserialize)]
 struct UpdateSystemPromptRequest {
@@ -104,7 +163,8 @@ struct UpdateSystemPromptResponse {
     success: bool,
     /// New SHA-256 after update
     sha256: String,
-    /// Git commit SHA (if written to GitHub)
+    /// The manifest commit that completes the edit on GitHub; `None` when
+    /// contremaitre is not configured and the edit lives in this process only
     commit_sha: Option<String>,
 }
 
@@ -117,13 +177,15 @@ struct ContremaitreStatus {
     repo: Option<String>,
     /// Branch being synced from
     branch: Option<String>,
-    /// Registry statistics
+    /// Number of system prompts in the registry
     system_prompt_count: usize,
-    /// Number of agent prompts in registry
+    /// Number of agent prompts in the registry, one per agent per locale
     agent_prompt_count: usize,
-    /// Number loaded from compiled-in constants
+    /// Number of coaching-persona blocks in the registry
+    persona_count: usize,
+    /// How many of those three still hold their compiled-in seed copy
     compiled_in_count: usize,
-    /// Number loaded from contremaitre
+    /// How many of those three a sync from contremaitre has replaced
     contremaitre_count: usize,
 }
 
@@ -197,14 +259,95 @@ async fn handle_get_system_prompt(
     }))
 }
 
-/// PUT /api/admin/contremaitre/prompts/:key — update a system prompt.
+/// Every agent the registry holds with its locales, keyed and sorted by slug.
+fn agent_locales(registry: &PromptRegistry) -> BTreeMap<String, Vec<String>> {
+    let mut agents: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (slug, locale, _) in registry.list_agents() {
+        agents.entry(slug).or_default().push(locale);
+    }
+    for locales in agents.values_mut() {
+        locales.sort_unstable();
+    }
+    agents
+}
+
+/// The agent prompt a turn in `locale` is served, naming the locale it is in.
+fn agent_prompt_detail(
+    registry: &PromptRegistry,
+    slug: &str,
+    locale: &str,
+) -> Result<AgentPromptDetail, AppError> {
+    if !SUPPORTED_LOCALES.contains(&locale) {
+        return Err(AppError::invalid_input(format!(
+            "Unsupported locale: {locale}. Supported: {}",
+            SUPPORTED_LOCALES.join(", ")
+        )));
+    }
+    let (served, entry) = registry
+        .agent_entry_for_locale(slug, locale)
+        .ok_or_else(|| AppError::not_found(format!("Agent prompt '{slug}' in '{locale}'")))?;
+    Ok(AgentPromptDetail {
+        key: slug.to_owned(),
+        requested_locale: locale.to_owned(),
+        locale: served,
+        content: entry.content,
+        sha256: entry.sha256,
+        source: match entry.source {
+            PromptSource::CompiledIn => "compiled_in".to_owned(),
+            PromptSource::Contremaitre => "contremaitre".to_owned(),
+        },
+        loaded_at: entry.loaded_at.to_rfc3339(),
+    })
+}
+
+/// GET /api/admin/contremaitre/agent-prompts — list agents and their locales.
 ///
-/// Updates the in-memory registry immediately and asynchronously commits
-/// the change to the contremaitre GitHub repository.
+/// Open to every console admin; see the module docs.
+async fn handle_list_agent_prompts(
+    State(context): State<Arc<AdminApiContext>>,
+) -> Result<impl IntoResponse, AppError> {
+    let prompts: Vec<AgentPromptSummary> = agent_locales(&context.prompt_registry)
+        .into_iter()
+        .map(|(key, locales)| AgentPromptSummary { key, locales })
+        .collect();
+    let total = prompts.len();
+    Ok(Json(ListAgentPromptsResponse { total, prompts }))
+}
+
+/// GET /api/admin/contremaitre/agent-prompts/:slug?locale= — one agent's prompt.
+///
+/// Open to every console admin; see the module docs.
 ///
 /// # Errors
 ///
-/// Returns an error if the user is not an admin.
+/// Returns an error if the locale is unsupported, or the registry holds the
+/// agent in neither that locale nor the default one.
+async fn handle_get_agent_prompt(
+    State(context): State<Arc<AdminApiContext>>,
+    Path(slug): Path<String>,
+    Query(query): Query<AgentPromptQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(agent_prompt_detail(
+        &context.prompt_registry,
+        &slug,
+        &query.locale,
+    )?))
+}
+
+/// PUT /api/admin/contremaitre/prompts/:key — update a system prompt.
+///
+/// With contremaitre configured, the prompt and the manifest hash that
+/// announces it are committed first, and only then is this instance's registry
+/// updated: every other instance picks the edit up on its next sync poll, which
+/// fetches a file whose manifest hash differs from the one it holds. A failed
+/// commit changes nothing anywhere. Without contremaitre (local development)
+/// the edit lives in this process's registry only, and `commit_sha` is `None`.
+///
+/// # Errors
+///
+/// Returns an error if the token lacks `ManageConfiguration`, if the content
+/// misses a placeholder the prompt requires (every instance's sync would refuse
+/// it), or if a GitHub read or commit fails.
 async fn handle_update_system_prompt(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -213,16 +356,37 @@ async fn handle_update_system_prompt(
 ) -> Result<impl IntoResponse, AppError> {
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 
-    // Compute new hash and update registry immediately (optimistic)
+    let path = format!("prompts/system/{key}.md");
+    if !system_prompt_content_is_valid(&key, &path, &body.content) {
+        return Err(AppError::invalid_input(format!(
+            "The {key} prompt is missing a placeholder it requires"
+        )));
+    }
+
+    let commit_sha = match &context.contremaitre_config {
+        Some(config) => {
+            let default_message = format!("Update system prompt: {key}");
+            let message = body.commit_message.as_deref().unwrap_or(&default_message);
+            let sha = config
+                .github_client()
+                .commit_system_prompt(&key, &body.content, message)
+                .await
+                .inspect_err(|e| warn!(key, error = %e, "System prompt edit not committed"))?;
+            info!(
+                key,
+                commit_sha = sha,
+                "System prompt committed with its manifest hash"
+            );
+            Some(sha)
+        }
+        None => None,
+    };
+
     let sha256 = compute_sha256(body.content.as_bytes());
     context
         .prompt_registry
-        .update_system_prompt(&key, body.content.clone(), sha256.clone());
-
+        .update_system_prompt(&key, body.content, sha256.clone());
     info!(key, sha256, "System prompt updated in registry");
-
-    // Asynchronously commit to GitHub if contremaitre is configured
-    let commit_sha = commit_to_github(&context, &key, &body).await;
 
     Ok((
         StatusCode::OK,
@@ -232,57 +396,6 @@ async fn handle_update_system_prompt(
             commit_sha,
         }),
     ))
-}
-
-/// Fetch the current Git blob SHA for a file in the contremaitre repo.
-async fn fetch_file_sha(client: &GitHubContentsClient, key: &str, path: &str) -> Option<String> {
-    match client.read_file(path).await {
-        Ok(file) => Some(file.sha),
-        Err(e) => {
-            warn!(key, error = %e, "Failed to read file SHA from GitHub");
-            None
-        }
-    }
-}
-
-/// Commit the updated prompt content to GitHub and log the outcome.
-async fn commit_updated_prompt(
-    client: &GitHubContentsClient,
-    key: &str,
-    path: &str,
-    content: &str,
-    message: &str,
-    file_sha: &str,
-) -> Option<String> {
-    match client
-        .commit_file(path, content, message, Some(file_sha))
-        .await
-    {
-        Ok(sha) => {
-            info!(key, commit_sha = sha, "System prompt committed to GitHub");
-            Some(sha)
-        }
-        Err(e) => {
-            warn!(key, error = %e, "Failed to commit system prompt to GitHub");
-            None
-        }
-    }
-}
-
-/// Helper function to commit an updated prompt to GitHub.
-async fn commit_to_github(
-    context: &Arc<AdminApiContext>,
-    key: &str,
-    body: &UpdateSystemPromptRequest,
-) -> Option<String> {
-    let config = context.contremaitre_config.as_ref()?;
-    let client = config.github_client();
-    let path = format!("prompts/system/{key}.md");
-    let default_message = format!("Update system prompt: {key}");
-    let message = body.commit_message.as_deref().unwrap_or(&default_message);
-
-    let file_sha = fetch_file_sha(&client, key, &path).await?;
-    commit_updated_prompt(&client, key, &path, &body.content, message, &file_sha).await
 }
 
 /// GET /api/admin/contremaitre/status — contremaitre system status.
@@ -310,6 +423,7 @@ async fn handle_status(
         branch,
         system_prompt_count: stats.system_count,
         agent_prompt_count: stats.agent_count,
+        persona_count: stats.persona_count,
         compiled_in_count: stats.compiled_in_count,
         contremaitre_count: stats.contremaitre_count,
     }))
@@ -358,4 +472,74 @@ async fn handle_manual_sync(
             failed: result.failed,
         }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registry_with(locales: &[&str]) -> PromptRegistry {
+        let registry = PromptRegistry::new();
+        for locale in locales {
+            registry.update_agent_prompt(
+                "endurance-agent",
+                locale,
+                format!("text-{locale}"),
+                format!("sha-{locale}"),
+            );
+        }
+        registry
+    }
+
+    #[test]
+    fn a_held_translation_is_shown_under_its_own_locale() {
+        let registry = registry_with(&["en", "fr", "es"]);
+        let detail = agent_prompt_detail(&registry, "endurance-agent", "es").unwrap();
+        assert_eq!(detail.requested_locale, "es");
+        assert_eq!(detail.locale, "es");
+        assert_eq!(detail.content, "text-es");
+    }
+
+    #[test]
+    fn a_missing_translation_says_which_locale_stands_in() {
+        let registry = registry_with(&["en", "fr"]);
+        let detail = agent_prompt_detail(&registry, "endurance-agent", "pt").unwrap();
+        assert_eq!(detail.requested_locale, "pt");
+        assert_eq!(detail.locale, "fr");
+        assert_eq!(detail.content, "text-fr");
+    }
+
+    #[test]
+    fn an_unsupported_locale_and_an_unknown_agent_are_refused() {
+        let registry = registry_with(&["en", "fr"]);
+        assert_eq!(
+            agent_prompt_detail(&registry, "endurance-agent", "it")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidInput,
+        );
+        assert_eq!(
+            agent_prompt_detail(&registry, "nobody", "en")
+                .unwrap_err()
+                .code,
+            ErrorCode::ResourceNotFound,
+        );
+    }
+
+    #[test]
+    fn the_listing_sorts_agents_and_their_locales() {
+        let registry = registry_with(&["pt", "en", "fr"]);
+        registry.update_agent_prompt("activity-agent", "fr", "t".to_owned(), "s".to_owned());
+        let listed: Vec<(String, Vec<String>)> = agent_locales(&registry).into_iter().collect();
+        assert_eq!(
+            listed,
+            [
+                ("activity-agent".to_owned(), vec!["fr".to_owned()]),
+                (
+                    "endurance-agent".to_owned(),
+                    vec!["en".to_owned(), "fr".to_owned(), "pt".to_owned()],
+                ),
+            ]
+        );
+    }
 }

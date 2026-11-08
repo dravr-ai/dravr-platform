@@ -341,26 +341,39 @@ impl PromptRegistry {
     /// Get an agent prompt for `locale`, falling back to [`DEFAULT_LOCALE`].
     ///
     /// [`Self::get_agent_prompt`] is the raw accessor and stays exact; this is
-    /// the layered one its doc invites a caller to build, and it exists because
-    /// the corpus ships each agent in `en` and `fr` while `SUPPORTED_LOCALES`
-    /// is five. Without the second lookup an `es`, `de` or `pt` athlete missed
-    /// the registry and fell through to the `agents.system_prompt` column —
-    /// which the seeder fills with the `## Instructions` section alone, so the
-    /// domain knowledge, alert taxonomy and success criteria all disappeared
-    /// for three of five supported locales behind a single `warn!`
-    /// (carnet#386).
+    /// the layered one its doc invites a caller to build. The corpus ships each
+    /// agent in every locale of `SUPPORTED_LOCALES` (carnet#1428), so the
+    /// fallback covers a translation that has not synced yet or that one agent
+    /// lacks. Without the second lookup that athlete missed the registry and
+    /// fell through to the `agents.system_prompt` column — which the seeder
+    /// fills with the `## Instructions` section alone, so the domain knowledge,
+    /// alert taxonomy and success criteria all disappeared behind a single
+    /// `warn!` (carnet#386).
     ///
     /// Serving the default locale's full markdown does not decide the reply's
     /// language: the turn-language block states that independently of which
     /// locale authored the persona text.
     pub fn agent_prompt_for_locale(&self, slug: &str, locale: &str) -> Option<String> {
-        if let Some(content) = self.get_agent_prompt(slug, locale) {
-            return Some(content);
-        }
-        if locale == DEFAULT_LOCALE {
-            return None;
-        }
-        self.get_agent_prompt(slug, DEFAULT_LOCALE)
+        self.agent_entry_for_locale(slug, locale)
+            .map(|(_, entry)| entry.content)
+    }
+
+    /// The entry a turn in `locale` is served and the locale it was written in,
+    /// which differs from `locale` when the default locale stood in. The admin
+    /// Prompts screen reads through it, so what it labels as shown is what a
+    /// turn receives.
+    pub fn agent_entry_for_locale(
+        &self,
+        slug: &str,
+        locale: &str,
+    ) -> Option<(String, PromptEntry)> {
+        let guard = self.read_agents();
+        let locales = guard.get(slug)?;
+        [locale, DEFAULT_LOCALE].into_iter().find_map(|candidate| {
+            locales
+                .get(candidate)
+                .map(|entry| (candidate.to_owned(), entry.clone()))
+        })
     }
 
     /// Get the coaching-persona output-format block for `persona`.
@@ -572,5 +585,136 @@ impl PromptRegistry {
 impl Default for PromptRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use pierre_core::models::SUPPORTED_LOCALES;
+
+    use super::*;
+    use crate::cageux_config::CageuxConfigRegistry;
+    use crate::errors::ContremaitreError;
+    use crate::evidence_registry::EvidenceRegistry;
+    use crate::manifest::{compute_sha256, parse_manifest, Manifest};
+    use crate::messaging_strings::MessagingStringsRegistry;
+    use crate::persona_contracts::PersonaContractRegistry;
+    use crate::store::{PromptStore, StoredFile};
+    use crate::sync::{full_sync, ContremaitreRegistries};
+    use crate::tool_descriptions::ToolDescriptionRegistry;
+    use crate::training_catalogue::TrainingCatalogueRegistry;
+
+    const SLUG: &str = "endurance-agent";
+
+    /// Serves one agent in all five locales; each file's content is its path.
+    struct FiveLocaleStore;
+
+    #[async_trait]
+    impl PromptStore for FiveLocaleStore {
+        async fn read_file(&self, path: &str) -> Result<StoredFile, ContremaitreError> {
+            Ok(StoredFile {
+                content: path.to_owned(),
+                path: path.to_owned(),
+            })
+        }
+
+        async fn read_manifest(&self) -> Result<Manifest, ContremaitreError> {
+            let locales = SUPPORTED_LOCALES
+                .map(|locale| {
+                    let path = format!("prompts/agents/training/{SLUG}/{locale}.md");
+                    let sha256 = compute_sha256(path.as_bytes());
+                    format!(r#""{locale}":{{"path":"{path}","sha256":"{sha256}"}}"#)
+                })
+                .join(",");
+            parse_manifest(&format!(
+                r#"{{"version":5,"prompts":{{"system":{{}},"agents":{{"{SLUG}":{{{locales}}}}},"personas":{{}}}}}}"#
+            ))
+        }
+
+        fn backend_label(&self) -> &'static str {
+            "five-locales"
+        }
+    }
+
+    fn registry_with(locales: &[&str]) -> PromptRegistry {
+        let registry = PromptRegistry::new();
+        for locale in locales {
+            registry.update_agent_prompt(
+                SLUG,
+                locale,
+                format!("PROMPT_{locale}"),
+                format!("sha_{locale}"),
+            );
+        }
+        registry
+    }
+
+    /// Every supported locale reads its own translation once it is synced, not
+    /// the default locale's text (carnet#1428).
+    #[test]
+    fn every_supported_locale_reads_its_own_translation() {
+        let registry = registry_with(&SUPPORTED_LOCALES);
+        for locale in SUPPORTED_LOCALES {
+            assert_eq!(
+                registry.agent_prompt_for_locale(SLUG, locale).as_deref(),
+                Some(format!("PROMPT_{locale}").as_str()),
+            );
+            let (served, entry) = registry
+                .agent_entry_for_locale(SLUG, locale)
+                .expect("the locale is synced");
+            assert_eq!(served, locale);
+            assert_eq!(entry.sha256, format!("sha_{locale}"));
+        }
+    }
+
+    /// A missing translation is served from the default locale, and the caller
+    /// is told so rather than being handed the text under the requested name.
+    #[test]
+    fn a_missing_translation_names_the_default_locale_it_served() {
+        let registry = registry_with(&["en", DEFAULT_LOCALE]);
+        let (served, entry) = registry
+            .agent_entry_for_locale(SLUG, "de")
+            .expect("the default locale stands in");
+        assert_eq!(served, DEFAULT_LOCALE);
+        assert_eq!(entry.content, format!("PROMPT_{DEFAULT_LOCALE}"));
+    }
+
+    /// A translation the manifest lists reaches the registry under its own
+    /// locale: the sync walks the manifest with no list of locales of its own.
+    #[tokio::test]
+    async fn a_full_sync_loads_every_locale_the_manifest_lists() {
+        let registry = PromptRegistry::new();
+        let store = FiveLocaleStore;
+        let result = full_sync(
+            ContremaitreRegistries {
+                registry: &registry,
+                tool_desc_registry: &ToolDescriptionRegistry::new(),
+                evidence_registry: &EvidenceRegistry::new(),
+                cageux_config_registry: &CageuxConfigRegistry::from_env(),
+                messaging_strings_registry: &MessagingStringsRegistry::new(),
+                persona_contract_registry: &PersonaContractRegistry::new(),
+                training_catalogue_registry: &TrainingCatalogueRegistry::new(),
+            },
+            &store,
+        )
+        .await
+        .expect("sync runs");
+        assert_eq!(result.failed, 0);
+        for locale in SUPPORTED_LOCALES {
+            assert_eq!(
+                registry.get_agent_prompt(SLUG, locale).as_deref(),
+                Some(format!("prompts/agents/training/{SLUG}/{locale}.md").as_str()),
+            );
+        }
+    }
+
+    /// With neither the locale nor the default there is nothing to serve: the
+    /// runtime then reads the database column, so no other locale stands in.
+    #[test]
+    fn no_entry_without_the_locale_or_the_default() {
+        let registry = registry_with(&["en"]);
+        assert!(registry.agent_entry_for_locale(SLUG, "de").is_none());
+        assert!(registry.agent_entry_for_locale("unknown", "en").is_none());
     }
 }

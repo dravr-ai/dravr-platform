@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-contremaitre-sync.sh — Check 3's tool list from the one registry scan,
-# ABOUTME: Check 1's server-rendered keys read from contremaitre, and Check 8's bot-only pin
+# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan in all five locales
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -300,6 +300,45 @@ root="$(catalogue_tree no_origin)"
 git -C "$root" update-ref -d refs/remotes/origin/main
 run "$root"
 expect_output "no origin/main fails Check 8 closed" "Pin ownership cannot be judged"
+
+# 13. Check 4 reads every locale. A line presenting a load ratio as injury risk
+# fails, the same line forbidding it passes, and a negation word from another
+# language excuses nothing: "no" is Spanish, and in Portuguese means "in the".
+framing() {
+    local agent="$CM/prompts/agents/training/framing-agent"
+    mkdir -p "$agent"
+    printf '%s\n' "$1" > "$agent/$2.md"
+    run_override "$(catalogue_tree "framing_$3")" "$CM"
+    rm -rf "$agent"
+}
+expect_framing_hit() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "[ACWR presented as injury risk]"
+}
+expect_framing_clean() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "Contremaitre catalogues carry no retired ACWR/TSB framing"
+}
+expect_green_verdict() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "[red/green safety verdict]"
+}
+expect_green_verdict "Spanish green band fails" "Un ACWR de 1,1 está en la banda verde." es es_green
+expect_green_verdict "German green zone fails" "Ein ACWR von 1,1 liegt im grünen Bereich." de de_green
+expect_green_verdict "Portuguese green band fails" "Um ACWR de 1,1 está na faixa verde." pt pt_green
+expect_green_verdict "French green band still fails" "Un ACWR de 1,1 est dans la bande verte." fr fr_green
+expect_framing_hit "Spanish injury framing fails" "Un ACWR de 1,6 es un riesgo de lesión." es es_hit
+expect_framing_hit "Spanish framing with a word between fails" "El ACWR alto supone riesgo alto de lesión." es es_gap
+expect_framing_clean "Spanish negated framing passes" "Nunca presentes el ACWR como un riesgo de lesión." es es_clean
+expect_framing_hit "German injury framing fails" "Ein ACWR über 1,5 bedeutet Verletzungsrisiko." de de_hit
+expect_framing_clean "German negated framing passes" "Das ACWR ist niemals ein Verletzungsrisiko." de de_clean
+expect_framing_hit "Portuguese injury framing fails" "Um ACWR de 1,6 indica risco de lesão." pt pt_hit
+expect_framing_hit "Portuguese 'no' negates nothing" "O risco de lesão aparece no ACWR acima de 1,5." pt pt_no
+expect_framing_clean "Portuguese negated framing passes" "O ACWR não é um risco de lesão." pt pt_clean
+expect_framing_hit "a Spanish 'no' does not excuse English framing" "ACWR above 1.5 is an injury risk, no matter the base." en en_no
+expect_framing_hit "French framing still fails" "Un ACWR élevé est un risque de blessure." fr fr_hit
+expect_framing_clean "French negated framing still passes" "Ne présente jamais l'ACWR comme un risque de blessure." fr fr_clean
+expect_framing_clean "an injury word with no load word passes" "La fuerza reduce el riesgo de lesión." es es_noload
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

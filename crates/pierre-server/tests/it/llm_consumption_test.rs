@@ -61,7 +61,7 @@ async fn test_aggregates_empty_when_no_data() {
 
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("tenant-1", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("tenant-1"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
     assert!(
@@ -71,7 +71,7 @@ async fn test_aggregates_empty_when_no_data() {
 
     let daily = repos
         .llm_usage
-        .get_llm_usage_daily_series("tenant-1", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_daily_series(Some("tenant-1"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
     assert!(daily.is_empty(), "Expected empty daily series for no data");
@@ -99,7 +99,7 @@ async fn test_aggregates_single_provider() {
 
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("t1", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("t1"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
 
@@ -183,7 +183,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
 
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("t1", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("t1"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
 
@@ -251,7 +251,7 @@ async fn test_tenant_isolation() {
     // Query tenant-a — should only see tenant-a's data
     let agg_a = repos
         .llm_usage
-        .get_llm_usage_aggregates("tenant-a", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("tenant-a"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
     assert_eq!(agg_a.len(), 1);
@@ -260,7 +260,7 @@ async fn test_tenant_isolation() {
     // Query tenant-b — should only see tenant-b's data
     let agg_b = repos
         .llm_usage
-        .get_llm_usage_aggregates("tenant-b", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("tenant-b"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
     assert_eq!(agg_b.len(), 1);
@@ -289,7 +289,7 @@ async fn test_daily_series_groups_by_date() {
 
     let daily = repos
         .llm_usage
-        .get_llm_usage_daily_series("t1", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_daily_series(Some("t1"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
 
@@ -325,7 +325,7 @@ async fn test_date_range_filtering() {
     let future_since = "2099-01-01T00:00:00+00:00";
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("t1", future_since)
+        .get_llm_usage_aggregates(Some("t1"), future_since)
         .await
         .unwrap();
     assert!(
@@ -337,7 +337,7 @@ async fn test_date_range_filtering() {
     let past_since = "2020-01-01T00:00:00+00:00";
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("t1", past_since)
+        .get_llm_usage_aggregates(Some("t1"), past_since)
         .await
         .unwrap();
     assert_eq!(aggregates.len(), 1, "Past since date should return results");
@@ -407,7 +407,7 @@ async fn aggregates_sum_cached_tokens_and_cost_reflects_the_discount() {
 
     let aggregates = repos
         .llm_usage
-        .get_llm_usage_aggregates("t-cache", "2020-01-01T00:00:00+00:00")
+        .get_llm_usage_aggregates(Some("t-cache"), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
 

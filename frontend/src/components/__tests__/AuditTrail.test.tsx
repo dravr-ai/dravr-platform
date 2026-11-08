@@ -79,6 +79,7 @@ describe('AuditTrail', () => {
     vi.mocked(adminApi.getAuditEvents).mockResolvedValue({
       events: [DELETE_PRE_APPROVAL, SIGNUP_CHANGE, FAILED_BY_GONE_OPERATOR],
       next_before: null,
+      next_before_id: null,
     });
 
     renderView();
@@ -105,7 +106,7 @@ describe('AuditTrail', () => {
   });
 
   it('opens a row onto before → after and the raw metadata', async () => {
-    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [SIGNUP_CHANGE], next_before: null });
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [SIGNUP_CHANGE], next_before: null, next_before_id: null });
 
     renderView();
 
@@ -120,7 +121,7 @@ describe('AuditTrail', () => {
   });
 
   it('sends the outcome and action-prefix filters to the server', async () => {
-    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [], next_before: null });
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [], next_before: null, next_before_id: null });
 
     renderView();
     await screen.findByTestId('audit-empty');
@@ -142,10 +143,14 @@ describe('AuditTrail', () => {
     expect(await screen.findByText('No recorded actions match these filters.')).toBeTruthy();
   });
 
-  it('loads the older page with the cursor the server returned', async () => {
+  it('loads the older page with the instant and id the server returned, so a tied instant is not skipped', async () => {
     vi.mocked(adminApi.getAuditEvents)
-      .mockResolvedValueOnce({ events: [DELETE_PRE_APPROVAL], next_before: '2026-11-04T20:31:45.123Z' })
-      .mockResolvedValueOnce({ events: [FAILED_BY_GONE_OPERATOR], next_before: null });
+      .mockResolvedValueOnce({
+        events: [DELETE_PRE_APPROVAL],
+        next_before: '2026-11-04T20:31:45.123Z',
+        next_before_id: 'ev-1',
+      })
+      .mockResolvedValueOnce({ events: [FAILED_BY_GONE_OPERATOR], next_before: null, next_before_id: null });
 
     renderView();
 
@@ -155,6 +160,7 @@ describe('AuditTrail', () => {
       expect(adminApi.getAuditEvents).toHaveBeenLastCalledWith({
         limit: 50,
         before: '2026-11-04T20:31:45.123Z',
+        before_id: 'ev-1',
       }),
     );
     // The older page is appended under the newer one, and the last page offers no more.
@@ -164,7 +170,7 @@ describe('AuditTrail', () => {
   });
 
   it('says what will appear when nothing has been recorded', async () => {
-    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [], next_before: null });
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [], next_before: null, next_before_id: null });
 
     renderView();
 

@@ -1,19 +1,16 @@
-// ABOUTME: Admin route exposing memory extraction worker health via user_facts aggregates
-// ABOUTME: Returns tenant-scoped counts/kind breakdown so operators can spot extraction stalls
+// ABOUTME: Admin route exposing memory extraction worker health from its run ledger, beside user_facts aggregates
+// ABOUTME: Runs, failures and backlog are measured; the scope follows the caller's role, platform-wide for a super admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Memory extraction worker monitoring.
 //!
-//! The memory extraction pipeline runs as a fire-and-forget `tokio::spawn`
-//! after each conversation turn, so there is no long-running worker to
-//! poll. Instead this endpoint computes the pipeline's health from the
-//! rows it has actually produced in `user_facts`: total counts, activity
-//! windows, per-kind breakdown, and the newest update timestamp.
-//!
-//! When the admin tab reports `facts_last_24h == 0` but the tenant has
-//! active conversations, that's the signal extraction is broken.
+//! A turn's extraction runs in the background, recorded in a job ledger until
+//! it lands. The worker's health is measured from its run ledger: how many runs
+//! ended and how, and which extractions are still owed past a run's lease. The
+//! `user_facts` aggregates sit beside it as a description of the store, whose
+//! rows other writers also touch, and never as a signal of the worker.
 
 use std::sync::Arc;
 
@@ -23,81 +20,81 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
+use pierre_core::admin::models::ValidatedAdminToken;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_database::repositories::ExtractionRunStats;
 use pierre_memory::UserFactMetrics;
+use pierre_services::memory_extraction::EXTRACTION_JOB_LEASE;
 
+use super::admin_scope::console_read_scope;
 use crate::context::AdminApiContext;
 
 /// Query parameters for the memory worker metrics endpoint.
 #[derive(Debug, Deserialize)]
 pub struct MemoryMetricsQuery {
-    /// Tenant to compute metrics for. Admin tokens can span tenants, so
-    /// the caller must pick the tenant to scope the aggregation to.
-    pub tenant_id: String,
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
 }
 
 /// Response envelope for `GET /admin/memory/worker-metrics`.
-///
-/// Wraps the domain [`UserFactMetrics`] with the tenant id that was
-/// scoped, so the frontend can round-trip it into the tab header without
-/// a second request.
 #[derive(Debug, Serialize)]
 pub struct MemoryWorkerMetricsResponse {
-    /// Tenant these metrics were computed against.
-    pub tenant_id: String,
-    /// The raw metrics snapshot.
+    /// The tenants these numbers cover.
+    pub scope: AdminScope,
+    /// What the worker measurably did.
+    pub runs: ExtractionRunStats,
+    /// What `user_facts` holds.
     pub metrics: UserFactMetrics,
 }
 
 /// Handle `GET /admin/memory/worker-metrics`.
 ///
-/// Requires [`AdminPermission::ViewConfiguration`] — the same permission
-/// used by the rest of the harness observability tabs (`HarnessConfigTab`,
-/// `ClaimVerdictsTab`, `MemoryPanel`).
-///
 /// # Errors
 ///
-/// Returns an error when the caller lacks `ViewConfiguration`, the token is
-/// not allowed to access `tenant_id`, the tenant id does not parse, or the
-/// metrics query fails.
+/// Returns an error when the scope rule refuses the caller, the tenant id does
+/// not parse, or a read fails.
 pub async fn handle_get_memory_metrics(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<MemoryMetricsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
 
-    let tenant = TenantId::parse_str(&params.tenant_id)
-        .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
-
-    let metrics = context
-        .repos
-        .memory
-        .count_user_facts_metrics(tenant)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "failed to compute memory worker metrics");
-            AppError::internal(format!("Failed to compute memory worker metrics: {e}"))
-        })?;
+    let now_ms = Utc::now().timestamp_millis();
+    let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
+    let owed_since_ms = now_ms.saturating_sub(lease_ms);
+    let memory = &context.repos.memory;
+    let jobs = &context.repos.memory_extraction_jobs;
+    let reads = tokio::try_join!(
+        memory.count_user_facts_metrics(scope),
+        jobs.extraction_run_stats(scope, now_ms, owed_since_ms),
+    );
+    let (metrics, runs) = reads.map_err(|e| {
+        error!(error = %e, "failed to compute memory worker metrics");
+        AppError::internal(format!("Failed to compute memory worker metrics: {e}"))
+    })?;
 
     info!(
         token_id = %admin_token.token_id,
-        tenant = %params.tenant_id,
+        ?scope,
         total = metrics.total_facts,
         last_24h = metrics.facts_last_24h,
+        runs_failed_24h = runs.last_24h.failed,
+        backlog = runs.backlog,
         "admin fetched memory worker metrics"
     );
 
     Ok((
         StatusCode::OK,
         Json(MemoryWorkerMetricsResponse {
-            tenant_id: params.tenant_id,
+            scope,
+            runs,
             metrics,
         }),
     ))

@@ -19,9 +19,9 @@ export interface ChartTheme {
 }
 
 // Primary, then the pillar accents, then two neutrals so a chart with many slices
-// still draws each in its own colour. `activity` holds index 5, which UsageAnalytics
-// names. `success`, `warning` and `info` stay out: dark mode gives those three the
-// same values as the pillars, so listing them would draw two series in one colour.
+// still draws each in its own colour. `success`, `warning` and `info` stay out: dark
+// mode gives those three the same values as the pillars, so listing them would draw
+// two series in one colour.
 const SERIES_TOKENS = [
   '--color-primary',
   '--color-nutrition',

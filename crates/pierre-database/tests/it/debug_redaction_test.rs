@@ -17,8 +17,8 @@ use pierre_database::repositories::messaging::{
     InsertMessageParams, UpsertChannelConfigParams,
 };
 use pierre_database::repositories::{
-    InsertAgentFollowupParams, InsertAgentNoteParams, InsertClaimVerdictParams,
-    InsertCompactionBlockParams, SetVerdictDispositionParams, UpsertUserFactParams,
+    InsertClaimVerdictParams, InsertCompactionBlockParams, SetVerdictDispositionParams,
+    UpsertUserFactParams,
 };
 use pierre_database::seed_models::{SeedApiKey, SeedDemoUser};
 use pierre_memory::claims::{
@@ -339,46 +339,6 @@ fn a_user_fact_upsert_prints_the_size_of_the_athletes_words_never_the_words() {
     assert!(printed.contains("UpsertUserFactParams"), "{printed}");
     assert!(
         printed.contains(&format!("object_len: {}", object.len())),
-        "{printed}"
-    );
-}
-
-#[test]
-fn an_agent_note_prints_the_size_of_its_content_never_the_content() {
-    let content = "sentinel-note-content-7f3a athlete mentioned poor sleep";
-    let params = InsertAgentNoteParams {
-        tenant_id: TenantId::generate(),
-        user_id: "user-1",
-        agent_id: "agent-1",
-        conversation_id: Some("conv-1"),
-        scope: MemoryScope::User,
-        content,
-        transport_policy: TransportPolicy::AnyTransport,
-    };
-    let printed = printed_without(&params, &["sentinel-note-content-7f3a"]);
-    assert!(printed.contains("InsertAgentNoteParams"), "{printed}");
-    assert!(
-        printed.contains(&format!("content_len: {}", content.len())),
-        "{printed}"
-    );
-}
-
-#[test]
-fn an_agent_followup_prints_the_size_of_its_content_never_the_content() {
-    let content = "sentinel-followup-7f3a ask how the long run felt";
-    let params = InsertAgentFollowupParams {
-        tenant_id: TenantId::generate(),
-        user_id: "user-1",
-        agent_id: "agent-1",
-        conversation_id: None,
-        content,
-        due_at: Some(Utc::now()),
-        transport_policy: TransportPolicy::AnyTransport,
-    };
-    let printed = printed_without(&params, &["sentinel-followup-7f3a"]);
-    assert!(printed.contains("InsertAgentFollowupParams"), "{printed}");
-    assert!(
-        printed.contains(&format!("content_len: {}", content.len())),
         "{printed}"
     );
 }

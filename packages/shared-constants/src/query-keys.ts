@@ -264,7 +264,7 @@ export const QUERY_KEYS = {
   dashboard: {
     all: ['dashboard'] as const,
     usageAnalytics: (days?: number) => ['usage-analytics', days] as const,
-    recentActivity: () => ['admin-recent-activity'] as const,
+    recentActivity: (tenantId?: string) => ['admin-recent-activity', tenantId] as const,
   },
 
   // ==================== A2A (Agent-to-Agent) ====================

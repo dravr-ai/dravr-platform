@@ -8,10 +8,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachAccessRequestView } from '@pierre/shared-types';
 import { formatDate } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
 import { coachAccessAdminApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, EmptyState, Section } from './ui';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /**
  * A coach whose onboarding group came back coachless asks for coach access in
@@ -21,7 +21,6 @@ import { Button, EmptyState, Section } from './ui';
  * no coach invite. Declining changes nothing else; they may ask again.
  */
 export default function CoachAccessRequests() {
-  const { language } = useTranslation();
   const queryClient = useQueryClient();
   const [result, setResult] = useState<{ message: string; ok: boolean } | null>(null);
 
@@ -112,7 +111,7 @@ export default function CoachAccessRequests() {
                   {request.group_name ? `Group: ${request.group_name}` : 'No group named'}
                 </p>
                 <p className="text-xs text-outline">
-                  Requested {formatDate(request.created_at, language)}
+                  Requested {formatDate(request.created_at, ADMIN_LOCALE)}
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">

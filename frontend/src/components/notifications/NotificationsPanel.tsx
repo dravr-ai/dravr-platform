@@ -16,6 +16,7 @@ import {
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
+  displayNotificationCategory,
   countKey,
   formatNotificationTime,
   formatCollapsedCount,
@@ -159,7 +160,8 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
           <div>
             {notifications.map((item) => {
               const isUnread = !item.read_at;
-              const meta = NOTIFICATION_CATEGORY_META[item.category];
+              const category = displayNotificationCategory(item.category);
+              const meta = NOTIFICATION_CATEGORY_META[category];
               const collapsedLabel = formatCollapsedCount(item.collapsed_count, t, i18n.language);
               const route = webNotificationRoute(item.data as Record<string, unknown> | undefined);
 
@@ -202,7 +204,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS[scheme][item.category] }}
+                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS[scheme][category] }}
                     />
                     {t(meta.labelKey)}
                   </div>

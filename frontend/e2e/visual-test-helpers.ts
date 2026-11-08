@@ -118,6 +118,21 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
   });
 
   // Mock system agents (Admin Coaches tab) - correct field names
+  // The Engagement tab's figures, read in one scope by the server
+  await page.route('**/api/admin/engagement**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        scope: { kind: 'all_tenants' },
+        users: { total: 12, daily: 3, weekly: 7, monthly: 9, dormant: 3 },
+        total_agents: 1,
+        published_agents: 1,
+        leaderboard: [{ id: 'system-coach-1', title: 'Training Coach', category: 'Training', use_count: 42 }],
+      }),
+    });
+  });
+
   await page.route('**/api/admin/agents**', async (route) => {
     await route.fulfill({
       status: 200,

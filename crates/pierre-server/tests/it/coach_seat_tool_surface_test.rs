@@ -49,10 +49,8 @@ const OWN_DATA_TOOL: &str = "get_activities";
 /// A named athlete's activities, through their consent: kept on the seat.
 const ATHLETE_TOOL: &str = "get_group_member_activities";
 /// Writes on the caller's own account: withheld in a coach's athlete thread.
-const OWN_ACCOUNT_WRITES: [&str; 6] = [
+const OWN_ACCOUNT_WRITES: [&str; 4] = [
     "remember_fact",
-    "agent_note_add",
-    "agent_followup_schedule",
     "commitment_create",
     "set_goal",
     "set_physiology",

@@ -36,7 +36,7 @@ use crate::team_offer;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
-use super::followups::finalize_session_state;
+use super::agent_session::finalize_session_state;
 use super::persistence::persist_assistant_response;
 
 /// Stand-in for the agent reply when extraction runs over a turn the platform
@@ -194,7 +194,7 @@ pub async fn deliver(
     )
     .await?;
 
-    finalize_session_state(&ctx.data, conv.session_id.as_deref(), &[], input).await;
+    finalize_session_state(&ctx.data, conv.session_id.as_deref(), input).await;
 
     // Same rule as the model path: the slot is taken only once a reply exists
     // (registre#260).

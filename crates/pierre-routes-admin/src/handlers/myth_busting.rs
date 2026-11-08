@@ -1,89 +1,68 @@
-// ABOUTME: Admin routes for myth-busting summary + promote-topic feedback loop into Tier 6 guardrails
-// ABOUTME: Reads claim verdicts and writes recurring claim phrases into harness_config.blocked_topics
+// ABOUTME: Admin route for the myth-busting summary
+// ABOUTME: Reads claim verdicts and rolls up the claims agents keep making
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Admin myth-busting routes.
+//! Admin myth-busting route.
 //!
 //! `GET /api/admin/myth-busting/summary` wraps
-//! [`pierre_services::myth_busting::compute_summary`] for tenant pattern
-//! review (display only).
-//!
-//! `POST /api/admin/myth-busting/promote-topic` is the **feedback loop**
-//! that closes the gap between observation and enforcement: when an admin
-//! sees a recurring unsupported claim phrase, they can promote it directly
-//! into `harness_config.guardrails.blocked_topics`. The handler reads the
-//! stored document, appends the topic if not already present, validates
-//! via [`pierre_contremaitre::harness_config_document::validate_document`],
-//! persists to `system_settings`, and installs the new snapshot in the
-//! [`pierre_contremaitre::harness_config_registry::HarnessConfigRegistry`] so the chat
-//! pipeline starts rejecting replies containing the topic on the next turn.
+//! [`pierre_services::myth_busting::compute_summary`] for pattern review
+//! (display only), over the tenants the scope rule grants the caller. The
+//! summary quotes reply sentences, so reading another tenant's writes a row to
+//! the audit trail.
 
 use std::sync::Arc;
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Extension, Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde_json::json;
 use tracing::{error, info};
 
-use pierre_contremaitre::harness_config_document::{
-    validate_document, HarnessConfigDocument, HARNESS_CONFIG_SETTING_KEY,
-};
-use pierre_contremaitre::harness_config_registry::{HarnessConfigRegistry, HarnessConfigSource};
-use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
+use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
 use pierre_services::myth_busting::{compute_summary, DEFAULT_VERDICT_LIMIT, MAX_VERDICTS_SCANNED};
 
+use super::admin_scope::{audit_cross_tenant_sentences, console_read_scope};
 use crate::context::AdminApiContext;
-
-/// Maximum allowed length for a single promoted topic substring.
-///
-/// Prevents an admin from pasting an entire reply into the blocked list
-/// (which would never match) or exhausting storage with a giant string.
-const MAX_TOPIC_LEN: usize = 200;
-
-/// How many times a promote re-reads the row after losing it to a concurrent save.
-const PROMOTE_ATTEMPTS: u32 = 3;
 
 /// Query parameters for the myth-busting summary endpoint.
 #[derive(Debug, Deserialize)]
 pub struct MythBustingQuery {
-    /// Tenant to compute the summary for (admin tokens span tenants).
-    pub tenant_id: String,
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
     /// Maximum verdicts to scan, clamped to `1..=MAX_VERDICTS_SCANNED`.
     pub limit: Option<i64>,
 }
+
+/// The route a cross-tenant read of reply sentences is recorded under.
+const MYTH_BUSTING_SUMMARY_ROUTE: &str = "/api/admin/myth-busting/summary";
 
 /// Handle `GET /admin/myth-busting/summary`.
 ///
 /// # Errors
 ///
-/// Returns an error when the caller lacks `ViewConfiguration`, the token is
-/// not allowed to access `tenant_id`, the tenant id does not parse, or the
-/// verdict scan fails.
+/// Returns an error when the scope rule refuses the caller, the tenant id does
+/// not parse, or the verdict scan fails.
 pub async fn handle_get_summary(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    headers: HeaderMap,
     Query(params): Query<MythBustingQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
-
-    let tenant = TenantId::parse_str(&params.tenant_id)
-        .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
     let limit = params
         .limit
         .unwrap_or(DEFAULT_VERDICT_LIMIT)
         .clamp(1, MAX_VERDICTS_SCANNED);
 
-    let summary = compute_summary(&context.repos.agent_repos(), tenant, limit)
+    let summary = compute_summary(&context.repos.agent_repos(), scope, limit)
         .await
         .map_err(|e| {
             error!(error = %e, "failed to compute myth-busting summary");
@@ -92,166 +71,21 @@ pub async fn handle_get_summary(
 
     info!(
         token_id = %admin_token.token_id,
-        tenant = %params.tenant_id,
+        ?scope,
         verdicts_scanned = summary.verdicts_scanned,
         flagged_total = summary.flagged_total,
         "admin fetched myth-busting summary"
     );
 
-    Ok((StatusCode::OK, Json(summary)))
-}
-
-/// Body for `POST /api/admin/myth-busting/promote-topic`.
-#[derive(Debug, Deserialize)]
-pub struct PromoteTopicRequest {
-    /// The substring (case-insensitive) the chat pipeline should reject.
-    /// Trimmed and lowercased before comparison; admin-supplied text only.
-    pub topic: String,
-}
-
-/// Response for `POST /api/admin/myth-busting/promote-topic`.
-#[derive(Debug, Serialize)]
-pub struct PromoteTopicResponse {
-    /// The trimmed topic that was added (or already present).
-    pub topic: String,
-    /// Whether the topic was a new addition (`true`) or already in the list (`false`).
-    pub added: bool,
-    /// Total count of blocked topics after the operation.
-    pub total_blocked_topics: usize,
-}
-
-/// Handle `POST /api/admin/myth-busting/promote-topic`.
-///
-/// Thin axum wrapper over [`promote_topic`] — request validation +
-/// permission gate, then delegates the read-mutate-persist-install cycle.
-pub(crate) async fn handle_promote_topic(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Json(req): Json<PromoteTopicRequest>,
-) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
-    // The blocked-topic list lives in the platform-wide harness document.
-    admin_token.require_global_scope()?;
-
-    let response = promote_topic(
-        &context.database,
-        &context.harness_config_registry,
-        &req.topic,
+    audit_cross_tenant_sentences(
+        &context,
+        &admin_token,
+        &headers,
+        MYTH_BUSTING_SUMMARY_ROUTE,
+        scope,
+        json!({ "scope": scope, "verdicts_scanned": summary.verdicts_scanned }),
     )
-    .await?;
+    .await;
 
-    info!(
-        token_id = %admin_token.token_id,
-        topic = %response.topic,
-        added = response.added,
-        total_blocked_topics = response.total_blocked_topics,
-        "promote-topic complete"
-    );
-
-    Ok((StatusCode::OK, Json(response)))
-}
-
-/// Append `topic` to `harness_config.guardrails.blocked_topics`, persist,
-/// and install the new snapshot.
-///
-/// Idempotent: re-promoting a topic the row already holds returns `added=false`
-/// and skips the storage / registry write, avoiding churn from misclicks.
-///
-/// Trims whitespace; rejects empty or overlong inputs. Comparison is
-/// ASCII case-insensitive — same rule the guardrails apply at match time.
-///
-/// # Errors
-///
-/// - [`AppError::invalid_input`] if `topic` is empty after trim or
-///   exceeds [`MAX_TOPIC_LEN`] characters.
-/// - [`AppError::internal`] on serialization or DB persistence failure.
-pub async fn promote_topic(
-    db: &Database,
-    registry: &HarnessConfigRegistry,
-    raw_topic: &str,
-) -> AppResult<PromoteTopicResponse> {
-    let topic = raw_topic.trim().to_owned();
-    if topic.is_empty() {
-        return Err(AppError::invalid_input("topic must be non-empty"));
-    }
-    if topic.chars().count() > MAX_TOPIC_LEN {
-        return Err(AppError::invalid_input(format!(
-            "topic exceeds {MAX_TOPIC_LEN} characters"
-        )));
-    }
-
-    // Read the row, not this instance's snapshot: the snapshot can trail a save
-    // that landed on another instance, or hold boot defaults after a read
-    // failure, and writing it back would wipe what the row holds. Compare-and-set
-    // keeps a concurrent save; appending needs no super admin decision, so losing
-    // that race just re-reads.
-    for _ in 0..PROMOTE_ATTEMPTS {
-        let row = db
-            .get_system_setting(HARNESS_CONFIG_SETTING_KEY)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "failed to read harness config for promote-topic");
-                AppError::internal(format!("Failed to read harness config: {e}"))
-            })?;
-        let mut document = match &row {
-            Some(row) => {
-                serde_json::from_str::<HarnessConfigDocument>(&row.value).map_err(|e| {
-                    error!(error = %e, "stored harness config is invalid; refusing promote-topic");
-                    AppError::internal(format!("Stored harness config is invalid JSON: {e}"))
-                })?
-            }
-            None => HarnessConfigDocument::default(),
-        };
-
-        let already_present = document
-            .guardrails
-            .blocked_topics
-            .iter()
-            .any(|t| t.eq_ignore_ascii_case(&topic));
-        if already_present {
-            return Ok(PromoteTopicResponse {
-                topic,
-                added: false,
-                total_blocked_topics: document.guardrails.blocked_topics.len(),
-            });
-        }
-
-        document.guardrails.blocked_topics.push(topic.clone());
-
-        // Reuse the harness config validator so the same invariants the PUT
-        // route enforces apply here. A failure here would mean we started
-        // from a valid persisted document and only appended a string — the
-        // validator would have to fail on length, but blocked_topics has no
-        // count limit, so this is defensive only.
-        validate_document(&document)?;
-
-        let serialized = serde_json::to_string(&document).map_err(|e| {
-            error!(error = %e, "failed to serialize harness config after promote-topic");
-            AppError::internal(format!("Failed to serialize harness config: {e}"))
-        })?;
-        let written = db
-            .compare_and_set_system_setting(
-                HARNESS_CONFIG_SETTING_KEY,
-                &serialized,
-                row.map(|row| row.updated_at),
-            )
-            .await
-            .map_err(|e| {
-                error!(error = %e, "failed to persist harness config after promote-topic");
-                AppError::internal(format!("Failed to persist harness config: {e}"))
-            })?;
-        if written.is_some() {
-            let total_blocked_topics = document.guardrails.blocked_topics.len();
-            registry.install(document, HarnessConfigSource::AdminUpdate);
-            return Ok(PromoteTopicResponse {
-                topic,
-                added: true,
-                total_blocked_topics,
-            });
-        }
-    }
-
-    Err(AppError::internal(
-        "harness config kept changing during promote-topic",
-    ))
+    Ok((StatusCode::OK, Json(summary)))
 }

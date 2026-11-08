@@ -27,11 +27,11 @@ export type NotificationCategoryColors = Record<NotificationCategory, string>;
 /**
  * Canonical category metadata for notification rendering.
  *
- * Notification categories (training/recovery/coach/achievement/system/ai/
- * reminders) are their own taxonomy, not the four fitness pillars
+ * Notification categories (training/recovery/coach/achievement/system) are
+ * their own taxonomy, not the four fitness pillars
  * (activity/nutrition/recovery/mobility) — `training` and `recovery` share a
- * name with a pillar but not a source: three of the seven categories here
- * (coach, achievement, ai, reminders) have no pillar equivalent at all. These
+ * name with a pillar but not a source: coach, achievement and system have no
+ * pillar equivalent at all. These
  * are this taxonomy's own swatches — not pulled from `PILLAR_COLORS`, and not
  * meant to be — but they follow its scheme-paired shape, for the reason that
  * shape exists.
@@ -46,8 +46,6 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, Notificati
   coach: { labelKey: 'notifPrefs.catCoach', iconName: 'message-circle' },
   achievement: { labelKey: 'notifPrefs.catAchievement', iconName: 'trophy' },
   system: { labelKey: 'notifPrefs.catSystem', iconName: 'settings' },
-  ai: { labelKey: 'notifPrefs.catAi', iconName: 'brain' },
-  reminders: { labelKey: 'notifPrefs.catReminders', iconName: 'clock' },
 } as const;
 
 /**
@@ -57,7 +55,7 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, Notificati
  * the app's `surface` in either scheme". That held while the only consumer was
  * the web panel's 8px dot. Mobile then painted the category *word* in the same
  * hex, and on the dark canvas (`#11130f`) the near-black forest greens landed
- * at 1.13:1 (coach) and 1.50:1 (ai) — the label was the canvas. Every value
+ * at 1.13:1 (coach) — the label was the canvas. Every value
  * here now clears 4.5:1 against its own scheme's surface; `recovery` and
  * `system` moved on the light side too, where they sat at 4.34 and 4.25.
  *
@@ -72,8 +70,6 @@ export const NOTIFICATION_CATEGORY_COLORS: Record<ColorScheme, NotificationCateg
     coach: '#00241a',       // near-black forest green
     achievement: '#896429', // warm bronze
     system: '#5f6762',      // neutral grey
-    ai: '#0d3b2e',          // dark forest green
-    reminders: '#7a4d5e',   // aged rose
   },
   dark: {
     training: '#7fae9b',    // deep sage, lifted for dark surfaces
@@ -81,8 +77,6 @@ export const NOTIFICATION_CATEGORY_COLORS: Record<ColorScheme, NotificationCateg
     coach: '#5cc9a3',       // forest green, lifted
     achievement: '#d4a95e', // warm bronze, lifted
     system: '#a6aea8',      // neutral grey, lifted
-    ai: '#48b391',          // dark forest green, lifted
-    reminders: '#c896a6',   // aged rose, lifted
   },
 } as const;
 
@@ -93,9 +87,30 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   'coach',
   'achievement',
   'system',
-  'ai',
-  'reminders',
 ] as const;
+
+/**
+ * Categories no surface offers any more, which stored rows can still name.
+ *
+ * AI Insights and Reminders were deleted on carnet#1436 and migration 20261106140000
+ * deleted their stored preferences, but a phone on an older build still names both
+ * and the server still accepts them, so such a row can be written again. Unlike a
+ * category this build has not heard of, one of these must never reappear as a
+ * settings row.
+ */
+const RETIRED_NOTIFICATION_CATEGORIES: readonly string[] = ['ai', 'reminders'];
+
+/**
+ * The category a notification row is displayed under.
+ *
+ * The metadata and colour maps hold only live categories, while the feed returns
+ * whatever a stored row says: a row raised under a retired category, or under
+ * one newer than this build. Those read as `system` so the row still renders
+ * instead of taking the whole list down on a missing map entry.
+ */
+export function displayNotificationCategory(category: string): NotificationCategory {
+  return NOTIFICATION_CATEGORIES.find((known) => known === category) ?? 'system';
+}
 
 /**
  * What a category means before the athlete has ever touched it.
@@ -132,7 +147,8 @@ export function defaultNotificationPreference(
  * One function, because both clients ask the same question and a second copy is
  * a second answer. Anything the server returns that this build does not know is
  * appended rather than dropped, so a category added server-side still reaches
- * the athlete.
+ * the athlete. A retired category is the exception: it is dropped, and the rest
+ * of the list is untouched.
  */
 export function mergeNotificationPreferences(
   stored: readonly NotificationPreferenceItem[],
@@ -143,7 +159,11 @@ export function mergeNotificationPreferences(
   const known = NOTIFICATION_CATEGORIES.map(
     (category) => byCategory.get(category) ?? defaultNotificationPreference(category),
   );
-  const extra = stored.filter((p) => !NOTIFICATION_CATEGORIES.includes(p.category));
+  const extra = stored.filter(
+    (p) =>
+      !NOTIFICATION_CATEGORIES.includes(p.category) &&
+      !RETIRED_NOTIFICATION_CATEGORIES.includes(p.category),
+  );
   return [...known, ...extra];
 }
 
@@ -222,8 +242,6 @@ export const NOTIFICATION_CATEGORY_BLURB_KEYS: Record<NotificationCategory, stri
   coach: 'notifPrefs.blurbCoach',
   achievement: 'notifPrefs.blurbAchievement',
   system: 'notifPrefs.blurbSystem',
-  ai: 'notifPrefs.blurbAi',
-  reminders: 'notifPrefs.blurbReminders',
 };
 
 /**

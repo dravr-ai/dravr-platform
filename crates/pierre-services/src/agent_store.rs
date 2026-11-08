@@ -1,5 +1,5 @@
 // ABOUTME: Agent Store operations — browse, search, install — shared by the REST routes and MCP tools
-// ABOUTME: One projection, one grade re-rank, one install path, so every surface sees the same store
+// ABOUTME: One projection, one install path, so every surface sees the same store
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,9 +15,9 @@
 //! named no store category, so no chat surface, in-app or messaging, could
 //! browse or install an agent at all.
 //!
-//! Keeping the projection, the grade re-rank and the install call in one place
-//! is what makes those surfaces the same store: an agent that ranks third in
-//! the web browse ranks third in chat, and installing from any of them — the
+//! Keeping the projection and the install call in one place is what makes those
+//! surfaces the same store: an agent that ranks third in the web browse ranks
+//! third in chat, and installing from any of them — the
 //! REST route, the `install_agent_from_store` tool, `/discover install` —
 //! writes the same row and emits `agent.installed` exactly once, from here.
 
@@ -30,10 +30,8 @@ use pierre_database::database::{Agent, AgentCategory, AgentWithListing, StoreLis
 use pierre_database::repositories::CoachTools;
 use pierre_database::views::AgentRepos;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
-
-use crate::agent_grading::{compute_agent_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT};
 
 /// Default page size when a caller does not ask for one.
 pub const DEFAULT_STORE_PAGE_SIZE: u32 = 20;
@@ -102,7 +100,7 @@ pub struct BrowseStoreParams<'a> {
     /// Whether the viewer may see coach-facing agents; see
     /// [`crate::agents::user_sees_coach_tools`].
     pub coach_tools: CoachTools,
-    /// Ordering applied before the grade re-rank.
+    /// Ordering of the page.
     pub sort_by: StoreSortOrder,
     /// Page size; clamped to `1..=MAX_STORE_PAGE_SIZE`.
     pub limit: u32,
@@ -113,7 +111,7 @@ pub struct BrowseStoreParams<'a> {
 /// One page of published agents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorePage {
-    /// The agents on this page, already re-ranked by grade.
+    /// The agents on this page, in the chosen order.
     pub agents: Vec<StoreAgent>,
     /// Cursor for the next page, absent when this is the last one.
     pub next_cursor: Option<String>,
@@ -121,19 +119,13 @@ pub struct StorePage {
     pub has_more: bool,
 }
 
-/// Browse published agents, newest first by default, re-ranked by agent grade.
-///
-/// Grades are computed from `viewer_tenant`'s recent claim verdicts so
-/// low-quality agents fall below higher-graded peers even when they shipped
-/// with more installs. A grading failure degrades to the underlying
-/// `install_count` ordering rather than failing the browse.
+/// Browse published agents, newest first by default.
 ///
 /// # Errors
 ///
 /// Returns the underlying repository error when the listing page cannot be read.
 pub async fn browse_store(
     repos: &AgentRepos,
-    viewer_tenant: TenantId,
     params: &BrowseStoreParams<'_>,
     locale: &str,
 ) -> AppResult<StorePage> {
@@ -150,8 +142,7 @@ pub async fn browse_store(
         .await?;
 
     let items = translate_listings(repos, page.items, locale).await?;
-    let mut agents: Vec<StoreAgent> = items.into_iter().map(StoreAgent::from).collect();
-    apply_grade_rank(repos, viewer_tenant, &mut agents).await;
+    let agents: Vec<StoreAgent> = items.into_iter().map(StoreAgent::from).collect();
 
     Ok(StorePage {
         agents,
@@ -167,26 +158,24 @@ pub async fn browse_store(
 /// 64-byte callback budget next to the command and a category.
 #[derive(Debug, Clone)]
 pub struct StoreOffsetPage {
-    /// The agents on this page, already re-ranked by grade.
+    /// The agents on this page, newest first.
     pub agents: Vec<StoreAgent>,
     /// Offset of the page after this one, absent when this is the last.
     pub next_offset: Option<u32>,
 }
 
-/// Browse published agents newest first from `offset`, re-ranked by agent grade.
+/// Browse published agents newest first from `offset`.
 ///
 /// Reads one row past `limit` to learn whether a next page exists, so a
 /// caller never offers a "More" that turns out empty. `limit` is clamped to
 /// `1..MAX_STORE_PAGE_SIZE` — one under the cap, so the look-ahead row still
-/// fits the repository's own page ceiling. Grading degrades exactly as in
-/// [`browse_store`].
+/// fits the repository's own page ceiling.
 ///
 /// # Errors
 ///
 /// Returns the underlying repository error when the listing page cannot be read.
 pub async fn browse_store_page(
     repos: &AgentRepos,
-    viewer_tenant: TenantId,
     category: Option<AgentCategory>,
     coach_tools: CoachTools,
     offset: u32,
@@ -209,8 +198,7 @@ pub async fn browse_store_page(
     rows.truncate(page_len);
 
     let rows = translate_listings(repos, rows, locale).await?;
-    let mut agents: Vec<StoreAgent> = rows.into_iter().map(StoreAgent::from).collect();
-    apply_grade_rank(repos, viewer_tenant, &mut agents).await;
+    let agents: Vec<StoreAgent> = rows.into_iter().map(StoreAgent::from).collect();
 
     Ok(StoreOffsetPage {
         agents,
@@ -399,8 +387,6 @@ pub async fn join_team(
     Ok(true)
 }
 
-/// Re-rank a page of store agents by agent grade, degrading to the existing
-/// order when grades cannot be computed.
 /// Overlay the `agent_translations` rows for `locale` onto listing agents.
 ///
 /// The store reads the canonical English row; a French athlete browsing it
@@ -438,16 +424,4 @@ pub async fn translate_published_agent(
         .agents
         .translate_agents(slice::from_mut(&mut agent.agent), locale)
         .await
-}
-
-async fn apply_grade_rank(repos: &AgentRepos, viewer_tenant: TenantId, agents: &mut [StoreAgent]) {
-    match compute_agent_grades(repos, viewer_tenant, DEFAULT_VERDICT_LIMIT).await {
-        Ok(grading) => rerank_by_grade(agents, |c| c.id.to_string(), &grading),
-        Err(e) => {
-            warn!(
-                error = %e,
-                "failed to compute coach grades for store rank; falling back to install_count"
-            );
-        }
-    }
 }

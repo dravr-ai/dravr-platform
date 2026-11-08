@@ -33,12 +33,11 @@ use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, JobLease, MemoryExtractionJobRepository, MemoryExtractionJobRow,
-    MergeUserFactParams, UpsertUserFactParams,
+    HarnessMemoryRepository, MemoryExtractionJobRepository, MergeUserFactParams,
+    UpsertUserFactParams,
 };
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::stage::LlmStage;
@@ -49,9 +48,7 @@ use pierre_memory::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::memory_dedup::{
@@ -276,9 +273,11 @@ pub struct ExtractionOutcome {
 ///
 /// # Errors
 ///
-/// Returns persistence errors from [`HarnessMemoryRepository::upsert_user_fact`]
-/// and a provider that could not be called: neither means the extraction
-/// itself is bad, so the job row that owes it must survive for a retry.
+/// Returns an error when any fact could not be written, and when the provider
+/// could not be called: neither means the extraction itself is bad, so the job
+/// row that owes it must survive for a retry. A retry asks the model again: an
+/// approved fact that landed is merged, one repeated in the same words meets the
+/// store's idempotency key, and a draft the model rewords becomes a second draft.
 /// Malformed JSON from the extractor is logged and produces an empty
 /// outcome — asking again would cost a second call for the same answer.
 pub async fn extract_and_persist<R>(
@@ -288,6 +287,47 @@ pub async fn extract_and_persist<R>(
     req: &ExtractionRequest<'_>,
     dedup: DedupConfig,
 ) -> AppResult<ExtractionOutcome>
+where
+    R: HarnessMemoryRepository + ?Sized,
+{
+    extract_and_count(repo, provider, system_prompt, req, dedup)
+        .await?
+        .owed()
+}
+
+/// What one run wrote, including the writes it lost.
+///
+/// [`extract_and_persist`] reports a lost write as an error and nothing more;
+/// the run ledger needs the facts that did land beside it, so a run that wrote
+/// three of four is recorded failed with three facts, not with none.
+struct CountedRun {
+    outcome: ExtractionOutcome,
+    lost_writes: usize,
+}
+
+impl CountedRun {
+    /// The run as [`extract_and_persist`] reports it: an error while a fact is
+    /// still owed.
+    fn owed(self) -> AppResult<ExtractionOutcome> {
+        if self.lost_writes > 0 {
+            return Err(AppError::database(format!(
+                "{} of {} extracted facts could not be written",
+                self.lost_writes, self.outcome.raw_count
+            )));
+        }
+        Ok(self.outcome)
+    }
+}
+
+/// [`extract_and_persist`], with the writes it lost counted instead of
+/// folded into the error. Only a provider failure is an error here.
+async fn extract_and_count<R>(
+    repo: &R,
+    provider: &ChatProvider,
+    system_prompt: &str,
+    req: &ExtractionRequest<'_>,
+    dedup: DedupConfig,
+) -> AppResult<CountedRun>
 where
     R: HarnessMemoryRepository + ?Sized,
 {
@@ -313,21 +353,28 @@ where
 
     if raw.is_empty() {
         debug!("memory extractor returned no facts");
-        return Ok(ExtractionOutcome::empty());
+        return Ok(CountedRun {
+            outcome: ExtractionOutcome::empty(),
+            lost_writes: 0,
+        });
     }
 
     let raw_count = raw.len();
-    let persisted = persist_facts(repo, req, raw, &existing, dedup).await;
+    let (persisted, lost_writes) = persist_facts(repo, req, raw, &existing, dedup).await;
 
     info!(
         raw = raw_count,
         persisted = persisted.len(),
+        lost_writes,
         "memory extraction finished"
     );
 
-    Ok(ExtractionOutcome {
-        raw_count,
-        persisted,
+    Ok(CountedRun {
+        outcome: ExtractionOutcome {
+            raw_count,
+            persisted,
+        },
+        lost_writes,
     })
 }
 
@@ -551,14 +598,17 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
     }
 }
 
+/// Write the facts the gate passes. Returns the rows written and how many facts
+/// could not be written, which is what tells a lost fact from a dropped one.
 async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
     req: &ExtractionRequest<'_>,
     facts: Vec<RawFact>,
     existing: &[UserFact],
     dedup: DedupConfig,
-) -> Vec<UserFact> {
+) -> (Vec<UserFact>, usize) {
     let mut out = Vec::with_capacity(facts.len());
+    let mut lost_writes = 0;
     for fact in facts {
         let same_as = fact.same_as;
         let Some((kind, clamped_confidence)) = gate_fact(&fact, req) else {
@@ -628,10 +678,11 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             Ok(row) => out.push(row),
             Err(e) => {
                 error!(error = %e, kind = ?kind, "failed to upsert extracted user fact");
+                lost_writes += 1;
             }
         }
     }
-    out
+    (out, lost_writes)
 }
 
 /// The row the extractor's `same_as` names, when it names one honestly.
@@ -927,6 +978,7 @@ pub struct SpawnedExtractionRequest {
 /// billed under the job's usage tenant.
 pub async fn run_extraction_job(
     memory_repo: &dyn HarnessMemoryRepository,
+    jobs: &dyn MemoryExtractionJobRepository,
     usage: &LlmUsageSink,
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
@@ -939,14 +991,16 @@ pub async fn run_extraction_job(
         )
     })?;
     let recorder = job.payload.recorder(usage, job.usage_tenant_id);
-    let outcome = extract_and_persist(
+    let result = extract_and_count(
         memory_repo,
         chat_provider,
         system_prompt,
         &job.payload.as_request(job.tenant_id, &recorder),
         dedup,
     )
-    .await?;
+    .await;
+    record_extraction_run(jobs, job.tenant_id, &result).await;
+    let outcome = result?.owed()?;
     debug!(
         raw = outcome.raw_count,
         persisted = outcome.persisted.len(),
@@ -956,107 +1010,10 @@ pub async fn run_extraction_job(
     Ok(())
 }
 
-/// Record the extraction a spawned task is about to run.
-///
-/// The row is what the resume sweep re-runs if this instance dies with the
-/// extraction in flight. `None` when it could not be written — the run still
-/// happens, unrecorded, exactly as it did before the ledger existed.
-async fn record_extraction_job(
-    jobs: &dyn MemoryExtractionJobRepository,
-    req: &SpawnedExtractionRequest,
-) -> Option<JobLease> {
-    let payload = match serde_json::to_string(&req.payload) {
-        Ok(json) => json,
-        Err(e) => {
-            warn!(error = %e, "extraction payload could not be serialised; running it unrecorded");
-            return None;
-        }
-    };
-    let now = Utc::now().timestamp_millis();
-    let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
-    let row = MemoryExtractionJobRow {
-        id: Uuid::new_v4().to_string(),
-        tenant_id: req.tenant_id,
-        usage_tenant_id: Some(req.usage_tenant_id),
-        payload,
-        created_at_ms: now,
-        leased_until_ms: now.saturating_add(lease_ms),
-        attempts: 1,
-        lease_token: Some(Uuid::new_v4().to_string()),
-    };
-    match jobs.record_extraction_job(&row).await {
-        Ok(()) => Some(JobLease {
-            token: row.lease_token.unwrap_or_default(),
-            id: row.id,
-        }),
-        Err(e) => {
-            warn!(error = %e, "extraction job could not be recorded; running it unrecorded");
-            None
-        }
-    }
-}
-
-/// How often a live extraction renews its job's lease.
-///
-/// The lease starts when the row is recorded, before the run waits for one of
-/// [`MAX_CONCURRENT_EXTRACTIONS`] permits; a run queued behind a burst of
-/// turns, or held by a slow model, outlived [`EXTRACTION_JOB_LEASE`] while it
-/// was still alive, and the resume sweep ran it a second time beside it. A
-/// third of the lease leaves two renewals of slack before it can lapse.
-const EXTRACTION_LEASE_RENEWAL: Duration = Duration::from_secs(EXTRACTION_JOB_LEASE.as_secs() / 3);
-
-/// The lease renewal a live extraction keeps running; aborted when dropped.
-pub(crate) struct LeaseRenewal(JoinHandle<()>);
-
-impl Drop for LeaseRenewal {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// Renew `lease` every [`EXTRACTION_LEASE_RENEWAL`] until the guard drops. A
-/// refused renewal means the row is gone or another claim took it: the
-/// renewals stop and the run finishes.
-pub(crate) fn keep_extraction_lease(
-    jobs: Arc<dyn MemoryExtractionJobRepository>,
-    lease: Option<JobLease>,
-) -> Option<LeaseRenewal> {
-    let lease = lease?;
-    Some(LeaseRenewal(tokio::spawn(async move {
-        let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
-        loop {
-            sleep(EXTRACTION_LEASE_RENEWAL).await;
-            let until = Utc::now().timestamp_millis().saturating_add(lease_ms);
-            match jobs.renew_extraction_job_lease(&lease, until).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(job_id = %lease.id, "extraction job is no longer this runner's; letting the run finish");
-                    return;
-                }
-                Err(e) => {
-                    warn!(job_id = %lease.id, error = %e, "extraction job lease could not be renewed");
-                }
-            }
-        }
-    })))
-}
-
-/// Delete the job row once nothing is owed on it any more, if this run's
-/// lease still holds it; a claim that took it over finishes it instead.
-async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, lease: Option<&JobLease>) {
-    let Some(lease) = lease else {
-        return;
-    };
-    match jobs.finish_extraction_job(lease).await {
-        Ok(true) => {}
-        Ok(false) => {
-            info!(job_id = %lease.id, "extraction job was claimed by another run; leaving it to that run");
-        }
-        Err(e) => {
-            warn!(error = %e, job_id = %lease.id, "extraction job could not be finished; the sweep will re-run it after its lease");
-        }
-    }
-}
+/// The job and run ledger an extraction writes as it starts, runs and lands.
+mod ledger;
+pub(crate) use ledger::keep_extraction_lease;
+use ledger::{finish_extraction_job, record_extraction_job, record_extraction_run};
 
 /// Fire-and-forget memory extraction.
 ///
@@ -1108,6 +1065,7 @@ pub async fn spawn_extract_for_turn(
         let renewal = keep_extraction_lease(Arc::clone(&jobs), job_id.clone());
         let run = run_extraction_job(
             memory_repo.as_ref(),
+            jobs.as_ref(),
             &usage,
             provider,
             dedup,

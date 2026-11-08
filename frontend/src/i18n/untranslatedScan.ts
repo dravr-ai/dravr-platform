@@ -278,7 +278,6 @@ const WEB_ENTRY_POINTS = [
  * inference from an empty scan.
  *
  * 683 distinct strings once the athlete surface reached zero: user management,
- * the eval harness,
  * tool and harness config, claim verdicts, API-token administration. Operators
  * are internal staff, the console has never been translated, and nothing in the
  * product offers to translate it.
@@ -286,10 +285,12 @@ const WEB_ENTRY_POINTS = [
  * What makes it a decision and not an omission is that the alternative was
  * measured. `users.locale` is `NOT NULL DEFAULT 'fr'` on `users` — not on an
  * athlete table — so every operator carries a locale, and `App.tsx` mounts the
- * language switcher with no role gate. An operator on the default locale
- * therefore reads French navigation around an English console today. That is
- * accepted deliberately: the shell follows the viewer, the console does not,
- * and translating 663 operator strings buys nothing for an internal audience.
+ * language switcher with no role gate. The console ignores it: the admin rail
+ * and every admin-only screen are English in any session, so an operator on the
+ * default locale never reads French navigation around English screens, and
+ * translating 663 operator strings buys nothing for an internal audience. What
+ * an athlete also renders (the settings panes, the notifications panel, shared
+ * components) keeps the viewer's locale for an operator too.
  *
  * The figure ROSE from 668 while athlete strings were being translated, which
  * looks wrong and is not. `countsByScope` gives a string rendered on both

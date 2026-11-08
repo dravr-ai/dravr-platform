@@ -121,8 +121,8 @@ use pierre_tool_runtime::context::TURN_DIRECT_MESSAGE;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
 
+use stages::agent_session::{ensure_agent_session_attached, finalize_session_state};
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
-use stages::followups::{ensure_agent_session_attached, finalize_session_state};
 use stages::persistence::{
     append_platform_prompt, get_conversation_history, persist_assistant_response,
     resolve_turn_prompt,
@@ -722,32 +722,25 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (
-        prompt_guard,
-        pending_followup_ids,
-        mut llm_messages,
-        source_ids,
-        group_roster,
-        intro,
-        turn_clock,
-    ) = assemble_prompt_stage(
-        hooks,
-        stages::prompt_assembly::PromptTurn {
-            ctx,
-            input: &input,
-            profile,
-            conv: &conv,
-            standing,
-            switched_off: &switched_off,
-            defer_tools,
-            agent_ctx: agent_ctx.as_ref(),
-            history: &history,
-            onboarding: onboarding_turn.as_ref(),
-            subject_turn,
-            readable_about: &readable_about,
-        },
-    )
-    .await?;
+    let (prompt_guard, mut llm_messages, source_ids, group_roster, intro, turn_clock) =
+        assemble_prompt_stage(
+            hooks,
+            stages::prompt_assembly::PromptTurn {
+                ctx,
+                input: &input,
+                profile,
+                conv: &conv,
+                standing,
+                switched_off: &switched_off,
+                defer_tools,
+                agent_ctx: agent_ctx.as_ref(),
+                history: &history,
+                onboarding: onboarding_turn.as_ref(),
+                subject_turn,
+                readable_about: &readable_about,
+            },
+        )
+        .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
     let stages::tool_dispatch::DispatchedTurn {
@@ -922,13 +915,7 @@ async fn run_turn(
     .await;
 
     // Stage 20: Tier 4 session finalize.
-    finalize_session_state(
-        &ctx.data,
-        conv.session_id.as_deref(),
-        &pending_followup_ids,
-        &input,
-    )
-    .await;
+    finalize_session_state(&ctx.data, conv.session_id.as_deref(), &input).await;
 
     // Stages 21/21b/21c/21d: end-of-turn follow-through — Tier 2 memory
     // extraction, playbook advice capture, the guided-flow probe record and the

@@ -15,12 +15,11 @@ import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 type UserTab = 'pending' | 'new_users' | 'preapproved' | 'signup_codes' | 'coach_access' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
-  const { t, language } = useTranslation();
   const [activeTab, setActiveTab] = useState<UserTab>('pending');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalAction, setModalAction] = useState<'approve' | 'suspend'>('approve');
@@ -92,7 +91,7 @@ export default function UserManagement() {
     },
     {
       id: 'new_users',
-      name: t('newUsers.tab'),
+      name: 'New users',
       // A report, not a queue: the view shows its own counts.
       count: 0,
       icon: (
@@ -360,10 +359,10 @@ export default function UserManagement() {
                   </div>
                   <p className="text-sm text-on-surface-variant mb-1">{user.email}</p>
                   <div className="flex items-center space-x-4 text-xs text-outline">
-                    <span>Registered: {formatDateTime(user.created_at, language)}</span>
-                    <span>Last active: {user.last_active ? formatDateTime(user.last_active, language) : 'Never'}</span>
+                    <span>Registered: {formatDateTime(user.created_at, ADMIN_LOCALE)}</span>
+                    <span>Last active: {user.last_active ? formatDateTime(user.last_active, ADMIN_LOCALE) : 'Never'}</span>
                     {user.approved_by && (
-                      <span>Approved: {formatDateTime(user.approved_at!, language)}</span>
+                      <span>Approved: {formatDateTime(user.approved_at!, ADMIN_LOCALE)}</span>
                     )}
                   </div>
                 </div>

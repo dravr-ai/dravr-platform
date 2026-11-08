@@ -121,7 +121,7 @@ pub struct TurnInput {
     /// The agent the athlete addressed by `@handle` in this message, when one
     /// resolved against their installed agents.
     ///
-    /// Governs this turn alone: the persona, tools, playbooks, followups,
+    /// Governs this turn alone: the persona, tools, playbooks,
     /// canary and attribution all follow it, while the conversation's stored
     /// `agent_id` is never written — the next plain message reverts to the
     /// conversation's own agent. Resolved once by

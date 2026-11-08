@@ -80,26 +80,8 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     );
     expect(r.status()).toBe(200);
     const body = await r.json();
-    expect(body).toHaveProperty('top_claims');
+    expect(body).toHaveProperty('recent_claims');
     expect(body).toHaveProperty('top_agents');
-    await ctx.dispose();
-  });
-
-  test('coach followups pending list returns 200', async () => {
-    const { ctx, tenantId } = await loginAndAuthedRequest();
-    const r = await ctx.get(
-      `/api/admin/agent-followups/pending?tenant_id=${tenantId}&limit=10`,
-    );
-    expect(r.status()).toBe(200);
-    await ctx.dispose();
-  });
-
-  test('coach notes audit returns 200', async () => {
-    const { ctx, tenantId } = await loginAndAuthedRequest();
-    const r = await ctx.get(
-      `/api/admin/agent-notes/audit?tenant_id=${tenantId}&limit=10`,
-    );
-    expect(r.status()).toBe(200);
     await ctx.dispose();
   });
 
@@ -112,16 +94,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     await ctx.dispose();
   });
 
-  test('eval harness fixtures returns 200', async () => {
-    const { ctx } = await loginAndAuthedRequest();
-    const r = await ctx.get('/api/admin/evals/fixtures');
-    expect(r.status()).toBe(200);
-    const body = await r.json();
-    expect(body).toHaveProperty('fixtures');
-    await ctx.dispose();
-  });
-
-  test('eval harness verdict-stats returns 200', async () => {
+  test('verdict calibration stats returns 200', async () => {
     const { ctx, tenantId } = await loginAndAuthedRequest();
     const r = await ctx.get(
       `/api/admin/evals/verdict-stats?tenant_id=${tenantId}&window_days=30`,

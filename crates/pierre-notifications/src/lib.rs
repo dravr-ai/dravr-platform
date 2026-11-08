@@ -69,8 +69,7 @@ pub mod triggers;
 
 // Re-export primary public types at crate root
 pub use dravr_commere::{
-    compute_next_fire_time, validate_cron_expression, CommereError, CommereResult, DispatchOutcome,
-    DispatchRequest, SuppressionReason, TenantId,
+    CommereError, CommereResult, DispatchOutcome, DispatchRequest, SuppressionReason, TenantId,
 };
 pub use events::{EventDispatch, NotificationActionSpec, NotificationEvent, SubjectAthlete};
 pub use policy::{DigestCadence, PersonaPolicyGate, PushPolicy, PushTier};
@@ -197,7 +196,7 @@ pub trait NotificationLocalizer: Send + Sync {
 ///
 /// `dravr-commere`'s pipeline plus the delivery sinks this platform adds on
 /// top. [`Deref`]s to the upstream service, so device tokens, preferences,
-/// scheduled notifications and analytics are reached exactly as before. A
+/// and analytics are reached exactly as before. A
 /// notification is raised through [`Self::dispatch_event`] (or
 /// [`Self::dispatch_event_in_app`], or [`Self::dispatch_with_tier`] for a
 /// pre-rendered request), which is what keeps the persona gate and the channel

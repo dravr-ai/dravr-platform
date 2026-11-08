@@ -16,6 +16,7 @@ import { useTheme, useThemeColors } from '../../constants/theme';
 import {
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
+  displayNotificationCategory,
   formatNotificationTime,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
@@ -50,8 +51,9 @@ export function NotificationDetailModal({
 
   if (!notification) return null;
 
-  const meta = NOTIFICATION_CATEGORY_META[notification.category];
-  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][notification.category];
+  const category = displayNotificationCategory(notification.category);
+  const meta = NOTIFICATION_CATEGORY_META[category];
+  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][category];
   // Every action button opens the notification's own destination, so a
   // notification with none shows neither — nothing that looks tappable and
   // leads nowhere. With a destination, the generic "View Details" deep-link

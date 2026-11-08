@@ -134,8 +134,9 @@ pub const KEY_REPLY_STOP_FILTERED: &str = "messaging.reply_stop.filtered";
 /// device-sourced data, as Garmin's API brand guidelines require.
 /// No format placeholders.
 pub const KEY_REPLY_GARMIN_ATTRIBUTION: &str = "messaging.attribution.garmin";
-/// Key: text-guardrails rejected an over-long response.
-pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
+/// Key: the medical disclaimer prepended to a reply whose text trips a locale's
+/// triggers. No format placeholders.
+pub const KEY_GUARDRAIL_DISCLAIMER: &str = "messaging.guardrail.disclaimer";
 /// Key: text-guardrails rejected a blocked-topic response.
 pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic";
 /// Key: the scope rail's answer to acute red-flag symptoms — an emergency

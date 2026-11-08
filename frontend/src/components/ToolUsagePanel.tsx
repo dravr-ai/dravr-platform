@@ -6,6 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { toolUsageQuery } from './analyticsQueries';
+import { useAdminScope } from '../hooks/useAdminScope';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 
@@ -18,9 +19,10 @@ function formatLatency(ms: number | null): string {
 
 export default function ToolUsagePanel() {
   const { timeRange, setTimeRange } = useAdminTimeRange();
+  const { requested } = useAdminScope();
   const days = timeRange;
 
-  const { data, isLoading, error } = useQuery(toolUsageQuery(days));
+  const { data, isLoading, error } = useQuery(toolUsageQuery(days, requested));
 
   if (isLoading) {
     return (

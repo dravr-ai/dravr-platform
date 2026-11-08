@@ -4,26 +4,27 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   adminApi,
+  type ExtractionRunCounts,
+  type ExtractionRunStats,
   type MemoryWorkerMetricsResponse,
-  type UserFactMetrics,
-} from '../services/api/admin';
-import { Card, Button } from './ui';
-import { useAuth } from '../hooks/useAuth';
-import { describeApiError } from '@pierre/ui-logic';
-import { useTranslation } from '@pierre/i18n';
+} from "../services/api/admin";
+import { Card, Button } from "./ui";
+import { useAdminScope } from "../hooks/useAdminScope";
+import AdminScopeBar from "./AdminScopeBar";
+import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
 
 const KIND_LABELS: Record<string, string> = {
-  preference: 'Preferences',
-  physiology: 'Physiology',
-  injury: 'Injuries',
-  goal: 'Goals',
-  schedule: 'Schedules',
-  equipment: 'Equipment',
-  other: 'Other',
+  preference: "Preferences",
+  physiology: "Physiology",
+  injury: "Injuries",
+  goal: "Goals",
+  schedule: "Schedules",
+  equipment: "Equipment",
+  other: "Other",
 };
 
 function humanizeKind(kind: string): string {
@@ -32,7 +33,10 @@ function humanizeKind(kind: string): string {
 
 // Largest-remainder (Hamilton) apportionment so percentages always sum to 100.
 // Naive Math.round on each row independently can drift to 99% or 101%.
-export function distributePercentages(counts: number[], total: number): number[] {
+export function distributePercentages(
+  counts: number[],
+  total: number,
+): number[] {
   if (total <= 0 || counts.length === 0) {
     return counts.map(() => 0);
   }
@@ -48,9 +52,13 @@ export function distributePercentages(counts: number[], total: number): number[]
   return result;
 }
 
-function formatTimestamp(iso: string | null): string {
+function runIso(ms: number | null): string | null {
+  return ms === null ? null : new Date(ms).toISOString();
+}
+
+function formatTimestamp(iso: string | null, empty: string): string {
   if (!iso) {
-    return 'No facts yet';
+    return empty;
   }
   try {
     return new Date(iso).toLocaleString();
@@ -61,7 +69,7 @@ function formatTimestamp(iso: string | null): string {
 
 function relativeFromNow(iso: string | null): string {
   if (!iso) {
-    return '—';
+    return "—";
   }
   const then = Date.parse(iso);
   if (Number.isNaN(then)) {
@@ -69,10 +77,10 @@ function relativeFromNow(iso: string | null): string {
   }
   const diffMs = Date.now() - then;
   if (diffMs < 0) {
-    return 'just now';
+    return "just now";
   }
   const minutes = Math.round(diffMs / 60_000);
-  if (minutes < 1) return 'just now';
+  if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -80,66 +88,90 @@ function relativeFromNow(iso: string | null): string {
   return `${days}d ago`;
 }
 
-function healthStatus(metrics: UserFactMetrics): {
+function totalRuns(counts: ExtractionRunCounts): number {
+  return counts.persisted + counts.empty + counts.failed;
+}
+
+/**
+ * The worker's state, read from its own run ledger. The bands are engineering
+ * heuristics: an empty run is healthy (nothing worth keeping was said), and a
+ * week with no run at all means no eligible turn happened or the worker is not
+ * being reached, which only the operator can tell apart.
+ */
+export function healthStatus(runs: ExtractionRunStats): {
   label: string;
-  variant: 'healthy' | 'warning' | 'idle' | 'stalled';
+  variant: "healthy" | "warning" | "idle" | "stalled";
   message: string;
 } {
-  if (metrics.total_facts === 0) {
+  const day = runs.last_24h;
+  const dayTotal = totalRuns(day);
+  if (dayTotal > 0 && day.failed === dayTotal) {
     return {
-      label: 'Idle',
-      variant: 'idle',
-      message:
-        'No facts have been extracted yet for this tenant. Run a few coaching conversations to seed the memory store.',
+      label: "Failing",
+      variant: "stalled",
+      message: `All ${dayTotal} runs in the last 24 hours failed. Check the worker's errors and the LLM provider.`,
     };
   }
-  if (metrics.facts_last_24h === 0 && metrics.facts_last_7d === 0) {
+  if (day.failed > 0) {
     return {
-      label: 'Stalled',
-      variant: 'stalled',
-      message:
-        'The extractor has produced nothing for 7+ days despite having prior facts. Check worker errors and LLM credentials.',
+      label: "Degraded",
+      variant: "warning",
+      message: `${day.failed} of ${dayTotal} runs in the last 24 hours failed. A failed run is retried by the resume sweep.`,
     };
   }
-  if (metrics.facts_last_24h === 0) {
+  if (runs.backlog > 0) {
     return {
-      label: 'Warming',
-      variant: 'warning',
+      label: "Backlog",
+      variant: "warning",
+      message: `${runs.backlog} extractions are still owed past a run's lease, waiting for the resume sweep.`,
+    };
+  }
+  if (dayTotal > 0) {
+    return {
+      label: "Healthy",
+      variant: "healthy",
       message:
-        'No extractions in the last 24 hours but activity within the past week. Expected during low-usage periods.',
+        "Runs in the last 24 hours finished. A run that found nothing to keep counts as finished.",
+    };
+  }
+  if (totalRuns(runs.last_7d) > 0) {
+    return {
+      label: "Quiet",
+      variant: "idle",
+      message:
+        "No run in the last 24 hours, some in the past week. Expected when nobody is chatting.",
     };
   }
   return {
-    label: 'Healthy',
-    variant: 'healthy',
-    message: 'Extractions are landing within the last 24 hours.',
+    label: "Idle",
+    variant: "idle",
+    message:
+      "No run in the last 7 days: no eligible turn happened, or the worker is not being reached.",
   };
 }
 
 // A token tint tracks the theme on its own, so these no longer need a dark:
 // variant to restate the same intent in a second palette.
-const STATUS_CLASS: Record<ReturnType<typeof healthStatus>['variant'], string> = {
-  healthy: 'bg-success/15 text-on-success-container',
-  warning: 'bg-warning/15 text-on-warning-container',
-  idle: 'bg-surface-container-high text-on-surface-variant',
-  stalled: 'bg-error/15 text-error',
-};
+const STATUS_CLASS: Record<ReturnType<typeof healthStatus>["variant"], string> =
+  {
+    healthy: "bg-success/15 text-on-success-container",
+    warning: "bg-warning/15 text-on-warning-container",
+    idle: "bg-surface-container-high text-on-surface-variant",
+    stalled: "bg-error/15 text-error",
+  };
 
 export default function MemoryExtractionMonitorTab() {
-  const { t } = useTranslation();
-  const { user } = useAuth();
-  const tenantId = user?.tenant_id ?? '';
+  const { requested } = useAdminScope();
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<
-    MemoryWorkerMetricsResponse
-  >({
-    queryKey: ['admin', 'memory-worker-metrics', tenantId] as const,
-    queryFn: () => adminApi.getMemoryWorkerMetrics(tenantId),
-    enabled: Boolean(tenantId),
-    refetchInterval: 60_000,
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useQuery<MemoryWorkerMetricsResponse>({
+      queryKey: ["admin", "memory-worker-metrics", requested] as const,
+      queryFn: () => adminApi.getMemoryWorkerMetrics(requested),
+      refetchInterval: 60_000,
+    });
 
   const metrics = data?.metrics;
+  const runs = data?.runs;
 
   const kindRows = useMemo(() => {
     if (!metrics) {
@@ -155,18 +187,9 @@ export default function MemoryExtractionMonitorTab() {
     return sorted.map((row, i) => ({ ...row, pct: pcts[i] }));
   }, [metrics]);
 
-  if (!tenantId) {
-    return (
-      <Card className="p-6">
-        <p className="text-sm text-on-surface-variant">
-          Tenant id not available on your session. Reload the page and try again.
-        </p>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-4">
+      <AdminScopeBar scope={data?.scope} />
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -174,16 +197,22 @@ export default function MemoryExtractionMonitorTab() {
               Memory extraction worker
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Health of the fire-and-forget extraction pipeline derived from the{' '}
+              Every post-turn extraction records how it ended, so the state
+              below is measured from the worker&apos;s runs, including those
+              that found nothing to keep. The{" "}
               <code className="rounded bg-surface-container px-1 py-0.5 text-xs">
                 user_facts
-              </code>{' '}
-              table. When the 24-hour counter sits at zero despite active
-              conversations, the worker is broken.
+              </code>{" "}
+              figures describe the store, which athlete approvals and agent
+              tools also write to, so they say nothing about the worker.
             </p>
           </div>
-          <Button onClick={() => refetch()} variant="secondary" disabled={isFetching}>
-            {isFetching ? 'Refreshing…' : 'Refresh'}
+          <Button
+            onClick={() => refetch()}
+            variant="secondary"
+            disabled={isFetching}
+          >
+            {isFetching ? "Refreshing…" : "Refresh"}
           </Button>
         </div>
       </Card>
@@ -197,15 +226,14 @@ export default function MemoryExtractionMonitorTab() {
       ) : isError ? (
         <Card className="p-6">
           <p className="text-sm text-error">
-            Failed to load memory worker metrics:{' '}
-            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
+            Failed to load memory worker metrics: {describeAdminError(error)}
           </p>
         </Card>
-      ) : metrics ? (
+      ) : metrics && runs ? (
         <>
           <Card className="p-6">
             {(() => {
-              const status = healthStatus(metrics);
+              const status = healthStatus(runs);
               return (
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-3">
@@ -214,15 +242,22 @@ export default function MemoryExtractionMonitorTab() {
                     >
                       {status.label}
                     </span>
-                    <p className="text-sm text-on-surface-variant">{status.message}</p>
+                    <p className="text-sm text-on-surface-variant">
+                      {status.message}
+                    </p>
                   </div>
                   <div className="text-sm text-on-surface-variant">
-                    Last activity{' '}
+                    Last run{" "}
                     <span className="font-medium text-on-surface">
-                      {relativeFromNow(metrics.newest_updated_at)}
+                      {relativeFromNow(runIso(runs.last_run_at_ms))}
                     </span>
                     <span className="ml-2 text-xs text-outline">
-                      ({formatTimestamp(metrics.newest_updated_at)})
+                      (
+                      {formatTimestamp(
+                        runIso(runs.last_run_at_ms),
+                        "No run recorded",
+                      )}
+                      )
                     </span>
                   </div>
                 </div>
@@ -231,17 +266,31 @@ export default function MemoryExtractionMonitorTab() {
           </Card>
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {[
+              ["Runs, last 24 hours", totalRuns(runs.last_24h)],
+              ["Failed, last 24 hours", runs.last_24h.failed],
+              ["Facts written, last 24 hours", runs.last_24h.facts_persisted],
+              ["Owed past the lease", runs.backlog],
+            ].map(([label, value]) => (
+              <Card key={label} className="p-4">
+                <div className="text-xs text-on-surface-variant">{label}</div>
+                <div className="mt-1 text-3xl font-semibold text-on-surface">
+                  {value.toLocaleString(ADMIN_LOCALE)}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Card className="p-4">
-              <div className="text-xs text-on-surface-variant">
-                Total facts
-              </div>
+              <div className="text-xs text-on-surface-variant">Total facts</div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.total_facts.toLocaleString()}
               </div>
             </Card>
             <Card className="p-4">
               <div className="text-xs text-on-surface-variant">
-                Last 24 hours
+                Fact rows touched, 24 hours
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.facts_last_24h.toLocaleString()}
@@ -249,7 +298,7 @@ export default function MemoryExtractionMonitorTab() {
             </Card>
             <Card className="p-4">
               <div className="text-xs text-on-surface-variant">
-                Last 7 days
+                Fact rows touched, 7 days
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.facts_last_7d.toLocaleString()}
@@ -271,9 +320,10 @@ export default function MemoryExtractionMonitorTab() {
                 Breakdown by fact kind
               </h3>
               <p className="text-xs text-on-surface-variant">
-                Extraction distribution across semantic categories — heavy skew toward{' '}
-                <code className="rounded bg-surface-container px-1">other</code> usually
-                means the extractor prompt needs tuning.
+                Extraction distribution across semantic categories — heavy skew
+                toward{" "}
+                <code className="rounded bg-surface-container px-1">other</code>{" "}
+                usually means the extractor prompt needs tuning.
               </p>
             </div>
             {kindRows.length === 0 ? (
@@ -285,7 +335,10 @@ export default function MemoryExtractionMonitorTab() {
                 {kindRows.map((row) => {
                   const pct = row.pct;
                   return (
-                    <li key={row.kind} className="flex items-center gap-4 px-6 py-3">
+                    <li
+                      key={row.kind}
+                      className="flex items-center gap-4 px-6 py-3"
+                    >
                       <div className="w-32 text-sm font-medium text-on-surface">
                         {humanizeKind(row.kind)}
                       </div>
@@ -298,7 +351,7 @@ export default function MemoryExtractionMonitorTab() {
                         </div>
                       </div>
                       <div className="w-24 text-right text-sm text-on-surface-variant">
-                        {row.count.toLocaleString()}{' '}
+                        {row.count.toLocaleString()}{" "}
                         <span className="text-xs text-outline">({pct}%)</span>
                       </div>
                     </li>

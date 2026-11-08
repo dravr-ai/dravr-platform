@@ -8,6 +8,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use chrono::{Duration, Utc};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
@@ -2248,7 +2249,11 @@ async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
         .unwrap()
         .unwrap();
 
-    let listed = fx.chat().get_recent_conversations_admin(5).await.unwrap();
+    let listed = fx
+        .chat()
+        .get_recent_conversations_admin(AdminScope::AllTenants, 5)
+        .await
+        .unwrap();
     let row = listed.iter().find(|c| c.id == created.id).unwrap();
 
     assert_eq!(row.user_id, own_read.user_id);

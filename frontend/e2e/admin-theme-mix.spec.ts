@@ -21,11 +21,8 @@ const ADMIN_TABS = [
   'claim-verdicts',
   'harness-config',
   'memory-worker',
-  'agent-followups',
-  'agent-notes-audit',
   'myth-busting',
   'agent-grading',
-  'eval-harness',
   'activity',
   'engagement',
   'audit',
@@ -93,10 +90,6 @@ const USAGE_ANALYTICS = {
     { date: '2026-10-31', request_count: 18, error_count: 2 },
     { date: '2026-11-01', request_count: 12, error_count: 0 },
   ],
-  top_tools: [
-    { tool_name: 'get_activities', request_count: 20, success_rate: 90, average_response_time: 120 },
-    { tool_name: 'get_athlete', request_count: 14, success_rate: 98, average_response_time: 80 },
-  ],
   error_rate: 2,
   average_response_time: 110,
 };
@@ -107,18 +100,27 @@ async function mockRows(page: Page) {
   await page.route('**/api/admin/myth-busting/summary**', (route) =>
     route.fulfill(
       json({
-        tenant_id: 'tenant-a',
+        scope: { kind: 'tenant', tenant_id: 'tenant-a' },
         verdicts_scanned: 40,
+        window_start: NOW,
+        window_end: NOW,
         flagged_total: 2,
-        top_claims: [
+        distinct_claims: 1,
+        recent_claims: [
           {
             claim_excerpt: 'Stretching prevents all injuries.',
+            status: 'contradicted',
+            layer_fired: 'judge',
+            category: 'recovery',
             occurrences: 2,
             agent_count: 1,
+            first_seen_at: NOW,
             last_seen_at: NOW,
           },
         ],
-        top_agents: [{ agent_id: 'coach-1', unsupported_total: 2, categories: ['recovery'] }],
+        top_agents: [
+          { agent_id: 'coach-1', agent_name: 'Recovery agent', unsupported_total: 2, categories: ['recovery'] },
+        ],
         top_categories: [{ category: 'recovery', flagged_total: 2, agent_count: 1 }],
       }),
     ),
@@ -156,6 +158,7 @@ async function mockRows(page: Page) {
             },
           ],
           next_before: null,
+          next_before_id: null,
         },
       }),
     ),
@@ -178,6 +181,8 @@ async function mockRows(page: Page) {
           },
         ],
         total_count: 1,
+        next_before: null,
+        next_before_id: null,
       }),
     ),
   );
@@ -196,71 +201,36 @@ async function mockRows(page: Page) {
     ),
   );
   await page.route('**/api/admin/claim-verdicts?**', (route) =>
-    route.fulfill(json({ verdicts: [VERDICT], total: 1 })),
-  );
-  await page.route('**/api/admin/agent-followups/pending**', (route) =>
     route.fulfill(
       json({
-        followups: [
-          {
-            id: 'f1',
-            tenant_id: 'tenant-a',
-            user_id: 'user-1',
-            agent_id: 'coach-1',
-            conversation_id: null,
-            content: 'Check how the long run felt.',
-            due_at: NOW,
-            status: 'pending',
-            created_at: NOW,
-            updated_at: NOW,
-            delivered_at: null,
-          },
-        ],
+        verdicts: [VERDICT],
         total: 1,
+        status_counts: { supported: 0, unsupported: 1, contradicted: 0, rhetorical: 0, unverifiable: 0 },
       }),
     ),
   );
   await page.route('**/api/admin/agent-grading/summary**', (route) =>
     route.fulfill(
       json({
-        tenant_id: 'tenant-a',
+        scope: { kind: 'tenant', tenant_id: 'tenant-a' },
         verdicts_scanned: 40,
+        judge_era_after: '2026-08-11',
+        verdicts_before_judge_era: 0,
+        unattributed_verdicts: 0,
         grades: [
           {
             agent_id: 'coach-1',
+            agent_name: 'Recovery agent',
             grade: 'B',
             score: 0.81,
             total_verdicts: 40,
             supported: 30,
             unsupported: 8,
+            unsupported_prescription: 0,
             contradicted: 2,
-          },
-        ],
-      }),
-    ),
-  );
-  await page.route('**/api/admin/evals/fixtures', (route) =>
-    route.fulfill(
-      json({
-        scanned_dir: 'evals/fixtures',
-        fixture_count: 1,
-        case_total: 1,
-        fixtures: [
-          {
-            name: 'recovery.jsonl',
-            path: 'evals/fixtures/recovery.jsonl',
-            case_count: 1,
-            personas: ['athlete'],
-            cases: [
-              {
-                id: 'c1',
-                label: 'Recovery day',
-                persona: 'athlete',
-                turn_count: 1,
-                must_contain_total: 1,
-                must_not_contain_total: 0,
-              },
-            ],
+            rhetorical: 0,
+            unverifiable: 0,
+            false_positives: 0,
           },
         ],
       }),
@@ -289,6 +259,7 @@ async function mockRows(page: Page) {
             title: 'Marathon Agent',
             category: 'running',
             token_count: 1200,
+            use_count: 12,
             tags: [],
             system_prompt: 'Plan the marathon.',
             created_at: NOW,
@@ -297,6 +268,17 @@ async function mockRows(page: Page) {
         ],
         total: 1,
         metadata: { timestamp: NOW, api_version: '1' },
+      }),
+    ),
+  );
+  await page.route('**/api/admin/engagement**', (route) =>
+    route.fulfill(
+      json({
+        scope: { kind: 'all_tenants' },
+        users: { total: 3, daily: 1, weekly: 2, monthly: 2, dormant: 1 },
+        total_agents: 1,
+        published_agents: 1,
+        leaderboard: [{ id: 'coach-1', title: 'Marathon Agent', category: 'running', use_count: 12 }],
       }),
     ),
   );
@@ -511,6 +493,14 @@ async function scanTab(page: Page, theme: Theme, tab: string, found: string[]) {
   // that merely contains its name (`#platform-settings`).
   const hash = new URL(page.url()).hash;
   expect(hash === `#${tab}` || hash.startsWith(`#${tab}/`), `#${tab} was redirected to ${hash}`).toBe(true);
+  // Every operator screen opens with its theory panel (carnet#1441), whose body
+  // is mounted only while open: open it, so the scan measures that body in this
+  // theme and not only the one-line summary.
+  const theory = page.getByTestId('screen-theory');
+  if (await theory.count()) {
+    await theory.locator('summary').click();
+    await expect(theory.getByText('How the numbers are computed')).toBeVisible();
+  }
   const violations = await page.evaluate(scanForMix, theme);
   await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/${tab}.png`, fullPage: true });
   for (const v of violations) found.push(`${theme}/${tab} — ${v.kind}: ${v.detail}`);
@@ -537,15 +527,6 @@ for (const theme of THEMES) {
       await scanTab(page, theme, tab, found);
     }
     // Overlays only exist once opened, so the walk above never measures them.
-    await openTab(page, 'eval-harness');
-    await page.getByRole('button', { name: 'New fixture' }).click();
-    await page.waitForTimeout(400);
-    for (const v of await page.evaluate(scanForMix, theme)) {
-      found.push(`${theme}/eval-harness fixture editor — ${v.kind}: ${v.detail}`);
-    }
-    await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/eval-harness-editor.png` });
-    await page.getByRole('button', { name: 'Cancel' }).click();
-
     await openTab(page, 'claim-verdicts');
     await page.getByText('Take 5 g of creatine').first().click();
     await page.waitForTimeout(600);
@@ -674,9 +655,7 @@ test('the table rows this gate depends on actually rendered', async ({ page }) =
   // above into a walk through empty states, and an empty state has no table body.
   for (const [tab, text] of [
     ['claim-verdicts', 'Take 5 g of creatine'],
-    ['agent-followups', 'Check how the long run felt.'],
     ['agent-grading', 'coach-1'],
-    ['eval-harness', 'recovery.jsonl'],
     ['myth-busting', 'Stretching prevents all injuries.'],
     ['impersonation-log', 'athlete@test.com'],
     ['engagement', 'Marathon Agent'],
@@ -693,5 +672,6 @@ test('the table rows this gate depends on actually rendered', async ({ page }) =
   });
   await expect(page.locator('canvas').first()).toBeVisible();
   // The charts arrive one query at a time, so the first being up says nothing of the rest.
-  await expect.poll(() => page.locator('canvas').count()).toBeGreaterThanOrEqual(5);
+  // Usage Analytics draws its series, LLM Consumption its line, doughnut and bars.
+  await expect.poll(() => page.locator('canvas').count()).toBeGreaterThanOrEqual(4);
 });

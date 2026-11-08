@@ -32,8 +32,9 @@ crates/pierre-auth/src/auth/method.rs:An MCP token cannot be exchanged for a ses
 crates/pierre-auth/src/auth/method.rs:An impersonation token cannot be exchanged for a session
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
 crates/pierre-core/src/admin/models.rs:This setting applies to the whole platform; a token scoped to one tenant cannot read or change it
-crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
-crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}
+crates/pierre-core/src/admin/scope.rs:Only a super admin can read across every tenant
+crates/pierre-core/src/admin/scope.rs:Token has no tenant scope — super-admin required for cross-tenant access
+crates/pierre-core/src/admin/scope.rs:Token is scoped to tenant {bound}, cannot access tenant {requested}
 crates/pierre-core/src/error_helpers.rs:User state error: {message}
 crates/pierre-core/src/errors/mod.rs:Permission denied for '{tool_name}': {reason}
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
@@ -50,10 +51,14 @@ crates/pierre-providers/src/delegation.rs:{brand} refused this calendar write: t
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
+crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only a super admin can list every tenant
+crates/pierre-routes-admin/src/handlers/admin_scope.rs:You no longer belong to the tenant this session acts in
 crates/pierre-routes-admin/src/handlers/audit_trail.rs:A tenant admin's credential names no tenant to read the audit trail of
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
+crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
+crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnecting an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
@@ -64,6 +69,7 @@ crates/pierre-routes-auth/src/data_export.rs:Your data can only be exported from
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-auth/src/sciotte_grant_gate.rs:Garmin now connects through its official sign-in; connect Garmin instead
 crates/pierre-routes-auth/src/signup_guards.rs:We could not confirm you are not a bot. Complete the check again, then retry.
+crates/pierre-routes-dashboard/src/lib.rs:Admin role required for usage analytics
 crates/pierre-routes-groups/src/delegated_connections.rs:Only a member decides what their coach may do
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link

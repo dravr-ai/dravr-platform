@@ -6,7 +6,7 @@
 
 //! # Agent Store tools
 //!
-//! - [`BrowseAgentStoreTool`] — page through published agents, grade-ranked
+//! - [`BrowseAgentStoreTool`] — page through published agents
 //! - [`SearchAgentStoreTool`] — search published agents by text
 //! - [`InstallAgentFromStoreTool`] — install one into the caller's library
 //!
@@ -251,7 +251,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
-            let viewer_tenant = TenantId::from_uuid(context.require_tenant()?);
+            context.require_tenant()?;
             let locale = athlete_locale(&context).await;
             let repos = context.resources.data().repos().agent_repos();
 
@@ -270,7 +270,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
                 cursor,
             };
 
-            let page = browse_store(&repos, viewer_tenant, &params, &locale).await?;
+            let page = browse_store(&repos, &params, &locale).await?;
             let payload = BrowseAgentStoreResult {
                 count: page.agents.len(),
                 agents: page.agents.iter().map(project).collect(),

@@ -4,22 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import type { TFunction } from '@pierre/i18n';
-
 /**
  * How long after sign-up `at` happened, in the coarsest unit that reads well:
  * minutes under an hour, hours under two days, days after that.
  */
-export function sinceSignup(signedUpAt: string, at: string, t: TFunction): string {
+export function sinceSignup(signedUpAt: string, at: string): string {
   const minutes = Math.max(0, Math.round((Date.parse(at) - Date.parse(signedUpAt)) / 60_000));
   if (minutes < 60) {
-    return t('newUsers.afterMinutes', { count: minutes });
+    return `+${minutes} min`;
   }
   const hours = Math.round(minutes / 60);
   if (hours < 48) {
-    return t('newUsers.afterHours', { count: hours });
+    return `+${hours} h`;
   }
-  return t('newUsers.afterDays', { count: Math.round(hours / 24) });
+  return `+${Math.round(hours / 24)} d`;
 }
 
 /** `part` as a whole percentage of `whole`, or `null` when there is no whole. */

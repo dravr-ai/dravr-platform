@@ -1,4 +1,4 @@
-// ABOUTME: Memory primitives for the coaching harness — facts, compaction, sessions, notes, followups
+// ABOUTME: Memory primitives for the coaching harness — facts, compaction, sessions
 // ABOUTME: Pure types crate. Persistence lives in pierre-database; orchestration in pierre-server.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,9 +18,6 @@
 //! - [`MemoryScope`] — the isolation boundary a memory belongs to
 //! - [`FactKind`] — the semantic category of a user fact
 //! - [`UserFact`] — a structured claim the harness has extracted about a user
-//! - [`AgentNote`] — a note authored by the agent persona itself
-//! - [`AgentFollowup`] — a promised future check-in ("you said you'd ask about
-//!   Alice's Achilles pain tomorrow")
 //! - [`CompactionBlock`] — a summary of earlier conversation turns that replaces
 //!   the raw history when the context window fills up
 //! - [`AgentSession`] — a long-lived container above `chat_conversation` that
@@ -42,10 +39,6 @@ pub mod commitments;
 pub mod compaction;
 /// Structured user facts extracted from conversation turns.
 pub mod facts;
-/// Agent-authored promised future check-ins.
-pub mod followups;
-/// Notes the agent persona authored about a user.
-pub mod notes;
 /// Procedural coaching playbooks reinforced by automatic outcome labels.
 pub mod playbooks;
 /// Review state of a fact: approved or a draft, with its verbatim evidence.
@@ -65,8 +58,6 @@ pub use commitments::{
 };
 pub use compaction::CompactionBlock;
 pub use facts::{FactKind, FactSource, PredicateCode, UserFact, UserFactMetrics};
-pub use followups::{AgentFollowup, FollowupStatus};
-pub use notes::AgentNote;
 pub use playbooks::{
     sanitize_sport_slug, wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Band, Intervention,
     InterventionKind, LabelSource, MetricBaseline, OutcomeLabel, OutcomeMetric, PendingAdvice,

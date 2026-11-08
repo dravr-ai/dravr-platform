@@ -79,8 +79,8 @@ mod sink_tests {
             user_id,
             tenant_id: tenant,
             category,
-            notification_type: "coach_followup_due".to_owned(),
-            title: "Your agent has a followup for you".to_owned(),
+            notification_type: "agent_reply".to_owned(),
+            title: "Your agent has a reply for you".to_owned(),
             body: "How did the tempo run go?".to_owned(),
             data: None,
             image_url: None,
@@ -149,7 +149,7 @@ mod sink_tests {
             "an accepted notification runs the channel sink exactly once"
         );
         assert_eq!(seen[0].0, user.id);
-        assert_eq!(seen[0].1, "Your agent has a followup for you");
+        assert_eq!(seen[0].1, "Your agent has a reply for you");
         assert_eq!(seen[0].2, "How did the tempo run go?");
     }
 

@@ -146,7 +146,7 @@ pub struct AgentRepos {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout-template overrides
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
-    /// Coaching harness memory (compaction, facts, notes, followups, sessions)
+    /// Coaching harness memory (compaction, facts, sessions)
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,

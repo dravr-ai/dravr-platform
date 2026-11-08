@@ -31,10 +31,7 @@ pub const MAX_STATEMENT_LEN: usize = 200;
 
 /// Lifecycle state of a [`Commitment`].
 ///
-/// The sweep and the report are deliberately separate transitions. Collapsing
-/// them into one column is the bug the agent-followup surface still carries:
-/// there, `delivered` means both "shown in a prompt" and "pushed to the
-/// athlete", so a chat turn and the scheduler race over the same row.
+/// The sweep and the report are deliberately separate transitions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitmentStatus {
@@ -123,9 +120,7 @@ impl CommitmentOutcome {
 ///
 /// Boundary versus the sibling agent-memory surfaces: a
 /// [`crate::training_plans::TrainingPlan`] is an agent-authored prescription the
-/// athlete did not necessarily agree to; a [`crate::followups::AgentFollowup`]
-/// is the *agent's* promise to check in, carries free-form text and is never
-/// verified against data; a [`crate::playbooks::Playbook`] is a learned
+/// athlete did not necessarily agree to; a [`crate::playbooks::Playbook`] is a learned
 /// trigger-to-intervention pattern with no owner and no due date. A commitment
 /// is the athlete's own, it carries a number and a window, and it is the only
 /// one of the four that gets counted against what actually happened.

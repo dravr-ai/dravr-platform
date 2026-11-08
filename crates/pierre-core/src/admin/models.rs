@@ -15,6 +15,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 use uuid::Uuid;
 
+use super::scope::{no_tenant_refusal, other_tenant_refusal};
 use crate::errors::{AppError, AppResult, ErrorCode};
 
 /// Admin token with full details
@@ -615,16 +616,8 @@ impl ValidatedAdminToken {
         }
         match &self.tenant_id {
             Some(bound) if bound == requested_tenant => Ok(()),
-            Some(bound) => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                format!(
-                    "Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}"
-                ),
-            )),
-            None => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Token has no tenant scope — super-admin required for cross-tenant access",
-            )),
+            Some(bound) => Err(other_tenant_refusal(bound, requested_tenant)),
+            None => Err(no_tenant_refusal()),
         }
     }
 }

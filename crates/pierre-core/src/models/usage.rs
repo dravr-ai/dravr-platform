@@ -300,6 +300,12 @@ pub struct WindowUsage {
 /// both shapes back together.
 pub const TURN_SUMMARY_CALL_TYPE: &str = "turn_summary";
 
+/// `call_type` of a tool `POST /mcp` executed with no model in the loop.
+///
+/// See [`InsertLlmUsage::for_direct_tool_call`]. The row counts per-tool volume,
+/// not an LLM call, so every reader that counts calls leaves it out.
+pub const DIRECT_TOOL_CALL_TYPE: &str = "mcp_tool";
+
 /// Input parameters for inserting a new LLM usage record
 #[derive(Debug)]
 pub struct InsertLlmUsage<'a> {
@@ -390,7 +396,7 @@ impl<'a> InsertLlmUsage<'a> {
             cached_write_tokens: 0,
             cached_write_1h_tokens: 0,
             reasoning_tokens: 0,
-            call_type: "mcp_tool",
+            call_type: DIRECT_TOOL_CALL_TYPE,
             tool_calls_count: 1,
             tools_called,
             execution_time_ms: Some(execution_time_ms),

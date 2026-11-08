@@ -94,14 +94,14 @@ describe('PreApprovedEmails', () => {
     expect(screen.getAllByText(/Invitation expires:/)).toHaveLength(1);
   });
 
-  it('stamps each allow in the reader language, not a hard-coded en-US', async () => {
+  it('stamps each allow in English in a French session', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([WAITING]);
     await i18n.changeLanguage('fr');
     try {
       renderView();
 
-      expect(await screen.findByText('Allowed: 20 août 2026')).toBeTruthy();
-      expect(screen.queryByText('Allowed: Aug 20, 2026')).toBeNull();
+      expect(await screen.findByText('Allowed: Aug 20, 2026')).toBeTruthy();
+      expect(screen.queryByText('Allowed: 20 août 2026')).toBeNull();
     } finally {
       await i18n.changeLanguage('en');
     }

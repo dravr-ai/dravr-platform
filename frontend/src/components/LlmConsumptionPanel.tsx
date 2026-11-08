@@ -4,15 +4,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useQuery } from '@tanstack/react-query';
-import { Line, Doughnut, Bar } from 'react-chartjs-2';
-import '../utils/registerChartJs';
-import { llmConsumptionQuery } from './analyticsQueries';
-import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
-import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import type { ConsumptionBreakdownItem } from '../services/api/usage';
-import { formatCost } from '../utils/formatCost';
-import { tint, useChartTheme } from '../hooks/useChartTheme';
+import { useQuery } from "@tanstack/react-query";
+import { Line, Doughnut, Bar } from "react-chartjs-2";
+import "../utils/registerChartJs";
+import { llmConsumptionQuery } from "./analyticsQueries";
+import { useAdminScope } from "../hooks/useAdminScope";
+import {
+  useAdminTimeRange,
+  ADMIN_TIME_RANGE_LABELS,
+} from "../hooks/useAdminTimeRange";
+import type { AdminTimeRange } from "../hooks/useAdminTimeRange";
+import type { ConsumptionBreakdownItem } from "../services/api/usage";
+import { formatCost } from "../utils/formatCost";
+import { tint, useChartTheme } from "../hooks/useChartTheme";
 
 /** Format a token count for display (e.g., 1,234,567 -> "1.23M") */
 function formatTokens(count: number): string {
@@ -29,18 +33,21 @@ function formatTokens(count: number): string {
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return dateStr;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /** Group breakdown items by a field and sum their values */
 function groupBreakdown(
   items: ConsumptionBreakdownItem[],
-  field: 'provider' | 'call_type',
+  field: "provider" | "call_type",
 ): { labels: string[]; tokens: number[]; calls: number[]; costs: number[] } {
-  const grouped = new Map<string, { tokens: number; calls: number; cost: number }>();
+  const grouped = new Map<
+    string,
+    { tokens: number; calls: number; cost: number }
+  >();
 
   for (const item of items) {
-    const key = item[field] || 'unknown';
+    const key = item[field] || "unknown";
     const existing = grouped.get(key) ?? { tokens: 0, calls: 0, cost: 0 };
     existing.tokens += item.total_tokens;
     existing.calls += item.calls;
@@ -48,7 +55,9 @@ function groupBreakdown(
     grouped.set(key, existing);
   }
 
-  const sorted = [...grouped.entries()].sort((a, b) => b[1].tokens - a[1].tokens);
+  const sorted = [...grouped.entries()].sort(
+    (a, b) => b[1].tokens - a[1].tokens,
+  );
   return {
     labels: sorted.map(([k]) => k),
     tokens: sorted.map(([, v]) => v.tokens),
@@ -60,10 +69,13 @@ function groupBreakdown(
 export default function LlmConsumptionPanel() {
   const chart = useChartTheme();
   const { timeRange, setTimeRange } = useAdminTimeRange();
+  const { requested } = useAdminScope();
 
   const days = timeRange;
 
-  const { data, isLoading, error } = useQuery(llmConsumptionQuery(days));
+  const { data, isLoading, error } = useQuery(
+    llmConsumptionQuery(days, requested),
+  );
 
   if (isLoading) {
     return (
@@ -78,7 +90,9 @@ export default function LlmConsumptionPanel() {
       <div className="card-dark">
         <div className="text-center py-8 text-error">
           <p className="text-lg mb-2">Failed to load consumption data</p>
-          <p className="text-sm text-outline">Check admin permissions and try again.</p>
+          <p className="text-sm text-outline">
+            Check admin permissions and try again.
+          </p>
         </div>
       </div>
     );
@@ -88,8 +102,12 @@ export default function LlmConsumptionPanel() {
     return (
       <div className="card-dark">
         <div className="text-center py-8 text-on-surface-variant">
-          <p className="text-lg mb-2 text-on-surface">No LLM consumption data</p>
-          <p>Start making chat or tool requests to see consumption analytics.</p>
+          <p className="text-lg mb-2 text-on-surface">
+            No LLM consumption data
+          </p>
+          <p>
+            Start making chat or tool requests to see consumption analytics.
+          </p>
         </div>
       </div>
     );
@@ -98,15 +116,15 @@ export default function LlmConsumptionPanel() {
   const { summary, breakdown, daily_series } = data;
 
   // Group breakdown by provider and by call_type
-  const byProvider = groupBreakdown(breakdown, 'provider');
-  const byCallType = groupBreakdown(breakdown, 'call_type');
+  const byProvider = groupBreakdown(breakdown, "provider");
+  const byCallType = groupBreakdown(breakdown, "call_type");
 
   // Line chart: daily token consumption time series
   const lineChartData = {
     labels: daily_series.map((p) => formatDate(p.date)),
     datasets: [
       {
-        label: 'Tokens',
+        label: "Tokens",
         data: daily_series.map((p) => p.tokens),
         borderColor: chart.series[0],
         backgroundColor: tint(chart.series[0], 0.1),
@@ -116,7 +134,7 @@ export default function LlmConsumptionPanel() {
         pointHoverRadius: 5,
       },
       {
-        label: 'Cost (USD)',
+        label: "Est. cost (USD, split by token share)",
         data: daily_series.map((p) => p.cost_usd),
         borderColor: chart.series[1],
         backgroundColor: tint(chart.series[1], 0.1),
@@ -124,7 +142,7 @@ export default function LlmConsumptionPanel() {
         tension: 0.4,
         pointRadius: daily_series.length > 30 ? 0 : 3,
         pointHoverRadius: 5,
-        yAxisID: 'y1',
+        yAxisID: "y1",
       },
     ],
   };
@@ -132,22 +150,22 @@ export default function LlmConsumptionPanel() {
   const lineChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: { mode: 'index' as const, intersect: false },
+    interaction: { mode: "index" as const, intersect: false },
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: chart.text } },
+      legend: { position: "bottom" as const, labels: { color: chart.text } },
     },
     scales: {
       y: {
-        type: 'linear' as const,
-        position: 'left' as const,
-        title: { display: true, text: 'Tokens', color: chart.text },
+        type: "linear" as const,
+        position: "left" as const,
+        title: { display: true, text: "Tokens", color: chart.text },
         ticks: { color: chart.text },
         grid: { color: chart.grid },
       },
       y1: {
-        type: 'linear' as const,
-        position: 'right' as const,
-        title: { display: true, text: 'Cost (USD)', color: chart.text },
+        type: "linear" as const,
+        position: "right" as const,
+        title: { display: true, text: "Est. cost (USD)", color: chart.text },
         ticks: { color: chart.text, callback: (v: string | number) => `$${v}` },
         grid: { drawOnChartArea: false },
       },
@@ -160,7 +178,9 @@ export default function LlmConsumptionPanel() {
 
   // Doughnut chart: breakdown by provider
   const doughnutData = {
-    labels: byProvider.labels.map((l) => l.charAt(0).toUpperCase() + l.slice(1)),
+    labels: byProvider.labels.map(
+      (l) => l.charAt(0).toUpperCase() + l.slice(1),
+    ),
     datasets: [
       {
         data: byProvider.tokens,
@@ -175,13 +195,13 @@ export default function LlmConsumptionPanel() {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: chart.text } },
+      legend: { position: "bottom" as const, labels: { color: chart.text } },
       tooltip: {
         callbacks: {
           label: (ctx: { label: string; raw: unknown }) => {
             const tokens = ctx.raw as number;
             const total = byProvider.tokens.reduce((s, t) => s + t, 0);
-            const pct = total > 0 ? ((tokens / total) * 100).toFixed(1) : '0';
+            const pct = total > 0 ? ((tokens / total) * 100).toFixed(1) : "0";
             return `${ctx.label}: ${formatTokens(tokens)} tokens (${pct}%)`;
           },
         },
@@ -192,18 +212,18 @@ export default function LlmConsumptionPanel() {
   // Bar chart: breakdown by call_type
   const barChartData = {
     labels: byCallType.labels.map((l) =>
-      l.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      l.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
     ),
     datasets: [
       {
-        label: 'Tokens',
+        label: "Tokens",
         data: byCallType.tokens,
         backgroundColor: tint(chart.series[0], 0.6),
         borderColor: chart.series[0],
         borderWidth: 1,
       },
       {
-        label: 'Calls',
+        label: "Calls",
         data: byCallType.calls,
         backgroundColor: tint(chart.series[1], 0.6),
         borderColor: chart.series[1],
@@ -216,7 +236,7 @@ export default function LlmConsumptionPanel() {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom' as const, labels: { color: chart.text } },
+      legend: { position: "bottom" as const, labels: { color: chart.text } },
     },
     scales: {
       y: {
@@ -235,24 +255,28 @@ export default function LlmConsumptionPanel() {
     <div className="space-y-6">
       {/* Date range selector */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-on-surface">LLM Consumption Analytics</h2>
+        <h2 className="text-xl font-semibold text-on-surface">
+          LLM Consumption Analytics
+        </h2>
         <div className="flex rounded-lg bg-surface-container-high p-1">
-          {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
-            const numValue = Number(value) as AdminTimeRange;
-            return (
-              <button
-                key={value}
-                onClick={() => setTimeRange(numValue)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  timeRange === numValue
-                    ? 'bg-primary text-on-primary'
-                    : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
+          {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(
+            ([value, label]) => {
+              const numValue = Number(value) as AdminTimeRange;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setTimeRange(numValue)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    timeRange === numValue
+                      ? "bg-primary text-on-primary"
+                      : "text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            },
+          )}
         </div>
       </div>
 
@@ -274,15 +298,19 @@ export default function LlmConsumptionPanel() {
           <div className="font-mono text-2xl font-medium text-on-surface">
             {formatCost(summary.estimated_cost_usd)}
           </div>
-          <div className="text-sm text-on-surface-variant">Estimated Cost (USD)</div>
+          <div className="text-sm text-on-surface-variant">
+            Estimated Cost (USD)
+          </div>
         </div>
       </div>
 
       {/* Daily consumption time series */}
       {daily_series.length > 0 && (
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-on-surface">Daily Token Consumption</h3>
-          <div style={{ height: '320px' }}>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">
+            Daily Token Consumption
+          </h3>
+          <div style={{ height: "320px" }}>
             <Line data={lineChartData} options={lineChartOptions} />
           </div>
         </div>
@@ -292,8 +320,10 @@ export default function LlmConsumptionPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {byProvider.labels.length > 0 && (
           <div className="card-dark">
-            <h3 className="text-lg font-medium mb-4 text-on-surface">By Provider</h3>
-            <div style={{ height: '300px' }}>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">
+              By Provider
+            </h3>
+            <div style={{ height: "300px" }}>
               <Doughnut data={doughnutData} options={doughnutOptions} />
             </div>
           </div>
@@ -301,8 +331,10 @@ export default function LlmConsumptionPanel() {
 
         {byCallType.labels.length > 0 && (
           <div className="card-dark">
-            <h3 className="text-lg font-medium mb-4 text-on-surface">By Call Type</h3>
-            <div style={{ height: '300px' }}>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">
+              By Call Type
+            </h3>
+            <div style={{ height: "300px" }}>
               <Bar data={barChartData} options={barChartOptions} />
             </div>
           </div>
@@ -312,7 +344,9 @@ export default function LlmConsumptionPanel() {
       {/* Detailed breakdown table */}
       {breakdown.length > 0 && (
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-on-surface">Consumption Details</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">
+            Consumption Details
+          </h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-outline-variant">
               <thead className="bg-surface-container-low">
@@ -339,7 +373,10 @@ export default function LlmConsumptionPanel() {
               </thead>
               <tbody className="divide-y divide-outline-variant">
                 {breakdown.map((item, i) => (
-                  <tr key={`${item.provider}-${item.model}-${item.call_type}-${i}`} className="hover:bg-surface-container-low">
+                  <tr
+                    key={`${item.provider}-${item.model}-${item.call_type}-${i}`}
+                    className="hover:bg-surface-container-low"
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                       {item.provider}
                     </td>
@@ -347,14 +384,16 @@ export default function LlmConsumptionPanel() {
                       {item.model}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        item.call_type === 'chat'
-                          ? 'bg-primary/20 text-primary border border-primary/30'
-                          : item.call_type === 'insight'
-                          ? 'bg-primary-container text-on-primary-container border border-primary/20'
-                          : 'bg-surface-container-high text-on-surface border ghost-border'
-                      }`}>
-                        {item.call_type.replace(/_/g, ' ')}
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          item.call_type === "chat"
+                            ? "bg-primary/20 text-primary border border-primary/30"
+                            : item.call_type === "insight"
+                              ? "bg-primary-container text-on-primary-container border border-primary/20"
+                              : "bg-surface-container-high text-on-surface border ghost-border"
+                        }`}
+                      >
+                        {item.call_type.replace(/_/g, " ")}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">

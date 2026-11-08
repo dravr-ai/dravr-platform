@@ -189,6 +189,7 @@ async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
 
     run_extraction_job(
         repos.memory.as_ref(),
+        repos.memory_extraction_jobs.as_ref(),
         &usage(repos),
         &provider,
         DEDUP,

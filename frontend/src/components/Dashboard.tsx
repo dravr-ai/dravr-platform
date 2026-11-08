@@ -4,74 +4,94 @@
 // ABOUTME: Main dashboard orchestrator with admin sidebar and user mode navigation
 // ABOUTME: Admin lands on Users, an athlete on Home; delegates data fetching to focused panel components
 
-import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { useFeedbackUnread } from '../hooks/useFeedbackUnread';
-import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
-import { useComposerFocused } from '../hooks/useComposerFocused';
-import { useConversationScope, usePersonalConversation } from '../hooks/useConversationList';
-import { clsx } from 'clsx';
-import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
-import { ACCOUNT_ROLE_LABEL_KEY, ADMIN_HIDDEN_PANES, COMMAND_DRAFTS, PRODUCT_WORDMARK, SITE_URL } from '@pierre/shared-constants';
-import type { PendingComposerAction } from './chat/types';
-import type { PersonalToday } from './home/personalToday';
+import {
+  useState,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useFeedbackUnread } from "../hooks/useFeedbackUnread";
+import { useIsMobile, useIsTablet } from "../hooks/useBreakpoint";
+import { useComposerFocused } from "../hooks/useComposerFocused";
+import {
+  useConversationScope,
+  usePersonalConversation,
+} from "../hooks/useConversationList";
+import { clsx } from "clsx";
+import {
+  BottomTabBar,
+  MobileDrawer,
+  type MobileNavTab,
+} from "./layout/MobileNav";
+import {
+  ADMIN_HIDDEN_PANES,
+  COMMAND_DRAFTS,
+  PRODUCT_WORDMARK,
+  SITE_URL,
+} from "@pierre/shared-constants";
+import type { PendingComposerAction } from "./chat/types";
+import type { PersonalToday } from "./home/personalToday";
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
   usePendingUsersCount,
   useStoreStatsPendingCount,
   useUnreadConversationsCount,
-} from './dashboard/index';
+} from "./dashboard/index";
 
-// Lazy load heavy components to reduce initial bundle size
 /**
- * Tabs only an admin may open.
+ * Every tab the render switch below draws, the only ids a route may select.
  *
- * The sidebar already offers a role-appropriate set, but the hash is
- * user-editable and `applyRoute` accepted whatever was typed — so `#users` as a
- * regular user mounted the admin pane. Kept as a literal set rather than derived
- * from the tab arrays because those are built inside the component, after the
- * route handler that needs them.
+ * Anything else, an id the product retired (`insights`, `my-coaches`, `groups`,
+ * `guardian-config`, `agent-followups`, `agent-notes-audit`) or one that never
+ * existed, would select a tab nothing draws: a blank main pane under a working
+ * sidebar. A bookmark, a browser history entry or a persisted notification can
+ * carry such a hash, and a hand can type one, so it resolves to the role's
+ * default instead. Add a tab here when you add its arm to the switch.
  */
-const ADMIN_ONLY_TABS = new Set([
-  'users', 'agents', 'agent-store', 'configuration', 'user-tools', 'prompts',
-  'platform-settings', 'claim-verdicts', 'harness-config',
-  'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
-  'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
-  'analytics', 'billing', 'impersonation-log', 'audit',
+const DRAWN_TABS: ReadonlySet<string> = new Set([
+  "connections",
+  "analytics",
+  "billing",
+  "usage",
+  "activity",
+  "engagement",
+  "users",
+  "configuration",
+  "user-tools",
+  "platform-settings",
+  "claim-verdicts",
+  "harness-config",
+  "memory-worker",
+  "audit",
+  "impersonation-log",
+  "myth-busting",
+  "agent-grading",
+  "prompts",
+  "agents",
+  "agent-store",
+  "home",
+  "chat",
+  "discover",
+  "settings",
+  FEEDBACK_TAB,
+  "notifications",
+  "coach-replies",
 ]);
-
-/**
- * Tab ids the product no longer serves.
- *
- * `insights` (the social feed and its friends sub-view) and `my-coaches` (the
- * user Coach tab, folded into Discover) were retired by the Chat-First Cutover
- * on 2026-08-26; `groups` followed when group management moved inside the
- * group's own chat thread. A bookmark, a browser history entry or a
- * notification persisted before those days can still carry the hash. Left to
- * the render switch it would select a tab nothing draws — a blank main pane
- * with a working sidebar — so it resolves to the role's default instead.
- * `guardian-config` followed when `pierre-cli` became the Guardian's only control
- * surface.
- */
-const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups', 'guardian-config']);
 
 /**
  * Old names of a tab that moved. Service Tokens and Admin Tokens were one list
  * on two screens (carnet#1444), so a bookmark of the second opens the first.
+ * The Eval Harness tab was retired and its verdict calibration panel moved to
+ * Claim Verdicts (carnet#1431), so a bookmark of it opens that screen.
  */
-const MOVED_TABS: ReadonlyMap<string, string> = new Map([['admin-tokens', 'connections']]);
-
-/**
- * Tabs only a super admin may open: the sidebar offers them to no other role,
- * and every endpoint behind them refuses a plain admin. A typed or bookmarked
- * `#impersonation-log` would otherwise mount the pane for an admin and show
- * the server's refusal where the page should be. The harness settings are here
- * because they need `ViewConfiguration`, which a console admin does not hold.
- */
-const SUPER_ADMIN_ONLY_TABS = new Set([
-  'impersonation-log',
-  'harness-config',
+const MOVED_TABS: ReadonlyMap<string, string> = new Map([
+  ["admin-tokens", "connections"],
+  ["eval-harness", "claim-verdicts"],
 ]);
 
 /**
@@ -80,62 +100,91 @@ const SUPER_ADMIN_ONLY_TABS = new Set([
  * typed or bookmarked `#billing` would select a tab nothing draws: a blank
  * pane under an empty page heading.
  */
-const GATED_TABS: ReadonlySet<string> = new Set(BILLING_ENABLED ? [] : ['billing', 'usage']);
+const GATED_TABS: ReadonlySet<string> = new Set(
+  BILLING_ENABLED ? [] : ["billing", "usage"],
+);
 
-/** Whether `tab` is outside what the caller's role may open, gated off, or retired. */
-function isUnservedTab(tab: string, isAdminUser: boolean, isSuperAdmin: boolean): boolean {
+/** Whether `tab` is nothing the switch draws, outside the caller's role, or gated off. */
+function isUnservedTab(
+  tab: string,
+  isAdminUser: boolean,
+  isSuperAdmin: boolean,
+): boolean {
   return (
+    !DRAWN_TABS.has(tab) ||
     (!isAdminUser && ADMIN_ONLY_TABS.has(tab)) ||
     (!isSuperAdmin && SUPER_ADMIN_ONLY_TABS.has(tab)) ||
-    GATED_TABS.has(tab) ||
-    RETIRED_TABS.has(tab)
+    GATED_TABS.has(tab)
   );
 }
 
-const AnalyticsTab = lazy(() => import('./AnalyticsTab'));
-const ActivityTab = lazy(() => import('./ActivityTab'));
-const EngagementTab = lazy(() => import('./EngagementTab'));
-const UnifiedConnections = lazy(() => import('./UnifiedConnections'));
-const UserManagement = lazy(() => import('./UserManagement'));
-const UserSettings = lazy(() => import('./UserSettings'));
-const AdminSettings = lazy(() => import('./AdminSettings'));
-const ChatTab = lazy(() => import('./ChatTab'));
-const PersonalChat = lazy(() => import('./home/PersonalChat'));
-const FeedbackThread = lazy(() => import('./feedback/FeedbackThread'));
+/** The console is English whatever the viewer's locale (see `untranslatedScan.ts`). */
+const OPERATOR_ROLE_LABEL: Record<"admin" | "super_admin", string> = {
+  super_admin: "Super Admin",
+  admin: "Admin",
+};
+
+// Lazy load heavy components to reduce initial bundle size
+const AnalyticsTab = lazy(() => import("./AnalyticsTab"));
+const ActivityTab = lazy(() => import("./ActivityTab"));
+const EngagementTab = lazy(() => import("./EngagementTab"));
+const UnifiedConnections = lazy(() => import("./UnifiedConnections"));
+const UserManagement = lazy(() => import("./UserManagement"));
+const UserSettings = lazy(() => import("./UserSettings"));
+const AdminSettings = lazy(() => import("./AdminSettings"));
+const ChatTab = lazy(() => import("./ChatTab"));
+const PersonalChat = lazy(() => import("./home/PersonalChat"));
+const FeedbackThread = lazy(() => import("./feedback/FeedbackThread"));
 // Home's Today, drawn beside the athlete's conversation: its sections for the
 // panel, the drawer or the sheet, and the one line that stands for them above
 // the thread on a narrow screen.
-const HomeBriefing = lazy(() => import('./home/Home').then((module) => ({ default: module.HomeBriefing })));
-const TodayPeek = lazy(() => import('./home/TodayPeek').then((module) => ({ default: module.TodayPeek })));
-const PickTeamSheet = lazy(() => import('./home/YourTeam').then((module) => ({ default: module.PickTeamSheet })));
-const ActivityView = lazy(() => import('./activity/ActivityView'));
-const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
-const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
-const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
-const SystemPromptsTab = lazy(() => import('./SystemPromptsTab'));
-const ClaimVerdictsTab = lazy(() => import('./ClaimVerdictsTab'));
-const HarnessConfigTab = lazy(() => import('./HarnessConfigTab'));
-const MemoryExtractionMonitorTab = lazy(() => import('./MemoryExtractionMonitorTab'));
-const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
-const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
-const ImpersonationLogTab = lazy(() => import('./ImpersonationLogTab'));
-const AuditTrail = lazy(() => import('./AuditTrail'));
-const MythBustingTab = lazy(() => import('./MythBustingTab'));
-const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
-const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
-const CoachStoreManagement = lazy(() => import('./CoachStoreManagement'));
-const StoreScreen = lazy(() => import('./StoreScreen'));
-const BillingTab = lazy(() => import('./BillingTab'));
-const BillingPage = lazy(() => import('./BillingPage'));
-const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
+const HomeBriefing = lazy(() =>
+  import("./home/Home").then((module) => ({ default: module.HomeBriefing })),
+);
+const TodayPeek = lazy(() =>
+  import("./home/TodayPeek").then((module) => ({ default: module.TodayPeek })),
+);
+const PickTeamSheet = lazy(() =>
+  import("./home/YourTeam").then((module) => ({
+    default: module.PickTeamSheet,
+  })),
+);
+const ActivityView = lazy(() => import("./activity/ActivityView"));
+const AdminConfiguration = lazy(() => import("./AdminConfiguration"));
+const UserToolOverrides = lazy(() => import("./UserToolOverrides"));
+const SystemCoachesTab = lazy(() => import("./SystemCoachesTab"));
+const SystemPromptsTab = lazy(() => import("./SystemPromptsTab"));
+const ClaimVerdictsTab = lazy(() => import("./ClaimVerdictsTab"));
+// The theory text is ~38 KB; it loads with the first admin screen, not before first paint.
+const ScreenTheoryPanel = lazy(() =>
+  import("./admin/theory/ScreenTheoryPanel").then((module) => ({
+    default: module.ScreenTheoryPanel,
+  })),
+);
+const HarnessConfigTab = lazy(() => import("./HarnessConfigTab"));
+const MemoryExtractionMonitorTab = lazy(
+  () => import("./MemoryExtractionMonitorTab"),
+);
+const ImpersonationLogTab = lazy(() => import("./ImpersonationLogTab"));
+const AuditTrail = lazy(() => import("./AuditTrail"));
+const MythBustingTab = lazy(() => import("./MythBustingTab"));
+const CoachGradingTab = lazy(() => import("./CoachGradingTab"));
+const CoachStoreManagement = lazy(() => import("./CoachStoreManagement"));
+const StoreScreen = lazy(() => import("./StoreScreen"));
+const BillingTab = lazy(() => import("./BillingTab"));
+const BillingPage = lazy(() => import("./BillingPage"));
+const NotificationsPanel = lazy(
+  () => import("./notifications/NotificationsPanel"),
+);
 // A coach's review of what Dravr sent their athletes (carnet#847).
-const CoachReplies = lazy(() => import('./coach/CoachReplies'));
+const CoachReplies = lazy(() => import("./coach/CoachReplies"));
 // A coach's Home: À traiter, the team table and the season, behind the switch to their own training.
-const CoachHome = lazy(() => import('./coach-home/CoachHome'));
-import { BILLING_ENABLED } from '../constants/features';
-import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
-import { useTranslation } from '@pierre/i18n';
-import { track } from '../services/analytics';
+const CoachHome = lazy(() => import("./coach-home/CoachHome"));
+import { BILLING_ENABLED } from "../constants/features";
+import { ADMIN_ONLY_TABS, SUPER_ADMIN_ONLY_TABS } from "../constants/adminTabs";
+import { PAGE_GUTTER_CLASS, layoutForRoute } from "../constants/surfaceLayout";
+import { useTranslation } from "@pierre/i18n";
+import { track } from "../services/analytics";
 
 // Tab definition type with optional badge for notification counts
 interface TabDefinition {
@@ -146,23 +195,37 @@ interface TabDefinition {
   section?: string;
 }
 
-import { DravrLogo } from './DravrLogo';
-import { ConnectProviderBanner } from './ConnectProviderBanner';
-import { IconRail } from './layout/IconRail';
-import SettingsShell from './settings/SettingsShell';
-import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
-import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRoute';
-import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
-import { homeConversationRoute, parseHomeConversation } from './home/homeRoute';
-import { CoachHomeSwitch } from './coach-home/CoachHomeSwitch';
-import { parseCoachHomeRoute, type CoachHomeRoute } from './coach-home/coachHomeRoute';
-import { parseChatSubview } from './chat/chatRoute';
-import { FEEDBACK_TAB, feedbackReplyRoute, parseFeedbackAbout } from './feedback/feedbackRoute';
-import type { FeedbackAbout } from '@pierre/shared-types';
+import { DravrLogo } from "./DravrLogo";
+import { ConnectProviderBanner } from "./ConnectProviderBanner";
+import { IconRail } from "./layout/IconRail";
+import SettingsShell from "./settings/SettingsShell";
+import { SETTINGS_TABS, type SettingsTab } from "./settings/settingsTabs";
+import {
+  markCurrentSessionRoute,
+  writeSessionRoute,
+} from "../utils/sessionRoute";
+import {
+  activityViewRoute,
+  parseActivitySubview,
+  type ActivityRef,
+} from "./activity/activityRoute";
+import { homeConversationRoute, parseHomeConversation } from "./home/homeRoute";
+import { CoachHomeSwitch } from "./coach-home/CoachHomeSwitch";
+import {
+  parseCoachHomeRoute,
+  type CoachHomeRoute,
+} from "./coach-home/coachHomeRoute";
+import { parseChatSubview } from "./chat/chatRoute";
+import {
+  FEEDBACK_TAB,
+  feedbackReplyRoute,
+  parseFeedbackAbout,
+} from "./feedback/feedbackRoute";
+import type { FeedbackAbout } from "@pierre/shared-types";
 
 /** A hash segment decoded, or `null` when it is empty or a malformed escape. */
 function decodeSegment(segment: string): string | null {
-  if (segment === '') return null;
+  if (segment === "") return null;
   try {
     return decodeURIComponent(segment);
   } catch (error) {
@@ -172,10 +235,14 @@ function decodeSegment(segment: string): string | null {
 }
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
-function parseSettingsTab(segment: string, isAdminUser: boolean): SettingsTab | null {
+function parseSettingsTab(
+  segment: string,
+  isAdminUser: boolean,
+): SettingsTab | null {
   const id = decodeSegment(segment);
   const entry = SETTINGS_TABS.find((candidate) => candidate.id === id);
-  if (entry === undefined || (isAdminUser && ADMIN_HIDDEN_PANES.has(entry.id))) return null;
+  if (entry === undefined || (isAdminUser && ADMIN_HIDDEN_PANES.has(entry.id)))
+    return null;
   return entry.id;
 }
 
@@ -184,13 +251,16 @@ interface DashboardProps {
   onInviteCodeConsumed?: () => void;
 }
 
-export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: DashboardProps) {
+export default function Dashboard({
+  pendingInviteCode,
+  onInviteCodeConsumed,
+}: DashboardProps) {
   const { user, logout } = useAuth();
   const { t } = useTranslation();
   // Default tab depends on user role: admin sees 'users', an athlete lands on
   // 'home' — today's plan and the latest activities, where the logo also leads.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
-  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdminUser = user?.role === "admin" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "super_admin";
   // A coach (coach access granted) reviews the replies sent to their athletes.
   const managesRoster = user?.manages_roster === true;
   // Initialize from URL hash so deep links (#users, #agents, …) survive
@@ -198,16 +268,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
   // #chat/<conversationId>) so sub-views are deep-linkable and the browser /
   // Android hardware Back button pops them.
-  const initialRoute = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
-  const initialSlash = initialRoute.indexOf('/');
-  const initialSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
+  const initialRoute =
+    typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+  const initialSlash = initialRoute.indexOf("/");
+  const initialSeg =
+    initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
   const initialTabSeg = MOVED_TABS.get(initialSeg) ?? initialSeg;
-  const initialSubSeg = initialSlash === -1 ? '' : initialRoute.slice(initialSlash + 1);
+  const initialSubSeg =
+    initialSlash === -1 ? "" : initialRoute.slice(initialSlash + 1);
   // Guard the first paint as well as later hash edits. A hand-typed or
   // bookmarked `#users` arrives as a full page load, which never reaches
   // `applyRoute`, so gating only there would leave the very path a user takes
   // wide open.
-  const initialFallback = isAdminUser ? 'users' : 'home';
+  const initialFallback = isAdminUser ? "users" : "home";
   const initialTab = isUnservedTab(initialTabSeg, isAdminUser, isSuperAdmin)
     ? initialFallback
     : initialTabSeg || initialFallback;
@@ -219,7 +292,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // User's manual collapse preference (persisted). The EFFECTIVE collapse
   // (`sidebarCollapsed`, derived below) also forces the rail in the tablet band.
   const [userSidebarCollapsed, setUserSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('pierre.sidebar_collapsed') === 'true';
+    return localStorage.getItem("pierre.sidebar_collapsed") === "true";
   });
   // 768–1023 (small tablet / phone landscape) forces the 72px icon rail — the
   // full sidebar would eat the narrow viewport. Below 768 the mobile bottom-bar
@@ -231,7 +304,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
   // An operator's role is worth a line under the name; an athlete's is not —
   // "user" under one's own name reads as a label with nothing to say.
-  const operatorRoleBadge = user && user.role !== 'user' ? t(ACCOUNT_ROLE_LABEL_KEY[user.role]) : null;
+  const operatorRoleBadge =
+    user && user.role !== "user" ? OPERATOR_ROLE_LABEL[user.role] : null;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -243,45 +317,52 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Boreal v2 shipped 260. A stored wider preference is honoured as is.
   const SIDEBAR_DEFAULT_WIDTH = 232;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    const stored = localStorage.getItem('pierre.sidebar_width');
+    const stored = localStorage.getItem("pierre.sidebar_width");
     const parsed = stored ? Number.parseInt(stored, 10) : Number.NaN;
-    if (Number.isFinite(parsed) && parsed >= SIDEBAR_MIN_WIDTH && parsed <= SIDEBAR_MAX_WIDTH) {
+    if (
+      Number.isFinite(parsed) &&
+      parsed >= SIDEBAR_MIN_WIDTH &&
+      parsed <= SIDEBAR_MAX_WIDTH
+    ) {
       return parsed;
     }
     return SIDEBAR_DEFAULT_WIDTH;
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-  const onSidebarResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (sidebarCollapsed) return;
-    event.preventDefault();
-    setIsResizingSidebar(true);
-    const startX = event.clientX;
-    const startWidth = sidebarWidth;
-    const handleMove = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientX - startX;
-      const next = Math.min(
-        SIDEBAR_MAX_WIDTH,
-        Math.max(SIDEBAR_MIN_WIDTH, startWidth + delta),
-      );
-      setSidebarWidth(next);
-    };
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      window.removeEventListener('pointercancel', handleUp);
-      setIsResizingSidebar(false);
-      // Persist the final width so the next session opens at the user's
-      // chosen size; reading the React state here would close over the
-      // stale value, so we read the latest via setState's functional form.
-      setSidebarWidth(current => {
-        localStorage.setItem('pierre.sidebar_width', String(current));
-        return current;
-      });
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleUp);
-  }, [sidebarCollapsed, sidebarWidth]);
+  const onSidebarResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (sidebarCollapsed) return;
+      event.preventDefault();
+      setIsResizingSidebar(true);
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
+      const handleMove = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const next = Math.min(
+          SIDEBAR_MAX_WIDTH,
+          Math.max(SIDEBAR_MIN_WIDTH, startWidth + delta),
+        );
+        setSidebarWidth(next);
+      };
+      const handleUp = () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
+        setIsResizingSidebar(false);
+        // Persist the final width so the next session opens at the user's
+        // chosen size; reading the React state here would close over the
+        // stale value, so we read the latest via setState's functional form.
+        setSidebarWidth((current) => {
+          localStorage.setItem("pierre.sidebar_width", String(current));
+          return current;
+        });
+      };
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", handleUp);
+      window.addEventListener("pointercancel", handleUp);
+    },
+    [sidebarCollapsed, sidebarWidth],
+  );
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Use hooks from panel components for badge counts.
@@ -293,22 +374,26 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Unread rows, one badge per side of the app: Groups counts the rooms, Home
   // the athlete's own threads. An operator has neither tab, so the list is
   // never fetched for them.
-  const unreadGroupsCount = useUnreadConversationsCount('groups', !isAdminUser);
-  const unreadPersonalCount = useUnreadConversationsCount('personal', !isAdminUser);
+  const unreadGroupsCount = useUnreadConversationsCount("groups", !isAdminUser);
+  const unreadPersonalCount = useUnreadConversationsCount(
+    "personal",
+    !isAdminUser,
+  );
 
   // The Groups tab's open room. The tab keeps its `chat` id, so `#chat/<id>`
   // links — notifications, bookmarks — still land.
-  const initialChat = initialTabSeg === 'chat' ? parseChatSubview(initialSubSeg) : null;
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(
-    initialChat?.conversationId ?? null,
-  );
+  const initialChat =
+    initialTabSeg === "chat" ? parseChatSubview(initialSubSeg) : null;
+  const [selectedConversation, setSelectedConversation] = useState<
+    string | null
+  >(initialChat?.conversationId ?? null);
   // A `#chat/<id>` link names a thread without saying which side it lives on.
   // Once the list says, a personal one moves to Home. Only links do this: a
   // room being created in the Groups tab is plain until `/group create` binds
   // it, and must not be pulled away mid-command.
-  const [linkedChatConversation, setLinkedChatConversation] = useState<string | null>(
-    initialChat?.conversationId ?? null,
-  );
+  const [linkedChatConversation, setLinkedChatConversation] = useState<
+    string | null
+  >(initialChat?.conversationId ?? null);
   // The room whose info a `#chat/<id>/info` link opens — a group link
   // proposal's notice, whose answer waits there. Opened once, then dropped:
   // the route itself keeps only the room, so Back never reopens the drawer.
@@ -319,24 +404,29 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Home's open conversation, from `#home/chat/<id>`. `null` is the athlete's
   // latest own thread, which is where Home opens.
   const [homeConversation, setHomeConversation] = useState<string | null>(
-    initialTabSeg === 'home' ? parseHomeConversation(initialSubSeg) : null,
+    initialTabSeg === "home" ? parseHomeConversation(initialSubSeg) : null,
   );
   // The raw subview of `#home/…`, which a coach's Home reads its view from
   // (`team`, `season`, `me`, `athlete/<id>`); the personal Home's own
   // subviews (a conversation, an activity) are parsed above and never match.
-  const [homeSub, setHomeSub] = useState<string>(initialTabSeg === 'home' ? initialSubSeg : '');
+  const [homeSub, setHomeSub] = useState<string>(
+    initialTabSeg === "home" ? initialSubSeg : "",
+  );
   // The athlete whose replies a `#coach-replies/<athleteId>` link opens on.
   const [coachRepliesAthlete, setCoachRepliesAthlete] = useState<string | null>(
-    initialTabSeg === 'coach-replies' ? decodeSegment(initialSubSeg) : null,
+    initialTabSeg === "coach-replies" ? decodeSegment(initialSubSeg) : null,
   );
   const personalThread = usePersonalConversation(!isAdminUser);
-  const linkedScope = useConversationScope(linkedChatConversation, !isAdminUser);
+  const linkedScope = useConversationScope(
+    linkedChatConversation,
+    !isAdminUser,
+  );
   useEffect(() => {
     if (linkedChatConversation === null || linkedScope === undefined) return;
-    if (linkedScope === 'personal') {
+    if (linkedScope === "personal") {
       setHomeConversation(linkedChatConversation);
       setSelectedConversation(null);
-      setActiveTab('home');
+      setActiveTab("home");
     }
     setLinkedChatConversation(null);
   }, [linkedChatConversation, linkedScope]);
@@ -344,7 +434,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // The open settings section, from `#settings/<section>`; `null` is the
   // menu alone on a narrow screen and the first section on a wide one.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(
-    initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg, isAdminUser) : null,
+    initialTabSeg === "settings"
+      ? parseSettingsTab(initialSubSeg, isAdminUser)
+      : null,
   );
 
   // The agent reply the feedback thread is about, from
@@ -355,47 +447,67 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // The last route outside the feedback thread: the screen each feedback
   // message says it was sent from. Read when a message goes out, never while
   // rendering.
-  const feedbackScreen = useRef(initialTabSeg === FEEDBACK_TAB ? '' : initialRoute);
+  const feedbackScreen = useRef(
+    initialTabSeg === FEEDBACK_TAB ? "" : initialRoute,
+  );
 
   // The activity whose own view is open over Home, from
   // `#home/activity/<provider>/<id>`. The thread about it is the view's own,
   // remembered per activity so a return visit reopens it.
   const [openActivity, setOpenActivity] = useState<ActivityRef | null>(
-    initialTabSeg === 'home' ? parseActivitySubview(initialSubSeg) : null,
+    initialTabSeg === "home" ? parseActivitySubview(initialSubSeg) : null,
   );
 
   // The agent whose Discover edit sheet is open, from `#discover/<agentId>`.
   const [editingCoachId, setEditingCoachId] = useState<string | null>(
-    initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+    initialTabSeg === "discover" && initialSubSeg
+      ? decodeURIComponent(initialSubSeg)
+      : null,
   );
 
   // An invite link lands on chat and joins through the command, exactly as a
   // Telegram or WhatsApp member would: one turn, `/group join <code>`, in a
   // thread the athlete can then read.
-  const [pendingComposerAction, setPendingComposerAction] = useState<PendingComposerAction | null>(
-    null,
-  );
+  const [pendingComposerAction, setPendingComposerAction] =
+    useState<PendingComposerAction | null>(null);
   useEffect(() => {
     if (!pendingInviteCode) return;
-    setActiveTab('chat');
-    setPendingComposerAction({ kind: 'send', text: COMMAND_DRAFTS.groupJoin(pendingInviteCode) });
+    setActiveTab("chat");
+    setPendingComposerAction({
+      kind: "send",
+      text: COMMAND_DRAFTS.groupJoin(pendingInviteCode),
+    });
   }, [pendingInviteCode]);
 
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
   const route = (() => {
-    if (activeTab === 'discover' && editingCoachId) return `discover/${encodeURIComponent(editingCoachId)}`;
-    if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
-    if (activeTab === 'home' && openActivity) return activityViewRoute(openActivity.provider, openActivity.id);
-    if (activeTab === 'home' && homeConversation) return homeConversationRoute(homeConversation);
-    if (activeTab === 'coach-replies' && coachRepliesAthlete) return `coach-replies/${encodeURIComponent(coachRepliesAthlete)}`;
-    if (activeTab === 'home' && managesRoster && homeSub !== '' && parseCoachHomeRoute(homeSub) !== null) {
+    if (activeTab === "discover" && editingCoachId)
+      return `discover/${encodeURIComponent(editingCoachId)}`;
+    if (activeTab === "chat" && selectedConversation)
+      return `chat/${encodeURIComponent(selectedConversation)}`;
+    if (activeTab === "home" && openActivity)
+      return activityViewRoute(openActivity.provider, openActivity.id);
+    if (activeTab === "home" && homeConversation)
+      return homeConversationRoute(homeConversation);
+    if (activeTab === "coach-replies" && coachRepliesAthlete)
+      return `coach-replies/${encodeURIComponent(coachRepliesAthlete)}`;
+    if (
+      activeTab === "home" &&
+      managesRoster &&
+      homeSub !== "" &&
+      parseCoachHomeRoute(homeSub) !== null
+    ) {
       return `home/${homeSub}`;
     }
-    if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
+    if (activeTab === "settings" && settingsTab)
+      return `settings/${settingsTab}`;
     if (activeTab === FEEDBACK_TAB && feedbackAbout) {
-      return feedbackReplyRoute(feedbackAbout.conversation_id, feedbackAbout.message_id);
+      return feedbackReplyRoute(
+        feedbackAbout.conversation_id,
+        feedbackAbout.message_id,
+      );
     }
     return activeTab;
   })();
@@ -408,19 +520,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // no loop, no duplicate entry. The route doubles as the $pageview path.
   const hashSyncedOnce = useRef(false);
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const current = window.location.hash.replace(/^#/, '');
+    if (typeof window === "undefined") return;
+    const current = window.location.hash.replace(/^#/, "");
     // Every entry is marked as this session's route (see utils/sessionRoute):
     // a sign-out rewrites a marked route away, so the next sign-in lands on
     // the role default instead of reopening the page the session ended on.
     if (current !== route) {
-      writeSessionRoute(route, hashSyncedOnce.current ? 'push' : 'replace');
+      writeSessionRoute(route, hashSyncedOnce.current ? "push" : "replace");
     } else {
       markCurrentSessionRoute();
     }
     hashSyncedOnce.current = true;
     if (!route.startsWith(FEEDBACK_TAB)) feedbackScreen.current = route;
-    track({ name: '$pageview', props: { path: `/${route}` } });
+    track({ name: "$pageview", props: { path: `/${route}` } });
   }, [route]);
 
   // Parse a `tab[/subview]` route and restore both the active tab and its
@@ -429,248 +541,662 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // (back/forward, external hash edits) and in-app navigators — e.g. the
   // notifications panel, which deep-links an agent "Reply" to
   // `chat/<conversationId>` so the reply opens that thread.
-  const applyRoute = useCallback((raw: string) => {
-    const slash = raw.indexOf('/');
-    const fallback = isAdminUser ? 'users' : 'home';
-    const named = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
-    const requested = MOVED_TABS.get(named) ?? named;
-    // The sidebar only offers tabs for the caller's role, but the hash is
-    // user-editable: typing `#users` as a regular user mounted the admin
-    // UserManagement pane. The server refuses the data (every /api/admin call
-    // 403s), so nothing leaked — but the pane still rendered its filter chrome
-    // and then retried the 403 on a loop. Resolve an out-of-role tab back to
-    // the role's own default instead of mounting a surface it cannot use.
-    const tab = isUnservedTab(requested, isAdminUser, isSuperAdmin) ? fallback : requested;
-    // A rewritten hash typed while the fallback tab is already active changes
-    // no state, so the route effect below never runs and the stale hash would
-    // stay in the address bar. Replace it here — never push, so Back does not
-    // walk into the retired route again.
-    if (tab !== named && typeof window !== 'undefined') {
-      writeSessionRoute(tab, 'replace');
-    }
-    // A resolved-away tab takes its sub-view with it. `#groups/<groupId>`
-    // resolving to chat used to keep the segment and hand the group's id to
-    // the chat pane as a conversation id — a thread that does not exist.
-    const sub = tab !== requested || slash === -1 ? '' : raw.slice(slash + 1);
-    setActiveTab(tab);
-    setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
-    const chat = tab === 'chat' ? parseChatSubview(sub) : null;
-    const chatConversation = chat?.conversationId ?? null;
-    setSelectedConversation(chatConversation);
-    setLinkedChatConversation(chatConversation);
-    setChatInfoRequest(chat?.openInfo ? chat.conversationId : null);
-    setHomeConversation(tab === 'home' ? parseHomeConversation(sub) : null);
-    setHomeSub(tab === 'home' ? sub : '');
-    setCoachRepliesAthlete(tab === 'coach-replies' ? decodeSegment(sub) : null);
-    const activity = tab === 'home' ? parseActivitySubview(sub) : null;
-    // A fresh object per route would reset the view's thread on every hash
-    // event; the same activity keeps its state.
-    setOpenActivity((open) =>
-      activity !== null && open !== null && open.provider === activity.provider && open.id === activity.id
-        ? open
-        : activity,
-    );
-    const pane = tab === 'settings' ? parseSettingsTab(sub, isAdminUser) : null;
-    // A refused section changes no state when the menu is already open, so this
-    // hash needs the same replace as the rewritten tab above.
-    if (tab === 'settings' && sub !== '' && pane === null && typeof window !== 'undefined') {
-      writeSessionRoute(tab, 'replace');
-    }
-    setSettingsTab(pane);
-    setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
-  }, [isAdminUser, isSuperAdmin]);
+  const applyRoute = useCallback(
+    (raw: string) => {
+      const slash = raw.indexOf("/");
+      const fallback = isAdminUser ? "users" : "home";
+      const named = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
+      const requested = MOVED_TABS.get(named) ?? named;
+      // The sidebar only offers tabs for the caller's role, but the hash is
+      // user-editable: typing `#users` as a regular user mounted the admin
+      // UserManagement pane. The server refuses the data (every /api/admin call
+      // 403s), so nothing leaked — but the pane still rendered its filter chrome
+      // and then retried the 403 on a loop. Resolve an out-of-role tab back to
+      // the role's own default instead of mounting a surface it cannot use.
+      const tab = isUnservedTab(requested, isAdminUser, isSuperAdmin)
+        ? fallback
+        : requested;
+      // A rewritten hash typed while the fallback tab is already active changes
+      // no state, so the route effect below never runs and the stale hash would
+      // stay in the address bar. Replace it here — never push, so Back does not
+      // walk into the retired route again.
+      if (tab !== named && typeof window !== "undefined") {
+        writeSessionRoute(tab, "replace");
+      }
+      // A resolved-away tab takes its sub-view with it. `#groups/<groupId>`
+      // resolving to chat used to keep the segment and hand the group's id to
+      // the chat pane as a conversation id — a thread that does not exist.
+      const sub = tab !== requested || slash === -1 ? "" : raw.slice(slash + 1);
+      setActiveTab(tab);
+      setEditingCoachId(
+        tab === "discover" && sub ? decodeURIComponent(sub) : null,
+      );
+      const chat = tab === "chat" ? parseChatSubview(sub) : null;
+      const chatConversation = chat?.conversationId ?? null;
+      setSelectedConversation(chatConversation);
+      setLinkedChatConversation(chatConversation);
+      setChatInfoRequest(chat?.openInfo ? chat.conversationId : null);
+      setHomeConversation(tab === "home" ? parseHomeConversation(sub) : null);
+      setHomeSub(tab === "home" ? sub : "");
+      setCoachRepliesAthlete(
+        tab === "coach-replies" ? decodeSegment(sub) : null,
+      );
+      const activity = tab === "home" ? parseActivitySubview(sub) : null;
+      // A fresh object per route would reset the view's thread on every hash
+      // event; the same activity keeps its state.
+      setOpenActivity((open) =>
+        activity !== null &&
+        open !== null &&
+        open.provider === activity.provider &&
+        open.id === activity.id
+          ? open
+          : activity,
+      );
+      const pane =
+        tab === "settings" ? parseSettingsTab(sub, isAdminUser) : null;
+      // A refused section changes no state when the menu is already open, so this
+      // hash needs the same replace as the rewritten tab above.
+      if (
+        tab === "settings" &&
+        sub !== "" &&
+        pane === null &&
+        typeof window !== "undefined"
+      ) {
+        writeSessionRoute(tab, "replace");
+      }
+      setSettingsTab(pane);
+      setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
+    },
+    [isAdminUser, isSuperAdmin],
+  );
 
   // React to back/forward and external hash edits.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onHashChange = () => applyRoute(window.location.hash.replace(/^#/, ''));
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    if (typeof window === "undefined") return;
+    const onHashChange = () =>
+      applyRoute(window.location.hash.replace(/^#/, ""));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, [applyRoute]);
 
   // Close user menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (showUserMenu && !(e.target as Element).closest('.user-menu-container')) {
+      if (
+        showUserMenu &&
+        !(e.target as Element).closest(".user-menu-container")
+      ) {
         setShowUserMenu(false);
       }
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
   }, [showUserMenu]);
 
   // Tab definitions for admin users, grouped into sidebar sections
-  const adminTabs: TabDefinition[] = useMemo(() => [
-    { id: 'users', name: t('shell.navUsers'), section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
-    { id: 'agents', name: t('chat.agentsHeading'), section: 'Coaching', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ) },
-    { id: 'agent-store', name: t('shell.navAgentStore'), section: 'Coaching', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ), badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined },
-    { id: 'configuration', name: t('shell.navToolManagement'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-      </svg>
-    ) },
-    { id: 'user-tools', name: t('shell.navUserTools'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h9m3-6l2 2 4-4" />
-      </svg>
-    ) },
-    { id: 'prompts', name: t('shell.navPrompts'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ) },
-    { id: 'platform-settings', name: t('shell.navPlatformSettings'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ) },
-    { id: 'claim-verdicts', name: t('shell.navClaimVerdicts'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ) },
-    { id: 'memory-worker', name: t('shell.navMemoryWorker'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6" />
-      </svg>
-    ) },
-    { id: 'agent-followups', name: t('shell.navAgentFollowups'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ) },
-    { id: 'agent-notes-audit', name: t('shell.navAgentNotesAudit'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ) },
-    { id: 'myth-busting', name: t('shell.navMythBusting'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l1.664 1.664M21 21l-1.5-1.5m-5.485-1.242L12 17l-3.5-1L9 13.5 7 11l1-2 3 1 2-3.5L15 8l3 1-1.5 2.5L18 14l-3 1 1 3.258m0 0L11 21M3 3l8 8m4 4l4 4M3 3l18 18" />
-      </svg>
-    ) },
-    { id: 'agent-grading', name: t('shell.navAgentGrades'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-      </svg>
-    ) },
-    { id: 'eval-harness', name: t('shell.navEvalHarness'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-      </svg>
-    ) },
-    { id: 'activity', name: t('auth.activityLabel'), section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ) },
-    { id: 'engagement', name: t('shell.navEngagement'), section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ) },
-    // What operators did, from the console, pierre-cli and service tokens (carnet#1391).
-    { id: 'audit', name: t('shell.navAudit'), section: 'Platform', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-      </svg>
-    ) },
-    { id: 'connections', name: t('shell.navServiceTokens'), section: 'Developer', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-      </svg>
-    ) },
-    { id: 'analytics', name: t('shell.navAnalytics'), section: 'Developer', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ) },
-    // Billing is gated out of the first release (see constants/features).
-    ...(BILLING_ENABLED
-      ? [{ id: 'billing', name: t('shell.navBilling'), section: 'Platform', icon: (
-        <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
-        </svg>
-      ) }]
-      : []),
-  ], [pendingUsersCount, storeStatsPendingCount]);
+  const adminTabs: TabDefinition[] = useMemo(
+    () => [
+      {
+        id: "users",
+        name: "Users",
+        section: "Platform",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+        ),
+        badge: pendingUsersCount > 0 ? pendingUsersCount : undefined,
+      },
+      {
+        id: "agents",
+        name: "Agents",
+        section: "Coaching",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "agent-store",
+        name: "Agent Store",
+        section: "Coaching",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+        ),
+        badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined,
+      },
+      {
+        id: "configuration",
+        name: "Tool Management",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "user-tools",
+        name: "User Tools",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h9m3-6l2 2 4-4"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "prompts",
+        name: "Prompts",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "platform-settings",
+        name: "Platform Settings",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "claim-verdicts",
+        name: "Claim Verdicts",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "memory-worker",
+        name: "Memory Worker",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "myth-busting",
+        name: "Myth Busting",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "agent-grading",
+        name: "Agent Grades",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.083 12.083 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "activity",
+        name: "Activity",
+        section: "Platform",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 10V3L4 14h7v7l9-11h-7z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "engagement",
+        name: "Engagement",
+        section: "Platform",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+        ),
+      },
+      // What operators did, from the console, pierre-cli and service tokens (carnet#1391).
+      {
+        id: "audit",
+        name: "Audit",
+        section: "Platform",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "connections",
+        name: "API Tokens",
+        section: "Developer",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        section: "Developer",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+            />
+          </svg>
+        ),
+      },
+      // Billing is gated out of the first release (see constants/features).
+      ...(BILLING_ENABLED
+        ? [
+            {
+              id: "billing",
+              name: "Billing",
+              section: "Platform",
+              icon: (
+                <svg
+                  className="w-5 h-5"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                  />
+                </svg>
+              ),
+            },
+          ]
+        : []),
+    ],
+    [pendingUsersCount, storeStatsPendingCount],
+  );
 
   // Super admin tabs extend admin tabs with the settings only they may change
-  const superAdminTabs: TabDefinition[] = useMemo(() => [
-    ...adminTabs,
-    { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-      </svg>
-    ) },
-    { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ) },
-  ], [adminTabs, t]);
+  const superAdminTabs: TabDefinition[] = useMemo(
+    () => [
+      ...adminTabs,
+      {
+        id: "harness-config",
+        name: "Harness Config",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"
+            />
+          </svg>
+        ),
+      },
+      {
+        id: "impersonation-log",
+        name: "Impersonation log",
+        section: "Configuration",
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        ),
+      },
+    ],
+    [adminTabs],
+  );
 
   // Regular user tabs — the destinations of the rail. Settings is reached
   // from the gear and the avatar, and a provider connection is configuration,
   // so it lives under Settings rather than beside Chat. Home comes first: it
   // is where sign-in lands.
-  const regularTabs: TabDefinition[] = useMemo(() => [
-    { id: 'home', name: t('nav.home'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-      </svg>
-    ), badge: unreadPersonalCount > 0 ? unreadPersonalCount : undefined },
-    // Groups: the rooms the athlete shares with other people. The athlete's
-    // own conversation with Dravr is Home's (Phil, 2026-10-05); the tab keeps
-    // its `chat` id so every `#chat/…` link still resolves.
-    { id: 'chat', name: t('nav.groups'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ), badge: unreadGroupsCount > 0 ? unreadGroupsCount : undefined },
-    // A coach steps in after the fact on what Dravr sent their athletes: the
-    // replies, their verdicts, a flag and a correction (carnet#847).
-    ...(managesRoster
-      ? [{ id: 'coach-replies', name: t('coachReview.nav'), icon: (
-        <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m-9 6l2.5-2.5H18a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v14z" />
-        </svg>
-      ) }]
-      : []),
-    // The agent library is a pinned section of Discover, not a tab of its own.
-    { id: 'discover', name: t('nav.discover'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-    ) },
-    // Notifications are not a destination of the rail: the bell at the top
-    // right of Home, Groups and Discover carries the unread count and opens
-    // them in a sheet (carnet#820). `#notifications` still renders the page.
-    // Usage renders the billing surface; gated out of the first release.
-    ...(BILLING_ENABLED
-      ? [{ id: 'usage', name: t('nav.usage'), icon: (
-        <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
-        </svg>
-      ) }]
-      : []),
-  ], [managesRoster, unreadGroupsCount, unreadPersonalCount, t]);
+  const regularTabs: TabDefinition[] = useMemo(
+    () => [
+      {
+        id: "home",
+        name: t("nav.home"),
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+            />
+          </svg>
+        ),
+        badge: unreadPersonalCount > 0 ? unreadPersonalCount : undefined,
+      },
+      // Groups: the rooms the athlete shares with other people. The athlete's
+      // own conversation with Dravr is Home's (Phil, 2026-10-05); the tab keeps
+      // its `chat` id so every `#chat/…` link still resolves.
+      {
+        id: "chat",
+        name: t("nav.groups"),
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+        ),
+        badge: unreadGroupsCount > 0 ? unreadGroupsCount : undefined,
+      },
+      // A coach steps in after the fact on what Dravr sent their athletes: the
+      // replies, their verdicts, a flag and a correction (carnet#847).
+      ...(managesRoster
+        ? [
+            {
+              id: "coach-replies",
+              name: t("coachReview.nav"),
+              icon: (
+                <svg
+                  className="w-5 h-5"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 10h8M8 14h5m-9 6l2.5-2.5H18a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v14z"
+                  />
+                </svg>
+              ),
+            },
+          ]
+        : []),
+      // The agent library is a pinned section of Discover, not a tab of its own.
+      {
+        id: "discover",
+        name: t("nav.discover"),
+        icon: (
+          <svg
+            className="w-5 h-5"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        ),
+      },
+      // Notifications are not a destination of the rail: the bell at the top
+      // right of Home, Groups and Discover carries the unread count and opens
+      // them in a sheet (carnet#820). `#notifications` still renders the page.
+      // Usage renders the billing surface; gated out of the first release.
+      ...(BILLING_ENABLED
+        ? [
+            {
+              id: "usage",
+              name: t("nav.usage"),
+              icon: (
+                <svg
+                  className="w-5 h-5"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                  />
+                </svg>
+              ),
+            },
+          ]
+        : []),
+    ],
+    [managesRoster, unreadGroupsCount, unreadPersonalCount, t],
+  );
 
   // For admin users, use sidebar tabs
-  const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
+  const tabs = isSuperAdmin
+    ? superAdminTabs
+    : isAdminUser
+      ? adminTabs
+      : regularTabs;
   // Whether this surface takes the shell's gutter or paints to the pane edges.
   const pageLayout = layoutForRoute(activeTab);
 
@@ -687,34 +1213,45 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Home's Today for the personal surface: the briefing's sections, which
   // draft into the open conversation, and the one line above it on a phone
   // or a tablet.
-  const personalToday = useMemo<PersonalToday>(() => ({
-    panel: (actions, compact) => (
-      <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-        <HomeBriefing
-          onNavigate={applyRoute}
-          actions={actions}
-          // The picker opens over the page, not inside the Today sheet,
-          // which steps aside first on a narrow screen.
-          onPickTeam={() => {
-            actions.dismiss();
-            setTeamPickerOpen(true);
-          }}
-          compact={compact}
-        />
-      </Suspense>
-    ),
-    peek: (onOpen, hidden) => (
-      <Suspense fallback={null}>
-        <TodayPeek onOpen={onOpen} hidden={hidden} />
-      </Suspense>
-    ),
-  }), [applyRoute]);
+  const personalToday = useMemo<PersonalToday>(
+    () => ({
+      panel: (actions, compact) => (
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-8">
+              <div className="pierre-spinner"></div>
+            </div>
+          }
+        >
+          <HomeBriefing
+            onNavigate={applyRoute}
+            actions={actions}
+            // The picker opens over the page, not inside the Today sheet,
+            // which steps aside first on a narrow screen.
+            onPickTeam={() => {
+              actions.dismiss();
+              setTeamPickerOpen(true);
+            }}
+            compact={compact}
+          />
+        </Suspense>
+      ),
+      peek: (onOpen, hidden) => (
+        <Suspense fallback={null}>
+          <TodayPeek onOpen={onOpen} hidden={hidden} />
+        </Suspense>
+      ),
+    }),
+    [applyRoute],
+  );
 
   // The coach's Home view `#home/…` names — null for an athlete, and for the
   // subviews of the personal Home (a conversation, an activity), which a
   // coach reaches under "Mon entraînement".
   const coachHomeView: CoachHomeRoute | null =
-    managesRoster && openActivity === null && homeConversation === null ? parseCoachHomeRoute(homeSub) : null;
+    managesRoster && openActivity === null && homeConversation === null
+      ? parseCoachHomeRoute(homeSub)
+      : null;
 
   const personalHome = (
     <PersonalChat
@@ -730,9 +1267,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // For admin users we use the first three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
-      return ['users', 'agents', 'agent-store'];
+      return ["users", "agents", "agent-store"];
     }
-    return ['home', 'chat', 'discover'];
+    return ["home", "chat", "discover"];
   }, [isAdminUser, t]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds
@@ -747,7 +1284,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       .map((t) => ({ id: t.id, name: t.name, icon: t.icon, badge: t.badge }));
   }, [primaryTabIds, tabs]);
   const drawerHasBadge = useMemo(
-    () => feedbackUnread > 0 || secondaryMobileTabs.some((t) => t.badge !== undefined && t.badge > 0),
+    () =>
+      feedbackUnread > 0 ||
+      secondaryMobileTabs.some((t) => t.badge !== undefined && t.badge > 0),
     [feedbackUnread, secondaryMobileTabs],
   );
 
@@ -761,7 +1300,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // chat pane. An operator keeps the expanded sidebar — twenty destinations
   // do not fit a column of icons.
   const railWidth = 72;
-  const asideWidth = isAdminUser ? (sidebarCollapsed ? 72 : sidebarWidth) : railWidth;
+  const asideWidth = isAdminUser
+    ? sidebarCollapsed
+      ? 72
+      : sidebarWidth
+    : railWidth;
 
   // The rail and the admin sidebar are fixed to the left edge from md up, so
   // the strips App mounts above the dashboard (offline, install, impersonation)
@@ -770,9 +1313,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // have no rail, and their strips start at the edge.
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty('--shell-aside-width', `${asideWidth}px`);
+    root.style.setProperty("--shell-aside-width", `${asideWidth}px`);
     return () => {
-      root.style.removeProperty('--shell-aside-width');
+      root.style.removeProperty("--shell-aside-width");
     };
   }, [asideWidth]);
 
@@ -783,24 +1326,29 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     <button
       onClick={() => {
         const next = !userSidebarCollapsed;
-        localStorage.setItem('pierre.sidebar_collapsed', String(next));
+        localStorage.setItem("pierre.sidebar_collapsed", String(next));
         setUserSidebarCollapsed(next);
       }}
       className="hidden lg:flex text-outline hover:text-primary transition-colors flex-shrink-0 touch-target items-center justify-center"
-      title={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
-      aria-label={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
+      title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
     >
       <svg
         className={clsx(
-          'w-4 h-4 text-on-surface-variant transition-transform duration-300',
-          sidebarCollapsed && 'rotate-180'
+          "w-4 h-4 text-on-surface-variant transition-transform duration-300",
+          sidebarCollapsed && "rotate-180",
         )}
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
         aria-hidden="true"
       >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M15 19l-7-7 7-7"
+        />
       </svg>
     </button>
   );
@@ -809,19 +1357,26 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     <div className="min-h-dvh bg-surface flex">
       {!isAdminUser && (
         <IconRail
-          tabs={tabs.map((tab) => ({ id: tab.id, name: tab.name, icon: tab.icon, badge: tab.badge }))}
+          tabs={tabs.map((tab) => ({
+            id: tab.id,
+            name: tab.name,
+            icon: tab.icon,
+            badge: tab.badge,
+          }))}
           activeTab={activeTab}
           onSelect={(id) => {
             setActiveTab(id);
-            if (id === 'chat') setSelectedConversation(null);
+            if (id === "chat") setSelectedConversation(null);
           }}
-          onOpenSettings={() => setActiveTab('settings')}
+          onOpenSettings={() => setActiveTab("settings")}
           onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
           onSignOut={logout}
-          onHome={() => applyRoute('home')}
-          settingsActive={activeTab === 'settings'}
-          userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
-          userLabel={user?.display_name || user?.email || ''}
+          onHome={() => applyRoute("home")}
+          settingsActive={activeTab === "settings"}
+          userInitial={
+            (user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? "?"
+          }
+          userLabel={user?.display_name || user?.email || ""}
           feedbackUnread={feedbackUnread}
         />
       )}
@@ -830,198 +1385,253 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           actively dragging the resize handle we suspend the transition
           so the cursor tracks the edge in real time. */}
       {isAdminUser && (
-      <aside
-        className={clsx(
-          'hidden md:flex fixed left-0 top-0 h-dvh bg-surface border-r ghost-border flex-col z-40 overflow-hidden',
-          isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
-        )}
-        style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
-      >
-        {/* Logo Section */}
-        <div className={clsx(
-          'flex h-[52px] items-center border-b ghost-border transition-all duration-300',
-          sidebarCollapsed ? 'px-3 justify-center' : 'pl-4 pr-2 gap-2.5 justify-between'
-        )}>
-          {/* The lockup opens the marketing site in a new tab so the admin
+        <aside
+          className={clsx(
+            "hidden md:flex fixed left-0 top-0 h-dvh bg-surface border-r ghost-border flex-col z-40 overflow-hidden",
+            isResizingSidebar ? "" : "transition-all duration-300 ease-in-out",
+          )}
+          style={{ width: sidebarCollapsed ? 72 : sidebarWidth }}
+        >
+          {/* Logo Section */}
+          <div
+            className={clsx(
+              "flex h-[52px] items-center border-b ghost-border transition-all duration-300",
+              sidebarCollapsed
+                ? "px-3 justify-center"
+                : "pl-4 pr-2 gap-2.5 justify-between",
+            )}
+          >
+            {/* The lockup opens the marketing site in a new tab so the admin
               keeps their place. Collapsed, the wordmark is gone, so the brand
               name becomes the link's label instead. */}
-          <a
-            href={SITE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={sidebarCollapsed ? PRODUCT_WORDMARK : undefined}
-            data-testid="sidebar-lockup-link"
-            className="flex items-center gap-2.5 rounded-lg focus-ring"
-          >
-            <DravrLogo size={sidebarCollapsed ? 32 : 24} />
-            {!sidebarCollapsed && (
-              <span className="font-display text-base font-semibold tracking-brand text-primary">
-                {PRODUCT_WORDMARK}
-              </span>
-            )}
-          </a>
-          {!sidebarCollapsed && collapseToggle}
-        </div>
+            <a
+              href={SITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={sidebarCollapsed ? PRODUCT_WORDMARK : undefined}
+              data-testid="sidebar-lockup-link"
+              className="flex items-center gap-2.5 rounded-lg focus-ring"
+            >
+              <DravrLogo size={sidebarCollapsed ? 32 : 24} />
+              {!sidebarCollapsed && (
+                <span className="font-display text-base font-semibold tracking-brand text-primary">
+                  {PRODUCT_WORDMARK}
+                </span>
+              )}
+            </a>
+            {!sidebarCollapsed && collapseToggle}
+          </div>
 
-        {/* Navigation Items. On the Chat tab the nav keeps its own height
+          {/* Navigation Items. On the Chat tab the nav keeps its own height
             and the conversation pane below takes the rest of the column —
             the list is the sidebar's main content there, not a footnote
             under the tabs. */}
-        <nav className="flex-1 overflow-x-hidden overflow-y-auto py-2">
-          <ul className="space-y-px px-2.5">
-            {tabs.map((tab, index) => {
-              // Render section header when the section changes
-              const prevTab = index > 0 ? tabs[index - 1] : null;
-              const showSection = isAdminUser && !sidebarCollapsed && tab.section && tab.section !== prevTab?.section;
-              const showDivider = isAdminUser && sidebarCollapsed && tab.section && tab.section !== prevTab?.section && index > 0;
+          <nav className="flex-1 overflow-x-hidden overflow-y-auto py-2">
+            <ul className="space-y-px px-2.5">
+              {tabs.map((tab, index) => {
+                // Render section header when the section changes
+                const prevTab = index > 0 ? tabs[index - 1] : null;
+                const showSection =
+                  isAdminUser &&
+                  !sidebarCollapsed &&
+                  tab.section &&
+                  tab.section !== prevTab?.section;
+                const showDivider =
+                  isAdminUser &&
+                  sidebarCollapsed &&
+                  tab.section &&
+                  tab.section !== prevTab?.section &&
+                  index > 0;
 
-              return (
-                <li key={tab.id}>
-                  {showSection && (
-                    <div className={clsx('px-2.5 pt-4 pb-1 text-xs font-medium text-outline', index === 0 && '!pt-2')}>
-                      {tab.section}
-                    </div>
-                  )}
-                  {showDivider && (
-                    <div className="my-2 border-t ghost-border" />
-                  )}
-                  <button
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      // Reset conversation selection when clicking Chat tab to show agent selection
-                      if (tab.id === 'chat') {
-                        setSelectedConversation(null);
-                      }
-                    }}
-                    className={clsx(
-                      'group relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-all duration-200 touch-target [&_svg]:h-4 [&_svg]:w-4',
-                      {
-                        'bg-primary-container text-on-primary-container': activeTab === tab.id,
-                        'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface': activeTab !== tab.id,
-                      },
-                      sidebarCollapsed && 'justify-center'
-                    )}
-                    title={sidebarCollapsed ? tab.name : undefined}
-                  >
-                    <div className="relative flex-shrink-0">
-                      {tab.icon}
-                      {tab.badge && (
-                        <span
-                          data-testid="pending-users-badge"
-                          className="absolute -top-1.5 -right-1.5 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
-                        >
-                          {tab.badge}
-                        </span>
-                      )}
-                    </div>
-                    {!sidebarCollapsed && <span>{tab.name}</span>}
-                    {/* Tooltip for collapsed state */}
-                    {sidebarCollapsed && (
-                      <div className="absolute left-full ml-2 px-2 py-1 bg-surface-container-lowest border ghost-border shadow-floating text-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
-                        {tab.name}
+                return (
+                  <li key={tab.id}>
+                    {showSection && (
+                      <div
+                        className={clsx(
+                          "px-2.5 pt-4 pb-1 text-xs font-medium text-outline",
+                          index === 0 && "!pt-2",
+                        )}
+                      >
+                        {tab.section}
                       </div>
                     )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+                    {showDivider && (
+                      <div className="my-2 border-t ghost-border" />
+                    )}
+                    <button
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        // Reset conversation selection when clicking Chat tab to show agent selection
+                        if (tab.id === "chat") {
+                          setSelectedConversation(null);
+                        }
+                      }}
+                      className={clsx(
+                        "group relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-all duration-200 touch-target [&_svg]:h-4 [&_svg]:w-4",
+                        {
+                          "bg-primary-container text-on-primary-container":
+                            activeTab === tab.id,
+                          "text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface":
+                            activeTab !== tab.id,
+                        },
+                        sidebarCollapsed && "justify-center",
+                      )}
+                      title={sidebarCollapsed ? tab.name : undefined}
+                    >
+                      <div className="relative flex-shrink-0">
+                        {tab.icon}
+                        {tab.badge && (
+                          <span
+                            data-testid="pending-users-badge"
+                            className="absolute -top-1.5 -right-1.5 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
+                          >
+                            {tab.badge}
+                          </span>
+                        )}
+                      </div>
+                      {!sidebarCollapsed && <span>{tab.name}</span>}
+                      {/* Tooltip for collapsed state */}
+                      {sidebarCollapsed && (
+                        <div className="absolute left-full ml-2 px-2 py-1 bg-surface-container-lowest border ghost-border shadow-floating text-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+                          {tab.name}
+                        </div>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
 
-        {/* User Profile Section - Bottom of sidebar */}
-        <div className={clsx(
-          'border-t ghost-border',
-          sidebarCollapsed ? 'p-1.5' : 'px-2 py-1.5'
-        )}>
-          <div className={clsx(
-            'flex items-center',
-            sidebarCollapsed ? 'flex-col gap-1' : 'gap-2'
-          )}>
-            {/* Clickable user area - navigates to user Settings */}
-            <button
-              onClick={() => setActiveTab('settings')}
+          {/* User Profile Section - Bottom of sidebar */}
+          <div
+            className={clsx(
+              "border-t ghost-border",
+              sidebarCollapsed ? "p-1.5" : "px-2 py-1.5",
+            )}
+          >
+            <div
               className={clsx(
-                'flex items-center gap-2 rounded-lg transition-all duration-200 hover:bg-surface-container-low',
-                sidebarCollapsed ? 'p-1 flex-col' : 'flex-1 min-w-0 p-1.5'
+                "flex items-center",
+                sidebarCollapsed ? "flex-col gap-1" : "gap-2",
               )}
-              title={t('shell.navOpenSettings')}
-              // Expanded, the button is named by the user's name it shows, so a
-              // voice user can say what they see (WCAG 2.5.3); "Open Settings"
-              // stays its tooltip. Collapsed, only the avatar letter shows.
-              aria-label={sidebarCollapsed ? t('shell.navOpenSettings') : undefined}
             >
-              {/* User Avatar with online indicator */}
-              <div className="relative flex-shrink-0" aria-hidden="true">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-container">
-                  <span className="text-xs font-semibold text-on-primary-container">
-                    {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
-                  </span>
+              {/* Clickable user area - navigates to user Settings */}
+              <button
+                onClick={() => setActiveTab("settings")}
+                className={clsx(
+                  "flex items-center gap-2 rounded-lg transition-all duration-200 hover:bg-surface-container-low",
+                  sidebarCollapsed ? "p-1 flex-col" : "flex-1 min-w-0 p-1.5",
+                )}
+                title="Open Settings"
+                // Expanded, the button is named by the user's name it shows, so a
+                // voice user can say what they see (WCAG 2.5.3); "Open Settings"
+                // stays its tooltip. Collapsed, only the avatar letter shows.
+                aria-label={sidebarCollapsed ? "Open Settings" : undefined}
+              >
+                {/* User Avatar with online indicator */}
+                <div className="relative flex-shrink-0" aria-hidden="true">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-container">
+                    <span className="text-xs font-semibold text-on-primary-container">
+                      {(user?.display_name || user?.email)
+                        ?.charAt(0)
+                        .toUpperCase()}
+                    </span>
+                  </div>
+                  {/* Online status dot */}
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-success rounded-full border-2 border-surface" />
                 </div>
-                {/* Online status dot */}
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-success rounded-full border-2 border-surface" />
-              </div>
 
-              {!sidebarCollapsed && (
-                <div className="flex-1 min-w-0 text-left">
-                  <p className="text-xs font-medium text-on-surface truncate leading-tight">
-                    {user?.display_name || user?.email}
-                  </p>
-                  {operatorRoleBadge && (
-                    <span className="text-xs text-on-surface-variant">{operatorRoleBadge}</span>
-                  )}
-                </div>
-              )}
-            </button>
+                {!sidebarCollapsed && (
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-xs font-medium text-on-surface truncate leading-tight">
+                      {user?.display_name || user?.email}
+                    </p>
+                    {operatorRoleBadge && (
+                      <span className="text-xs text-on-surface-variant">
+                        {operatorRoleBadge}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
 
-            {sidebarCollapsed && collapseToggle}
+              {sidebarCollapsed && collapseToggle}
 
-            {/* Settings gear icon - visible shortcut to user settings */}
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={clsx(
-                'text-outline hover:text-primary transition-colors flex-shrink-0 flex items-center justify-center',
-                'touch-target',
-                activeTab === 'settings' && 'text-primary'
-              )}
-              title={t('shell.navSettings')}
-              aria-label={t('shell.navSettings')}
-            >
-              <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
+              {/* Settings gear icon - visible shortcut to user settings */}
+              <button
+                onClick={() => setActiveTab("settings")}
+                className={clsx(
+                  "text-outline hover:text-primary transition-colors flex-shrink-0 flex items-center justify-center",
+                  "touch-target",
+                  activeTab === "settings" && "text-primary",
+                )}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <svg
+                  className="w-4 h-4"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </button>
 
-            {/* Sign out button */}
-            <button
-              onClick={logout}
-              className="text-outline hover:text-primary transition-colors flex-shrink-0 touch-target flex items-center justify-center"
-              title={t('shell.navSignOut')}
-              aria-label={t('shell.navSignOut')}
-            >
-              <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
+              {/* Sign out button */}
+              <button
+                onClick={logout}
+                className="text-outline hover:text-primary transition-colors flex-shrink-0 touch-target flex items-center justify-center"
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                <svg
+                  className="w-4 h-4"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Drag handle: a thin invisible strip on the right edge that
+          {/* Drag handle: a thin invisible strip on the right edge that
             users grab to resize the panel. Only active when expanded;
             the collapse toggle still owns the 72↔width transition. */}
-        {!sidebarCollapsed && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t('shell.sidebarResize')}
-            onPointerDown={onSidebarResizeStart}
-            className={clsx(
-              'absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-primary/40 transition-colors',
-              isResizingSidebar && 'bg-primary/60',
-            )}
-          />
-        )}
-      </aside>
+          {!sidebarCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              onPointerDown={onSidebarResizeStart}
+              className={clsx(
+                "absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-primary/40 transition-colors",
+                isResizingSidebar && "bg-primary/60",
+              )}
+            />
+          )}
+        </aside>
       )}
 
       {/* Main Content Area — margin tracks the sidebar's live width on
@@ -1032,8 +1642,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           // `min-w-0` is load-bearing: without it, any descendant with an
           // intrinsic content width (long admin tables, wide settings
           // forms) lets <main> blow past the viewport on mobile.
-          'flex-1 min-w-0 h-dvh flex flex-col',
-          isResizingSidebar ? '' : 'transition-all duration-300 ease-in-out',
+          "flex-1 min-w-0 h-dvh flex flex-col",
+          isResizingSidebar ? "" : "transition-all duration-300 ease-in-out",
         )}
         style={{ marginLeft: isMobile ? 0 : asideWidth }}
       >
@@ -1043,7 +1653,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <div className="flex h-[52px] items-center justify-between px-4 md:px-6">
               <div className="min-w-0">
                 <h1 className="font-display text-xl font-semibold text-on-surface truncate">
-                  {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : activeTab === 'notifications' ? t('shell.navNotifications') : '')}
+                  {tabs.find((t) => t.id === activeTab)?.name ||
+                    (activeTab === "settings"
+                      ? t("shell.navSettings")
+                      : activeTab === "notifications"
+                        ? t("shell.navNotifications")
+                        : "")}
                 </h1>
               </div>
             </div>
@@ -1068,7 +1683,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             already above it, that strip is topmost and this band collapses
             to nothing (`pad-safe-top`, index.css); in a browser tab the inset
             is 0 and so is its height. */}
-        <div aria-hidden="true" data-testid="shell-safe-top" className="pad-safe-top flex-shrink-0" />
+        <div
+          aria-hidden="true"
+          data-testid="shell-safe-top"
+          className="pad-safe-top flex-shrink-0"
+        />
 
         {/* Content Area. The gutter is a property of the surface, declared in
             constants/surfaceLayout.ts — never of the viewer's role. It used to
@@ -1081,225 +1700,417 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           data-page-shell=""
           data-page-layout={pageLayout}
           className={clsx(
-            'flex-1 overflow-auto',
-            pageLayout === 'padded' && PAGE_GUTTER_CLASS,
+            "flex-1 overflow-auto",
+            pageLayout === "padded" && PAGE_GUTTER_CLASS,
           )}
           style={{
             // Reserve space for the mobile bottom tab bar (56px) plus the
             // iOS safe-area home indicator. No-op on >=md where the bar is
             // hidden.
-            paddingBottom: isMobile && !composing ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : undefined,
+            paddingBottom:
+              isMobile && !composing
+                ? "calc(56px + env(safe-area-inset-bottom, 0px))"
+                : undefined,
           }}
         >
-
           {/* Content */}
-        {/* Overview tab removed — admin lands directly on Users */}
+          {/* Overview tab removed — admin lands directly on Users */}
 
-        {activeTab === 'connections' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UnifiedConnections />
-          </Suspense>
-        )}
-        {activeTab === 'analytics' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <AnalyticsTab />
-          </Suspense>
-        )}
-        {BILLING_ENABLED && activeTab === 'billing' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <BillingTab />
-          </Suspense>
-        )}
-        {BILLING_ENABLED && activeTab === 'usage' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <BillingPage />
-          </Suspense>
-        )}
-        {activeTab === 'activity' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <ActivityTab />
-          </Suspense>
-        )}
-        {activeTab === 'engagement' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <EngagementTab onNavigate={setActiveTab} />
-          </Suspense>
-        )}
-        {activeTab === 'users' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UserManagement />
-          </Suspense>
-        )}
-        {activeTab === 'configuration' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <AdminConfiguration />
-          </Suspense>
-        )}
-        {activeTab === 'user-tools' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UserToolOverrides />
-          </Suspense>
-        )}
-        {activeTab === 'platform-settings' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <AdminSettings />
-          </Suspense>
-        )}
-        {activeTab === 'claim-verdicts' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <ClaimVerdictsTab />
-          </Suspense>
-        )}
-        {activeTab === 'harness-config' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <HarnessConfigTab />
-          </Suspense>
-        )}
-        {activeTab === 'memory-worker' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <MemoryExtractionMonitorTab />
-          </Suspense>
-        )}
-        {activeTab === 'agent-followups' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachFollowupsTab />
-          </Suspense>
-        )}
-        {activeTab === 'agent-notes-audit' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachNotesAuditTab />
-          </Suspense>
-        )}
-        {activeTab === 'audit' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <AuditTrail />
-          </Suspense>
-        )}
-        {activeTab === 'impersonation-log' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <ImpersonationLogTab />
-          </Suspense>
-        )}
-        {activeTab === 'myth-busting' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <MythBustingTab />
-          </Suspense>
-        )}
-        {activeTab === 'agent-grading' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachGradingTab />
-          </Suspense>
-        )}
-        {activeTab === 'eval-harness' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <EvalHarnessTab />
-          </Suspense>
-        )}
-        {activeTab === 'prompts' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <SystemPromptsTab />
-          </Suspense>
-        )}
-        {activeTab === 'agents' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <SystemCoachesTab />
-          </Suspense>
-        )}
-        {activeTab === 'agent-store' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachStoreManagement />
-          </Suspense>
-        )}
-        {activeTab === 'home' && coachHomeView !== null && coachHomeView.view !== 'me' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachHome route={coachHomeView} onNavigate={applyRoute} />
-          </Suspense>
-        )}
-        {activeTab === 'home' && (coachHomeView === null || coachHomeView.view === 'me') && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            {openActivity ? (
-              <ActivityView
-                activity={openActivity}
-                onBack={() => applyRoute(managesRoster ? 'home/me' : 'home')}
-                onNavigate={applyRoute}
-              />
-            ) : managesRoster ? (
-              // A coach who also trains: the same Home an athlete has, under
-              // the switch that returns to their athletes (carnet#1253, D2).
-              <div className="flex h-full min-h-0 flex-col" data-testid="coach-home-personal">
-                <div className="flex min-h-[52px] shrink-0 items-center border-b ghost-border px-4 py-2">
-                  <CoachHomeSwitch scope="me" onChange={() => applyRoute('home')} stretch={isMobile} />
-                </div>
-                <div className="min-h-0 flex-1">{personalHome}</div>
-              </div>
-            ) : (
-              personalHome
-            )}
-          </Suspense>
-        )}
-        {activeTab === 'chat' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <ChatTab
-              selectedConversation={selectedConversation}
-              onSelectConversation={setSelectedConversation}
-              onNavigate={applyRoute}
-              openInfoFor={chatInfoRequest}
-              onOpenInfoConsumed={() => setChatInfoRequest(null)}
-              pendingComposerAction={pendingComposerAction}
-              onPendingComposerActionConsumed={() => {
-                setPendingComposerAction(null);
-                onInviteCodeConsumed?.();
-              }}
-            />
-          </Suspense>
-        )}
-        {activeTab === 'discover' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <StoreScreen onNavigate={applyRoute} ownCoachId={editingCoachId} />
-          </Suspense>
-        )}
-        {activeTab === 'settings' && isAdminUser && (
-          <div className={PAGE_GUTTER_CLASS}>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <UserSettings key={settingsTab ?? 'profile'} initialTab={settingsTab ?? undefined} />
+          {/* Each admin screen opens with its theory: the question it answers,
+            how its numbers are computed, since when, and its commits
+            (carnet#1441). Operators only; a tab with no entry draws nothing.
+            Settings is a bleed route, so its panel sits inside its gutter. */}
+          {isAdminUser && activeTab !== "settings" && (
+            <Suspense fallback={null}>
+              <ScreenTheoryPanel key={activeTab} tab={activeTab} />
             </Suspense>
-          </div>
-        )}
-        {/* An athlete's settings are a menu beside the open section — the
+          )}
+
+          {activeTab === "connections" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <UnifiedConnections />
+            </Suspense>
+          )}
+          {activeTab === "analytics" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <AnalyticsTab />
+            </Suspense>
+          )}
+          {BILLING_ENABLED && activeTab === "billing" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <BillingTab />
+            </Suspense>
+          )}
+          {BILLING_ENABLED && activeTab === "usage" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <BillingPage />
+            </Suspense>
+          )}
+          {activeTab === "activity" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <ActivityTab />
+            </Suspense>
+          )}
+          {activeTab === "engagement" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <EngagementTab onNavigate={setActiveTab} />
+            </Suspense>
+          )}
+          {activeTab === "users" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <UserManagement />
+            </Suspense>
+          )}
+          {activeTab === "configuration" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <AdminConfiguration />
+            </Suspense>
+          )}
+          {activeTab === "user-tools" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <UserToolOverrides />
+            </Suspense>
+          )}
+          {activeTab === "platform-settings" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <AdminSettings />
+            </Suspense>
+          )}
+          {activeTab === "claim-verdicts" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <ClaimVerdictsTab />
+            </Suspense>
+          )}
+          {activeTab === "harness-config" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <HarnessConfigTab />
+            </Suspense>
+          )}
+          {activeTab === "memory-worker" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <MemoryExtractionMonitorTab />
+            </Suspense>
+          )}
+          {activeTab === "audit" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <AuditTrail />
+            </Suspense>
+          )}
+          {activeTab === "impersonation-log" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <ImpersonationLogTab />
+            </Suspense>
+          )}
+          {activeTab === "myth-busting" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <MythBustingTab />
+            </Suspense>
+          )}
+          {activeTab === "agent-grading" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <CoachGradingTab />
+            </Suspense>
+          )}
+          {activeTab === "prompts" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <SystemPromptsTab />
+            </Suspense>
+          )}
+          {activeTab === "agents" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <SystemCoachesTab />
+            </Suspense>
+          )}
+          {activeTab === "agent-store" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <CoachStoreManagement />
+            </Suspense>
+          )}
+          {activeTab === "home" &&
+            coachHomeView !== null &&
+            coachHomeView.view !== "me" && (
+              <Suspense
+                fallback={
+                  <div className="flex justify-center py-8">
+                    <div className="pierre-spinner"></div>
+                  </div>
+                }
+              >
+                <CoachHome route={coachHomeView} onNavigate={applyRoute} />
+              </Suspense>
+            )}
+          {activeTab === "home" &&
+            (coachHomeView === null || coachHomeView.view === "me") && (
+              <Suspense
+                fallback={
+                  <div className="flex justify-center py-8">
+                    <div className="pierre-spinner"></div>
+                  </div>
+                }
+              >
+                {openActivity ? (
+                  <ActivityView
+                    activity={openActivity}
+                    onBack={() =>
+                      applyRoute(managesRoster ? "home/me" : "home")
+                    }
+                    onNavigate={applyRoute}
+                  />
+                ) : managesRoster ? (
+                  // A coach who also trains: the same Home an athlete has, under
+                  // the switch that returns to their athletes (carnet#1253, D2).
+                  <div
+                    className="flex h-full min-h-0 flex-col"
+                    data-testid="coach-home-personal"
+                  >
+                    <div className="flex min-h-[52px] shrink-0 items-center border-b ghost-border px-4 py-2">
+                      <CoachHomeSwitch
+                        scope="me"
+                        onChange={() => applyRoute("home")}
+                        stretch={isMobile}
+                      />
+                    </div>
+                    <div className="min-h-0 flex-1">{personalHome}</div>
+                  </div>
+                ) : (
+                  personalHome
+                )}
+              </Suspense>
+            )}
+          {activeTab === "chat" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <ChatTab
+                selectedConversation={selectedConversation}
+                onSelectConversation={setSelectedConversation}
+                onNavigate={applyRoute}
+                openInfoFor={chatInfoRequest}
+                onOpenInfoConsumed={() => setChatInfoRequest(null)}
+                pendingComposerAction={pendingComposerAction}
+                onPendingComposerActionConsumed={() => {
+                  setPendingComposerAction(null);
+                  onInviteCodeConsumed?.();
+                }}
+              />
+            </Suspense>
+          )}
+          {activeTab === "discover" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <StoreScreen
+                onNavigate={applyRoute}
+                ownCoachId={editingCoachId}
+              />
+            </Suspense>
+          )}
+          {activeTab === "settings" && isAdminUser && (
+            <div className={PAGE_GUTTER_CLASS}>
+              <Suspense fallback={null}>
+                <ScreenTheoryPanel tab="settings" />
+              </Suspense>
+              <Suspense
+                fallback={
+                  <div className="flex justify-center py-8">
+                    <div className="pierre-spinner"></div>
+                  </div>
+                }
+              >
+                <UserSettings
+                  key={settingsTab ?? "profile"}
+                  initialTab={settingsTab ?? undefined}
+                />
+              </Suspense>
+            </div>
+          )}
+          {/* An athlete's settings are a menu beside the open section — the
             shape of every messenger's settings pane. A provider connection is
             one of those sections, reached at #settings/connections like any
             other. Admins are platform operators and keep the strip without it. */}
-        {activeTab === 'settings' && !isAdminUser && (
-          <SettingsShell
-            tab={settingsTab}
-            onSelect={setSettingsTab}
-            onBack={() => setSettingsTab(null)}
-          />
-        )}
-        {activeTab === FEEDBACK_TAB && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <FeedbackThread
-              about={feedbackAbout}
-              openedFrom={() => feedbackScreen.current}
-              onClearAbout={() => setFeedbackAbout(null)}
+          {activeTab === "settings" && !isAdminUser && (
+            <SettingsShell
+              tab={settingsTab}
+              onSelect={setSettingsTab}
+              onBack={() => setSettingsTab(null)}
             />
-          </Suspense>
-        )}
-        {activeTab === 'notifications' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <NotificationsPanel onNavigate={applyRoute} />
-          </Suspense>
-        )}
-        {teamPickerOpen && (
-          <Suspense fallback={null}>
-            <PickTeamSheet side={isMobile ? 'bottom' : 'right'} onClose={() => setTeamPickerOpen(false)} />
-          </Suspense>
-        )}
-        {activeTab === 'coach-replies' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachReplies key={coachRepliesAthlete ?? 'all'} initialAthleteId={coachRepliesAthlete} />
-          </Suspense>
-        )}
+          )}
+          {activeTab === FEEDBACK_TAB && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <FeedbackThread
+                about={feedbackAbout}
+                openedFrom={() => feedbackScreen.current}
+                onClearAbout={() => setFeedbackAbout(null)}
+              />
+            </Suspense>
+          )}
+          {activeTab === "notifications" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <NotificationsPanel onNavigate={applyRoute} />
+            </Suspense>
+          )}
+          {teamPickerOpen && (
+            <Suspense fallback={null}>
+              <PickTeamSheet
+                side={isMobile ? "bottom" : "right"}
+                onClose={() => setTeamPickerOpen(false)}
+              />
+            </Suspense>
+          )}
+          {activeTab === "coach-replies" && (
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-8">
+                  <div className="pierre-spinner"></div>
+                </div>
+              }
+            >
+              <CoachReplies
+                key={coachRepliesAthlete ?? "all"}
+                initialAthleteId={coachRepliesAthlete}
+              />
+            </Suspense>
+          )}
         </div>
       </main>
 
@@ -1316,12 +2127,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             activeTab={activeTab}
             onSelect={(id) => {
               setActiveTab(id);
-              if (id === 'chat') setSelectedConversation(null);
+              if (id === "chat") setSelectedConversation(null);
             }}
-            userLabel={user?.display_name || user?.email || ''}
-            userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
+            userLabel={user?.display_name || user?.email || ""}
+            userInitial={
+              (user?.display_name || user?.email)?.charAt(0).toUpperCase() ??
+              "?"
+            }
             userRole={operatorRoleBadge ?? undefined}
-            onOpenSettings={() => setActiveTab('settings')}
+            onOpenSettings={() => setActiveTab("settings")}
             onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
             onSignOut={logout}
             feedbackUnread={feedbackUnread}
@@ -1332,7 +2146,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               activeTab={activeTab}
               onSelect={(id) => {
                 setActiveTab(id);
-                if (id === 'chat') setSelectedConversation(null);
+                if (id === "chat") setSelectedConversation(null);
               }}
               onOpenDrawer={() => setDrawerOpen(true)}
               drawerHasBadge={drawerHasBadge}

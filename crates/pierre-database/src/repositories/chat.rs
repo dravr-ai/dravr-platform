@@ -6,7 +6,8 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::admin::scope::AdminScope;
+use pierre_core::errors::AppResult;
 
 use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
@@ -17,7 +18,6 @@ use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
 use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread};
-use super::user_onboarding::personal_conversation;
 
 /// One assistant reply as the claim-verdict backfill reads it: the message,
 /// where it was said, and who it was said to.
@@ -162,8 +162,8 @@ pub trait ChatRepository: Send + Sync {
     ///
     /// # Errors
     ///
-    /// [`AppError::invalid_input`] when `new` names no group; the database
-    /// error when the transaction fails.
+    /// [`AppError::invalid_input`](pierre_core::errors::AppError::invalid_input)
+    /// when `new` names no group; the database error when the transaction fails.
     async fn open_group_conversation(
         &self,
         new: &NewConversation<'_>,
@@ -434,17 +434,24 @@ pub trait ChatRepository: Send + Sync {
         cap: Option<i64>,
     ) -> AppResult<Reactivation>;
 
-    /// Get recently updated conversations across all tenants (admin view)
+    /// Get recently updated conversations of `scope`: one tenant, or across
+    /// all tenants (admin view)
     ///
     /// Returns the last `limit` conversations ordered by `updated_at` descending.
     /// Includes the associated `user_id` for display. Used by the admin activity dashboard.
     async fn get_recent_conversations_admin(
         &self,
+        scope: AdminScope,
         limit: i64,
     ) -> AppResult<Vec<ConversationRecord>>;
 
-    /// Count conversations updated since a given timestamp (admin view, cross-tenant)
-    async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64>;
+    /// Count the conversations of `scope` updated since a given timestamp
+    /// (admin view)
+    async fn count_active_conversations_since(
+        &self,
+        scope: AdminScope,
+        since: &str,
+    ) -> AppResult<i64>;
 
     /// Attach an agent session id to an existing conversation row (Tier 4
     /// cross-channel continuity). Tenant-scoped; returns `false` if the
@@ -999,18 +1006,21 @@ macro_rules! owner_slot_lock_sql {
 }
 pub(crate) use owner_slot_lock_sql;
 
-/// The newest conversations across every tenant, for the operator console.
+/// The newest conversations of tenant `$1`, or of every tenant when it binds
+/// `NULL`, for the operator console.
 pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
     "SELECT ",
     conversation_columns!(),
     " FROM chat_conversations c \
+     WHERE ($1 IS NULL OR c.tenant_id = $1) \
      ORDER BY c.updated_at DESC \
-     LIMIT $1"
+     LIMIT $2"
 );
 
-/// Conversations touched since an instant, across every tenant.
+/// Conversations of tenant `$1`, or of every tenant when it binds `NULL`,
+/// touched since an instant.
 pub(crate) const COUNT_ACTIVE_SINCE_SQL: &str =
-    "SELECT COUNT(*) FROM chat_conversations WHERE updated_at >= $1";
+    "SELECT COUNT(*) FROM chat_conversations WHERE ($1 IS NULL OR tenant_id = $1) AND updated_at >= $2";
 
 /// Bind a conversation to its messaging session.
 pub(crate) const SET_SESSION_ID_SQL: &str = r"
@@ -1075,44 +1085,8 @@ pub(crate) const LATEST_CHANNEL_THREAD_SQL: &str = concat!(
      LIMIT 1"
 );
 
-/// The newest active conversation that is the user's alone in a tenant and
-/// about no single activity — the thread a personal one is adopted from. The
-/// predicate addresses `chat_conversations` unaliased, so it runs in a
-/// subquery of its own and the outer read projects the usual columns. `$1` is
-/// the user id as text, `$2` the tenant.
-pub(crate) const LATEST_PERSONAL_CONVERSATION_SQL: &str = concat!(
-    "SELECT ",
-    conversation_columns!(),
-    " FROM chat_conversations c \
-     WHERE c.id = ( \
-       SELECT id FROM chat_conversations \
-       WHERE ",
-    personal_conversation!(),
-    " AND tenant_id = $2 AND archived_at IS NULL \
-       AND NOT EXISTS (SELECT 1 FROM activity_conversations l \
-         WHERE l.conversation_id = chat_conversations.id) \
-       ORDER BY updated_at DESC \
-       LIMIT 1 \
-     )"
-);
-
-/// The user's personal thread in a tenant, once one is designated.
-pub(crate) const PERSONAL_CONVERSATION_SQL: &str = concat!(
-    "SELECT ",
-    conversation_columns!(),
-    " FROM chat_conversations c \
-     WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.personal = TRUE"
-);
-
-/// Designate one of the owner's threads their personal one. A room never
-/// qualifies, nor does a coach's thread about one athlete: the platform posts
-/// the owner's own notices into the personal thread. The partial unique index
-/// refuses a second personal thread for the same owner and tenant.
-pub(crate) const DESIGNATE_PERSONAL_SQL: &str = r"
-    UPDATE chat_conversations
-    SET personal = TRUE
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL
-      AND subject_user_id IS NULL";
+/// The personal-thread statements: adopt, read and designate it.
+pub(crate) mod personal_sql;
 
 /// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
 /// both backends — agent ids are slugs, not uuids — so unlike `group_id`
@@ -1134,40 +1108,6 @@ pub(crate) const RECORD_AGENT_INTRODUCTION_SQL: &str = r"
     INSERT INTO agent_introductions (tenant_id, thread_id, agent_id, created_at)
     VALUES ($1, $2, $3, $4)
     ON CONFLICT DO NOTHING";
-
-/// The error one column read raises.
-pub(crate) fn chat_column_error(column: &str, e: &sqlx::Error) -> AppError {
-    AppError::database(format!("chat column {column}: {e}"))
-}
-
-/// Read a timestamp column of either backend in the RFC 3339 text the wire
-/// DTOs carry: a TIMESTAMPTZ on Postgres, RFC 3339 text on `SQLite` that
-/// sqlx parses and this renders again — the same text, for a value this
-/// repository wrote.
-///
-/// # Errors
-/// Returns a database error naming the column when it cannot be decoded.
-pub(crate) fn stamp_column<R>(row: &R, column: &str) -> AppResult<String>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let at: DateTime<Utc> = row
-        .try_get(column)
-        .map_err(|e| chat_column_error(column, &e))?;
-    Ok(at.to_rfc3339())
-}
-
-/// Parse the RFC 3339 instant a caller hands the repository as text.
-///
-/// # Errors
-/// Returns an invalid-input error when the text is not an RFC 3339 instant.
-pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(since)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{since}': {e}")))
-}
 
 /// The backfill walk over a tenant's assistant replies, oldest first.
 ///

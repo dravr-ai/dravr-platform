@@ -6,16 +6,17 @@
 
 import { useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { useTranslation } from '@pierre/i18n';
 import { formatDateTime } from '@pierre/chat-utils';
 import { adminApi } from '../services/api';
 import {
   auditEventsQueryKey,
   type AuditEvent,
   type AuditEventsPage,
+  type AuditEventsQuery,
   type AuditOutcome,
 } from '../services/api/admin';
 import { Badge, Button, EmptyState, Input, Section, Select } from './ui';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 const PAGE_SIZE = 50;
 
@@ -77,7 +78,7 @@ function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function EventRow({ event, language }: { event: AuditEvent; language: string }) {
+function EventRow({ event }: { event: AuditEvent }) {
   const [open, setOpen] = useState(false);
   const target = targetLine(event);
   const before = event.metadata?.before;
@@ -94,7 +95,7 @@ function EventRow({ event, language }: { event: AuditEvent; language: string }) 
             <p className="text-sm font-medium text-on-surface break-words">{event.summary}</p>
           </div>
           <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-on-surface-variant">
-            <time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at, language)}</time>
+            <time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at, ADMIN_LOCALE)}</time>
             <span>By: {actorLabel(event)}</span>
             <span>Via: {SOURCE_LABEL[event.source] ?? event.source}</span>
             <span className="font-mono">{event.action}</span>
@@ -152,7 +153,6 @@ function EventRow({ event, language }: { event: AuditEvent; language: string }) 
  * account?" has an answer that is not someone's memory.
  */
 export default function AuditTrail() {
-  const { language } = useTranslation();
   const [outcome, setOutcome] = useState<OutcomeFilter>('all');
   const [actionDraft, setActionDraft] = useState('');
   const [action, setAction] = useState('');
@@ -165,10 +165,14 @@ export default function AuditTrail() {
 
   const query = useInfiniteQuery({
     queryKey: auditEventsQueryKey(filters),
-    queryFn: ({ pageParam }) =>
-      adminApi.getAuditEvents({ ...filters, ...(pageParam ? { before: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page: AuditEventsPage) => page.next_before ?? undefined,
+    queryFn: ({ pageParam }) => adminApi.getAuditEvents({ ...filters, ...pageParam }),
+    initialPageParam: undefined as Pick<AuditEventsQuery, 'before' | 'before_id'> | undefined,
+    // The cursor is the last row's instant and id: rows sharing that instant
+    // past the page boundary are read next, not skipped.
+    getNextPageParam: (page: AuditEventsPage) =>
+      page.next_before && page.next_before_id
+        ? { before: page.next_before, before_id: page.next_before_id }
+        : undefined,
   });
 
   const events = query.data?.pages.flatMap((page) => page.events) ?? [];
@@ -209,7 +213,7 @@ export default function AuditTrail() {
       <>
         <ul className="divide-y divide-outline-variant" data-testid="audit-list">
           {events.map((event) => (
-            <EventRow key={event.id} event={event} language={language} />
+            <EventRow key={event.id} event={event} />
           ))}
         </ul>
         {query.hasNextPage && (

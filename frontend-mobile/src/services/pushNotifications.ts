@@ -35,8 +35,6 @@ const CHANNEL_IMPORTANCE: Record<NotificationCategory, keyof typeof AndroidImpor
   coach: 'MAX',
   achievement: 'DEFAULT',
   system: 'LOW',
-  ai: 'DEFAULT',
-  reminders: 'HIGH',
 };
 
 /**

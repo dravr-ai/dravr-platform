@@ -10,10 +10,9 @@
 //! `pierre_chat_pipeline::run` against a model that records the prompt it was
 //! sent, and reads that prompt — never the source that builds it.
 //!
-//! The coach's own season, their agent note and their connected providers are
-//! seeded beside the athlete's in every fixture, as are another member's season
-//! and the athlete's own agent note, so a block that read the wrong person
-//! fails on content rather than on absence.
+//! The coach's own season and their connected providers are seeded beside the
+//! athlete's in every fixture, as is another member's season, so a block that
+//! read the wrong person fails on content rather than on absence.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -50,15 +49,14 @@ use pierre_core::models::{
     StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_database::repositories::WellnessWriteMode;
-use pierre_database::repositories::{InsertAgentNoteParams, InsertCompactionBlockParams};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ReplyBlockResponse, TurnResponse};
-use pierre_memory::MemoryScope;
 use pierre_services::plan_card::PlanCardDraft;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::CONVERSATION_ID;
@@ -84,8 +82,6 @@ const SUBJECT_RACE: &str = "Subject Season Race";
 const DRAFT_RACE: &str = "Coach Drafted Race";
 const COACH_RACE: &str = "Coach Own Race";
 const OTHER_RACE: &str = "Other Member Race";
-const COACH_NOTE: &str = "coach-own-note: prefers threshold on Tuesdays";
-const SUBJECT_NOTE: &str = "subject-own-note: knee niggle after hills";
 const COACH_WORKOUT: &str = "coach-drafted tempo 3x10min";
 
 /// Heads the stage's block, granted or refused.
@@ -392,9 +388,8 @@ impl Fixture {
         &self.res.common.repos
     }
 
-    /// What must never reach the athlete's workspace: the coach's own season,
-    /// provider and agent note, the athlete's own agent note, and another
-    /// member's season.
+    /// What must never reach the athlete's workspace: the coach's own season
+    /// and provider, and another member's season.
     async fn seed_everyone_elses_context(&self) {
         let repos = self.repos();
         repos
@@ -412,21 +407,6 @@ impl Fixture {
             .await;
         self.saves(&self.other, None, json!({ "outline": outline(OTHER_RACE) }))
             .await;
-        for (who, content) in [(&self.coach, COACH_NOTE), (&self.subject, SUBJECT_NOTE)] {
-            repos
-                .memory
-                .insert_agent_note(&InsertAgentNoteParams {
-                    tenant_id: who.tenant,
-                    user_id: &who.id.to_string(),
-                    agent_id: &self.group.agent_id,
-                    conversation_id: None,
-                    scope: MemoryScope::User,
-                    content,
-                    transport_policy: TransportPolicy::AnyTransport,
-                })
-                .await
-                .unwrap();
-        }
     }
 
     /// `who` saves through the plan tool, inside `conversation` when there is
@@ -539,9 +519,7 @@ fn assert_refused_with(prompt: &str, why: &str) {
         GRANTED_MARKER,
         PLAN_BLOCK,
         SUBJECT_RACE,
-        SUBJECT_NOTE,
         COACH_RACE,
-        COACH_NOTE,
         OWN_PROVIDERS_MARKER,
         OTHER_NAME,
         OTHER_RACE,
@@ -684,8 +662,6 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
     for absent in [
         OWN_PROVIDERS_MARKER,
         COACH_RACE,
-        COACH_NOTE,
-        SUBJECT_NOTE,
         OTHER_NAME,
         OTHER_RACE,
         WELLNESS_HEADING,
@@ -1225,7 +1201,6 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
     ] {
         assert!(section.contains(&reading), "{reading}: {section}");
     }
-    assert!(!with.contains(COACH_NOTE) && !with.contains(SUBJECT_NOTE));
 }
 
 /// The wellness a link files: under the member's tenant, as the platform's.
@@ -1343,7 +1318,7 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
 // ════════════════════════════════════════════════════════════════════════
 
 /// The same coach in a plain thread on the same agent is the turn's subject
-/// as before: their own providers, note and season reach the prompt, nothing
+/// as before: their own providers and season reach the prompt, nothing
 /// of the athlete does, and their card carries no coach fields.
 #[tokio::test]
 async fn a_plain_thread_is_the_coachs_own_as_before() {
@@ -1367,13 +1342,13 @@ async fn a_plain_thread_is_the_coachs_own_as_before() {
     let (prompt, envelope) = fx.coach_turn(&plain, READ_ASK).await;
 
     assert!(!prompt.contains(SUBJECT_HEADING), "{prompt}");
-    for present in [OWN_PROVIDERS_MARKER, COACH_NOTE, COACH_RACE] {
+    for present in [OWN_PROVIDERS_MARKER, COACH_RACE] {
         assert!(
             prompt.contains(present),
             "{present:?} is the coach's own context"
         );
     }
-    for absent in [SUBJECT_NAME, SUBJECT_RACE, SUBJECT_NOTE, OTHER_RACE] {
+    for absent in [SUBJECT_NAME, SUBJECT_RACE, OTHER_RACE] {
         assert!(
             !prompt.contains(absent),
             "{absent:?} reached the coach's own thread"

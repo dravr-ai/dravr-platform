@@ -17,7 +17,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::body::to_bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use chrono::{TimeZone, Utc};
@@ -44,8 +44,8 @@ use pierre_memory::claims::{
 };
 use pierre_routes_admin::handlers::claim_verdicts::{
     handle_get_claim_verdict, handle_list_claim_verdicts, handle_list_verdicts_by_message,
-    handle_set_verdict_disposition, knob_for, ListVerdictsQuery, SetDispositionRequest,
-    TenantScopedQuery, MAX_DISPOSITION_NOTE_CHARS,
+    handle_set_verdict_disposition, knob_for, ListVerdictsQuery, MessageVerdictsQuery,
+    SetDispositionRequest, TenantScopedQuery, MAX_DISPOSITION_NOTE_CHARS,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
@@ -450,7 +450,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     // No filter: everything in the tenant, and nothing from the other one.
     let all = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant(), &VerdictListFilter::recent(50))
+        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(50))
         .await?;
     assert_eq!(
         ids(all),
@@ -465,14 +465,14 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     // The provided `list_recent_verdicts` is the same scan.
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 50)
+        .list_recent_verdicts(tenant().into(), 50)
         .await?;
     assert_eq!(recent.len(), 4);
 
     let by_layer = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 layer_fired: Some(VerdictLayer::Evidence),
                 limit: 50,
@@ -490,7 +490,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     let false_positives = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 disposition: Some(DispositionFilter::Is(VerdictDisposition::FalsePositive)),
                 limit: 50,
@@ -503,7 +503,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     let undisposed = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 disposition: Some(DispositionFilter::Undisposed),
                 limit: 50,
@@ -519,7 +519,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     let by_user = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 user_id: Some("user-2".to_owned()),
                 limit: 50,
@@ -536,7 +536,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     let combined = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 status: Some(ClaimStatus::Contradicted),
                 category: Some(ClaimCategory::Physiological),
@@ -552,7 +552,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     let none = repos
         .claim_verdicts
         .list_verdicts_filtered(
-            tenant(),
+            tenant().into(),
             &VerdictListFilter {
                 layer_fired: Some(VerdictLayer::Judge),
                 disposition: Some(DispositionFilter::Undisposed),
@@ -566,7 +566,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     // The limit is honoured and clamped to at least one.
     let one = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant(), &VerdictListFilter::recent(0))
+        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(0))
         .await?;
     assert_eq!(one.len(), 1);
     Ok(())
@@ -585,13 +585,13 @@ async fn the_recent_scan_reaches_past_the_admin_lists_page_size() -> Result<()> 
 
     let wide = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 1000)
+        .list_recent_verdicts(tenant().into(), 1000)
         .await?;
     assert_eq!(wide.len(), 201, "the caller's limit is bound as given");
 
     let page = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant(), &VerdictListFilter::recent(200))
+        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(200))
         .await?;
     assert_eq!(page.len(), 200, "a smaller limit is honoured");
     Ok(())
@@ -644,7 +644,7 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
 
     let rows = repos
         .claim_verdicts
-        .list_verdicts_for_message(tenant(), "msg-a")
+        .list_verdicts_for_message(tenant().into(), "msg-a")
         .await?;
     let ids: Vec<&str> = rows.iter().map(|v| v.id.as_str()).collect();
     assert_eq!(ids, vec![a1.as_str(), a2.as_str()], "oldest first");
@@ -654,7 +654,7 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
 
     let none = repos
         .claim_verdicts
-        .list_verdicts_for_message(tenant(), "msg-none")
+        .list_verdicts_for_message(tenant().into(), "msg-none")
         .await?;
     assert!(none.is_empty());
     Ok(())
@@ -984,6 +984,7 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
     let err = handle_get_claim_verdict(
         State(context.clone()),
         Extension(plain_admin_token()),
+        HeaderMap::new(),
         Path(id.clone()),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -997,6 +998,7 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
     let err = handle_get_claim_verdict(
         State(context.clone()),
         Extension(tenant_bound_token(other_tenant())),
+        HeaderMap::new(),
         Path(id.clone()),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -1010,6 +1012,7 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
     let resp = handle_get_claim_verdict(
         State(context.clone()),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Path(id.clone()),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -1031,6 +1034,7 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
     let err = handle_get_claim_verdict(
         State(context),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Path("no-such-verdict".to_owned()),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -1067,9 +1071,10 @@ async fn message_lookup_serves_the_message_rows_and_is_gated() {
     let err = handle_list_verdicts_by_message(
         State(context.clone()),
         Extension(tenant_bound_token(other_tenant())),
+        HeaderMap::new(),
         Path("msg-a".to_owned()),
-        Query(TenantScopedQuery {
-            tenant_id: tenant().to_string(),
+        Query(MessageVerdictsQuery {
+            tenant_id: Some(tenant().to_string()),
         }),
     )
     .await
@@ -1080,9 +1085,10 @@ async fn message_lookup_serves_the_message_rows_and_is_gated() {
     let resp = handle_list_verdicts_by_message(
         State(context),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Path("msg-a".to_owned()),
-        Query(TenantScopedQuery {
-            tenant_id: tenant().to_string(),
+        Query(MessageVerdictsQuery {
+            tenant_id: Some(tenant().to_string()),
         }),
     )
     .await
@@ -1121,7 +1127,7 @@ async fn list_handler_filters_in_sql_and_rejects_a_typo() {
         .unwrap();
 
     let query = |layer: Option<&str>, disposition: Option<&str>| ListVerdictsQuery {
-        tenant_id: tenant().to_string(),
+        tenant_id: Some(tenant().to_string()),
         status: None,
         category: None,
         agent_id: None,
@@ -1134,6 +1140,7 @@ async fn list_handler_filters_in_sql_and_rejects_a_typo() {
     let resp = handle_list_claim_verdicts(
         State(context.clone()),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Query(query(Some("deterministic"), None)),
     )
     .await
@@ -1146,6 +1153,7 @@ async fn list_handler_filters_in_sql_and_rejects_a_typo() {
     let resp = handle_list_claim_verdicts(
         State(context.clone()),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Query(query(None, Some("undisposed"))),
     )
     .await
@@ -1157,6 +1165,7 @@ async fn list_handler_filters_in_sql_and_rejects_a_typo() {
     let err = handle_list_claim_verdicts(
         State(context),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Query(query(Some("vibes"), None)),
     )
     .await
@@ -1164,6 +1173,83 @@ async fn list_handler_filters_in_sql_and_rejects_a_typo() {
     .expect("a layer outside the vocabulary is a 400, not an empty page");
     assert_eq!(err.code, ErrorCode::InvalidInput);
     assert!(err.message.contains("layer_fired must be one of"));
+}
+
+/// The status tiles count every verdict the filter selects, not the page: a
+/// page of one row still reports the three verdicts behind it, and a verdict in
+/// another tenant counts only on the every-tenant read.
+#[tokio::test]
+async fn status_counts_cover_the_whole_filtered_set_not_the_page() {
+    let (context, repos) = build_context(EvidenceRegistry::new()).await;
+    for status in [
+        ClaimStatus::Unsupported,
+        ClaimStatus::Unsupported,
+        ClaimStatus::Contradicted,
+    ] {
+        seed(
+            &repos,
+            tenant(),
+            Seed {
+                status,
+                ..Seed::default()
+            },
+        )
+        .await;
+    }
+    seed(
+        &repos,
+        tenant(),
+        Seed {
+            status: ClaimStatus::Supported,
+            category: ClaimCategory::Nutrition,
+            ..Seed::default()
+        },
+    )
+    .await;
+    seed(&repos, other_tenant(), Seed::default()).await;
+
+    let query = |tenant_id: &str| ListVerdictsQuery {
+        tenant_id: Some(tenant_id.to_owned()),
+        status: None,
+        category: Some("supplement".to_owned()),
+        agent_id: None,
+        layer_fired: None,
+        disposition: None,
+        user_id: None,
+        limit: Some(1),
+    };
+
+    let resp = handle_list_claim_verdicts(
+        State(context.clone()),
+        Extension(super_admin_token()),
+        HeaderMap::new(),
+        Query(query(&tenant().to_string())),
+    )
+    .await
+    .expect("one tenant");
+    let (_, json) = body_json(resp).await;
+    assert_eq!(json["total"], 1, "the page holds one row");
+    let counts = &json["status_counts"];
+    assert_eq!(
+        counts["unsupported"], 2,
+        "bug: counted from the page: {json}"
+    );
+    assert_eq!(counts["contradicted"], 1, "{json}");
+    assert_eq!(
+        counts["supported"], 0,
+        "the category filter applies: {json}"
+    );
+
+    let resp = handle_list_claim_verdicts(
+        State(context),
+        Extension(super_admin_token()),
+        HeaderMap::new(),
+        Query(query("all")),
+    )
+    .await
+    .expect("every tenant");
+    let (_, json) = body_json(resp).await;
+    assert_eq!(json["status_counts"]["unsupported"], 3, "{json}");
 }
 
 // ============================================================================
@@ -1221,6 +1307,7 @@ async fn evidence_knob_names_the_propositions_that_match_and_marks_the_cited_one
     let resp = handle_get_claim_verdict(
         State(context),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Path(id),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -1276,6 +1363,7 @@ async fn evidence_knob_on_an_empty_registry_points_at_the_compiled_in_corpus() {
     let resp = handle_get_claim_verdict(
         State(context),
         Extension(super_admin_token()),
+        HeaderMap::new(),
         Path(id),
         Query(TenantScopedQuery {
             tenant_id: tenant().to_string(),
@@ -1415,6 +1503,43 @@ fn cookie_admin_router(resources: &Arc<ServerContext>) -> axum::Router {
         app_behavior: resources.common.config.app_behavior.clone(),
     });
     AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context, resources)
+}
+
+/// The calibration read survives on the cookie-admin group while the eval
+/// fixture browser, the followup queue, the notes audit and the myth-busting
+/// promote route are gone.
+#[tokio::test]
+#[serial]
+async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Result<()> {
+    let resources = common::create_test_server_resources().await?;
+    let super_admin = bearer_for_role(
+        &resources,
+        "verdict-stats-super@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await;
+    let t = tenant().to_string();
+
+    let response = AxumTestRequest::get(&format!("/api/admin/evals/verdict-stats?tenant_id={t}"))
+        .header("authorization", &super_admin)
+        .send(cookie_admin_router(&resources))
+        .await;
+    assert_eq!(response.status(), 200);
+
+    for path in [
+        "/api/admin/evals/fixtures",
+        "/api/admin/evals/fixtures/injury_triage",
+        "/api/admin/agent-followups/pending",
+        "/api/admin/agent-notes/audit",
+        "/api/admin/myth-busting/promote-topic",
+    ] {
+        let response = AxumTestRequest::get(path)
+            .header("authorization", &super_admin)
+            .send(cookie_admin_router(&resources))
+            .await;
+        assert_eq!(response.status(), 404, "{path}");
+    }
+    Ok(())
 }
 
 /// The four new routes are mounted under the cookie-admin group, and `health`

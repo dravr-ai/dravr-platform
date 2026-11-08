@@ -20,8 +20,9 @@
 //!   zones, and load. A clear mismatch emits `ClaimStatus::Contradicted`, a
 //!   match emits `ClaimStatus::Supported`, both with `VerdictLayer::Personalized`.
 //! - **The evidence-retrieval layer** — retrieval against [`EvidenceCorpus`].
-//!   If a match at or above the configured minimum strength, emit
-//!   `ClaimStatus::Supported` with `VerdictLayer::Evidence` and stop.
+//!   A match that speaks for the claim ([`EvidenceMatch::supports_claim`]) at or
+//!   above the configured minimum strength emits `ClaimStatus::Supported` with
+//!   `VerdictLayer::Evidence` and stops. A weaker match is context for the judge.
 //! - **The consistency-check layer** — [`consistency::find_contradiction`]
 //!   cross-checks the claim against the other claims in the same reply. If a
 //!   sibling directly contradicts it, emit `ClaimStatus::Contradicted` with
@@ -55,6 +56,8 @@ use crate::judge::{judge_claim, ClaimJudge};
 use crate::personalized::{check as personalized_check, PersonalizedContext};
 use crate::rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 use crate::verification_config::VerificationConfig;
+use futures_util::future::BoxFuture;
+use futures_util::{stream, FutureExt, StreamExt};
 use pierre_core::errors::AppResult;
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
@@ -80,6 +83,12 @@ pub struct VerdictOutcome {
 /// Persisted verbatim in the verdict row, so the triage view and the coach
 /// view read "this claim was never checked" from the row itself.
 const JUDGE_ERROR_EXPLANATION: &str = "Not checked: judge error";
+
+/// How many claims of one reply are checked at once. A reply can send many
+/// claims to the judge (18 in one logged turn) and the turn waits for them, so
+/// one at a time adds their latencies up. Bounded because they share the turn's
+/// provider and its rate limit.
+const CLAIMS_CHECKED_AT_ONCE: usize = 4;
 
 impl VerdictOutcome {
     /// The verdict for a claim the LLM judge failed to check: the provider
@@ -277,34 +286,48 @@ pub async fn verify_reply(
         return Vec::new();
     }
     let claims = extract_heuristic(agent_reply);
-    let mut out = Vec::with_capacity(claims.len());
-    for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
-        let outcome = match check_claim_judged(
-            claim,
-            &claims,
-            corpus,
-            config.for_category(claim.category).min_strength,
-            judge,
-            personalized,
-            athlete_record,
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(e) => {
-                // The claim text is a sentence of the reply, so only its
-                // category is logged.
-                tracing::warn!(
-                    error = %e,
-                    category = claim.category.as_str(),
-                    "claim judge failed — recording the claim as not checked"
-                );
-                VerdictOutcome::judge_error()
+    // Boxed and collected before anything is awaited: a stream of unboxed futures
+    // borrowing these claims cannot be proved `Send` for this function's callers.
+    let checks: Vec<BoxFuture<'_, (ExtractedClaim, VerdictOutcome)>> = claims
+        .iter()
+        .filter(|c| config.is_enabled_for(c.category))
+        .map(|claim| {
+            let claims = &claims;
+            async move {
+                let outcome = match check_claim_judged(
+                    claim,
+                    claims,
+                    corpus,
+                    config.for_category(claim.category).min_strength,
+                    judge,
+                    personalized,
+                    athlete_record,
+                )
+                .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(e) => {
+                        // The claim text is a sentence of the reply, so only its
+                        // category is logged.
+                        tracing::warn!(
+                            error = %e,
+                            category = claim.category.as_str(),
+                            "claim judge failed — recording the claim as not checked"
+                        );
+                        VerdictOutcome::judge_error()
+                    }
+                };
+                (claim.clone(), outcome)
             }
-        };
-        out.push((claim.clone(), outcome));
-    }
-    out
+            .boxed()
+        })
+        .collect();
+    // `buffered` keeps the reply's order, and polls every check on this task, so
+    // the turn's task-locals still reach each judge call.
+    stream::iter(checks)
+        .buffered(CLAIMS_CHECKED_AT_ONCE)
+        .collect()
+        .await
 }
 
 /// Run the pure-Rust layers (rhetoric, deterministic, evidence,
@@ -421,18 +444,20 @@ fn run_rhetoric_and_deterministic(claim: &ExtractedClaim) -> Option<VerdictOutco
 }
 
 /// Evidence-retrieval success path: returns `Some(Supported)` when the best
-/// match meets `minimum_strength`, `None` when the evidence is absent or too
-/// weak (the claim then flows to consistency / judge).
+/// match speaks for the claim and meets `minimum_strength`, `None` when the
+/// evidence is absent, shares too little with the claim, or is too weak (the
+/// claim then flows to consistency / judge).
 fn evidence_support(
     matches: &[EvidenceMatch],
     minimum_strength: EvidenceStrength,
 ) -> Option<VerdictOutcome> {
     let best = matches.first()?;
-    if !best.record.strength.meets(minimum_strength) {
+    if !best.supports_claim() || !best.record.strength.meets(minimum_strength) {
         return None;
     }
     let refs = matches
         .iter()
+        .filter(|m| m.supports_claim())
         .map(|m| m.record.id.clone())
         .collect::<Vec<_>>()
         .join(",");
@@ -448,7 +473,8 @@ fn evidence_support(
 }
 
 /// Terminal verdict when the pure-Rust layers were inconclusive and no judge ran.
-/// Either no evidence was retrieved or the best match was below threshold.
+/// No evidence was retrieved, or the best match shares too little with the
+/// claim, or its strength is below the threshold.
 fn inconclusive_evidence_verdict(
     matches: &[EvidenceMatch],
     minimum_strength: EvidenceStrength,
@@ -464,16 +490,24 @@ fn inconclusive_evidence_verdict(
             evidence_refs: None,
         };
     };
+    let explanation = if best.supports_claim() {
+        format!(
+            "Best evidence strength ({}) is below the required minimum ({})",
+            best.record.strength.as_str(),
+            minimum_strength.as_str()
+        )
+    } else {
+        format!(
+            "Best evidence shares only {} of the claim's {} distinctive words, too few to speak for it",
+            best.score, best.claim_words
+        )
+    };
     VerdictOutcome {
         status: ClaimStatus::Unsupported,
         evidence_strength: best.record.strength,
         confidence: 0.55,
         layer_fired: VerdictLayer::Evidence,
-        explanation: format!(
-            "Best evidence strength ({}) is below the required minimum ({})",
-            best.record.strength.as_str(),
-            minimum_strength.as_str()
-        ),
+        explanation,
         evidence_refs: None,
     }
 }
@@ -497,9 +531,37 @@ mod tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     };
     use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
+    use tokio::task;
 
-    use super::{verify_reply, VerdictOutcome};
-    use crate::{ClaimJudge, EvidenceCorpus, VerificationConfig};
+    use super::{evidence_support, verify_reply, VerdictOutcome};
+    use crate::{ClaimJudge, EvidenceCorpus, EvidenceMatch, VerificationConfig};
+
+    fn strong_match(id: &str, score: usize) -> EvidenceMatch {
+        let line = format!(
+            r#"{{"id":"{id}","category":"nutrition","proposition":"p","strength":"strong","citation":"c-{id}"}}"#
+        );
+        EvidenceMatch {
+            record: serde_json::from_str(&line).unwrap(),
+            score,
+            claim_words: 4,
+        }
+    }
+
+    #[test]
+    fn a_supported_verdict_cites_only_the_matches_that_speak_for_the_claim() {
+        let matches = [
+            strong_match("speaks", 4),
+            strong_match("also-speaks", 3),
+            strong_match("shares-one-word", 1),
+        ];
+        let verdict = evidence_support(&matches, EvidenceStrength::Weak).unwrap();
+        assert_eq!(verdict.status, ClaimStatus::Supported);
+        assert_eq!(
+            verdict.evidence_refs.as_deref(),
+            Some("speaks,also-speaks"),
+            "bug: a match that is not support must not be cited as support"
+        );
+    }
 
     #[test]
     fn a_judge_error_is_an_unchecked_claim_that_never_reads_as_support() {
@@ -622,6 +684,81 @@ mod tests {
             model: None,
             recorder: None,
         }
+    }
+
+    /// A judge that records how many of its calls were in flight together.
+    #[derive(Default)]
+    struct CountsConcurrentCalls {
+        in_flight: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl LlmProvider for CountsConcurrentCalls {
+        fn name(&self) -> &'static str {
+            "counts_concurrent_calls"
+        }
+        fn display_name(&self) -> &'static str {
+            "Judge that counts concurrent calls"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            task::yield_now().await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            Ok(ChatResponse {
+                content: r#"{"verdict":"unverifiable","confidence":0.5,"rationale":"Unclear."}"#
+                    .to_owned(),
+                model: "mock-model".to_owned(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming is not used here"))
+        }
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reply_with_many_claims_does_not_judge_them_one_at_a_time() {
+        let reply = format!("{JUDGED_AND_FAILED} {JUDGED_AND_ANSWERED} ").repeat(4);
+        let provider = CountsConcurrentCalls::default();
+
+        let verdicts = verify_reply(
+            &reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            Some(ClaimJudge {
+                provider: &provider,
+                system_prompt: "Judge the claim.",
+                model: None,
+                recorder: None,
+            }),
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(verdicts.len(), 8, "every claim gets its verdict");
+        let peak = provider.peak.load(Ordering::SeqCst);
+        assert!(
+            (2..=4).contains(&peak),
+            "the judge calls must overlap within the bound, peak was {peak}"
+        );
     }
 
     #[tokio::test]

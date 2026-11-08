@@ -21,19 +21,19 @@ use crate::repositories::{
     CoachAttentionDismissalRepository, CoachReplyReviewRepository, CoachingGroupRepository,
     CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FederatedIdentityRepository, FeedbackMessageRepository,
-    FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
-    GarminPushInboxRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, HomePreferencesRepository, ImpersonationRepository,
-    ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
-    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
-    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
+    FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
+    FitnessConfigRepository, GarminPushInboxRepository, GuardianPendingActionsRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
+    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
+    LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
+    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
+    PersonalBestRepository, PlatformPostClaimRepository, PlaybookRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
+    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
@@ -177,7 +177,7 @@ pub struct RepositoryRegistry {
     pub daily_activity: Arc<dyn DailyActivityRepository>,
     /// Sync cursor tracking for CDC-based incremental sync
     pub sync_cursors: Arc<dyn SyncCursorRepository>,
-    /// Coaching harness memory (compaction, facts, notes, followups, sessions)
+    /// Coaching harness memory (compaction, facts, sessions)
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
@@ -268,6 +268,8 @@ pub struct RepositoryRegistry {
     /// The admin audit trail: one row per operator write through the admin
     /// API, or `pierre-cli` straight to the database (carnet#1391).
     pub admin_audit: Arc<dyn AdminAuditRepository>,
+    /// The admin Engagement screen's reads, each in one admin scope.
+    pub engagement: Arc<dyn EngagementRepository>,
     /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
@@ -404,6 +406,7 @@ impl RepositoryRegistry {
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
+            engagement: db.clone(),
             guardian_actions: db,
         }
     }
@@ -514,6 +517,7 @@ impl RepositoryRegistry {
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
+            engagement: db.clone(),
             guardian_actions: db,
         }
     }

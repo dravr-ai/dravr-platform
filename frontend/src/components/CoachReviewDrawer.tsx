@@ -13,7 +13,7 @@ import { clsx } from 'clsx';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -57,7 +57,6 @@ interface CoachReviewDrawerProps {
 }
 
 export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachReviewDrawerProps) {
-  const { language } = useTranslation();
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const queryClient = useQueryClient();
@@ -288,11 +287,11 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-outline">Created</span>
-                <span className="text-on-surface">{formatDateTime(coach.created_at, language)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.created_at, ADMIN_LOCALE)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Submitted for Review</span>
-                <span className="text-on-surface">{formatDateTime(coach.submitted_at, language)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.submitted_at, ADMIN_LOCALE)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>

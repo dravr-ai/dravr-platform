@@ -184,8 +184,6 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   generate_recommendations: 'recommend',
   suggest_rest_day: 'recommend',
   remember_fact: 'updateNotes',
-  agent_note_add: 'updateNotes',
-  agent_followup_schedule: 'updateNotes',
   commitment_create: 'updateNotes',
   commitment_cancel: 'updateNotes',
   recall_user_memory: 'reviewNotes',

@@ -459,12 +459,34 @@ root = pathlib.Path(sys.argv[1])
 INJURY = re.compile(r"injury risk|injury probabilit|risque de blessure|probabilit\w* de blessure", re.I)
 LOAD = re.compile(r"acwr|load spike|load increase|acute:chronic|charge aigu|pic de charge|hausses soudaines", re.I)
 NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re.I)
-GREEN = re.compile(r"green band|bande verte", re.I)
+# The translated locales each pair their own injury and load phrases with their
+# own negations. A negation does not cross languages: Spanish "no" would excuse
+# an English line, and Portuguese "no" means "in the", not "not".
+TRANSLATED = (
+    (  # es
+        re.compile(r"riesgo(?:\s+\w+){0,2}\s+de\s+lesi|probabilidad(?:\s+\w+){0,2}\s+de\s+lesi", re.I),
+        re.compile(r"acwr|picos? de carga|saltos? de carga|carga aguda|relaci[o\u00f3]n de carga|relaci[o\u00f3]n aguda|aumentos? (?:brusco|repentino)", re.I),
+        re.compile(r"nunca|jam[a\u00e1]s|\bno\b|\bni\b|retirad", re.I),
+    ),
+    (  # de
+        re.compile(r"verletzungs(?:risik|wahrscheinlich|gefahr|prognose|chance)", re.I),
+        re.compile(r"acwr|belastungsspitze|belastungssprung|belastungsspr\u00fcnge|belastungsverh\u00e4ltnis|akute[rn]? belastung|belastungssteigerung", re.I),
+        re.compile(r"niemals|\bnie\b|\bnicht\b|\bkein\w*|ausgemustert", re.I),
+    ),
+    (  # pt
+        re.compile(r"risco(?:\s+\w+){0,2}\s+de\s+les|probabilidade(?:\s+\w+){0,2}\s+de\s+les", re.I),
+        re.compile(r"acwr|picos? de carga|saltos? de carga|carga aguda|r[a\u00e1]cio de carga|r[a\u00e1]cio agudo|aumentos? s[u\u00fa]bito", re.I),
+        re.compile(r"nunca|jamais|\bn[a\u00e3]o\b|\bnem\b|retirad", re.I),
+    ),
+)
+GREEN = re.compile(r"green band|bande verte|banda verde|faixa verde|gr\u00fcne[rsn]? (?:band|bereich|zone)", re.I)
 ABS_TSB = re.compile(r"TSB\s*[<>\u2264\u2265]\s*[-\u2212+]?\d", re.I)
 hits = []
 
 def classify(text):
     if INJURY.search(text) and LOAD.search(text) and not NEGATED.search(text):
+        return "ACWR presented as injury risk"
+    if any(i.search(text) and l.search(text) and not n.search(text) for i, l, n in TRANSLATED):
         return "ACWR presented as injury risk"
     if GREEN.search(text):
         return "red/green safety verdict"

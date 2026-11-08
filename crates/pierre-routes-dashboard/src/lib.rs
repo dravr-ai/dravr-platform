@@ -1,5 +1,5 @@
 // ABOUTME: Dashboard route handlers for monitoring and analytics
-// ABOUTME: Provides the REST endpoint for usage analytics (time series, latency, top tools)
+// ABOUTME: Provides the REST endpoint for usage analytics (time series, latency)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,9 +27,9 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{DashboardCtx, MiddlewareCtx};
+use pierre_runtime_context::{analytics_read_scope, DashboardCtx, MiddlewareCtx};
 use serde::Deserialize;
 use service::DashboardRoutes as DashboardService;
 use std::sync::Arc;
@@ -39,6 +39,8 @@ use std::sync::Arc;
 struct UsageAnalyticsQuery {
     #[serde(default = "default_days")]
     days: u32,
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    tenant_id: Option<String>,
 }
 
 const fn default_days() -> u32 {
@@ -73,8 +75,18 @@ async fn handle_usage_analytics<C: DashboardCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
 
+    let scope = analytics_read_scope(&resources, &auth, params.tenant_id.as_deref(), || {
+        AppError::new(
+            ErrorCode::PermissionDenied,
+            "Admin role required for usage analytics",
+        )
+    })
+    .await?;
+
     let service = DashboardService::new(resources);
-    let response = service.get_usage_analytics(auth, params.days).await?;
+    let response = service
+        .get_usage_analytics(auth, params.days, scope)
+        .await?;
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

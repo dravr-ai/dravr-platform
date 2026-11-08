@@ -4,8 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   adminApi,
   HARNESS_CONFIG_STALE,
@@ -13,127 +19,38 @@ import {
   type HarnessConfigDocument,
   type HarnessConfigResponse,
   type LocaleGuardrails,
-} from '../services/api/admin';
-import { Card, Button, Badge, Textarea, Input } from './ui';
-import { describeApiError } from '@pierre/ui-logic';
-import { useTranslation } from '@pierre/i18n';
+} from "../services/api/admin";
+import { Card, Button, Badge, Input } from "./ui";
+import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
 
-const HARNESS_CONFIG_QUERY_KEY = ['admin', 'harness-config'] as const;
+const HARNESS_CONFIG_QUERY_KEY = ["admin", "harness-config"] as const;
 
 /// BCP-47 short codes editable from this tab. Server defaults ship the same
 /// five; operators can add more by extending the locales map manually but
 /// the UI surfaces the supported set.
-const SUPPORTED_LOCALES: readonly string[] = ['en', 'fr', 'es', 'de', 'pt'];
+const SUPPORTED_LOCALES: readonly string[] = ["en", "fr", "es", "de", "pt"];
 
 const LOCALE_LABELS: Record<string, string> = {
-  en: 'English',
-  fr: 'Français',
-  es: 'Español',
-  de: 'Deutsch',
-  pt: 'Português',
+  en: "English",
+  fr: "Français",
+  es: "Español",
+  de: "Deutsch",
+  pt: "Português",
 };
 
-/// Compile-time fallback document used before the API responds. The locale
-/// payloads here mirror the Rust `default_locales()` so the form never
-/// renders blank fields during the initial fetch.
-function defaultDocument(): HarnessConfigDocument {
-  return {
-    schema_version: 2,
-    verification: { runtime_judge: true },
-    compaction: {
-      window_tokens: 128_000,
-      warn_threshold: 0.7,
-      emergency_threshold: 0.95,
-      summarize_oldest_n: 12,
-      sliding_drop_n: 4,
-    },
-    guardrails: {
-      max_response_chars: 5_000,
-      blocked_topics: [],
-      locales: {
-        en: {
-          disclaimer_triggers: [
-            'injury',
-            'pain',
-            'medication',
-            'diagnose',
-            'doctor',
-            'prescription',
-          ],
-          disclaimer_text:
-            "**Medical disclaimer:** I'm not a medical professional. " +
-            'Please consult a qualified clinician for any injury, pain, or medication question.',
-        },
-        fr: {
-          disclaimer_triggers: [
-            'blessure',
-            'douleur',
-            'médicament',
-            'médecin',
-            'diagnostic',
-            'ordonnance',
-          ],
-          disclaimer_text:
-            '**Avis médical :** Je ne suis pas un professionnel de santé. ' +
-            'Consulte un clinicien qualifié pour toute blessure, douleur ou question médicamenteuse.',
-        },
-        es: {
-          disclaimer_triggers: [
-            'lesión',
-            'dolor',
-            'medicamento',
-            'médico',
-            'diagnóstico',
-            'receta',
-          ],
-          disclaimer_text:
-            '**Aviso médico:** No soy un profesional médico. ' +
-            'Consulta a un clínico cualificado para cualquier lesión, dolor o duda sobre medicación.',
-        },
-        de: {
-          disclaimer_triggers: [
-            'verletzung',
-            'schmerz',
-            'medikament',
-            'arzt',
-            'diagnose',
-            'rezept',
-          ],
-          disclaimer_text:
-            '**Medizinischer Hinweis:** Ich bin kein Arzt. Bitte ' +
-            'konsultiere eine qualifizierte Fachkraft bei Verletzungen, Schmerzen oder Medikamentenfragen.',
-        },
-        pt: {
-          disclaimer_triggers: [
-            'lesão',
-            'dor',
-            'medicamento',
-            'médico',
-            'diagnóstico',
-            'receita',
-          ],
-          disclaimer_text:
-            '**Aviso médico:** Não sou um profissional de saúde. ' +
-            'Consulta um clínico qualificado para qualquer lesão, dor ou questão de medicação.',
-        },
-      },
-    },
-  };
-}
-
 function emptyLocaleGuardrails(): LocaleGuardrails {
-  return { disclaimer_triggers: [], disclaimer_text: '' };
+  return { disclaimer_triggers: [] };
 }
 
 function parseCsv(value: string): string[] {
   return value
-    .split(',')
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
 function joinCsv(values: string[]): string {
-  return values.join(', ');
+  return values.join(", ");
 }
 
 interface ValidationError {
@@ -141,59 +58,134 @@ interface ValidationError {
   message: string;
 }
 
+/// The fewest turns a summary can compact; the server refuses less.
+const MIN_SUMMARIZE_OLDEST_N = 2;
+
+/// The client's copy of `validate_document`, so the admin learns before saving. A
+/// cleared number field is NaN, which every one of these refuses.
 function validate(doc: HarnessConfigDocument): ValidationError[] {
   const errors: ValidationError[] = [];
   const c = doc.compaction;
   if (!Number.isFinite(c.window_tokens) || c.window_tokens <= 0) {
-    errors.push({ field: 'window_tokens', message: 'must be a positive integer' });
+    errors.push({
+      field: "window_tokens",
+      message: "must be a positive integer",
+    });
   }
-  if (c.warn_threshold <= 0 || c.warn_threshold > 1) {
-    errors.push({ field: 'warn_threshold', message: 'must be in (0, 1]' });
+  if (!(c.warn_threshold > 0 && c.warn_threshold <= 1)) {
+    errors.push({ field: "warn_threshold", message: "must be in (0, 1]" });
   }
-  if (c.emergency_threshold <= 0 || c.emergency_threshold > 1) {
-    errors.push({ field: 'emergency_threshold', message: 'must be in (0, 1]' });
+  if (!(c.emergency_threshold > 0 && c.emergency_threshold <= 1)) {
+    errors.push({ field: "emergency_threshold", message: "must be in (0, 1]" });
+  }
+  if (!(c.max_messages > 0)) {
+    errors.push({ field: "max_messages", message: "must be above 0" });
+  }
+  if (!(c.summarize_oldest_n >= MIN_SUMMARIZE_OLDEST_N)) {
+    errors.push({
+      field: "summarize_oldest_n",
+      message: `must be at least ${MIN_SUMMARIZE_OLDEST_N}, the fewest turns a summary can compact`,
+    });
+  } else if (c.summarize_oldest_n + 2 > c.max_messages) {
+    errors.push({
+      field: "summarize_oldest_n",
+      message:
+        "plus 2 must not exceed max messages, or summarization can never run",
+    });
+  }
+  if (!(c.sliding_drop_n >= 0)) {
+    errors.push({ field: "sliding_drop_n", message: "must be 0 or more" });
+  }
+  if (!(doc.memory.dedup_candidate_limit > 0)) {
+    errors.push({ field: "dedup_candidate_limit", message: "must be above 0" });
   }
   if (c.warn_threshold >= c.emergency_threshold) {
     errors.push({
-      field: 'warn_threshold',
-      message: 'warn must be strictly less than emergency',
+      field: "warn_threshold",
+      message: "warn must be strictly less than emergency",
     });
-  }
-  for (const [locale, lg] of Object.entries(doc.guardrails.locales)) {
-    if (lg.disclaimer_triggers.length > 0 && lg.disclaimer_text.trim() === '') {
-      errors.push({
-        field: `locales.${locale}.disclaimer_text`,
-        message: 'cannot be empty when triggers are configured',
-      });
-    }
   }
   return errors;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/// Dotted paths of every setting that differs between two documents. A locale code
+/// has no dot, so a path reads unambiguously.
+function changedPaths(before: unknown, after: unknown, prefix = ""): string[] {
+  if (isRecord(before) && isRecord(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    return [...keys]
+      .sort()
+      .flatMap((key) =>
+        changedPaths(
+          before[key],
+          after[key],
+          prefix ? `${prefix}.${key}` : key,
+        ),
+      );
+  }
+  return sameValue(before, after) ? [] : [prefix];
+}
+
+/// `stored` with only what the admin changed from `base` applied on top, so moving
+/// their edits to the newer version keeps the other save's work.
+function reapplyEdits(
+  base: unknown,
+  edited: unknown,
+  stored: unknown,
+): unknown {
+  if (isRecord(base) && isRecord(edited) && isRecord(stored)) {
+    const keys = new Set([...Object.keys(stored), ...Object.keys(edited)]);
+    return Object.fromEntries(
+      [...keys].map((key) => [
+        key,
+        reapplyEdits(base[key], edited[key], stored[key]),
+      ]),
+    );
+  }
+  return sameValue(base, edited) ? stored : edited;
+}
+
+/// A save the server refused as stale. `stored` is the version that beat it, or null
+/// while it could not be read.
+interface SaveConflict {
+  message: string;
+  stored: HarnessConfigResponse | null;
+}
+
 export default function HarnessConfigTab() {
-  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: HARNESS_CONFIG_QUERY_KEY,
     queryFn: () => adminApi.getHarnessConfig(),
   });
 
-  const [draft, setDraft] = useState<HarnessConfigDocument>(defaultDocument());
-  const [activeLocale, setActiveLocale] = useState<string>('en');
+  // Null until the server answers: the server is the only source of the defaults.
+  const [draft, setDraft] = useState<HarnessConfigDocument | null>(null);
+  const [activeLocale, setActiveLocale] = useState<string>("en");
   // Also the concurrency token a save echoes: verbatim from the response, since a
   // `Date` would drop digits the server compares.
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [staleNotice, setStaleNotice] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<SaveConflict | null>(null);
 
   // What the edit started from, so a background refetch can tell an edit in progress.
   const [base, setBase] = useState<HarnessConfigDocument | null>(null);
-  const isDirty = base !== null && JSON.stringify(draft) !== JSON.stringify(base);
+  const isDirty =
+    base !== null && JSON.stringify(draft) !== JSON.stringify(base);
 
   const hydrate = useCallback((response: HarnessConfigResponse) => {
     setBase(response.config);
     setDraft(response.config);
     setSavedAt(response.updated_at);
+    setConflict(null);
   }, []);
 
   // A background refetch must not write over unsaved edits, and must not move the
@@ -205,56 +197,46 @@ export default function HarnessConfigTab() {
     }
   }, [data, isDirty, hydrate]);
 
-  const validationErrors = useMemo(() => validate(draft), [draft]);
+  const validationErrors = useMemo(
+    () => (draft ? validate(draft) : []),
+    [draft],
+  );
   const isInvalid = validationErrors.length > 0;
-  const activeLocaleRules: LocaleGuardrails =
-    draft.guardrails.locales[activeLocale] ?? emptyLocaleGuardrails();
 
-  function updateActiveLocale(next: LocaleGuardrails) {
-    setDraft({
-      ...draft,
-      guardrails: {
-        ...draft.guardrails,
-        locales: { ...draft.guardrails.locales, [activeLocale]: next },
-      },
-    });
-  }
-
-  const reloadAfterStale = async (message: string) => {
+  // The draft and the token stay as they were, so a second press of Save would be
+  // refused too: nothing can land over the other save until the admin has chosen.
+  const readConflict = async (message: string) => {
     const fresh = await refetch();
     // A failed refetch still carries the last good `data`, the very response the
     // save was refused against, so `data` alone does not say the reload worked.
-    if (fresh.isError || !fresh.data) {
-      setStaleNotice(`${message} The configuration could not be reloaded, so your edits are still here.`);
-      return;
-    }
-    hydrate(fresh.data);
-    setStaleNotice(`${message} The form now shows the stored configuration, and your edits were discarded.`);
+    setConflict({
+      message,
+      stored: fresh.isError || !fresh.data ? null : fresh.data,
+    });
   };
 
   const mutation = useMutation({
-    mutationFn: (doc: HarnessConfigDocument) => adminApi.putHarnessConfig(doc, savedAt),
+    mutationFn: (doc: HarnessConfigDocument) =>
+      adminApi.putHarnessConfig(doc, savedAt),
     onSuccess: (resp: HarnessConfigResponse) => {
       setServerError(null);
-      setStaleNotice(null);
       hydrate(resp);
       queryClient.setQueryData(HARNESS_CONFIG_QUERY_KEY, resp);
     },
     onError: (err: unknown) => {
       setServerError(null);
-      setStaleNotice(null);
       const refusal = harnessRefusalOf(err);
       if (refusal?.code === HARNESS_CONFIG_STALE) {
-        void reloadAfterStale(refusal.message);
+        void readConflict(refusal.message);
       } else if (refusal) {
         setServerError(refusal.message);
       } else {
-        setServerError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
+        setServerError(describeAdminError(err));
       }
     },
   });
 
-  if (isLoading) {
+  if (isLoading || (!draft && !isError)) {
     return (
       <Card className="p-12">
         <div className="flex justify-center">
@@ -265,15 +247,45 @@ export default function HarnessConfigTab() {
   }
 
   // A failed background refetch keeps the last good response, and the form with it.
-  if (isError && !data) {
+  if (!draft || (isError && !data)) {
     return (
       <Card className="p-6">
         <p className="text-sm text-error">
-          Failed to load harness config: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
+          Failed to load harness config: {describeAdminError(error)}
         </p>
       </Card>
     );
   }
+
+  const activeLocaleRules: LocaleGuardrails =
+    draft.guardrails.locales[activeLocale] ?? emptyLocaleGuardrails();
+
+  function updateActiveLocale(
+    doc: HarnessConfigDocument,
+    next: LocaleGuardrails,
+  ) {
+    setDraft({
+      ...doc,
+      guardrails: {
+        ...doc.guardrails,
+        locales: { ...doc.guardrails.locales, [activeLocale]: next },
+      },
+    });
+  }
+
+  const tokensAt = (threshold: number): string =>
+    Number.isFinite(threshold * draft.compaction.window_tokens)
+      ? Math.round(threshold * draft.compaction.window_tokens).toLocaleString(
+          ADMIN_LOCALE,
+        )
+      : "—";
+
+  const keepEditsOnStored = (stored: HarnessConfigResponse) => {
+    setDraft(reapplyEdits(base, draft, stored.config) as HarnessConfigDocument);
+    setBase(stored.config);
+    setSavedAt(stored.updated_at);
+    setConflict(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -284,15 +296,36 @@ export default function HarnessConfigTab() {
               Coaching Harness Configuration
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Tunables for conversation compaction and response text guardrails. A save applies
-              at once on the instance that took it and reaches every other instance within its
-              settings poll (30 seconds unless PIERRE_SETTINGS_POLL_INTERVAL_SECS says otherwise),
-              with no restart.
+              Tunables for conversation compaction and response text guardrails,
+              one document for every tenant. A save applies at once on the
+              instance that took it and reaches every other instance within its
+              settings poll (30 seconds unless
+              PIERRE_SETTINGS_POLL_INTERVAL_SECS says otherwise), with no
+              restart.
             </p>
+            {data?.in_force ? (
+              <p
+                className="mt-2 text-xs text-on-surface-variant"
+                data-testid="harness-in-force"
+              >
+                {data.in_force.in_sync
+                  ? "The instance that answered is running these values"
+                  : "The instance that answered is not running these values yet"}{" "}
+                (<span className="font-mono">{data.in_force.instance_id}</span>,
+                loaded{" "}
+                {new Date(data.in_force.loaded_at).toLocaleString(ADMIN_LOCALE)}
+                ). Other instances are not checked here.
+                {data.in_force.load_failure
+                  ? ` ${data.in_force.load_failure}.`
+                  : ""}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge variant={data?.source === 'persisted' ? 'success' : 'secondary'}>
-              {data?.source === 'persisted' ? 'persisted' : 'using defaults'}
+            <Badge
+              variant={data?.source === "persisted" ? "success" : "secondary"}
+            >
+              {data?.source === "persisted" ? "persisted" : "using defaults"}
             </Badge>
             {savedAt ? (
               <span className="text-xs text-on-surface-variant">
@@ -310,7 +343,7 @@ export default function HarnessConfigTab() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <NumericField
             label="Window tokens"
-            help="Target context window for the active LLM."
+            help="The base the two thresholds are fractions of. Nothing sends this to the LLM, so lowering it moves both triggers."
             value={draft.compaction.window_tokens}
             min={1024}
             max={2_000_000}
@@ -324,11 +357,11 @@ export default function HarnessConfigTab() {
           />
           <NumericField
             label="Warn threshold"
-            help="Fraction of window that triggers summarization."
+            help={`Fraction of the window that triggers summarization: ${tokensAt(draft.compaction.warn_threshold)} tokens.`}
             value={draft.compaction.warn_threshold}
             min={0}
             max={1}
-            step={0.05}
+            step={0.0001}
             onChange={(v) =>
               setDraft({
                 ...draft,
@@ -338,11 +371,11 @@ export default function HarnessConfigTab() {
           />
           <NumericField
             label="Emergency threshold"
-            help="Fraction of window that triggers sliding-window fallback."
+            help={`Fraction of the window above which history is dropped with no summary: ${tokensAt(draft.compaction.emergency_threshold)} tokens.`}
             value={draft.compaction.emergency_threshold}
             min={0}
             max={1}
-            step={0.01}
+            step={0.0001}
             onChange={(v) =>
               setDraft({
                 ...draft,
@@ -352,10 +385,13 @@ export default function HarnessConfigTab() {
           />
           <NumericField
             label="Summarize oldest N"
-            help="How many oldest turns to compact when warn fires."
+            help={`How many oldest turns one summary compacts. From ${MIN_SUMMARIZE_OLDEST_N} up to max messages minus 2.`}
             value={draft.compaction.summarize_oldest_n}
-            min={0}
-            max={100}
+            min={MIN_SUMMARIZE_OLDEST_N}
+            max={Math.max(
+              draft.compaction.max_messages - 2,
+              MIN_SUMMARIZE_OLDEST_N,
+            )}
             step={1}
             onChange={(v) =>
               setDraft({
@@ -366,7 +402,7 @@ export default function HarnessConfigTab() {
           />
           <NumericField
             label="Sliding drop N"
-            help="How many oldest turns to drop under emergency."
+            help="The fewest oldest turns a slide drops, so a thread barely over its budget does not slide again next turn. It drops more when fitting takes more."
             value={draft.compaction.sliding_drop_n}
             min={0}
             max={100}
@@ -378,6 +414,32 @@ export default function HarnessConfigTab() {
               })
             }
           />
+          <NumericField
+            label="Max messages"
+            help="Non-system messages a prompt may hold. Over this, a turn summarizes or slides whatever its token count, so this is what usually fires."
+            value={draft.compaction.max_messages}
+            min={1}
+            step={1}
+            onChange={(v) =>
+              setDraft({
+                ...draft,
+                compaction: { ...draft.compaction, max_messages: v },
+              })
+            }
+          />
+          <NumericField
+            label="Memory dedup candidates"
+            help="How many of an athlete's facts a new fact is compared with, and how many the extractor is shown to spot a restatement."
+            value={draft.memory.dedup_candidate_limit}
+            min={1}
+            step={1}
+            onChange={(v) =>
+              setDraft({
+                ...draft,
+                memory: { ...draft.memory, dedup_candidate_limit: v },
+              })
+            }
+          />
         </div>
       </Card>
 
@@ -386,42 +448,34 @@ export default function HarnessConfigTab() {
           Response text guardrails
         </h3>
         <div className="space-y-4">
-          <NumericField
-            label="Max response characters"
-            help="Agent replies longer than this are rewritten as a length-cap fallback. Use 0 to disable."
-            value={draft.guardrails.max_response_chars}
-            min={0}
-            max={1_000_000}
-            step={500}
-            onChange={(v) =>
-              setDraft({
-                ...draft,
-                guardrails: { ...draft.guardrails, max_response_chars: v },
-              })
-            }
-          />
           <CsvField
             label="Blocked topics (comma separated)"
-            help="Agent replies containing any of these substrings (case insensitive) are replaced with a refusal."
+            help="A reply containing any of these phrases (case insensitive) is replaced whole by a refusal. The match reads the words, not their intent: a reply quoting the phrase to debunk it is replaced too."
             value={joinCsv(draft.guardrails.blocked_topics)}
             onChange={(v) =>
               setDraft({
                 ...draft,
-                guardrails: { ...draft.guardrails, blocked_topics: parseCsv(v) },
+                guardrails: {
+                  ...draft.guardrails,
+                  blocked_topics: parseCsv(v),
+                },
               })
             }
           />
 
           <div>
             <div className="mb-2 text-sm font-medium text-on-surface-variant">
-              Disclaimer triggers &amp; text — per locale
+              Disclaimer triggers — per locale
             </div>
             <p className="mb-3 text-xs text-on-surface-variant">
-              Triggers are matched against the assistant reply with Unicode word boundaries in
-              the locale of the active conversation. Authoring per-locale prevents
-              false-positives like the English word &ldquo;pain&rdquo; firing on the French
-              word for bread. If the active turn locale has no entry, the server falls back
-              to the English entry; if that is also absent, no disclaimer is prepended.
+              Triggers are matched against the assistant reply with Unicode word
+              boundaries in the locale of the active conversation. Authoring
+              per-locale prevents false-positives like the English word
+              &ldquo;pain&rdquo; firing on the French word for bread. If the
+              active turn locale has no entry, the server falls back to the
+              English entry; if that is also absent, no disclaimer is prepended.
+              The disclaimer wording is not edited here: it comes from the
+              string catalogue, in the locale whose triggers matched.
             </p>
             <div className="mb-3 flex gap-1" role="tablist" aria-label="Locale">
               {SUPPORTED_LOCALES.map((loc) => (
@@ -433,8 +487,8 @@ export default function HarnessConfigTab() {
                   onClick={() => setActiveLocale(loc)}
                   className={`rounded px-3 py-1 text-xs font-medium ${
                     activeLocale === loc
-                      ? 'bg-primary text-on-primary'
-                      : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                      ? "bg-primary text-on-primary"
+                      : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
                   }`}
                 >
                   {LOCALE_LABELS[loc] ?? loc}
@@ -447,26 +501,12 @@ export default function HarnessConfigTab() {
               help={`Single words in ${LOCALE_LABELS[activeLocale] ?? activeLocale} that prepend the disclaimer when matched.`}
               value={joinCsv(activeLocaleRules.disclaimer_triggers)}
               onChange={(v) =>
-                updateActiveLocale({
+                updateActiveLocale(draft, {
                   ...activeLocaleRules,
                   disclaimer_triggers: parseCsv(v),
                 })
               }
             />
-            <div className="mt-3">
-              <Textarea
-                label={`Disclaimer text (${activeLocale})`}
-                value={activeLocaleRules.disclaimer_text}
-                onChange={(e) =>
-                  updateActiveLocale({
-                    ...activeLocaleRules,
-                    disclaimer_text: e.target.value,
-                  })
-                }
-                rows={4}
-                helpText="Markdown allowed. Author in the target locale."
-              />
-            </div>
           </div>
         </div>
       </Card>
@@ -492,10 +532,11 @@ export default function HarnessConfigTab() {
               Runtime LLM judge (Layer 5)
             </span>
             <span className="mt-1 block text-xs text-on-surface-variant">
-              Lets claim verification consult the live chat provider for claims the
-              deterministic layers leave inconclusive. The judge only runs as a tiebreaker,
-              fails open on provider errors, and rides the cheap-tier provider chain.
-              Unchecked keeps verification fully deterministic.
+              Lets claim verification consult the live chat provider for claims
+              the deterministic layers leave inconclusive. The judge only runs
+              as a tiebreaker, fails open on provider errors, and rides the
+              cheap-tier provider chain. Unchecked keeps verification fully
+              deterministic.
             </span>
           </span>
         </label>
@@ -517,16 +558,64 @@ export default function HarnessConfigTab() {
       ) : null}
 
       {data?.degraded_reason ? (
-        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
-          Showing what this instance holds, not the stored row: {data.degraded_reason}. Saving
-          replaces the row.
+        <p
+          role="alert"
+          className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container"
+        >
+          Showing what this instance holds, not the stored row:{" "}
+          {data.degraded_reason}. Saving replaces the row.
         </p>
       ) : null}
 
-      {staleNotice ? (
-        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
-          {staleNotice}
-        </p>
+      {conflict ? (
+        <ConflictPanel>
+          <p>
+            {conflict.message} Nothing was saved, and your edits are still in
+            this form.
+          </p>
+          {conflict.stored ? (
+            <>
+              <ChangedSettings
+                title="Changed by the other save"
+                paths={changedPaths(base, conflict.stored.config)}
+              />
+              <ChangedSettings
+                title="Your edits"
+                paths={changedPaths(base, draft)}
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    keepEditsOnStored(conflict.stored as HarnessConfigResponse)
+                  }
+                >
+                  Apply my edits to the stored version
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    hydrate(conflict.stored as HarnessConfigResponse)
+                  }
+                >
+                  Discard my edits
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1">The stored version could not be read.</p>
+              <div className="mt-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => void readConflict(conflict.message)}
+                >
+                  Try again
+                </Button>
+              </div>
+            </>
+          )}
+        </ConflictPanel>
       ) : null}
 
       {serverError ? (
@@ -548,11 +637,39 @@ export default function HarnessConfigTab() {
         <Button
           variant="primary"
           onClick={() => mutation.mutate(draft)}
-          disabled={isInvalid || mutation.isPending}
+          disabled={
+            isInvalid || !isDirty || conflict !== null || mutation.isPending
+          }
         >
-          {mutation.isPending ? 'Saving…' : 'Save changes'}
+          {mutation.isPending ? "Saving…" : "Save changes"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ConflictPanel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container"
+    >
+      {children}
+    </div>
+  );
+}
+
+function ChangedSettings({ title, paths }: { title: string; paths: string[] }) {
+  return (
+    <div className="mt-2">
+      <div className="font-medium">{title}</div>
+      <ul className="font-mono text-xs">
+        {paths.length === 0 ? (
+          <li>nothing</li>
+        ) : (
+          paths.map((path) => <li key={path}>{path}</li>)
+        )}
+      </ul>
     </div>
   );
 }
@@ -567,16 +684,38 @@ interface NumericFieldProps {
   onChange: (next: number) => void;
 }
 
-function NumericField({ label, help, value, min, max, step, onChange }: NumericFieldProps) {
+/// Holds what was typed, so a cleared field reads as empty and invalid. Reading it
+/// straight as a number turned an empty box into 0, which saved as a real value.
+function NumericField({
+  label,
+  help,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: NumericFieldProps) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    const typed = text.trim() === "" ? Number.NaN : Number(text);
+    if (!Object.is(typed, value)) {
+      setText(Number.isNaN(value) ? "" : String(value));
+    }
+  }, [text, value]);
   return (
     <Input
       label={label}
       type="number"
-      value={value}
+      value={text}
       min={min}
       max={max}
       step={step}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(
+          e.target.value.trim() === "" ? Number.NaN : Number(e.target.value),
+        );
+      }}
       helpText={help}
     />
   );
@@ -589,18 +728,33 @@ interface CsvFieldProps {
   onChange: (next: string) => void;
 }
 
+/// Holds what was typed, so a space or a comma survives until the next word follows
+/// it. Rendering the parsed list straight back stripped them on each keystroke.
 function CsvField({ label, help, value, onChange }: CsvFieldProps) {
+  const [text, setText] = useState(value);
+  useEffect(() => {
+    if (joinCsv(parseCsv(text)) !== value) {
+      setText(value);
+    }
+  }, [text, value]);
   return (
     <label className="block text-sm">
-      <span className="mb-1 block font-medium text-on-surface-variant">{label}</span>
+      <span className="mb-1 block font-medium text-on-surface-variant">
+        {label}
+      </span>
       <input
         type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(e.target.value);
+        }}
         className="w-full rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm text-on-surface"
       />
       {help ? (
-        <span className="mt-1 block text-xs text-on-surface-variant">{help}</span>
+        <span className="mt-1 block text-xs text-on-surface-variant">
+          {help}
+        </span>
       ) : null}
     </label>
   );

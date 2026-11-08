@@ -753,8 +753,6 @@ const EXPECTED_TOOLS: &[&str] = &[
     "admin_list_system_agents",
     "admin_unassign_agent",
     "admin_update_system_agent",
-    "agent_followup_schedule",
-    "agent_note_add",
     "analyze_activity",
     "analyze_goal_feasibility",
     "analyze_meal_nutrition",

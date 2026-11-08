@@ -11,7 +11,8 @@
 //! composition root mounts beside them — so one place records every write,
 //! whichever surface or credential made it: the console's session, a
 //! `pierre-cli` device-login token, a service token. A read (`GET`, `HEAD`,
-//! `OPTIONS`) passes through untouched.
+//! `OPTIONS`) passes through untouched, unless its handler records itself
+//! through [`record_admin_read`].
 //!
 //! **Who acted** comes from the response: both admin auth layers put the
 //! [`ValidatedAdminToken`] they validated there, since this layer runs
@@ -273,6 +274,30 @@ fn build_event(
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned),
         metadata: Value::Object(metadata),
+    }
+}
+
+/// Record a read the layer would skip: one a handler judges worth a row because
+/// it reaches past the tenant its caller acts in.
+///
+/// The row names what was read in another tenant, so it belongs to no tenant's
+/// trail: a plain admin of the caller's own tenant must not read it. Only a super
+/// admin's view of the trail returns it.
+///
+/// A failed write is logged and never fails the read, like every other row.
+pub(crate) async fn record_admin_read(
+    audit: &dyn AdminAuditRepository,
+    route: &str,
+    token: &ValidatedAdminToken,
+    headers: &HeaderMap,
+    detail: AuditDetail,
+) {
+    let event = NewAuditEvent {
+        tenant_id: None,
+        ..build_event(&Method::GET, route, None, 200, token, headers, Some(detail))
+    };
+    if let Err(e) = audit.record(&event).await {
+        error!(error = %e, route, "failed to record an admin read in the audit trail");
     }
 }
 

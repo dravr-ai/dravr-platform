@@ -128,3 +128,60 @@ async fn a_translation_s_example_inputs_become_its_sample_prompts() {
         "the French examples, guillemets and their spaces stripped"
     );
 }
+
+/// The seeder takes every locale `SUPPORTED_LOCALES` names, so the Spanish,
+/// German and Portuguese files reach the store overlay (carnet#1428).
+#[tokio::test]
+async fn the_seeder_stores_spanish_german_and_portuguese_translations() {
+    let (repos, admin, tenant) = seeded_repos().await;
+    let checkout = TempDir::new().unwrap();
+    let dir = checkout.path().join("nutrition").join(SLUG);
+    fs::create_dir_all(&dir).unwrap();
+    write(&dir, "en.md", "Fuelling Agent", "Fuelling.", "- \"Gels?\"");
+    let translations = [
+        ("es", "Agente de Avituallamiento"),
+        ("de", "Verpflegungs-Agent"),
+        ("pt", "Agente de Abastecimento"),
+    ];
+    for (locale, title) in translations {
+        write(
+            &dir,
+            &format!("{locale}.md"),
+            title,
+            "Purpose.",
+            "- \"Gels?\"",
+        );
+    }
+
+    agents::run(
+        SeedArgs {
+            agents_dir: checkout.path().to_path_buf(),
+            dry_run: false,
+        },
+        &repos,
+    )
+    .await
+    .unwrap();
+
+    let (id, _) = repos
+        .seeder
+        .seed_find_agent_by_slug(SLUG, &tenant.to_string())
+        .await
+        .unwrap()
+        .expect("the seeder wrote the agent");
+    for (locale, title) in translations {
+        let canonical = repos
+            .agents
+            .get_by_id(&id, admin, tenant)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut translated = [canonical];
+        repos
+            .agents
+            .translate_agents(&mut translated, locale)
+            .await
+            .unwrap();
+        assert_eq!(translated[0].title, title, "{locale}");
+    }
+}

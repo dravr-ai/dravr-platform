@@ -1,5 +1,5 @@
 // ABOUTME: GET /admin/audit-events and /api/admin/audit-events — the admin audit trail, newest first
-// ABOUTME: Tenant-scoped for a tenant admin, platform-wide for a super-admin; cursor-paged by timestamp
+// ABOUTME: Tenant-scoped for a tenant admin, platform-wide for a super-admin; keyset-paged by (timestamp, id)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -40,8 +40,11 @@ const DEFAULT_PAGE: u32 = 50;
 pub struct AuditTrailQuery {
     /// At most this many rows (capped at the trail's page maximum).
     pub limit: Option<u32>,
-    /// Only rows older than this instant: the previous page's last `occurred_at`.
+    /// Resume after this instant: the previous page's `next_before`.
     pub before: Option<DateTime<Utc>>,
+    /// Resume after this row among those of that instant: the previous page's
+    /// `next_before_id`. Without it the read starts strictly older.
+    pub before_id: Option<String>,
     /// Only actions starting with this text (`user.`, `DELETE`).
     pub action: Option<String>,
     /// Only `success`, `refused` or `failed`.
@@ -91,22 +94,30 @@ pub async fn handle_list_audit_events(
     let filter = AuditEventFilter {
         tenant_id,
         before: query.before,
+        before_id: query.before_id,
         action_prefix: query.action.filter(|a| !a.trim().is_empty()),
         outcome: query.outcome.as_deref().map(parse_outcome).transpose()?,
         actor_user_id: query.actor_user_id,
     };
     let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, AUDIT_PAGE_MAX);
     let events = context.repos.admin_audit.list(&filter, limit).await?;
-    let next_before = if events.len() == limit as usize {
-        events.last().map(|e| e.occurred_at)
+    let last = if events.len() == limit as usize {
+        events.last()
     } else {
         None
     };
+    let next_before = last.map(|e| e.occurred_at);
+    let next_before_id = last.map(|e| e.id.clone());
     Ok(json_response(
         AdminResponse {
             success: true,
             message: format!("{} audit events", events.len()),
-            data: to_value(json!({ "events": events, "next_before": next_before })).ok(),
+            data: to_value(json!({
+                "events": events,
+                "next_before": next_before,
+                "next_before_id": next_before_id,
+            }))
+            .ok(),
         },
         StatusCode::OK,
     )

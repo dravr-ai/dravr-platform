@@ -111,8 +111,8 @@ pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
     }
     let (pillar, source, force_kind) = extraction_params_or_default(answered);
     let tenants = ExtractionTenants::for_turn(input);
-    // The de-dup tunables are read per turn, so a threshold change through
-    // contremaitre reaches the next extraction without a deploy.
+    // The de-dup tunables are read per turn, so a harness config save reaches
+    // the next extraction without a deploy.
     let memory_config = ctx.harness_config_registry.current_memory();
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),

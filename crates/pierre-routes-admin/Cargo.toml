@@ -43,7 +43,6 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [features]
 default = []
-tools-verification = ["pierre-services/tools-verification"]
 
 [lints]
 workspace = true

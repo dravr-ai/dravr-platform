@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Usage analytics dashboard showing API request volume, error rates, and tool breakdown
+// ABOUTME: Usage analytics dashboard showing request volume and latency
 // ABOUTME: Reads shared admin time range from localStorage for consistent cross-tab state
 
 import { useQuery } from '@tanstack/react-query';
 import { usageAnalyticsQuery } from './analyticsQueries';
+import { useAdminScope } from '../hooks/useAdminScope';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import type { ChartData, ChartOptions, TimeSeriesPoint, TopTool } from '../types/chart';
+import type { ChartData, ChartOptions, TimeSeriesPoint } from '../types/chart';
 import '../utils/registerChartJs';
 import { tint, useChartTheme } from '../hooks/useChartTheme';
-import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
 
 export default function UsageAnalytics() {
   const { timeRange, setTimeRange } = useAdminTimeRange();
+  const { requested } = useAdminScope();
 
-  const { data: analytics, isLoading } = useQuery(usageAnalyticsQuery(timeRange));
+  const { data: analytics, isLoading, isError } = useQuery(usageAnalyticsQuery(timeRange, requested));
 
   const chart = useChartTheme();
 
@@ -51,32 +53,6 @@ export default function UsageAnalytics() {
         backgroundColor: tint(chart.series[0], 0.1),
         tension: 0.4,
         fill: true,
-      },
-    ],
-  };
-
-  const toolUsageData: ChartData = {
-    labels: analytics?.top_tools?.map((tool: TopTool) => tool.tool_name) || [],
-    datasets: [
-      {
-        label: 'Request Count',
-        data: analytics?.top_tools?.map((tool: TopTool) => tool.request_count) || [],
-        backgroundColor: chart.series.map((color) => tint(color, 0.8)),
-        borderColor: chart.series,
-        borderWidth: 1,
-      },
-    ],
-  };
-
-  const responseTimeData: ChartData = {
-    labels: analytics?.top_tools?.map((tool: TopTool) => tool.tool_name) || [],
-    datasets: [
-      {
-        label: 'Average Response Time (ms)',
-        data: analytics?.top_tools?.map((tool: TopTool) => tool.average_response_time || 0) || [],
-        backgroundColor: tint(chart.series[5], 0.6),
-        borderColor: chart.series[5],
-        borderWidth: 1,
       },
     ],
   };
@@ -135,6 +111,12 @@ export default function UsageAnalytics() {
           </div>
         </div>
 
+        {isError && !analytics ? (
+          <p role="alert" className="py-8 text-center text-sm text-error">
+            Usage analytics could not be loaded. These numbers will return once the server answers.
+          </p>
+        ) : (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="stat-card-dark">
             <div className="font-mono text-2xl font-medium text-on-surface">
@@ -166,61 +148,7 @@ export default function UsageAnalytics() {
           </div>
         </div>
 
-        {/* Tool Usage Charts */}
-        {analytics?.top_tools && analytics.top_tools.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <div>
-              <h3 className="text-lg font-medium mb-4 text-on-surface">Tool Usage Distribution</h3>
-              <div className="bg-surface-container-low rounded-lg p-4 border ghost-border">
-                <Doughnut
-                  data={toolUsageData}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: {
-                        position: 'bottom' as const,
-                        labels: { color: chart.text },
-                      },
-                    },
-                  }}
-                />
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-medium mb-4 text-on-surface">Response Time by Tool</h3>
-              <div className="bg-surface-container-low rounded-lg p-4 border ghost-border">
-                <Bar data={responseTimeData} options={chartOptions} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Top Tools Table */}
-        {analytics?.top_tools && analytics.top_tools.length > 0 && (
-          <div>
-            <h3 className="text-lg font-medium mb-4 text-on-surface">Most Used Tools</h3>
-            <div className="space-y-3">
-              {analytics.top_tools.map((tool: TopTool) => (
-                <div key={tool.tool_name} className="flex justify-between items-center p-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors border ghost-border">
-                  <div>
-                    <span className="font-medium text-on-surface">{tool.tool_name}</span>
-                    <span className="text-outline ml-2">
-                      {(tool.success_rate || 0).toFixed(1)}% success rate
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-primary">{tool.request_count.toLocaleString()}</div>
-                    <div className="text-sm text-outline">
-                      {(tool.average_response_time || 0).toFixed(0)}ms avg
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {(!analytics?.time_series?.length && !analytics?.top_tools?.length) && (
+        {!analytics?.time_series?.length && (
           <div className="text-center py-12 text-on-surface-variant">
             <svg className="w-12 h-12 mx-auto mb-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
@@ -228,6 +156,8 @@ export default function UsageAnalytics() {
             <p className="text-lg mb-2 text-on-surface">No conversations yet</p>
             <p>Users will see analytics here once they start chatting.</p>
           </div>
+        )}
+        </>
         )}
       </div>
 

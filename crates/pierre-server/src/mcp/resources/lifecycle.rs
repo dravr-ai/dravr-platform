@@ -541,7 +541,9 @@ impl ServerContext {
             &turns,
         ));
 
-        // Start the background notification scheduler if service is available
+        // Start the background notification scheduler if service is available.
+        // Its tick also sweeps the pending push receipts, so it runs with no
+        // route creating schedules.
         #[cfg(feature = "client-notifications")]
         let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 

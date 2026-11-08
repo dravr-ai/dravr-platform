@@ -7,6 +7,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
 
@@ -141,77 +142,11 @@ impl fmt::Debug for InsertCompactionBlockParams<'_> {
     }
 }
 
-/// Parameters for creating an agent note via the harness memory tools.
-pub struct InsertAgentNoteParams<'a> {
-    /// Tenant that owns the note.
-    pub tenant_id: TenantId,
-    /// User the note is about.
-    pub user_id: &'a str,
-    /// Agent that authored the note.
-    pub agent_id: &'a str,
-    /// Conversation the note originated in, if any.
-    pub conversation_id: Option<&'a str>,
-    /// Scope bucket.
-    pub scope: pierre_memory::MemoryScope,
-    /// Free-form content.
-    pub content: &'a str,
-    /// The stamp of what the row is derived from (carnet#769).
-    pub transport_policy: TransportPolicy,
-}
-
-// The note is the agent's free text about the athlete: only its length prints.
-impl fmt::Debug for InsertAgentNoteParams<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InsertAgentNoteParams")
-            .field("tenant_id", &self.tenant_id)
-            .field("user_id", &self.user_id)
-            .field("agent_id", &self.agent_id)
-            .field("conversation_id", &self.conversation_id)
-            .field("scope", &self.scope)
-            .field("content_len", &self.content.len())
-            .field("transport_policy", &self.transport_policy)
-            .finish()
-    }
-}
-
-/// Parameters for scheduling an agent followup.
-pub struct InsertAgentFollowupParams<'a> {
-    /// Tenant that owns the followup.
-    pub tenant_id: TenantId,
-    /// User the followup targets.
-    pub user_id: &'a str,
-    /// Agent that made the promise.
-    pub agent_id: &'a str,
-    /// Conversation the promise was made in, if any.
-    pub conversation_id: Option<&'a str>,
-    /// Reminder content.
-    pub content: &'a str,
-    /// When the followup should surface, if a specific time was promised.
-    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// The stamp of what the row is derived from (carnet#769).
-    pub transport_policy: TransportPolicy,
-}
-
-// The reminder is free text promised to the athlete: only its length prints.
-impl fmt::Debug for InsertAgentFollowupParams<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InsertAgentFollowupParams")
-            .field("tenant_id", &self.tenant_id)
-            .field("user_id", &self.user_id)
-            .field("agent_id", &self.agent_id)
-            .field("conversation_id", &self.conversation_id)
-            .field("content_len", &self.content.len())
-            .field("due_at", &self.due_at)
-            .field("transport_policy", &self.transport_policy)
-            .finish()
-    }
-}
-
 /// Coaching harness memory repository (Tier 0 foundations).
 ///
 /// Groups the small CRUD surface for every memory primitive behind a single
 /// trait. The schemas land dormant in Tier 0; services come online in
-/// Tier 1 (compaction), Tier 2 (facts + recall), Tier 3 (notes + followups),
+/// Tier 1 (compaction), Tier 2 (facts + recall),
 /// Tier 4 (sessions). The trait is tight on purpose — new use cases should
 /// extend it with named parameter structs rather than accreting positional
 /// arguments.
@@ -417,130 +352,15 @@ pub trait HarnessMemoryRepository: Send + Sync {
         predicate_code: Option<pierre_memory::PredicateCode>,
     ) -> AppResult<u64>;
 
-    /// Tenant-wide aggregate snapshot of the memory extraction worker's output.
+    /// Aggregate snapshot of the rows in `user_facts` of `scope`: one tenant,
+    /// or every tenant on the super-admin path of the memory worker screen.
     ///
-    /// The worker is a fire-and-forget background task, so its health is
-    /// derived from the rows it has actually produced in `user_facts`
-    /// rather than instrumenting the worker itself.
+    /// This describes the store, which other writers also touch. The worker's
+    /// own health is its run ledger (`MemoryExtractionJobRepository::extraction_run_stats`).
     async fn count_user_facts_metrics(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
     ) -> AppResult<pierre_memory::UserFactMetrics>;
-
-    // --- agent notes ---
-
-    /// Persist an agent-authored note.
-    async fn insert_agent_note(
-        &self,
-        params: &InsertAgentNoteParams<'_>,
-    ) -> AppResult<pierre_memory::AgentNote>;
-
-    /// List agent notes for a user, newest first.
-    ///
-    /// `readable` is the strictest stamp a returned row may carry
-    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
-    /// out in the statement itself, so `limit` counts only rows the caller
-    /// may read.
-    async fn list_agent_notes(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        agent_id: &str,
-        limit: i64,
-        readable: TransportPolicy,
-    ) -> AppResult<Vec<pierre_memory::AgentNote>>;
-
-    /// Tenant-wide agent-note audit log for the admin compliance tab.
-    ///
-    /// Returns notes newest-first, clamped to `limit`, spanning all
-    /// users and agents. The admin UI uses this for a flat audit trail
-    /// so compliance reviewers can see every note an agent wrote about a
-    /// user without having to pick a (user, agent) pair first.
-    async fn list_agent_notes_for_tenant(
-        &self,
-        tenant_id: TenantId,
-        limit: i64,
-    ) -> AppResult<Vec<pierre_memory::AgentNote>>;
-
-    /// Flip the `suppressed` flag on a single note.
-    ///
-    /// When `suppressed=true`, the chat pipeline's [`Self::list_agent_notes`]
-    /// recall query filters the row out, so the agent never re-injects it
-    /// into a user prompt. The audit panel still shows the row (via
-    /// [`Self::list_agent_notes_for_tenant`]) so an admin can un-suppress
-    /// later if they change their mind.
-    ///
-    /// Returns `true` when the row's flag actually changed,
-    /// `false` when the row already had the requested state or was
-    /// missing entirely (idempotent).
-    ///
-    /// `actor` is the admin service name attempting the change — written
-    /// to `suppressed_by` for the audit trail.
-    async fn set_agent_note_suppressed(
-        &self,
-        note_id: &str,
-        tenant_id: TenantId,
-        suppressed: bool,
-        actor: &str,
-    ) -> AppResult<bool>;
-
-    // --- agent followups ---
-
-    /// Schedule an agent followup.
-    async fn insert_agent_followup(
-        &self,
-        params: &InsertAgentFollowupParams<'_>,
-    ) -> AppResult<pierre_memory::AgentFollowup>;
-
-    /// List pending followups for a user/agent pair. Caller decides how to
-    /// render them in the next prompt.
-    async fn list_pending_followups(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        agent_id: &str,
-    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
-
-    /// Tenant-wide pending followup queue for the admin triage tab.
-    ///
-    /// Returns rows ordered by due date ascending (nulls last), then
-    /// creation order, clamped to `limit`. Unlike
-    /// [`Self::list_pending_followups`], this call spans all users and
-    /// agents so the admin can see stale promises across the platform.
-    async fn list_pending_followups_for_tenant(
-        &self,
-        tenant_id: TenantId,
-        limit: i64,
-    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
-
-    /// Mark a followup as delivered after the agent has acted on it.
-    async fn mark_followup_delivered(
-        &self,
-        followup_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool>;
-
-    /// Globally list followups whose `due_at` has elapsed and that are
-    /// still in `pending`. Used by the followup scheduler to dispatch
-    /// notifications when an agent commitment becomes overdue.
-    ///
-    /// Spans every tenant — the scheduler runs in a single background
-    /// task per server, not per-tenant, so per-tenant queries would be
-    /// chatty. Callers must clamp `limit` to a reasonable batch size
-    /// (the scheduler uses 200).
-    ///
-    /// Rows ordered by `due_at` ascending so the oldest commitments
-    /// dispatch first.
-    async fn list_due_followups(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-        limit: i64,
-    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
-
-    /// Cancel a pending followup — admin clears a stale promise that
-    /// should never reach the agent. Returns `false` if the followup was
-    /// already delivered or cancelled, `true` on a successful transition.
-    async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool>;
 
     // --- agent sessions ---
 

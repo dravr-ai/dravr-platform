@@ -17,22 +17,29 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::stream;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{
-    ApproveFactOutcome, HarnessMemoryRepository, InsertAgentFollowupParams, InsertAgentNoteParams,
-    InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
+    ApproveFactOutcome, HarnessMemoryRepository, InsertCompactionBlockParams, MergeUserFactParams,
+    UpsertUserFactParams,
 };
 use pierre_llm::ChatProvider;
 use pierre_memory::{
-    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactProposal, FactSource,
-    FactStatus, PredicateCode, UserFact, UserFactMetrics,
+    AgentSession, CompactionBlock, FactKind, FactProposal, FactSource, FactStatus, PredicateCode,
+    UserFact, UserFactMetrics,
 };
+use pierre_services::llm_usage_recorder::LlmUsageSink;
 use pierre_services::memory_dedup::DedupConfig;
-use pierre_services::memory_extraction::{extract_and_persist, ExtractionRequest};
+use pierre_services::memory_extraction::{
+    extract_and_persist, run_extraction_job, ExtractionJobPayload, ExtractionRequest,
+    SpawnedExtractionRequest,
+};
+use pierre_test_support::db::create_test_db;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 const DEDUP: DedupConfig = DedupConfig {
@@ -143,6 +150,8 @@ impl LlmProvider for ScriptedExtractor {
 #[derive(Default)]
 struct RecordingFacts {
     upserts: Mutex<Vec<UserFact>>,
+    /// How many upcoming proposed writes fail, as an unreachable database does.
+    failing_writes: Mutex<usize>,
 }
 
 fn off_path(method: &str) -> AppError {
@@ -196,6 +205,13 @@ impl HarnessMemoryRepository for RecordingFacts {
         params: &UpsertUserFactParams<'_>,
         proposal: &FactProposal,
     ) -> AppResult<UserFact> {
+        {
+            let mut failing = self.failing_writes.lock().unwrap();
+            if *failing > 0 {
+                *failing -= 1;
+                return Err(AppError::database("the fact store is unreachable"));
+            }
+        }
         let mut row = self.upsert_user_fact(params).await?;
         row.status = proposal.status;
         row.evidence.clone_from(&proposal.evidence);
@@ -288,75 +304,8 @@ impl HarnessMemoryRepository for RecordingFacts {
     ) -> AppResult<u64> {
         Err(off_path("expire_onboarding_facts"))
     }
-    async fn count_user_facts_metrics(&self, _tenant_id: TenantId) -> AppResult<UserFactMetrics> {
+    async fn count_user_facts_metrics(&self, _scope: AdminScope) -> AppResult<UserFactMetrics> {
         Err(off_path("count_user_facts_metrics"))
-    }
-    async fn insert_agent_note(&self, _params: &InsertAgentNoteParams<'_>) -> AppResult<AgentNote> {
-        Err(off_path("insert_agent_note"))
-    }
-    async fn list_agent_notes(
-        &self,
-        _tenant_id: TenantId,
-        _user_id: &str,
-        _agent_id: &str,
-        _limit: i64,
-        _readable: TransportPolicy,
-    ) -> AppResult<Vec<AgentNote>> {
-        Err(off_path("list_agent_notes"))
-    }
-    async fn list_agent_notes_for_tenant(
-        &self,
-        _tenant_id: TenantId,
-        _limit: i64,
-    ) -> AppResult<Vec<AgentNote>> {
-        Err(off_path("list_agent_notes_for_tenant"))
-    }
-    async fn set_agent_note_suppressed(
-        &self,
-        _note_id: &str,
-        _tenant_id: TenantId,
-        _suppressed: bool,
-        _actor: &str,
-    ) -> AppResult<bool> {
-        Err(off_path("set_agent_note_suppressed"))
-    }
-    async fn insert_agent_followup(
-        &self,
-        _params: &InsertAgentFollowupParams<'_>,
-    ) -> AppResult<AgentFollowup> {
-        Err(off_path("insert_agent_followup"))
-    }
-    async fn list_pending_followups(
-        &self,
-        _tenant_id: TenantId,
-        _user_id: &str,
-        _agent_id: &str,
-    ) -> AppResult<Vec<AgentFollowup>> {
-        Err(off_path("list_pending_followups"))
-    }
-    async fn list_pending_followups_for_tenant(
-        &self,
-        _tenant_id: TenantId,
-        _limit: i64,
-    ) -> AppResult<Vec<AgentFollowup>> {
-        Err(off_path("list_pending_followups_for_tenant"))
-    }
-    async fn mark_followup_delivered(
-        &self,
-        _followup_id: &str,
-        _tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        Err(off_path("mark_followup_delivered"))
-    }
-    async fn list_due_followups(
-        &self,
-        _now: DateTime<Utc>,
-        _limit: i64,
-    ) -> AppResult<Vec<AgentFollowup>> {
-        Err(off_path("list_due_followups"))
-    }
-    async fn cancel_followup(&self, _followup_id: &str, _tenant_id: TenantId) -> AppResult<bool> {
-        Err(off_path("cancel_followup"))
     }
     async fn get_or_open_agent_session(
         &self,
@@ -737,4 +686,148 @@ async fn provenance_addendum_defines_the_field_it_enforces() {
     assert!(provenance.contains("\"stated_by\""));
     assert!(provenance.contains("\"user\""));
     assert!(provenance.contains("\"coach\""));
+}
+
+/// Two goals the gate passes, for a store told how many of the writes fail.
+async fn extract_two_goals_with_failing_writes(failing: usize) -> (AppResult<usize>, usize) {
+    let goal = |object: &str| {
+        serde_json::json!({
+            "kind": "goal",
+            "object": object,
+            "confidence": 0.9,
+            "stated_by": "user",
+        })
+    };
+    let reply = serde_json::json!([
+        goal("a marathon in October"),
+        goal("a sub-three-hour Ironman swim"),
+    ])
+    .to_string();
+    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor {
+        reply,
+        system_prompt: Mutex::new(String::new()),
+    }));
+    let repo = RecordingFacts::default();
+    *repo.failing_writes.lock().unwrap() = failing;
+    let req = ExtractionRequest {
+        tenant_id: TenantId::generate(),
+        user_id: "athlete-1",
+        agent_id: None,
+        user_message: "user turn",
+        assistant_reply: "coach reply",
+        source_msg_id: Some("m-1"),
+        pillar: None,
+        source: FactSource::Conversation,
+        force_kind: None,
+        plan_was_saved: false,
+        transport_policy: TransportPolicy::AnyTransport,
+        recorder: None,
+    };
+    let outcome = extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
+        .await
+        .map(|run| run.persisted.len());
+    let written = repo.upserts.lock().unwrap().len();
+    (outcome, written)
+}
+
+// The job row is what retries a lost write, and the run ledger reads a run with
+// no persisted fact as `empty`. An `Ok` here would delete the row and lose the fact.
+#[tokio::test]
+async fn a_run_whose_writes_all_failed_is_a_failure_and_not_an_empty_run() {
+    let (outcome, written) = extract_two_goals_with_failing_writes(2).await;
+    assert_eq!(written, 0);
+    assert!(
+        outcome.is_err(),
+        "bug: every fact was lost and the run reads as having nothing to write: {outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_that_lost_one_write_stays_owed() {
+    let (outcome, written) = extract_two_goals_with_failing_writes(1).await;
+    assert_eq!(written, 1, "the other fact still lands");
+    assert!(
+        outcome.is_err(),
+        "bug: the lost fact has no retry and no trace: {outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_whose_writes_all_landed_stands() {
+    let (outcome, written) = extract_two_goals_with_failing_writes(0).await;
+    assert_eq!(written, 2);
+    assert_eq!(outcome.unwrap(), 2);
+}
+
+// The run ledger is what the admin memory worker screen counts facts from. A run
+// that landed three facts and lost the fourth still owes a retry, and it still
+// wrote three: recorded as failed with nothing persisted, the screen undercounted.
+#[tokio::test]
+async fn a_run_that_landed_three_facts_and_lost_one_records_the_three() {
+    let goal = |object: &str| {
+        serde_json::json!({
+            "kind": "goal",
+            "object": object,
+            "confidence": 0.9,
+            "stated_by": "user",
+        })
+    };
+    let reply = serde_json::json!([
+        goal("a marathon in October"),
+        goal("a sub-three-hour Ironman swim"),
+        goal("a 50 km trail in the spring"),
+        goal("a first triathlon next summer"),
+    ])
+    .to_string();
+    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor {
+        reply,
+        system_prompt: Mutex::new(String::new()),
+    }));
+    let facts = RecordingFacts::default();
+    *facts.failing_writes.lock().unwrap() = 1;
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant_id = TenantId::generate();
+    let job = SpawnedExtractionRequest {
+        tenant_id,
+        usage_tenant_id: tenant_id,
+        payload: ExtractionJobPayload {
+            user_id: "athlete-1".to_owned(),
+            agent_id: None,
+            user_message: "user turn".to_owned(),
+            assistant_reply: "coach reply".to_owned(),
+            source_msg_id: Some("m-1".to_owned()),
+            pillar: None,
+            source: FactSource::Conversation,
+            force_kind: None,
+            plan_was_saved: false,
+            transport_policy: TransportPolicy::AnyTransport,
+            conversation_id: None,
+            turn_id: None,
+        },
+    };
+
+    let run = run_extraction_job(
+        &facts,
+        repos.memory_extraction_jobs.as_ref(),
+        &LlmUsageSink::new(Arc::clone(&repos.llm_usage), TaskTracker::new()),
+        &provider,
+        DEDUP,
+        BASE_PROMPT,
+        &job,
+    )
+    .await;
+
+    assert!(run.is_err(), "bug: the lost fact must stay owed: {run:?}");
+    assert_eq!(facts.upserts.lock().unwrap().len(), 3, "three facts landed");
+    let stats = repos
+        .memory_extraction_jobs
+        .extraction_run_stats(tenant_id.into(), Utc::now().timestamp_millis(), 0)
+        .await
+        .unwrap();
+    assert_eq!(stats.last_24h.failed, 1, "the run is a failure: {stats:?}");
+    assert_eq!(
+        stats.last_24h.facts_persisted, 3,
+        "bug: the three facts that landed are missing from the ledger: {stats:?}"
+    );
 }

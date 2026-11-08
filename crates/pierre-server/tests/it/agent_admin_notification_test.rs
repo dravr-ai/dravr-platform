@@ -267,3 +267,133 @@ async fn an_assignment_and_an_edit_each_say_what_the_administrator_did() {
         "no plan changed, so none is claimed: {rows:?}"
     );
 }
+
+// The Agents and Engagement screens read an agent's uses from this list, which
+// used to answer 0 for every agent. A use by someone outside the tenant is not
+// this tenant's to count.
+#[tokio::test]
+async fn the_admin_agent_list_counts_the_uses_of_the_callers_tenant() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (admin_id, tenant_id, auth) = administrator(&resources).await;
+    let athlete_id = athlete_in(&resources, tenant_id).await;
+    let outsider = User::new(
+        "outside-athlete@example.com".to_owned(),
+        "unused-hash".to_owned(),
+        None,
+    );
+    resources
+        .common
+        .repos
+        .users
+        .create(&outsider)
+        .await
+        .unwrap();
+
+    let agents = &resources.common.repos.agents;
+    let agent = agents
+        .create_system_agent(
+            admin_id,
+            tenant_id,
+            &CreateSystemAgentRequest {
+                title: AGENT_TITLE.to_owned(),
+                description: None,
+                system_prompt: "You answer marathon questions.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Tenant,
+            },
+        )
+        .await
+        .unwrap();
+    let agent_id = agent.id.to_string();
+    for _ in 0..3 {
+        assert!(agents
+            .record_usage(&agent_id, athlete_id, tenant_id)
+            .await
+            .unwrap());
+    }
+    assert!(agents
+        .record_usage(&agent_id, outsider.id, TenantId::generate())
+        .await
+        .unwrap());
+
+    let response = AxumTestRequest::get("/api/admin/agents")
+        .header("authorization", &auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json();
+    assert_eq!(body["agents"][0]["id"], agent_id.as_str(), "{body}");
+    assert_eq!(body["agents"][0]["use_count"], 3, "{body}");
+}
+
+/// A system agent stores only its title, description, prompt, category, tags
+/// and sample prompts. A create or an edit naming any other field is refused,
+/// never accepted and dropped, and a refused edit changes nothing.
+#[tokio::test]
+async fn a_field_a_system_agent_cannot_store_is_refused_not_dropped() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (admin_id, tenant_id, auth) = administrator(&resources).await;
+    let agent = resources
+        .common
+        .repos
+        .agents
+        .create_system_agent(
+            admin_id,
+            tenant_id,
+            &CreateSystemAgentRequest {
+                title: AGENT_TITLE.to_owned(),
+                description: None,
+                system_prompt: "You answer marathon questions.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Tenant,
+            },
+        )
+        .await
+        .unwrap();
+
+    let response = AxumTestRequest::put(&format!("/api/admin/agents/{}", agent.id))
+        .header("authorization", &auth)
+        .json(&json!({ "title": EDITED_TITLE, "purpose": "Pace a marathon" }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "bug: an edit naming a field the agent cannot store must be refused"
+    );
+    let stored = resources
+        .common
+        .repos
+        .agents
+        .get_system_agent(&agent.id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.title, AGENT_TITLE, "a refused edit changes nothing");
+
+    let response = AxumTestRequest::post("/api/admin/agents")
+        .header("authorization", &auth)
+        .json(&json!({
+            "title": "Another agent",
+            "system_prompt": "You answer.",
+            "success_criteria": "The athlete finishes",
+        }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "bug: a create naming a field the agent cannot store must be refused"
+    );
+
+    let response = AxumTestRequest::put(&format!("/api/admin/agents/{}", agent.id))
+        .header("authorization", &auth)
+        .json(&json!({ "title": EDITED_TITLE, "tags": ["marathon"] }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(response.status(), 200, "the fields it stores still save");
+}

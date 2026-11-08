@@ -8,18 +8,8 @@ import fs from 'fs';
 import path from 'path';
 import type { Page, Route } from '@playwright/test';
 
-/**
- * The token screen's rail label, read from the locale copy so these tests do
- * not depend on its wording (read from disk for the reason `mockStarters` gives).
- */
-export const TOKENS_TAB_LABEL = (
-  JSON.parse(
-    fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/i18n/src/locales/en/translation.json'),
-      'utf-8',
-    ),
-  ) as { shell: { navServiceTokens: string } }
-).shell.navServiceTokens;
+/** The token screen's rail label. The admin rail is English in every session. */
+export const TOKENS_TAB_LABEL = 'API Tokens';
 
 interface UserOptions {
   role?: 'user' | 'admin' | 'super_admin';

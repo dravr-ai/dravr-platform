@@ -60,7 +60,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 10)
+        .list_recent_verdicts(tenant().into(), 10)
         .await?;
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].id, saved.id);
@@ -101,7 +101,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 10)
+        .list_recent_verdicts(tenant().into(), 10)
         .await?;
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].layer_fired, VerdictLayer::Personalized);
@@ -145,7 +145,7 @@ async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 10)
+        .list_recent_verdicts(tenant().into(), 10)
         .await?;
     assert_eq!(recent.len(), 3);
     // Newest first → last inserted is Contradicted.
@@ -182,7 +182,7 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
 
     let all = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant(), 10)
+        .list_recent_verdicts(tenant().into(), 10)
         .await?;
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].layer_fired, VerdictLayer::Rhetoric);
@@ -224,7 +224,7 @@ async fn aggregate_verdict_stats_rolls_up_totals_and_daily() -> Result<()> {
 
     let stats = repos
         .claim_verdicts
-        .aggregate_verdict_stats(tenant(), 30)
+        .aggregate_verdict_stats(tenant().into(), 30)
         .await?;
     assert_eq!(stats.window_days, 30);
     assert_eq!(stats.totals.supported, 2);
@@ -265,12 +265,12 @@ async fn aggregate_verdict_stats_clamps_window_days() -> Result<()> {
     // Values outside `1..=365` clamp to the nearest bound.
     let low = repos
         .claim_verdicts
-        .aggregate_verdict_stats(tenant(), 0)
+        .aggregate_verdict_stats(tenant().into(), 0)
         .await?;
     assert_eq!(low.window_days, 1);
     let high = repos
         .claim_verdicts
-        .aggregate_verdict_stats(tenant(), 10_000)
+        .aggregate_verdict_stats(tenant().into(), 10_000)
         .await?;
     assert_eq!(high.window_days, 365);
 

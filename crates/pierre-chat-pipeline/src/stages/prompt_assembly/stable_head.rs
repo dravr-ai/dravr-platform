@@ -39,7 +39,7 @@ mod tests {
     #[test]
     fn the_unchanging_head_is_named_without_moving_a_byte() {
         let head = "contract\n\npersona\n\ntools";
-        let prompt = format!("{head}\n\nfollowups\n\nplan<!-- session-integrity:x -->");
+        let prompt = format!("{head}\n\ncommitments\n\nplan<!-- session-integrity:x -->");
         let mut messages = vec![ChatMessage::system(prompt.clone()), ChatMessage::user("hi")];
         mark_stable_head(&mut messages, head);
         assert_eq!(

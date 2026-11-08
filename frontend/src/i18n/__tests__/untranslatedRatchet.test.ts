@@ -58,7 +58,7 @@ const ROOTS = [
  * nouns, which live in `constants/brands.ts` as data.
  *
  * Operator chrome is deliberately out of scope and ships in English: user
- * management, the eval harness, tool and harness config, claim verdicts.
+ * management, tool and harness config, claim verdicts.
  * Operators are internal and nobody needs Harness Config in Portuguese. The
  * count is still reported below so the decision stays visible.
  */

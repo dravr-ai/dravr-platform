@@ -37,6 +37,14 @@ pub trait AdminRepository: Send + Sync {
     async fn deactivate_token(&self, token_id: &str) -> AppResult<()>;
     /// Record admin token usage for audit trail
     async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()>;
+    /// Count one authenticated use of a token on its own row: one more
+    /// request, used at `used_at`, from `ip_address` when the edge named one.
+    async fn record_token_use(
+        &self,
+        token_id: &str,
+        used_at: DateTime<Utc>,
+        ip_address: Option<&str>,
+    ) -> AppResult<()>;
     /// Get admin token usage history
     async fn get_token_usage_history(
         &self,
@@ -143,6 +151,16 @@ macro_rules! admin_statements_sql {
             ) VALUES ($1, $2, $3, $4, $5",
             $inet,
             ", $6, $7, $8, $9)"
+        );
+
+        /// One authenticated use of a token: the request count, the time and
+        /// the address the token list shows. An absent address keeps the last
+        /// one known.
+        const RECORD_ADMIN_TOKEN_USE_SQL: &str = concat!(
+            "UPDATE admin_tokens SET usage_count = usage_count + 1, last_used_at = $1, \
+             last_used_ip = COALESCE($2",
+            $inet,
+            ", last_used_ip) WHERE id = $3"
         );
 
         /// A token's audit rows inside a window, newest first. `id` is
@@ -481,6 +499,25 @@ macro_rules! impl_admin_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to record admin token usage: {e}"))
+                    })?;
+
+                Ok(())
+            }
+
+            async fn record_token_use(
+                &self,
+                token_id: &str,
+                used_at: DateTime<Utc>,
+                ip_address: Option<&str>,
+            ) -> AppResult<()> {
+                sqlx::query(RECORD_ADMIN_TOKEN_USE_SQL)
+                    .bind(used_at)
+                    .bind(ip_address)
+                    .bind(token_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record admin token use: {e}"))
                     })?;
 
                 Ok(())

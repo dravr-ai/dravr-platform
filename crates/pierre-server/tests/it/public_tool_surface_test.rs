@@ -44,7 +44,7 @@ use uuid::Uuid;
 
 /// Design §7's tools kept on Dravr's own surfaces, beyond the coach family:
 /// agent store and CRUD, memory and self-steering.
-pub(crate) const HIDDEN_TOOLS: [&str; 17] = [
+pub(crate) const HIDDEN_TOOLS: [&str; 15] = [
     "create_agent",
     "update_agent",
     "activate_agent",
@@ -56,8 +56,6 @@ pub(crate) const HIDDEN_TOOLS: [&str; 17] = [
     "install_agent_from_store",
     "browse_agent_store",
     "search_agent_store",
-    "agent_note_add",
-    "agent_followup_schedule",
     "commitment_create",
     "commitment_cancel",
     "remember_fact",

@@ -9,9 +9,7 @@ export type NotificationCategory =
   | 'recovery'
   | 'coach'
   | 'achievement'
-  | 'system'
-  | 'ai'
-  | 'reminders';
+  | 'system';
 
 /** Mobile device platform */
 export type DevicePlatform = 'ios' | 'android';

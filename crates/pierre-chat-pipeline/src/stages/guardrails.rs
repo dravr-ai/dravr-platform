@@ -1,4 +1,4 @@
-// ABOUTME: Tier 6 text guardrails stage — disclaimer prepending, blocked-topic rejection, length caps
+// ABOUTME: Tier 6 text guardrails stage — disclaimer prepending and blocked-topic rejection
 // ABOUTME: Provides apply_text_guardrails (post-LLM) and answer_off_scope (the pre-LLM scope rails)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,8 +10,6 @@
 //!
 //! - Prepends a safety disclaimer when a guardrail trigger is detected in
 //!   the reply.
-//! - Trims replies that exceed the admin's configured length ceiling to its
-//!   leading characters rather than a canned placeholder.
 //! - Rejects replies that reference blocked topics.
 //!
 //! And, before the model runs, answers the turn itself when the athlete's
@@ -19,16 +17,15 @@
 //!
 //! Reads the active rules from
 //! [`pierre_contremaitre::harness_config_registry::HarnessConfigRegistry`], so the
-//! disclaimer text, blocked-topic list, length cap, and trigger keywords
-//! reflect whatever the admin most recently saved via
+//! blocked-topic list and trigger keywords reflect whatever the admin most recently saved via
 //! `PUT /admin/settings/harness`.
 
 use std::sync::Arc;
 
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_MEDICAL_EMERGENCY,
-    KEY_SCOPE_REFUSAL,
+    MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_DISCLAIMER,
+    KEY_GUARDRAIL_MEDICAL_EMERGENCY, KEY_SCOPE_REFUSAL,
 };
 use pierre_contremaitre::text_guardrails::scope_rails::ScopeRail;
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
@@ -172,11 +169,10 @@ pub(crate) async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option
 /// fallback string from the `messaging_strings_registry` when guardrails
 /// reject the response.
 ///
-/// One ceiling is in force here: the admin's `max_response_chars` guardrail,
-/// which is a policy about how much an agent may say. The surface's transport
-/// ceiling is *not* applied here — an over-limit reply is split into ordered
-/// messages at the egress ([`pierre_core::chunking::chunk_reply`]), so the
-/// athlete reads the whole answer instead of a prefix that stops mid-thought.
+/// No length ceiling is in force here: a long reply is split into ordered
+/// messages at the egress ([`pierre_core::chunking::chunk_reply`]), so the athlete
+/// reads the whole answer instead of a prefix that stops mid-thought, and every
+/// rule below sees the whole reply.
 ///
 /// `locale` is the BCP-47 short code resolved once at the ingress boundary.
 pub(crate) fn apply_text_guardrails(
@@ -188,24 +184,35 @@ pub(crate) fn apply_text_guardrails(
     let rules = harness_config_registry.current_guardrails();
     match rules.apply(reply, locale) {
         GuardrailOutcome::Allowed(text) => text,
-        GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
-            // Surface the full content the model produced (everything received)
-            // so over-cap responses are inspectable, then return the leading
-            // `cap` characters rather than discarding it to a canned
-            // placeholder — the user always sees the real content prefix.
-            tracing::warn!(
-                length,
-                cap,
-                full_reply = %reply,
-                "guardrails: response over cap; returning first chunk"
-            );
-            reply.chars().take(cap).collect()
-        }
+        GuardrailOutcome::NeedsDisclaimer {
+            locale: disclaimer_locale,
+        } => with_disclaimer(messaging_strings_registry, reply, &disclaimer_locale),
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             tracing::warn!(topic, "guardrails: blocked topic in coach response");
             messaging_strings_registry.get(KEY_GUARDRAIL_BLOCKED_TOPIC, locale)
         }
     }
+}
+
+/// `reply` under the catalogue's disclaimer in `locale`. Missing copy leaves the
+/// reply as written and logs at `error!`: a blank line above a reply protects no
+/// one, and the reply is still the athlete's answer.
+fn with_disclaimer(
+    messaging_strings_registry: &MessagingStringsRegistry,
+    reply: &str,
+    locale: &str,
+) -> String {
+    let disclaimer = messaging_strings_registry.get(KEY_GUARDRAIL_DISCLAIMER, locale);
+    if disclaimer.trim().is_empty() {
+        tracing::error!(
+            key = KEY_GUARDRAIL_DISCLAIMER,
+            locale,
+            "guardrails: a disclaimer trigger fired but its copy is missing"
+        );
+        return reply.to_owned();
+    }
+    tracing::info!(locale, "guardrails: disclaimer prepended");
+    format!("{disclaimer}\n\n{reply}")
 }
 
 #[cfg(test)]
@@ -225,17 +232,113 @@ mod tests {
 
     use std::sync::Arc;
 
-    use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
-    use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+    use pierre_contremaitre::harness_config_document::HarnessConfigDocument;
+    use pierre_contremaitre::harness_config_registry::{
+        HarnessConfigRegistry, HarnessConfigSource,
+    };
+    use pierre_contremaitre::messaging_strings::{
+        MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_DISCLAIMER,
+    };
     use pierre_core::chunking::chunk_reply;
+    use pierre_core::models::SUPPORTED_LOCALES;
 
     use super::apply_text_guardrails;
 
+    const EN_COPY: &str = "EN copy from the catalogue.";
+    const FR_COPY: &str = "Copie FR du catalogue.";
+
+    /// The registries a turn reads, with the disclaimer copy overlaid the way a
+    /// contremaitre sync delivers it.
     fn registries() -> (Arc<HarnessConfigRegistry>, Arc<MessagingStringsRegistry>) {
+        let strings = MessagingStringsRegistry::new();
+        for (locale, copy) in [("en", EN_COPY), ("fr", FR_COPY)] {
+            let bundle = format!(r#"{{"messaging":{{"guardrail":{{"disclaimer":"{copy}"}}}}}}"#);
+            strings
+                .apply_bundle(locale, &bundle, "test-bundle")
+                .expect("the test bundle parses");
+        }
         (
             Arc::new(HarnessConfigRegistry::bootstrap()),
-            Arc::new(MessagingStringsRegistry::new()),
+            Arc::new(strings),
         )
+    }
+
+    /// The shipped catalogue carries the copy in every locale, so a triggered reply
+    /// is never delivered bare. The key is authored in contremaitre and reaches this
+    /// tree with the pin, so this needs the pin that carries it.
+    #[test]
+    fn the_catalogue_carries_the_disclaimer_in_every_supported_locale() {
+        let strings = MessagingStringsRegistry::new();
+        for locale in SUPPORTED_LOCALES {
+            assert!(
+                !strings
+                    .get(KEY_GUARDRAIL_DISCLAIMER, locale)
+                    .trim()
+                    .is_empty(),
+                "no disclaimer copy for {locale}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_triggered_reply_reads_the_catalogue_copy_in_its_own_language() {
+        let (harness, strings) = registries();
+
+        let english = "See a doctor about that knee.";
+        assert_eq!(
+            apply_text_guardrails(&harness, &strings, english, "en"),
+            format!("{EN_COPY}\n\n{english}")
+        );
+        let french = "Si la douleur persiste, consulte un médecin.";
+        assert_eq!(
+            apply_text_guardrails(&harness, &strings, french, "fr"),
+            format!("{FR_COPY}\n\n{french}")
+        );
+    }
+
+    /// French bread stays bread, on the path athletes actually take.
+    #[test]
+    fn an_untriggered_reply_carries_no_disclaimer() {
+        let (harness, strings) = registries();
+        let reply = "Souper : pâtes, parmesan, pain, salade.";
+
+        assert_eq!(
+            apply_text_guardrails(&harness, &strings, reply, "fr"),
+            reply
+        );
+    }
+
+    /// The trigger list falls back to English, and the copy must follow it. The
+    /// catalogue's own fallback is French, which would put a French disclaimer on a
+    /// reply matched by English words.
+    #[test]
+    fn a_locale_with_no_triggers_gets_the_english_rule_and_the_english_copy() {
+        let (harness, strings) = registries();
+        let reply = "Persistent ankle pain after training.";
+
+        assert_eq!(
+            apply_text_guardrails(&harness, &strings, reply, "it"),
+            format!("{EN_COPY}\n\n{reply}")
+        );
+    }
+
+    #[test]
+    fn missing_copy_delivers_the_reply_as_written_not_a_blank_prefix() {
+        let harness = Arc::new(HarnessConfigRegistry::bootstrap());
+        let strings = Arc::new(MessagingStringsRegistry::new());
+        strings
+            .apply_bundle(
+                "en",
+                r#"{"messaging":{"guardrail":{"disclaimer":"  "}}}"#,
+                "test-bundle",
+            )
+            .expect("the test bundle parses");
+        let reply = "See a doctor about that knee.";
+
+        assert_eq!(
+            apply_text_guardrails(&harness, &strings, reply, "en"),
+            reply
+        );
     }
 
     /// A reply past Discord's 2000-character message ceiling leaves the stage
@@ -244,9 +347,8 @@ mod tests {
     #[test]
     fn a_reply_past_a_transport_ceiling_leaves_the_pipeline_whole() {
         let (harness, strings) = registries();
-        // 20 sentences of 100 characters: past Discord's 2000, inside the
-        // default 5000-character admin guardrail, so only a transport trim could
-        // explain a shortened result.
+        // 20 sentences of 100 characters: past Discord's 2000, so a transport
+        // trim would shorten the result.
         let sentence = format!("{}. ", "a".repeat(98));
         let reply = sentence.repeat(20);
 
@@ -301,21 +403,52 @@ mod tests {
         assert_eq!(out, reply);
     }
 
-    /// The admin's `max_response_chars` policy is a different ceiling and still
-    /// bites: it is a rule about how much an agent may say, not about what a wire
-    /// will carry.
+    /// A reply well past the 5,000 characters that used to be cut reaches the
+    /// egress byte for byte: the policy is to deliver whole.
     #[test]
-    fn the_admin_length_policy_still_trims() {
+    fn the_whole_reply_is_delivered_however_long() {
         let (harness, strings) = registries();
-        let cap = harness.current_guardrails().max_response_chars;
-        let reply = "z".repeat(cap + 500);
+        let reply = "z".repeat(50_000);
+
+        let out = apply_text_guardrails(&harness, &strings, &reply, "en");
+
+        assert_eq!(out, reply, "nothing is cut at any length");
+    }
+
+    /// The length check used to return first, so an over-cap reply skipped both of
+    /// these and went out as a raw prefix with no disclaimer.
+    #[test]
+    fn a_long_reply_still_gets_its_medical_disclaimer() {
+        let (harness, strings) = registries();
+        let reply = format!("{} See a doctor about that knee.", "a".repeat(6_000));
 
         let out = apply_text_guardrails(&harness, &strings, &reply, "en");
 
         assert_eq!(
-            out.chars().count(),
-            cap,
-            "the admin cap is policy and outlives the transport trim"
+            out,
+            format!("{EN_COPY}\n\n{reply}"),
+            "the reply stays whole, under its disclaimer"
+        );
+    }
+
+    #[test]
+    fn a_long_reply_with_a_blocked_topic_is_still_refused() {
+        let (harness, strings) = registries();
+        let mut document = HarnessConfigDocument::default();
+        document.guardrails.blocked_topics = vec!["forbidden phrase".to_owned()];
+        harness.install(document, HarnessConfigSource::AdminUpdate);
+        let reply = format!("{} forbidden phrase", "a".repeat(6_000));
+
+        let out = apply_text_guardrails(&harness, &strings, &reply, "en");
+
+        assert!(
+            !out.contains("forbidden phrase"),
+            "the phrase must not reach the athlete"
+        );
+        assert_eq!(
+            out,
+            strings.get(KEY_GUARDRAIL_BLOCKED_TOPIC, "en"),
+            "the refusal replaces the reply"
         );
     }
 }

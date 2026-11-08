@@ -28,14 +28,15 @@ use std::sync::Arc;
 use arc_swap::{ArcSwap, Guard};
 use chrono::{DateTime, Utc};
 use pierre_database::backends::factory::Database;
-use serde_json::{from_str, Error as JsonError};
+use serde_json::from_str;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use pierre_core::config::CompactionConfig;
 
 use crate::harness_config_document::{
-    HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig, HarnessMemoryConfig,
-    HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
+    validate_document, HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig,
+    HarnessMemoryConfig, HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
 };
 use crate::text_guardrails::TextGuardrails;
 
@@ -97,6 +98,7 @@ pub enum HarnessReloadOutcome {
 #[derive(Debug)]
 pub struct HarnessConfigRegistry {
     snapshot: ArcSwap<HarnessConfigSnapshot>,
+    instance_nonce: String,
 }
 
 impl HarnessConfigRegistry {
@@ -143,7 +145,7 @@ impl HarnessConfigRegistry {
     /// the cognitive-complexity ceiling — the outer arm handles read /
     /// missing / error, this arm handles parse-success / parse-error.
     fn from_persisted_value(json: &str) -> Self {
-        match from_str::<HarnessConfigDocument>(json) {
+        match parse_row(json) {
             Ok(doc) => {
                 info!(
                     schema_version = doc.schema_version,
@@ -151,11 +153,9 @@ impl HarnessConfigRegistry {
                 );
                 Self::new_with(doc, HarnessConfigSource::Database)
             }
-            Err(e) => {
-                log_invalid_row(&e);
-                Self::degraded_defaults(format!(
-                    "the row does not parse ({e}); running the compiled-in defaults"
-                ))
+            Err(cause) => {
+                log_invalid_row(&cause);
+                Self::degraded_defaults(format!("{cause}; running the compiled-in defaults"))
             }
         }
     }
@@ -174,7 +174,8 @@ impl HarnessConfigRegistry {
     /// poll tick.
     ///
     /// A read failure keeps the snapshot and logs at `warn!`. A row that does
-    /// not parse keeps the values in force, marks them and logs at `error!` on
+    /// not parse, or breaks a rule a save enforces (a hand edit is the only way
+    /// to get one), keeps the values in force, marks them and logs at `error!` on
     /// every tick, so an alert stays lit until the row is fixed. Neither path
     /// reverts to defaults; only a read that finds no row does, since that is
     /// what an absent row means at boot too.
@@ -201,11 +202,11 @@ impl HarnessConfigRegistry {
                 HarnessConfigSource::Defaults,
             );
         };
-        match from_str::<HarnessConfigDocument>(&row.value) {
+        match parse_row(&row.value) {
             Ok(document) => self.settle(&before, document, HarnessConfigSource::Database),
-            Err(e) => {
-                log_invalid_row(&e);
-                self.keep_marked_invalid(&before, &e);
+            Err(cause) => {
+                log_invalid_row(&cause);
+                self.keep_marked_invalid(&before, &cause);
                 HarnessReloadOutcome::KeptOnInvalidRow
             }
         }
@@ -233,8 +234,8 @@ impl HarnessConfigRegistry {
     }
 
     /// Say on the snapshot that the row is unusable, keeping its values.
-    fn keep_marked_invalid(&self, before: &Arc<HarnessConfigSnapshot>, cause: &JsonError) {
-        let reason = format!("the row does not parse ({cause}); keeping the last good values");
+    fn keep_marked_invalid(&self, before: &Arc<HarnessConfigSnapshot>, cause: &str) {
+        let reason = format!("{cause}; keeping the last good values");
         if before.load_failure.as_deref() == Some(reason.as_str()) {
             return;
         }
@@ -251,6 +252,7 @@ impl HarnessConfigRegistry {
         let snapshot = build_snapshot(document, source);
         Self {
             snapshot: ArcSwap::from_pointee(snapshot),
+            instance_nonce: Uuid::new_v4().simple().to_string(),
         }
     }
 
@@ -289,6 +291,13 @@ impl HarnessConfigRegistry {
         self.read().verification
     }
 
+    /// A value unique to this registry, so two instances of one revision tell
+    /// apart on a screen that asks which one answered.
+    #[must_use]
+    pub fn instance_nonce(&self) -> &str {
+        &self.instance_nonce
+    }
+
     /// Replace the current snapshot with a fresh document.
     ///
     /// Called by the admin PUT handler after
@@ -324,9 +333,17 @@ fn build_snapshot(
     }
 }
 
+/// The document a stored row holds, or why it cannot be used.
+fn parse_row(json: &str) -> Result<HarnessConfigDocument, String> {
+    let document: HarnessConfigDocument =
+        from_str(json).map_err(|e| format!("the row does not parse ({e})"))?;
+    validate_document(&document).map_err(|e| format!("the row is invalid ({e})"))?;
+    Ok(document)
+}
+
 /// The line an alert matches for a row that does not parse, at boot and on
 /// every poll tick: one literal so the two paths cannot drift apart.
-fn log_invalid_row(cause: &JsonError) {
+fn log_invalid_row(cause: &str) {
     error!(error = %cause, "harness_config row is invalid");
 }
 
@@ -342,11 +359,7 @@ fn compaction_from(c: &HarnessCompactionConfig) -> CompactionConfig {
 }
 
 fn guardrails_from(g: &HarnessGuardrailsConfig) -> TextGuardrails {
-    TextGuardrails::compile(
-        g.max_response_chars as usize,
-        g.blocked_topics.clone(),
-        g.locales.clone(),
-    )
+    TextGuardrails::compile(g.blocked_topics.clone(), g.locales.clone())
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@
 //! - `endurance_workouts` — list the workout bank by purpose / phase / sport, prescribe one
 //!   (`tools-data`)
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
-//! - `memory` — agent-authored memory: notes, followups, fact recall
+//! - `memory` — agent-authored memory: fact recall
 //!   (`tools-memory`)
 //! - `physiology` — `set_physiology`, the athlete's typed measurements, and
 //!   `estimate_vo2max`, a field-test estimate for it (`tools-config`)
@@ -250,7 +250,7 @@ mod coach_scope;
 pub mod commitments;
 /// Training-plan persistence tools (get/save).
 pub mod guided_flow;
-/// Memory tools: agent-authored notes, followups, fact recall (`tools-memory` feature).
+/// Memory tools: agent-authored fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.

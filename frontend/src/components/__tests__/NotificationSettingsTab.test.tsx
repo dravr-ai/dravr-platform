@@ -150,21 +150,21 @@ describe('NotificationSettingsTab', () => {
     getPreferences.mockResolvedValue({
       user_id: 'u1',
       tenant_id: 't1',
-      preferences: [pref({ category: 'ai', quiet_hours_start: null, timezone: 'Europe/Paris' })],
+      preferences: [pref({ category: 'achievement', quiet_hours_start: null, timezone: 'Europe/Paris' })],
     });
 
     renderTab();
-    await waitFor(() => expect(screen.getByTestId('notification-pref-details-ai')).toBeTruthy());
-    await userEvent.click(screen.getByTestId('notification-pref-details-ai'));
+    await waitFor(() => expect(screen.getByTestId('notification-pref-details-achievement')).toBeTruthy());
+    await userEvent.click(screen.getByTestId('notification-pref-details-achievement'));
 
     await userEvent.selectOptions(
-      screen.getByTestId('notification-pref-quiet-start-ai') as HTMLSelectElement,
+      screen.getByTestId('notification-pref-quiet-start-achievement') as HTMLSelectElement,
       '23:00',
     );
 
     await waitFor(() => expect(updatePreference).toHaveBeenCalledTimes(1));
     expect(updatePreference.mock.calls[0][0]).toMatchObject({
-      category: 'ai',
+      category: 'achievement',
       quiet_hours_start: '23:00',
       timezone: 'Europe/Paris',
     });

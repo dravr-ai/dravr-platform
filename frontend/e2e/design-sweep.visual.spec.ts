@@ -49,7 +49,6 @@ const ADMIN_SURFACES = [
   'Platform Settings',
   TOKENS_TAB_LABEL,
   'Harness Config',
-  'Agent Notes Audit',
 ] as const;
 
 const THEMES = ['light', 'dark'] as const;

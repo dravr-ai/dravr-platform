@@ -766,9 +766,11 @@ macro_rules! impl_chat_repository {
 
             async fn get_recent_conversations_admin(
                 &self,
+                scope: AdminScope,
                 limit: i64,
             ) -> AppResult<Vec<ConversationRecord>> {
                 let rows = sqlx::query(RECENT_CONVERSATIONS_ADMIN_SQL)
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(limit)
                     .fetch_all(self.pool())
                     .await
@@ -778,8 +780,13 @@ macro_rules! impl_chat_repository {
                 rows.iter().map(conversation_from_row).collect()
             }
 
-            async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64> {
+            async fn count_active_conversations_since(
+                &self,
+                scope: AdminScope,
+                since: &str,
+            ) -> AppResult<i64> {
                 sqlx::query_scalar(COUNT_ACTIVE_SINCE_SQL)
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(instant_from_rfc3339(since)?)
                     .fetch_one(self.pool())
                     .await

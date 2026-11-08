@@ -60,6 +60,14 @@ pub trait UsageRepository: Send + Sync {
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> AppResult<Vec<ToolUsage>>;
+    /// How many requests the user's API keys made in the window, on every
+    /// endpoint. [`Self::get_top_tools_analysis`] only reads the busiest ten.
+    async fn count_api_key_requests(
+        &self,
+        user_id: Uuid,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> AppResult<u64>;
 }
 
 /// Usage counter repository for rate limiting and quota enforcement
@@ -107,23 +115,69 @@ pub trait UsageCounterRepository: Send + Sync {
     async fn delete_old_counters(&self, period_before: &str) -> AppResult<u64>;
 }
 
+/// The rows an aggregate of `llm_usage` was summed over.
+#[derive(Debug, Clone, Copy)]
+pub enum LlmUsageScope<'scope> {
+    /// Every tenant: the super-admin path.
+    AllTenants,
+    /// One tenant, by its id.
+    Tenant(&'scope str),
+    /// One user in every tenant they belong to: the super-admin path.
+    User(&'scope str),
+    /// One user's rows in one tenant.
+    UserInTenant {
+        /// The user's id.
+        user_id: &'scope str,
+        /// The tenant's id.
+        tenant_id: &'scope str,
+    },
+}
+
+impl<'scope> LlmUsageScope<'scope> {
+    /// The scope as the `(tenant_id, user_id)` pair a statement filters on,
+    /// each `None` for "any".
+    #[must_use]
+    pub const fn filters(self) -> (Option<&'scope str>, Option<&'scope str>) {
+        match self {
+            Self::AllTenants => (None, None),
+            Self::Tenant(tenant_id) => (Some(tenant_id), None),
+            Self::User(user_id) => (None, Some(user_id)),
+            Self::UserInTenant { user_id, tenant_id } => (Some(tenant_id), Some(user_id)),
+        }
+    }
+}
+
+/// The summed calls of one aggregate row on one side of a model's prompt-size
+/// threshold, from [`LlmUsageRepository::get_llm_usage_prompt_bands_since`].
+#[derive(Debug, Clone)]
+pub struct LlmUsagePromptBand {
+    /// `true` for the calls whose prompt exceeded the threshold.
+    pub long_prompt: bool,
+    /// Their summed tokens.
+    pub totals: LlmUsageAggregateRow,
+}
+
 /// LLM usage tracking repository for cost analysis and quota enforcement
 #[async_trait]
 pub trait LlmUsageRepository: Send + Sync {
     /// Insert a new LLM usage record
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
 
-    /// Query aggregated LLM usage grouped by `provider`, `model`, and `call_type`
+    /// Query aggregated LLM usage grouped by `provider`, `model`, and
+    /// `call_type`, of one tenant or, with `None`, of every tenant: the
+    /// super-admin path of the Analytics screen and the platform's cost today.
+    /// Leaves out rows that are no LLM call.
     async fn get_llm_usage_aggregates(
         &self,
-        tenant_id: &str,
+        tenant_id: Option<&str>,
         since: &str,
     ) -> AppResult<Vec<LlmUsageAggregateRow>>;
 
-    /// Query daily LLM usage time series for consumption charts
+    /// Query daily LLM usage time series for consumption charts, of one tenant
+    /// or, with `None`, of every tenant.
     async fn get_llm_usage_daily_series(
         &self,
-        tenant_id: &str,
+        tenant_id: Option<&str>,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>>;
 
@@ -146,29 +200,68 @@ pub trait LlmUsageRepository: Send + Sync {
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>>;
 
-    /// Get the most recent LLM usage records across all tenants (admin view)
-    ///
-    /// Returns the last `limit` LLM calls ordered by creation time descending.
-    /// Used by the admin real-time activity dashboard.
-    async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>>;
-
-    /// Count LLM calls created since a given timestamp (admin view, cross-tenant)
-    async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64>;
-
-    /// Fetch a tenant's LLM usage rows since `since` (RFC3339) that invoked at
-    /// least one tool, for the tool-usage admin view. Per-tool aggregation is
-    /// done in the handler (in Rust) so this stays backend-agnostic — no JSON
-    /// SQL. Rows with no tools (`tools_called == "[]"`) are excluded.
-    async fn get_tenant_tool_calls_since(
+    /// [`Self::get_llm_usage_aggregates_by_user`] for the user's rows in one tenant,
+    /// which is all a tenant's admin may read of a user who also belongs elsewhere.
+    async fn get_llm_usage_aggregates_by_user_in_tenant(
         &self,
-        tenant_id: TenantId,
+        user_id: &str,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>>;
+
+    /// [`Self::get_llm_usage_daily_series_by_user`] for the user's rows in one tenant.
+    async fn get_llm_usage_daily_series_by_user_in_tenant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>>;
+
+    /// Get the most recent LLM usage records of one tenant or, with `None`,
+    /// across all tenants (admin view)
+    ///
+    /// Returns the last `limit` LLM calls ordered by creation time descending,
+    /// leaving out rows that are no LLM call (turn summaries, direct tool calls).
+    /// Used by the admin real-time activity dashboard.
+    async fn get_recent_llm_calls_admin(
+        &self,
+        tenant_id: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<LlmUsageRecord>>;
+
+    /// [`Self::get_recent_llm_calls_admin`] for the calls made in `[start, end)`,
+    /// of one tenant or, with `None`, of every tenant, newest first: the
+    /// billing export of one month.
+    async fn get_llm_calls_between(
+        &self,
+        tenant_id: Option<&str>,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<LlmUsageRecord>>;
+
+    /// Fetch the LLM usage rows of one tenant or, with `None`, of every tenant
+    /// since `since` (RFC3339) that invoked at least one tool, for the
+    /// tool-usage admin view. Per-tool aggregation is done in the handler (in
+    /// Rust) so this stays backend-agnostic — no JSON SQL. Rows with no tools
+    /// (`tools_called == "[]"`) are excluded.
+    async fn get_tool_calls_since(
+        &self,
+        tenant_id: Option<TenantId>,
         since: &str,
     ) -> AppResult<Vec<LlmUsageRecord>>;
 
-    /// Sum LLM usage since a given timestamp (admin view, cross-tenant).
-    ///
-    /// Returns a tuple of (`total_calls`, `total_tokens`) for pricing calculations.
-    async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)>;
+    /// The calls behind one aggregate row, read in the scope the row was summed
+    /// over and summed per side of `above_prompt_tokens`: at most two rows, for
+    /// a model whose price depends on each call's own prompt. Pricing reads
+    /// these instead of every call, which grew with the window.
+    async fn get_llm_usage_prompt_bands_since(
+        &self,
+        scope: LlmUsageScope<'_>,
+        group: &LlmUsageAggregateRow,
+        since: &str,
+        above_prompt_tokens: i64,
+    ) -> AppResult<Vec<LlmUsagePromptBand>>;
 
     /// Fetch every LLM usage record attributed to the given conversation
     /// turn, ordered by `created_at` ascending.

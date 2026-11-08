@@ -1,12 +1,12 @@
 // ABOUTME: Covers the super-admin impersonation audit trail against whichever backend DATABASE_URL names
-// ABOUTME: Round-trips a session, finds it by either party, lists with every filter, and ends it one way or all at once
+// ABOUTME: Round-trips a session, finds it by either party, pages the whole log, and ends it one way or all at once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! `impersonation_sessions` records which operator acted as which user and
 //! when. Every read the admin handlers make — the active session for a
-//! caller, one session by id, the filtered list — has to work on both
+//! caller, one session by id, a page of the log — has to work on both
 //! backends, and the ids that key those reads are `uuid` columns on
 //! `PostgreSQL` and `TEXT` on `SQLite`.
 //!
@@ -15,8 +15,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_database::repositories::SessionCursor;
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -168,66 +170,70 @@ async fn end_all_sessions_counts_only_the_operators_open_ones() {
     );
 }
 
+/// The log pages newest first by `(started_at, id)`, so two sessions that
+/// started in the same instant on either side of a page boundary both appear,
+/// and every session is reachable, however many there are.
 #[tokio::test]
-async fn list_sessions_honours_every_filter() {
+async fn the_session_log_pages_through_every_session_with_no_gap_at_a_tied_start() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let operator = fresh_user(repos).await;
-    let other_operator = fresh_user(repos).await;
     let target = fresh_user(repos).await;
-    let other_target = fresh_user(repos).await;
 
-    let ended = ImpersonationSession::new(operator, target, Some("ended".to_owned()));
-    repos.impersonation.create_session(&ended).await.unwrap();
-    repos.impersonation.end_session(&ended.id).await.unwrap();
-    let open = ImpersonationSession::new(operator, other_target, Some("open".to_owned()));
-    repos.impersonation.create_session(&open).await.unwrap();
-    let foreign = ImpersonationSession::new(other_operator, target, Some("foreign".to_owned()));
-    repos.impersonation.create_session(&foreign).await.unwrap();
+    let tied_at = Utc.with_ymd_and_hms(2026, 9, 27, 9, 0, 0).unwrap();
+    let mut written = Vec::new();
+    for (n, started_at) in [
+        tied_at - Duration::minutes(5),
+        tied_at,
+        tied_at,
+        tied_at,
+        tied_at + Duration::minutes(5),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let session = ImpersonationSession {
+            id: format!("imp-page-{n}-{}", Uuid::new_v4()),
+            started_at,
+            created_at: started_at,
+            ..ImpersonationSession::new(operator, target, None)
+        };
+        repos.impersonation.create_session(&session).await.unwrap();
+        written.push(session.id);
+    }
 
-    let by_operator = repos
-        .impersonation
-        .list_sessions(Some(operator), None, false, 100)
-        .await
-        .unwrap();
-    let mut ids: Vec<&str> = by_operator.iter().map(|s| s.id.as_str()).collect();
-    ids.sort_unstable();
-    let mut expected = vec![ended.id.as_str(), open.id.as_str()];
+    let mut seen = Vec::new();
+    let mut cursor: Option<SessionCursor> = None;
+    loop {
+        let page = repos
+            .impersonation
+            .list_sessions_page(cursor.as_ref(), 2)
+            .await
+            .unwrap();
+        let mine: Vec<_> = page
+            .iter()
+            .filter(|s| s.impersonator_id == operator)
+            .map(|s| s.id.clone())
+            .collect();
+        seen.extend(mine);
+        let Some(last) = page.last() else { break };
+        cursor = Some(SessionCursor {
+            started_at: last.started_at,
+            id: last.id.clone(),
+        });
+        if page.len() < 2 {
+            break;
+        }
+    }
+
+    let mut expected = written.clone();
     expected.sort_unstable();
-    assert_eq!(ids, expected, "the operator filter keeps both of theirs");
-
-    let by_target = repos
-        .impersonation
-        .list_sessions(None, Some(target), false, 100)
-        .await
-        .unwrap();
-    let mut ids: Vec<&str> = by_target.iter().map(|s| s.id.as_str()).collect();
-    ids.sort_unstable();
-    let mut expected = vec![ended.id.as_str(), foreign.id.as_str()];
-    expected.sort_unstable();
-    assert_eq!(ids, expected, "the target filter keeps both against them");
-
-    let open_only = repos
-        .impersonation
-        .list_sessions(Some(operator), None, true, 100)
-        .await
-        .unwrap();
-    assert_eq!(open_only.len(), 1);
-    assert_eq!(open_only[0].id, open.id, "active_only drops the ended one");
-
-    let both = repos
-        .impersonation
-        .list_sessions(Some(operator), Some(target), false, 100)
-        .await
-        .unwrap();
-    assert_eq!(both.len(), 1);
-    assert_eq!(both[0].id, ended.id, "both filters narrow to the one pair");
-
-    let capped = repos
-        .impersonation
-        .list_sessions(Some(operator), None, false, 1)
-        .await
-        .unwrap();
-    assert_eq!(capped.len(), 1, "limit caps the page");
-    assert_eq!(capped[0].id, open.id, "newest first");
+    let mut got = seen.clone();
+    got.sort_unstable();
+    assert_eq!(
+        got, expected,
+        "bug: every session must be reachable, the tied ones included"
+    );
+    assert_eq!(seen.first(), written.last(), "newest first");
+    assert_eq!(seen.last(), written.first(), "oldest last");
 }

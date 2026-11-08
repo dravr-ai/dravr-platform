@@ -38,6 +38,8 @@ use chrono::{DateTime, NaiveDate, NaiveTime, SubsecRound, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 
+use super::LlmUsagePromptBand;
+
 /// Allowed grouping dimensions for LLM consumption aggregation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmUsageGroupBy {
@@ -123,9 +125,10 @@ macro_rules! llm_usage_token_sums {
 pub(crate) use llm_usage_token_sums;
 
 /// Totals per `(provider, model, call_type)` for one scope since `$2`,
-/// heaviest first; turn-summary calls carry no tokens and are left out so
-/// they do not inflate `calls`. `$scope` is the column the scope binds to:
-/// `tenant_id` or `user_id`.
+/// heaviest first; turn-summary rows and direct tool rows ($3 and $4) are no LLM
+/// call and carry no tokens, so they are left out and do not inflate `calls`.
+/// `$scope` is the predicate on `$1` (and `$5`) that picks the rows: a tenant
+/// or every tenant, a user, or a user's rows in one tenant.
 macro_rules! llm_usage_aggregates_sql {
     ($scope:literal) => {
         concat!(
@@ -135,23 +138,29 @@ macro_rules! llm_usage_aggregates_sql {
             " FROM llm_usage \
               WHERE ",
             $scope,
-            " = $1 AND created_at >= $2 AND call_type != $3 \
+            " AND created_at >= $2 AND call_type != $3 AND call_type != $4 \
               GROUP BY provider, model, call_type \
               ORDER BY total_tokens DESC"
         )
     };
 }
 
-/// A tenant's totals per `(provider, model, call_type)` since `$2`.
-pub(crate) const LLM_USAGE_AGGREGATES_SQL: &str = llm_usage_aggregates_sql!("tenant_id");
+/// A tenant's totals per `(provider, model, call_type)` since `$2`; every
+/// tenant's when `$1` binds `NULL`, the super-admin path.
+pub(crate) const LLM_USAGE_AGGREGATES_SQL: &str =
+    llm_usage_aggregates_sql!("($1 IS NULL OR tenant_id = $1)");
 
 /// A user's totals per `(provider, model, call_type)` since `$2`.
-pub(crate) const LLM_USAGE_AGGREGATES_BY_USER_SQL: &str = llm_usage_aggregates_sql!("user_id");
+pub(crate) const LLM_USAGE_AGGREGATES_BY_USER_SQL: &str = llm_usage_aggregates_sql!("user_id = $1");
+
+/// A user's totals in one tenant (`$5`) per `(provider, model, call_type)` since `$2`.
+pub(crate) const LLM_USAGE_AGGREGATES_BY_USER_IN_TENANT_SQL: &str =
+    llm_usage_aggregates_sql!("tenant_id = $5 AND user_id = $1");
 
 /// Totals per UTC calendar day for one scope since `$2`, oldest first, with
-/// the same turn-summary exclusion as the aggregates. `$day` is the
-/// engine's spelling of a row's UTC day as `YYYY-MM-DD` text; `$scope` is
-/// `tenant_id` or `user_id`. Postgres averages an integer column as
+/// the same exclusions as the aggregates. `$day` is the
+/// engine's spelling of a row's UTC day as `YYYY-MM-DD` text; `$scope` is the
+/// predicate on `$1` (and `$5`), as in [`llm_usage_aggregates_sql`]. Postgres averages an integer column as
 /// `NUMERIC`, so the average is cast to a double on both.
 macro_rules! llm_usage_daily_series_sql {
     ($day:literal, $scope:literal) => {
@@ -165,7 +174,7 @@ macro_rules! llm_usage_daily_series_sql {
               FROM llm_usage \
               WHERE ",
             $scope,
-            " = $1 AND created_at >= $2 AND call_type != $3 \
+            " AND created_at >= $2 AND call_type != $3 AND call_type != $4 \
               GROUP BY ",
             $day,
             " ORDER BY date ASC"
@@ -174,20 +183,37 @@ macro_rules! llm_usage_daily_series_sql {
 }
 pub(crate) use llm_usage_daily_series_sql;
 
-/// The most recent `$1` calls across every tenant, newest first.
+/// The most recent `$4` LLM calls of tenant `$1`, or of every tenant when it
+/// binds `NULL`, newest first, leaving out the turn-summary and direct tool rows
+/// ($2 and $3), which are no LLM call.
 pub(crate) const RECENT_LLM_CALLS_SQL: &str = concat!(
     "SELECT ",
     llm_usage_columns!(),
-    " FROM llm_usage ORDER BY created_at DESC LIMIT $1"
+    " FROM llm_usage WHERE ($1 IS NULL OR tenant_id = $1) \
+      AND call_type != $2 AND call_type != $3 \
+      ORDER BY created_at DESC LIMIT $4"
 );
 
-/// A tenant's calls since `$2` that invoked at least one tool, newest
-/// first. Per-tool aggregation happens in the handler, so no JSON SQL.
-pub(crate) const TENANT_TOOL_CALLS_SINCE_SQL: &str = concat!(
+/// [`RECENT_LLM_CALLS_SQL`] for the calls made in `[$2, $3)`, newest first, of
+/// tenant `$1` or of every tenant when it binds `NULL`: one month of the
+/// billing export. The bounds bind as instants, as [`since_bound`] explains.
+pub(crate) const LLM_CALLS_BETWEEN_SQL: &str = concat!(
+    "SELECT ",
+    llm_usage_columns!(),
+    " FROM llm_usage WHERE ($1 IS NULL OR tenant_id = $1) \
+      AND created_at >= $2 AND created_at < $3 \
+      AND call_type != $4 AND call_type != $5 \
+      ORDER BY created_at DESC LIMIT $6"
+);
+
+/// Calls since `$2` that invoked at least one tool, of tenant `$1` or of every
+/// tenant when it binds `NULL`, newest first. Per-tool aggregation happens in
+/// the handler, so no JSON SQL.
+pub(crate) const TOOL_CALLS_SINCE_SQL: &str = concat!(
     "SELECT ",
     llm_usage_columns!(),
     " FROM llm_usage \
-      WHERE tenant_id = $1 AND created_at >= $2 AND tools_called <> '[]' \
+      WHERE ($1 IS NULL OR tenant_id = $1) AND created_at >= $2 AND tools_called <> '[]' \
       ORDER BY created_at DESC"
 );
 
@@ -200,14 +226,27 @@ pub(crate) const LLM_USAGE_BY_TURN_SQL: &str = concat!(
       ORDER BY call_sequence ASC NULLS LAST, created_at ASC"
 );
 
-/// How many calls landed since `$1`, across every tenant.
-pub(crate) const COUNT_LLM_CALLS_SINCE_SQL: &str =
-    "SELECT CAST(COUNT(*) AS BIGINT) AS calls FROM llm_usage WHERE created_at >= $1";
-
-/// Calls and tokens since `$1`, across every tenant.
-pub(crate) const SUM_LLM_USAGE_SINCE_SQL: &str = "SELECT CAST(COUNT(*) AS BIGINT) AS calls, \
-            CAST(COALESCE(SUM(total_tokens), 0) AS BIGINT) AS total_tokens \
-     FROM llm_usage WHERE created_at >= $1";
+/// The calls behind one aggregate row, summed per side of a prompt-size
+/// threshold, for a model whose price depends on each call's own prompt.
+///
+/// `$1` and `$2` are the scope: a tenant and a user, each `NULL` for "any", so
+/// one statement serves every [`LlmUsageScope`](super::LlmUsageScope). `$3` is
+/// the largest prompt that still bills on the base card; `long_prompt` is 1 for
+/// the calls above it. The band is computed in a subquery so both engines group
+/// by the same column rather than by a repeated expression.
+pub(crate) const LLM_USAGE_PROMPT_BANDS_SQL: &str = concat!(
+    "SELECT provider, model, call_type, long_prompt, \
+            CAST(COALESCE(SUM(total_tokens), 0) AS BIGINT) AS total_tokens, ",
+    llm_usage_token_sums!(),
+    " FROM (SELECT provider, model, call_type, total_tokens, prompt_tokens, \
+                   completion_tokens, cached_tokens, cached_write_tokens, \
+                   cached_write_1h_tokens, reasoning_tokens, \
+                   CAST(CASE WHEN prompt_tokens > $3 THEN 1 ELSE 0 END AS BIGINT) AS long_prompt \
+            FROM llm_usage \
+            WHERE ($1 IS NULL OR tenant_id = $1) AND ($2 IS NULL OR user_id = $2) \
+              AND created_at >= $4 AND provider = $5 AND model = $6 AND call_type = $7) banded \
+      GROUP BY provider, model, call_type, long_prompt"
+);
 
 /// The error a column that will not decode surfaces as, named after the
 /// column so a corrupt row is locatable from the message.
@@ -244,6 +283,26 @@ where
         cached_write_1h_tokens: count("cached_write_1h_tokens")?,
         reasoning_tokens: count("reasoning_tokens")?,
         calls: count("calls")?,
+    })
+}
+
+/// One row of [`LLM_USAGE_PROMPT_BANDS_SQL`].
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn prompt_band_from_row<R>(row: &R) -> AppResult<LlmUsagePromptBand>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let long_prompt: i64 = row
+        .try_get("long_prompt")
+        .map_err(|e| llm_usage_column_error("long_prompt", e))?;
+    Ok(LlmUsagePromptBand {
+        long_prompt: long_prompt != 0,
+        totals: aggregate_from_row(row)?,
     })
 }
 
@@ -424,13 +483,14 @@ macro_rules! impl_llm_usage_repository {
 
             async fn get_llm_usage_aggregates(
                 &self,
-                tenant_id: &str,
+                tenant_id: Option<&str>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageAggregateRow>> {
                 sqlx::query(LLM_USAGE_AGGREGATES_SQL)
                     .bind(tenant_id)
                     .bind(since_bound(since)?)
                     .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -443,21 +503,25 @@ macro_rules! impl_llm_usage_repository {
 
             async fn get_llm_usage_daily_series(
                 &self,
-                tenant_id: &str,
+                tenant_id: Option<&str>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageDailyRow>> {
-                sqlx::query(llm_usage_daily_series_sql!($day, "tenant_id"))
-                    .bind(tenant_id)
-                    .bind(since_bound(since)?)
-                    .bind(TURN_SUMMARY_CALL_TYPE)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to query LLM usage daily series: {e}"))
-                    })?
-                    .iter()
-                    .map(daily_from_row)
-                    .collect()
+                sqlx::query(llm_usage_daily_series_sql!(
+                    $day,
+                    "($1 IS NULL OR tenant_id = $1)"
+                ))
+                .bind(tenant_id)
+                .bind(since_bound(since)?)
+                .bind(TURN_SUMMARY_CALL_TYPE)
+                .bind(DIRECT_TOOL_CALL_TYPE)
+                .fetch_all(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to query LLM usage daily series: {e}"))
+                })?
+                .iter()
+                .map(daily_from_row)
+                .collect()
             }
 
             async fn get_llm_usage_aggregates_by_user(
@@ -469,6 +533,7 @@ macro_rules! impl_llm_usage_repository {
                     .bind(user_id)
                     .bind(since_bound(since)?)
                     .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -486,10 +551,11 @@ macro_rules! impl_llm_usage_repository {
                 user_id: &str,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageDailyRow>> {
-                sqlx::query(llm_usage_daily_series_sql!($day, "user_id"))
+                sqlx::query(llm_usage_daily_series_sql!($day, "user_id = $1"))
                     .bind(user_id)
                     .bind(since_bound(since)?)
                     .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -502,11 +568,66 @@ macro_rules! impl_llm_usage_repository {
                     .collect()
             }
 
+            async fn get_llm_usage_aggregates_by_user_in_tenant(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+                sqlx::query(LLM_USAGE_AGGREGATES_BY_USER_IN_TENANT_SQL)
+                    .bind(user_id)
+                    .bind(since_bound(since)?)
+                    .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
+                    .bind(tenant_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to query LLM usage aggregates by user: {e}"
+                        ))
+                    })?
+                    .iter()
+                    .map(aggregate_from_row)
+                    .collect()
+            }
+
+            async fn get_llm_usage_daily_series_by_user_in_tenant(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageDailyRow>> {
+                sqlx::query(llm_usage_daily_series_sql!(
+                    $day,
+                    "tenant_id = $5 AND user_id = $1"
+                ))
+                .bind(user_id)
+                .bind(since_bound(since)?)
+                .bind(TURN_SUMMARY_CALL_TYPE)
+                .bind(DIRECT_TOOL_CALL_TYPE)
+                .bind(tenant_id)
+                .fetch_all(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!(
+                        "Failed to query LLM usage daily series by user: {e}"
+                    ))
+                })?
+                .iter()
+                .map(daily_from_row)
+                .collect()
+            }
+
             async fn get_recent_llm_calls_admin(
                 &self,
+                tenant_id: Option<&str>,
                 limit: i64,
             ) -> AppResult<Vec<LlmUsageRecord>> {
                 sqlx::query(RECENT_LLM_CALLS_SQL)
+                    .bind(tenant_id)
+                    .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
                     .bind(limit)
                     .fetch_all(self.pool())
                     .await
@@ -518,13 +639,37 @@ macro_rules! impl_llm_usage_repository {
                     .collect()
             }
 
-            async fn get_tenant_tool_calls_since(
+            async fn get_llm_calls_between(
                 &self,
-                tenant_id: TenantId,
+                tenant_id: Option<&str>,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+                limit: i64,
+            ) -> AppResult<Vec<LlmUsageRecord>> {
+                sqlx::query(LLM_CALLS_BETWEEN_SQL)
+                    .bind(tenant_id)
+                    .bind(start)
+                    .bind(end)
+                    .bind(TURN_SUMMARY_CALL_TYPE)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to query LLM usage rows: {e}"))
+                    })?
+                    .iter()
+                    .map(llm_usage_record_from_row)
+                    .collect()
+            }
+
+            async fn get_tool_calls_since(
+                &self,
+                tenant_id: Option<TenantId>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageRecord>> {
-                sqlx::query(TENANT_TOOL_CALLS_SINCE_SQL)
-                    .bind(tenant_id.to_string())
+                sqlx::query(TOOL_CALLS_SINCE_SQL)
+                    .bind(tenant_id.map(|t| t.to_string()))
                     .bind(since_bound(since)?)
                     .fetch_all(self.pool())
                     .await
@@ -536,28 +681,30 @@ macro_rules! impl_llm_usage_repository {
                     .collect()
             }
 
-            async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
-                let row = sqlx::query(COUNT_LLM_CALLS_SINCE_SQL)
+            async fn get_llm_usage_prompt_bands_since(
+                &self,
+                scope: LlmUsageScope<'_>,
+                group: &LlmUsageAggregateRow,
+                since: &str,
+                above_prompt_tokens: i64,
+            ) -> AppResult<Vec<LlmUsagePromptBand>> {
+                let (tenant_id, user_id) = scope.filters();
+                sqlx::query(LLM_USAGE_PROMPT_BANDS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(above_prompt_tokens)
                     .bind(since_bound(since)?)
-                    .fetch_one(self.pool())
+                    .bind(&group.provider)
+                    .bind(&group.model)
+                    .bind(&group.call_type)
+                    .fetch_all(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to count LLM calls: {e}")))?;
-                row.try_get("calls")
-                    .map_err(|e| llm_usage_column_error("calls", e))
-            }
-
-            async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)> {
-                let row = sqlx::query(SUM_LLM_USAGE_SINCE_SQL)
-                    .bind(since_bound(since)?)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to sum LLM usage: {e}")))?;
-                Ok((
-                    row.try_get("calls")
-                        .map_err(|e| llm_usage_column_error("calls", e))?,
-                    row.try_get("total_tokens")
-                        .map_err(|e| llm_usage_column_error("total_tokens", e))?,
-                ))
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to query LLM usage bands: {e}"))
+                    })?
+                    .iter()
+                    .map(prompt_band_from_row)
+                    .collect()
             }
 
             async fn find_llm_usage_by_turn_id(

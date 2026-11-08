@@ -1897,50 +1897,6 @@ async fn an_external_callers_notification_writes_run_under_commeres_rules() {
         body.to_string().contains("Invalid category"),
         "over the session: {body}"
     );
-
-    // A schedule's type must be one the scheduler composes.
-    let unknown = serde_json::json!({
-        "notification_type": "anything at all",
-        "schedule_cron": "0 7 * * *",
-    });
-    let (status, body) =
-        send_json(&app, "POST", "/api/notifications/scheduled", &key, &unknown).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.to_string().contains("cannot be scheduled"), "{body}");
-    let (status, created) = send_json(
-        &app,
-        "POST",
-        "/api/notifications/scheduled",
-        &session,
-        &unknown,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{created}");
-
-    // A schedule moved to a cron that never fires is refused.
-    let reminder = serde_json::json!({
-        "notification_type": "workout_reminder",
-        "schedule_cron": "0 7 * * *",
-    });
-    let (status, scheduled) = send_json(
-        &app,
-        "POST",
-        "/api/notifications/scheduled",
-        &key,
-        &reminder,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{scheduled}");
-    let never = serde_json::json!({ "schedule_cron": "0 0 30 2 *" });
-    let uri = format!(
-        "/api/notifications/scheduled/{}",
-        scheduled["id"].as_str().expect("schedule id")
-    );
-    let (status, body) = send_json(&app, "PUT", &uri, &key, &never).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.to_string().contains("never fires"), "{body}");
-    let (status, body) = send_json(&app, "PUT", &uri, &session, &never).await;
-    assert_eq!(status, StatusCode::OK, "over the session: {body}");
 }
 
 /// An external caller's unread count leaves out first-party-only rows, as

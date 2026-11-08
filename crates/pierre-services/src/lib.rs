@@ -124,10 +124,6 @@ pub mod tenant_chat_provider;
 /// progressive streaming.
 pub mod chat_stream;
 
-/// Agent followup scheduler — periodically dispatches notifications when
-/// pending followups become overdue and marks them delivered.
-pub mod agent_followup_scheduler;
-
 /// Per-agent content grading derived from claim verdict history
 pub mod agent_grading;
 
@@ -173,10 +169,6 @@ pub mod default_agent;
 /// The rule table that picks the agents beside an athlete's lead
 /// (carnet#1097).
 pub mod team_rules;
-
-/// Admin browser over pierre-evals golden fixtures
-#[cfg(feature = "tools-verification")]
-pub mod eval_harness;
 
 /// Garmin push ingest: each stored batch's records written to Dravr's stores (carnet#1155)
 pub mod garmin_push;

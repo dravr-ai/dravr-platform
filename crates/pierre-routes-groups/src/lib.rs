@@ -8,8 +8,8 @@
 //!
 //! Hosts the `/api/groups/*` and `/api/notifications/*` REST endpoints:
 //! group CRUD / membership / invites / analytics, device-token
-//! registration, notification preferences, the notification feed and
-//! scheduled notifications, plus the background weekly-digest scheduler.
+//! registration, notification preferences and the notification feed, plus
+//! the background weekly-digest scheduler.
 //!
 //! The route group is generic over [`pierre_runtime_context::GroupsCtx`]
 //! (for the notification service, group service, and admin-config reads)

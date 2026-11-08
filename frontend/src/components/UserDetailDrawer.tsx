@@ -16,7 +16,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -31,7 +31,6 @@ export default function UserDetailDrawer({
   onClose,
   onAction
 }: UserDetailDrawerProps) {
-  const { language } = useTranslation();
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [overrideEditing, setOverrideEditing] = useState(false);
@@ -296,16 +295,16 @@ export default function UserDetailDrawer({
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-on-surface-variant">Registered</span>
-                <p className="font-medium text-on-surface">{formatDateTime(user.created_at, language)}</p>
+                <p className="font-medium text-on-surface">{formatDateTime(user.created_at, ADMIN_LOCALE)}</p>
               </div>
               <div>
                 <span className="text-on-surface-variant">Last Active</span>
-                <p className="font-medium text-on-surface">{user.last_active ? formatDateTime(user.last_active, language) : 'Never'}</p>
+                <p className="font-medium text-on-surface">{user.last_active ? formatDateTime(user.last_active, ADMIN_LOCALE) : 'Never'}</p>
               </div>
               {user.approved_at && (
                 <div>
                   <span className="text-on-surface-variant">Approved</span>
-                  <p className="font-medium text-on-surface">{formatDateTime(user.approved_at, language)}</p>
+                  <p className="font-medium text-on-surface">{formatDateTime(user.approved_at, ADMIN_LOCALE)}</p>
                 </div>
               )}
               {user.approved_by && (
@@ -343,7 +342,7 @@ export default function UserDetailDrawer({
                         : adminProfile.manages_roster_operator_grant
                           ? `Can coach a group (granted by an operator ${formatDateTime(
                               adminProfile.manages_roster_operator_grant.granted_at,
-                              language,
+                              ADMIN_LOCALE,
                             )})`
                           : 'Can coach a group (TrainingPeaks coach account)'}
                     </p>
@@ -411,7 +410,7 @@ export default function UserDetailDrawer({
                     />
                   </div>
                   <p className="text-xs text-outline mt-1">
-                    Resets: {formatDateTime(rateLimit.reset_times.monthly_reset, language)}
+                    Resets: {formatDateTime(rateLimit.reset_times.monthly_reset, ADMIN_LOCALE)}
                   </p>
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">
@@ -535,7 +534,7 @@ export default function UserDetailDrawer({
             ) : activity ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-on-surface-variant">Total Requests</span>
+                  <span className="text-on-surface-variant">API-key requests</span>
                   <span className="text-2xl font-bold text-on-surface">
                     {activity.total_requests.toLocaleString()}
                   </span>

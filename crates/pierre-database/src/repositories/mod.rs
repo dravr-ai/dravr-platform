@@ -34,6 +34,8 @@ pub(crate) mod agent_rows;
 pub mod agents;
 /// The one `AgentsRepository` body, emitted per backend.
 pub(crate) mod agents_backend;
+/// The inherent helpers the `AgentsRepository` bodies share, emitted per backend.
+pub(crate) mod agents_helpers_backend;
 /// The fork and delete bodies of `AgentsRepository`, emitted per backend.
 pub(crate) mod agents_lifecycle_backend;
 /// Shared statements, row decode and body for API-key and JWT usage accounting both backends serve.
@@ -87,6 +89,8 @@ pub mod data_source;
 pub mod delegated_connections;
 /// Shared statements and body for email-verification tokens.
 pub mod email_verification_tokens;
+/// Repository trait and body for the admin Engagement screen's scoped reads.
+pub mod engagement;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
 pub mod feature_flags;
 /// Repository trait, statements and body for the external sign-in identities each account is reached by.
@@ -278,7 +282,7 @@ pub use activity_streams::*;
 pub use admin::*;
 pub use admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
-    NewAuditEvent, AUDIT_PAGE_MAX,
+    NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
 };
 pub use agent_artefacts::*;
 pub use agents::*;
@@ -299,6 +303,7 @@ pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
 pub use data_source::*;
 pub use delegated_connections::*;
+pub use engagement::EngagementRepository;
 pub use feature_flags::*;
 pub use federated_identities::FederatedIdentityRepository;
 pub use feedback_messages::{

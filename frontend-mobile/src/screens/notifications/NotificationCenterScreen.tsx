@@ -23,8 +23,6 @@ import {
   MessageCircle,
   Trophy,
   Settings,
-  Brain,
-  Clock,
 } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
 import {
@@ -51,8 +49,6 @@ const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = 
   coach: MessageCircle,
   achievement: Trophy,
   system: Settings,
-  ai: Brain,
-  reminders: Clock,
 };
 
 interface NotificationSection {

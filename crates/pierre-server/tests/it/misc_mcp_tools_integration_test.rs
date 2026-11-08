@@ -1,14 +1,13 @@
 // ABOUTME: Integration tests for misc MCP tool handlers driven through UniversalToolExecutor
-// ABOUTME: Covers agent_note_add, agent_followup_schedule, remember_fact, recall_user_memory, verify_claim, analyze_weather_impact
+// ABOUTME: Covers remember_fact, recall_user_memory, verify_claim, analyze_weather_impact
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Misc Tool Handler Integration Tests
 //!
-//! Tests the 6 remaining MCP tools that previously had only schema/registry
+//! Tests the 4 remaining MCP tools that previously had only schema/registry
 //! coverage:
-//! - `agent_note_add`, `agent_followup_schedule` — agent-authored memory writes
 //! - `remember_fact`, `recall_user_memory` — Letta-style active memory
 //! - `verify_claim` — bullshit detector
 //! - `analyze_weather_impact` — weather-correlation analytics (provider-gated)
@@ -100,33 +99,6 @@ fn assert_tenant_refused(err: &ProtocolError, tool: &str) {
     }
 }
 
-/// Seed a real agent so agent-note / agent-followup tests have a valid
-/// `agent_id` for the FK constraint to be satisfied.
-async fn seed_agent(
-    executor: &UniversalToolExecutor,
-    user_id: Uuid,
-    tenant_id: &str,
-    title: &str,
-) -> Result<String> {
-    let resp = executor
-        .execute_tool(make_request(
-            "create_agent",
-            json!({
-                "title": title,
-                "system_prompt": "test coach system prompt",
-                "category": "training",
-            }),
-            user_id,
-            Some(tenant_id),
-        ))
-        .await?;
-    assert!(resp.success, "seed_coach must succeed: {:?}", resp.error);
-    Ok(resp.result.unwrap()["id"]
-        .as_str()
-        .expect("created coach must have id")
-        .to_owned())
-}
-
 // ============================================================================
 // Registration sanity
 // ============================================================================
@@ -142,8 +114,6 @@ async fn test_misc_tools_registered() -> Result<()> {
         .map(|n| (*n).to_owned())
         .collect();
     for expected in [
-        "agent_note_add",
-        "agent_followup_schedule",
         "remember_fact",
         "recall_user_memory",
         "verify_claim",
@@ -154,174 +124,6 @@ async fn test_misc_tools_registered() -> Result<()> {
             "tool registry missing {expected}"
         );
     }
-    Ok(())
-}
-
-// ============================================================================
-// agent_note_add
-// ============================================================================
-
-#[tokio::test]
-async fn test_agent_note_add_happy_path() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
-    let agent_id = seed_agent(&executor, user_id, &tenant, "Note Coach").await?;
-
-    let resp = executor
-        .execute_tool(make_request(
-            "agent_note_add",
-            json!({
-                "content": "User prefers no scientific jargon when discussing zones.",
-                "agent_id": agent_id,
-            }),
-            user_id,
-            Some(&tenant),
-        ))
-        .await?;
-    assert!(
-        resp.success,
-        "agent_note_add should succeed: {:?}",
-        resp.error
-    );
-    let result = resp.result.unwrap();
-    assert!(result["note_id"].is_string() || result["note_id"].is_number());
-    assert!(result["created_at"].as_str().is_some());
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_agent_note_add_empty_content() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
-
-    let err = executor
-        .execute_tool(make_request(
-            "agent_note_add",
-            json!({
-                "content": "   ",
-                "agent_id": "test-coach-1",
-            }),
-            user_id,
-            Some(&tenant),
-        ))
-        .await
-        .expect_err("empty content must be rejected");
-    assert_invalid_request(&err, "agent_note_add");
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_agent_note_add_missing_agent_id() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
-
-    let err = executor
-        .execute_tool(make_request(
-            "agent_note_add",
-            json!({ "content": "without coach_id" }),
-            user_id,
-            Some(&tenant),
-        ))
-        .await
-        .expect_err("missing coach_id must be rejected");
-    assert_invalid_request(&err, "agent_note_add");
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_agent_note_add_rejects_no_tenant() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
-
-    let err = executor
-        .execute_tool(make_request(
-            "agent_note_add",
-            json!({
-                "content": "x",
-                "agent_id": "test-coach-1",
-            }),
-            user_id,
-            None,
-        ))
-        .await
-        .expect_err("no-tenant call must be rejected");
-    assert_tenant_refused(&err, "agent_note_add");
-    Ok(())
-}
-
-// ============================================================================
-// agent_followup_schedule
-// ============================================================================
-
-#[tokio::test]
-async fn test_agent_followup_schedule_happy_path() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
-    let agent_id = seed_agent(&executor, user_id, &tenant, "Followup Coach").await?;
-
-    let resp = executor
-        .execute_tool(make_request(
-            "agent_followup_schedule",
-            json!({
-                "content": "check on Achilles pain after long run",
-                "agent_id": agent_id,
-                "due_at": "2026-06-15T10:00:00Z",
-            }),
-            user_id,
-            Some(&tenant),
-        ))
-        .await?;
-    assert!(
-        resp.success,
-        "agent_followup_schedule should succeed: {:?}",
-        resp.error
-    );
-    let result = resp.result.unwrap();
-    assert_eq!(result["status"].as_str().unwrap(), "pending");
-    assert!(result["due_at"].as_str().is_some());
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_agent_followup_schedule_invalid_due_at() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
-
-    let err = executor
-        .execute_tool(make_request(
-            "agent_followup_schedule",
-            json!({
-                "content": "x",
-                "agent_id": "test-coach-1",
-                "due_at": "not-a-real-date",
-            }),
-            user_id,
-            Some(&tenant),
-        ))
-        .await
-        .expect_err("invalid due_at must be rejected");
-    assert_invalid_request(&err, "agent_followup_schedule");
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_agent_followup_schedule_rejects_no_tenant() -> Result<()> {
-    let executor = create_misc_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
-
-    let err = executor
-        .execute_tool(make_request(
-            "agent_followup_schedule",
-            json!({
-                "content": "x",
-                "agent_id": "test-coach-1",
-            }),
-            user_id,
-            None,
-        ))
-        .await
-        .expect_err("no-tenant call must be rejected");
-    assert_tenant_refused(&err, "agent_followup_schedule");
     Ok(())
 }
 

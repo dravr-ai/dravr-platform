@@ -239,7 +239,7 @@ test.describe('Text never paints over text', () => {
   test('the admin activity rows at 1024', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
-    await page.route('**/api/admin/analytics/recent-activity', (route) =>
+    await page.route('**/api/admin/analytics/recent-activity**', (route) =>
       route.fulfill(
         json({
           recent_llm_calls: ['language_classification', 'compaction_summary'].map((call_type, index) => ({
@@ -256,7 +256,7 @@ test.describe('Text never paints over text', () => {
             created_at: NOW,
           })),
           recent_conversations: [],
-          summary: { active_conversations: 1, llm_calls_today: 2, total_tokens_today: 256800, estimated_cost_today: 2.5 },
+          summary: { active_conversations: 1, llm_calls_today: 2, total_tokens_today: 256800, cost_today_usd: 2.5 },
         }),
       ),
     );
@@ -282,7 +282,8 @@ test.describe('Text never paints over text', () => {
     );
     await loginToDashboard(page);
     await go(page, 'users');
-    await page.getByRole('button', { name: /Nouveaux comptes/ }).click();
+    // The admin console is English in a French session too.
+    await page.getByRole('button', { name: /New users/ }).click();
     const funnel = page.getByTestId('new-users-funnel');
     await expect(funnel).toBeVisible({ timeout: 15000 });
     const escaped = await funnel.locator(':scope > div').evaluateAll((tiles) =>

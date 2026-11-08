@@ -1,4 +1,4 @@
-// ABOUTME: The one HarnessMemoryRepository body both backends emit: compaction blocks, user facts, agent notes, followups, sessions
+// ABOUTME: The one HarnessMemoryRepository body both backends emit: compaction blocks, user facts, sessions
 // ABOUTME: Statements as $n consts, row parsers generic over sqlx::Row, the impl block from one macro per backend type
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -35,8 +35,8 @@
 mod rows;
 
 pub(crate) use rows::{
-    agent_followup_from_row, agent_note_from_row, agent_session_from_row,
-    compaction_block_from_row, user_fact_from_row, user_fact_metrics_from_rows,
+    agent_session_from_row, compaction_block_from_row, user_fact_from_row,
+    user_fact_metrics_from_rows,
 };
 
 /// Persist one compaction block.
@@ -229,7 +229,8 @@ pub(crate) const EXPIRE_ONBOARDING_FACTS_SQL: &str = r"
                AND (valid_until IS NULL OR valid_until > $1)
             ";
 
-/// A tenant's fact totals and recency counters in one pass.
+/// A tenant's fact totals and recency counters in one pass; every tenant's
+/// when `$3` binds `NULL`, the super-admin path.
 pub(crate) const COUNT_USER_FACTS_SQL: &str = r"
             SELECT
                 COUNT(*)                                          AS total,
@@ -238,110 +239,15 @@ pub(crate) const COUNT_USER_FACTS_SQL: &str = r"
                 SUM(CASE WHEN updated_at >= $2 THEN 1 ELSE 0 END) AS last_7d,
                 MAX(updated_at)                                   AS newest_updated_at
             FROM user_facts
-            WHERE tenant_id = $3
+            WHERE ($3 IS NULL OR tenant_id = $3)
             ";
 
-/// A tenant's fact count per kind.
+/// A tenant's fact count per kind; every tenant's when `$1` binds `NULL`.
 pub(crate) const COUNT_USER_FACTS_BY_KIND_SQL: &str = r"
             SELECT kind, COUNT(*) AS c
             FROM user_facts
-            WHERE tenant_id = $1
+            WHERE ($1 IS NULL OR tenant_id = $1)
             GROUP BY kind
-            ";
-
-/// Insert a note; `$8` is both `created_at` and `updated_at`.
-pub(crate) const INSERT_AGENT_NOTE_SQL: &str = r"
-            INSERT INTO agent_notes (
-                id, tenant_id, user_id, agent_id, conversation_id,
-                scope, content, created_at, updated_at, first_party_only
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
-            ";
-
-/// An agent's unsuppressed notes about a user, newest first.
-///
-/// Recall never sees a suppressed note again; the audit surface reads them
-/// through [`LIST_AGENT_NOTES_FOR_TENANT_SQL`] so an admin can un-suppress.
-pub(crate) const LIST_AGENT_NOTES_SQL: &str = r"
-            SELECT * FROM agent_notes
-            WHERE tenant_id = $1
-              AND user_id = $2
-              AND agent_id = $3
-              AND suppressed = FALSE
-              AND (first_party_only = FALSE OR $5)
-            ORDER BY created_at DESC
-            LIMIT $4
-            ";
-
-/// Every note in a tenant, suppressed ones included, newest first.
-pub(crate) const LIST_AGENT_NOTES_FOR_TENANT_SQL: &str = r"
-            SELECT * FROM agent_notes
-            WHERE tenant_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2
-            ";
-
-/// Flip a note's suppression.
-///
-/// Only a row whose state differs is touched, which makes the call
-/// idempotent and lets `rows_affected` answer whether anything changed
-/// without a read.
-pub(crate) const SET_AGENT_NOTE_SUPPRESSED_SQL: &str = r"
-            UPDATE agent_notes
-            SET suppressed = $1,
-                suppressed_at = CASE WHEN $1 THEN $2 ELSE NULL END,
-                suppressed_by = CASE WHEN $1 THEN $3 ELSE NULL END,
-                updated_at = $2
-            WHERE id = $4 AND tenant_id = $5 AND suppressed != $1
-            ";
-
-/// Insert a pending followup; `$8` is both `created_at` and `updated_at`.
-pub(crate) const INSERT_AGENT_FOLLOWUP_SQL: &str = r"
-            INSERT INTO agent_followups (
-                id, tenant_id, user_id, agent_id, conversation_id,
-                content, due_at, status, created_at, updated_at, first_party_only
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $9)
-            ";
-
-/// An agent's pending followups for a user, soonest due first.
-pub(crate) const LIST_PENDING_FOLLOWUPS_SQL: &str = r"
-            SELECT * FROM agent_followups
-            WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND status = 'pending'
-            ORDER BY due_at ASC NULLS LAST, created_at ASC
-            ";
-
-/// A tenant's pending followups, soonest due first.
-pub(crate) const LIST_PENDING_FOLLOWUPS_FOR_TENANT_SQL: &str = r"
-            SELECT * FROM agent_followups
-            WHERE tenant_id = $1 AND status = 'pending'
-            ORDER BY due_at ASC NULLS LAST, created_at ASC
-            LIMIT $2
-            ";
-
-/// Deliver a pending followup; `$1` is both `delivered_at` and `updated_at`.
-pub(crate) const MARK_FOLLOWUP_DELIVERED_SQL: &str = r"
-            UPDATE agent_followups
-            SET status = 'delivered', delivered_at = $1, updated_at = $1
-            WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
-            ";
-
-/// Pending followups whose due time has passed, across tenants, soonest
-/// first: the scheduler's sweep.
-pub(crate) const LIST_DUE_FOLLOWUPS_SQL: &str = r"
-            SELECT * FROM agent_followups
-            WHERE status = 'pending'
-              AND due_at IS NOT NULL
-              AND due_at <= $1
-            ORDER BY due_at ASC
-            LIMIT $2
-            ";
-
-/// Cancel a pending followup.
-pub(crate) const CANCEL_FOLLOWUP_SQL: &str = r"
-            UPDATE agent_followups
-            SET status = 'cancelled', updated_at = $1
-            WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
             ";
 
 /// The newest active session between an agent and a user.
@@ -788,9 +694,9 @@ macro_rules! impl_harness_memory_repository {
 
             async fn count_user_facts_metrics(
                 &self,
-                tenant_id: TenantId,
+                scope: AdminScope,
             ) -> AppResult<UserFactMetrics> {
-                let tenant = tenant_id.to_string();
+                let tenant = scope.tenant_filter().map(|t| t.to_string());
                 let now = Utc::now();
                 let cutoff_24h = now - chrono::Duration::hours(24);
                 let cutoff_7d = now - chrono::Duration::days(7);
@@ -812,230 +718,6 @@ macro_rules! impl_harness_memory_repository {
                     })?;
 
                 user_fact_metrics_from_rows(&aggregates, &kind_rows)
-            }
-
-            async fn insert_agent_note(
-                &self,
-                params: &InsertAgentNoteParams<'_>,
-            ) -> AppResult<AgentNote> {
-                let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
-
-                sqlx::query(INSERT_AGENT_NOTE_SQL)
-                    .bind(&id)
-                    .bind(params.tenant_id.to_string())
-                    .bind(params.user_id)
-                    .bind(params.agent_id)
-                    .bind(params.conversation_id)
-                    .bind(params.scope.as_str())
-                    .bind(params.content)
-                    .bind(now)
-                    .bind(params.transport_policy.is_first_party_only())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to insert coach note: {e}")))?;
-
-                Ok(AgentNote {
-                    id,
-                    tenant_id: params.tenant_id.to_string(),
-                    user_id: params.user_id.to_owned(),
-                    agent_id: params.agent_id.to_owned(),
-                    conversation_id: params.conversation_id.map(ToOwned::to_owned),
-                    scope: params.scope,
-                    content: params.content.to_owned(),
-                    created_at: now,
-                    updated_at: now,
-                    suppressed: false,
-                    transport_policy: params.transport_policy,
-                })
-            }
-
-            async fn list_agent_notes(
-                &self,
-                tenant_id: TenantId,
-                user_id: &str,
-                agent_id: &str,
-                limit: i64,
-                readable: TransportPolicy,
-            ) -> AppResult<Vec<AgentNote>> {
-                let rows = sqlx::query(LIST_AGENT_NOTES_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(user_id)
-                    .bind(agent_id)
-                    .bind(limit)
-                    .bind(readable.is_first_party_only())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to list coach notes: {e}")))?;
-
-                rows.iter().map(agent_note_from_row).collect()
-            }
-
-            async fn list_agent_notes_for_tenant(
-                &self,
-                tenant_id: TenantId,
-                limit: i64,
-            ) -> AppResult<Vec<AgentNote>> {
-                let rows = sqlx::query(LIST_AGENT_NOTES_FOR_TENANT_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(limit)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list coach notes for tenant: {e}"))
-                    })?;
-
-                rows.iter().map(agent_note_from_row).collect()
-            }
-
-            async fn set_agent_note_suppressed(
-                &self,
-                note_id: &str,
-                tenant_id: TenantId,
-                suppressed: bool,
-                actor: &str,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(SET_AGENT_NOTE_SUPPRESSED_SQL)
-                    .bind(suppressed)
-                    .bind(Utc::now())
-                    .bind(actor)
-                    .bind(note_id)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to set coach note suppressed: {e}"))
-                    })?;
-
-                Ok(result.rows_affected() > 0)
-            }
-
-            async fn insert_agent_followup(
-                &self,
-                params: &InsertAgentFollowupParams<'_>,
-            ) -> AppResult<AgentFollowup> {
-                let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
-
-                sqlx::query(INSERT_AGENT_FOLLOWUP_SQL)
-                    .bind(&id)
-                    .bind(params.tenant_id.to_string())
-                    .bind(params.user_id)
-                    .bind(params.agent_id)
-                    .bind(params.conversation_id)
-                    .bind(params.content)
-                    .bind(params.due_at)
-                    .bind(now)
-                    .bind(params.transport_policy.is_first_party_only())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to insert coach followup: {e}"))
-                    })?;
-
-                Ok(AgentFollowup {
-                    id,
-                    tenant_id: params.tenant_id.to_string(),
-                    user_id: params.user_id.to_owned(),
-                    agent_id: params.agent_id.to_owned(),
-                    conversation_id: params.conversation_id.map(ToOwned::to_owned),
-                    content: params.content.to_owned(),
-                    due_at: params.due_at,
-                    status: FollowupStatus::Pending,
-                    created_at: now,
-                    updated_at: now,
-                    delivered_at: None,
-                    transport_policy: params.transport_policy,
-                })
-            }
-
-            async fn list_pending_followups(
-                &self,
-                tenant_id: TenantId,
-                user_id: &str,
-                agent_id: &str,
-            ) -> AppResult<Vec<AgentFollowup>> {
-                let rows = sqlx::query(LIST_PENDING_FOLLOWUPS_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(user_id)
-                    .bind(agent_id)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list pending followups: {e}"))
-                    })?;
-
-                rows.iter().map(agent_followup_from_row).collect()
-            }
-
-            async fn list_pending_followups_for_tenant(
-                &self,
-                tenant_id: TenantId,
-                limit: i64,
-            ) -> AppResult<Vec<AgentFollowup>> {
-                let rows = sqlx::query(LIST_PENDING_FOLLOWUPS_FOR_TENANT_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(limit)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to list pending followups for tenant: {e}"
-                        ))
-                    })?;
-
-                rows.iter().map(agent_followup_from_row).collect()
-            }
-
-            async fn mark_followup_delivered(
-                &self,
-                followup_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(MARK_FOLLOWUP_DELIVERED_SQL)
-                    .bind(Utc::now())
-                    .bind(followup_id)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to mark followup delivered: {e}"))
-                    })?;
-
-                Ok(result.rows_affected() > 0)
-            }
-
-            async fn list_due_followups(
-                &self,
-                now: DateTime<Utc>,
-                limit: i64,
-            ) -> AppResult<Vec<AgentFollowup>> {
-                let rows = sqlx::query(LIST_DUE_FOLLOWUPS_SQL)
-                    .bind(now)
-                    .bind(limit)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list due followups: {e}"))
-                    })?;
-
-                rows.iter().map(agent_followup_from_row).collect()
-            }
-
-            async fn cancel_followup(
-                &self,
-                followup_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(CANCEL_FOLLOWUP_SQL)
-                    .bind(Utc::now())
-                    .bind(followup_id)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to cancel followup: {e}")))?;
-
-                Ok(result.rows_affected() > 0)
             }
 
             async fn get_or_open_agent_session(

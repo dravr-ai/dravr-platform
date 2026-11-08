@@ -24,16 +24,18 @@ use pierre_auth::auth::AuthResult;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use pierre_core::errors::AppError;
+use pierre_core::admin::scope::AdminScope;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::{
     ConversationTurnLlmCall, ConversationTurnSummary, LlmUsageAggregateRow, LlmUsageDailyRow,
     LlmUsageRecord,
 };
 use pierre_core::models::{ConversationTurnId, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_database::repositories::llm_usage::LlmUsageGroupBy;
+use pierre_database::repositories::LlmUsageScope;
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{tenant::require, MiddlewareCtx, TenantMode};
-use pierre_services::pricing::cost_for_aggregate;
+use pierre_runtime_context::{analytics_read_scope, tenant::require, MiddlewareCtx, TenantMode};
+use pierre_services::pricing::costs_of_usage_groups;
 
 /// Minimum days parameter value
 const MIN_DAYS: u16 = 1;
@@ -49,7 +51,7 @@ pub struct LlmConsumptionQuery {
     pub days: Option<u16>,
     /// Grouping dimension: `provider`, `model`, or `call_type`
     pub group_by: Option<String>,
-    /// Tenant ID (admin endpoint only)
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
     pub tenant_id: Option<String>,
 }
 
@@ -97,6 +99,8 @@ pub struct DailyConsumptionPoint {
 /// Full response for LLM consumption analytics
 #[derive(Debug, Serialize)]
 pub struct LlmConsumptionResponse {
+    /// The tenants these numbers cover.
+    pub scope: AdminScope,
     /// Aggregated summary for the entire period
     pub summary: ConsumptionSummary,
     /// Breakdown by `provider`/`model`/`call_type`
@@ -134,6 +138,8 @@ pub struct ToolUsageSummary {
 /// Response for `GET /admin/tool-usage`.
 #[derive(Debug, Serialize)]
 pub struct ToolUsageResponse {
+    /// The tenants these numbers cover.
+    pub scope: AdminScope,
     /// Window summary.
     pub summary: ToolUsageSummary,
     /// Per-tool breakdown, most-used first.
@@ -188,22 +194,22 @@ impl LlmConsumptionRoutes {
     /// Build the response from aggregate and daily data
     fn build_response(
         aggregates: &[LlmUsageAggregateRow],
+        costs: &[f64],
         daily: Vec<LlmUsageDailyRow>,
         group_by: Option<LlmUsageGroupBy>,
+        scope: AdminScope,
     ) -> LlmConsumptionResponse {
-        // Calculate per-row costs and build breakdown
+        // Build the breakdown; `costs` is per row of `aggregates`.
         let breakdown: Vec<ConsumptionBreakdownItem> = aggregates
             .iter()
-            .map(|row| {
-                let cost = cost_for_aggregate(row);
-                ConsumptionBreakdownItem {
-                    provider: row.provider.clone(),
-                    model: row.model.clone(),
-                    call_type: row.call_type.clone(),
-                    total_tokens: row.total_tokens,
-                    calls: row.calls,
-                    cost_usd: cost,
-                }
+            .zip(costs)
+            .map(|(row, cost)| ConsumptionBreakdownItem {
+                provider: row.provider.clone(),
+                model: row.model.clone(),
+                call_type: row.call_type.clone(),
+                total_tokens: row.total_tokens,
+                calls: row.calls,
+                cost_usd: *cost,
             })
             .collect();
 
@@ -217,14 +223,14 @@ impl LlmConsumptionRoutes {
         // Calculate summary totals
         let total_tokens = aggregates.iter().map(|r| r.total_tokens).sum();
         let total_calls = aggregates.iter().map(|r| r.calls).sum();
-        let estimated_cost_usd: f64 = aggregates.iter().map(cost_for_aggregate).sum();
+        let estimated_cost_usd: f64 = costs.iter().sum();
 
         // Build daily series with proportional cost estimates from aggregate totals
         // (daily rows lack provider/model, so per-token pricing can't be applied directly)
         let daily_series: Vec<DailyConsumptionPoint> = daily
             .into_iter()
             .map(|d| {
-                let day_cost = estimate_daily_cost(aggregates, d.tokens, total_tokens);
+                let day_cost = estimate_daily_cost(estimated_cost_usd, d.tokens, total_tokens);
                 DailyConsumptionPoint {
                     date: d.date,
                     tokens: d.tokens,
@@ -243,6 +249,7 @@ impl LlmConsumptionRoutes {
         // worse, rounding on each add so sub-cent contributions never summed
         // into a visible total.
         LlmConsumptionResponse {
+            scope,
             summary: ConsumptionSummary {
                 total_tokens,
                 total_calls,
@@ -259,41 +266,15 @@ impl LlmConsumptionRoutes {
         auth: AuthenticatedUser,
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
-        // Authenticate as admin (must have valid admin credentials)
         let auth = auth.into_inner();
-        let user_tenant_id = primary_tenant_for_user(&auth, &resources).await?;
+        let scope = analytics_read_scope(&resources, &auth, params.tenant_id.as_deref(), || {
+            AppError::new(
+                ErrorCode::PermissionDenied,
+                "Admin role required for consumption analytics",
+            )
+        })
+        .await?;
 
-        // Verify the calling user has admin privileges by checking their role
-        let role = resources
-            .repos()
-            .tenants
-            .get_user_role(auth.user_id, user_tenant_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
-        match role.as_deref() {
-            Some("admin" | "owner") => {}
-            _ => {
-                return Err(AppError::auth_invalid(
-                    "Admin role required for consumption analytics",
-                ));
-            }
-        }
-
-        // Admin can only view their own tenant's data (tenant isolation)
-        let target_tenant_id = if let Some(ref tid) = params.tenant_id {
-            let parsed = TenantId::parse_str(tid)
-                .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
-            if parsed != user_tenant_id {
-                return Err(AppError::auth_invalid(
-                    "Cannot query consumption data for other tenants",
-                ));
-            }
-            parsed
-        } else {
-            user_tenant_id
-        };
-
-        let tenant_id_str = target_tenant_id.to_string();
         let days = params.days.unwrap_or(DEFAULT_DAYS);
         let since = Self::compute_since(days);
         let group_by = params
@@ -301,23 +282,26 @@ impl LlmConsumptionRoutes {
             .as_deref()
             .and_then(LlmUsageGroupBy::from_str_param);
 
-        let aggregates = resources
-            .repos()
-            .llm_usage
-            .get_llm_usage_aggregates(&tenant_id_str, &since)
+        let usage = &resources.repos().llm_usage;
+        let tenant_text = scope.tenant_filter().map(|t| t.to_string());
+        let aggregates = usage
+            .get_llm_usage_aggregates(tenant_text.as_deref(), &since)
             .await?;
-        let daily = resources
-            .repos()
-            .llm_usage
-            .get_llm_usage_daily_series(&tenant_id_str, &since)
+        let daily = usage
+            .get_llm_usage_daily_series(tenant_text.as_deref(), &since)
             .await?;
 
-        let response = Self::build_response(&aggregates, daily, group_by);
+        let usage_scope = tenant_text
+            .as_deref()
+            .map_or(LlmUsageScope::AllTenants, LlmUsageScope::Tenant);
+        let costs = costs_of_usage_groups(usage.as_ref(), usage_scope, &aggregates, &since).await?;
+
+        let response = Self::build_response(&aggregates, &costs, daily, group_by, scope);
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
     /// `GET /admin/tool-usage` — per-tool invocation breakdown for the caller's
-    /// tenant over the last `days` (default 30). Aggregates the persisted
+    /// scope over the last `days` (default 30). Aggregates the persisted
     /// `llm_usage.tools_called` so operators see which agent tools actually run
     /// and how often, complementing the per-turn structured logs.
     async fn get_admin_tool_usage<C: MiddlewareCtx>(
@@ -326,36 +310,13 @@ impl LlmConsumptionRoutes {
         Query(params): Query<LlmConsumptionQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let user_tenant_id = primary_tenant_for_user(&auth, &resources).await?;
-
-        let role = resources
-            .repos()
-            .tenants
-            .get_user_role(auth.user_id, user_tenant_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
-        match role.as_deref() {
-            Some("admin" | "owner") => {}
-            _ => {
-                return Err(AppError::auth_invalid(
-                    "Admin role required for tool-usage analytics",
-                ))
-            }
-        }
-
-        // Tenant isolation: admins may only query their own tenant.
-        let target_tenant_id = if let Some(ref tid) = params.tenant_id {
-            let parsed = TenantId::parse_str(tid)
-                .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
-            if parsed != user_tenant_id {
-                return Err(AppError::auth_invalid(
-                    "Cannot query tool-usage data for other tenants",
-                ));
-            }
-            parsed
-        } else {
-            user_tenant_id
-        };
+        let scope = analytics_read_scope(&resources, &auth, params.tenant_id.as_deref(), || {
+            AppError::new(
+                ErrorCode::PermissionDenied,
+                "Admin role required for tool-usage analytics",
+            )
+        })
+        .await?;
 
         let days = params
             .days
@@ -363,13 +324,12 @@ impl LlmConsumptionRoutes {
             .clamp(MIN_DAYS, MAX_DAYS);
         let since = Self::compute_since(days);
 
-        let rows = resources
-            .repos()
-            .llm_usage
-            .get_tenant_tool_calls_since(target_tenant_id, &since)
+        let usage = &resources.repos().llm_usage;
+        let rows = usage
+            .get_tool_calls_since(scope.tenant_filter(), &since)
             .await?;
 
-        let response = Self::build_tool_usage_response(&rows, days);
+        let response = Self::build_tool_usage_response(&rows, days, scope);
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
@@ -378,7 +338,11 @@ impl LlmConsumptionRoutes {
     /// One row is one LLM call; its `tools_called` may name several tools, and
     /// `execution_time_ms` is the call's latency (attributed to each tool it
     /// invoked — latency is measured per call, not per tool).
-    fn build_tool_usage_response(rows: &[LlmUsageRecord], days: u16) -> ToolUsageResponse {
+    fn build_tool_usage_response(
+        rows: &[LlmUsageRecord],
+        days: u16,
+        scope: AdminScope,
+    ) -> ToolUsageResponse {
         let mut invocations: HashMap<String, i64> = HashMap::new();
         let mut latency_sum: HashMap<String, i64> = HashMap::new();
         let mut latency_n: HashMap<String, i64> = HashMap::new();
@@ -429,6 +393,7 @@ impl LlmConsumptionRoutes {
         breakdown.sort_by_key(|item| Reverse(item.invocation_count));
 
         ToolUsageResponse {
+            scope,
             summary: ToolUsageSummary {
                 total_invocations,
                 unique_tools,
@@ -677,14 +642,9 @@ fn merge_breakdown_by_group(
 }
 
 /// Estimate daily cost proportionally from aggregate totals
-fn estimate_daily_cost(
-    aggregates: &[LlmUsageAggregateRow],
-    day_tokens: i64,
-    total_tokens: i64,
-) -> f64 {
+fn estimate_daily_cost(total_cost: f64, day_tokens: i64, total_tokens: i64) -> f64 {
     if total_tokens == 0 || day_tokens == 0 {
         return 0.0;
     }
-    let total_cost: f64 = aggregates.iter().map(cost_for_aggregate).sum();
     total_cost * (day_tokens as f64 / total_tokens as f64)
 }

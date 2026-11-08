@@ -290,14 +290,9 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
 # appuser ownership through the merge.
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
-# commands/ and the eval fixtures are source files, so they come from the build
-# context, which the builder stage copied them from under the same .dockerignore.
+# commands/ is source files, so it comes from the build context, which the
+# builder stage copied it from under the same .dockerignore.
 COPY --link --chown=1001:1001 commands /app/commands
-# Eval harness golden fixtures — admin /admin/evals/fixtures browser walks
-# this directory at runtime. PIERRE_EVALS_FIXTURES_DIR (set below) points
-# the runtime at this baked-in path so the route returns real data instead
-# of the empty fallback when the workspace tree isn't present.
-COPY --link --chown=1001:1001 crates/pierre-evals/fixtures /app/fixtures
 COPY --link --chown=1001:1001 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY --link --chown=1001:1001 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
 
@@ -315,10 +310,6 @@ ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
-# Eval harness fixtures location (see COPY above). The route resolves
-# this env var first; absent or pointing at a missing dir falls back to
-# the workspace-relative default and logs a single warn (no Slack page).
-ENV PIERRE_EVALS_FIXTURES_DIR=/app/fixtures
 
 # Expose ports
 EXPOSE 8080 8081

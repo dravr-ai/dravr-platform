@@ -11,6 +11,7 @@ import {
   formatNotificationTime,
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
+  displayNotificationCategory,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
@@ -34,10 +35,11 @@ export function NotificationRow({ item, onPress, onLongPress }: NotificationRowP
   const { scheme } = useTheme();
   const { t, language } = useTranslation();
   const isUnread = !item.read_at;
-  const meta = NOTIFICATION_CATEGORY_META[item.category];
+  const category = displayNotificationCategory(item.category);
+  const meta = NOTIFICATION_CATEGORY_META[category];
   // The word is text, not the web panel's 8px dot, so it takes the hue for
   // the athlete's own scheme.
-  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][item.category];
+  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][category];
   const collapsedLabel = formatCollapsedCount(item.collapsed_count, t, language);
 
   return (

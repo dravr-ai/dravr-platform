@@ -9,7 +9,7 @@
 //! A group's human coach opens one thread per coached athlete from Group
 //! info. Every turn in it is about that athlete, never about the coach who
 //! writes it, so prompt assembly skips the sender's own context — their
-//! connected providers, dossier, playbooks, notes, followups, commitments and
+//! connected providers, dossier, playbooks, commitments and
 //! plan — and runs this stage in its place.
 //!
 //! The coaching gates run again on every turn
@@ -30,7 +30,7 @@
 //!   ([`linked_wellness`]); without the grant, that only the athlete shares
 //!   it, and where.
 //!
-//! Never their dossier, memory, notes, followups or commitments, and never
+//! Never their dossier, memory or commitments, and never
 //! another member's data. The plan block that follows (stage 7f.2) is the
 //! athlete's too: the coach's draft over their live weeks, or their live
 //! season ([`GrantedSubject::plan_shown`]).

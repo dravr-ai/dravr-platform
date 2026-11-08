@@ -91,7 +91,6 @@ describe('Dashboard super-admin tabs', () => {
     auth.role = 'admin';
     const adminView = await act(async () => renderDashboard());
     expect(await screen.findByTestId('users-tab')).toBeInTheDocument();
-    expect(screen.queryByText('shell.navHarnessConfig')).toBeNull();
     expect(screen.queryByText('Harness Config')).toBeNull();
     adminView.unmount();
 
@@ -100,7 +99,7 @@ describe('Dashboard super-admin tabs', () => {
       renderDashboard();
     });
     await waitFor(() =>
-      expect(screen.queryByText('Harness Config') ?? screen.queryByText('shell.navHarnessConfig')).not.toBeNull(),
+      expect(screen.queryByText('Harness Config')).not.toBeNull(),
     );
   });
 

@@ -661,17 +661,6 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
-    // Start agent followup scheduler (polls agent_followups every 60 seconds)
-    {
-        use pierre_mcp_server::start_followup_scheduler;
-        start_followup_scheduler(
-            Arc::clone(&resources.common.repos.memory),
-            #[cfg(feature = "client-notifications")]
-            resources.common.notification_service.clone(),
-            Arc::clone(&resources.common.repos.worker_runs),
-        );
-    }
-
     // Start the short-link sweeper (deletes expired reconnect/connect links
     // every few hours). The shortener mints a row per link and the chat
     // reconnect path mints on every expired-session turn by design, so without

@@ -9,7 +9,7 @@ import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -40,7 +40,6 @@ function getReasonLabel(reason: string): string {
 }
 
 export default function RejectedCoachesList() {
-  const { language } = useTranslation();
   // Fetch rejected agents
   const { data, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminStore.rejected(),
@@ -134,7 +133,7 @@ export default function RejectedCoachesList() {
                           {getReasonLabel(coach.rejection_reason)}
                         </span>
                         <span className="text-xs text-outline flex-shrink-0">
-                          {formatDateTime(coach.rejected_at, language)}
+                          {formatDateTime(coach.rejected_at, ADMIN_LOCALE)}
                         </span>
                       </div>
                       {coach.rejection_notes && (

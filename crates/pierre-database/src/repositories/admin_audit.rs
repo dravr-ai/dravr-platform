@@ -143,8 +143,13 @@ pub struct AuditEventRecord {
 pub struct AuditEventFilter {
     /// Only this tenant's rows (a tenant-scoped reader always sets it).
     pub tenant_id: Option<String>,
-    /// Only rows strictly older than this instant: the next page's cursor.
+    /// The page cursor's instant: the previous page's last `occurred_at`. Alone
+    /// it selects the rows strictly older; with [`Self::before_id`] it also
+    /// keeps the rows of that same instant that sort after the cursor's id.
     pub before: Option<DateTime<Utc>>,
+    /// The page cursor's id: the previous page's last row, which orders the
+    /// rows sharing [`Self::before`]'s instant.
+    pub before_id: Option<String>,
     /// Only actions starting with this text (`user.`, `DELETE`).
     pub action_prefix: Option<String>,
     /// Only this outcome.
@@ -172,6 +177,31 @@ pub trait AdminAuditRepository: Send + Sync {
     /// Returns a database error when the read fails or a row does not decode.
     async fn list(&self, filter: &AuditEventFilter, limit: u32)
         -> AppResult<Vec<AuditEventRecord>>;
+
+    /// `true` when `actor` already has a row of this read on the trail since
+    /// `since`: the same action, on the same route, with the same summary,
+    /// which names the scope the read covered. A tenant-less row only, as
+    /// every recorded read is.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails.
+    async fn has_recent_read(&self, read: &RecentReadKey<'_>) -> AppResult<bool>;
+}
+
+/// What makes two recorded reads the same access, for
+/// [`AdminAuditRepository::has_recent_read`].
+#[derive(Debug, Clone, Copy)]
+pub struct RecentReadKey<'read> {
+    /// The operator who read.
+    pub actor_user_id: Uuid,
+    /// The action key the row carries.
+    pub action: &'read str,
+    /// The route template the read came through.
+    pub route: &'read str,
+    /// The row's summary, which names the scope.
+    pub summary: &'read str,
+    /// The oldest row that still counts.
+    pub since: DateTime<Utc>,
 }
 
 /// Append one row. `severity` is the column the table was born with; the
@@ -183,8 +213,10 @@ pub(crate) const INSERT_AUDIT_EVENT_SQL: &str = r"
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
-/// The filtered page, newest first, with the actor's email while the account
-/// exists. Each `$n IS NULL OR …` leaves a filter open when it binds NULL; the
+/// The filtered page, newest first by `(timestamp, id)`, with the actor's
+/// email while the account exists. The cursor is a keyset on that pair, so a
+/// row sharing the previous page's last instant is never skipped; with no id
+/// (`$7` NULL) it reads the rows strictly older. Each `$n IS NULL OR …` leaves a filter open when it binds NULL; the
 /// action prefix is an [`action_prefix_pattern`], escaped with `\`.
 pub(crate) const LIST_AUDIT_EVENTS_SQL: &str = r"
             SELECT a.id, a.timestamp, a.event_type, a.message, a.result, a.source,
@@ -192,12 +224,27 @@ pub(crate) const LIST_AUDIT_EVENTS_SQL: &str = r"
             FROM audit_events a
             LEFT JOIN users u ON u.id = a.user_id
             WHERE ($1 IS NULL OR a.tenant_id = $1)
-              AND ($2 IS NULL OR a.timestamp < $2)
+              AND ($2 IS NULL OR a.timestamp < $2 OR (a.timestamp = $2 AND a.id < $7))
               AND ($3 IS NULL OR a.event_type LIKE $3 ESCAPE '\')
               AND ($4 IS NULL OR a.result = $4)
               AND ($5 IS NULL OR a.user_id = $5)
             ORDER BY a.timestamp DESC, a.id DESC
             LIMIT $6
+            ";
+
+/// One row of the same read by the same operator since `$5`, if there is one.
+/// `->>` reads the route out of the metadata the same way on both engines
+/// (`JSONB` on Postgres, JSON text on `SQLite`).
+pub(crate) const HAS_RECENT_READ_SQL: &str = r"
+            SELECT 1 AS hit
+            FROM audit_events
+            WHERE user_id = $1
+              AND event_type = $2
+              AND message = $3
+              AND metadata ->> 'route' = $4
+              AND timestamp >= $5
+              AND tenant_id IS NULL
+            LIMIT 1
             ";
 
 /// The severity column's value for an outcome.
@@ -275,6 +322,7 @@ macro_rules! impl_admin_audit_repository {
                     .bind(filter.outcome.map(AuditOutcome::as_str))
                     .bind($ids::bind_opt(filter.actor_user_id))
                     .bind(i64::from(limit.clamp(1, AUDIT_PAGE_MAX)))
+                    .bind(filter.before_id.as_deref())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -310,6 +358,21 @@ macro_rules! impl_admin_audit_repository {
                         })
                     })
                     .collect()
+            }
+
+            async fn has_recent_read(&self, read: &RecentReadKey<'_>) -> AppResult<bool> {
+                let hit = sqlx::query(HAS_RECENT_READ_SQL)
+                    .bind($ids::bind(read.actor_user_id))
+                    .bind(read.action)
+                    .bind(read.summary)
+                    .bind(read.route)
+                    .bind(read.since)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the audit trail: {e}"))
+                    })?;
+                Ok(hit.is_some())
             }
         }
     };

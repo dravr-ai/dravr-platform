@@ -105,7 +105,6 @@ SURFACES=(
   "crates/pierre-services/src/messaging_outbound.rs|outbound retry worker"
   # Timers that fan out to many athletes or groups at once.
   "crates/pierre-services/src/notification_digest_scheduler.rs|notification digest scheduler"
-  "crates/pierre-services/src/agent_followup_scheduler.rs|agent follow-up scheduler"
   "crates/pierre-routes-groups/src/group_digest_scheduler.rs|group digest scheduler"
   "crates/pierre-server/src/services/group_chat_poster.rs|group chat poster"
 )

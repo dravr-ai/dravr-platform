@@ -19,77 +19,33 @@ async function setupEngagementMocks(
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: 'admin' });
 
-  // Mock system agents endpoint (used by the agent leaderboard)
-  await page.route('**/api/admin/agents', async (route) => {
-    if (!hasData) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
-      });
-      return;
-    }
-
+  // Mock the engagement endpoint: every figure, computed by the server in one scope.
+  // Five users: two active today, one this week, one this month, one dormant.
+  await page.route('**/api/admin/engagement*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        agents: [
-          { id: 'c1', title: 'Marathon Coach', category: 'running', token_count: 15000, description: 'Marathon training' },
-          { id: 'c2', title: 'Recovery Advisor', category: 'recovery', token_count: 8500, description: 'Recovery guidance' },
-          { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', token_count: 5200, description: 'Meal planning' },
-        ],
-        total: 3,
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      }),
-    });
-  });
-
-  // Mock all users endpoint (used for engagement tiers)
-  await page.route('**/api/admin/users*', async (route) => {
-    if (!hasData) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
-      });
-      return;
-    }
-
-    const now = Date.now();
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        message: 'Retrieved users',
-        data: {
-          users: [
-            { id: '1', email: 'active1@test.com', last_active: new Date(now - 3600000).toISOString() },
-            { id: '2', email: 'active2@test.com', last_active: new Date(now - 7200000).toISOString() },
-            { id: '3', email: 'weekly@test.com', last_active: new Date(now - 3 * 86400000).toISOString() },
-            { id: '4', email: 'monthly@test.com', last_active: new Date(now - 15 * 86400000).toISOString() },
-            { id: '5', email: 'dormant@test.com', last_active: new Date(now - 60 * 86400000).toISOString() },
-          ],
-          total: 5,
-          has_more: false,
-        },
-      }),
-    });
-  });
-
-  // Mock store stats
-  await page.route('**/api/admin/store/stats', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        pending_count: 0,
-        published_count: hasData ? 5 : 0,
-        rejected_count: 0,
-        total_installs: 0,
-        rejection_rate: 0,
-      }),
+      body: JSON.stringify(
+        hasData
+          ? {
+              scope: { kind: 'tenant', tenant_id: '00000000-0000-0000-0000-000000000001' },
+              users: { total: 5, daily: 2, weekly: 3, monthly: 4, dormant: 1 },
+              total_agents: 3,
+              published_agents: 5,
+              leaderboard: [
+                { id: 'c1', title: 'Marathon Coach', category: 'running', use_count: 40 },
+                { id: 'c2', title: 'Recovery Advisor', category: 'recovery', use_count: 25 },
+                { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', use_count: 3 },
+              ],
+            }
+          : {
+              scope: { kind: 'tenant', tenant_id: '00000000-0000-0000-0000-000000000001' },
+              users: { total: 0, daily: 0, weekly: 0, monthly: 0, dormant: 0 },
+              total_agents: 0,
+              published_agents: 0,
+              leaderboard: [],
+            },
+      ),
     });
   });
 }
@@ -113,7 +69,7 @@ test.describe('Engagement Tab - Header and Controls', () => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Time Range:')).toBeVisible();
+    await expect(page.getByText('Requests over:')).toBeVisible();
 
     // Use button role to target only the pill buttons, avoiding "Requests (7 Days)" label
     await expect(page.getByRole('button', { name: '7 Days' })).toBeVisible();
@@ -124,31 +80,31 @@ test.describe('Engagement Tab - Header and Controls', () => {
 });
 
 test.describe('Engagement Tab - User Engagement Tiers', () => {
-  test('displays Daily Active stat card', async ({ page }) => {
+  test('displays Active in the last 24h stat card', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Daily Active')).toBeVisible();
+    await expect(page.getByText('Active in the last 24h')).toBeVisible();
     // 2 users active within last 24h
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Daily Active' }).getByText('2').first()).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Active in the last 24h' }).getByText('2').first()).toBeVisible();
   });
 
-  test('displays Weekly Active stat card', async ({ page }) => {
+  test('displays Active in the last 7d stat card', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Weekly Active')).toBeVisible();
+    await expect(page.getByText('Active in the last 7d')).toBeVisible();
     // Audit (2026-05-07): DAU/WAU/MAU are cumulative (DAU subset of WAU subset
     // of MAU), so WAU counts every user active within the last 7 days — both
     // the two sub-24h users and the user 3 days ago — totalling 3.
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Weekly Active' }).getByText('3')).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Active in the last 7d' }).getByText('3')).toBeVisible();
   });
 
-  test('displays Monthly Active stat card', async ({ page }) => {
+  test('displays Active in the last 30d stat card', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Monthly Active')).toBeVisible();
+    await expect(page.getByText('Active in the last 30d')).toBeVisible();
   });
 
   test('displays Dormant stat card', async ({ page }) => {
@@ -188,22 +144,20 @@ test.describe('Engagement Tab - Agent Leaderboard', () => {
     await expect(leaderboard.getByText('nutrition', { exact: true })).toBeVisible();
   });
 
-  test('displays token counts in leaderboard', async ({ page }) => {
+  test('displays each agent\'s uses in the leaderboard', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    // Token counts are formatted with commas
-    await expect(page.getByText('15,000')).toBeVisible();
-    await expect(page.getByText('8,500')).toBeVisible();
+    await expect(page.getByRole('row', { name: /Marathon Coach/ }).getByRole('cell').last()).toHaveText('40');
+    await expect(page.getByRole('row', { name: /Recovery Advisor/ }).getByRole('cell').last()).toHaveText('25');
   });
 
-  test('agents are ranked by token usage', async ({ page }) => {
+  test('agents are ranked by uses', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    // Marathon Coach should be #1 (most tokens)
-    const rows = page.locator('tbody tr');
-    await expect(rows.first()).toContainText('Marathon Coach');
+    const rows = page.locator('table tbody tr');
+    await expect(rows.nth(0)).toContainText('Marathon Coach');
     await expect(rows.nth(1)).toContainText('Recovery Advisor');
     await expect(rows.nth(2)).toContainText('Nutrition Planner');
   });
@@ -282,21 +236,18 @@ test.describe('Engagement Tab - Loading State', () => {
   test('shows loading spinner while data loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/admin/agents', async (route) => {
+    await page.route('**/api/admin/engagement*', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
-      });
-    });
-
-    await page.route('**/api/admin/users*', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
+        body: JSON.stringify({
+          scope: { kind: 'tenant', tenant_id: '00000000-0000-0000-0000-000000000001' },
+          users: { total: 0, daily: 0, weekly: 0, monthly: 0, dormant: 0 },
+          total_agents: 0,
+          published_agents: 0,
+          leaderboard: [],
+        }),
       });
     });
 

@@ -514,7 +514,7 @@ async fn reply_view(
             })?;
             let mut verdicts = repos
                 .claim_verdicts
-                .list_verdicts_for_message(tenant, message_id)
+                .list_verdicts_for_message(tenant.into(), message_id)
                 .await?;
             ai_scope::retain_admitted(&mut verdicts, |v| v.transport_policy);
             verdicts

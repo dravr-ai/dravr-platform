@@ -31,6 +31,10 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { role: 'admin' } }),
+}));
+
 vi.mock('../UsageAnalytics', () => ({ default: () => <div data-testid="usage-panel" /> }));
 vi.mock('../LlmConsumptionPanel', () => ({ default: () => <div data-testid="llm-panel" /> }));
 vi.mock('../ToolUsagePanel', () => ({ default: () => <div data-testid="tools-panel" /> }));
@@ -75,7 +79,7 @@ describe('AnalyticsTab', () => {
     }
 
     await act(async () => {
-      pending.usage.resolve({ time_series: [], top_tools: [] });
+      pending.usage.resolve({ time_series: [] });
     });
     for (const panel of PANELS) {
       expect(await screen.findByTestId(panel)).toBeInTheDocument();
@@ -86,7 +90,7 @@ describe('AnalyticsTab', () => {
     renderTab();
 
     await act(async () => {
-      pending.usage.resolve({ time_series: [], top_tools: [] });
+      pending.usage.resolve({ time_series: [] });
       pending.llm.reject(new Error('403'));
       pending.tools.reject(new Error('503'));
     });

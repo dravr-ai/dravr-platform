@@ -28,6 +28,7 @@ mod outcome_evaluator_test;
 mod parq_questions_test;
 mod plan_card_float_precision_test;
 mod playbook_render_test;
+mod pricing_bands_test;
 mod provider_refresh_bound_test;
 mod ramp_check_test;
 mod recent_load_snapshot_test;

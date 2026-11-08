@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
@@ -194,6 +196,10 @@ pub trait AgentsRepository: Send + Sync {
     ) -> AppResult<Agent>;
     /// List all system agents for a tenant
     async fn list_system_agents(&self, tenant_id: TenantId) -> AppResult<Vec<Agent>>;
+    /// Each agent's total uses by members of `tenant_id`, for the agents that
+    /// have any. A use is what [`Self::record_usage`] counts: a pick, or a
+    /// conversation started with the agent.
+    async fn agent_use_totals(&self, tenant_id: TenantId) -> AppResult<HashMap<String, u32>>;
     /// The system-agent catalogue every tenant reaches, newest first.
     ///
     /// Not filtered by tenant: system agents are pinned to the seed tenant
@@ -954,6 +960,19 @@ pub(crate) const LIST_SYSTEM_AGENTS_SQL: &str = concat!(
     " FROM agents WHERE tenant_id = $1 AND is_system = TRUE ORDER BY created_at DESC"
 );
 
+/// Each agent's uses summed over the members of tenant `$1`, or over every
+/// user when it binds `NULL`. Grouped on the member rather than on the agent's
+/// tenant: system agents sit in the seed tenant while every tenant's members
+/// use them.
+pub(crate) const AGENT_USE_TOTALS_SQL: &str = r"
+    SELECT ca.agent_id AS agent_id, CAST(SUM(ca.use_count) AS BIGINT) AS uses
+    FROM agent_assignments ca
+    WHERE $1 IS NULL
+       OR EXISTS (SELECT 1 FROM tenant_users tu
+                  WHERE tu.user_id = ca.user_id AND tu.tenant_id = $1)
+    GROUP BY ca.agent_id
+";
+
 /// Every system agent, newest first, whatever tenant holds the row.
 ///
 /// The documented catalogue-wide exception to tenant scoping: system agents
@@ -1022,79 +1041,8 @@ pub(crate) const LIST_ASSIGNMENTS_FOR_TENANT_SQL: &str = r"
     WHERE ca.agent_id = $1 AND ca.is_member = TRUE ORDER BY ca.created_at DESC
 ";
 
-/// The user's own copy of an origin in the tenant, oldest first: the copy a
-/// fork returns instead of forking twice.
-pub(crate) const OWNED_COPY_OF_SQL: &str = concat!(
-    "SELECT ",
-    agent_columns!(""),
-    " FROM agents WHERE user_id = $1 AND tenant_id = $2 AND forked_from = $3
-    ORDER BY created_at ASC LIMIT 1"
-);
-
-/// Fork an agent the caller can reach into a private agent they own.
-///
-/// Every content and runtime column is copied verbatim from the origin, so
-/// the copy runs exactly as the origin did the moment it was forked; `source`
-/// becomes `custom` because the athlete now owns the text (the live prompt
-/// registry overlays `contremaitre` agents only). `$1` is the copy id, `$2`
-/// the owner, `$3` their tenant, `$4` the call time (both timestamps), `$5`
-/// the visibility and `$6` the origin, which must belong to the tenant or be
-/// a system agent. `forked_from` points at the origin and `slug` keeps its
-/// handle, which a copy carries as a reference.
-pub(crate) const FORK_AGENT_SQL: &str = r"
-    INSERT INTO agents (
-        id, user_id, tenant_id, title, description, system_prompt, category, tags,
-        sample_prompts, token_count, created_at, updated_at, is_system, visibility,
-        prerequisites, forked_from, slug, purpose, when_to_use, instructions,
-        example_inputs, example_outputs, success_criteria, startup_query,
-        data_requirements, visuals, max_tool_iterations, temperature, source
-    )
-    SELECT $1, $2, $3, title, description, system_prompt, category, tags,
-        sample_prompts, token_count, $4, $4, FALSE, $5,
-        prerequisites, id, slug, purpose, when_to_use, instructions,
-        example_inputs, example_outputs, success_criteria, startup_query,
-        data_requirements, visuals, max_tool_iterations, temperature, 'custom'
-    FROM agents WHERE id = $6 AND (tenant_id = $3 OR is_system = TRUE)
-";
-
-/// Carry the origin's translation overlays onto a fork: `$1` the copy, `$2`
-/// the origin.
-pub(crate) const FORK_TRANSLATIONS_SQL: &str = r"
-    INSERT INTO agent_translations (
-        agent_id, locale, title, description, purpose, instructions, source_sha,
-        tags, sample_prompts, created_at, updated_at
-    )
-    SELECT $1, locale, title, description, purpose, instructions, source_sha,
-        tags, sample_prompts, created_at, updated_at
-    FROM agent_translations WHERE agent_id = $2
-";
-
-/// Count a fork as an install of its published origin `$2` when the user
-/// (`$3`) was not already a member of it: the install count is members plus
-/// live copies, and uninstalling the copy later takes one away. A member's
-/// fork moves their install rather than adding one. Runs before
-/// `MOVE_MEMBERSHIP_SQL`; `$1` is the call time.
-pub(crate) const COUNT_FORK_AS_INSTALL_SQL: &str = r"
-    UPDATE store_listings SET install_count = install_count + 1, updated_at = $1
-    WHERE agent_id = $2 AND publish_status = 'published'
-    AND NOT EXISTS (
-        SELECT 1 FROM agent_assignments
-        WHERE agent_id = $2 AND user_id = $3 AND is_member = TRUE)
-";
-
-/// Move the user's row (counters and favourite with it) from the origin `$2`
-/// onto their fork `$1`, as a membership.
-pub(crate) const MOVE_MEMBERSHIP_SQL: &str = r"
-    UPDATE agent_assignments SET agent_id = $1, is_member = TRUE
-    WHERE agent_id = $2 AND user_id = $3
-";
-
-/// Point the user's selection in the tenant at their fork `$1` when it named
-/// the origin `$4`.
-pub(crate) const RESELECT_FORK_SQL: &str = r"
-    UPDATE tenant_users SET selected_agent_id = $1
-    WHERE user_id = $2 AND tenant_id = $3 AND selected_agent_id = $4
-";
+/// The fork-on-edit statements (carnet#1096), run by `impl_agent_lifecycle!`.
+pub(crate) mod fork_sql;
 
 /// Hide an agent from a user's list.
 pub(crate) const HIDE_AGENT_SQL: &str = r"

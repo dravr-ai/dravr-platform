@@ -27,13 +27,15 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures_util::stream;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    ExtractionJobClaim, JobLease, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    ExtractionJobClaim, ExtractionRunRecord, ExtractionRunStats, JobLease,
+    MemoryExtractionJobRepository, MemoryExtractionJobRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_llm::ChatProvider;
@@ -187,6 +189,25 @@ impl MemoryExtractionJobRepository for WatchedLedger {
     ) -> AppResult<u64> {
         self.inner
             .reap_exhausted_extraction_jobs(now_ms, max_attempts)
+            .await
+    }
+
+    async fn record_extraction_run(&self, run: &ExtractionRunRecord) -> AppResult<()> {
+        self.inner.record_extraction_run(run).await
+    }
+
+    async fn prune_extraction_runs(&self, before_ms: i64) -> AppResult<u64> {
+        self.inner.prune_extraction_runs(before_ms).await
+    }
+
+    async fn extraction_run_stats(
+        &self,
+        scope: AdminScope,
+        now_ms: i64,
+        owed_since_ms: i64,
+    ) -> AppResult<ExtractionRunStats> {
+        self.inner
+            .extraction_run_stats(scope, now_ms, owed_since_ms)
             .await
     }
 }
@@ -616,4 +637,75 @@ async fn a_fresh_row_is_left_to_its_own_spawn() {
         "the spawn's attempt and the probe's; the sweep counted none"
     );
     drop(fx.resources);
+}
+
+/// What the run ledger says about the fixture's tenant after one run answering `extractor`.
+async fn ledger_after_one_run(extractor: &Arc<ScriptedExtractor>) -> ExtractionRunStats {
+    let fx = Box::pin(fixture()).await;
+    let run = spawn_extract_for_turn(
+        Arc::clone(&fx.repos.memory),
+        Arc::clone(&fx.repos.memory_extraction_jobs),
+        LlmUsageSink::new(Arc::clone(&fx.repos.llm_usage), TaskTracker::new()),
+        Some(Arc::new(extractor.provider())),
+        CONFIG,
+        "SYSTEM".to_owned(),
+        SpawnedExtractionRequest {
+            tenant_id: fx.tenant_id,
+            usage_tenant_id: fx.tenant_id,
+            payload: payload_for(&fx.user, "je vise un ultra"),
+        },
+    )
+    .await;
+    run.await.expect("the spawned run settles");
+    let now = now_ms();
+    fx.repos
+        .memory_extraction_jobs
+        .extraction_run_stats(fx.tenant_id.into(), now, now)
+        .await
+        .expect("the ledger reads")
+}
+
+#[tokio::test]
+async fn a_run_that_finds_nothing_is_recorded_as_a_run() {
+    // This is the case user_facts cannot show: nothing written, worker healthy.
+    let stats = ledger_after_one_run(&ScriptedExtractor::answering("[]")).await;
+    assert_eq!(
+        (
+            stats.last_24h.persisted,
+            stats.last_24h.empty,
+            stats.last_24h.failed
+        ),
+        (0, 1, 0),
+        "bug: an empty extraction must be on the ledger"
+    );
+    assert!(stats.last_run_at_ms.is_some(), "bug: the run has a time");
+    assert_eq!(stats.last_failure_at_ms, None, "bug: nothing failed");
+}
+
+#[tokio::test]
+async fn a_run_that_fails_is_recorded_as_failed() {
+    let stats = ledger_after_one_run(&ScriptedExtractor::failing()).await;
+    assert_eq!(
+        (
+            stats.last_24h.persisted,
+            stats.last_24h.empty,
+            stats.last_24h.failed
+        ),
+        (0, 0, 1),
+        "bug: a provider failure must be on the ledger"
+    );
+    assert!(
+        stats.last_failure_at_ms.is_some(),
+        "bug: the failure has a time"
+    );
+}
+
+#[tokio::test]
+async fn a_run_that_writes_facts_is_recorded_with_their_count() {
+    let stats = ledger_after_one_run(&ScriptedExtractor::answering(GOAL_REPLY)).await;
+    assert_eq!(
+        (stats.last_24h.persisted, stats.last_24h.facts_persisted),
+        (1, 1),
+        "bug: a run that wrote a fact must say so"
+    );
 }

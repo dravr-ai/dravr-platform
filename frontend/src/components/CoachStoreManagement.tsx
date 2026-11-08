@@ -77,9 +77,11 @@ export default function CoachStoreManagement() {
     return num.toLocaleString();
   };
 
+  // `rejection_rate` arrives as a percentage already (rejected / decided * 100,
+  // `store_listings.rs`), so it is printed as is, never scaled again.
   const formatPercentage = (num: number | undefined) => {
     if (num === undefined) return '—';
-    return `${(num * 100).toFixed(1)}%`;
+    return `${num.toFixed(1)}%`;
   };
 
   return (

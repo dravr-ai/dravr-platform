@@ -12,10 +12,9 @@
 //! - the coach family reads other athletes' data for the coach who leads their
 //!   group, under consents those athletes gave inside Dravr;
 //! - agent store and agent CRUD manage the personas of Dravr's own chat;
-//! - memory and self-steering (`remember_fact`, `agent_note_add`,
-//!   `agent_followup_schedule`, the commitments, `forget_playbook`) write what
-//!   Dravr's own chat later reads as the athlete's record, which an assistant's
-//!   text does not get to become.
+//! - memory and self-steering (`remember_fact`, the commitments,
+//!   `forget_playbook`) write what Dravr's own chat later reads as the
+//!   athlete's record, which an assistant's text does not get to become.
 //!
 //! A tool declares this as a property of itself
 //! ([`RuntimeTool::transport_policy`](crate::security::RuntimeTool::transport_policy)),
@@ -209,9 +208,8 @@ mod tests {
             retain_served_over(&registry, &mut schemas, Transport::McpHttp);
             assert_eq!(
                 before - schemas.len(),
-                8,
-                "bug: an external listing must drop the five coach tools and the three \
-                 memory writes"
+                6,
+                "bug: an external listing must drop the five coach tools and the memory write"
             );
             let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
             assert_eq!(

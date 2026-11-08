@@ -354,20 +354,19 @@ mod tests {
         #[test]
         fn the_athlete_thread_withholds_every_write_on_the_coachs_own_account() {
             let registry = registry();
-            for own_write in ["remember_fact", "agent_note_add", "agent_followup_schedule"] {
-                assert!(
-                    TurnSeat::AthleteThread.withholds(&registry, own_write),
-                    "{own_write} files on the caller's own account"
-                );
-                let refusal = TurnSeat::AthleteThread
-                    .refusal(&registry, own_write)
-                    .expect("a withheld tool is refused");
-                assert!(!refusal.success);
-                assert_eq!(
-                    refusal.result.unwrap()["error_code"],
-                    ATHLETE_THREAD_ERROR_CODE
-                );
-            }
+            let own_write = "remember_fact";
+            assert!(
+                TurnSeat::AthleteThread.withholds(&registry, own_write),
+                "{own_write} files on the caller's own account"
+            );
+            let refusal = TurnSeat::AthleteThread
+                .refusal(&registry, own_write)
+                .expect("a withheld tool is refused");
+            assert!(!refusal.success);
+            assert_eq!(
+                refusal.result.unwrap()["error_code"],
+                ATHLETE_THREAD_ERROR_CODE
+            );
         }
 
         #[test]

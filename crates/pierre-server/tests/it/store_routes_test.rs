@@ -17,13 +17,16 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::{CreateGroupRequest, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{
     AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, PublishStatus,
 };
 use pierre_database::database::Agent;
+use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_routes_agents::build_store_router;
 use pierre_routes_agents::store::{
     BrowseAgentsResponse, InstallAgentResponse, InstallationsResponse, SearchAgentsResponse,
@@ -745,6 +748,80 @@ async fn test_browse_store_sort_by_popular() {
     assert_eq!(response.status_code(), StatusCode::OK);
     let result: BrowseAgentsResponse = response.json();
     assert_eq!(result.agents[0].title, "More Popular");
+}
+
+#[tokio::test]
+async fn test_browse_store_keeps_the_chosen_sort_whatever_the_viewers_verdicts_say() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = tenant_of(&resources, user_id).await;
+
+    let contradicted = create_published_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        "Popular but Contradicted",
+        AgentCategory::Training,
+    )
+    .await;
+    let supported = create_published_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        "Unpopular but Supported",
+        AgentCategory::Training,
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .store_listings
+        .increment_install_count(&contradicted.id.to_string())
+        .await
+        .unwrap();
+
+    // Under grade ranking these verdicts put the less installed agent first.
+    let user_id_text = user_id.to_string();
+    for (agent, status) in [
+        (&contradicted, ClaimStatus::Contradicted),
+        (&supported, ClaimStatus::Supported),
+    ] {
+        let agent_id = agent.id.to_string();
+        resources
+            .common
+            .repos
+            .claim_verdicts
+            .insert_claim_verdict(&InsertClaimVerdictParams {
+                tenant_id,
+                user_id: &user_id_text,
+                agent_id: Some(&agent_id),
+                conversation_id: None,
+                message_id: None,
+                claim_text: "VO2max rises with altitude training.",
+                category: ClaimCategory::Physiological,
+                status,
+                evidence_strength: EvidenceStrength::None,
+                confidence: 0.9,
+                layer_fired: VerdictLayer::Evidence,
+                explanation: None,
+                evidence_refs: None,
+                transport_policy: TransportPolicy::AnyTransport,
+            })
+            .await
+            .unwrap();
+    }
+
+    let token = generate_test_token(&resources, &user).await;
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let response = AxumTestRequest::get("/api/store/agents?sort_by=popular")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(router)
+        .await;
+
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: BrowseAgentsResponse = response.json();
+    assert_eq!(result.agents[0].title, "Popular but Contradicted");
+    assert_eq!(result.agents[1].title, "Unpopular but Supported");
 }
 
 #[tokio::test]
