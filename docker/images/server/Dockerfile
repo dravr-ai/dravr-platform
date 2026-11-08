@@ -181,7 +181,10 @@ WORKDIR /app
 # sciotte image gate refused sciotte v1.3.0 on them; mirrored there too.
 # 2026-11-04: apt 3.0.3 -> 3.0.4 (CVE-2026-109518, HIGH, fixed in trixie):
 # the dev deploys of 892a6c569 and 9c335e371 were gated on it.
-ARG APT_SECURITY_EPOCH=2026-11-04
+# 2026-11-08: zlib 1:1.3.dfsg+really1.3.1-1+b1 -> +deb13u1 (CVE-2026-85091, HIGH,
+# heap overflow in gz_vacate()): the dev deploy of 363450ee7 was gated on it
+# with "apt security epoch: 2026-11-04" built.
+ARG APT_SECURITY_EPOCH=2026-11-08
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
