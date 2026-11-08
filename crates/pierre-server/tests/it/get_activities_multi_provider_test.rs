@@ -41,8 +41,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .with_nanosecond(0)
         .expect("zero nanoseconds is valid");
     let scraper_url =
-        spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339())
-            .await;
+        spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339()).await;
     let resources = create_test_server_resources_with_sciotte(&scraper_url)
         .await
         .unwrap();
