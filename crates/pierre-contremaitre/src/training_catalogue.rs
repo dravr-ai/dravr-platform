@@ -432,6 +432,9 @@ impl TrainingCatalogueRegistry {
             match &entry.item {
                 CatalogueItem::Flavour(flavour) => {
                     out.extend(flavour.unresolved_references(evidence_exists));
+                    // LIMITATION(registre#1465): flavour purposes resolve sport-blind here
+                    // (`sport: None`), so a ride bank with no recovery, endurance, tempo or
+                    // neuromuscular template passes on the run templates alone.
                     out.extend(
                         flavour
                             .unresolved_purposes(&|phase, purpose| carried(phase, purpose, None)),

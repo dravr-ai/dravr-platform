@@ -125,6 +125,8 @@ pub(super) async fn read_ladder(
     let level = readiness_level(&ReadinessInput {
         form_pct: input.form_pct,
         acwr: input.alert_input.today.acwr,
+        // LIMITATION(registre#1466): `readiness_level` caps at P1 on monotony alone, and P1
+        // opens no quality session, so an athlete with an even daily load stays at caution.
         monotony: input.alert_input.today.monotony,
         ramp_rate: input.alert_input.today.ramp_rate,
         alerts: raised.clone(),
