@@ -25,6 +25,7 @@ pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 
 axum = { version = "0.8", features = ["macros"] }

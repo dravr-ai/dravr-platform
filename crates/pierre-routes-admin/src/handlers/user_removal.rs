@@ -40,7 +40,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_database::repositories::{subject_hash, DeletionActor};
-use pierre_services::account_reset::{self, AccountResetOutcome};
+use pierre_services::account_reset::{self, AccountResetOutcome, OwnedGroups};
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
@@ -511,7 +511,10 @@ pub async fn handle_reset_user_onboarding(
 /// Super-admin only (403 otherwise, before the user is read). Refuses with
 /// 409, naming each, while the account owns or coaches an active group,
 /// created an invite to one, or authored an agent other users rely on;
-/// nothing is touched then. Otherwise every held provider — coaching
+/// nothing is touched then. With `delete_owned_groups`, the active groups the
+/// account owns do not refuse: each is archived first through the owner's own
+/// delete (members released, invites deactivated, room history kept), and a
+/// group it only coaches still refuses. Otherwise every held provider — coaching
 /// platforms included — is disconnected through the chokepoint (revoked at
 /// the provider), its imported history and uploaded files are erased, and
 /// one transaction wipes every row the account owns. The account row, its sign-in,
@@ -525,7 +528,8 @@ pub async fn handle_reset_user_onboarding(
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
 /// unknown user, a resource-unavailable error when no archive eraser is
-/// wired or the account holds a provider and no chokepoint is wired, and a
+/// wired, the account holds a provider and no chokepoint is wired, or
+/// `delete_owned_groups` is asked and no group service is wired, and a
 /// database error from the reads that precede any change.
 pub async fn handle_reset_user(
     State(context): State<Arc<AdminApiContext>>,
@@ -540,6 +544,16 @@ pub async fn handle_reset_user(
     let ctx = context.as_ref();
     let (user_uuid, user) = load_user(ctx, &user_id).await?;
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
+    let owned_groups = if request.delete_owned_groups {
+        let Some(groups) = ctx.group_service.as_deref() else {
+            return Err(AppError::resource_unavailable(
+                "Group archiving is not wired on this server; the reset cannot delete the groups the user owns",
+            ));
+        };
+        OwnedGroups::Archive(groups)
+    } else {
+        OwnedGroups::Refuse
+    };
 
     let report = match account_reset::reset_account(
         &ctx.repos,
@@ -547,6 +561,7 @@ pub async fn handle_reset_user(
         ctx.archive_eraser.as_deref(),
         ctx.cache.as_deref(),
         user_uuid,
+        owned_groups,
     )
     .await?
     {
@@ -565,6 +580,7 @@ pub async fn handle_reset_user(
                     "blockers": refused.blockers,
                     "disconnected": refused.disconnected,
                     "archive_erased": refused.archive_erased,
+                    "groups_archived": refused.groups_archived,
                 }))
                 .ok(),
             ));
@@ -591,13 +607,19 @@ pub async fn handle_reset_user(
     let audit = AuditDetail::new(
         "user.reset",
         format!(
-            "Reset an account: {} providers disconnected, {} tables wiped",
+            "Reset an account: {} groups archived, {} providers disconnected, {} tables wiped",
+            report.groups_archived.len(),
             report.disconnected.len(),
             report.rows_changed.len()
         ),
     )
     .target(json!({
         "user_id": user_uuid.to_string(),
+        "groups_archived": report
+            .groups_archived
+            .iter()
+            .map(|group| group.group_id.as_str())
+            .collect::<Vec<_>>(),
         "providers_disconnected": report.disconnected.len(),
         "providers_kept": report.not_revocable.len(),
         "rows_changed": report.rows_changed,
@@ -611,6 +633,7 @@ pub async fn handle_reset_user(
                 data: to_value(json!({
                     "user_id": user_uuid.to_string(),
                     "email": user.email,
+                    "groups_archived": report.groups_archived,
                     "disconnected": report.disconnected,
                     "not_revocable": report.not_revocable,
                     "still_connected": !report.not_revocable.is_empty(),

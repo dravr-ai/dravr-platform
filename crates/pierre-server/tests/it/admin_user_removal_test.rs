@@ -240,6 +240,8 @@ fn admin_context_with(
     context.provider_disconnector = Some(disconnector);
     // The account reset's erasure, as the composition root wires it.
     context.archive_eraser = Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
+    // The reset's owned-group archive, as the composition root wires it.
+    context.group_service = Some(Arc::clone(&resources.common.group_service));
     context.oauth.clone_from(&resources.common.config.oauth);
     Arc::new(context)
 }

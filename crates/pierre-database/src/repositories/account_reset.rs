@@ -55,7 +55,7 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::UserReference;
+use pierre_core::models::{TenantId, UserReference};
 use sqlx::error::DatabaseError;
 use uuid::Uuid;
 
@@ -385,6 +385,14 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
 /// LLM credentials made for others, approvals, and sole ownership of a tenant
 /// refuse a delete only because the `users` row they reference disappears,
 /// and a live subscription only because its row would; a reset keeps both.
+/// `$2` reads the blockers as they will stand once the reset has archived
+/// every active group the account owns (`--delete-owned-groups`): those
+/// groups, and the coach and invite references onto them, no longer refuse,
+/// and they count as archived for `taken_groups`. A group the account
+/// coaches or an invite it made to a group someone else owns still refuses.
+/// The read inside the wipe's transaction binds `FALSE`: by then the archive
+/// has run, and a group made since must still refuse.
+///
 /// The `kind` literals are `UserReferenceKind::as_str`; `$1` is the account id
 /// through the backend's uuid codec.
 pub const RESET_BLOCKERS_SQL: &str = r"
@@ -392,7 +400,7 @@ pub const RESET_BLOCKERS_SQL: &str = r"
                 SELECT g.id
                 FROM coaching_groups g
                 WHERE g.owner_id = $1
-                  AND g.is_active = FALSE
+                  AND (g.is_active = FALSE OR $2)
                   AND NOT EXISTS (
                       SELECT 1 FROM chat_conversations c
                       WHERE (c.group_id = g.id OR c.subject_group_id = g.id)
@@ -405,16 +413,18 @@ pub const RESET_BLOCKERS_SQL: &str = r"
                       WHERE m.group_id = g.id AND m.user_id <> $1))
             SELECT 'owns_coaching_group' AS kind, g.name AS detail
             FROM coaching_groups g
-            WHERE g.owner_id = $1 AND g.is_active = TRUE
+            WHERE g.owner_id = $1 AND g.is_active = TRUE AND NOT $2
             UNION ALL
             SELECT 'coaches_coaching_group', g.name
             FROM coaching_groups g
             WHERE g.coach_user_id = $1 AND g.is_active = TRUE
+              AND NOT ($2 AND g.owner_id = $1)
             UNION ALL
             SELECT 'created_group_invite', g.name
             FROM group_invites i
             JOIN coaching_groups g ON g.id = i.group_id
             WHERE i.created_by = $1 AND g.is_active = TRUE
+              AND NOT ($2 AND g.owner_id = $1)
             UNION ALL
             SELECT 'authored_agent', a.title
             FROM agents a
@@ -437,6 +447,28 @@ pub const RESET_BLOCKERS_SQL: &str = r"
                          AND s.is_member = TRUE))
             ORDER BY kind, detail
             ";
+
+/// The active groups the account owns, in every tenant, which
+/// `--delete-owned-groups` archives before the reset runs; `$1` is the
+/// account id through the backend's uuid codec. Ids are read as text so one
+/// decoder serves both engines.
+pub(crate) const RESET_OWNED_GROUPS_SQL: &str = r"
+            SELECT CAST(g.id AS TEXT) AS group_id, CAST(g.tenant_id AS TEXT) AS tenant_id, g.name
+            FROM coaching_groups g
+            WHERE g.owner_id = $1 AND g.is_active = TRUE
+            ORDER BY g.name, g.id
+            ";
+
+/// An active group the account owns, as a reset archives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedGroup {
+    /// The group's id.
+    pub group_id: String,
+    /// The tenant the group lives in, which its archive is scoped by.
+    pub tenant_id: TenantId,
+    /// The group's name, for the operator.
+    pub name: String,
+}
 
 /// Whether the account exists, `$1` its id through the backend's uuid codec.
 pub(crate) const RESET_ACCOUNT_EXISTS_SQL: &str = "SELECT 1 AS present FROM users WHERE id = $1";
@@ -463,10 +495,23 @@ pub enum AccountResetCommit {
 pub trait AccountResetRepository: Send + Sync {
     /// Every reference onto `user_id` that refuses a reset
     /// ([`RESET_BLOCKERS_SQL`]); empty when the reset may run.
+    /// `owned_groups_archived` reads them as they will stand once every
+    /// active group the account owns is archived.
     ///
     /// # Errors
     /// Returns a database error when the rows cannot be read or decoded.
-    async fn reset_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>>;
+    async fn reset_blockers(
+        &self,
+        user_id: Uuid,
+        owned_groups_archived: bool,
+    ) -> AppResult<Vec<UserReference>>;
+
+    /// The active groups `user_id` owns, in every tenant
+    /// ([`RESET_OWNED_GROUPS_SQL`]).
+    ///
+    /// # Errors
+    /// Returns a database error when the rows cannot be read or decoded.
+    async fn owned_active_groups(&self, user_id: Uuid) -> AppResult<Vec<OwnedGroup>>;
 
     /// Wipe every row the account owns, in one transaction, as the module
     /// documentation describes: the blockers read again, the engine's wipe
@@ -504,6 +549,25 @@ pub(crate) fn reset_error(user_id: Uuid, error: &sqlx::Error) -> AppError {
     }
 }
 
+/// One [`RESET_OWNED_GROUPS_SQL`] row.
+pub(crate) fn owned_group_from_row<R>(row: &R) -> AppResult<OwnedGroup>
+where
+    R: sqlx::Row,
+    for<'c> &'c str: sqlx::ColumnIndex<R>,
+    for<'r> String: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+{
+    let text = |column: &str| {
+        row.try_get::<String, _>(column)
+            .map_err(|e| AppError::database(format!("Failed to read the group's {column}: {e}")))
+    };
+    Ok(OwnedGroup {
+        group_id: text("group_id")?,
+        tenant_id: TenantId::parse_str(&text("tenant_id")?)
+            .map_err(|e| AppError::database(format!("Failed to read the group's tenant: {e}")))?,
+        name: text("name")?,
+    })
+}
+
 /// Emit the whole [`AccountResetRepository`] implementation for one backend
 /// type: `$ids` is its uuid codec and `$wipe` its [`AccountResetWipe`]. The
 /// invoking shell must `use` every statement and helper named here.
@@ -511,15 +575,31 @@ macro_rules! impl_account_reset_repository {
     ($ty:ty, $ids:ident, $wipe:ident) => {
         #[async_trait::async_trait]
         impl AccountResetRepository for $ty {
-            async fn reset_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>> {
+            async fn reset_blockers(
+                &self,
+                user_id: Uuid,
+                owned_groups_archived: bool,
+            ) -> AppResult<Vec<UserReference>> {
                 let rows = sqlx::query(RESET_BLOCKERS_SQL)
                     .bind($ids::bind(user_id))
+                    .bind(owned_groups_archived)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to read user reset blockers: {e}"))
                     })?;
                 rows.iter().map(user_reference_from_row).collect()
+            }
+
+            async fn owned_active_groups(&self, user_id: Uuid) -> AppResult<Vec<OwnedGroup>> {
+                let rows = sqlx::query(RESET_OWNED_GROUPS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the account's groups: {e}"))
+                    })?;
+                rows.iter().map(owned_group_from_row).collect()
             }
 
             async fn reset_account(&self, user_id: Uuid) -> AppResult<AccountResetCommit> {
@@ -542,6 +622,7 @@ macro_rules! impl_account_reset_repository {
                 // people is a foreign key that would refuse the delete.
                 let blockers = sqlx::query(RESET_BLOCKERS_SQL)
                     .bind($ids::bind(user_id))
+                    .bind(false)
                     .fetch_all(guard.executor()?)
                     .await
                     .map_err(|e| {

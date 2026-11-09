@@ -486,6 +486,9 @@ impl ProviderToolRouter {
             // with the same body the deleted-account sweep runs.
             admin_context.archive_eraser =
                 Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
+            // An account reset asked to delete the groups the account owns
+            // archives each through the owner's own delete.
+            admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
             // The operator clone stores a scrape session through the same
             // write and data warm-up a sciotte login runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]

@@ -74,6 +74,7 @@ mod admin_user_approval_e2e_test;
 mod admin_user_approval_test;
 mod admin_user_listing_test;
 mod admin_user_removal_test;
+mod admin_user_reset_groups_test;
 mod admin_user_reset_test;
 mod admin_user_usage_test;
 mod agent_admin_notification_test;

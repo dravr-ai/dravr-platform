@@ -79,6 +79,7 @@ async fn reset(
         Path(user_id.to_string()),
         Json(ResetAccountRequest {
             reason: Some("starting over".to_owned()),
+            delete_owned_groups: false,
         }),
     )
     .await
@@ -774,7 +775,7 @@ async fn an_archived_group_a_former_member_joined_is_kept_and_its_agent_blocks()
 
 /// How many rows `sql` counts for `owner`: `sql` selects `COUNT(*) AS n` with
 /// the account's id bound to `$1` as text.
-async fn count_for(resources: &ServerContext, sql: &str, owner: &str) -> i64 {
+pub(crate) async fn count_for(resources: &ServerContext, sql: &str, owner: &str) -> i64 {
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => sqlx::query(sql)
             .bind(owner)

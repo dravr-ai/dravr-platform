@@ -11,7 +11,7 @@
 
 use clap::Args;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserReference;
+use pierre_core::models::{UserReference, UserReferenceKind};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 
@@ -34,6 +34,13 @@ pub(crate) struct ResetArgs {
     /// non-zero, changing nothing.
     #[arg(long)]
     pub yes: bool,
+
+    /// Delete (archive) every active group the account owns first, as the
+    /// owner's own Delete group does: members released, invites deactivated,
+    /// the room history kept. Without it, a group the account owns refuses
+    /// the reset.
+    #[arg(long)]
+    pub delete_owned_groups: bool,
 
     /// Server base URL (defaults to the cached login)
     #[arg(long, env = "PIERRE_SERVER")]
@@ -77,7 +84,27 @@ const TRAININGPEAKS: &str = "trainingpeaks";
 pub(crate) async fn run(args: ResetArgs) -> AppResult<()> {
     let client = super::auth::admin_client(args.server, args.token)?;
     let id = user_admin::resolve_user_id(&client, &args.email).await?;
-    reset_account(&client, &id, args.reason.as_deref(), args.yes).await
+    reset_account(
+        &client,
+        &id,
+        &ResetOptions {
+            reason: args.reason.as_deref(),
+            delete_owned_groups: args.delete_owned_groups,
+            confirmed: args.yes,
+        },
+    )
+    .await
+}
+
+/// How one `user reset` runs.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ResetOptions<'args> {
+    /// Reason recorded with the reset.
+    pub reason: Option<&'args str>,
+    /// Archive the groups the account owns instead of refusing over them.
+    pub delete_owned_groups: bool,
+    /// Reset for real; otherwise only preview.
+    pub confirmed: bool,
 }
 
 /// Start a whole account over through the admin API.
@@ -87,7 +114,8 @@ pub(crate) async fn run(args: ResetArgs) -> AppResult<()> {
 /// it takes from other people (group seats, coach links), every row the
 /// account owns wiped, and what stays — or that the server would refuse it and
 /// what to reassign first, then fails, so a script that forgot `--yes` exits
-/// non-zero having changed nothing.
+/// non-zero having changed nothing. With `delete_owned_groups`, the groups
+/// the account owns are named as archived instead of refusing.
 ///
 /// # Errors
 ///
@@ -98,22 +126,36 @@ pub(crate) async fn run(args: ResetArgs) -> AppResult<()> {
 pub(crate) async fn reset_account(
     client: &RemoteClient,
     user_id: &str,
-    reason: Option<&str>,
-    confirmed: bool,
+    options: &ResetOptions<'_>,
 ) -> AppResult<()> {
-    if !confirmed {
+    if !options.confirmed {
         let body: Value = client.get_json(&format!("/admin/users/{user_id}")).await?;
-        print_preview(&body)?;
+        print_preview(&body, options.delete_owned_groups)?;
         return Err(AppError::invalid_input(
             "user reset not confirmed: nothing was changed (re-run with --yes)",
         ));
     }
 
-    let payload = json!({ "reason": reason });
+    let payload = json!({
+        "reason": options.reason,
+        "delete_owned_groups": options.delete_owned_groups,
+    });
     let body: Value = client
         .post_json(&format!("/admin/users/{user_id}/reset"), &payload)
         .await?;
     println!("{}", user_admin::message_or_json(&body));
+    let data = body.get("data").unwrap_or(&Value::Null);
+    for group in data
+        .get("groups_archived")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        println!(
+            "  - group '{}' archived: members released, invites deactivated, room history kept",
+            user_admin::field(group, "name")
+        );
+    }
     for entry in user_admin::provider_entries(&body, "disconnected") {
         println!("  - {}", user_admin::disconnected_line(&entry));
     }
@@ -123,7 +165,6 @@ pub(crate) async fn reset_account(
             user_admin::provider_line(&entry)
         );
     }
-    let data = body.get("data").unwrap_or(&Value::Null);
     if let Some(rows) = data.get("rows_changed").and_then(Value::as_object) {
         for (table, count) in rows {
             println!("  - {table}: {count}");
@@ -144,19 +185,40 @@ pub(crate) async fn reset_account(
 
 /// Print what a reset of the account `body` reads would do — or, when the
 /// server names something that refuses it, that it would be refused and what
-/// to reassign first — changing nothing.
+/// to reassign first — changing nothing. With `delete_owned_groups` the
+/// blockers are read as they stand once the owned groups are archived, and
+/// each of those groups is named.
 ///
 /// # Errors
 ///
-/// Returns an internal error when the server's `reset_blockers` is missing
-/// or cannot be read as references.
-fn print_preview(body: &Value) -> AppResult<()> {
+/// Returns an internal error when the server's blockers (or, with
+/// `delete_owned_groups`, its owned groups) are missing or unreadable.
+fn print_preview(body: &Value, delete_owned_groups: bool) -> AppResult<()> {
     let user = body.get("data").unwrap_or(&Value::Null);
+    let field = if delete_owned_groups {
+        "reset_blockers_with_owned_groups_deleted"
+    } else {
+        "reset_blockers"
+    };
     // An absent list is not an empty one: previewing a wipe the server would
     // refuse is the thing this read exists to prevent.
-    let listed = user.get("reset_blockers").ok_or_else(|| {
-        AppError::internal("the server did not say what would refuse a reset (no reset_blockers)")
+    let listed = user.get(field).ok_or_else(|| {
+        AppError::internal(format!(
+            "the server did not say what would refuse a reset (no {field})"
+        ))
     })?;
+    let owned_groups: Vec<Value> = if delete_owned_groups {
+        user.get("owned_active_groups")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::internal(
+                    "the server did not say which groups the account owns (no owned_active_groups)",
+                )
+            })?
+    } else {
+        Vec::new()
+    };
     let blockers: Vec<UserReference> = serde_json::from_value(listed.clone()).map_err(|e| {
         AppError::internal(format!("the server's reset blockers are unreadable: {e}"))
     })?;
@@ -176,6 +238,12 @@ fn print_preview(body: &Value) -> AppResult<()> {
             println!("  - {}", blocker.describe());
         }
         println!("Once they are, a reset would do this:");
+    }
+    for group in &owned_groups {
+        println!(
+            "  - group '{}' would be deleted as its owner's Delete group does: archived, members released, invites deactivated; its room history stays",
+            user_admin::field(group, "name")
+        );
     }
     let providers = user_admin::provider_entries(body, "connected_providers");
     if providers.is_empty() {
@@ -207,8 +275,16 @@ fn print_preview(body: &Value) -> AppResult<()> {
     println!("{KEPT_NOTE}");
     println!("{CHANNELS_NOTE}");
     println!("{CLIENT_FLAGS_NOTE}");
-    if blockers.is_empty() {
+    if blockers.is_empty() && delete_owned_groups {
+        println!("Re-run with --yes --delete-owned-groups to reset.");
+    } else if blockers.is_empty() {
         println!("Re-run with --yes to reset.");
+    } else if !delete_owned_groups
+        && blockers
+            .iter()
+            .any(|b| b.kind == UserReferenceKind::OwnsCoachingGroup)
+    {
+        println!("A reset with --yes is refused (409) until then; nothing is touched. --delete-owned-groups deletes the groups the account owns as part of the reset.");
     } else {
         println!("A reset with --yes is refused (409) until then; nothing is touched.");
     }

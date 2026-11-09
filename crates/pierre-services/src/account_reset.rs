@@ -17,7 +17,20 @@
 //! 1. Refuse, touching nothing, while the account holds something other
 //!    people use: an active group it owns or coaches, an invite it created
 //!    to one, an agent it authored that others rely on
-//!    (`AccountResetRepository::reset_blockers`).
+//!    (`AccountResetRepository::reset_blockers`). With
+//!    [`OwnedGroups::Archive`] the groups it owns do not refuse: they are
+//!    read as already archived, and a group it only coaches, or an invite it
+//!    made to someone else's group, still refuses.
+//!
+//!    Then, with [`OwnedGroups::Archive`], archive every active group the
+//!    account owns through [`GroupService::delete_group`], the path the owner's own
+//!    *Delete group* runs: the group stops being active, its invites stop
+//!    working, its members are released, the delegated links it carried end
+//!    and the owner's billed athlete count drops. Its room history stays, as
+//!    it does for the owner's delete; the wipe then takes the account's own
+//!    part of it. The archive runs before any provider is disconnected and,
+//!    like a disconnect, stands if a later step fails. The actor is the
+//!    account itself, since the operator acts on its behalf.
 //! 2. Disconnect every held provider through the disconnect chokepoint
 //!    ([`ProviderDisconnector::disconnect`]), coaching platforms included —
 //!    unlike an onboarding reset, which keeps them for the groups riding on
@@ -52,13 +65,15 @@
 //! naming the same.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use async_trait::async_trait;
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserReference;
-use pierre_database::repositories::AccountResetCommit;
+use pierre_database::repositories::{AccountResetCommit, OwnedGroup};
 use pierre_database::RepositoryRegistry;
+use pierre_groups::GroupService;
 use serde::Serialize;
 use tracing::info;
 use uuid::Uuid;
@@ -98,9 +113,38 @@ pub trait AccountArchiveEraser: Send + Sync {
     async fn erase(&self, user_id: Uuid) -> AppResult<ArchiveErasure>;
 }
 
+/// What a reset does with the active groups the account owns.
+#[derive(Clone, Copy)]
+pub enum OwnedGroups<'svc> {
+    /// Refuse the reset while the account owns one.
+    Refuse,
+    /// Archive each one first, through the owner's own delete path.
+    Archive(&'svc GroupService),
+}
+
+impl fmt::Debug for OwnedGroups<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Refuse => "Refuse",
+            Self::Archive(_) => "Archive",
+        })
+    }
+}
+
+/// A group the reset archived.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArchivedGroup {
+    /// The group's id.
+    pub group_id: String,
+    /// The group's name.
+    pub name: String,
+}
+
 /// Everything an account reset did, for the operator's response.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountResetReport {
+    /// Active groups the account owned, archived before anything else ran.
+    pub groups_archived: Vec<ArchivedGroup>,
     /// Providers disconnected through the chokepoint, coaching platforms
     /// included, each with what the provider said about its grant.
     pub disconnected: Vec<DisconnectedProvider>,
@@ -129,6 +173,8 @@ pub struct AccountResetRefusal {
     pub disconnected: Vec<DisconnectedProvider>,
     /// What was erased before the refusal; `None` when nothing was.
     pub archive_erased: Option<ArchiveErasure>,
+    /// Groups archived before the refusal; empty when none were.
+    pub groups_archived: Vec<ArchivedGroup>,
 }
 
 /// A reset that failed part-way: the failure, what was disconnected before
@@ -140,6 +186,8 @@ pub struct AccountResetInterruption {
     /// What was erased before the failure; `None` when the erasure did not
     /// run or failed itself.
     pub archive_erased: Option<ArchiveErasure>,
+    /// Groups archived before the failure; empty when none were.
+    pub groups_archived: Vec<ArchivedGroup>,
 }
 
 /// The outcome of an account reset attempt.
@@ -164,12 +212,19 @@ pub fn blockers_message(refusal: &AccountResetRefusal) -> String {
         "User cannot be reset until these are reassigned or removed: {}",
         user_removal::name_blockers(&refusal.blockers)
     );
-    if refusal.archive_erased.is_none() && refusal.disconnected.is_empty() {
+    if refusal.archive_erased.is_none()
+        && refusal.disconnected.is_empty()
+        && refusal.groups_archived.is_empty()
+    {
         return message;
     }
     // The second read, inside the wipe's transaction, refused: say what the
     // steps before it already did.
     message.push_str(". Found after the reset began: ");
+    if let Some(archived) = describe_archived(&refusal.groups_archived) {
+        message.push_str(&archived);
+        message.push_str("; ");
+    }
     if refusal.disconnected.is_empty() {
         message.push_str("no provider was disconnected");
     } else {
@@ -188,17 +243,31 @@ pub fn blockers_message(refusal: &AccountResetRefusal) -> String {
     message
 }
 
+/// The groups already archived, as an operator reads it; `None` when none
+/// were.
+fn describe_archived(groups: &[ArchivedGroup]) -> Option<String> {
+    if groups.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = groups.iter().map(|g| format!("'{}'", g.name)).collect();
+    Some(format!("already archived the groups {}", names.join(", ")))
+}
+
 /// What an interrupted reset already did and what it did not, as an operator
 /// reads it; `cause` is the failure as the caller may show it.
 #[must_use]
 pub fn describe_interruption(interrupted: &AccountResetInterruption, cause: &str) -> String {
     let interruption = &interrupted.interruption;
     let done = interruption.describe_disconnected();
-    let erased = if interrupted.archive_erased.is_some() {
-        " The imported history and uploaded files were already erased."
-    } else {
-        ""
-    };
+    let mut erased = String::new();
+    if let Some(archived) = describe_archived(&interrupted.groups_archived) {
+        erased.push_str(" The reset ");
+        erased.push_str(&archived);
+        erased.push('.');
+    }
+    if interrupted.archive_erased.is_some() {
+        erased.push_str(" The imported history and uploaded files were already erased.");
+    }
     interruption.failed.as_ref().map_or_else(
         || {
             format!(
@@ -207,7 +276,7 @@ pub fn describe_interruption(interrupted: &AccountResetInterruption, cause: &str
         },
         |failed| {
             format!(
-                "Disconnecting {} failed: {cause}. Its grant may already have been revoked at the provider. {done}. No other row the account owns was changed.",
+                "Disconnecting {} failed: {cause}. Its grant may already have been revoked at the provider. {done}.{erased} No other row the account owns was changed.",
                 failed.describe()
             )
         },
@@ -222,21 +291,27 @@ pub fn describe_interruption(interrupted: &AccountResetInterruption, cause: &str
 /// `ResourceUnavailable` error, touching nothing, when no archive eraser is
 /// wired (the wipe would leave the imported history and uploads behind) or
 /// the account holds a provider and no disconnector is wired (wiping would
-/// strand its grant upstream). A failed disconnect, erasure or wipe is
-/// [`AccountResetOutcome::Interrupted`], not an error.
+/// strand its grant upstream). A failed archive, disconnect, erasure or wipe
+/// is [`AccountResetOutcome::Interrupted`], not an error.
 pub async fn reset_account(
     repos: &RepositoryRegistry,
     disconnector: Option<&dyn ProviderDisconnector>,
     eraser: Option<&dyn AccountArchiveEraser>,
     cache: Option<&Cache>,
     user_id: Uuid,
+    owned_groups: OwnedGroups<'_>,
 ) -> AppResult<AccountResetOutcome> {
-    let blockers = repos.account_reset.reset_blockers(user_id).await?;
+    let archive_owned = matches!(owned_groups, OwnedGroups::Archive(_));
+    let blockers = repos
+        .account_reset
+        .reset_blockers(user_id, archive_owned)
+        .await?;
     if !blockers.is_empty() {
         return Ok(AccountResetOutcome::Blocked(AccountResetRefusal {
             blockers,
             disconnected: Vec::new(),
             archive_erased: None,
+            groups_archived: Vec::new(),
         }));
     }
     let Some(eraser) = eraser else {
@@ -246,13 +321,34 @@ pub async fn reset_account(
     };
 
     let held = user_removal::held_providers(repos, user_id).await?;
-    let mut report = AccountResetReport::default();
-    if !held.is_empty() {
-        let Some(disconnector) = disconnector else {
+    let disconnector = match (held.is_empty(), disconnector) {
+        (true, _) => None,
+        (false, Some(disconnector)) => Some(disconnector),
+        (false, None) => {
             return Err(AppError::resource_unavailable(
                 "Provider disconnect is not wired on this server; resetting would leave the user's grants authorized at the provider",
             ));
-        };
+        }
+    };
+
+    let mut report = AccountResetReport::default();
+    if let OwnedGroups::Archive(groups) = owned_groups {
+        let owned = repos.account_reset.owned_active_groups(user_id).await?;
+        if let Err(error) = archive_each(groups, user_id, owned, &mut report.groups_archived).await
+        {
+            return Ok(AccountResetOutcome::Interrupted(AccountResetInterruption {
+                interruption: Interruption {
+                    disconnected: Vec::new(),
+                    failed: None,
+                    error,
+                },
+                archive_erased: None,
+                groups_archived: report.groups_archived,
+            }));
+        }
+    }
+
+    if let Some(disconnector) = disconnector {
         let (revocable, not_revocable): (Vec<HeldProvider>, Vec<HeldProvider>) = held
             .into_iter()
             .partition(|target| disconnector.supports(&target.provider));
@@ -270,6 +366,7 @@ pub async fn reset_account(
                 return Ok(AccountResetOutcome::Interrupted(AccountResetInterruption {
                     interruption: *interruption,
                     archive_erased: None,
+                    groups_archived: report.groups_archived,
                 }))
             }
         };
@@ -285,6 +382,7 @@ pub async fn reset_account(
                     error,
                 },
                 archive_erased: None,
+                groups_archived: report.groups_archived,
             }))
         }
     };
@@ -296,6 +394,7 @@ pub async fn reset_account(
                 blockers,
                 disconnected: report.disconnected,
                 archive_erased: Some(report.archive_erased),
+                groups_archived: report.groups_archived,
             }))
         }
         Err(error) => {
@@ -306,6 +405,7 @@ pub async fn reset_account(
                     error,
                 },
                 archive_erased: Some(report.archive_erased),
+                groups_archived: report.groups_archived,
             }))
         }
     };
@@ -315,6 +415,7 @@ pub async fn reset_account(
 
     info!(
         user_id = %user_id,
+        groups_archived = report.groups_archived.len(),
         disconnected = report.disconnected.len(),
         not_revocable = report.not_revocable.len(),
         tables_changed = report.rows_changed.len(),
@@ -323,6 +424,29 @@ pub async fn reset_account(
         "Account reset by operator"
     );
     Ok(AccountResetOutcome::Reset(report))
+}
+
+/// Archive each group through the owner's delete path, recording each one
+/// archived into `archived` so a failure part-way still names them. A group
+/// archived since it was listed is skipped.
+async fn archive_each(
+    groups: &GroupService,
+    user_id: Uuid,
+    owned: Vec<OwnedGroup>,
+    archived: &mut Vec<ArchivedGroup>,
+) -> AppResult<()> {
+    for group in owned {
+        if groups
+            .delete_group(&group.group_id, group.tenant_id, user_id)
+            .await?
+        {
+            archived.push(ArchivedGroup {
+                group_id: group.group_id,
+                name: group.name,
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -345,6 +469,7 @@ mod tests {
             blockers: shared_agent(),
             disconnected: Vec::new(),
             archive_erased: None,
+            groups_archived: Vec::new(),
         });
         assert_eq!(
             message,
@@ -366,7 +491,15 @@ mod tests {
                 revocation: RevocationOutcome::Revoked,
             }],
             archive_erased: Some(ArchiveErasure::default()),
+            groups_archived: vec![ArchivedGroup {
+                group_id: "g1".to_owned(),
+                name: "Hill repeats".to_owned(),
+            }],
         });
+        assert!(
+            message.contains("already archived the groups 'Hill repeats'"),
+            "{message}"
+        );
         assert!(
             message.contains(&format!(
                 "already disconnected: strava (tenant {tenant_id}) revoked at the provider"

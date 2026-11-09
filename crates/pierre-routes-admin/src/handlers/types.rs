@@ -107,6 +107,10 @@ pub struct ResetAccountRequest {
     /// Optional reason for the reset (logged, never written to the audit
     /// trail, where free text could name the person)
     pub reason: Option<String>,
+    /// Archive every active group the account owns first, through the
+    /// owner's own delete, instead of refusing the reset over them
+    #[serde(default)]
+    pub delete_owned_groups: bool,
 }
 
 /// Onboarding reset request

@@ -277,7 +277,7 @@ pub use account_deletion::{
     ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, GENESIS_HASH,
 };
 pub use account_reset::{
-    AccountReset, AccountResetCommit, AccountResetRepository, AccountResetWipe,
+    AccountReset, AccountResetCommit, AccountResetRepository, AccountResetWipe, OwnedGroup,
     POSTGRES_ACCOUNT_RESET, POSTGRES_ONLY_RESET_TABLES, RESET_BLOCKERS_SQL, RESET_KEEP,
     SQLITE_ACCOUNT_RESET,
 };

@@ -846,10 +846,226 @@ fn user_reset_without_yes_names_what_would_refuse_it() {
         "a refused reset must not be previewed as a wipe: {stdout}"
     );
     assert!(stdout.contains("is refused (409)"), "{stdout}");
+    assert!(
+        stdout.contains("--delete-owned-groups deletes the groups the account owns"),
+        "an owned-group refusal names the flag that resolves it: {stdout}"
+    );
     assert!(!stdout.contains("Re-run with --yes to reset."), "{stdout}");
     let requests = stub.requests();
     assert!(
         requests.iter().all(|r| r.starts_with("GET ")),
         "no write may reach the server: {requests:?}"
+    );
+}
+
+/// The user read `user reset --delete-owned-groups` previews from: the
+/// blockers once the owned groups are archived, and those groups.
+fn read_with_owned_groups(id: &str, after: &Value) -> Value {
+    json!({
+        "success": true,
+        "data": {
+            "id": id,
+            "email": EMAIL,
+            "connected_providers": [],
+            "reset_blockers": [
+                { "kind": "owns_coaching_group", "detail": "Hill club" },
+            ],
+            "reset_blockers_with_owned_groups_deleted": after,
+            "owned_active_groups": [{ "id": "g-1", "name": "Hill club" }],
+        },
+    })
+}
+
+/// With --delete-owned-groups the preview reads the blockers as they stand
+/// once the owned groups are archived, names each group with what its delete
+/// does and keeps, and sends no write.
+#[test]
+fn user_reset_delete_owned_groups_previews_each_group_and_sends_no_write() {
+    let id = Uuid::new_v4().to_string();
+    let stub = StubServer::serve(vec![
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
+        route(
+            format!("GET /admin/users/{id} "),
+            200,
+            read_with_owned_groups(&id, &json!([])),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "reset",
+            "--email",
+            EMAIL,
+            "--delete-owned-groups",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_ne!(code, 0, "{stdout}{stderr}");
+    assert!(
+        stdout.contains(&format!("Would reset {EMAIL} ({id})")),
+        "the owned group must not refuse the preview: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "group 'Hill club' would be deleted as its owner's Delete group does: archived, members released, invites deactivated; its room history stays"
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Re-run with --yes --delete-owned-groups to reset."),
+        "{stdout}"
+    );
+    assert!(
+        stub.requests().iter().all(|r| r.starts_with("GET ")),
+        "no write may reach the server"
+    );
+}
+
+/// A blocker the archive does not resolve still refuses the preview.
+#[test]
+fn user_reset_delete_owned_groups_still_names_what_the_archive_leaves() {
+    let id = Uuid::new_v4().to_string();
+    let stub = StubServer::serve(vec![
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
+        route(
+            format!("GET /admin/users/{id} "),
+            200,
+            read_with_owned_groups(
+                &id,
+                &json!([{ "kind": "coaches_coaching_group", "detail": "Their squad" }]),
+            ),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "reset",
+            "--email",
+            EMAIL,
+            "--delete-owned-groups",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_ne!(code, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("Would refuse to reset"), "{stdout}");
+    assert!(
+        stdout.contains("coaches coaching group 'Their squad'"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("owns coaching group 'Hill club'"),
+        "the archived group no longer refuses: {stdout}"
+    );
+    assert!(stdout.contains("is refused (409)"), "{stdout}");
+}
+
+/// A server that does not say what refuses a reset once the owned groups are
+/// archived is an error, never a preview of a wipe it might refuse.
+#[test]
+fn user_reset_delete_owned_groups_fails_without_the_servers_answer() {
+    let id = Uuid::new_v4().to_string();
+    let stub = StubServer::serve(vec![
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
+        route(
+            format!("GET /admin/users/{id} "),
+            200,
+            json!({
+                "success": true,
+                "data": { "id": id, "email": EMAIL, "connected_providers": [], "reset_blockers": [] },
+            }),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "reset",
+            "--email",
+            EMAIL,
+            "--delete-owned-groups",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_ne!(code, 0, "{stdout}{stderr}");
+    assert!(
+        stderr.contains("no reset_blockers_with_owned_groups_deleted"),
+        "{stderr}"
+    );
+    assert!(!stdout.contains("Would reset"), "{stdout}");
+}
+
+/// Confirmed, the flag reaches the server and each archived group is printed.
+#[test]
+fn user_reset_delete_owned_groups_with_yes_posts_the_flag_and_names_each_group() {
+    let id = Uuid::new_v4().to_string();
+    let stub = StubServer::serve(vec![
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
+        route(
+            format!("POST /admin/users/{id}/reset "),
+            200,
+            json!({
+                "success": true,
+                "message": format!("Account reset for {EMAIL}"),
+                "data": {
+                    "user_id": id,
+                    "email": EMAIL,
+                    "groups_archived": [{ "group_id": "g-1", "name": "Hill club" }],
+                    "disconnected": [],
+                    "not_revocable": [],
+                    "still_connected": false,
+                    "rows_changed": {},
+                    "archive_erased": { "records": 0, "jobs": 0, "blobs": 0 },
+                },
+            }),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "reset",
+            "--email",
+            EMAIL,
+            "--delete-owned-groups",
+            "--yes",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(
+        stdout.contains(
+            "group 'Hill club' archived: members released, invites deactivated, room history kept"
+        ),
+        "{stdout}"
+    );
+    let requests = stub.requests();
+    let posts: Vec<&String> = requests.iter().filter(|r| r.starts_with("POST ")).collect();
+    assert_eq!(posts.len(), 1, "exactly one write: {requests:?}");
+    assert!(
+        posts[0].contains(r#""delete_owned_groups":true"#),
+        "{}",
+        posts[0]
     );
 }
