@@ -32,4 +32,6 @@ pub(crate) mod token;
 pub(crate) mod tool;
 pub(crate) mod user;
 pub(crate) mod user_admin;
+/// `pierre-cli user reset`: start a whole account over over the admin API.
+pub(crate) mod user_reset;
 pub(crate) mod zones;

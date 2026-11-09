@@ -12,6 +12,8 @@ pub(crate) mod a2a_backend;
 pub mod a2a_task_reaper;
 /// An account deletion in one transaction, with its hash-chained receipt and the chain's verifier.
 pub mod account_deletion;
+/// A whole-account reset in one transaction: every owned row wiped, the account and its sign-in kept.
+pub mod account_reset;
 /// Repository trait for historical activity backfills still owed (resumed by a sweep).
 pub mod activity_backfill_jobs;
 /// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
@@ -273,6 +275,11 @@ pub use a2a_task_reaper::*;
 pub use account_deletion::{
     verify_receipt_chain, AccountDeletion, AccountDeletionPlan, AccountDeletionRepository,
     ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, GENESIS_HASH,
+};
+pub use account_reset::{
+    AccountReset, AccountResetCommit, AccountResetRepository, AccountResetWipe,
+    POSTGRES_ACCOUNT_RESET, POSTGRES_ONLY_RESET_TABLES, RESET_BLOCKERS_SQL, RESET_KEEP,
+    SQLITE_ACCOUNT_RESET,
 };
 pub use activity_backfill_jobs::*;
 pub use activity_cache::*;

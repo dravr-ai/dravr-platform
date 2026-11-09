@@ -31,6 +31,7 @@ use pierre_contremaitre::{
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_services::account_reset::AccountArchiveEraser;
 use pierre_services::scrape_session::ScrapeSessionInstaller;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_services::user_removal::ProviderDisconnector;
@@ -85,6 +86,11 @@ pub struct AdminApiContext {
     /// deleting one (injected by the composition root; `None` until wired, in
     /// which case those routes refuse rather than strand a grant upstream).
     pub provider_disconnector: Option<Arc<dyn ProviderDisconnector>>,
+    /// Erases an account's imported history and uploaded files, which the
+    /// account reset does itself before its wipe (injected by the
+    /// composition root; `None` until wired, in which case the reset refuses
+    /// rather than leave them behind).
+    pub archive_eraser: Option<Arc<dyn AccountArchiveEraser>>,
     /// Stores a scrape session on an account and warms its data the way a
     /// login does, for the operator clone (injected by the composition root;
     /// `None` until wired, in which case the clone route refuses).
@@ -284,6 +290,7 @@ impl AdminApiContext {
             background: TaskTracker::new(),
             approval_notifier: None,
             provider_disconnector: None,
+            archive_eraser: None,
             session_installer: None,
             sign_in_limiter: Arc::new(OAuth2RateLimiter::new(
                 None,

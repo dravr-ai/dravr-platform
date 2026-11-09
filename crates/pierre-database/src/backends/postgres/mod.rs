@@ -14,6 +14,8 @@ pub mod a2a;
 pub mod a2a_task_reaper;
 /// Account deletion with its receipt (`Postgres`) backing `AccountDeletionRepository`.
 pub mod account_deletion;
+/// Whole-account reset (`Postgres`) backing `AccountResetRepository`.
+pub mod account_reset;
 /// Historical activity backfills still owed, one per (user, provider), leased to one re-runner
 pub mod activity_backfill_jobs;
 /// Provider-agnostic activity cache (stale-while-revalidate) repository implementation

@@ -583,6 +583,9 @@ enum UserCommand {
     /// Send a user back through onboarding over the admin API; groups and TrainingPeaks are left in place
     ResetOnboarding(commands::user_admin::ResetOnboardingArgs),
 
+    /// Start a whole account over (super-admin): every provider disconnected, every owned row wiped, the account kept
+    Reset(commands::user_reset::ResetArgs),
+
     /// Suspend a user (status → suspended); they can no longer log in
     Suspend {
         /// Email of the user
@@ -921,7 +924,7 @@ async fn main() -> Result<()> {
         cli.command = Command::Harness { action };
     }
 
-    // `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` and the three pre-approval
+    // `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` / `reset` and the pre-approval
     // verbs are remote, and have to dispatch here for the reason they exist: every other user command
     // holds a repository handle and therefore needs DATABASE_URL plus
     // PIERRE_MASTER_ENCRYPTION_KEY. A deployed environment has neither reachable
@@ -931,19 +934,7 @@ async fn main() -> Result<()> {
     // bootstrap, they work against any environment with nothing but --server and
     // a token.
     if let Command::User { action } = cli.command {
-        if matches!(
-            action,
-            UserCommand::Get { .. }
-                | UserCommand::Set { .. }
-                | UserCommand::Allow { .. }
-                | UserCommand::Disallow { .. }
-                | UserCommand::ListAllowed { .. }
-                | UserCommand::Code { .. }
-                | UserCommand::Disconnect(_)
-                | UserCommand::CloneProvider(_)
-                | UserCommand::Delete(_)
-                | UserCommand::ResetOnboarding(_)
-        ) {
+        if dispatch::is_remote_user(&action) {
             return dispatch::dispatch_remote_user(action).await;
         }
         // A seeded session signs an account in with no credential, so it is
@@ -1058,7 +1049,8 @@ async fn main() -> Result<()> {
                 | UserCommand::Disconnect(_)
                 | UserCommand::CloneProvider(_)
                 | UserCommand::Delete(_)
-                | UserCommand::ResetOnboarding(_) => {
+                | UserCommand::ResetOnboarding(_)
+                | UserCommand::Reset(_) => {
                     unreachable!("remote user commands dispatch before the database bootstrap")
                 }
                 UserCommand::SetTier { email, tier, note } => {

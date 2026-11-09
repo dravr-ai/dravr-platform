@@ -101,6 +101,14 @@ pub struct DeleteUserRequest {
     pub reason: Option<String>,
 }
 
+/// Whole-account reset request
+#[derive(Debug, Deserialize)]
+pub struct ResetAccountRequest {
+    /// Optional reason for the reset (logged, never written to the audit
+    /// trail, where free text could name the person)
+    pub reason: Option<String>,
+}
+
 /// Onboarding reset request
 #[derive(Debug, Deserialize)]
 pub struct ResetOnboardingRequest {

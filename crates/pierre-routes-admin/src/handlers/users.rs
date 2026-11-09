@@ -262,6 +262,13 @@ pub async fn handle_get_user(
         .users
         .manages_roster_operator_grant(user_uuid)
         .await?;
+    // What would refuse a whole-account reset, which `pierre-cli user reset`
+    // previews without --yes instead of promising a wipe the server refuses.
+    let reset_blockers = context
+        .repos
+        .account_reset
+        .reset_blockers(user_uuid)
+        .await?;
 
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
 
@@ -282,6 +289,7 @@ pub async fn handle_get_user(
                 "last_active": user.last_active.to_rfc3339(),
                 "connected_providers": connected_providers,
                 "kept_on_onboarding_reset": kept_on_onboarding_reset,
+                "reset_blockers": reset_blockers,
             })),
         },
         StatusCode::OK,

@@ -12,7 +12,7 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
-    A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
+    A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository, AccountResetRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
     ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
     AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository,
@@ -260,6 +260,9 @@ pub struct RepositoryRegistry {
     /// An account deletion in one transaction with its hash-chained receipt,
     /// and the receipt chain an operator verifies.
     pub account_deletion: Arc<dyn AccountDeletionRepository>,
+    /// A whole-account reset in one transaction: every row the account owns
+    /// wiped, the account and its sign-in kept, no tombstone and no receipt.
+    pub account_reset: Arc<dyn AccountResetRepository>,
     /// Tombstones of deleted accounts' provider accounts and emails: written
     /// by the account deletion, read by every door that would import them.
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
@@ -404,6 +407,7 @@ impl RepositoryRegistry {
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),
             account_deletion: db.clone(),
+            account_reset: db.clone(),
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
             engagement: db.clone(),
@@ -515,6 +519,7 @@ impl RepositoryRegistry {
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),
             account_deletion: db.clone(),
+            account_reset: db.clone(),
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
             engagement: db.clone(),

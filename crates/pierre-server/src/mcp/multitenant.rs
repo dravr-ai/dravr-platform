@@ -426,6 +426,7 @@ impl ProviderToolRouter {
             use crate::routes::admin::diagnostics::{
                 routes as diagnostics_routes, DiagnosticsContext,
             };
+            use crate::services::archive_import::sweeps::ServerArchiveEraser;
             use pierre_routes_admin::tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
             let admin_api_key_limit = resources
                 .common
@@ -481,6 +482,10 @@ impl ProviderToolRouter {
                 resources.data(),
                 resources.common.config.clone(),
             )));
+            // The account reset erases imported history and uploads itself,
+            // with the same body the deleted-account sweep runs.
+            admin_context.archive_eraser =
+                Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
             // The operator clone stores a scrape session through the same
             // write and data warm-up a sciotte login runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]

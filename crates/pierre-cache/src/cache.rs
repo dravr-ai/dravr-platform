@@ -136,8 +136,8 @@ impl Cache {
     /// provider ([`CacheKey::every_entry_of_user`]), on whichever backend this
     /// cache runs. Returns how many entries were removed.
     ///
-    /// The deleted-account path calls it: an account that no longer exists
-    /// must leave no response cached under its id.
+    /// The deleted-account and account-reset paths call it: an account whose
+    /// rows are gone must leave no response cached under its id.
     ///
     /// # Errors
     ///
