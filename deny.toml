@@ -100,6 +100,33 @@ ignore = [
     #   latest, still depends on p256 / p384 0.13, so no upgrade clears it.
     # Next Review: 2026-11-24
     "RUSTSEC-2026-0387",
+
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0459 (CVE-2026-119375): bundled SQLite < 3.54.0 returns
+    # uninitialized page-cache memory for a crafted database + -wal pair
+    # -------------------------------------------------------------------------
+    # Crate: libsqlite3-sys 0.30.1, through sqlx-sqlite 0.8.6
+    # Issue: opening a database file together with a sibling -wal file whose
+    # page size differs can make queries return stale process memory. The
+    # attacker must write both files and the victim must open them.
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0459
+    #
+    # Risk Assessment: NONE reachable in production
+    # - Production (dev) runs on Cloud SQL PostgreSQL. With a PostgreSQL
+    #   DATABASE_URL the archive-import stores also use PostgreSQL
+    #   (crates/pierre-server/src/services/archive_import/mod.rs), so the
+    #   server opens no SQLite file there.
+    # - SQLite files are opened only in tests, local development and the
+    #   Cloud SQL-disabled fallback, and always files the server itself
+    #   created. No route accepts a SQLite file from a user.
+    #
+    # Upgrade blocked on upstream: the fix is libsqlite3-sys >= 0.39, and
+    # sqlx 0.9.0 (latest) still requires libsqlite3-sys < 0.38.
+    # Remove when an sqlx release accepts libsqlite3-sys >= 0.39.
+    #
+    # Reviewed: 2026-11-09
+    # Next Review: 2026-12-09
+    "RUSTSEC-2026-0459",
 ]
 
 # Warn on yanked crates
