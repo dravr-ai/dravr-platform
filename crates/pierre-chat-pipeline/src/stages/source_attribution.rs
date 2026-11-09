@@ -35,6 +35,10 @@ const ATTRIBUTION_SEPARATOR: &str = "\n\n";
 
 /// The attributions this turn's reply owes: those of everything the turn has
 /// served so far, as its provenance records them; none outside a tracked turn.
+///
+/// LIMITATION(registre#1464): `owed_attributions` is turn-wide, not keyed by
+/// whose data was served, so a coach reply about an athlete owes Garmin for
+/// the coach's or another member's Garmin data read in the same turn.
 #[must_use]
 pub(crate) fn owed_attributions() -> BTreeSet<&'static str> {
     ai_scope::current_provenance()
@@ -71,6 +75,10 @@ pub(crate) fn attribute_reply(
 }
 
 /// `reply` followed by `line`, once.
+///
+/// LIMITATION(registre#1464): `with_attribution` dedups on exact bytes only, and
+/// the line stays in history, so a copy the model wrote with a different
+/// apostrophe is kept and the line appears twice.
 fn with_attribution(reply: String, line: &str) -> String {
     if line.is_empty() || reply.trim_end().ends_with(line) {
         return reply;
