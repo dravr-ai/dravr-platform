@@ -47,7 +47,7 @@ pub(crate) struct ResetArgs {
 /// What a reset deletes beyond the providers, as the dry run states it: the
 /// lines naming what reaches other people come first.
 const WIPED_LINES: &[&str] = &[
-    "group memberships: the account leaves every group it belongs to",
+    "the account's group memberships (it leaves every group it belongs to)",
     "coach links on both sides (delegated connections, reply reviews, attention dismissals), as the athlete and as the coach",
     "activities, health data, plans, goals, memory, notifications, devices, private agents and preferences",
     "the profile, physiology, onboarding progress and gear",

@@ -684,7 +684,7 @@ fn user_reset_without_yes_previews_everything_and_sends_no_write() {
     }
     // What reaches other people is named, not folded into "everything".
     for line in [
-        "group memberships: the account leaves every group it belongs to would be deleted",
+        "the account's group memberships (it leaves every group it belongs to) would be deleted",
         "coach links on both sides (delegated connections, reply reviews, attention dismissals), as the athlete and as the coach would be deleted",
         "A2A clients, with their OAuth registrations, sessions and tasks would be deleted",
         "the profile, physiology, onboarding progress and gear would be deleted",
