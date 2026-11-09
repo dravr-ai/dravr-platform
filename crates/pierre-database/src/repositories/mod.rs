@@ -24,6 +24,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
+/// The admin audit trail: one row per operator write (carnet#1391).
+pub mod admin_audit;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
 /// The agent row decoders both backends share, emitted per backend.
@@ -32,6 +34,8 @@ pub(crate) mod agent_rows;
 pub mod agents;
 /// The one `AgentsRepository` body, emitted per backend.
 pub(crate) mod agents_backend;
+/// The inherent helpers the `AgentsRepository` bodies share, emitted per backend.
+pub(crate) mod agents_helpers_backend;
 /// The fork and delete bodies of `AgentsRepository`, emitted per backend.
 pub(crate) mod agents_lifecycle_backend;
 /// Shared statements, row decode and body for API-key and JWT usage accounting both backends serve.
@@ -44,8 +48,12 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
 pub mod athlete_gear;
+/// Repository trait and shared body for the calendar an athlete chose for Dravr's pushes (carnet#1393).
+pub mod calendar_preferences;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
+/// A conversation archived by `/reset` and reactivated: its statements and the bodies behind them.
+pub(crate) mod chat_archive;
 pub(crate) mod chat_backend;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
@@ -81,6 +89,8 @@ pub mod data_source;
 pub mod delegated_connections;
 /// Shared statements and body for email-verification tokens.
 pub mod email_verification_tokens;
+/// Repository trait and body for the admin Engagement screen's scoped reads.
+pub mod engagement;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
 pub mod feature_flags;
 /// Repository trait, statements and body for the external sign-in identities each account is reached by.
@@ -99,7 +109,7 @@ pub mod garmin_push_inbox;
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
-/// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
+/// Repository trait for the pending-action store behind `/confirm` and `/deny`.
 pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
 pub mod harness_memory;
@@ -214,6 +224,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// Repository traits for device refresh tokens and email pre-approvals.
 pub mod user_access;
+/// The tables an athlete's data export reads, and the ones it withholds with a reason each.
+pub mod user_export;
 /// Repository trait and shared body for the per-user choices Home's layout honours.
 pub mod user_home_preferences;
 /// Repository trait, statements and shared body for single-use user invitations.
@@ -268,12 +280,17 @@ pub use activity_conversations::*;
 pub use activity_route_tracks::*;
 pub use activity_streams::*;
 pub use admin::*;
+pub use admin_audit::{
+    AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
+    NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
+};
 pub use agent_artefacts::*;
 pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use archive_erasures::{ArchiveErasureRepository, PendingArchiveErasure};
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
+pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
@@ -286,10 +303,12 @@ pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
 pub use data_source::*;
 pub use delegated_connections::*;
+pub use engagement::EngagementRepository;
 pub use feature_flags::*;
 pub use federated_identities::FederatedIdentityRepository;
 pub use feedback_messages::{
-    FeedbackAbout, FeedbackMessage, FeedbackMessageRepository, NewFeedbackMessage,
+    FeedbackAbout, FeedbackAuthor, FeedbackImage, FeedbackMessage, FeedbackMessageRepository,
+    FeedbackWriter, NewFeedbackMessage,
 };
 pub use firebase_identity_deletions::{
     FirebaseIdentityDeletionRepository, PendingFirebaseDeletion,
@@ -337,6 +356,10 @@ pub use uploaded_activity_files::{UploadedActivityFileRepository, UPLOAD_ORIGIN}
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};
 pub use user_access::*;
+pub use user_export::{
+    UserExportPage, UserExportRepository, UserExportTable, CREDENTIAL_MARKERS,
+    NOT_CREDENTIAL_COLUMNS, USER_EXPORT_EXCLUDED_TABLES, USER_EXPORT_TABLES,
+};
 pub use user_home_preferences::{
     HomePreferences, HomePreferencesRepository, HomePreferencesUpdate,
 };

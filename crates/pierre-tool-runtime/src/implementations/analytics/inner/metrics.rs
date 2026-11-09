@@ -8,9 +8,10 @@ use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsIn
 use crate::implementations::configuration::configured_max_hr_algorithm;
 use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
-use crate::protocol::provider_helpers::by_id_reader;
+use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::read_subject;
 use dravr_cageux::metrics::distance_per_climb_score;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
@@ -365,7 +366,20 @@ async fn fetch_and_calculate_metrics(
         algorithm,
     );
     let metrics = calculate_activity_metrics(&params);
-    let reading = heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref());
+    // A reading's fraction of heart-rate reserve, beside the heart rate and
+    // the maximum it was read against, gives back the resting heart rate the
+    // zones were cut from: the athlete's wellness, which a coach's read shows
+    // only under their wellness grant (carnet#1387).
+    let reading = read_subject::wellness_withheld().map_or_else(
+        || heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref()),
+        |withheld| {
+            Err(format!(
+                "the heart rate is not read on the athlete's zones here: they are cut from the \
+                 athlete's resting heart rate. {}",
+                withheld.note()
+            ))
+        },
+    );
 
     build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format)
 }
@@ -384,8 +398,8 @@ pub(crate) fn handle_calculate_metrics(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // `activity_id` and `provider` are both declared required by this tool's
-        // schema, so this is the only way in. A second branch used to accept an
+        // `activity_id` is declared required by this tool's schema, so this is
+        // the only way in. A second branch used to accept an
         // `activity` object inline and skip the fetch, but that shape appears
         // nowhere in the schema — no caller following the tool definition could
         // know to send it, and the only thing that ever did was a test. The
@@ -399,21 +413,23 @@ pub(crate) fn handle_calculate_metrics(
                 ProtocolError::InvalidParameters("activity_id parameter is required".to_owned())
             })?;
 
-        let provider_name = request
-            .parameters
-            .get("provider")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                ProtocolError::InvalidParameters(
-                    "provider parameter required when using activity_id".to_owned(),
-                )
-            })?;
+        let provider_name = match resolve_provider_for_request(
+            &request.parameters,
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+        )
+        .await
+        {
+            Ok(provider) => provider,
+            Err(response) => return Ok(*response),
+        };
 
         fetch_and_calculate_metrics(
             executor,
             &request,
             activity_id,
-            provider_name,
+            &provider_name,
             user_uuid,
             output_format,
         )

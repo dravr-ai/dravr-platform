@@ -93,6 +93,7 @@ fn message(id: &str, role: &str, content: &str) -> MessageRecord {
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     }
 }
 

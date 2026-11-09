@@ -29,11 +29,9 @@
 //! immutable, and the chain is the audit trail.
 //!
 //! Boundary versus the sibling agent-memory surfaces: a plan is a
-//! forward-looking structured prescription; a followup
-//! ([`crate::followups::AgentFollowup`]) is a one-off commitment to check in;
-//! a playbook ([`crate::playbooks::Playbook`]) is a learned
-//! trigger→intervention pattern. A plan is never a followup (no due-at
-//! semantics) and never a playbook (not evidence-scored).
+//! forward-looking structured prescription; a playbook
+//! ([`crate::playbooks::Playbook`]) is a learned trigger→intervention pattern.
+//! A plan is never a playbook (not evidence-scored).
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;

@@ -218,13 +218,18 @@ pub(crate) fn ride(id: &str, days_ago: i64) -> Activity {
 
 /// A ride `days_ago` lasting `seconds`, at 30 km/h.
 pub(crate) fn ride_lasting(id: &str, days_ago: i64, seconds: u64) -> Activity {
+    ride_started(id, Utc::now() - Duration::days(days_ago), seconds)
+}
+
+/// A ride started at `start` lasting `seconds`, at 30 km/h.
+pub(crate) fn ride_started(id: &str, start: DateTime<Utc>, seconds: u64) -> Activity {
     #[allow(clippy::cast_precision_loss)]
     let metres = seconds as f64 * 30_000.0 / 3_600.0;
     ActivityBuilder::new(
         id.to_owned(),
         format!("ride {id}"),
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        start,
         seconds,
         "strava".to_owned(),
     )
@@ -302,6 +307,7 @@ pub(crate) async fn agent_reply(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();

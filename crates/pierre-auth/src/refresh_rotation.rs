@@ -20,12 +20,16 @@
 //!   successor included.
 //! - Every token lives [`refresh_token_lifetime`] from the moment it is issued,
 //!   read from the one `REFRESH_TOKEN_EXPIRY_DAYS` setting.
+//! - An `OAuth2` family also has an absolute life, [`REFRESH_FAMILY_MAX_DAYS`]
+//!   from its first token, however often it rotates: a forgotten connection
+//!   eventually asks its athlete to consent again. A family with no recorded
+//!   start is a legacy one and has no absolute limit.
 
 use std::future::Future;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use chrono::Duration;
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use ring::rand::{SecureRandom, SystemRandom};
 use tracing::warn;
@@ -68,6 +72,29 @@ pub fn refresh_token_lifetime(expiry_days: i64) -> Duration {
     Duration::days(expiry_days)
 }
 
+/// The absolute lifetime of an `OAuth2` refresh-token family, in days, counted
+/// from the family's first token and unaffected by rotation.
+pub const REFRESH_FAMILY_MAX_DAYS: i64 = 180;
+
+/// When a successor issued at `now` stops exchanging, or `None` when its
+/// family has run out its absolute life and must not be continued.
+///
+/// The usual sliding window (`lifetime` from `now`), capped at the family's
+/// deadline. `family_created_at` of `None` is a legacy family: no cap.
+#[must_use]
+pub(crate) fn successor_expiry(
+    now: DateTime<Utc>,
+    lifetime: Duration,
+    family_created_at: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    let sliding = now + lifetime;
+    let Some(started) = family_created_at else {
+        return Some(sliding);
+    };
+    let deadline = started + Duration::days(REFRESH_FAMILY_MAX_DAYS);
+    (deadline > now).then_some(sliding.min(deadline))
+}
+
 /// A fresh refresh token value: 32 bytes of OS randomness, base64url without
 /// padding, so it travels in a form field or a header unchanged.
 ///
@@ -79,4 +106,48 @@ pub fn generate_refresh_token() -> AppResult<String> {
         .fill(&mut bytes)
         .map_err(|_| AppError::internal("System RNG failure while minting a refresh token"))?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_legacy_family_slides_without_limit() {
+        let now = Utc::now();
+        assert_eq!(
+            successor_expiry(now, Duration::days(30), None),
+            Some(now + Duration::days(30))
+        );
+    }
+
+    #[test]
+    fn a_young_family_slides_by_the_usual_window() {
+        let now = Utc::now();
+        let started = now - Duration::days(10);
+        assert_eq!(
+            successor_expiry(now, Duration::days(30), Some(started)),
+            Some(now + Duration::days(30))
+        );
+    }
+
+    #[test]
+    fn the_window_is_cut_at_the_family_deadline() {
+        let now = Utc::now();
+        let started = now - Duration::days(REFRESH_FAMILY_MAX_DAYS - 5);
+        assert_eq!(
+            successor_expiry(now, Duration::days(30), Some(started)),
+            Some(started + Duration::days(REFRESH_FAMILY_MAX_DAYS))
+        );
+    }
+
+    #[test]
+    fn a_family_past_its_deadline_is_not_continued() {
+        let now = Utc::now();
+        let started = now - Duration::days(REFRESH_FAMILY_MAX_DAYS + 1);
+        assert_eq!(
+            successor_expiry(now, Duration::days(30), Some(started)),
+            None
+        );
+    }
 }

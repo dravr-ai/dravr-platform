@@ -14,6 +14,7 @@
 //! with the key. The listener counts its fetches, so a test can pin how often
 //! a verifier goes back to Google.
 
+use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -25,6 +26,7 @@ use axum::{Json, Router};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use pierre_auth::admin::jwks::{JsonWebKey, JsonWebKeySet, RsaKeyPair};
 use serde::Serialize;
+use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -54,6 +56,44 @@ impl GoogleClaims {
             email_verified: Some(true),
             exp: now + 3600,
             iat: now,
+        }
+    }
+}
+
+/// The claims of a Firebase ID token, as Firebase mints them.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct FirebaseTokenClaims {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub iat: u64,
+    pub exp: u64,
+    pub email: Option<String>,
+    pub email_verified: Option<bool>,
+    pub firebase: HashMap<String, Value>,
+}
+
+impl FirebaseTokenClaims {
+    /// A Google sign-in to the Firebase project `project` by the Firebase user
+    /// `uid` with `email`, valid for an hour, whose address Google verified
+    /// when `verified`.
+    #[must_use]
+    pub(crate) fn google_sign_in(
+        project: &str,
+        uid: &str,
+        email: &str,
+        verified: Option<bool>,
+    ) -> Self {
+        let now = now_secs();
+        Self {
+            iss: format!("https://securetoken.google.com/{project}"),
+            aud: project.to_owned(),
+            sub: uid.to_owned(),
+            iat: now,
+            exp: now + 3600,
+            email: Some(email.to_owned()),
+            email_verified: verified,
+            firebase: HashMap::from([("sign_in_provider".to_owned(), json!("google.com"))]),
         }
     }
 }

@@ -8,6 +8,7 @@ import type { User } from '../types/api';
 import { Button } from './ui';
 import UserApprovalModal from './UserApprovalModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 export default function PendingUsersList() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -52,7 +53,7 @@ export default function PendingUsersList() {
     } else if (diffInHours < 48) {
       return 'Yesterday';
     } else {
-      return date.toLocaleDateString();
+      return date.toLocaleDateString(ADMIN_LOCALE);
     }
   };
 

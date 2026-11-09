@@ -388,19 +388,16 @@ async fn a2a_client(
     owner: &Athlete,
     limit: u32,
 ) -> (A2AClient, String) {
-    let (key, _) = api_key(resources, owner.user.id, ApiKeyTier::Starter, 1_000, false).await;
     let client = A2AClient {
         id: format!("a2a_client_{}", Uuid::new_v4()),
         user_id: owner.user.id,
         name: format!("Budget client {}", Uuid::new_v4()),
         description: "client-credentials budget".to_owned(),
-        public_key: "budget-public-key".to_owned(),
         contact_email: None,
         capabilities: vec!["fitness-data-analysis".to_owned()],
         redirect_uris: Vec::new(),
         is_active: true,
         created_at: Utc::now(),
-        permissions: vec!["read_activities".to_owned()],
         rate_limit_requests: limit,
         rate_limit_window_seconds: KEY_WINDOW_SECS,
         updated_at: Utc::now(),
@@ -409,7 +406,7 @@ async fn a2a_client(
         .common
         .repos
         .a2a
-        .create_client(&client, &key.id)
+        .create_client(&client)
         .await
         .unwrap();
     let token = resources

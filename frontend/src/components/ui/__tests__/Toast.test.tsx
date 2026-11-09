@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for Toast component and hooks
-// ABOUTME: Verifies toast notifications display correctly
+// ABOUTME: Verifies toast notifications display correctly, their action button, and keyed repeats collapsing
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -216,6 +216,58 @@ describe('Toast System', () => {
         const titles = screen.getAllByText('Success Title');
         expect(titles).toHaveLength(2);
       });
+    });
+  });
+
+  describe('action and dedupe', () => {
+    function ActionToast({ onAction }: { onAction: () => void }) {
+      const { addToast } = useToast();
+      const show = () =>
+        addToast({
+          type: 'error',
+          title: 'Garmin needs reconnecting.',
+          duration: 60000,
+          dedupeKey: 'auth:garmin',
+          action: { label: 'Reconnect', onClick: onAction },
+        });
+      return (
+        <button
+          onClick={() => {
+            show();
+            show();
+            show();
+          }}
+        >
+          Show Keyed
+        </button>
+      );
+    }
+
+    it('collapses repeats sharing a key into one toast, and its action runs then dismisses it', async () => {
+      const user = userEvent.setup();
+      const onAction = vi.fn();
+
+      render(
+        <ToastProvider>
+          <ActionToast onAction={onAction} />
+        </ToastProvider>
+      );
+
+      await user.click(screen.getByText('Show Keyed'));
+
+      expect(await screen.findByText('Garmin needs reconnecting.')).toBeInTheDocument();
+      expect(screen.getAllByText('Garmin needs reconnecting.')).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: 'Reconnect' }));
+
+      expect(onAction).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(screen.queryByText('Garmin needs reconnecting.')).not.toBeInTheDocument();
+      });
+
+      // Gone from the screen, the key is free: the next repeat is shown again.
+      await user.click(screen.getByText('Show Keyed'));
+      expect(await screen.findByText('Garmin needs reconnecting.')).toBeInTheDocument();
     });
   });
 });

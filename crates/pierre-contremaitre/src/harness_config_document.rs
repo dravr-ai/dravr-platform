@@ -1,5 +1,5 @@
 // ABOUTME: Persisted harness-config document — compaction tunables + Tier 6 guardrails
-// ABOUTME: Data types and validation only; HTTP handlers live in pierre-server::routes::admin::harness_config
+// ABOUTME: Data types and validation only; HTTP handlers live in pierre-routes-admin::handlers::harness_config
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,14 +9,12 @@
 //! Defines the JSON document persisted under `system_settings.harness_config`
 //! and consumed by the [`crate::harness_config_registry::HarnessConfigRegistry`].
 //! Bundles the dispatch-time tunables the harness uses — compaction
-//! window / thresholds, text guardrails (blocked topics, disclaimers,
-//! length cap), and the default fallback behavior when verification
-//! fires.
+//! window / thresholds, text guardrails (blocked topics, disclaimer triggers),
+//! the claim judge switch, and memory de-duplication.
 //!
 //! HTTP handlers for `GET`/`PUT /admin/settings/harness` live in
-//! `pierre-server::routes::admin::harness_config` and import these types.
-//! Per-tenant overrides are a Phase D follow-up — the document is
-//! currently global across tenants.
+//! `pierre-routes-admin::handlers::harness_config` and import these types.
+//! One document governs every tenant.
 
 use std::collections::HashMap;
 
@@ -30,10 +28,10 @@ pub const HARNESS_CONFIG_SETTING_KEY: &str = "harness_config";
 
 /// Compaction tunables that the dispatch path reads from
 /// `pierre_core::config::CompactionConfig`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessCompactionConfig {
-    /// Target context window size in tokens (default `1_000_000`, Claude Opus
-    /// 4.8's real window).
+    /// The base the two thresholds are fractions of, in tokens (default
+    /// `1_000_000`, the chain head's real window). Nothing sends it to a provider.
     pub window_tokens: u32,
     /// Fraction of `window_tokens` that triggers a summarization pass.
     pub warn_threshold: f32,
@@ -41,11 +39,15 @@ pub struct HarnessCompactionConfig {
     pub emergency_threshold: f32,
     /// How many of the oldest history turns to summarize when warn fires.
     pub summarize_oldest_n: u32,
-    /// How many of the oldest history turns to drop under emergency mode.
+    /// The fewest of the oldest history turns a slide drops, so a thread barely
+    /// over its budget does not slide again next turn. A slide drops more when
+    /// fitting the budget takes more.
     pub sliding_drop_n: u32,
-    /// Hard cap on non-system messages kept in the prompt — an
-    /// estimate-independent backstop against the token heuristic under-counting
-    /// dense content. Defaulted so older persisted documents still deserialize.
+    /// Cap on non-system messages kept in the prompt — an estimate-independent
+    /// backstop against the token heuristic under-counting dense content. A turn
+    /// over it summarizes or slides, and a summary removes at most
+    /// `summarize_oldest_n` rows, so a jammed thread takes several turns to come
+    /// back under. Defaulted so older persisted documents still deserialize.
     #[serde(default = "default_compaction_max_messages")]
     pub max_messages: u32,
 }
@@ -59,8 +61,8 @@ fn default_compaction_max_messages() -> u32 {
 impl Default for HarnessCompactionConfig {
     fn default() -> Self {
         Self {
-            // Claude Opus 4.8's real context window. The inherited 128_000 was
-            // never this model's limit -- it predates the provider -- and the
+            // The chain head's real context window. The inherited 128_000 was
+            // never a model's limit -- it predates the provider -- and the
             // thresholds below were fractions of a number that was wrong by 8x.
             //
             // The fractions absorb that correction rather than the trigger
@@ -89,23 +91,21 @@ impl Default for HarnessCompactionConfig {
     }
 }
 
-/// Tier 6 text guardrail tunables — locale-aware disclaimer rules,
-/// blocked-topic list, length cap.
+/// Tier 6 text guardrail tunables — locale-aware disclaimer triggers and the
+/// blocked-topic list. The disclaimer copy is catalogue content, not part of this
+/// document.
 ///
 /// The persisted document carries a `locales` map keyed by BCP-47 short
 /// code (`en`, `fr`, `es`, `de`, `pt`). Each entry holds the trigger
-/// list and disclaimer text in that locale. At dispatch time the chat
+/// list in that locale. At dispatch time the chat
 /// pipeline resolves the active turn locale; if absent from this map
-/// it falls back to `en`; if both are absent, no disclaimer is prepended
-/// (the response passes through). This guarantees a wrong-language
-/// disclaimer can never leak.
+/// it falls back to `en`, English triggers and English disclaimer alike; if
+/// both are absent, no disclaimer is prepended (the response passes through).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HarnessGuardrailsConfig {
-    /// Maximum character length for an outbound agent response. `0` disables the cap.
-    pub max_response_chars: u32,
     /// Substrings (case-insensitive) that must not appear in any response.
     pub blocked_topics: Vec<String>,
-    /// Per-locale disclaimer triggers + text. Empty map disables the
+    /// Per-locale disclaimer triggers. Empty map disables the
     /// disclaimer prepend across all locales (responses pass through
     /// untouched).
     pub locales: HashMap<String, LocaleGuardrails>,
@@ -114,7 +114,6 @@ pub struct HarnessGuardrailsConfig {
 impl Default for HarnessGuardrailsConfig {
     fn default() -> Self {
         Self {
-            max_response_chars: 5_000,
             blocked_topics: Vec::new(),
             locales: default_locales(),
         }
@@ -148,7 +147,7 @@ impl Default for HarnessVerificationConfig {
 /// cannot merge two different facts. A paraphrase is decided by the extractor,
 /// which is shown the athlete's facts and answers which one a new fact
 /// restates, so the only thing tuned here is how many it is shown.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarnessMemoryConfig {
     /// How many of the athlete's facts are compared, and how many the
     /// extractor is shown.
@@ -174,7 +173,7 @@ impl Default for HarnessMemoryConfig {
 /// Round-tripped to JSON in `system_settings.value`. Versioned via the
 /// `schema_version` field so future migrations can reject documents that
 /// predate breaking changes without losing operator data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessConfigDocument {
     /// Document schema version. Bump when fields are removed or renamed.
     pub schema_version: u32,
@@ -195,14 +194,14 @@ pub struct HarnessConfigDocument {
 impl Default for HarnessConfigDocument {
     fn default() -> Self {
         Self {
-            // schema_version bumped from 1 to 2 when guardrails moved
-            // from flat `disclaimer_triggers`/`disclaimer_text` fields
-            // to a per-locale `locales` map. Documents persisted under
-            // schema_version 1 fail to deserialize and the registry
-            // falls back to compiled-in defaults — operators who had
-            // overridden the disclaimer must re-save through the admin
-            // UI after upgrade.
-            schema_version: 2,
+            // schema_version 2 moved guardrails from flat
+            // `disclaimer_triggers`/`disclaimer_text` fields to a per-locale
+            // `locales` map; a schema_version 1 document no longer deserializes
+            // and is treated as an unusable row. schema_version 3 removed
+            // `guardrails.max_response_chars`: a version 2 document still
+            // parses, and the field it carries is ignored, as is the
+            // `disclaimer_text` each of its locales carries.
+            schema_version: 3,
             compaction: HarnessCompactionConfig::default(),
             guardrails: HarnessGuardrailsConfig::default(),
             verification: HarnessVerificationConfig::default(),
@@ -211,14 +210,16 @@ impl Default for HarnessConfigDocument {
     }
 }
 
+/// The fewest turns a summary can compact: what the compactor's minimum run asks
+/// for. A setting below it reads as configured while every over-cap thread slides
+/// raw, with no summary.
+pub const MIN_SUMMARIZE_OLDEST_N: u32 = 2;
+
 /// Reject obviously broken documents before they reach storage.
 ///
 /// The dispatch path can survive most mistuned values, but a few are
 /// load-bearing: `warn_threshold < emergency_threshold` so the two-stage
-/// compactor runs in order, both thresholds must be in `(0, 1]`, and the
-/// disclaimer text cannot be empty when triggers are set (an empty
-/// disclaimer with triggers would silently break the medical-fallback
-/// behavior).
+/// compactor runs in order, and both thresholds must be in `(0, 1]`. Summarization needs at least [`MIN_SUMMARIZE_OLDEST_N`] turns.
 ///
 /// # Errors
 ///
@@ -244,6 +245,11 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
     if c.max_messages == 0 {
         return Err(AppError::invalid_input("max_messages must be > 0"));
     }
+    if c.summarize_oldest_n < MIN_SUMMARIZE_OLDEST_N {
+        return Err(AppError::invalid_input(format!(
+            "summarize_oldest_n must be at least {MIN_SUMMARIZE_OLDEST_N}, the fewest turns a summary can compact"
+        )));
+    }
     // Summarization needs `summarize_oldest_n` turns to compact plus 2 to keep
     // (the last user+assistant pair). If that exceeds the message cap, a thread
     // can never accumulate enough turns to summarize before the cap forces a
@@ -253,15 +259,6 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
         return Err(AppError::invalid_input(
             "summarize_oldest_n + 2 must be <= max_messages so summarization can run before the message cap forces a slide",
         ));
-    }
-
-    let g = &doc.guardrails;
-    for (locale, lg) in &g.locales {
-        if !lg.disclaimer_triggers.is_empty() && lg.disclaimer_text.trim().is_empty() {
-            return Err(AppError::invalid_input(format!(
-                "locale '{locale}': disclaimer_text must be non-empty when disclaimer_triggers is set"
-            )));
-        }
     }
 
     // Zero is not a mistuning, it is a switch: the extractor is shown nothing

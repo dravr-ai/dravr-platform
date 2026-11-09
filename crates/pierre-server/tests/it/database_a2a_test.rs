@@ -11,7 +11,6 @@ use secrecy::ExposeSecret;
 use std::time::Duration;
 
 use chrono::Utc;
-use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 use pierre_core::models::a2a::{A2APushNotificationConfig, A2AUsage};
 use pierre_core::models::{CoachingPersona, WindowUsage};
@@ -25,7 +24,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 async fn create_test_client(repos: &RepositoryRegistry) -> (A2AClient, Uuid) {
-    let (client, user_id, _api_key_id) = create_test_client_with_window(repos, 3600).await;
+    let (client, user_id) = create_test_client_with_window(repos, 3600).await;
     (client, user_id)
 }
 
@@ -36,7 +35,7 @@ async fn create_test_client(repos: &RepositoryRegistry) -> (A2AClient, Uuid) {
 async fn create_test_client_with_window(
     repos: &RepositoryRegistry,
     rate_limit_window_seconds: u32,
-) -> (A2AClient, Uuid, String) {
+) -> (A2AClient, Uuid) {
     let unique_id = Uuid::new_v4();
 
     // First create a test user
@@ -72,42 +71,16 @@ async fn create_test_client_with_window(
         .await
         .expect("Failed to create test user");
 
-    // Create a test API key for the user
-    let api_key = ApiKey {
-        id: format!("test_api_key_{unique_id}"),
-        user_id: test_user_id,
-        name: format!("Test API Key {unique_id}"),
-        description: Some("Test API key for A2A client".into()),
-        key_prefix: format!("pk_test_{}", &unique_id.to_string()[0..8]),
-        key_hash: format!("test_key_hash_{unique_id}"),
-        tier: ApiKeyTier::Professional,
-        rate_limit_requests: 1000,
-        rate_limit_window_seconds: 3600,
-        is_active: true,
-        created_at: Utc::now(),
-        last_used_at: None,
-        expires_at: None,
-    };
-    repos
-        .api_keys
-        .create(&api_key)
-        .await
-        .expect("Failed to create test API key");
-
     let client = A2AClient {
         id: format!("test_client_{unique_id}"),
         name: format!("Test Client {unique_id}"),
         description: format!("Test A2A client {unique_id}"),
-        public_key: format!("test_public_key_{unique_id}"),
         user_id: test_user_id,
         capabilities: vec!["fitness-data-analysis".into()],
         redirect_uris: vec!["https://test.example.com".into()],
         // Typed with stray case and whitespace: the repository stores the
         // normalized form, which every read must hand back.
         contact_email: Some("  Ops.Team@Example.COM ".into()),
-        // The canonical a2a_clients schema dropped the permissions column; it is no
-        // longer persisted and reads back as the default ["read_activities"].
-        permissions: vec!["read_activities".into()],
         rate_limit_requests: 1000,
         rate_limit_window_seconds,
         is_active: true,
@@ -117,10 +90,10 @@ async fn create_test_client_with_window(
 
     repos
         .a2a
-        .create_client(&client, &api_key.id)
+        .create_client(&client)
         .await
         .expect("Failed to create A2A client");
-    (client, test_user_id, api_key.id)
+    (client, test_user_id)
 }
 
 /// The client the repository hands back is the one it was given: the public
@@ -136,7 +109,7 @@ async fn test_a2a_client_round_trips_through_every_read() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, user_id, api_key_id) = create_test_client_with_window(repos, 3600).await;
+    let (client, user_id) = create_test_client_with_window(repos, 3600).await;
 
     let by_id = repos
         .a2a
@@ -144,12 +117,6 @@ async fn test_a2a_client_round_trips_through_every_read() {
         .await
         .expect("get_client must not error")
         .expect("client must exist by id");
-    let by_api_key = repos
-        .a2a
-        .get_client_by_api_key_id(&api_key_id)
-        .await
-        .expect("get_client_by_api_key_id must not error")
-        .expect("client must resolve through the API key it was registered against");
     let listed = repos
         .a2a
         .list_clients(&user_id)
@@ -171,13 +138,11 @@ async fn test_a2a_client_round_trips_through_every_read() {
 
     for (read, got) in [
         ("get_client", &by_id),
-        ("get_client_by_api_key_id", &by_api_key),
         ("list_clients(owner)", listed_for_owner),
         ("list_clients(nil)", listed_for_admin),
     ] {
         assert_eq!(got.id, client.id, "{read}: id");
         assert_eq!(got.user_id, user_id, "{read}: user_id");
-        assert_eq!(got.public_key, client.public_key, "{read}: public_key");
         assert_eq!(
             got.rate_limit_requests, client.rate_limit_requests,
             "{read}: rate_limit_requests"
@@ -218,7 +183,7 @@ async fn test_a2a_window_usage_honours_the_client_window() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id, _api_key_id) = create_test_client_with_window(repos, 60).await;
+    let (client, _user_id) = create_test_client_with_window(repos, 60).await;
     let now = Utc::now();
     let inside = now - chrono::Duration::seconds(5);
 
@@ -298,7 +263,6 @@ async fn test_a2a_client_management() {
 
     assert_eq!(retrieved.id, client.id);
     assert_eq!(retrieved.name, client.name);
-    assert_eq!(retrieved.permissions, client.permissions);
 
     // List clients - check that our client is in the list
     let clients = repos

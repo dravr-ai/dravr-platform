@@ -19,7 +19,7 @@
 //! - `endurance_workouts` — list the workout bank by purpose / phase / sport, prescribe one
 //!   (`tools-data`)
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
-//! - `memory` — agent-authored memory: notes, followups, fact recall
+//! - `memory` — agent-authored memory: fact recall
 //!   (`tools-memory`)
 //! - `physiology` — `set_physiology`, the athlete's typed measurements, and
 //!   `estimate_vo2max`, a field-test estimate for it (`tools-config`)
@@ -108,6 +108,10 @@ pub mod connection;
 #[cfg(feature = "tools-data")]
 pub mod athlete_stats;
 
+/// The `get_activities` definition: its arguments and their descriptions
+/// (`tools-data`).
+#[cfg(feature = "tools-data")]
+mod activities_definition;
 /// Detail promotion for `get_activities`: which listed activities are read
 /// in detail, and the stop once a read is refused for rate (`tools-data`).
 #[cfg(feature = "tools-data")]
@@ -237,6 +241,8 @@ pub mod provider_roster;
 
 /// Shared helpers for every tool that writes to an athlete's provider calendar.
 pub mod calendar;
+/// `set_preferred_calendar` — the calendar Dravr's plan and workout pushes go to (carnet#1393).
+pub mod calendar_preference;
 /// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
 mod coach_scope;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
@@ -244,7 +250,7 @@ mod coach_scope;
 pub mod commitments;
 /// Training-plan persistence tools (get/save).
 pub mod guided_flow;
-/// Memory tools: agent-authored notes, followups, fact recall (`tools-memory` feature).
+/// Memory tools: agent-authored fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.

@@ -262,6 +262,11 @@ export const ENDPOINTS = {
      */
     ACCOUNT_DELETION: '/api/user/account-deletion',
     /**
+     * The signed-in athlete's own data as one JSON file (Law 25 s.27,
+     * GDPR Article 20); metered per account.
+     */
+    EXPORT: '/api/user/export',
+    /**
      * Clear what a deleted account left on an identity the signed-in account
      * now holds: its own proven email, or a provider account it was refused
      * for. A pending account reaches it.
@@ -375,6 +380,8 @@ export const ENDPOINTS = {
     UNITS: '/api/me/units',
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
+    /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */
+    PREFERRED_CALENDAR: '/api/me/preferred-calendar',
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },
@@ -416,6 +423,15 @@ export const ENDPOINTS = {
     /** Cancel an import (`POST`) */
     CANCEL: (source: string, importId: string) =>
       `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/cancel`,
+    /** Where a waiting upload's bytes go, for its owner to resume (`GET`) */
+    UPLOAD_SESSION: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/upload-session`,
+    /** The whole file, where the store takes no direct writes (`PUT`) */
+    UPLOAD: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/upload`,
+    /** The upload landed: read it (`POST`) */
+    UPLOADED: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/uploaded`,
   },
   // ==================== PERSONAS ====================
   PERSONAS: {

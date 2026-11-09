@@ -8,7 +8,7 @@ import React, { useEffect } from 'react';
 import { clsx } from 'clsx';
 import { MessageSquareText } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
-import { badgeLabel } from '@pierre/shared-constants';
+import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-constants';
 
 export interface MobileNavTab {
   id: string;
@@ -110,6 +110,8 @@ interface MobileDrawerProps {
   /** The way into the feedback thread with the Dravr team, beside Settings. */
   onSendFeedback: () => void;
   onSignOut: () => void;
+  /** The Dravr team's replies waiting unread in the feedback thread. */
+  feedbackUnread: number;
 }
 
 export const MobileDrawer: React.FC<MobileDrawerProps> = ({
@@ -124,8 +126,9 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   onOpenSettings,
   onSendFeedback,
   onSignOut,
+  feedbackUnread,
 }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   useEffect(() => {
     if (!open) return;
     const original = document.body.style.overflow;
@@ -312,6 +315,17 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           >
             <MessageSquareText className="w-5 h-5" aria-hidden="true" />
             <span>{t('feedback.navSendFeedback')}</span>
+            {feedbackUnread > 0 && (
+              <span
+                data-testid="drawer-feedback-unread-count"
+                className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-on-primary"
+              >
+                <span aria-hidden="true">{badgeLabel(feedbackUnread)}</span>
+                <span className="sr-only">
+                  {t(countKey(feedbackUnread, language, UNREAD_COUNT_ARIA_KEYS), { count: feedbackUnread })}
+                </span>
+              </span>
+            )}
           </button>
           <button
             type="button"

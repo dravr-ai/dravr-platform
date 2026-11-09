@@ -4,6 +4,8 @@
 // ABOUTME: Classifies a failed API call into a kind the UI can translate, from status not prose
 // ABOUTME: One classifier, so an offline device never reads back as a rejected password
 
+import { providerBrand, sciotteTargetForBackend } from '@pierre/shared-constants';
+
 /**
  * What went wrong, in terms a screen can turn into a sentence.
  *
@@ -114,6 +116,11 @@ interface AxiosShape {
  */
 const INVALID_GRANT = 'invalid_grant';
 
+/** The HTTP status of a failed request, when the error carries one. */
+export function apiErrorStatus(err: unknown): number | undefined {
+  return ((err ?? {}) as AxiosShape).response?.status;
+}
+
 /**
  * Classify a thrown API error.
  *
@@ -221,6 +228,80 @@ export function refusalProvider(err: unknown): string | undefined {
 }
 
 /**
+ * The machine code a refusal carries in its body's `code`, when it carries one
+ * — the server's `ErrorCode` name (`QuotaExceeded`, `ProviderAuthRequired`).
+ */
+export function refusalCode(err: unknown): string | undefined {
+  const code = (err as AxiosShape | null | undefined)?.response?.data?.code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * The `code` of a refusal because a connected provider's session has expired
+ * or was revoked (`ErrorCode::ProviderAuthRequired`, a 403). Its
+ * `details.provider` is the backend's id — `sciotte_garmin`, `strava` — which
+ * the athlete must never read; {@link describeProviderAuthRefusal} names the
+ * service instead.
+ */
+export const PROVIDER_AUTH_REQUIRED_CODE = 'ProviderAuthRequired';
+
+/** Whether a refusal says a connected provider needs reconnecting. */
+export function isProviderAuthRefusal(err: unknown): boolean {
+  return refusalCode(err) === PROVIDER_AUTH_REQUIRED_CODE;
+}
+
+/**
+ * The service a provider-auth refusal is about, as the athlete knows it, or
+ * `null` when the refusal names no provider this client can brand.
+ *
+ * A scraper backend's id (`sciotte_garmin`) is first resolved to the service
+ * it signs in to (`garmin`); a plain provider id is branded as it is.
+ */
+function providerAuthBrand(err: unknown): string | null {
+  const provider = refusalProvider(err);
+  if (provider === undefined) {
+    return null;
+  }
+  return providerBrand(sciotteTargetForBackend(provider) ?? provider);
+}
+
+/**
+ * The key that makes repeated provider-auth refusals one notice, or
+ * `undefined` when the error is not one.
+ *
+ * One expired session fails every parallel read of that provider at once — a
+ * dashboard drawing five Garmin routes gets five identical 403s — so the key
+ * is the code plus the service, not the request: the same refusal from N
+ * reads collapses, while a second provider keeps its own notice.
+ */
+export function providerAuthRefusalKey(err: unknown): string | undefined {
+  if (!isProviderAuthRefusal(err)) {
+    return undefined;
+  }
+  const brand = providerAuthBrand(err);
+  return `${PROVIDER_AUTH_REQUIRED_CODE}:${brand ?? ''}`;
+}
+
+/**
+ * The translated sentence for a refusal because a connected provider needs
+ * reconnecting, or `undefined` when the error is not one.
+ *
+ * Read before the server's own detail: that detail is an English sentence
+ * written for an API caller, and its provider is a backend id. The sentence
+ * names the service by its brand, and says only "a connected app" when the
+ * refusal names none this client knows.
+ */
+export function describeProviderAuthRefusal(err: unknown, t: ApiErrorTranslate): string | undefined {
+  if (!isProviderAuthRefusal(err)) {
+    return undefined;
+  }
+  const brand = providerAuthBrand(err);
+  return brand === null
+    ? t('errors.providerReconnectUnnamed')
+    : t('errors.providerReconnect', { provider: brand });
+}
+
+/**
  * The i18n key each kind reads as by default.
  *
  * A screen that needs different wording maps the kind itself — the login form
@@ -306,6 +387,10 @@ export function describeApiError(
   const quotaSentence = describeQuotaRefusal(err, opts.t);
   if (quotaSentence !== undefined) {
     return quotaSentence;
+  }
+  const reconnectSentence = describeProviderAuthRefusal(err, opts.t);
+  if (reconnectSentence !== undefined) {
+    return reconnectSentence;
   }
   if (detail && prefersServerDetail(kind)) {
     return detail;

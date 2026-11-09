@@ -157,7 +157,7 @@ export default function CoachRejectionModal({
             >
               {rejectMutation.isPending ? (
                 <span className="flex items-center justify-center">
-                  <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                  <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                   Rejecting...
                 </span>
               ) : (

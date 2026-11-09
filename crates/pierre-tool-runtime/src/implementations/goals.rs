@@ -15,6 +15,7 @@
 //! Uses the goal engine directly for clean, efficient goal management.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -842,7 +843,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -852,7 +853,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             "Suggest up to five fitness goals from the athlete's activity history and fitness \
              level; with a known latitude, out-of-season sports are dropped, not replaced.",
             schema,
-            annotations("Suggest goals", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Suggest goals", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -928,7 +929,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -939,7 +940,11 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
              whether it is on track, days remaining and projected completion, over activities \
              recorded since the goal was created (only the goal's sport when it names one).",
             schema,
-            annotations("Track goal progress", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Track goal progress",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -1072,7 +1077,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -1088,7 +1093,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             annotations(
                 "Analyze goal feasibility",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }

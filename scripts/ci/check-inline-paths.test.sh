@@ -51,7 +51,7 @@ expect() { # $1 = label, $2 = actual exit, $3 = expected exit
 
 echo "check-inline-paths.sh fixture tests"
 
-dir="$(repo_with 'crate::declare_security!(GetTool => UNTRUSTED_OUTPUT);')"
+dir="$(repo_with 'crate::declare_security!(GetTool => IRREVERSIBLE);')"
 expect "a 2-segment crate:: macro call passes" "$(run_gate "$dir")" 0
 rm -rf "$dir"
 

@@ -30,6 +30,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::{AppError, AppResult};
 
+/// The `OpenID` Connect Core §11 scope a client names to say it will act while
+/// the athlete is away, which is what holding a refresh token is.
+///
+/// Not a member of [`OAuthScope`]: it grants no tool and no data, so it is
+/// never enforced, never carried in a token's `scope` claim and never rendered
+/// as a permission on the consent screen. This server issues a refresh token
+/// to every authorization-code exchange, so the name changes nothing about
+/// what is minted; it is accepted and published so a client that asks for it
+/// (a spec-following one requests everything in `scopes_supported`) is not
+/// refused with `invalid_scope`.
+pub const OFFLINE_ACCESS: &str = "offline_access";
+
 /// One name in this server's OAuth scope vocabulary.
 ///
 /// The wire form is the `:`-separated string, which is what appears in an
@@ -161,6 +173,9 @@ impl OAuthScope {
     pub fn requested_grant(scope: Option<&str>) -> AppResult<Vec<Self>> {
         let mut requested = Vec::new();
         for name in scope.unwrap_or_default().split_whitespace() {
+            if name == OFFLINE_ACCESS {
+                continue;
+            }
             let parsed = Self::from_str(name)?;
             if !parsed.is_delegable() {
                 return Err(AppError::invalid_input(format!(
@@ -224,6 +239,16 @@ impl OAuthScope {
             .collect()
     }
 
+    /// Every name `scopes_supported` publishes: the delegable scopes plus
+    /// [`OFFLINE_ACCESS`], which [`Self::requested_grant`] accepts without
+    /// granting anything.
+    #[must_use]
+    pub fn advertised_as_str() -> Vec<&'static str> {
+        let mut names = Self::delegable_as_str();
+        names.push(OFFLINE_ACCESS);
+        names
+    }
+
     /// Parse a space-delimited `scope` string, the RFC 6749 §3.3 wire form.
     ///
     /// This is how a third party's grant enters the system — an OAuth access
@@ -281,5 +306,35 @@ impl FromStr for OAuthScope {
                 "unknown OAuth scope '{other}'"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offline_access_is_accepted_and_grants_nothing() -> AppResult<()> {
+        let granted = OAuthScope::requested_grant(Some("fitness:read offline_access"))?;
+        assert_eq!(granted, vec![OAuthScope::FitnessRead]);
+        assert_eq!(
+            OAuthScope::requested_grant(Some("offline_access"))?,
+            OAuthScope::default_grant(),
+            "asking for nothing but offline_access is asking for the default grant"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn offline_access_is_published_but_is_not_a_scope() {
+        assert!(OAuthScope::advertised_as_str().contains(&OFFLINE_ACCESS));
+        assert!(!OAuthScope::delegable_as_str().contains(&OFFLINE_ACCESS));
+        assert!(OAuthScope::from_str(OFFLINE_ACCESS).is_err());
+    }
+
+    #[test]
+    fn unknown_and_admin_scopes_are_still_refused() {
+        assert!(OAuthScope::requested_grant(Some("nonsense offline_access")).is_err());
+        assert!(OAuthScope::requested_grant(Some("admin offline_access")).is_err());
     }
 }

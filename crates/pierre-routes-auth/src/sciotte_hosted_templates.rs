@@ -22,13 +22,13 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL, KEY_HOSTED_COMMON_LINKED_FROM,
     KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
     KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_USERNAME_LABEL,
-    KEY_HOSTED_COMMON_VERIFYING_CODE, KEY_HOSTED_ERROR_INVALID_LINK,
-    KEY_HOSTED_LOGIN_DATA_AVAILABLE, KEY_HOSTED_SUCCESS_DATA_AVAILABLE,
-    KEY_HOSTED_SUCCESS_DATA_AVAILABLE_GENERIC, KEY_HOSTED_SUCCESS_HEADING,
-    KEY_HOSTED_SUCCESS_HEADING_GENERIC, KEY_HOSTED_SUCCESS_RETURN_TO_CHAT,
-    KEY_SCIOTTE_CODE_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE_NAMED,
+    KEY_HOSTED_COMMON_USERNAME_LABEL, KEY_HOSTED_COMMON_VERIFYING_CODE,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_LOGIN_DATA_AVAILABLE,
+    KEY_HOSTED_SUCCESS_DATA_AVAILABLE, KEY_HOSTED_SUCCESS_DATA_AVAILABLE_GENERIC,
+    KEY_HOSTED_SUCCESS_HEADING, KEY_HOSTED_SUCCESS_HEADING_GENERIC,
+    KEY_HOSTED_SUCCESS_RETURN_TO_CHAT, KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_providers::backend_resolver;
@@ -40,6 +40,7 @@ use tracing::error;
 
 use crate::hosted_page::{script_json, PageStrings};
 use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON};
+use crate::sciotte_grant_gate::OAUTH_REQUIRED_REASON;
 
 const LOGIN_TEMPLATE: &str = include_str!("../templates/sciotte_link_login.html");
 const SUCCESS_TEMPLATE: &str = include_str!("../templates/sciotte_link_success.html");
@@ -150,6 +151,7 @@ pub(crate) fn render_login_page(
         "signInRejected": strings.render(KEY_HOSTED_COMMON_SIGN_IN_REJECTED, &[target_label]),
         "signInUnavailable": strings.render(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &[target_label]),
         "signInChallenged": strings.render(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, &[target_label]),
+        "signInOauthRequired": strings.render(KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, &[target_label]),
         "signInExpired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_EXPIRED),
         "linkExpired": strings.get(KEY_HOSTED_ERROR_INVALID_LINK),
     });
@@ -200,6 +202,7 @@ pub(crate) fn render_login_page(
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
     .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
+    .replace("{{OAUTH_REQUIRED_REASON}}", OAUTH_REQUIRED_REASON)
     .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
     // The script's strings go in last, so an escaped token or channel can
     // never close the script context before them.

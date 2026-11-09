@@ -221,6 +221,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         created_at: Utc::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
+        family_created_at: None,
         resource: Some("https://mcp.example".to_owned()),
     };
     repos

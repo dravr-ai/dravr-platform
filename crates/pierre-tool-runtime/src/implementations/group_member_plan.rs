@@ -44,13 +44,12 @@ use pierre_tools_core::ToolResult;
 
 use super::coach_scope::refusal;
 use super::group_roster::{call_room, CallRoom};
-use super::plan_scope::{
-    coached_plan_read_access, gate_message, match_coached_member, CoachedPlanRefusal, MemberMiss,
-};
+use super::plan_scope::{coached_plan_read_access, CoachedPlanRefusal};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::read_subject::{gate_message, match_coached_member, GateObject, MemberMiss};
 use crate::runtime::ToolRuntime;
 
 /// The goal race a published season is aimed at.
@@ -133,13 +132,8 @@ async fn room_pin(context: &ToolExecutionContext) -> AppResult<Result<Option<Uui
 
 /// The refusal for a name that resolved to no one athlete.
 fn miss_refusal(miss: &MemberMiss, query: &str) -> ToolResult {
-    let reason = match miss {
-        MemberMiss::Requester => "self",
-        MemberMiss::NoMatch => "no_match",
-        MemberMiss::Ambiguous(_) => "ambiguous",
-    };
     refusal(
-        reason,
+        miss.reason(),
         &miss.message(
             query,
             "your own plan is never read in a group you coach: tell them to ask in their own \
@@ -155,7 +149,9 @@ fn read_refusal(refused: &CoachedPlanRefusal, query: &str) -> ToolResult {
         // gates, and that reads as no match.
         CoachedPlanRefusal::Coaching(gate) => refusal(
             gate.reason(),
-            &gate_message(gate, || MemberMiss::NoMatch.message(query, "")),
+            &gate_message(gate, GateObject::Plan, || {
+                MemberMiss::NoMatch.message(query, "")
+            }),
         ),
         CoachedPlanRefusal::PlansDisabled { athlete } => refusal(
             "plans_disabled",
@@ -337,7 +333,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
 }
 
 // The goal race's name is athlete-authored text.
-crate::declare_security!(GetGroupMemberPlanStatusTool => UNTRUSTED_OUTPUT);
+// A coach's tool over other athletes' data: Dravr's own surfaces list and run
+// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+crate::declare_security!(GetGroupMemberPlanStatusTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {

@@ -64,7 +64,7 @@ pub(crate) fn validate_required_environment() -> Result<()> {
             name: "MCP_RESOURCE_URL",
             value: env::var("MCP_RESOURCE_URL").ok(),
             required: false,
-            description: "Origin MCP clients dial for /mcp (e.g. https://mcp.dravr.ai), with no path. Published as `resource` in /.well-known/oauth-protected-resource, used for the resource_metadata URL of every /mcp 401 challenge, and an RFC 8707 `resource` the OAuth authorize and token endpoints accept and bind tokens to. Defaults to BASE_URL.",
+            description: "URL MCP clients dial for /mcp: an origin or the origin with the endpoint path (e.g. https://mcp.dravr.ai/mcp, whose bare origin stays an accepted alias). Published as `resource` in /.well-known/oauth-protected-resource[/mcp], used for the resource_metadata URL of every /mcp 401 challenge, and an RFC 8707 `resource` the OAuth authorize and token endpoints accept and bind tokens to. Its origin is also the published A2A door: the agent card's URLs and the `/a2a` resource. Defaults to BASE_URL.",
         },
         EnvValidation {
             name: "OAUTH2_SATELLITE_RESOURCES",
@@ -187,8 +187,9 @@ pub(crate) fn validate_guardian_settings(settings: &GuardianSettings) -> Result<
             .collect::<Vec<_>>()
             .join(", ");
         return Err(AppError::config(format!(
-            "Unrecognized GUARDIAN_* value(s): {detail}. Check the spelling — a \
-             security-posture typo must not silently revert to the laxer default."
+            "Unrecognized GUARDIAN_* value(s): {detail}. Check the spelling, and that \
+             GUARDIAN_MAX_WRITES_PER_TURN is at least 1 — a security-posture typo must \
+             not silently revert to the laxer default."
         )));
     }
     Ok(())

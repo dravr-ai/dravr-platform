@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
 use pierre_providers::core::stream_sample_count;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
@@ -23,16 +22,18 @@ use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_config::environment::default_provider;
 use pierre_core::models::TimeSeriesData;
+use pierre_core::transport::Transport;
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
-use pierre_tool_runtime::context::ToolExecutionContext;
+use pierre_tool_runtime::context::{scoped_read_subject, ToolExecutionContext};
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, tool_definition, tool_result_to_response,
 };
-use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
+use pierre_tool_runtime::protocol::provider_helpers::{
+    elected_source, fetch_activity_from_provider,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
@@ -48,8 +49,9 @@ pub struct ActivityStreamsResult {
     pub activity_id: String,
     /// How many samples each series carries.
     pub sample_count: usize,
-    /// Heart rate, power, cadence, GPS and altitude as recorded; a missed
-    /// sample is a gap (`null`), never a value.
+    /// Heart rate, power, cadence, speed and altitude as recorded, and the GPS
+    /// track inside the Dravr app only; a missed sample is a gap (`null`),
+    /// never a value.
     pub streams: TimeSeriesData,
 }
 
@@ -81,20 +83,9 @@ async fn fetch_activity(
     user_id: uuid::Uuid,
     activity_id: &str,
 ) -> AppResult<Activity> {
-    let provider_name = if let Some(p) = default_provider() {
-        p
-    } else if let Some(conn) = resolve_activity_source(
-        resources.repos().provider_connections.as_ref(),
-        resources.provider_registry(),
-        user_id,
-        Some(tenant_id),
-    )
-    .await?
-    {
-        conn.provider
-    } else {
-        return Err(AppError::no_provider_connected());
-    };
+    let provider_name = elected_source(resources, user_id, Some(tenant_id))
+        .await?
+        .ok_or_else(AppError::no_provider_connected)?;
     let tenant_str = tenant_id.to_string();
     fetch_activity_from_provider(
         resources,
@@ -281,23 +272,28 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
                     "activity stream produced a route summary with non-finite metrics",
                 )
             })?;
-            let terrain_json = serde_json::to_string(&summary.terrain)
-                .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
-            let climbs_json = serde_json::to_string(&summary.climbs)
-                .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
-            context
-                .resources
-                .repos()
-                .route_summaries
-                .upsert_route_summary(
-                    tenant_id,
-                    user_id,
-                    &activity_id,
-                    &summary.gpx_hash,
-                    &terrain_json,
-                    &climbs_json,
-                )
-                .await?;
+            // A coach's read of a coached athlete writes nothing on the
+            // athlete's account: the summary is answered, never stored for
+            // them (carnet#1387).
+            if scoped_read_subject().is_none() {
+                let terrain_json = serde_json::to_string(&summary.terrain)
+                    .map_err(|e| AppError::internal(format!("serialize terrain: {e}")))?;
+                let climbs_json = serde_json::to_string(&summary.climbs)
+                    .map_err(|e| AppError::internal(format!("serialize climbs: {e}")))?;
+                context
+                    .resources
+                    .repos()
+                    .route_summaries
+                    .upsert_route_summary(
+                        tenant_id,
+                        user_id,
+                        &activity_id,
+                        &summary.gpx_hash,
+                        &terrain_json,
+                        &climbs_json,
+                    )
+                    .await?;
+            }
             let payload = serde_json::to_value(&summary)
                 .map_err(|e| AppError::internal(format!("serialize route summary: {e}")))?;
             Ok(ToolResult::ok(payload))
@@ -307,8 +303,9 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
     }
 }
 
-/// `extract_activity_streams` — surface raw HR / power / cadence / GPS / altitude
-/// per-second arrays for downstream analysis.
+/// `extract_activity_streams` — surface raw HR / power / cadence / altitude
+/// per-second arrays for downstream analysis, and the GPS track to Dravr's own
+/// surfaces only.
 #[derive(Debug)]
 pub struct ExtractActivityStreamsTool;
 
@@ -319,10 +316,11 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
         answers_with::<ActivityStreamsResult>(tool_definition(
             "extract_activity_streams",
             "Return one activity's raw per-second streams — heart_rate (bpm), power \
-             (watts), cadence (rpm/spm), speed (m/s), altitude (m) and gps_coordinates \
-             (lat/lon pairs). A stream the provider didn't record is omitted; a sample the \
-             sensor missed is null, never a reading of 0. Use it for a custom analysis that \
-             export_intervals / export_routes don't cover.",
+             (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates \
+             (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. \
+             A stream the provider didn't record is omitted; a sample the sensor missed is \
+             null, never a reading of 0. Use it for a custom analysis that export_intervals \
+             / export_routes don't cover.",
             schema,
             annotations(
                 "Extract activity streams",
@@ -363,12 +361,20 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;
+            let mut streams = stream.clone();
+            // The GPS channel is every recorded point, door to door. In the
+            // app it becomes the route map the athlete sees; it never leaves
+            // Dravr as the provider recorded it. A call that declared no
+            // transport is external, like any other.
+            if !ai_scope::declared_transport().is_some_and(Transport::is_first_party) {
+                streams.gps_coordinates = None;
+            }
             ok_typed(
                 "extract_activity_streams",
                 ActivityStreamsResult {
                     activity_id: activity_id.clone(),
                     sample_count: stream_sample_count(stream),
-                    streams: stream.clone(),
+                    streams,
                 },
             )
         }
@@ -388,7 +394,8 @@ pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
-// tools export the caller's own activity intervals/routes — internal, no egress.
+// tools export the activity intervals/routes of the athlete the call reads — the
+// caller, or a coached athlete for a coach's read — internal, no egress.
 pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty);
 pierre_tool_runtime::declare_security!(ExportRoutesTool => empty);
 pierre_tool_runtime::declare_security!(ExtractActivityStreamsTool => empty);

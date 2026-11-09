@@ -122,6 +122,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       pinned: ${{ steps.v.outputs.pinned }}
+      tree: ${{ steps.v.outputs.tree }}
       # Falls back to the primary comparison when the companion step never ran. That
       # is the existence-proof failure path: the proof runs before companions, so a
       # tag that was never published leaves `c` unexecuted — and report-failure gates
@@ -134,7 +135,14 @@ jobs:
       source: ${{ steps.v.outputs.source }}
       companions: ${{ steps.c.outputs.companions }}
     steps:
+      # The branch's tip, not github.sha: that sha is fixed when the run is
+      # triggered, and a run queued behind another release of this satellite
+      # would read the pins from before that release landed, then stall on a
+      # conflict at the squash (carnet#1417). Its test can only read this text:
+      # actions/checkout has no local seam.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Validate the gate timeout against this workflow's own limit
         env:
@@ -194,6 +202,15 @@ jobs:
             || { echo "::error::resolved '${VERSION}', which is not a plain semver version"; exit 1; }
 
           PINNED=$("$PIN" resolve "${SATELLITE}")
+          # A version this run was merely told about may be behind main by now; a
+          # person dispatching one by name may mean a rollback.
+          MAY_MOVE_BACK=false
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_VERSION:-}" ]; then
+            MAY_MOVE_BACK=true
+          fi
+          VERSION=$("$PIN" target "${PINNED}" "${VERSION}" "${MAY_MOVE_BACK}")
+          # Every later job reads this one tree, whatever lands while they wait.
+          echo "tree=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "pinned=${PINNED}"   >> "$GITHUB_OUTPUT"
           # Whether the PRIMARY pin moved. `needed` is broader — it also covers a
@@ -362,9 +379,11 @@ jobs:
       sha: ${{ steps.push.outputs.sha }}
       state: ${{ steps.state.outputs.state }}
     steps:
+      # The tree resolve read, or the branch is cut from pins it did not see.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.tree }}
 
       - uses: dtolnay/rust-toolchain@1.99.1
 
@@ -552,7 +571,10 @@ jobs:
     # below enforces each budget itself and names which one ran out.
     timeout-minutes: 330
     steps:
+      # The tree bump dispatched its gates from, so this waits on the same list.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.tree }}
 
       - name: Poll until every gate reaches a terminal status
         env:

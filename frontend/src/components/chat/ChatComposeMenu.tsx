@@ -31,6 +31,13 @@ export interface ChatComposeMenuProps {
   onAddParticipant?: () => void;
   /** Disables the trigger while a conversation is being created. */
   disabled?: boolean;
+  /**
+   * Which edge of the "+" the menu lines up with from `sm` up. `end` (a header
+   * slot, the "+" at the pane's right edge) opens leftward; `start` (the empty
+   * state, the "+" at the left of its row) opens rightward, so the menu never
+   * crosses the chat pane's left edge.
+   */
+  align?: 'start' | 'end';
 }
 
 /**
@@ -46,6 +53,7 @@ export default function ChatComposeMenu({
   onNewGroupChat,
   onAddParticipant,
   disabled = false,
+  align = 'end',
 }: ChatComposeMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -101,7 +109,10 @@ export default function ChatComposeMenu({
           // On a phone the "+" can sit at the left edge (Home's empty state) inside a
           // scrolling column, where a right-anchored dropdown opens off-screen and is
           // clipped. Below `sm` the menu is pinned to the viewport instead.
-          className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 rounded-xl border ghost-border bg-surface p-1.5 sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:z-30 sm:mt-2 sm:w-72"
+          className={clsx(
+            'fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 rounded-xl border ghost-border bg-surface p-1.5 sm:absolute sm:inset-x-auto sm:bottom-auto sm:z-30 sm:mt-2 sm:w-72',
+            align === 'start' ? 'sm:left-0' : 'sm:right-0',
+          )}
         >
           {onNewChat && (
             <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>

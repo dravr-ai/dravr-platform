@@ -151,6 +151,10 @@ pub struct PrescribeWorkoutResult {
     pub scheduled_for: String,
     /// Always `pushed`: the tool errors rather than reporting a failed push.
     pub status: String,
+    /// Present when the calendar the athlete chose for Dravr's pushes was
+    /// passed over for this one, saying where it went instead (carnet#1393).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }
 
 /// What `withdraw_prescribed_workout` answers with.

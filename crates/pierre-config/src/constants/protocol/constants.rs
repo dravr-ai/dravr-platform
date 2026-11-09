@@ -11,12 +11,13 @@
 //! via the parent module's `pub use pierre_core::constants::protocol::*`.
 
 use crate::constants::get_server_config;
+use crate::mcp::{DEFAULT_MCP_PROTOCOL_VERSION, DEFAULT_SERVER_NAME};
 
 /// Get MCP Protocol version from environment or default
 #[must_use]
 pub fn mcp_protocol_version() -> String {
     get_server_config().map_or_else(
-        || "2024-11-05".to_owned(),
+        || DEFAULT_MCP_PROTOCOL_VERSION.to_owned(),
         |c| c.mcp.protocol_version.clone(),
     )
 }
@@ -25,7 +26,7 @@ pub fn mcp_protocol_version() -> String {
 #[must_use]
 pub fn server_name() -> String {
     get_server_config().map_or_else(
-        || "pierre-fitness-api".to_owned(),
+        || DEFAULT_SERVER_NAME.to_owned(),
         |c| c.mcp.server_name.clone(),
     )
 }
@@ -34,7 +35,7 @@ pub fn server_name() -> String {
 #[must_use]
 pub fn server_name_multitenant() -> String {
     get_server_config().map_or_else(
-        || "pierre-fitness-api".to_owned(),
+        || DEFAULT_SERVER_NAME.to_owned(),
         |c| c.mcp.server_name.clone(),
     )
 }

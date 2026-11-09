@@ -6,8 +6,9 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast as useToastLogic } from '@pierre/ui-logic';
-import { ToastContext, type Toast, type ToastType } from './ToastContext';
+import { ToastContext, type Toast, type ToastAction, type ToastType } from './ToastContext';
 import { useTranslation } from '@pierre/i18n';
+import { Button } from './Button';
 
 interface ToastProviderProps {
   children: React.ReactNode;
@@ -17,17 +18,23 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
   // Delegate queue management and auto-dismiss to @pierre/ui-logic
   const toastLogic = useToastLogic({ maxToasts: 5, defaultDuration: 5000 });
 
-  // Store extended toast data (title + optional description) alongside hook-managed queue.
+  // Store extended toast data (title, description, action) alongside the hook-managed queue.
   // The hook's ToastItem has only `message`, while the frontend uses title + message.
-  const toastDataRef = useRef<Map<string, { title: string; message?: string }>>(new Map());
+  const toastDataRef = useRef<Map<string, { title: string; message?: string; action?: ToastAction }>>(
+    new Map(),
+  );
 
   const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = toastLogic.addToast({
       message: toast.title,
       type: toast.type,
       duration: toast.duration,
+      dedupeKey: toast.dedupeKey,
     });
-    toastDataRef.current.set(id, { title: toast.title, message: toast.message });
+    // A repeat collapsed onto a toast already shown keeps that toast as it is.
+    if (!toastDataRef.current.has(id)) {
+      toastDataRef.current.set(id, { title: toast.title, message: toast.message, action: toast.action });
+    }
   }, [toastLogic]);
 
   const removeToast = useCallback((id: string) => {
@@ -44,6 +51,8 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
       title: data?.title ?? t.message,
       message: data?.message,
       duration: t.duration,
+      action: data?.action,
+      dedupeKey: t.dedupeKey,
     };
   });
 
@@ -173,6 +182,20 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-on-surface">{toast.title}</p>
             {toast.message && <p className="mt-1 text-sm text-on-surface-variant">{toast.message}</p>}
+            {toast.action && (
+              <Button
+                type="button"
+                variant="tertiary"
+                size="sm"
+                onClick={() => {
+                  toast.action?.onClick();
+                  onDismiss();
+                }}
+                className="mt-2 -ml-1.5 px-1.5"
+              >
+                {toast.action.label}
+              </Button>
+            )}
           </div>
           <button
             type="button"

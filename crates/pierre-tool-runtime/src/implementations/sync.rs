@@ -149,7 +149,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             annotations(
                 "Refresh provider data",
                 Effect::IdempotentWrite,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

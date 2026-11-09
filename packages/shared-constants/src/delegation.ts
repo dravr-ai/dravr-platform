@@ -110,6 +110,23 @@ export function delegationRefusalKey(reason: unknown): string {
   return isDelegationRefusal(reason) ? DELEGATION_REFUSAL_KEY[reason] : DELEGATION_ACTION_FAILED_KEY;
 }
 
+/**
+ * The corpus key a refusal reads as for the coach who links roster athletes,
+ * where the shared one addresses the member or stops short of what the coach
+ * can do: an athlete the roster lists with no email is reached once they
+ * connect the platform themselves, and one who already does needs no link.
+ */
+export const DELEGATION_COACH_REFUSAL_KEY: Partial<Record<DelegationRefusalReason, string>> = {
+  athlete_email_missing: 'delegation.athleteEmailMissingNextStep',
+  own_connection: 'delegation.athleteConnectsThemselves',
+};
+
+/** The corpus key a refusal reads as for the coach: theirs where it differs, else the shared one. */
+export function coachDelegationRefusalKey(reason: unknown): string {
+  const coachKey = isDelegationRefusal(reason) ? DELEGATION_COACH_REFUSAL_KEY[reason] : undefined;
+  return coachKey ?? delegationRefusalKey(reason);
+}
+
 // ============================================================================
 // What a member lets their coach do beyond the read
 // ============================================================================
@@ -118,7 +135,7 @@ export function delegationRefusalKey(reason: unknown): string {
  * What a member lets their group's coach do beyond reading their workouts,
  * each the member's alone to grant and revoke, held on their coach
  * relationship rather than on a link: the coach putting workouts on their
- * calendar, their wellness syncing through the coach's account.
+ * calendar, the coach reading their wellness from every app they connect.
  */
 export type DelegationConsent = 'calendar_write' | 'wellness_read';
 
@@ -140,6 +157,15 @@ type LinkConsentFields = Pick<
 export const COACH_CALENDAR_PLATFORM: CoachPlatformProvider = 'intervals_icu';
 
 /**
+ * The coaching platform whose coach account syncs an athlete's wellness
+ * through a link, which the wellness consent's words name where they speak
+ * of that sync: Intervals.icu, the one platform whose coach account reads an
+ * athlete's wellness, and all the consent covered before it widened to
+ * every app the athlete connects.
+ */
+const COACH_WELLNESS_PLATFORM: CoachPlatformProvider = 'intervals_icu';
+
+/**
  * The words the member's "what your human coach can do" block reads as: its title,
  * the line under it (naming `{{coach}}`), and the step the athlete takes on
  * the platform itself for the calendar consent to work (naming `{{coach}}`
@@ -152,9 +178,12 @@ export const COACH_CONSENTS_KEYS = {
 } as const;
 
 /**
- * The words each consent reads as: the member's control and its hint, both
- * naming `{{coach}}` and `{{platform}}`, and the state line the coach reads
- * once it is granted.
+ * The words each consent reads as: the member's control, naming `{{coach}}`
+ * (and, for calendar writes, the `{{platform}}` they go on; wellness covers
+ * every app the member connects, so its control names none), its hint,
+ * naming `{{coach}}` and `{{platform}}` (the consent's own platform,
+ * {@link consentPlatformName}), and the state line the coach reads once it is
+ * granted.
  */
 export const DELEGATION_CONSENT_KEYS: Record<DelegationConsent, { label: string; hint: string; granted: string }> = {
   calendar_write: {
@@ -163,11 +192,41 @@ export const DELEGATION_CONSENT_KEYS: Record<DelegationConsent, { label: string;
     granted: 'delegation.calendarWriteGranted',
   },
   wellness_read: {
-    label: 'delegation.wellnessReadLabel',
-    hint: 'delegation.wellnessReadHint',
-    granted: 'delegation.wellnessReadGranted',
+    label: 'delegation.wellnessAppsLabel',
+    hint: 'delegation.wellnessAppsHint',
+    granted: 'delegation.wellnessAppsGranted',
   },
 };
+
+/** The platform `{{platform}}` names in each consent's words. */
+const DELEGATION_CONSENT_PLATFORM: Record<DelegationConsent, CoachPlatformProvider> = {
+  calendar_write: COACH_CALENDAR_PLATFORM,
+  wellness_read: COACH_WELLNESS_PLATFORM,
+};
+
+/**
+ * What `{{platform}}` reads as in `consent`'s words, on the member's coach
+ * relationship: {@link COACH_CALENDAR_PLATFORM} for calendar writes,
+ * {@link COACH_WELLNESS_PLATFORM} for wellness.
+ */
+export function consentPlatformName(consent: DelegationConsent): string {
+  return coachPlatformName(DELEGATION_CONSENT_PLATFORM[consent]);
+}
+
+/**
+ * The words of the notice a member reads while their wellness grant predates
+ * the consent's widening to every app they connect (`wellness_notice_due`):
+ * its title, its body (naming `{{coach}}` and `{{platform}}`, the
+ * {@link COACH_WELLNESS_PLATFORM} the grant covered before), and its two
+ * answers. Keeping is a fresh grant; stopping is the ordinary revoke, behind
+ * its confirm ({@link DELEGATION_REVOKE_CONFIRM_KEYS}).
+ */
+export const WELLNESS_WIDENED_NOTICE_KEYS = {
+  title: 'delegation.wellnessWidenedTitle',
+  body: 'delegation.wellnessWidenedBody',
+  keep: 'delegation.wellnessWidenedKeep',
+  stop: 'delegation.wellnessRevokeConfirm',
+} as const;
 
 /** The coach's state line for a link whose member granted none of what it offers. */
 export const DELEGATION_CONSENTS_NONE_KEY = 'delegation.consentsWorkoutsOnly';
@@ -256,14 +315,15 @@ export interface ConsentChangeConfirmKeys {
 
 /**
  * The confirm a revoke asks first, for each consent whose revoke deletes what
- * the link already read: turning wellness off removes the wellness Dravr read
- * through the coach's account. The cancel is each app's own. A grant needs no
+ * the link already read: turning wellness off ends the coach's reads and
+ * removes the wellness Dravr synced through the coach's account, never what
+ * the member's own apps sync. The cancel is each app's own. A grant needs no
  * confirm, nor does a revoke of a consent not named here.
  */
 export const DELEGATION_REVOKE_CONFIRM_KEYS: Partial<Record<DelegationConsent, ConsentChangeConfirmKeys>> = {
   wellness_read: {
     title: 'delegation.wellnessRevokeTitle',
-    body: 'delegation.wellnessRevokeBody',
+    body: 'delegation.wellnessAppsRevokeBody',
     confirm: 'delegation.wellnessRevokeConfirm',
   },
 };

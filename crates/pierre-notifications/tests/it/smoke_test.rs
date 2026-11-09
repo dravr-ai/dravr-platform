@@ -13,19 +13,7 @@
     clippy::float_cmp
 )]
 
-use pierre_notifications::{to_app_error, validate_cron_expression, CommereError};
-
-#[test]
-fn validate_cron_expression_accepts_a_valid_schedule() {
-    // "minute hour dom month dow" — every day at 09:00 UTC
-    validate_cron_expression("0 9 * * *").expect("valid cron must parse");
-}
-
-#[test]
-fn validate_cron_expression_rejects_garbage() {
-    let err = validate_cron_expression("not a real cron").err();
-    assert!(err.is_some(), "garbage cron expressions must fail");
-}
+use pierre_notifications::{to_app_error, CommereError};
 
 #[test]
 fn to_app_error_maps_validation_to_invalid_input() {

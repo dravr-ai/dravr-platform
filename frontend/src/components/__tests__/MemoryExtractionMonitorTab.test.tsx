@@ -9,8 +9,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MemoryExtractionMonitorTab, {
   distributePercentages,
+  healthStatus,
 } from '../MemoryExtractionMonitorTab';
-import type { MemoryWorkerMetricsResponse, UserFactMetrics } from '../../services/api/admin';
+import type {
+  ExtractionRunCounts,
+  ExtractionRunStats,
+  MemoryWorkerMetricsResponse,
+  UserFactMetrics,
+} from '../../services/api/admin';
 
 vi.mock('../../services/api/admin', async () => ({
   adminApi: {
@@ -54,10 +60,27 @@ function sampleMetrics(overrides: Partial<UserFactMetrics> = {}): UserFactMetric
   };
 }
 
+function counts(overrides: Partial<ExtractionRunCounts> = {}): ExtractionRunCounts {
+  return { persisted: 0, empty: 0, failed: 0, facts_persisted: 0, ...overrides };
+}
+
+function sampleRuns(overrides: Partial<ExtractionRunStats> = {}): ExtractionRunStats {
+  return {
+    last_24h: counts({ persisted: 3, empty: 5, facts_persisted: 7 }),
+    last_7d: counts({ persisted: 20, empty: 30, facts_persisted: 41 }),
+    last_run_at_ms: Date.parse('2026-04-13T18:00:00Z'),
+    last_failure_at_ms: null,
+    backlog: 0,
+    oldest_backlog_at_ms: null,
+    ...overrides,
+  };
+}
+
 function sampleResponse(
+  runs: ExtractionRunStats = sampleRuns(),
   metrics: UserFactMetrics = sampleMetrics(),
 ): MemoryWorkerMetricsResponse {
-  return { tenant_id: 'tenant-a', metrics };
+  return { scope: { kind: 'tenant', tenant_id: 'tenant-a' }, runs, metrics };
 }
 
 function renderTab() {
@@ -76,49 +99,60 @@ describe('MemoryExtractionMonitorTab', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the healthy status banner when facts landed in the last 24h', async () => {
+  it('renders the healthy status from runs and the store figures beside them', async () => {
     vi.mocked(adminApi.getMemoryWorkerMetrics).mockResolvedValueOnce(sampleResponse());
     renderTab();
     await waitFor(() => {
-      expect(screen.getByText(/Healthy/)).toBeInTheDocument();
+      expect(screen.getByText('Healthy')).toBeInTheDocument();
     });
     expect(screen.getByText(/^120$/)).toBeInTheDocument();
+    // 3 persisted + 5 empty: a run that found nothing still counts as a run.
+    expect(screen.getByText('Runs, last 24 hours').parentElement).toHaveTextContent('8');
   });
 
-  it('renders the idle banner when no facts exist yet', async () => {
+  it('asks for no tenant as a plain admin and states the server-reported scope', async () => {
+    vi.mocked(adminApi.getMemoryWorkerMetrics).mockResolvedValueOnce(sampleResponse());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByTestId('admin-scope-statement')).toHaveTextContent(
+        'Showing your tenant only.',
+      );
+    });
+    expect(adminApi.getMemoryWorkerMetrics).toHaveBeenCalledWith(undefined);
+  });
+
+  it('reads a zero fact counter as healthy when the worker ran and found nothing', async () => {
     vi.mocked(adminApi.getMemoryWorkerMetrics).mockResolvedValueOnce(
       sampleResponse(
-        sampleMetrics({
-          total_facts: 0,
-          facts_last_24h: 0,
-          facts_last_7d: 0,
-          distinct_users: 0,
-          facts_by_kind: {},
-          newest_updated_at: null,
-        }),
+        sampleRuns({ last_24h: counts({ empty: 4 }) }),
+        sampleMetrics({ total_facts: 100, facts_last_24h: 0, facts_last_7d: 0 }),
       ),
     );
     renderTab();
     await waitFor(() => {
-      expect(screen.getByText(/Idle/)).toBeInTheDocument();
+      expect(screen.getByText('Healthy')).toBeInTheDocument();
     });
-    expect(screen.getByText(/No facts have been extracted yet/)).toBeInTheDocument();
   });
+});
 
-  it('renders the stalled banner when there are facts but no activity in 7 days', async () => {
-    vi.mocked(adminApi.getMemoryWorkerMetrics).mockResolvedValueOnce(
-      sampleResponse(
-        sampleMetrics({
-          total_facts: 100,
-          facts_last_24h: 0,
-          facts_last_7d: 0,
-        }),
-      ),
-    );
-    renderTab();
-    await waitFor(() => {
-      expect(screen.getByText(/Stalled/)).toBeInTheDocument();
-    });
+describe('healthStatus', () => {
+  it('names each state from the run ledger', () => {
+    const label = (overrides: Partial<ExtractionRunStats>) =>
+      healthStatus(sampleRuns(overrides)).label;
+    const none = { last_24h: counts(), last_7d: counts() };
+    expect(label({ last_24h: counts({ failed: 3 }) })).toBe('Failing');
+    expect(label({ last_24h: counts({ failed: 1, persisted: 2 }) })).toBe('Degraded');
+    expect(label({ backlog: 2 })).toBe('Backlog');
+    expect(label({ last_24h: counts({ empty: 1 }) })).toBe('Healthy');
+    expect(label({ last_24h: counts() })).toBe('Quiet');
+    expect(label(none)).toBe('Idle');
+    expect(label({ ...none, backlog: 1 })).toBe('Backlog');
+  });
+});
+
+describe('MemoryExtractionMonitorTab breakdown', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it('renders the per-kind breakdown sorted descending by count', async () => {

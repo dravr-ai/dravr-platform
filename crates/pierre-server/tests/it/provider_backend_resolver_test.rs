@@ -330,9 +330,8 @@ async fn resolve_backend_garmin_prefers_the_api_when_both_rows_exist() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Both token rows, but no live usr/pwd connection behind the mirror's: a
-    // Garmin API token whose store holds a pushed activity serves
-    // (carnet#1155, carnet#1302).
+    // Both token rows: a Garmin API token serves whatever usr/pwd session
+    // stands beside it (carnet#1155, carnet#1386).
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
     seed_token(
         &resources,
@@ -2005,11 +2004,11 @@ async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, ten
         .expect("store the pushed activity");
 }
 
-/// "oauth, no activities, sciotte" (carnet#1302): a Garmin grant whose store
-/// holds no activity, beside a live usr/pwd session, routes Garmin to the
-/// session, and status reports the mirror as the active backend.
+/// The grant is Garmin's one ongoing source (carnet#1386): a live usr/pwd
+/// session beside it serves nothing, a read naming either backend goes to the
+/// grant, and the session reads as standing beside it.
 #[tokio::test]
-async fn an_empty_garmin_grant_beside_a_live_session_routes_to_the_session() {
+async fn a_garmin_grant_serves_whatever_session_stands_beside_it() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
@@ -2032,133 +2031,126 @@ async fn an_empty_garmin_grant_beside_a_live_session_routes_to_the_session() {
 
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::DefersToMirror
+        OAuthGrant::Serves,
+        "a grant serves with no history held anywhere, whatever session is live"
     );
-    assert_eq!(
-        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
+    for requested in [oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN] {
+        assert_eq!(
+            backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), requested).await,
+            oauth_providers::GARMIN,
+            "bug: a read naming {requested} must go to the grant, never the session beside it"
+        );
+    }
+    assert!(
+        backend_resolver::session_beside_grant(
+            repos,
+            user_id,
+            tenant_id,
+            oauth_providers::SCIOTTE_GARMIN
+        )
+        .await,
+        "bug: a Garmin session beside a Garmin grant stands beside it"
+    );
+    assert!(
+        !backend_resolver::session_beside_grant(repos, user_id, tenant_id, oauth_providers::GARMIN)
             .await,
-        oauth_providers::SCIOTTE_GARMIN,
-        "bug: an empty Garmin grant must hand the reads to the live usr/pwd session"
+        "the grant itself is not a session beside a grant"
     );
     let status =
         backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::GARMIN)
             .await;
-    assert_eq!(status.backend_kind, BackendKind::Mirror, "{status:?}");
+    assert_eq!(status.backend_kind, BackendKind::Oauth, "{status:?}");
     assert!(status.connected, "{status:?}");
 }
 
-/// A push of wellness alone advances the Garmin freshness mark without
-/// storing an activity, so a grant with no session beside it still reads as
-/// awaiting its activities — what the card offers the usr/pwd login on.
+/// The helper is false where no OAuth grant serves the session's provider:
+/// a usr/pwd-only Garmin athlete keeps reading through their session, and
+/// COROS and TrainingPeaks sessions are their provider's only source. A
+/// Strava session beside a Strava grant stands beside it as Garmin's does.
 #[tokio::test]
-async fn a_wellness_only_push_leaves_the_garmin_grant_awaiting_activities() {
+async fn only_a_session_beside_a_serving_grant_stands_aside() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
-    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
-    resources
-        .common
-        .repos
-        .activity_cache
-        .record_activity_fetch(user_id, &tenant_id, oauth_providers::GARMIN, Utc::now())
-        .await
-        .expect("record the push");
-
-    assert_eq!(
-        backend_resolver::oauth_grant(
-            &resources.common.repos,
-            user_id,
-            tenant_id,
-            oauth_providers::GARMIN
-        )
-        .await,
-        OAuthGrant::AwaitsActivities,
-        "a freshness mark is not an activity"
-    );
-}
-
-/// A live usr/pwd session keeps serving Garmin while it is live, whatever the
-/// grant's store holds: the first pushed activity does not move the reads
-/// (carnet#1302).
-#[tokio::test]
-async fn a_live_garmin_session_keeps_serving_after_the_grant_receives_a_push() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
-    let tenant_id = user_primary_tenant(&resources, user_id).await;
-    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
-    seed_token(
-        &resources,
-        user_id,
-        tenant_id,
+    for mirror in [
         oauth_providers::SCIOTTE_GARMIN,
-    )
-    .await;
-    register(
-        &resources,
-        user_id,
-        tenant_id,
-        oauth_providers::SCIOTTE_GARMIN,
-    )
-    .await;
-    push_garmin_activity(&resources, user_id, tenant_id).await;
+        oauth_providers::SCIOTTE_COROS,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        oauth_providers::SCIOTTE,
+    ] {
+        seed_token(&resources, user_id, tenant_id, mirror).await;
+        register(&resources, user_id, tenant_id, mirror).await;
+    }
     let repos = &resources.common.repos;
 
-    assert_eq!(
-        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::DefersToMirror
-    );
+    for mirror in [
+        oauth_providers::SCIOTTE_GARMIN,
+        oauth_providers::SCIOTTE_COROS,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        oauth_providers::SCIOTTE,
+    ] {
+        assert!(
+            !backend_resolver::session_beside_grant(repos, user_id, tenant_id, mirror).await,
+            "bug: {mirror} has no grant beside it, so it is the provider's source"
+        );
+        assert_eq!(
+            backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), mirror).await,
+            mirror,
+            "a session with no grant beside it keeps its own reads"
+        );
+    }
     assert_eq!(
         backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
             .await,
         oauth_providers::SCIOTTE_GARMIN,
-        "bug: a live usr/pwd session must keep serving Garmin after the first push"
+        "bug: a usr/pwd-only Garmin athlete must keep reading through the session"
     );
-    let status =
-        backend_resolver::coalesced_status(repos, user_id, tenant_id, oauth_providers::GARMIN)
-            .await;
-    assert_eq!(status.backend_kind, BackendKind::Mirror, "{status:?}");
 
-    // Flagged for a reconnect, the session serves nothing: the grant, which
-    // now holds an activity, serves.
-    resources
-        .common
-        .repos
-        .provider_connections
-        .mark_needs_reauth(
+    seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    assert!(
+        backend_resolver::session_beside_grant(repos, user_id, tenant_id, oauth_providers::SCIOTTE)
+            .await,
+        "bug: a Strava session beside a Strava grant stands beside it"
+    );
+    assert_eq!(
+        backend_resolver::resolve_backend(
+            repos,
+            user_id,
+            Some(tenant_id),
+            oauth_providers::SCIOTTE
+        )
+        .await,
+        oauth_providers::SCIOTTE,
+        "Strava's API never serves what the session stored, so a read naming the \
+         session is not moved to the grant; every walk of the connections leaves \
+         that session out instead"
+    );
+    assert!(
+        !backend_resolver::session_beside_grant(
+            repos,
             user_id,
             tenant_id,
-            oauth_providers::SCIOTTE_GARMIN,
-            Some("session_expired"),
-            Utc::now(),
+            oauth_providers::SCIOTTE_COROS
         )
-        .await
-        .expect("mark the session dead");
+        .await,
+        "a Strava grant says nothing about the COROS session"
+    );
+}
+
+/// An empty grant keeps serving whatever session stands beside it: a dead
+/// session row holding no activity never takes over (carnet#1386). Where the
+/// history before the grant stands is the card's `history`, apart.
+#[tokio::test]
+async fn an_empty_garmin_grant_keeps_serving_whatever_session_stands_beside_it() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    let repos = &resources.common.repos;
+
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
         OAuthGrant::Serves
-    );
-    assert_eq!(
-        backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
-            .await,
-        oauth_providers::GARMIN,
-        "a dead session falls back to the grant"
-    );
-}
-
-/// With no live session beside it — none at all, or one flagged for a
-/// reconnect — an empty grant keeps serving and reads as awaiting its
-/// activities, which is what the cards offer the usr/pwd login on.
-#[tokio::test]
-async fn an_empty_garmin_grant_without_a_live_session_keeps_serving() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
-    let tenant_id = user_primary_tenant(&resources, user_id).await;
-    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
-    let repos = &resources.common.repos;
-
-    assert_eq!(
-        backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::AwaitsActivities
     );
     assert_eq!(
         backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)
@@ -2196,8 +2188,8 @@ async fn an_empty_garmin_grant_without_a_live_session_keeps_serving() {
 
     assert_eq!(
         backend_resolver::oauth_grant(repos, user_id, tenant_id, oauth_providers::GARMIN).await,
-        OAuthGrant::AwaitsActivities,
-        "a dead session serves nothing, so it never takes over from the grant"
+        OAuthGrant::Serves,
+        "a session beside the grant never takes over from it"
     );
     assert_eq!(
         backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::GARMIN)

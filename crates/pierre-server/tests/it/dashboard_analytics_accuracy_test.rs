@@ -20,6 +20,8 @@ use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, init_server_config};
 use pierre_auth::auth::{AuthMethod, AuthResult};
+use pierre_core::admin::scope::AdminScope;
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -145,6 +147,12 @@ impl AnalyticsFixture {
         }
     }
 
+    const fn scope(&self) -> AdminScope {
+        AdminScope::Tenant {
+            tenant_id: TenantId::from_uuid(self.tenant_id),
+        }
+    }
+
     fn day_label(&self, days_ago: i64) -> String {
         (self.today - Duration::days(days_ago))
             .format("%Y-%m-%d")
@@ -159,7 +167,7 @@ async fn window_ends_on_today_and_aligns_each_day() -> Result<()> {
     let fixture = AnalyticsFixture::new("analytics-window@example.com").await?;
     let analytics = fixture
         .routes
-        .get_usage_analytics(fixture.auth(), 5)
+        .get_usage_analytics(fixture.auth(), 5, fixture.scope())
         .await?;
 
     assert_eq!(
@@ -210,7 +218,7 @@ async fn average_response_time_is_call_weighted() -> Result<()> {
     let fixture = AnalyticsFixture::new("analytics-weighted@example.com").await?;
     let analytics = fixture
         .routes
-        .get_usage_analytics(fixture.auth(), 5)
+        .get_usage_analytics(fixture.auth(), 5, fixture.scope())
         .await?;
 
     let total: u64 = analytics.time_series.iter().map(|p| p.request_count).sum();
@@ -237,11 +245,11 @@ async fn average_response_time_is_independent_of_range_width() -> Result<()> {
 
     let narrow = fixture
         .routes
-        .get_usage_analytics(fixture.auth(), 7)
+        .get_usage_analytics(fixture.auth(), 7, fixture.scope())
         .await?;
     let wide = fixture
         .routes
-        .get_usage_analytics(fixture.auth(), 90)
+        .get_usage_analytics(fixture.auth(), 90, fixture.scope())
         .await?;
 
     assert_eq!(narrow.time_series.len(), 7);

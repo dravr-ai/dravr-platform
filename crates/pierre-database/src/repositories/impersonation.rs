@@ -7,6 +7,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use uuid::Uuid;
@@ -29,14 +30,24 @@ pub trait ImpersonationRepository: Send + Sync {
     async fn end_session(&self, session_id: &str) -> AppResult<()>;
     /// End all active impersonation sessions for an impersonator
     async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64>;
-    /// List impersonation sessions with optional filters
-    async fn list_sessions(
+    /// One page of every session, newest first by `(started_at, id)`: the rows
+    /// strictly after `before` in that order, or the newest when it is `None`.
+    /// A keyset, so a session sharing the page boundary's start is never skipped.
+    async fn list_sessions_page(
         &self,
-        impersonator_id: Option<Uuid>,
-        target_user_id: Option<Uuid>,
-        active_only: bool,
+        before: Option<&SessionCursor>,
         limit: u32,
     ) -> AppResult<Vec<ImpersonationSession>>;
+}
+
+/// Where a page of [`ImpersonationRepository::list_sessions_page`] resumes:
+/// the last row of the previous page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCursor {
+    /// That row's `started_at`.
+    pub started_at: DateTime<Utc>,
+    /// That row's id, which orders the sessions sharing that start.
+    pub id: String,
 }
 
 /// The eight columns every read of `impersonation_sessions` returns, in the
@@ -90,20 +101,14 @@ pub(crate) const END_ALL_SESSIONS_SQL: &str = "UPDATE impersonation_sessions \
      SET is_active = FALSE, ended_at = $1 \
      WHERE impersonator_id = $2 AND is_active = TRUE";
 
-/// The audit list, newest first, with each filter optional.
-///
-/// One statement rather than a composed one: a NULL operator or target
-/// filter matches every row, and `$3` is the `active_only` flag, so the
-/// eight filter combinations the callers can ask for are one query text
-/// with four binds.
-pub(crate) const LIST_SESSIONS_SQL: &str = concat!(
+/// A page of every session, newest first by `(started_at, id)`. `$1` NULL
+/// reads from the newest; otherwise the rows strictly after `($1, $2)`.
+pub(crate) const LIST_SESSIONS_PAGE_SQL: &str = concat!(
     "SELECT ",
     session_columns!(),
     " FROM impersonation_sessions \
-     WHERE ($1 IS NULL OR impersonator_id = $1) \
-       AND ($2 IS NULL OR target_user_id = $2) \
-       AND ($3 = FALSE OR is_active = TRUE) \
-     ORDER BY started_at DESC LIMIT $4"
+     WHERE ($1 IS NULL OR started_at < $1 OR (started_at = $1 AND id < $2)) \
+     ORDER BY started_at DESC, id DESC LIMIT $3"
 );
 
 /// The error for a column of this table that would not decode.
@@ -229,17 +234,14 @@ macro_rules! impl_impersonation_repository {
                 Ok(result.rows_affected())
             }
 
-            async fn list_sessions(
+            async fn list_sessions_page(
                 &self,
-                impersonator_id: Option<Uuid>,
-                target_user_id: Option<Uuid>,
-                active_only: bool,
+                before: Option<&SessionCursor>,
                 limit: u32,
             ) -> AppResult<Vec<ImpersonationSession>> {
-                let rows = sqlx::query(LIST_SESSIONS_SQL)
-                    .bind($ids::bind_opt(impersonator_id))
-                    .bind($ids::bind_opt(target_user_id))
-                    .bind(active_only)
+                let rows = sqlx::query(LIST_SESSIONS_PAGE_SQL)
+                    .bind(before.map(|cursor| cursor.started_at))
+                    .bind(before.map(|cursor| cursor.id.as_str()))
                     .bind(i64::from(limit))
                     .fetch_all(self.pool())
                     .await

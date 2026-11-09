@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use super::budget_reservation::BudgetReservation;
 use super::dispatch_span::{record_outcome, tool_call_span};
+use super::refusal_response;
 use super::repeated_read;
 use super::tool_response::{
     is_unavailable_over_transport, protocol_error_from_raised, provider_auth_required_slug,
@@ -14,39 +16,48 @@ use super::tool_response::{
 use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
-    AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
-    TURN_AGENT_ID, TURN_LOCALE,
+    scoped_read_subject, AuthMethod, DispatchOrigin, CONVERSATION_ID, CONVERSATION_TENANT,
+    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_DIRECT_MESSAGE,
+    TURN_LOCALE,
 };
+use crate::first_party_tools;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
+use crate::protocol::provider_offer::{
+    connections_page, external_no_provider_response, provider_offers, ConnectRoute,
+};
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
+use crate::read_subject::ReadSubject;
 use crate::reconnect::offer_in_payload;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
+use futures_util::future::Either;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
+use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
-use pierre_database::repositories::PendingGuardianAction;
 use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
+use subject::{subject_tool_context, withhold_reconnect_offer, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
+
+/// Whose data a dispatched call reads (carnet#1387).
+mod subject;
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -94,8 +105,12 @@ pub struct UniversalExecutor {
     /// [`crate::context::TURN_LOCALE`] when the executor is built inside a
     /// turn and scoped back around each tool body. `None` outside a chat turn.
     turn_locale: Option<String>,
-    /// Per-**utterance** token used solely as the Guardian's turn key so taint
-    /// and per-turn budgets accumulate over one user message's `ReAct` loop and
+    /// Whether the turn was a direct message, read from
+    /// [`crate::context::TURN_DIRECT_MESSAGE`] when the executor is built
+    /// inside a turn, and scoped back around each tool body. `None` outside a chat turn.
+    turn_direct_message: Option<bool>,
+    /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
+    /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
     /// used for routing): the chat pipeline and an ACP agent's tool-host session
     /// both set this to `TurnInput.turn_id`. `None` (MCP-direct / A2A)
@@ -145,6 +160,11 @@ pub struct UniversalExecutor {
     /// [`Self::with_caller_writing_reply`]; never inherited, because a nested
     /// dispatch answers the tool that made it, not the caller.
     caller_writes_reply: bool,
+    /// The coached athlete the call this executor was built inside reads
+    /// ([`READ_SUBJECT`]), inherited when it is built inside such a call's
+    /// body. A nested dispatch then reads that athlete too, and is charged to
+    /// the coach who asked, rather than resolving a subject of its own.
+    read_subject: Option<ReadSubject>,
 }
 
 impl fmt::Debug for UniversalExecutor {
@@ -155,12 +175,14 @@ impl fmt::Debug for UniversalExecutor {
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
+            .field("turn_direct_message", &self.turn_direct_message)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
             .field("transport", &self.transport)
             .field("provenance", &self.provenance)
             .field("caller_writes_reply", &self.caller_writes_reply)
+            .field("read_subject", &self.read_subject)
             .finish_non_exhaustive()
     }
 }
@@ -181,9 +203,13 @@ impl UniversalExecutor {
             // The turn service scopes the turn's locale around the whole turn,
             // and a nested dispatch inherits its caller's.
             turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
+            // The chat pipeline scopes whether the turn is a direct message
+            // around the whole turn, and a nested dispatch inherits it the same
+            // way.
+            turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
-            // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
-            // taints the SAME turn as its caller. Absent outside any tool scope
+            // a tool body (nested dispatch), so a nested write is charged to the
+            // SAME turn as its caller. Absent outside any tool scope
             // (top-level executors set their token explicitly via
             // `with_turn_token`).
             turn_token: GUARDIAN_TURN_TOKEN.try_with(Clone::clone).ok().flatten(),
@@ -200,6 +226,8 @@ impl UniversalExecutor {
             // And accumulates into the derivation its caller accumulates into.
             provenance: ai_scope::current_provenance(),
             caller_writes_reply: false,
+            // A nested dispatch reads the coached athlete its caller reads.
+            read_subject: scoped_read_subject(),
         }
     }
 
@@ -229,6 +257,21 @@ impl UniversalExecutor {
         self
     }
 
+    /// The transport this executor's calls are served over, as dispatch
+    /// resolves it: what a listing beside the executor must withhold by, so
+    /// it offers nothing a call would be refused.
+    #[must_use]
+    pub fn served_transport(&self) -> Option<Transport> {
+        ai_scope::effective_transport(self.transport)
+    }
+
+    /// The grant this executor's calls run under: what a listing beside the
+    /// executor must narrow to, so it offers nothing a call would be refused.
+    #[must_use]
+    pub fn granted_scopes(&self) -> &[OAuthScope] {
+        &self.scopes
+    }
+
     /// Bind the turn's seat. The tools it withholds
     /// ([`TurnSeat::withholds`]) are refused with a reply the model adapts
     /// to.
@@ -239,7 +282,7 @@ impl UniversalExecutor {
     }
 
     /// Bind the per-utterance Guardian turn token (`TurnInput.turn_id`, for the
-    /// chat loop and an ACP agent's tool-host session). Keeps taint/budget scoped to
+    /// chat loop and an ACP agent's tool-host session). Keeps budgets scoped to
     /// one user message rather than the whole conversation. See the field docs.
     #[must_use]
     pub fn with_turn_token(mut self, turn_token: String) -> Self {
@@ -313,12 +356,11 @@ impl UniversalExecutor {
     /// genuine lookup error)
     /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
-    /// abandons the turn), or `None` to proceed to the Guardian taint/budget check.
+    /// abandons the turn), or `None` to proceed to the Guardian budget check.
     async fn authorization_refusal(
         &self,
         tool_name: &str,
-        tenant_uuid: Option<Uuid>,
-        user_uuid: Uuid,
+        parties: Parties,
         is_admin: bool,
         admin_only: bool,
         provider_gate: ProviderGate<'_>,
@@ -327,23 +369,16 @@ impl UniversalExecutor {
         // explicit config for the tenant, or a per-user override above it,
         // enforced on every transport. Disabling a tool is config, not a
         // security incident — return the graceful in-band nudge the old
-        // chat-only allowlist gave, so the turn is not abandoned.
-        if let Some(tenant) = tenant_uuid {
-            if !guardian::caller_tool_enabled(
-                &self.resources,
-                TenantId::from_uuid(tenant),
-                user_uuid,
-                tool_name,
-            )
-            .await
-            {
-                info!(
-                    tool_name = %tool_name,
-                    reason = "tenant_disabled",
-                    "tool disabled for tenant — returning in-band refusal"
-                );
-                return Ok(Some(tenant_disabled_response(tool_name)));
-            }
+        // chat-only allowlist gave, so the turn is not abandoned. A read of
+        // a coached athlete filed under another tenant honours that tenant's
+        // configuration too.
+        if !self.tool_enabled(tool_name, parties).await {
+            info!(
+                tool_name = %tool_name,
+                reason = "tenant_disabled",
+                "tool disabled for tenant — returning in-band refusal"
+            );
+            return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
         }
 
         // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
@@ -364,9 +399,11 @@ impl UniversalExecutor {
             });
         }
 
+        // The data sources asked of are the reader's: a coach's read of their
+        // athlete needs the athlete's connection, not the coach's.
         if provider_gate.required {
             if let Some(refusal) = self
-                .provider_refusal(tool_name, user_uuid, tenant_uuid, provider_gate.requested)
+                .provider_refusal(tool_name, parties, provider_gate.requested)
                 .await
             {
                 return Ok(Some(refusal));
@@ -418,10 +455,10 @@ impl UniversalExecutor {
     async fn provider_refusal(
         &self,
         tool_name: &str,
-        user_uuid: Uuid,
-        tenant_uuid: Option<Uuid>,
+        parties: Parties,
         requested_provider: Option<&str>,
     ) -> Option<UniversalResponse> {
+        let (user_uuid, tenant_uuid) = (parties.reader, parties.reader_tenant);
         if default_provider().is_some() {
             return None;
         }
@@ -436,7 +473,48 @@ impl UniversalExecutor {
             reason = "no_provider_connected",
             "provider-requiring tool refused at the dispatch chokepoint"
         );
-        Some(no_provider_refusal())
+        // The words differ by who reads them. Dravr's own surfaces, and a call
+        // that declared no transport, send the athlete to the app, and the
+        // pipeline keys on this exact shape. A caller outside them writes its own reply, and "connect X"
+        // would promise data its transport may withhold: it gets the offered
+        // providers, each marked readable or not here, as an ordinary result.
+        match ai_scope::effective_transport(self.transport) {
+            Some(transport) if !transport.is_first_party() => {
+                let offers =
+                    provider_offers(self.resources.as_ref(), user_uuid, tenant_uuid, transport)
+                        .await;
+                Some(external_no_provider_response(
+                    &offers,
+                    &self.connect_route(parties),
+                ))
+            }
+            _ => Some(no_provider_refusal()),
+        }
+    }
+
+    /// Where this caller's athlete connects a provider: through
+    /// `connect_provider` when the grant covers it, as the tool is otherwise
+    /// not listed to this caller, and in the app when it does not. A coach
+    /// reading a coached athlete is always sent to the app: `connect_provider`
+    /// would connect the coach's own account, not the athlete's.
+    fn connect_route(&self, parties: Parties) -> ConnectRoute {
+        let covered = parties.reader == parties.requester
+            && self
+                .resources
+                .tool_registry()
+                .get(CONNECT_PROVIDER)
+                .is_some_and(|tool| missing_scope(&self.scopes, tool.capabilities()).is_none());
+        if covered {
+            ConnectRoute::Tool
+        } else {
+            ConnectRoute::App(
+                self.resources
+                    .config()
+                    .frontend_url
+                    .as_deref()
+                    .map(connections_page),
+            )
+        }
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.
@@ -485,12 +563,11 @@ impl UniversalExecutor {
         // event below are owed for every transport, and `protocol` is the only
         // thing that says which one this was.
         let protocol = request.protocol.clone();
-        let charged_user = request.user_id.clone();
         let dispatch_start = Instant::now();
-        let args = request.parameters;
+        let mut args = request.parameters;
         let tool_name = request.tool_name;
 
-        // ── Guardian: dispatch-time taint/budget/egress + tenant allowlist ──
+        // ── Guardian: dispatch-time budget/egress + tenant allowlist ──
         // Every transport funnels through here, so this single check covers the
         // chat ReAct loop, MCP-direct, A2A, and an ACP agent's tool-host session
         // with no bypass.
@@ -506,18 +583,27 @@ impl UniversalExecutor {
         // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
         // dispatch fn within the cognitive-complexity budget.
         let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
-        let provider_gate = ProviderGate {
-            required: tool
-                .capabilities()
-                .contains(ToolCapabilities::REQUIRES_PROVIDER),
-            requested: args
-                .get("provider")
-                .and_then(JsonValue::as_str)
-                .filter(|s| !s.is_empty()),
-        };
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
+        // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
+        // agent's tool-host session), so budgets accumulate across ONE user
+        // message's tool calls and reset on the next — NOT across the whole
+        // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
+        // each its own bucket (no cross-call accumulation — correct).
+        let resolved_turn_token = self
+            .turn_token
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        // Before every refusal below, so a write that any of them turns away
+        // counts too: sending this turn's question again would try the same
+        // thing on a fresh budget, and the refusal may no longer apply by then.
+        if writes_data || labels.is_irreversible() {
+            self.resources
+                .guardian_turns()
+                .record_write_attempt(&TurnKey::new(tenant_uuid, resolved_turn_token.clone()));
+        }
+
         // The scope gate runs first, and is its own gate rather than an arm of
         // `authorization_refusal`: the two answer different questions and both
         // must pass. The role gate asks WHO this caller is; this asks HOW MUCH
@@ -530,6 +616,17 @@ impl UniversalExecutor {
         // say — and because the credential's reach is the outermost question.
         scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
 
+        // A tool kept on Dravr's own surfaces is refused to an external caller
+        // before anything it would read is looked up — the same answer its
+        // absence from that caller's listing gives.
+        if let Some(refusal) = first_party_tools::refusal(
+            self.resources.tool_registry(),
+            &tool_name,
+            ai_scope::effective_transport(self.transport),
+        ) {
+            return Ok(refusal);
+        }
+
         // The coach's seats: in a group the caller coaches, their own data is
         // not what the turn is about (carnet#742); in their thread about one
         // athlete, nothing is filed on their own account (carnet#1070).
@@ -540,32 +637,41 @@ impl UniversalExecutor {
             return Ok(refusal);
         }
 
+        // Whose data the body reads (carnet#1387): a training-class tool
+        // reads a coached athlete when the call names one, and its context is
+        // then built as the athlete, so the body reads them with no change of
+        // its own.
+        let subject = match self
+            .read_subject(&tool_name, &mut args, user_uuid, tenant_uuid)
+            .await?
+        {
+            Ok(subject) => subject,
+            Err(refusal) => return Ok(refusal),
+        };
+        let parties = Parties::of(subject.as_ref(), user_uuid, tenant_uuid);
+        let ctx = subject.as_ref().map_or(ctx, subject_tool_context);
+
+        let provider_gate = ProviderGate {
+            required: tool
+                .capabilities()
+                .contains(ToolCapabilities::REQUIRES_PROVIDER),
+            requested: args
+                .get("provider")
+                .and_then(JsonValue::as_str)
+                .filter(|s| !s.is_empty()),
+        };
         if let Some(refusal) = self
-            .authorization_refusal(
-                &tool_name,
-                tenant_uuid,
-                user_uuid,
-                is_admin,
-                admin_only,
-                provider_gate,
-            )
+            .authorization_refusal(&tool_name, parties, is_admin, admin_only, provider_gate)
             .await?
         {
             return Ok(refusal);
         }
 
-        // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
-        // agent's tool-host session), so taint + budgets accumulate across ONE user
-        // message's tool calls and reset on the next — NOT across the whole
-        // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
-        // each its own bucket (no cross-call accumulation — correct).
-        let resolved_turn_token = self
-            .turn_token
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let turn_key = TurnKey::new(tenant_uuid, resolved_turn_token.clone());
+        // The requester's: a read of a coached athlete is still one of the
+        // coach's calls, on the coach's turn.
+        let turn_key = TurnKey::new(parties.requester_tenant, resolved_turn_token.clone());
 
-        // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
+        // Budget / egress — mode-gated (observe logs, enforce blocks).
         // The decision + atomic budget-reserve is the shared `guardian_gate`
         // so no dispatch path can bypass it. decide + reserve run under one store lock so
         // concurrent same-turn dispatch (an ACP tool-host session / A2A pipelining
@@ -578,47 +684,42 @@ impl UniversalExecutor {
             &tool_name,
             labels,
             writes_data,
-            tenant_uuid,
         );
         match outcome {
             GateOutcome::Proceed => {}
             GateOutcome::Blocked(reason) => {
-                // #10: record the block under the (tenant, user) headless key so
-                // the Copilot-headless loop surfaces a deterministic refusal for a
-                // block that fired inside its ACP subprocess's tool-host session (a
-                // separate task that can't return this out-of-band). Harmless for
-                // other transports — only the headless loop consumes it, and it
-                // clears the key first.
-                self.resources.guardian_turns().record_block(
-                    &TurnKey::new(tenant_uuid, request.user_id.clone()),
-                    HeadlessBlock::Denied(reason),
-                );
+                // #10: record the block under the turn it fired in, so the turn's
+                // tool loop surfaces a deterministic refusal for one raised inside
+                // an ACP agent's tool-host session (a separate task that can't
+                // return this out-of-band). A `TurnBlocked` refusal is a
+                // consequence of the block already recorded, never the first.
+                if reason != DenyReason::TurnBlocked {
+                    self.record_turn_block(
+                        &turn_key,
+                        HeadlessBlock {
+                            tool_name: tool_name.clone(),
+                            reason,
+                        },
+                    );
+                }
                 // Blocked before execution: nothing ran, nothing was reserved.
-                return Ok(guardian_denied_response(&tool_name, reason));
-            }
-            GateOutcome::ConfirmRequired => {
-                // `args` owns the parameters (moved out of `request` above);
-                // clone them into the parked row — the tool will not run now.
-                return Ok(self
-                    .park_for_confirmation(
-                        args.clone(),
-                        request.user_id.clone(),
-                        &tool_name,
-                        tenant_uuid,
-                    )
-                    .await);
+                return Ok(refusal_response::guardian_denied_response(
+                    &tool_name, reason,
+                ));
             }
         }
+
+        // From here to the verdict on the call, the reservation settles on every
+        // exit, a caller abandoning this future included (carnet#1405).
+        let turns = self.resources.guardian_turns();
+        let mut reservation = reserved
+            .then(|| BudgetReservation::new(turns, &turn_key, &tool_name, labels, writes_data));
 
         // A read repeated within one real turn is answered with a pointer to
         // the result the model already has (see `repeated_read`).
         let read = (!writes_data && self.turn_token.is_some())
             .then(|| ReadFingerprint::of(&tool_name, &args));
-        let turns = self.resources.guardian_turns();
         if let Some(pointer) = repeated_read::answer(turns, &turn_key, read, &tool_name) {
-            if reserved {
-                turns.refund(&turn_key, labels, writes_data);
-            }
             return Ok(pointer);
         }
 
@@ -632,41 +733,67 @@ impl UniversalExecutor {
         // The transport is resolved once, here, and handed to the backstop
         // explicitly: the body's scope has closed by the time it runs.
         let transport = ai_scope::effective_transport(self.transport);
-        // The athlete's AI consents (carnet#726): a provider whose data they
+        // The reader's AI consents (carnet#726): a provider whose data they
         // have not consented to hand to AI is denied to this tool's reads and
         // to the backstop below alike. The tenant names whose feature flags
-        // arm a flag-gated notice; a call without one reads the defaults.
+        // arm a flag-gated notice; a call without one reads the defaults. A
+        // read of a coached athlete runs under the athlete's consents, never
+        // the coach's (carnet#1419).
         let consent_withheld = provider_notice::ai_consent_withheld(
             self.resources.repos(),
-            tenant_uuid.unwrap_or_default(),
-            user_uuid,
+            parties.reader_tenant.unwrap_or_default(),
+            parties.reader,
         )
         .await;
+        // A read of a coached athlete answers into no conversation: what the
+        // body starts on the athlete's account (a backfill, a reconnect
+        // notice) is the athlete's, and never posts into the coach's thread.
+        let in_conversation = subject.is_none();
+        let member_read = subject.as_ref().map(ReadSubject::athlete);
+        let execute = async move {
+            // What the call derives from here on is the athlete's (carnet#1174).
+            if let Some(athlete) = member_read {
+                ai_scope::note_member_read(athlete);
+            }
+            tool.execute(&self.resources, &ctx, args).await
+        };
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
-            self.conversation_id.clone(),
+            self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(
-                self.conversation_tenant_id,
+                self.conversation_tenant_id.filter(|_| in_conversation),
                 TURN_AGENT_ID.scope(
                     self.turn_agent_id.clone(),
                     TURN_LOCALE.scope(
                         self.turn_locale.clone(),
-                        GUARDIAN_TURN_TOKEN.scope(
-                            Some(resolved_turn_token.clone()),
-                            // The grant travels with the turn token for the
-                            // same reason: a nested dispatch must run under
-                            // exactly what authorized this call, never wider.
-                            GRANTED_SCOPES.scope(
-                                self.scopes.clone(),
-                                tool.execute(&self.resources, &ctx, args),
+                        TURN_DIRECT_MESSAGE.scope(
+                            self.turn_direct_message,
+                            GUARDIAN_TURN_TOKEN.scope(
+                                Some(resolved_turn_token.clone()),
+                                // The grant travels with the turn token for the
+                                // same reason: a nested dispatch must run under
+                                // exactly what authorized this call, never wider.
+                                GRANTED_SCOPES.scope(
+                                    self.scopes.clone(),
+                                    READ_SUBJECT.scope(subject.clone(), execute),
+                                ),
                             ),
                         ),
                     ),
                 ),
             ),
         ));
-        // Boxed: the scopes around the tool body would otherwise ride inline in
-        // every caller's future.
-        let body = Box::pin(ai_scope::with_ai_consent(consent_withheld.clone(), body));
+        // A read of a coached athlete runs under the athlete's consents and
+        // records them for the call that encloses it; the caller's own call
+        // runs under theirs. Boxed: the scopes around the tool body would
+        // otherwise ride inline in every caller's future.
+        let body = Box::pin(if subject.is_some() {
+            Either::Left(ai_scope::with_subject_consent(
+                consent_withheld.clone(),
+                body,
+            ))
+        } else {
+            Either::Right(ai_scope::with_ai_consent(consent_withheld.clone(), body))
+        });
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,
@@ -682,25 +809,45 @@ impl UniversalExecutor {
         // provenance, so what it writes is stamped from everything the turn
         // served. The executor carries that provenance onto a Copilot loopback
         // task, so the mark holds on every path.
-        let ((response, read_side_withheld), served_items) =
-            ai_scope::tracking(provenance.clone(), ai_scope::serving_items(body)).await;
+        if let Some(reservation) = reservation.as_mut() {
+            reservation.start();
+        }
+        let (((response, read_side_withheld), subject_withheld), served_items) =
+            ai_scope::tracking(
+                provenance.clone(),
+                ai_scope::serving_items(ai_scope::subject_consents(body)),
+            )
+            .await;
+        // The backstop applies the consents the body's reads ran under. For a
+        // read of a coached athlete those are the athlete's, by construction:
+        // the subject resolved above, whatever a nested call recorded. For the
+        // caller's own call, they are the person a body read other than its
+        // caller, when it read one (a group tool reading a member).
+        let consent_withheld = if subject.is_some() {
+            consent_withheld
+        } else {
+            subject_withheld.unwrap_or(consent_withheld)
+        };
         if served_items && !response.is_error {
             provenance.mark_provider_data();
         }
 
-        // Guardian POST. Taint was folded atomically with the dispatch decision
-        // in `decide_and_reserve` above (before the body ran), so it is already
-        // recorded here on success OR error — a failed `UNTRUSTED_OUTPUT` tool
-        // still surfaced its content to the LLM (the S1 error-path escape) and
-        // stays tainted. The budget was reserved pre-execution; refund it if the
-        // call failed so only *successful* consequential actions consume budget
-        // (taint is intentionally NOT refunded).
-        if response.is_error && reserved {
-            self.resources
-                .guardian_turns()
-                .refund(&turn_key, labels, writes_data);
-        }
-        if !response.is_error {
+        // Guardian POST. The budget was reserved pre-execution; it is refunded if
+        // the call returned a failure, so only *successful* consequential actions
+        // consume budget, and only those are what the turn says it did. A call
+        // abandoned while running never gets here, and its destructive charge stays
+        // spent.
+        if response.is_error {
+            if let Some(reservation) = reservation {
+                reservation.refund();
+            }
+        } else {
+            if let Some(reservation) = reservation {
+                reservation.keep();
+            }
+            if writes_data || labels.is_irreversible() {
+                turns.record_committed(&turn_key, &tool_name);
+            }
             repeated_read::remember(turns, &turn_key, read, writes_data);
         }
 
@@ -711,6 +858,9 @@ impl UniversalExecutor {
             // loop can mint a hosted-login URL instead of surfacing a generic
             // failure to the LLM.
             if let Some(provider) = provider_auth_required_slug(&response) {
+                if let Some(subject) = &subject {
+                    return Ok(self.athlete_reconnect_refusal(&tool_name, subject, &provider));
+                }
                 return Err(ProtocolError::ProviderAuthRequired { provider });
             }
 
@@ -732,6 +882,9 @@ impl UniversalExecutor {
         }
 
         let mut universal = tool_response_to_universal_response(&tool_name, &response);
+        if subject.is_some() {
+            withhold_reconnect_offer(&mut universal);
+        }
         let mut held_back = read_side_withheld;
         if response.is_error
             && raised_error_code(&response).is_some_and(|code| is_unavailable_over_transport(&code))
@@ -780,26 +933,30 @@ impl UniversalExecutor {
         // Copilot-headless loop never sees that payload — its tools run inside
         // an ACP subprocess whose calls reach here through the embacle tool
         // host, on a separate task that returns to the subprocess — so the
-        // slug is recorded under the (tenant, user) headless key for the loop
-        // to take at the end of the turn, exactly as a Guardian block above it
-        // is. Harmless for the other transports: only the headless loop
-        // consumes it, and it clears the key before its subprocess starts.
-        if let Some(slug) = universal
-            .result
-            .as_ref()
-            .and_then(|payload| offer_in_payload(&tool_name, payload))
-        {
-            self.resources
-                .reconnect_offers()
-                .record_offer(&TurnKey::new(tenant_uuid, charged_user.clone()), slug);
+        // slug is recorded under the turn for the loop to take when it returns,
+        // exactly as a Guardian block above it is. A one-shot MCP or A2A call
+        // reads the slug off its own result and has no turn to report to, and a
+        // window the pipeline prefetched offers nothing: the model never asked
+        // for it, and most turns prefetch, so it would ask an athlete with one
+        // dead connection to reconnect on every message.
+        if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
+            if let Some(slug) = universal
+                .result
+                .as_ref()
+                .and_then(|payload| offer_in_payload(&tool_name, payload))
+            {
+                self.resources
+                    .reconnect_offers()
+                    .record_offer(&turn_key, slug);
+            }
         }
 
         self.record_dispatch(DispatchRecord {
             tool_name: &tool_name,
             protocol: &protocol,
-            user_id: &charged_user,
+            user_id: &parties.requester.to_string(),
             response: &universal,
-            tenant_uuid,
+            tenant_uuid: parties.requester_tenant,
             started: dispatch_start,
         })
         .await;
@@ -908,146 +1065,23 @@ struct DispatchRecord<'a> {
     started: Instant,
 }
 
-/// Confirmation TTL for a parked destructive call. Short by design: the
-/// prompt and the resolution normally happen within the same conversation
-/// exchange, and a stale consent to a destructive action must not linger.
-const CONFIRM_TTL_MINUTES: i64 = 5;
-
 impl UniversalExecutor {
-    /// Park a confirm-required call and build the in-band confirmation ask.
-    ///
-    /// On a storage failure this FAILS CLOSED as a denial: an unparkable call
-    /// must not execute, and must not pretend a confirmation is pending.
-    async fn park_for_confirmation(
-        &self,
-        parameters: serde_json::Value,
-        user_id: String,
-        tool_name: &str,
-        tenant_uuid: Option<Uuid>,
-    ) -> UniversalResponse {
-        let pending_id = Uuid::new_v4().simple().to_string();
-        let action = PendingGuardianAction {
-            id: pending_id.clone(),
-            tenant_id: tenant_uuid.map(|t| t.to_string()).unwrap_or_default(),
-            user_id: user_id.clone(),
-            conversation_id: self.conversation_id.clone(),
-            tool_name: tool_name.to_owned(),
-            arguments: parameters,
-            deny_reason: DenyReason::TaintedSink.as_str().to_owned(),
-        };
-        let expires_at = Utc::now() + Duration::minutes(CONFIRM_TTL_MINUTES);
-        let headless_key = TurnKey::new(tenant_uuid, user_id);
+    /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
+    /// call: such a call mints a nonce that no later reader could ever name.
+    #[must_use]
+    pub fn turn_token(&self) -> Option<&str> {
+        self.turn_token.as_deref()
+    }
 
-        if let Err(e) = self
-            .resources
-            .repos()
-            .guardian_actions
-            .create_pending_action(&action, expires_at)
-            .await
-        {
-            warn!(
-                tool_name = %tool_name,
-                error = %e,
-                "guardian confirm: failed to park the call; failing closed as a denial"
-            );
-            self.resources.guardian_turns().record_block(
-                &headless_key,
-                HeadlessBlock::Denied(DenyReason::TaintedSink),
-            );
-            return guardian_denied_response(tool_name, DenyReason::TaintedSink);
+    /// Record `block` for the turn's tool loop to render, when this call runs in
+    /// a turn. A one-shot MCP or A2A call answers its caller in-band, and an
+    /// entry under its nonce would never be taken (carnet#1404).
+    fn record_turn_block(&self, turn_key: &TurnKey, block: HeadlessBlock) {
+        if self.turn_token.is_some() {
+            self.resources
+                .guardian_turns()
+                .record_block(turn_key, block);
         }
-
-        warn!(
-            tool_name = %tool_name,
-            pending_id = %pending_id,
-            "guardian confirm: parked tool call pending user confirmation"
-        );
-        // #10 analog: a park that fires inside the ACP subprocess's tool-host
-        // session surfaces through the headless block channel so the ask is rendered
-        // deterministically, never paraphrased by the model.
-        self.resources.guardian_turns().record_block(
-            &headless_key,
-            HeadlessBlock::ConfirmRequired {
-                tool_name: tool_name.to_owned(),
-                pending_id: pending_id.clone(),
-            },
-        );
-        guardian_confirm_response(tool_name, &pending_id)
-    }
-}
-
-/// Build the in-band response for a confirm-required tool call.
-///
-/// Shaped like [`guardian_denied_response`] but with its own machine code and
-/// `blocked_reason` so the tool-loop detector renders a confirmation ask, not
-/// a refusal. Carries the opaque claim token — never the arguments, which can
-/// hold the very injected content the taint rule fired on.
-fn guardian_confirm_response(tool_name: &str, pending_id: &str) -> UniversalResponse {
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "blocked_reason".to_owned(),
-        serde_json::Value::String("guardian_confirm".to_owned()),
-    );
-    metadata.insert(
-        "pending_id".to_owned(),
-        serde_json::Value::String(pending_id.to_owned()),
-    );
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": "guardian_confirm_required",
-            "pending_id": pending_id,
-        })),
-        error: Some(format!(
-            "Tool '{tool_name}' requires user confirmation before it can run"
-        )),
-        metadata: Some(metadata),
-    }
-}
-
-/// Build the in-band response for a Guardian-denied tool call.
-///
-/// Shaped exactly like a tool's own `is_error` response so the LLM observes a
-/// refusal it can adapt to — it is deliberately **not** re-raised as a
-/// `ProtocolError`. The chat render layer keys on
-/// `result.error_code == "guardian_denied"` to localize the user-facing message.
-fn guardian_denied_response(tool_name: &str, reason: DenyReason) -> UniversalResponse {
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "blocked_reason".to_owned(),
-        serde_json::Value::String("guardian".to_owned()),
-    );
-    metadata.insert(
-        "guardian_reason".to_owned(),
-        serde_json::Value::String(reason.as_str().to_owned()),
-    );
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": "guardian_denied",
-            "reason": reason.as_str(),
-        })),
-        error: Some(format!("Tool '{tool_name}' was blocked by security policy")),
-        metadata: Some(metadata),
-    }
-}
-
-/// Build the in-band refusal for a tool a tenant has disabled by configuration.
-///
-/// Unlike [`guardian_denied_response`], this carries **no** `blocked_reason`
-/// guardian metadata and a distinct `error_code`, so the chat pipeline treats it
-/// as an ordinary tool refusal the LLM adapts to (pick another tool, answer from
-/// memory) rather than a "blocked for safety" security incident that abandons
-/// the turn. A tenant disabling a tool is config, not a security event.
-fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
-    UniversalResponse {
-        success: false,
-        result: Some(serde_json::json!({
-            "error_code": guardian::TENANT_DISABLED_ERROR_CODE,
-            "reason": guardian::TENANT_DISABLED_REASON,
-        })),
-        error: Some(guardian::tenant_disabled_message(tool_name)),
-        metadata: None,
     }
 }
 

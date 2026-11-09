@@ -91,6 +91,12 @@ impl ProviderDescriptor for OpenDescriptor {
     fn default_scopes(&self) -> &'static [&'static str] {
         &[]
     }
+
+    /// An open provider: its terms let its data leave over every transport.
+    /// Declared, since an undeclared descriptor stays first-party.
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
+    }
 }
 
 struct RelayDescriptor;

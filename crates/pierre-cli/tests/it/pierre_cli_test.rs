@@ -281,6 +281,34 @@ fn test_settings_guardian_help_shows_verbs() {
     assert_eq!(exit_code, 0, "Guardian settings help should exit with 0");
     assert!(stdout.contains("show"), "should list the 'show' verb");
     assert!(stdout.contains("set"), "should list the 'set' verb");
+    assert!(stdout.contains("history"), "should list the 'history' verb");
+    assert!(
+        !stdout.contains("pending"),
+        "the parked-call verbs are gone"
+    );
+}
+
+#[test]
+fn test_settings_guardian_show_help_offers_json_and_describes_what_it_prints() {
+    let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "show", "--help"]);
+
+    assert_eq!(exit_code, 0, "Guardian show help should exit with 0");
+    assert!(stdout.contains("--json"), "show help should list --json");
+    assert!(
+        stdout.contains("persisted"),
+        "show help should say it prints the persisted value"
+    );
+}
+
+#[test]
+fn test_settings_guardian_history_help_lists_the_limit() {
+    let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "history", "--help"]);
+
+    assert_eq!(exit_code, 0, "Guardian history help should exit with 0");
+    assert!(
+        stdout.contains("--limit"),
+        "history help should list --limit"
+    );
 }
 
 #[test]
@@ -290,14 +318,16 @@ fn test_settings_guardian_set_help_lists_every_policy_flag() {
     assert_eq!(exit_code, 0, "Guardian set help should exit with 0");
     for flag in [
         "--mode",
-        "--tainted-destructive",
-        "--plan-mode",
         "--max-destructive-per-turn",
         "--max-writes-per-turn",
-        "--external-send",
         "--clear",
+        "--acknowledge-impact",
+        "--dry-run",
     ] {
         assert!(stdout.contains(flag), "set help should list {flag}");
+    }
+    for removed in ["--tainted-destructive", "--plan-mode", "--external-send"] {
+        assert!(!stdout.contains(removed), "{removed} went with its rule");
     }
 }
 

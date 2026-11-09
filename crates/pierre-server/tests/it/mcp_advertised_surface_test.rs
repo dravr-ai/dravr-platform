@@ -24,6 +24,7 @@ use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::{GuidedFlow, OnboardingState};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
@@ -45,6 +46,14 @@ fn request(method: &str, params: &Value) -> JsonRpcRequest {
         "params": params,
     }))
     .unwrap()
+}
+
+/// A first-party session's full grant: the listing narrows to the grant.
+fn self_grant() -> Vec<String> {
+    OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect()
 }
 
 async fn call(
@@ -179,10 +188,11 @@ async fn an_admin_is_not_listed_a_tool_disabled_for_their_tenant() {
         .await
         .unwrap()
         .remove(0);
-    let admin = ToolContext::new()
+    let mut admin = ToolContext::new()
         .with_user(user.id.to_string())
         .with_tenant(tenant.id.to_string())
         .as_admin(true);
+    admin.scopes = self_grant();
 
     let before = tool_names(&call(&server, "tools/list", json!({}), &admin).await);
     assert!(before.iter().any(|name| name == "get_activities"));
@@ -223,9 +233,10 @@ async fn a_guided_walk_leaves_tools_list_byte_identical() {
         .await
         .unwrap()
         .remove(0);
-    let athlete = ToolContext::new()
+    let mut athlete = ToolContext::new()
         .with_user(user.id.to_string())
         .with_tenant(tenant.id.to_string());
+    athlete.scopes = self_grant();
 
     let before = call(&server, "tools/list", json!({}), &athlete).await;
     assert!(

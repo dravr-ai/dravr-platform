@@ -11,6 +11,7 @@ import type {
   GroupWeeklyReportResponse,
 } from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard, openGroups } from './test-helpers';
+import { expectNoCollidingText, useFrench } from './text-collision';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // ============================================================================
@@ -939,14 +940,16 @@ test.describe('Group info — coaching-platform links', () => {
     const confirmBodies: unknown[] = [];
     const consentBodies: unknown[] = [];
     // The member's consents live on their coach relationship; the link mirrors them.
+    // A coached member is offered both, whatever they link.
     let consents = {
       calendar_write: false,
       calendar_write_at: null,
       calendar_write_supported: true,
       wellness_read: false,
       wellness_read_at: null,
-      wellness_read_supported: false,
+      wellness_read_supported: true,
       wellness_read_skipped: null,
+      wellness_notice_due: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
@@ -968,8 +971,7 @@ test.describe('Group info — coaching-platform links', () => {
         const body = route.request().postDataJSON() as Record<string, boolean>;
         confirmBodies.push(body);
         link = delegatedLink('confirmed', 'user-123', 'Test User', { ...INTERVALS, ...body });
-        // The confirmed link reads wellness, so the relationship now offers it.
-        consents = { ...consents, ...body, wellness_read_supported: true };
+        consents = { ...consents, ...body };
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(link) });
       });
       await p.route(`**/api/groups/${GROUP_ID}/members/me/coach-consents`, async (route) => {
@@ -985,7 +987,7 @@ test.describe('Group info — coaching-platform links', () => {
 
     const request = page.getByTestId('delegation-request');
     const calendar = request.getByRole('checkbox', { name: /Let Casey Coach put workouts on your Intervals\.icu calendar/ });
-    const wellness = request.getByRole('checkbox', { name: /Also share your Intervals\.icu sleep, HRV/ });
+    const wellness = request.getByRole('checkbox', { name: /Let Casey Coach see your sleep, HRV/ });
     await expect(calendar).not.toBeChecked();
     await expect(wellness).not.toBeChecked();
     await calendar.check();
@@ -1010,7 +1012,7 @@ test.describe('Group info — coaching-platform links', () => {
     // The group info is a dialog of its own: the confirm is the one that asks.
     const stop = page.getByRole('dialog').filter({ hasText: 'Stop sharing wellness?' });
     await expect(stop).toContainText(
-      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
+      "Casey Coach stops seeing your sleep, HRV, resting heart rate, weight, readiness and daily notes. Dravr removes what it synced through Casey Coach's Intervals.icu account; what your own apps sync stays in your account.",
     );
     await stop.getByRole('button', { name: 'Stop sharing' }).click();
     await expect
@@ -1025,6 +1027,66 @@ test.describe('Group info — coaching-platform links', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const report = await measurePageLayout(page);
     expect(report.documentOverflowPx).toBe(0);
+  });
+
+  test('a member whose wellness grant predates its widening to every app is told, and keeps sharing', async ({
+    page,
+  }) => {
+    const consentBodies: unknown[] = [];
+    let consents = {
+      calendar_write: false,
+      calendar_write_at: null,
+      calendar_write_supported: true,
+      wellness_read: true,
+      wellness_read_at: '2026-10-01T08:00:00Z',
+      wellness_read_supported: true,
+      wellness_read_skipped: null,
+      wellness_notice_due: true,
+    };
+
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' }),
+        });
+      });
+      await p.route(LIST_URL, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ connections: [], total: 0, viewer: 'member' }),
+        });
+      });
+      await p.route(`**/api/groups/${GROUP_ID}/members/me/coach-consents`, async (route) => {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON() as Record<string, boolean>;
+          consentBodies.push(body);
+          // Keeping is a fresh grant: the server stamps it, and the notice is no longer due.
+          consents = { ...consents, ...body, wellness_read_at: '2026-11-06T08:00:00Z', wellness_notice_due: false };
+        }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(consents) });
+      });
+    });
+
+    const block = page.getByTestId('coach-consents');
+    const notice = block.getByTestId('coach-consent-wellness-notice');
+    await expect(notice).toContainText('Wellness sharing now covers all your apps');
+    await expect(notice).toContainText(
+      'Sharing your wellness with Casey Coach now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only Intervals.icu.',
+    );
+    await expect(block.getByTestId('coach-consent-wellness_read')).toBeChecked();
+
+    // The notice holds at phone width: nothing scrolls sideways.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect((await measurePageLayout(page)).documentOverflowPx).toBe(0);
+
+    await notice.getByRole('button', { name: 'Keep sharing' }).click();
+    await expect.poll(() => consentBodies).toEqual([{ wellness_read: true }]);
+    await expect(page.getByText('Sharing updated')).toBeVisible();
+    await expect(block.getByTestId('coach-consent-wellness-notice')).toHaveCount(0);
+    await expect(block.getByTestId('coach-consent-wellness_read')).toBeChecked();
   });
 });
 
@@ -1062,5 +1124,26 @@ test.describe('Group info — layout', () => {
     await openGroups(page);
 
     expect(describeLayoutFailures('chat/group', await measurePageLayout(page))).toEqual([]);
+  });
+
+  test('a member row holds its join date and role apart on a phone', async ({ page }) => {
+    // French, where the join line is longest, so the English-labelled helper cannot open it.
+    await useFrench(page);
+    await setupDashboardMocks(page, { role: 'user', language: 'fr' });
+    await setupGroupMocks(page, { userGroupRole: 'owner' });
+    await loginToDashboard(page);
+    await page.evaluate(() => {
+      window.location.hash = 'chat';
+    });
+    await page
+      .locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' })
+      .getByRole('button')
+      .first()
+      .click();
+    await page.getByTestId('conversation-header-title').click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const panel = page.getByTestId('group-info-panel');
+    await expect(panel.getByTestId('member-detail-user-2')).toBeVisible({ timeout: 10000 });
+    await expectNoCollidingText(page, 'member list', '[data-testid="member-list"]', 6);
   });
 });

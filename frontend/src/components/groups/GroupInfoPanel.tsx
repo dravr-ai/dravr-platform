@@ -81,7 +81,7 @@ interface GroupInfoPanelProps {
 const TREND_DISPLAY: Record<GroupTrend, { labelKey: string; color: string }> = {
   improving: { labelKey: 'groups.improving', color: 'text-success' },
   stable: { labelKey: 'groups.stable', color: 'text-on-surface-variant' },
-  declining: { labelKey: 'groups.declining', color: 'text-warning' },
+  declining: { labelKey: 'groups.declining', color: 'text-on-warning-container' },
 };
 
 // Each weekly-digest mode's option label and the one-line hint shown under the
@@ -371,7 +371,7 @@ export default function GroupInfoPanel({
             {t('groups.memberCount', { n: members.length })}
           </span>
           {isOwner && (
-            <span className="flex items-center gap-1.5 text-warning">
+            <span className="flex items-center gap-1.5 text-on-warning-container">
               <Crown className="w-3.5 h-3.5" aria-hidden="true" />
               {t('groups.owner')}
             </span>

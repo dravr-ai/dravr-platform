@@ -120,9 +120,9 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         if let Some(ctl) = snapshot.ctl {
             let _ = write!(text, ": CTL {ctl:.0}");
         }
-        // Through the one shared reading: the percentage AND the band's own
-        // wording travel with the raw number, so the model cannot supply its
-        // own reading of a bare `-77` (registre#199).
+        // Through the one shared reading: the percentage and the band's own
+        // wording, never a bare `-77` the model would supply its own reading
+        // of (registre#199).
         if let Some(reading) = snapshot.form_reading() {
             let _ = write!(text, " {}", reading.inline());
         }

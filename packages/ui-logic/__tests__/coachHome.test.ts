@@ -4,7 +4,7 @@
 // ABOUTME: Tests Coach Home's rules — the queue, the team table's order, the season layout and the words of an evidence line
 // ABOUTME: Run on a key-echoing translator so a catalogue edit cannot hide a rule that changed
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import type {
   CoachAttentionReason,
   CoachRosterAthlete,
@@ -42,6 +42,8 @@ import {
   describeLine,
   describeReasonTitle,
   describeSource,
+  queueWhen,
+  type QueueEntry,
   formStripIndex,
   lastActivity,
   lineKey,
@@ -414,6 +416,35 @@ describe('reasonTitle', () => {
   it('gives a key outside the reason catalogue no title', () => {
     expect(reasonTitle(reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A', 'en')).toBeNull();
     expect(describeReasonTitle(echo, 'en', reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A')).toBeNull();
+  });
+});
+
+describe('a date-only start on an evidence line', () => {
+  const zoneBefore = process.env.TZ;
+  const DATE_ONLY = '2026-05-28T00:00:00Z';
+
+  afterEach(() => {
+    process.env.TZ = zoneBefore;
+  });
+
+  it('names the day it means with no clock, west of Greenwich above all', () => {
+    process.env.TZ = 'America/Montreal';
+    const line = describeSource(echo, 'en', { kind: 'verification', providers: [] }, DATE_ONLY);
+    expect(line).toContain('May 28');
+    expect(line).not.toContain('20:00');
+  });
+
+  it('leaves a queue row with no time, since nobody recorded one', () => {
+    process.env.TZ = 'America/Montreal';
+    const entry = { reason: { evidence: [{ at: DATE_ONLY }] } } as unknown as QueueEntry;
+    expect(queueWhen('en', entry)).toBe('');
+  });
+
+  it('keeps a real clock on both', () => {
+    process.env.TZ = 'America/Montreal';
+    const at = '2026-05-28T12:30:00Z';
+    expect(describeSource(echo, 'en', { kind: 'verification', providers: [] }, at)).toContain('08:30');
+    expect(queueWhen('en', { reason: { evidence: [{ at }] } } as unknown as QueueEntry)).toBe('08:30');
   });
 });
 

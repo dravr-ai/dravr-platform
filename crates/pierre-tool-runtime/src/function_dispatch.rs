@@ -10,7 +10,7 @@
 //! separates three things the loops used to conflate: the responses the model
 //! is owed (one per request, including failures, so it can see its own
 //! mistake), the out-of-band control signals that short-circuit the turn
-//! (auth-required, Guardian denial, Guardian confirm), and the names of the
+//! (auth-required, Guardian denial), and the names of the
 //! tools that actually succeeded.
 //!
 //! That last one is a security surface, not bookkeeping. It is the evidence
@@ -20,11 +20,11 @@
 //! A turn the athlete watches also sees each call here as a step: a progress
 //! frame when the call starts and another when it ends, in the ACP words the
 //! Copilot turn reports its own calls in, so a client draws one trail
-//! whichever loop ran. A call the Guardian blocked or parked never ran, and
+//! whichever loop ran. A call the Guardian blocked never ran, and
 //! its closing frame says so ([`TOOL_STATUS_NOT_RUN`]) instead of checking it
 //! off.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -33,17 +33,16 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_llm::{FunctionCall, FunctionResponse};
 use pierre_providers::ai_scope;
-use pierre_services::chat_stream::{
-    TurnEvent, TurnEventSink, TurnProgress, TOOL_STATUS_COMPLETED, TOOL_STATUS_FAILED,
-    TOOL_STATUS_IN_PROGRESS, TOOL_STATUS_NOT_RUN,
-};
+use pierre_services::chat_stream::{TurnEventSink, TOOL_STATUS_IN_PROGRESS};
 
 use crate::chat_catalogue;
-use crate::prose_stream;
-use crate::protocol::types::{auth_required_provider, META_AUTH_REQUIRED_PROVIDER};
+use crate::protocol::types::{
+    auth_required_provider, failed_dispatch, guardian_block_reason, metadata_str,
+};
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::tool_execution::{build_function_response, log_tool_response_size};
-use crate::tool_loop_io::{GuardianConfirmRequest, GuardianDenial};
+use crate::tool_loop_io::GuardianDenial;
+use crate::tool_progress::{closing_status, report_call};
 
 /// Output of [`execute_function_calls`].
 ///
@@ -66,10 +65,6 @@ pub struct ExecutedFunctionCalls {
     /// Travels separately from `responses` because the in-band denial would
     /// otherwise be fed back to the LLM as an ordinary failed tool result.
     pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation, or
-    /// `None`. Same out-of-band contract as `guardian_denied`; the chat
-    /// pipeline renders the localized confirmation ask.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
     /// Names of the tools that actually ran and succeeded, in call order.
     ///
     /// NOT the requested `function_calls`: a denial, a refusal, an error and a
@@ -147,118 +142,29 @@ async fn execute_mcp_tool(
         tenant_id: Some(tenant_id.to_string()),
     };
 
-    match executor.execute_tool(request).await {
-        Ok(response) => response,
-        Err(e) => {
-            // Preserve the `ProviderAuthRequired` signal across the
-            // `ProtocolError → UniversalResponse` boundary by stuffing the
-            // provider slug into `metadata` under `META_AUTH_REQUIRED_PROVIDER`.
-            // The tool loop scans for this key and exits early; the chat
-            // pipeline mints a hosted-login URL and surfaces it deterministically.
-            let metadata = e.provider_auth_required_provider().map(|provider| {
-                let mut m: HashMap<String, serde_json::Value> = HashMap::new();
-                m.insert(
-                    META_AUTH_REQUIRED_PROVIDER.to_owned(),
-                    serde_json::Value::String(provider.to_owned()),
-                );
-                m
-            });
-            UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Tool execution failed: {e}")),
-                metadata,
-            }
-        }
-    }
+    executor
+        .execute_tool(request)
+        .await
+        .unwrap_or_else(|e| failed_dispatch(&e))
 }
 
-/// Read a Guardian block out of a failed tool response, if one is stamped.
-///
-/// Keys on the operator-stamped `metadata.blocked_reason` (set ONLY by the
-/// chokepoint's `guardian_denied_response` / `guardian_confirm_response`,
-/// never emittable by a tool body) AND requires `!success` — NOT the
-/// tool-controllable `result.error_code`, so attacker-influenced tool output
-/// carrying `{"error_code":"guardian_denied"}` cannot spuriously abort the
-/// turn (S12: data-plane must not drive the control-plane).
+/// Read a Guardian block out of a failed tool response, if one is stamped
+/// ([`guardian_block_reason`]'s trust rule).
 fn capture_guardian_block(
     tool_name: &str,
     tool_response: &UniversalResponse,
-) -> (Option<GuardianDenial>, Option<GuardianConfirmRequest>) {
-    let meta_str = |key: &str| metadata_str(tool_response, key);
-    match guardian_block_reason(tool_response) {
-        Some("guardian") => {
-            let reason = meta_str("guardian_reason").unwrap_or("denied").to_owned();
-            (
-                Some(GuardianDenial {
-                    tool_name: tool_name.to_owned(),
-                    reason,
-                }),
-                None,
-            )
-        }
-        Some("guardian_confirm") => (
-            None,
-            meta_str("pending_id").map(|pending_id| GuardianConfirmRequest {
-                tool_name: tool_name.to_owned(),
-                pending_id: pending_id.to_owned(),
-            }),
-        ),
-        _ => (None, None),
-    }
-}
-
-/// A string `key` of `tool_response`'s operator metadata, if one is stamped.
-fn metadata_str<'response>(
-    tool_response: &'response UniversalResponse,
-    key: &str,
-) -> Option<&'response str> {
-    tool_response
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get(key))
-        .and_then(serde_json::Value::as_str)
-}
-
-/// Why the Guardian stopped this call before it ran (`"guardian"` for a
-/// denial, `"guardian_confirm"` for a call parked for confirmation), or `None`
-/// when the call was dispatched. Same trust rule as [`capture_guardian_block`]:
-/// the operator stamp on a failed response, never the tool's own payload.
-fn guardian_block_reason(tool_response: &UniversalResponse) -> Option<&str> {
-    if tool_response.success {
-        return None;
-    }
-    metadata_str(tool_response, "blocked_reason")
-        .filter(|reason| matches!(*reason, "guardian" | "guardian_confirm"))
-}
-
-/// The status a call's closing progress frame reports: it ran and succeeded,
-/// it ran and failed, or the Guardian stopped it before it ran.
-#[must_use]
-fn closing_status(tool_response: &UniversalResponse) -> &'static str {
-    if guardian_block_reason(tool_response).is_some() {
-        TOOL_STATUS_NOT_RUN
-    } else if tool_response.success {
-        TOOL_STATUS_COMPLETED
-    } else {
-        TOOL_STATUS_FAILED
-    }
-}
-
-/// Report call `call_id` of `tool_name` in `status` to the turn's sink, when
-/// the turn has one. The title is the tool's name: the client maps it to the
-/// step's words, never shows it raw.
-fn report_call(sink: Option<&TurnEventSink>, call_id: &str, tool_name: &str, status: &str) {
-    if let Some(sink) = sink {
-        prose_stream::deliver(
-            sink,
-            TurnEvent::Progress(TurnProgress::tool(
-                call_id.to_owned(),
-                tool_name.to_owned(),
-                status.to_owned(),
-            )),
-        );
-    }
+) -> Option<GuardianDenial> {
+    guardian_block_reason(tool_response)?;
+    Some(GuardianDenial {
+        tool_name: tool_name.to_owned(),
+        reason: metadata_str(tool_response, "guardian_reason")
+            .unwrap_or("denied")
+            .to_owned(),
+        // The turn's store holds these: `settle_turn_signals` reads them when the
+        // loop returns, for this denial's own block record.
+        committed: Vec::new(),
+        unconfirmed: Vec::new(),
+    })
 }
 
 /// Execute a batch of function calls via the MCP executor and return responses.
@@ -304,7 +210,6 @@ async fn run_function_calls(
     let mut executed: Vec<String> = Vec::new();
     let mut dead_provider: Option<String> = None;
     let mut guardian_denied: Option<GuardianDenial> = None;
-    let mut guardian_confirm: Option<GuardianConfirmRequest> = None;
     for function_call in function_calls {
         info!(
             tool_name = %function_call.name,
@@ -329,13 +234,11 @@ async fn run_function_calls(
             dead_provider = auth_required_provider(&tool_response);
         }
 
-        // Capture the first Guardian denial or parked confirmation (enforce
-        // mode) before `build_function_response` reshapes the payload. First
-        // to trip wins across the batch.
-        if guardian_denied.is_none() && guardian_confirm.is_none() {
-            let (denied, confirm) = capture_guardian_block(&function_call.name, &tool_response);
-            guardian_denied = denied;
-            guardian_confirm = confirm;
+        // Capture the first Guardian denial (enforce mode) before
+        // `build_function_response` reshapes the payload. First to trip wins
+        // across the batch.
+        if guardian_denied.is_none() {
+            guardian_denied = capture_guardian_block(&function_call.name, &tool_response);
         }
 
         let func_response = build_function_response(function_call, &tool_response);
@@ -365,11 +268,10 @@ async fn run_function_calls(
 
         responses.push(func_response);
 
-        // P4: once the Guardian denies or parks a tool in this batch, stop —
-        // do not execute the remaining siblings (they would commit side
-        // effects while the user is shown a "blocked"/"confirm" reply). The
-        // turn short-circuits anyway.
-        if guardian_denied.is_some() || guardian_confirm.is_some() {
+        // P4: once the Guardian denies a tool in this batch, stop — do not
+        // execute the remaining siblings (they would commit side effects while
+        // the user is shown a "blocked" reply). The turn short-circuits anyway.
+        if guardian_denied.is_some() {
             break;
         }
     }
@@ -377,69 +279,7 @@ async fn run_function_calls(
         responses,
         auth_required_provider: dead_provider,
         guardian_denied,
-        guardian_confirm,
         executed,
         members_read: BTreeSet::new(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn response(success: bool, blocked_reason: Option<&str>) -> UniversalResponse {
-        UniversalResponse {
-            success,
-            result: None,
-            error: (!success).then(|| "refused".to_owned()),
-            metadata: blocked_reason.map(|reason| {
-                HashMap::from([(
-                    "blocked_reason".to_owned(),
-                    serde_json::Value::String(reason.to_owned()),
-                )])
-            }),
-        }
-    }
-
-    #[test]
-    fn a_call_that_ran_closes_completed_or_failed() {
-        assert_eq!(
-            closing_status(&response(true, None)),
-            TOOL_STATUS_COMPLETED,
-            "a successful call is a step done"
-        );
-        assert_eq!(
-            closing_status(&response(false, None)),
-            TOOL_STATUS_FAILED,
-            "a call that ran and failed is still a step taken"
-        );
-    }
-
-    #[test]
-    fn a_call_the_guardian_stopped_closes_as_never_run() {
-        assert_eq!(
-            closing_status(&response(false, Some("guardian"))),
-            TOOL_STATUS_NOT_RUN,
-            "a denied call never ran"
-        );
-        assert_eq!(
-            closing_status(&response(false, Some("guardian_confirm"))),
-            TOOL_STATUS_NOT_RUN,
-            "a call parked for confirmation has not run yet"
-        );
-    }
-
-    #[test]
-    fn a_block_stamp_on_a_success_or_an_unknown_reason_is_not_a_block() {
-        assert_eq!(
-            closing_status(&response(true, Some("guardian"))),
-            TOOL_STATUS_COMPLETED,
-            "a call that succeeded ran, whatever its metadata says"
-        );
-        assert_eq!(
-            closing_status(&response(false, Some("rate_limit"))),
-            TOOL_STATUS_FAILED,
-            "only the Guardian's own stamps mean the call never ran"
-        );
-    }
 }

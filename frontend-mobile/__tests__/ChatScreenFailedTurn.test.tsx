@@ -106,8 +106,12 @@ import type { Message } from '../src/types';
 const QUESTION = 'Was I too fast on the first kilometre?';
 /** The server's own words for the refusal — never what the athlete reads. */
 const SERVER_TEXT = 'The resource is temporarily unavailable';
-/** What the athlete reads instead: the catalogue's sentence for the code, regex-escaped. */
-const FAILURE = i18n.t('errors.generic').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * What the athlete reads instead: the catalogue's sentence for the code, worded
+ * for the Retry button drawn under it — the button is the one offer, so the
+ * row says nothing more (carnet#1363).
+ */
+const FAILURE_ROW = `⚠️ ${i18n.t('chat.turn.failed.unavailable')}`;
 
 const CREATED = { id: 'conv-new', title: 'Sep 30', created_at: '2026-09-30T10:00:00Z', updated_at: '2026-09-30T10:00:00Z' };
 
@@ -150,7 +154,7 @@ describe('ChatScreen first question whose turn fails at once', () => {
       fireEvent.press(screen.getByTestId('send-button'));
     });
     await waitFor(() => expect(mockSendTurn).toHaveBeenCalledWith('conv-new', QUESTION, expect.anything()));
-    expect(await screen.findByText(new RegExp(`^⚠️ ${FAILURE}`))).toBeTruthy();
+    expect(await screen.findByText(FAILURE_ROW)).toBeTruthy();
 
     await act(async () => {
       landRead();
@@ -160,8 +164,104 @@ describe('ChatScreen first question whose turn fails at once', () => {
       await Promise.resolve();
     });
     expect(screen.getAllByText(QUESTION)).toHaveLength(1);
-    expect(screen.getByText(new RegExp(`^⚠️ ${FAILURE}`))).toBeTruthy();
+    expect(screen.getByText(FAILURE_ROW)).toBeTruthy();
     expect(screen.getByTestId('message-retry')).toBeTruthy();
     expect(screen.queryByText(new RegExp(SERVER_TEXT))).toBeNull();
+  });
+
+  it('offers a retry once: the button, never a sentence saying it again', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('chat-empty-state');
+
+    fireEvent.changeText(screen.getByTestId('message-input'), QUESTION);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('send-button'));
+    });
+    expect(await screen.findByText(FAILURE_ROW)).toBeTruthy();
+    expect(screen.getAllByTestId('message-retry')).toHaveLength(1);
+    expect(screen.queryByText(i18n.t('chat.turnTryAgain'), { exact: false })).toBeNull();
+    expect(screen.queryByText(i18n.t('errors.generic'), { exact: false })).toBeNull();
+  });
+
+  it('offers no retry for a failure a retry would only repeat', async () => {
+    mockSendTurn.mockImplementation(
+      async (_conversationId: string, _content: string, options: { onError?: (error: Error) => void }) => {
+        options.onError?.(new TurnFailedError('Session expired', 'AuthExpired'));
+      },
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('chat-empty-state');
+
+    fireEvent.changeText(screen.getByTestId('message-input'), QUESTION);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('send-button'));
+    });
+    expect(await screen.findByText(`⚠️ ${i18n.t('errors.unauthorized')}`)).toBeTruthy();
+    expect(screen.queryByTestId('message-retry')).toBeNull();
+  });
+});
+
+describe('ChatScreen turn that fails after the server stored its question', () => {
+  /** The question as the server holds it: the turn stored it, then failed. */
+  const STORED_QUESTION: Message = {
+    id: 'msg-stored-question',
+    role: 'user',
+    content: QUESTION,
+    created_at: '2026-09-30T10:00:01Z',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    mockGetConversations.mockResolvedValue({ conversations: [] });
+    mockCreateConversation.mockResolvedValue(CREATED);
+    // The thread is empty until the turn runs; every read after it holds the
+    // question the turn stored before it failed, with no reply yet.
+    let stored = false;
+    mockGetConversationMessages.mockImplementation(async () => ({
+      messages: stored ? [STORED_QUESTION] : [],
+    }));
+    mockSendTurn.mockImplementation(
+      async (_conversationId: string, _content: string, options: { onError?: (error: Error) => void }) => {
+        stored = true;
+        options.onError?.(new TurnFailedError(SERVER_TEXT, 'ResourceUnavailable'));
+      },
+    );
+  });
+
+  it('offers no retry once a read shows the server holds the question', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('chat-empty-state');
+
+    fireEvent.changeText(screen.getByTestId('message-input'), QUESTION);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('send-button'));
+    });
+    await waitFor(() => expect(mockSendTurn).toHaveBeenCalledTimes(1));
+    // The read the settled send starts finds the server's copy of the question.
+    await waitFor(() =>
+      expect(mockGetConversationMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    await waitFor(() => expect(screen.queryByTestId('message-retry')).toBeNull());
+    // One question, the server's; the note under it, worded with its own
+    // guidance since no button is drawn to re-send what is already stored.
+    expect(screen.getAllByText(QUESTION)).toHaveLength(1);
+    expect(screen.getByText(`⚠️ ${i18n.t('errors.generic')}`)).toBeTruthy();
+    expect(mockSendTurn).toHaveBeenCalledTimes(1);
   });
 });

@@ -111,6 +111,7 @@ impl CommandHandler for ResetHandler {
         let forged = forge_conversation(
             repos,
             ForgeParams {
+                id: None,
                 user_id: &user_id,
                 // The thread's tenant, not the caller's: a shared room files
                 // its rows under the channel's tenant, and forging under the

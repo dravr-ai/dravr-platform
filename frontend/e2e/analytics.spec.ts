@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for the Analytics tab.
-// ABOUTME: Tests time period selection, stats display, charts, and tool usage list.
+// ABOUTME: Tests time period selection, stats display, and charts.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
@@ -30,7 +30,6 @@ async function setupAnalyticsMocks(
         contentType: 'application/json',
         body: JSON.stringify({
           time_series: [],
-          top_tools: [],
           error_rate: 0,
           average_response_time: 0,
         }),
@@ -53,11 +52,6 @@ async function setupAnalyticsMocks(
       contentType: 'application/json',
       body: JSON.stringify({
         time_series: timeSeries,
-        top_tools: [
-          { tool_name: 'get_activities', request_count: 4500, success_rate: 0.989, average_response_time: 120 },
-          { tool_name: 'get_athlete', request_count: 450, success_rate: 0.967, average_response_time: 85 },
-          { tool_name: 'get_zones', request_count: 45, success_rate: 0.98, average_response_time: 150 },
-        ],
         error_rate: 2.3,
         average_response_time: 118,
       }),
@@ -176,42 +170,27 @@ test.describe('Analytics Tab', () => {
     await expect(page.locator('canvas').first()).toBeVisible();
   });
 
-  test('displays Tool Usage Distribution chart', async ({ page }) => {
+  test('draws no API-key tool ranking, whatever the response carries', async ({ page }) => {
     await setupAnalyticsMocks(page);
+    await page.route('**/api/dashboard/analytics*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          time_series: [{ date: '2026-11-01', request_count: 10 }],
+          top_tools: [
+            { tool_name: 'api_key_only_tool', request_count: 4500, success_rate: 98, average_response_time: 120 },
+          ],
+          average_response_time: 118,
+        }),
+      });
+    });
     await loginAndNavigateToAnalytics(page);
 
-    // Check chart section title
-    await expect(page.getByText('Tool Usage Distribution')).toBeVisible();
-  });
-
-  test('displays Response Time by Tool chart', async ({ page }) => {
-    await setupAnalyticsMocks(page);
-    await loginAndNavigateToAnalytics(page);
-
-    // Check chart section title
-    await expect(page.getByText('Response Time by Tool')).toBeVisible();
-  });
-
-  test('displays Most Used Tools list with tool details', async ({ page }) => {
-    await setupAnalyticsMocks(page);
-    await loginAndNavigateToAnalytics(page);
-
-    // Check section title - use flexible matching
-    await expect(page.getByText(/Most Used|Top Tools|Tool Usage/i).first()).toBeVisible({ timeout: 10000 });
-
-    // Check at least one tool name is displayed
-    await expect(
-      page.getByText('get_activities').or(page.getByText('get_athlete')).first()
-    ).toBeVisible({ timeout: 10000 });
-  });
-
-  test('displays tool average response times in list', async ({ page }) => {
-    await setupAnalyticsMocks(page);
-    await loginAndNavigateToAnalytics(page);
-
-    // Check average response times are displayed
-    await expect(page.getByText('120ms avg')).toBeVisible();
-    await expect(page.getByText('85ms avg')).toBeVisible();
+    await expect(page.getByText('Request Volume Over Time')).toBeVisible();
+    await expect(page.getByText('Most Used Tools')).toHaveCount(0);
+    await expect(page.getByText('Tool Usage Distribution')).toHaveCount(0);
+    await expect(page.getByText('Response Time by Tool')).toHaveCount(0);
   });
 
   test('shows empty state when no data available', async ({ page }) => {
@@ -232,7 +211,7 @@ test.describe('Analytics Tab', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ time_series: [], top_tools: [], error_rate: 0, average_response_time: 0 }),
+        body: JSON.stringify({ time_series: [], error_rate: 0, average_response_time: 0 }),
       });
     });
 
@@ -276,16 +255,6 @@ test.describe('Analytics Tab - Chart Interactions', () => {
     expect(canvasElements).toBeGreaterThanOrEqual(1);
   });
 
-  test('tool list items are hoverable', async ({ page }) => {
-    await setupAnalyticsMocks(page);
-    await loginAndNavigateToAnalytics(page);
-
-    // Find a tool list item and verify it's interactive
-    const toolItem = page.locator('text=get_activities').locator('..').locator('..');
-    await expect(toolItem).toBeVisible();
-    // Hover over item to verify it's interactive
-    await toolItem.hover();
-  });
 });
 
 test.describe('Analytics Tab - LLM cost formatting', () => {

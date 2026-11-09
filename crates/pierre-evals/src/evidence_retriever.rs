@@ -9,15 +9,19 @@
 //! The evidence layer holds a curated corpus of atomic propositions,
 //! each tagged with a [`ClaimCategory`], a reference id (DOI / PMID / position
 //! stand), and an [`EvidenceStrength`]. At query time the retriever filters
-//! by category and returns the best matches scored by simple keyword overlap.
+//! by category and returns the best matches, scored by how many of the claim's
+//! distinctive words each proposition uses. [`EvidenceMatch::supports_claim`]
+//! decides whether that overlap is enough to speak for the claim.
 //!
 //! The canonical storage format is **markdown with YAML frontmatter** — one
 //! proposition per file, matching the dravr-contremaitre prompts/ convention.
 //! The loader also accepts JSONL for legacy test corpora (see
 //! [`EvidenceCorpus::from_jsonl`]).
 //!
-//! Phase A keeps this deterministic — no embeddings yet. Phase D wires
-//! `GeminiEmbeddingProvider` for semantic retrieval over the same corpus.
+//! Retrieval is deterministic and literal. The corpus is written in English, so
+//! a claim in another language finds no overlap and goes to the LLM judge.
+
+use std::collections::{HashMap, HashSet};
 
 use dravr_contremaitre::evidence::SPORTS_SCIENCE;
 use pierre_core::errors::{AppError, AppResult};
@@ -68,13 +72,45 @@ impl EvidenceRecord {
     }
 }
 
+/// Shortest word, in bytes, that retrieval reads. Shorter ones are function
+/// words and units in every language the corpus could be queried in.
+const MIN_WORD_BYTES: usize = 4;
+
+/// A word used by this share of the whole corpus (one record in ten) says
+/// nothing about which study a claim is about. On the 136-record corpus that
+/// removes 41 words, among them `with`, `training`, `percent` and `weeks`.
+const COMMON_WORD_CORPUS_DIVISOR: usize = 10;
+
+/// A word needs this many records behind it before it can count as common: a
+/// handful of propositions cannot say what is common.
+const COMMON_WORD_MIN_RECORDS: usize = 5;
+
+/// Fewest distinctive words a proposition must share with a claim to speak for
+/// it. A proposition's closest *different* study in the same category shares
+/// two or fewer of its distinctive words 56% of the time (76 of 136 records),
+/// so two words is what unrelated studies share by chance.
+const MIN_SHARED_WORDS: usize = 3;
+
 /// Match returned by [`EvidenceCorpus::retrieve`], ordered by descending score.
 #[derive(Debug, Clone)]
 pub struct EvidenceMatch {
     /// The matched proposition.
     pub record: EvidenceRecord,
-    /// Raw keyword overlap score (higher = better).
+    /// How many of the claim's distinctive words the proposition uses.
     pub score: usize,
+    /// How many distinctive words the claim has in total.
+    pub claim_words: usize,
+}
+
+impl EvidenceMatch {
+    /// `true` when this proposition speaks for the claim rather than merely
+    /// sharing vocabulary with it: at least [`MIN_SHARED_WORDS`] distinctive
+    /// words, covering at least half of what the claim says. A weaker match is
+    /// still useful context for the judge, but it is not support.
+    #[must_use]
+    pub const fn supports_claim(&self) -> bool {
+        self.score >= MIN_SHARED_WORDS && self.score * 2 >= self.claim_words
+    }
 }
 
 /// In-memory sports-science corpus. Parsed once from JSONL and held by the
@@ -202,9 +238,10 @@ impl EvidenceCorpus {
 
     /// Retrieve the top-`limit` matches for a claim text in a given category.
     ///
-    /// Scoring is keyword overlap: for each unique lowercase word of 4+
-    /// characters in the query, count propositions in the same category
-    /// that mention it. Ties break on the corpus record's evidence strength.
+    /// Scoring is word overlap: each unique lowercase word of
+    /// [`MIN_WORD_BYTES`] or more in the claim counts once for a proposition
+    /// that uses it as a whole word, unless the corpus uses it too widely to
+    /// tell studies apart. Ties break on the record's evidence strength.
     #[must_use]
     pub fn retrieve(
         &self,
@@ -215,34 +252,45 @@ impl EvidenceCorpus {
         if limit == 0 {
             return Vec::new();
         }
-        let query_tokens: Vec<String> = query
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|t| t.len() >= 4)
-            .map(ToOwned::to_owned)
-            .collect();
-        if query_tokens.is_empty() {
+        let query_lower = query.to_lowercase();
+        let query_words: HashSet<&str> = words(&query_lower).collect();
+        if query_words.is_empty() {
             return Vec::new();
         }
 
-        let mut matches: Vec<EvidenceMatch> = self
+        let mut records_using: HashMap<&str, usize> = HashMap::new();
+        let found_per_record: Vec<(&EvidenceRecord, HashSet<&str>)> = self
             .records
             .iter()
-            .filter(|r| r.category == category)
-            .filter_map(|r| {
-                let lower = r.proposition.to_lowercase();
-                let score = query_tokens
-                    .iter()
-                    .filter(|tok| lower.contains(tok.as_str()))
-                    .count();
-                if score > 0 {
-                    Some(EvidenceMatch {
-                        record: r.clone(),
-                        score,
-                    })
-                } else {
-                    None
+            .map(|record| {
+                let lower = record.proposition.to_lowercase();
+                let found: HashSet<&str> = words(&lower)
+                    .filter_map(|word| query_words.get(word).copied())
+                    .collect();
+                for word in &found {
+                    *records_using.entry(word).or_default() += 1;
                 }
+                (record, found)
+            })
+            .collect();
+
+        let is_common = |word: &str| {
+            let used_by = records_using.get(word).copied().unwrap_or(0);
+            used_by >= COMMON_WORD_MIN_RECORDS
+                && used_by * COMMON_WORD_CORPUS_DIVISOR >= self.records.len()
+        };
+        let claim_words = query_words.iter().filter(|word| !is_common(word)).count();
+
+        let mut matches: Vec<EvidenceMatch> = found_per_record
+            .into_iter()
+            .filter(|(record, _)| record.category == category)
+            .filter_map(|(record, found)| {
+                let score = found.iter().filter(|word| !is_common(word)).count();
+                (score > 0).then(|| EvidenceMatch {
+                    record: record.clone(),
+                    score,
+                    claim_words,
+                })
             })
             .collect();
 
@@ -254,6 +302,13 @@ impl EvidenceCorpus {
         matches.truncate(limit);
         matches
     }
+}
+
+/// The lowercase words of `lower` long enough for retrieval to read.
+fn words(lower: &str) -> impl Iterator<Item = &str> {
+    lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.len() >= MIN_WORD_BYTES)
 }
 
 /// Frontmatter shape for a markdown-stored proposition. The proposition

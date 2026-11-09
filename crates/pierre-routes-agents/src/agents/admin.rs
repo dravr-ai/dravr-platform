@@ -25,10 +25,10 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_notifications::triggers as notification_triggers;
 
 use super::types::{
-    AdminCreateAgentBody, AgentAssignment, AgentResponse, AssignAgentBody, AssignAgentResponse,
-    ListAgentsResponse, ListAssignmentsResponse, RejectAgentBody, StoreActionResponse,
-    StoreAdminStatsResponse, StoreAgentResponse, StoreAgentsResponse, StoreListParams,
-    UnassignAgentResponse, UpdateAgentBody,
+    AdminCreateAgentBody, AdminUpdateAgentBody, AgentAssignment, AgentResponse, AssignAgentBody,
+    AssignAgentResponse, ListAgentsResponse, ListAssignmentsResponse, RejectAgentBody,
+    StoreActionResponse, StoreAdminStatsResponse, StoreAgentResponse, StoreAgentsResponse,
+    StoreListParams, UnassignAgentResponse,
 };
 
 /// Handle GET /admin/agents - List all system agents in tenant
@@ -42,10 +42,19 @@ pub(super) async fn handle_admin_list<C: AgentsCtx + MiddlewareCtx>(
 
     let manager = super::get_agents_manager(&ctx);
     let agents = manager.list_system_agents(tenant_id).await?;
+    let use_totals = manager.agent_use_totals(tenant_id).await?;
 
     let response = ListAgentsResponse {
         total: u32::try_from(agents.len()).unwrap_or(0),
-        agents: agents.into_iter().map(Into::into).collect(),
+        agents: agents
+            .into_iter()
+            .map(|agent| {
+                let id = agent.id.to_string();
+                let mut response = AgentResponse::from(agent);
+                response.use_count = use_totals.get(&id).copied().unwrap_or(0);
+                response
+            })
+            .collect(),
         metadata: super::build_metadata(),
     };
 
@@ -96,7 +105,7 @@ pub(super) async fn handle_admin_update<C: AgentsCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
     Path(id): Path<String>,
-    Json(body): Json<UpdateAgentBody>,
+    Json(body): Json<AdminUpdateAgentBody>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;

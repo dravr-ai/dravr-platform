@@ -96,6 +96,9 @@ mod intervals_icu_source;
 /// Intervals.icu activity streams: the streams.json wire shape and its time series.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_streams;
+/// Neutral session rendering for the calendars whose terms take rights over what Dravr writes.
+#[cfg(any(feature = "provider-wahoo", feature = "provider-garmin"))]
+mod neutral_session;
 /// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;

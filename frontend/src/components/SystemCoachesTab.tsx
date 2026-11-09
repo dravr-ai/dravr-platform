@@ -12,6 +12,7 @@ import { Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // The select submits the slug the API stores, so an edited agent's own
 // category matches an option.
@@ -44,12 +45,6 @@ interface AgentFormData {
   category: string;
   tags: string;
   visibility: string;
-  purpose: string;
-  when_to_use: string;
-  instructions: string;
-  example_inputs: string;
-  example_outputs: string;
-  success_criteria: string;
 }
 
 const defaultFormData: AgentFormData = {
@@ -59,12 +54,6 @@ const defaultFormData: AgentFormData = {
   category: 'training',
   tags: '',
   visibility: 'tenant',
-  purpose: '',
-  when_to_use: '',
-  instructions: '',
-  example_inputs: '',
-  example_outputs: '',
-  success_criteria: '',
 };
 
 export default function SystemCoachesTab() {
@@ -105,12 +94,6 @@ export default function SystemCoachesTab() {
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
       visibility: data.visibility,
-      purpose: data.purpose.trim() || undefined,
-      when_to_use: data.when_to_use.trim() || undefined,
-      instructions: data.instructions.trim() || undefined,
-      example_inputs: data.example_inputs.trim() || undefined,
-      example_outputs: data.example_outputs.trim() || undefined,
-      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoaches.system() });
@@ -127,12 +110,6 @@ export default function SystemCoachesTab() {
       system_prompt: data.system_prompt,
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
-      purpose: data.purpose.trim() || undefined,
-      when_to_use: data.when_to_use.trim() || undefined,
-      instructions: data.instructions.trim() || undefined,
-      example_inputs: data.example_inputs.trim() || undefined,
-      example_outputs: data.example_outputs.trim() || undefined,
-      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoaches.system() });
@@ -182,12 +159,6 @@ export default function SystemCoachesTab() {
         category: selectedCoach.category,
         tags: selectedCoach.tags.join(', '),
         visibility: selectedCoach.visibility || 'private',
-        purpose: selectedCoach.purpose || '',
-        when_to_use: selectedCoach.when_to_use || '',
-        instructions: selectedCoach.instructions || '',
-        example_inputs: selectedCoach.example_inputs || '',
-        example_outputs: selectedCoach.example_outputs || '',
-        success_criteria: selectedCoach.success_criteria || '',
       });
     }
   }, [isEditing, selectedCoach]);
@@ -306,7 +277,7 @@ export default function SystemCoachesTab() {
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                     </svg>
-                    {coach.token_count.toLocaleString()} tokens
+                    {coach.token_count.toLocaleString(ADMIN_LOCALE)} tokens
                   </span>
                   <span className="flex items-center gap-1">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,7 +362,7 @@ export default function SystemCoachesTab() {
               rows={8}
               placeholder="You are Dravr, specializing in marathon training with expertise in..."
               required
-              helpText={`Estimated tokens: ${estimateTokenCount(formData.system_prompt).toLocaleString()}`}
+              helpText={`Estimated tokens: ${estimateTokenCount(formData.system_prompt).toLocaleString(ADMIN_LOCALE)}`}
             />
 
             {/* Category and Visibility */}
@@ -514,7 +485,7 @@ export default function SystemCoachesTab() {
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mb-6 p-4 bg-surface-container-low rounded-lg border ghost-border">
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary">{selectedCoach.token_count.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-primary">{selectedCoach.token_count.toLocaleString(ADMIN_LOCALE)}</div>
             <div className="text-xs text-outline">Tokens</div>
           </div>
           <div className="text-center">
@@ -559,11 +530,11 @@ export default function SystemCoachesTab() {
         <div className="grid grid-cols-2 gap-4 text-sm text-outline pt-4 border-t ghost-border">
           <div>
             <span className="font-medium text-on-surface-variant">Created:</span>{' '}
-            {new Date(selectedCoach.created_at).toLocaleString()}
+            {new Date(selectedCoach.created_at).toLocaleString(ADMIN_LOCALE)}
           </div>
           <div>
             <span className="font-medium text-on-surface-variant">Last Updated:</span>{' '}
-            {new Date(selectedCoach.updated_at).toLocaleString()}
+            {new Date(selectedCoach.updated_at).toLocaleString(ADMIN_LOCALE)}
           </div>
         </div>
       </Card>
@@ -585,7 +556,7 @@ export default function SystemCoachesTab() {
             No users assigned to this agent yet. Click "Assign Users" to add access.
           </p>
         ) : (
-          <div className="divide-y divide-white/10">
+          <div className="divide-y divide-outline-variant">
             {assignments.map((assignment) => (
               <div key={assignment.user_id} className="flex items-center justify-between py-3">
                 <div>
@@ -593,7 +564,7 @@ export default function SystemCoachesTab() {
                     {assignment.user_email || assignment.user_id}
                   </div>
                   <div className="text-xs text-outline">
-                    Assigned {new Date(assignment.assigned_at).toLocaleDateString()}
+                    Assigned {new Date(assignment.assigned_at).toLocaleDateString(ADMIN_LOCALE)}
                     {assignment.assigned_by && ` by ${assignment.assigned_by}`}
                   </div>
                 </div>

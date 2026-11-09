@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { QUERY_KEYS } from '@pierre/shared-constants';
+import { QUERY_KEYS, cardForSlug } from '@pierre/shared-constants';
 import { Alert, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
@@ -35,8 +35,11 @@ export interface ProviderStatusActions {
   setSelectedProvider: (provider: string | null) => void;
   setNeedsCredentialsProvider: (provider: string | null) => void;
   /**
-   * Start `provider`'s OAuth flow. `tosConsent` carries the provider notice
-   * the athlete just accepted (WHOOP's owner authorization).
+   * Start `provider`'s OAuth flow, named as the authorize route takes it
+   * (`garmin`, `strava`, `whoop`…), never a card's `sciotte_*` key: the
+   * card it reads (own app, name) is the one that slug names. `tosConsent`
+   * carries the provider notice the athlete just accepted (WHOOP's owner
+   * authorization).
    */
   handleConnectProvider: (
     provider: string,
@@ -118,7 +121,8 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   ) => {
     // No app of the server's can authorize the provider for this athlete:
     // their own app's credentials come first.
-    if (connectedProviders.find((p) => p.provider === provider)?.own_app_required) {
+    const card = cardForSlug(provider, connectedProviders) ?? connectedProviders.find((p) => p.provider === provider);
+    if (card?.own_app_required) {
       setNeedsCredentialsProvider(provider);
       return;
     }
@@ -153,8 +157,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         if (tombstone) {
           promptImportTombstoneClear({
             refusal: tombstone,
-            providerName:
-              connectedProviders.find((p) => p.provider === provider)?.display_name ?? provider,
+            providerName: card?.display_name ?? provider,
             language,
             t,
             onCleared: () => void connectRef.current(provider, onSuccess, tosConsent),

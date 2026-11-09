@@ -8,19 +8,16 @@ use pierre_core::constants::provider_seats::{
     GARMIN_SEAT_CAPACITY_DEFAULT, STRAVA_OAUTH_SEAT_CAP_DEFAULT,
 };
 use pierre_core::constants::{oauth2_client_retention, oauth_providers};
-use pierre_core::errors::{AppError, AppResult};
 use pierre_core::gcp_token::METADATA_TOKEN_URL;
-use pierre_core::redaction::redact_url;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
-use std::iter;
 use tracing::{debug, info, warn};
-use url::Url;
 
 use super::google_sign_in::GoogleSignInConfig;
+use super::mcp_resource::resolve_mcp_resource_aliases;
 use super::satellites::resolve_satellite_resources;
 use crate::oauth2_server::first_party::{first_party_web_origins, FirstPartyRedirects};
 
@@ -320,19 +317,26 @@ pub struct OAuth2ServerConfig {
     pub issuer_url: String,
     /// Resource identifier of the MCP resource server (RFC 9728 §2, RFC 8707).
     ///
-    /// The origin MCP clients dial, `scheme://host[:port]` with no path.
+    /// What MCP clients dial for `/mcp`: an origin (`scheme://host[:port]`) or
+    /// that origin with the MCP endpoint's path (`https://mcp.dravr.ai/mcp`),
+    /// which is what a client such as claude.ai requires its `resource` to
+    /// equal. A path-bearing value keeps its bare origin as an alias (see
+    /// [`Self::mcp_resource_aliases`]), so tokens bound to the origin stay valid.
     ///
-    /// Published as `resource` in `/.well-known/oauth-protected-resource`, the
-    /// origin of the `resource_metadata` URL in every `/mcp` 401 challenge, a
+    /// Published as `resource` in the path-suffixed
+    /// `/.well-known/oauth-protected-resource/mcp` (the root document names the
+    /// origin form), the target of the `resource_metadata` URL in every `/mcp`
+    /// 401 challenge, a
     /// value a `resource` parameter on `/oauth2/authorize` and `/oauth2/token`
     /// may name (beside [`Self::satellite_resources`]), and the audience of
     /// the tokens minted for it.
     /// `MCP_RESOURCE_URL`, defaulting to `BASE_URL`, so a deployment that
     /// answers to one hostname needs no setting.
     pub mcp_resource_url: String,
-    /// The other origins that also serve `/mcp`, each an identifier of the
-    /// same MCP resource server: `BASE_URL`, when `MCP_RESOURCE_URL` names
-    /// another host.
+    /// The other identifiers that also serve `/mcp`, each an identifier of the
+    /// same MCP resource server: the bare origin of `MCP_RESOURCE_URL` when it
+    /// carries a path, and `BASE_URL`, when `MCP_RESOURCE_URL` names another
+    /// host.
     ///
     /// A client that dialed one of them is answered with that origin as its
     /// `resource` (RFC 9728 §3.3 has it refuse any other), may name it as the
@@ -512,36 +516,6 @@ pub fn resolve_mcp_resource_url(
 /// order into [`OAuth2ServerConfig::mcp_resource_for_host`].
 pub const DIALED_HOST_HEADERS: [&str; 2] = ["x-forwarded-host", "host"];
 
-/// The other origins that serve the MCP resource `canonical`.
-///
-/// That is `base_url`, when it is set, is itself an origin
-/// (`scheme://host[:port]`, nothing after) and differs from `canonical`. A
-/// `base_url` with a path is no resource identifier a client could have dialed
-/// `/mcp` under, so it names no alias.
-///
-/// Split out of [`OAuth2ServerConfig::from_env`] so it is testable without
-/// mutating the process environment, like [`resolve_mcp_resource_url`].
-#[must_use]
-pub fn resolve_mcp_resource_aliases(canonical: &str, base_url: Option<&str>) -> Vec<String> {
-    base_url
-        .map(|url| url.trim().trim_end_matches('/'))
-        .filter(|url| *url != canonical)
-        .filter(|url| {
-            Url::parse(url).is_ok_and(|parsed| {
-                matches!(parsed.scheme(), "http" | "https")
-                    && parsed.host().is_some()
-                    && parsed.path() == "/"
-                    && parsed.query().is_none()
-                    && parsed.fragment().is_none()
-                    && parsed.username().is_empty()
-                    && parsed.password().is_none()
-            })
-        })
-        .map(str::to_owned)
-        .into_iter()
-        .collect()
-}
-
 /// The first of `explicit` and `base_url` that is set and not blank, else
 /// `http://localhost:{http_port}`.
 fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_port: u16) -> String {
@@ -622,102 +596,6 @@ impl OAuth2ServerConfig {
             client_retention: ClientRetentionConfig::from_env(),
             google_sign_in: GoogleSignInConfig::from_env().map(Box::new),
             first_party_redirects,
-        }
-    }
-
-    /// Refuse an `mcp_resource_url` that cannot be published as a resource
-    /// identifier.
-    ///
-    /// It must be an absolute `http`/`https` URL naming an origin — no path,
-    /// query, fragment or credentials. The protected-resource document is
-    /// served only at `{origin}/.well-known/oauth-protected-resource`, and RFC
-    /// 9728 §3.3 has a client reject a `resource` that differs from the URL it
-    /// fetched that document from, so a value with a path publishes a
-    /// document every conforming client refuses. `require_https` is set in
-    /// production, where a bearer token must never cross a plain-HTTP hop.
-    ///
-    /// # Errors
-    /// Returns an invalid-input error naming the defect.
-    pub fn validate_mcp_resource_url(&self, require_https: bool) -> AppResult<()> {
-        Self::validate_resource_origin(&self.mcp_resource_url, require_https)
-    }
-
-    /// Every identifier of the MCP resource server: `mcp_resource_url` first,
-    /// then its aliases.
-    #[must_use]
-    pub fn mcp_resources(&self) -> Vec<&str> {
-        iter::once(self.mcp_resource_url.as_str())
-            .chain(self.mcp_resource_aliases.iter().map(String::as_str))
-            .collect()
-    }
-
-    /// The MCP resource identifier a client that dialed `host` knows the
-    /// server by: the one whose `host[:port]` it is, else `mcp_resource_url`.
-    ///
-    /// `host` is the dialed authority as a proxy forwards it (the first entry
-    /// of an `X-Forwarded-Host` list) or the `Host` header. Only a configured
-    /// identifier is ever returned, so a forged header can at most pick
-    /// another of this server's own names.
-    #[must_use]
-    pub fn mcp_resource_for_host(&self, host: Option<&str>) -> &str {
-        let Some(host) = host
-            .and_then(|host| host.split(',').next())
-            .map(str::trim)
-            .filter(|host| !host.is_empty())
-        else {
-            return &self.mcp_resource_url;
-        };
-        self.mcp_resources()
-            .into_iter()
-            .find(|resource| {
-                Url::parse(resource).is_ok_and(|url| {
-                    url.host_str().is_some_and(|name| {
-                        let authority = url
-                            .port()
-                            .map_or_else(|| name.to_owned(), |port| format!("{name}:{port}"));
-                        authority.eq_ignore_ascii_case(host)
-                    })
-                })
-            })
-            .unwrap_or(&self.mcp_resource_url)
-    }
-
-    /// Refuse a resource identifier that is not an `http`/`https` origin. The
-    /// refusal names the value redacted, as every URL a log carries is.
-    fn validate_resource_origin(raw: &str, require_https: bool) -> AppResult<()> {
-        let value = redact_url(raw);
-        let url = Url::parse(raw).map_err(|e| {
-            AppError::invalid_input(format!(
-                "MCP_RESOURCE_URL must be an absolute URL ({e}): {value}"
-            ))
-        })?;
-        match url.scheme() {
-            "https" => {}
-            "http" if !require_https => {}
-            "http" => {
-                return Err(AppError::invalid_input(format!(
-                    "MCP_RESOURCE_URL must use HTTPS in production: {value}"
-                )))
-            }
-            _ => {
-                return Err(AppError::invalid_input(format!(
-                    "MCP_RESOURCE_URL must be an http or https URL: {value}"
-                )))
-            }
-        }
-        let is_origin = url.host().is_some()
-            && url.path() == "/"
-            && url.query().is_none()
-            && url.fragment().is_none()
-            && url.username().is_empty()
-            && url.password().is_none();
-        if is_origin {
-            Ok(())
-        } else {
-            Err(AppError::invalid_input(format!(
-                "MCP_RESOURCE_URL must name an origin (scheme://host[:port]) with no path, \
-                 query, fragment or credentials: {value}"
-            )))
         }
     }
 }

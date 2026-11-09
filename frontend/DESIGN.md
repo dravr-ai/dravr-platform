@@ -455,6 +455,7 @@ beats inline styles, so state variants must be classes:
 | No retired `.input-dark`/`.select-dark` classes | `scripts/ci/design-system-validation.sh` — hard fail |
 | Raw `<input>` outside `components/ui/` | same script — ratcheted count, may only fall |
 | Stock Tailwind palette instead of §2 tokens | same script — ratcheted count, web + mobile |
+| `bg-white`/`border-white`/`divide-white` instead of a surface or hairline token | same script — ratcheted count, web |
 
 The one carve-out is the chat composer (`chat/MessageInput.tsx`): a chat
 surface, not a form field, and it needs an enclosing box to host its embedded

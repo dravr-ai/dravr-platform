@@ -323,7 +323,7 @@ async fn health_rolls_a_known_mix_into_exact_totals_and_breakdowns() -> Result<(
 
     let stats = repos
         .claim_verdicts
-        .aggregate_verdict_health(tenant(), 30)
+        .aggregate_verdict_health(tenant().into(), 30)
         .await?;
 
     assert_eq!(stats.window_days, 30);
@@ -424,7 +424,7 @@ async fn health_of_an_empty_window_is_all_zeros() -> Result<()> {
 
     let stats = repos
         .claim_verdicts
-        .aggregate_verdict_health(tenant(), 7)
+        .aggregate_verdict_health(tenant().into(), 7)
         .await?;
     assert_eq!(stats.totals, VerdictHealthTotals::default());
     assert_eq!(stats.false_positive_rate, 0.0);
@@ -442,12 +442,12 @@ async fn health_clamps_the_window() -> Result<()> {
     let repos = db.repositories();
     let low = repos
         .claim_verdicts
-        .aggregate_verdict_health(tenant(), 0)
+        .aggregate_verdict_health(tenant().into(), 0)
         .await?;
     assert_eq!(low.window_days, 1);
     let high = repos
         .claim_verdicts
-        .aggregate_verdict_health(tenant(), 10_000)
+        .aggregate_verdict_health(tenant().into(), 10_000)
         .await?;
     assert_eq!(high.window_days, 365);
     Ok(())
@@ -540,7 +540,7 @@ async fn health_route_serves_the_rollup_clamps_the_window_and_is_gated() {
         State(context.clone()),
         Extension(plain_admin_token()),
         Query(VerdictHealthQuery {
-            tenant_id: tenant().to_string(),
+            tenant_id: Some(tenant().to_string()),
             window_days: None,
         }),
     )
@@ -554,7 +554,7 @@ async fn health_route_serves_the_rollup_clamps_the_window_and_is_gated() {
         State(context.clone()),
         Extension(tenant_bound_token(other_tenant())),
         Query(VerdictHealthQuery {
-            tenant_id: tenant().to_string(),
+            tenant_id: Some(tenant().to_string()),
             window_days: None,
         }),
     )
@@ -567,7 +567,7 @@ async fn health_route_serves_the_rollup_clamps_the_window_and_is_gated() {
         State(context.clone()),
         Extension(tenant_bound_token(tenant())),
         Query(VerdictHealthQuery {
-            tenant_id: tenant().to_string(),
+            tenant_id: Some(tenant().to_string()),
             window_days: Some(9_999),
         }),
     )
@@ -591,7 +591,7 @@ async fn health_route_serves_the_rollup_clamps_the_window_and_is_gated() {
         State(context),
         Extension(super_admin_token()),
         Query(VerdictHealthQuery {
-            tenant_id: tenant().to_string(),
+            tenant_id: Some(tenant().to_string()),
             window_days: Some(0),
         }),
     )

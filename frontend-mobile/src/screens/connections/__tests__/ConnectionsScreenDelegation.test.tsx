@@ -14,7 +14,11 @@ import type { ExtendedProviderStatus, ProviderDelegation } from '@pierre/shared-
 
 jest.mock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn(() => new Promise(() => {})) }));
 jest.mock('expo-linking', () => ({ parse: jest.fn() }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+jest.mock('expo-router', () =>
+  require('../../../../jest.expo-router').createExpoRouterMock({
+    useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  }),
+);
 jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://oauth-callback' }));
 jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }));
 jest.mock('../../../services/api', () => ({
@@ -59,8 +63,6 @@ function trainingPeaks(overrides: Partial<ExtendedProviderStatus>): ExtendedProv
     requires_oauth: false,
     connected: false,
     needs_reauth: false,
-    oauth_awaiting_activities: false,
-    session_needs_reauth: false,
     capabilities: ['activities'],
     consent_required: false,
     own_app_required: false,

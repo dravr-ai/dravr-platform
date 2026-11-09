@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import type { AdminScope } from '../hooks/useAdminScope';
+
 export interface ChartDataset {
   label: string;
   data: number[];
@@ -81,16 +83,9 @@ export interface TimeSeriesPoint {
   request_count: number;
 }
 
-export interface TopTool {
-  tool_name: string;
-  request_count: number;
-  average_response_time?: number;
-  success_rate?: number;
-}
-
 export interface AnalyticsData {
+  scope: AdminScope;
   time_series: TimeSeriesPoint[];
-  top_tools: TopTool[];
   total_requests: number;
   total_errors: number;
   avg_requests_per_day: number;

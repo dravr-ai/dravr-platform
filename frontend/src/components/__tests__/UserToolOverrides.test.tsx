@@ -177,8 +177,9 @@ describe('UserToolOverrides', () => {
     await renderAndSelectUser();
 
     // Exactly one row (analyze_activity) carries a per-user override
-    const resetButtons = screen.getAllByTitle(/remove override/i);
+    const resetButtons = screen.getAllByRole('button', { name: 'Reset' });
     expect(resetButtons).toHaveLength(1);
+    expect(resetButtons[0].querySelector('svg')).toBeNull();
 
     fireEvent.click(resetButtons[0]);
     await waitFor(() => {

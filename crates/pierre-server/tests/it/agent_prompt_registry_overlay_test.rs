@@ -284,3 +284,38 @@ fn agent_absent_in_every_locale_still_falls_back_to_db_column() {
         "a coach absent from every locale must still reach the DB column"
     );
 }
+
+/// Spanish, German and Portuguese athletes are served their own translation
+/// once it has synced, with the default locale present beside it (carnet#1428).
+#[test]
+fn each_translated_locale_reaches_its_own_prompt_at_runtime() {
+    let registry = Arc::new(PromptRegistry::new());
+    for locale in ["en", "fr", "es", "de", "pt"] {
+        registry.update_agent_prompt(
+            "endurance-agent",
+            locale,
+            format!("FULL_MARKDOWN_{locale}"),
+            format!("sha-{locale}"),
+        );
+    }
+
+    let agent_ctx = AgentRuntimeContext {
+        slug: "endurance-agent".to_owned(),
+        title: "Test Agent".to_owned(),
+        source: "contremaitre".to_owned(),
+        system_prompt: "INSTRUCTIONS_ONLY_DB_COLUMN".to_owned(),
+        startup_query: None,
+        data_requirements: None,
+        visuals: Vec::new(),
+        max_tool_iterations: None,
+        temperature: None,
+        category: AgentCategory::Training,
+    };
+
+    for locale in ["es", "de", "pt"] {
+        assert_eq!(
+            resolve_agent_base_prompt(&registry, &agent_ctx, locale),
+            format!("FULL_MARKDOWN_{locale}"),
+        );
+    }
+}

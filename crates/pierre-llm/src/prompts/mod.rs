@@ -147,10 +147,6 @@ pub const LANGUAGE_CLASSIFICATION_PROMPT: &str = system::LANGUAGE_CLASSIFICATION
 /// refused. `{{RULES}}` is the per-block refusal reasons.
 pub const VIZ_REPAIR_PROMPT: &str = system::VIZ_REPAIR;
 
-/// Guardian planner prompt — the JSON workflow grammar the plan-then-verify
-/// planner call emits, with `$ref` threading a prior step's output.
-pub const GUARDIAN_PLANNER_PROMPT: &str = system::GUARDIAN_PLANNER;
-
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
 pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
 

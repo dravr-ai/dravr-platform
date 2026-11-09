@@ -44,10 +44,10 @@ use crate::AuthRoutesContext;
 /// depth from the status's own window once the recent data is in
 /// (carnet#1043), so the two cannot drift apart.
 ///
-/// The health backfill's `days` is a label only today: `dravr-enforme` 0.9.3
-/// `SyncOrchestrator::backfill` logs it and runs a cursorless `sync_user`,
-/// whose reach is the provider's own. The health sync lands sleep, recovery
-/// and daily health records, never the activities the status is computed from.
+/// The connect's health backfill does not read this depth: it runs the
+/// incremental `SyncOrchestrator::sync_user`, whose reach is the provider's
+/// own. The health sync lands sleep, recovery and daily health records, never
+/// the activities the status is computed from.
 pub const CONNECT_RECENT_DAYS: u32 = 30;
 
 /// Told when a provider connect has landed, or can land, the athlete's data.

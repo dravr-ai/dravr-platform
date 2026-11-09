@@ -80,6 +80,9 @@ use pierre_tool_runtime::implementations::athlete_link::{
 use pierre_tool_runtime::implementations::athlete_stats::{
     GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
 };
+use pierre_tool_runtime::implementations::calendar_preference::{
+    SetPreferredCalendarResult, SetPreferredCalendarTool,
+};
 use pierre_tool_runtime::implementations::commitments::{
     CommitmentCancelResult, CommitmentCancelTool, CommitmentCreateResult, CommitmentCreateTool,
 };
@@ -96,8 +99,9 @@ use pierre_tool_runtime::implementations::configuration_output::{
     UpdateUserConfigurationResult, UserConfigurationResult, ValidateConfigurationResult,
 };
 use pierre_tool_runtime::implementations::connection::{
-    ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
-    DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
+    CalendarChoiceStatus, ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult,
+    DisconnectProviderResult, DisconnectProviderTool, GetConnectionStatusTool,
+    ProviderConnectionStatus,
 };
 use pierre_tool_runtime::implementations::continuous_series::{
     GetHeartRateSeriesTool, HeartRateSeriesResult, SeriesWindow,
@@ -134,7 +138,6 @@ use pierre_tool_runtime::implementations::lactate_thresholds_output::{
     DeterminedThreshold, LactateThresholdsResult, UndeterminedThreshold,
 };
 use pierre_tool_runtime::implementations::memory::{
-    AgentFollowupScheduleResult, AgentFollowupScheduleTool, AgentNoteAddResult, AgentNoteAddTool,
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
     RememberFactTool,
 };
@@ -528,40 +531,6 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
         &output_schema_for::<GoalFeasibilityResult>(),
         &sample,
         "analyze_goal_feasibility",
-    );
-}
-
-#[test]
-fn agent_note_add_declares_a_schema_that_accepts_its_payload() {
-    let sample = AgentNoteAddResult {
-        note_id: "note-1".to_owned(),
-        created_at: "2026-09-05T09:00:00+00:00".to_owned(),
-    };
-    assert_declares_and_accepts(
-        <AgentNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&AgentNoteAddTool).output_schema,
-        &output_schema_for::<AgentNoteAddResult>(),
-        &sample,
-        "agent_note_add",
-    );
-}
-
-#[test]
-fn agent_followup_schedule_accepts_a_followup_with_no_due_date() {
-    // due_at is None when the agent scheduled no date — the follow-up rides the
-    // next conversation instead of a clock, and that is the common case.
-    let sample = AgentFollowupScheduleResult {
-        followup_id: "fu-1".to_owned(),
-        status: "pending".to_owned(),
-        due_at: None,
-    };
-    assert_declares_and_accepts(
-        <AgentFollowupScheduleTool as McpTool<dyn ToolRuntime>>::definition(
-            &AgentFollowupScheduleTool,
-        )
-        .output_schema,
-        &output_schema_for::<AgentFollowupScheduleResult>(),
-        &sample,
-        "agent_followup_schedule",
     );
 }
 
@@ -1080,6 +1049,10 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
         (
             "all",
             ConnectionStatusResult::All {
+                calendar: Some(CalendarChoiceStatus {
+                    chosen: Some("intervals_icu".to_owned()),
+                    connected: vec!["intervals_icu".to_owned(), "garmin".to_owned()],
+                }),
                 providers: BTreeMap::from([
                     (
                         "strava".to_owned(),
@@ -1165,6 +1138,7 @@ fn get_sleep_sessions_declares_a_schema_that_accepts_an_empty_window() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: None,
     });
     assert_declares_and_accepts(
         <GetSleepSessionsTool as McpTool<dyn ToolRuntime>>::definition(&GetSleepSessionsTool)
@@ -1193,6 +1167,7 @@ fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: Some("Mira shares their sleep, HRV, resting heart rate, weight, readiness and daily notes with you, and nothing else of their health.".to_owned()),
     });
     assert_declares_and_accepts(
         <GetRecoveryMetricsTool as McpTool<dyn ToolRuntime>>::definition(&GetRecoveryMetricsTool)
@@ -1239,6 +1214,7 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
         },
+        not_shared: None,
     });
     assert_declares_and_accepts(
         <GetHealthSnapshotsTool as McpTool<dyn ToolRuntime>>::definition(&GetHealthSnapshotsTool)
@@ -3630,6 +3606,13 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
         ),
+        (
+            "set_preferred_calendar",
+            <SetPreferredCalendarTool as McpTool<dyn ToolRuntime>>::definition(
+                &SetPreferredCalendarTool,
+            ),
+            output_schema_for::<SetPreferredCalendarResult>(),
+        ),
     ] {
         assert_eq!(
             declared.name, tool_name,
@@ -5708,6 +5691,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
         duration_minutes: 62,
         scheduled_for: "2026-09-10".to_owned(),
         status: "pushed".to_owned(),
+        calendar_note: None,
     })
     .expect("serializes");
     assert!(

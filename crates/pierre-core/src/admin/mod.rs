@@ -7,6 +7,9 @@
 /// Admin data models (tokens, permissions, usage)
 pub mod models;
 
+/// Which tenants an admin read covers
+pub mod scope;
+
 /// JWT signing abstraction and admin token management
 pub mod jwt;
 

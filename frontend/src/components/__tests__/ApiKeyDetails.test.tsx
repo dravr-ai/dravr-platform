@@ -37,16 +37,16 @@ const token: AdminToken = {
   token_prefix: 'pierre_at_abc',
 };
 
-function renderDetails(onBack = vi.fn(), onTokenUpdated = vi.fn()) {
+function renderDetails(onBack = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <ApiKeyDetails token={token} onBack={onBack} onTokenUpdated={onTokenUpdated} />
+      <ApiKeyDetails token={token} onBack={onBack} />
     </QueryClientProvider>,
   );
-  return { onBack, onTokenUpdated };
+  return { onBack };
 }
 
 describe('ApiKeyDetails', () => {
@@ -83,25 +83,28 @@ describe('ApiKeyDetails', () => {
   });
 
   it('rotates the token and shows the replacement once', async () => {
-    rotateAdminToken.mockResolvedValue({ jwt_token: 'pierre_at_rotated_jwt' });
-    const { onTokenUpdated } = renderDetails();
+    rotateAdminToken.mockResolvedValue({ jwt_token: 'pierre_at_rotated_jwt', service_name: 'svc', token_prefix: 'new_prefix' });
+    const { onBack } = renderDetails();
 
     fireEvent.click(screen.getByRole('button', { name: 'Rotate Key' }));
 
     expect(await screen.findByText('API Token Rotated Successfully')).toBeInTheDocument();
     expect(rotateAdminToken).toHaveBeenCalledWith('token-1');
     expect(screen.getByDisplayValue('pierre_at_rotated_jwt')).toBeInTheDocument();
-    expect(onTokenUpdated).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('new_prefix...')).toBeInTheDocument();
+    // The replacement stays on screen until it is saved, then this dead row closes.
+    expect(onBack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Saved the API Token/ }));
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it('revokes the token and returns to the list', async () => {
     revokeAdminToken.mockResolvedValue({ success: true });
-    const { onBack, onTokenUpdated } = renderDetails();
+    const { onBack } = renderDetails();
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke Key' }));
 
     await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
     expect(revokeAdminToken).toHaveBeenCalledWith('token-1');
-    expect(onTokenUpdated).toHaveBeenCalledTimes(1);
   });
 });

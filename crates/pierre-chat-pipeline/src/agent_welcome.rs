@@ -458,6 +458,7 @@ pub async fn post_agent_welcome(
         transport_policy,
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
     let Some(message) = repos
         .chat

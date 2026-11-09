@@ -11,9 +11,8 @@
 //! RFC3339 here, so a calendar day is the first ten characters of it — cheaper
 //! than `strftime` and free of its parsing quirks.
 
-use std::collections::BTreeMap;
-
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_memory::claims::{
@@ -26,19 +25,21 @@ use super::Database;
 use crate::repositories::claim_verdict_grading::{
     grading_read_failed, GradingWindow, GRADING_POOL_SQL, GRADING_WITHHELD_SQL,
 };
+use crate::repositories::claim_verdicts::apply_status_count;
+use crate::repositories::claim_verdicts::status_counts::{
+    impl_verdict_status_counts, VerdictStatusCounts, COUNT_VERDICTS_BY_STATUS_SQL,
+};
 use crate::repositories::claim_verdicts::{
-    agent_health, apply_status_count, category_health, daily_health, fold_health_breakdown,
-    health_breakdown_rows, health_totals, impl_claim_verdict_repository, layer_health,
+    calibration_from_counts, health_breakdown_rows, impl_claim_verdict_repository,
     reason_count_from_row, verdict_daily_counts_sql, verdict_from_row,
-    verdict_health_breakdown_sql, DispositionFilter, GET_VERDICT_SQL, HEALTH_BY_AGENT_SQL,
-    HEALTH_BY_CATEGORY_SQL, HEALTH_BY_LAYER_SQL, HEALTH_BY_REASON_SQL, INSERT_CLAIM_VERDICT_SQL,
-    LIST_VERDICTS_FILTERED_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL, LIST_VERDICTS_FOR_MESSAGE_SQL,
-    SET_VERDICT_DISPOSITION_SQL,
+    verdict_health_breakdown_sql, verdict_health_stats, DispositionFilter, GET_VERDICT_SQL,
+    HEALTH_BY_AGENT_SQL, HEALTH_BY_CATEGORY_SQL, HEALTH_BY_LAYER_SQL, HEALTH_BY_REASON_SQL,
+    INSERT_CLAIM_VERDICT_SQL, LIST_VERDICTS_FILTERED_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL,
+    LIST_VERDICTS_FOR_MESSAGE_SQL, SET_VERDICT_DISPOSITION_SQL,
 };
 use crate::repositories::{
     ClaimVerdictRepository, InsertClaimVerdictParams, SetVerdictDispositionParams,
-    VerdictCalibrationStats, VerdictDailyBucket, VerdictHealthStats, VerdictListFilter,
-    VerdictStatusBreakdown,
+    VerdictCalibrationStats, VerdictHealthStats, VerdictListFilter, VerdictStatusBreakdown,
 };
 
 /// This backend's resolved daily-counts statement.
@@ -48,3 +49,5 @@ const VERDICT_DAILY_COUNTS_SQL: &str = verdict_daily_counts_sql!("substr(created
 const VERDICT_HEALTH_DAILY_SQL: &str = verdict_health_breakdown_sql!("substr(created_at, 1, 10)");
 
 impl_claim_verdict_repository!(Database, VERDICT_DAILY_COUNTS_SQL, VERDICT_HEALTH_DAILY_SQL);
+
+impl_verdict_status_counts!(Database);

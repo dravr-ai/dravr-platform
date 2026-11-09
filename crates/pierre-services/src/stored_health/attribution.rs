@@ -124,3 +124,82 @@ pub(super) async fn attribution_of(
     }
     Ok(attribution)
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDate;
+    use pierre_core::models::{DeviceType, StoredRecoveryMetrics};
+
+    use super::*;
+
+    fn source_of(
+        id: &str,
+        provider: &str,
+        source: Option<&str>,
+        model: Option<&str>,
+    ) -> DataSource {
+        DataSource {
+            id: id.to_owned(),
+            user_id: "athlete".to_owned(),
+            provider: provider.to_owned(),
+            device_model: model.map(str::to_owned),
+            software_version: None,
+            source: source.map(str::to_owned),
+            device_type: DeviceType::Watch,
+            original_source_name: None,
+        }
+    }
+
+    /// A morning the data source `data_source_id` synced, stored under the
+    /// provider `stored_under`.
+    fn morning_of(data_source_id: &str, stored_under: &str) -> StoredRecoveryMetrics {
+        StoredRecoveryMetrics {
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
+            data_source_id: data_source_id.to_owned(),
+            date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            recovery_score: None,
+            readiness_score: None,
+            hrv_ms: None,
+            hrv_rmssd: Some(68.0),
+            resting_heart_rate: Some(48),
+            stress_score: None,
+            body_battery: None,
+            spo2: None,
+            respiratory_rate: None,
+            skin_temp_deviation: None,
+            daily_strain: None,
+            athlete_note: None,
+            source_name: stored_under.to_owned(),
+            recorded_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn a_row_is_attributed_by_the_garmin_data_source_that_synced_it() {
+        let sources = [
+            source_of("garmin", "garmin", None, Some("Forerunner 965")),
+            source_of("nolio-garmin", "nolio", Some("garmin"), None),
+            source_of("nolio-edge", "nolio", None, Some("Garmin Edge 840")),
+            source_of("nolio-zepp", "nolio", Some("zepp"), Some("Zepp Amazfit")),
+            source_of("coros", "coros", None, Some("PACE 3")),
+        ];
+        for (id, stored_under, expected) in [
+            ("garmin", "garmin", Some("Garmin Forerunner 965")),
+            ("nolio-garmin", "nolio", Some("Garmin")),
+            ("nolio-edge", "nolio", Some("Garmin Edge 840")),
+            ("nolio-zepp", "nolio", None),
+            ("coros", "coros", None),
+            // No gate listed the sources: the provider it was stored under.
+            ("unlisted", "garmin", Some("Garmin")),
+            ("unlisted", "coros", None),
+        ] {
+            let row = morning_of(id, stored_under);
+            assert_eq!(
+                garmin_rows_attribution(&[row], &sources).as_deref(),
+                expected,
+                "{id} stored under {stored_under}"
+            );
+        }
+    }
+}

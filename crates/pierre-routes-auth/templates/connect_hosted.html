@@ -9,9 +9,10 @@
   connects via OAuth (full-page redirect to the link-token-authed oauth-init),
   the hosted Intervals.icu API-key form (full-page, same link-token),
   or the credential sign-in state machine (the same credential API the
-  web/mobile credential login uses). Below the cards, where this server
-  imports an athlete's own history, "Import your own data" opens the hosted
-  import page with the same link-token. The signed connect link-token is embedded
+  web/mobile credential login uses). Under a card whose provider's export this
+  server imports here, "Have an export? Import it" opens the hosted import
+  page with the same link-token. After a grant whose history is not in, the
+  history step offers a one-time sign-in, the export, or "Not now". The signed connect link-token is embedded
   and sent as `Authorization: Bearer` on every API call. Passwords never leave
   this TLS page — they are not typed into the chat transcript.
 -->
@@ -40,8 +41,19 @@
         <section id="phase-picker">
             <h1>{{t:hosted.picker.heading}}</h1>
             <div id="provider-list"></div>
-            {{IMPORT_ENTRY}}
             <p class="fineprint">{{t:hosted.picker.securityNote}}</p>
+        </section>
+
+        <!-- Phase: history (a grant whose past workouts are not in yet) -->
+        <section id="phase-history" hidden>
+            <button type="button" class="btn btn-tertiary back-link" id="history-back">&larr; {{t:hosted.common.back}}</button>
+            <h1 id="history-title"></h1>
+            <p id="history-body"></p>
+            <div class="actions">
+                <button type="button" class="btn btn-primary btn-block" id="history-sign-in">{{t:hosted.picker.historySignIn}}</button>
+                <a class="btn btn-secondary btn-block" id="history-export" hidden></a>
+                <button type="button" class="btn btn-tertiary btn-block" id="history-not-now">{{t:hosted.picker.historyNotNow}}</button>
+            </div>
         </section>
 
         <!-- Phase: credentials (usr/pwd from Dravr) -->
@@ -156,10 +168,13 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, awaits_activities, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
-                // `awaits_activities`: connected through an OAuth grant that has
-                // received no activity yet (Garmin), so the card opens the
-                // credential form for the athlete's history.
+                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, migrate, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // `history_state` ('needed'|'importing'|'incomplete'|'imported'|'not_applicable'):
+                // a connected card whose history is `needed` or `incomplete`
+                // opens the history step; one `importing` is disabled while
+                // the copy runs. `archive_url`: the hosted import page for the
+                // provider's own export. `migrate`: a usr/pwd-only card asked
+                // to move to its provider's OAuth, which picking it starts.
                 // `notice` is shown before the credential form (credentials) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -170,6 +185,9 @@
                 loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
+                // `details.reason` of a usr/pwd sign-in refused because the
+                // provider now connects through its own OAuth.
+                oauthRequiredReason: "{{OAUTH_REQUIRED_REASON}}",
                 // The strings the script sets, in the athlete's locale. A
                 // `{0}` in one is the slot `fmt` fills.
                 strings: {{STRINGS_JSON}},
@@ -267,7 +285,7 @@
                 return S.tagEmailPassword;
             }
 
-            const phases = ['picker', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
+            const phases = ['picker', 'history', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
                 currentPhase = name;
                 phases.forEach((p) => {
@@ -315,11 +333,20 @@
                     label.appendChild(description);
                     btn.appendChild(label);
                     const tag = document.createElement('span');
-                    // A card awaiting its activities is connected, but its tag names
-                    // what picking it does: import the history.
-                    tag.className = 'pc-tag' + (p.connected && !p.awaits_activities ? ' connected' : '');
-                    tag.textContent = p.awaits_activities
-                        ? S.tagImportHistory
+                    // A connected card whose history is still to bring in, or
+                    // that is asked to move to its provider's OAuth, names
+                    // what picking it does.
+                    const historyOpen = p.connected
+                        && (p.history_state === 'needed' || p.history_state === 'incomplete');
+                    const importing = p.connected && p.history_state === 'importing';
+                    const settled = p.connected && !historyOpen && !importing && !p.migrate;
+                    tag.className = 'pc-tag' + (settled ? ' connected' : '');
+                    tag.textContent = p.migrate
+                        ? fmt(S.tagMoveToOfficial, p.display_name)
+                        : historyOpen
+                        ? (p.history_state === 'incomplete' ? S.tagHistoryIncomplete : S.tagImportHistory)
+                        : importing
+                        ? S.tagHistoryImporting
                         : p.connected
                         ? S.tagConnected
                         : (p.kind === 'oauth'
@@ -328,10 +355,15 @@
                                 ? S.tagApiKey
                                 : identifierTag(p.login_identifier)));
                     btn.appendChild(tag);
-                    if (p.awaits_activities) {
+                    if (p.migrate) {
                         btn.addEventListener('click', () => {
                             clearError();
-                            pickCredentials(p);
+                            startOAuth(p.target, false);
+                        });
+                    } else if (historyOpen) {
+                        btn.addEventListener('click', () => {
+                            clearError();
+                            openHistory(p);
                         });
                     } else if (p.connected) {
                         btn.disabled = true;
@@ -339,7 +371,46 @@
                         btn.addEventListener('click', () => pickProvider(p));
                     }
                     list.appendChild(btn);
+                    // The provider's own export, imported on the hosted
+                    // import page with the same token.
+                    if (p.archive_url) {
+                        const link = document.createElement('a');
+                        link.className = 'btn btn-tertiary btn-block';
+                        link.href = p.archive_url;
+                        link.textContent = S.importExportLink;
+                        link.setAttribute('aria-label', p.display_name + ' · ' + S.importExportLink);
+                        list.appendChild(link);
+                    }
                 });
+            }
+
+            // ---- History step -----------------------------------------------
+            // The card whose history the step brings in, while it is open.
+            let historyCard = null;
+            // Whether the credential sign-in under way copies a history.
+            let historyMode = false;
+
+            // Ask how to bring in a card's past workouts: sign in once to copy
+            // them, import the provider's export, or not now.
+            function openHistory(p) {
+                historyCard = p;
+                document.getElementById('history-title').textContent = fmt(S.historyTitle, p.display_name);
+                document.getElementById('history-body').textContent = fmt(S.historyBody, p.display_name);
+                document.getElementById('history-sign-in').hidden = !p.history_sign_in;
+                const exportLink = document.getElementById('history-export');
+                exportLink.hidden = !p.archive_url;
+                if (p.archive_url) {
+                    exportLink.href = p.archive_url;
+                    exportLink.textContent = fmt(S.historyImportExport, p.display_name);
+                }
+                showPhase('history');
+            }
+
+            function goToSuccess(target) {
+                const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
+                    + '&target=' + encodeURIComponent(target)
+                    + '&token=' + encodeURIComponent(CONFIG.token);
+                window.location.assign('/providers/connect/success?' + qs);
             }
 
             // Full-page redirect to the link-token-authed OAuth init, carrying
@@ -391,12 +462,16 @@
 
             // Credential sign-in flow for a card's target, behind its notice
             // when the account has not accepted it.
-            function pickCredentials(p) {
+            function pickCredentials(p, forHistory) {
+                historyMode = Boolean(forHistory);
                 credTarget = p.target || 'strava';
                 credLabel = p.display_name;
                 document.getElementById('cred-title').textContent = fmt(S.accountTitle, credLabel);
-                document.getElementById('cred-notice').textContent =
-                    fmt(S.credentialsNote, credLabel);
+                // The history sign-in says what it is for: one copy, while the
+                // grant keeps the new workouts coming.
+                document.getElementById('cred-notice').textContent = historyMode
+                    ? fmt(S.historySignInNote, credLabel) + ' ' + fmt(S.credentialsNote, credLabel)
+                    : fmt(S.credentialsNote, credLabel);
                 setConsent(Boolean(p.consent_required), p.notice);
                 setIdentifier(p.login_identifier);
                 showPhase('credentials');
@@ -415,6 +490,9 @@
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
                 if (failure.reason === CONFIG.loginChallengeReason) {
                     return fmt(S.signInChallenged, credLabel);
+                }
+                if (failure.reason === CONFIG.oauthRequiredReason) {
+                    return fmt(S.signInOauthRequired, credLabel);
                 }
                 return fmt(S.signInUnavailable, credLabel);
             }
@@ -459,12 +537,11 @@
                 clearError();
                 switch (data.status) {
                     case 'connected':
+                        if (historyMode) {
+                            document.getElementById('success-message').textContent = S.historyCopying;
+                        }
                         showPhase('success');
-                        setTimeout(() => {
-                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(credTarget)
-                                + '&token=' + encodeURIComponent(CONFIG.token);
-                            window.location.assign('/providers/connect/success?' + qs);
-                        }, 1200);
+                        setTimeout(() => goToSuccess(credTarget), 1200);
                         break;
                     case 'two_factor_choice':
                         renderTwoFactorOptions(data.options || []);
@@ -583,13 +660,15 @@
 
             function backToPicker() {
                 clearError();
+                historyCard = null;
+                historyMode = false;
                 const pw = document.getElementById('password');
                 if (pw) pw.value = '';
                 showPhase('picker');
             }
 
-            // Open the credential form (same setup as picking a credential
-            // card) — used both by the picker and as the OAuth-failure fallback.
+            // Open the credential form for Strava, whose refused grant falls
+            // back to its username and password sign-in.
             function openCredentialFallback(target, label, noticeOverride) {
                 credTarget = target;
                 credLabel = label;
@@ -606,11 +685,12 @@
 
             // Handle the return from a full-page OAuth attempt. The session-less
             // callback bounces us back here with ?provider&success[&error]. On
-            // success we go to the shared success page, unless the grant has no
-            // activities yet (Garmin), which opens its credential form; on failure we open the
-            // credential sign-in fallback for Strava so a channel user is never
-            // stranded on the SPA error page. Returns true when it took over the
-            // initial view (so the default picker render is skipped).
+            // success we go to the shared success page, unless the card's
+            // history is still to bring in (Garmin), which opens the history
+            // step. A refused Strava grant opens its credential sign-in, as
+            // web and mobile do; any other refused grant goes back to the
+            // picker with a retry. Returns true when it took over the initial
+            // view (so the default picker render is skipped).
             function handleOAuthReturn() {
                 const params = new URLSearchParams(window.location.search);
                 if (!params.has('success')) return false;
@@ -622,38 +702,21 @@
                 ['provider', 'success', 'error'].forEach((k) => clean.searchParams.delete(k));
                 window.history.replaceState({}, document.title, clean.pathname + clean.search);
 
-                // A Garmin grant whose store has received no activity yet serves
-                // nothing: signing in with the Garmin username and password
-                // reaches the history (OAuth first, then the credential login).
-                const awaiting = ok
-                    ? CONFIG.providers.find((p) => p.target === provider && p.awaits_activities)
-                    : undefined;
-                if (awaiting) {
-                    pickCredentials(awaiting);
+                const card = CONFIG.providers.find((p) => p.target === provider || p.provider === provider);
+                if (ok && card && card.connected && card.history_state === 'needed') {
+                    openHistory(card);
                     return true;
                 }
                 if (ok) {
-                    const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
-                        + '&target=' + encodeURIComponent(provider)
-                        + '&token=' + encodeURIComponent(CONFIG.token);
-                    window.location.assign('/providers/connect/success?' + qs);
+                    goToSuccess(provider);
                     return true;
                 }
-                // A refused Strava or Garmin grant opens the username and
-                // password sign-in for the same data, as web and mobile do.
                 if (provider === 'strava' || provider === 'sciotte') {
                     openCredentialFallback('strava', 'Strava', S.stravaFallback);
                     return true;
                 }
-                const garminCard = provider === 'garmin'
-                    ? CONFIG.providers.find((p) => p.target === 'garmin')
-                    : undefined;
-                if (garminCard) {
-                    pickCredentials(garminCard);
-                    return true;
-                }
                 showPhase('picker');
-                showError(S.signInIncomplete);
+                showError(card ? fmt(S.oauthRetry, card.display_name) : S.signInIncomplete);
                 return true;
             }
 
@@ -663,6 +726,13 @@
             document.getElementById('retry-btn').addEventListener('click', backToPicker);
             document.getElementById('cred-back').addEventListener('click', backToPicker);
             document.getElementById('tf-back').addEventListener('click', backToPicker);
+            document.getElementById('history-back').addEventListener('click', backToPicker);
+            document.getElementById('history-sign-in').addEventListener('click', () => {
+                if (historyCard) pickCredentials(historyCard, true);
+            });
+            document.getElementById('history-not-now').addEventListener('click', () => {
+                goToSuccess(historyCard ? historyCard.target : '');
+            });
             document.getElementById('oauth-back').addEventListener('click', () => {
                 oauthPending = null;
                 backToPicker();

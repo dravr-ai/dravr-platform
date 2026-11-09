@@ -10,6 +10,9 @@ pub mod google_sign_in;
 /// OAuth provider configuration for fitness platforms
 pub mod oauth;
 
+/// The identifiers of the MCP resource server and the metadata URL of each
+pub mod mcp_resource;
+
 /// The satellite MCP servers the authorization server mints for
 mod satellites;
 
@@ -17,10 +20,13 @@ mod satellites;
 pub mod rate_limit;
 
 pub use google_sign_in::GoogleSignInConfig;
+pub use mcp_resource::{
+    protected_resource_metadata_url, resolve_mcp_resource_aliases, www_authenticate_challenge,
+};
 pub use oauth::{
     configured_credential, credential_env, provider_callback_uri, resolve_issuer_url,
-    resolve_mcp_resource_aliases, resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig,
-    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride,
-    ProviderEndpointOverrides, DIALED_HOST_HEADERS,
+    resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig,
+    OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride, ProviderEndpointOverrides,
+    DIALED_HOST_HEADERS,
 };
 pub use rate_limit::RateLimitConfig;

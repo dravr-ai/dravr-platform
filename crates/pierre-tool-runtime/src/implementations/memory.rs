@@ -1,4 +1,4 @@
-// ABOUTME: Tier 3 agent-authored memory tools — agent_note_add, agent_followup_schedule, remember_fact, recall_user_memory
+// ABOUTME: Tier 3 agent-authored memory tools — remember_fact, recall_user_memory
 // ABOUTME: Pure McpTool impls; persistence goes through HarnessMemoryRepository wired in Tier 0
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,11 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::DateTime;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{
-    InsertAgentFollowupParams, InsertAgentNoteParams, UpsertUserFactParams,
-};
+use pierre_database::repositories::UpsertUserFactParams;
 use pierre_memory::{
     FactKind, FactProposal, FactSource, MemoryScope, PredicateCode, ProposedClaim,
 };
@@ -55,32 +52,6 @@ fn optional_string_field(args: &Value, key: &str) -> Option<String> {
 
 fn ctx_user_id(context: &ToolExecutionContext) -> String {
     context.user_id.to_string()
-}
-
-// ============================================================================
-// AgentNoteAddTool — write a private agent note about a user
-// ============================================================================
-
-/// What `agent_note_add` answers with.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct AgentNoteAddResult {
-    /// Identifier of the stored note.
-    pub note_id: String,
-    /// RFC 3339 timestamp it was stored at.
-    pub created_at: String,
-}
-
-/// What `agent_followup_schedule` answers with.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct AgentFollowupScheduleResult {
-    /// Identifier of the scheduled follow-up.
-    pub followup_id: String,
-    /// Always `pending` on creation; a value rather than an inference, so a
-    /// client reads state instead of assuming it from a successful call.
-    pub status: String,
-    /// When it comes due, RFC 3339. Absent when the agent scheduled no date —
-    /// the follow-up then rides the next conversation rather than a clock.
-    pub due_at: Option<String>,
 }
 
 /// What `remember_fact` answers with.
@@ -131,248 +102,6 @@ pub struct RecallUserMemoryResult {
     pub facts: Vec<RecalledFact>,
     /// How many were returned.
     pub count: usize,
-}
-
-/// Agent-authored note write tool.
-///
-/// Lets the agent persist a note it intentionally wants to remember about
-/// the user (e.g., "user prefers no scientific jargon, dislikes percentage
-/// targets"). Notes are surfaced to admins via an agent-notes audit log and
-/// to the agent itself via recall on the next session.
-#[derive(Debug)]
-pub struct AgentNoteAddTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "content".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "The note, plain text without markup, ≤ 2000 characters.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "The authoring agent's ID; must match the agent attached to this conversation."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "conversation_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Originating conversation ID, for provenance.".to_owned()),
-                ..Default::default()
-            },
-        );
-        let schema = object_schema(
-            properties,
-            Some(vec!["content".to_owned(), "agent_id".to_owned()]),
-        );
-        answers_with::<AgentNoteAddResult>(tool_definition(
-            "agent_note_add",
-            "Save a private agent note about the user. Use it when you decide something the user said should be remembered across sessions.",
-            schema,
-            annotations("Add agent note", Effect::AdditiveWrite, Reach::Internal),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let body = require_string_field(&args, "content")?;
-            if body.trim().is_empty() {
-                return Err(AppError::invalid_input("note content must not be empty"));
-            }
-            if body.len() > 2000 {
-                return Err(AppError::invalid_input(
-                    "note content exceeds 2000 character limit",
-                ));
-            }
-            let agent_id = require_string_field(&args, "agent_id")?;
-            let conv_ref = optional_string_field(&args, "conversation_id");
-            let user_id = ctx_user_id(&context);
-
-            let params = InsertAgentNoteParams {
-                tenant_id,
-                user_id: &user_id,
-                agent_id: &agent_id,
-                conversation_id: conv_ref.as_deref(),
-                scope: MemoryScope::User,
-                content: &body,
-                transport_policy: ai_scope::derived_policy(),
-            };
-            let note = context
-                .resources
-                .repos()
-                .memory
-                .insert_agent_note(&params)
-                .await?;
-
-            ok_typed(
-                "agent_note_add",
-                AgentNoteAddResult {
-                    note_id: note.id,
-                    created_at: note.created_at.to_rfc3339(),
-                },
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// AgentFollowupScheduleTool — schedule a future check-in
-// ============================================================================
-
-/// Agent followup scheduling tool.
-///
-/// Lets the agent record a promised future check-in. Pending followups are
-/// rendered into the next conversation's system prompt so the agent
-/// remembers its commitment.
-#[derive(Debug)]
-pub struct AgentFollowupScheduleTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "content".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Reminder text, ≤ 500 characters, e.g. 'check on Achilles pain after long run'.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Agent making the promise.".to_owned()),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "due_at".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("RFC3339 timestamp for when to surface the reminder.".to_owned()),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "conversation_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Originating conversation ID, for provenance.".to_owned()),
-                ..Default::default()
-            },
-        );
-        let schema = object_schema(
-            properties,
-            Some(vec!["content".to_owned(), "agent_id".to_owned()]),
-        );
-        answers_with::<AgentFollowupScheduleResult>(tool_definition(
-            "agent_followup_schedule",
-            "Schedule a future check-in, surfaced to the agent in the next conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
-            schema,
-            annotations("Schedule agent follow-up", Effect::AdditiveWrite, Reach::Internal),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let body = require_string_field(&args, "content")?;
-            if body.trim().is_empty() {
-                return Err(AppError::invalid_input(
-                    "followup content must not be empty",
-                ));
-            }
-            if body.len() > 500 {
-                return Err(AppError::invalid_input(
-                    "followup content exceeds 500 character limit",
-                ));
-            }
-            let agent_id = require_string_field(&args, "agent_id")?;
-            let conv_ref = optional_string_field(&args, "conversation_id");
-            let due_at = optional_string_field(&args, "due_at")
-                .map(|s| {
-                    DateTime::parse_from_rfc3339(&s)
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .map_err(|e| {
-                            AppError::invalid_input(format!("due_at must be RFC3339: {e}"))
-                        })
-                })
-                .transpose()?;
-            let user_id = ctx_user_id(&context);
-
-            let params = InsertAgentFollowupParams {
-                tenant_id,
-                user_id: &user_id,
-                agent_id: &agent_id,
-                conversation_id: conv_ref.as_deref(),
-                content: &body,
-                due_at,
-                transport_policy: ai_scope::derived_policy(),
-            };
-            let followup = context
-                .resources
-                .repos()
-                .memory
-                .insert_agent_followup(&params)
-                .await?;
-
-            ok_typed(
-                "agent_followup_schedule",
-                AgentFollowupScheduleResult {
-                    followup_id: followup.id,
-                    status: "pending".to_owned(),
-                    due_at: followup.due_at.map(|d| d.to_rfc3339()),
-                },
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
 }
 
 // ============================================================================
@@ -698,18 +427,11 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
 /// Build the full set of Tier 3 memory tools for registration.
 #[must_use]
 pub fn create_memory_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![
-        Box::new(AgentNoteAddTool),
-        Box::new(AgentFollowupScheduleTool),
-        Box::new(RememberFactTool),
-        Box::new(RecallUserMemoryTool),
-    ]
+    vec![Box::new(RememberFactTool), Box::new(RecallUserMemoryTool)]
 }
 
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(RecallUserMemoryTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(RememberFactTool => empty);
-crate::declare_security!(AgentNoteAddTool => empty);
-crate::declare_security!(AgentFollowupScheduleTool => empty);
+crate::declare_security!(RecallUserMemoryTool => empty);
+crate::declare_security!(RememberFactTool => empty; first_party_only);

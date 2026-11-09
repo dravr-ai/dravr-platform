@@ -16,9 +16,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -26,16 +27,21 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user};
-use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper_serving};
 
 /// The canned ride the mock scraper serves (the "GPS provider" side).
 const SCRAPER_RIDE_ID: &str = "15551234567";
-/// Its start instant; the sensor twin overlaps this window.
-const SCRAPER_RIDE_START: &str = "2026-08-10T12:00:00Z";
 
 #[tokio::test]
 async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
-    let scraper_url = spawn_mock_scraper().await;
+    // The ride is dated from today, not a fixed day: the merge reads a window
+    // that ends now, so a fixed date ages out of it and both WHOOP rows drop off
+    // with it; the twin-dedup assertion would then pass without dedup running.
+    let ride_start: DateTime<Utc> = (Utc::now() - Duration::days(3))
+        .with_nanosecond(0)
+        .expect("zero nanoseconds is valid");
+    let scraper_url =
+        spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339()).await;
     let resources = create_test_server_resources_with_sciotte(&scraper_url)
         .await
         .unwrap();
@@ -51,8 +57,6 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .await
         .expect("list tenants");
     let tenant = tenants.first().expect("user has a tenant").id;
-
-    let ride_start: DateTime<Utc> = SCRAPER_RIDE_START.parse().unwrap();
 
     // WHOOP first: a distance-less sensor twin of the scraper's ride (same
     // window, misclassified sport) plus a WHOOP-only session the day before.

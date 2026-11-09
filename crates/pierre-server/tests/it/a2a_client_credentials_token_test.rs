@@ -47,6 +47,7 @@ fn a2a_routes(resources: &Arc<ServerContext>) -> axum::Router {
         client_manager: resources.a2a.a2a_client_manager.clone(),
         auth_middleware: resources.auth.auth_middleware.clone(),
         tool_runtime,
+        coaching: None,
     })
 }
 
@@ -65,6 +66,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         accounts: resources.account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

@@ -19,7 +19,7 @@ import {
  * Keyed on `ErrorCode`'s wire names — the `code` of a `failed` frame and of a
  * refused turn's JSON body alike. A turn is the athlete asking their agent
  * something, so an upstream outage, a shed request and a throttled provider
- * all read as the same thing to them: Dravr is briefly unavailable, try again.
+ * all read as the same thing to them: Dravr is briefly unavailable.
  */
 const TURN_CODE_KEYS: Readonly<Record<string, string>> = {
   ResourceUnavailable: 'errors.generic',
@@ -37,6 +37,19 @@ const TURN_CODE_KEYS: Readonly<Record<string, string>> = {
   MissingRequiredField: 'errors.validation',
   InvalidFormat: 'errors.validation',
   ValueOutOfRange: 'errors.validation',
+};
+
+/**
+ * The sentences that tell the athlete to try again, and their wording without
+ * that instruction for a row that draws a Retry button under it: the button
+ * is the offer, and the sentence saying it again offered a retry twice
+ * (carnet#1363). The `errors.*` keys keep their instruction — every other
+ * surface that words an API failure draws no button.
+ */
+const RETRY_OFFERED_KEYS: Readonly<Record<string, string>> = {
+  'errors.generic': 'chat.turn.failed.unavailable',
+  'errors.timeout': 'chat.turn.failed.timeout',
+  'errors.offline': 'chat.turn.failed.offline',
 };
 
 /** What a turn that ended with no usable reason reads as. */
@@ -90,12 +103,19 @@ function describeCode(
  * shared catalogue. The server's `message` is never returned — it is English,
  * written for API callers, and a French thread once printed "The resource is
  * temporarily unavailable" verbatim (carnet#680).
+ *
+ * `retryOffered` says the caller draws a Retry button under the sentence: a
+ * sentence that ends by telling the athlete to try again is then worded
+ * without that instruction ({@link RETRY_OFFERED_KEYS}), so the button is the
+ * one offer. Leave it unset wherever no button is drawn.
  */
 export function describeTurnFailure(
   err: unknown,
-  opts: { online?: boolean; t: ApiErrorTranslate },
+  opts: { online?: boolean; t: ApiErrorTranslate; retryOffered?: boolean },
 ): string {
-  const { t } = opts;
+  const t: ApiErrorTranslate = opts.retryOffered
+    ? (key, params) => opts.t(RETRY_OFFERED_KEYS[key] ?? key, params)
+    : opts.t;
   if (err instanceof TurnIdleAbortedError) return t('chat.turnIdleAborted');
   if (err instanceof TurnFailedError) {
     return describeCode(err.code, err.details, t) ?? t(TURN_UNWORDED_KEY);

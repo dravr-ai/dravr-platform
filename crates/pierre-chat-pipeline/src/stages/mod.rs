@@ -15,7 +15,7 @@
 //! Stages are grouped by the pipeline phase they belong to:
 //!
 //! - Prompt assembly: [`prompt_builder`], [`refresh`], [`memory`],
-//!   [`followups`], [`introduction`]
+//!   [`introduction`]
 //! - Pre-LLM preparation: [`prefetch`], [`compaction`]
 //! - Post-LLM processing: `guardrails`, [`verification`]
 //! - Lifecycle I/O: [`persistence`], [`command_persistence`]
@@ -27,6 +27,7 @@ pub mod activity_fold;
 /// Per-turn `@handle` routing: an installed agent named in the message
 /// answers that turn only.
 pub mod agent_mention;
+pub mod agent_session;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
 /// The repair re-asks capability recovery sends, and when their reply replaces
@@ -50,14 +51,10 @@ pub mod compaction;
 pub mod completion;
 /// Turns the platform answers itself, without the LLM.
 pub mod deterministic_reply;
-pub mod followups;
 /// Whether a group turn's sender is the group's coach, not an athlete in it.
 pub(crate) mod group_subject;
-/// Guardian confirm-required recovery: short-circuit a turn with the
-/// localized confirmation ask when the Guardian parked a destructive call.
-pub(crate) mod guardian_confirm;
-/// Guardian-denied recovery: short-circuit a turn with a localized "blocked
-/// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
+/// Guardian-denied recovery: short-circuit a turn with a localized reply saying
+/// what went through when the runtime Guardian blocked a tool in enforce mode.
 pub(crate) mod guardian_denied;
 /// Admin-configured text guardrails applied to the assistant reply.
 pub(crate) mod guardrails;

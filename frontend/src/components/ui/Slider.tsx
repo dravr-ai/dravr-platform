@@ -91,7 +91,7 @@ export const Slider: React.FC<SliderProps> = ({
                 className={`w-3 h-3 rounded-full border-2 transition-colors ${
                   isActive
                     ? 'bg-primary border-primary'
-                    : 'bg-white border-outline-variant'
+                    : 'bg-surface-container-lowest border-outline-variant'
                 }`}
               />
               {markerLabels[marker] && (
@@ -124,7 +124,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-webkit-slider-thumb]:w-5
             [&::-webkit-slider-thumb]:h-5
             [&::-webkit-slider-thumb]:rounded-full
-            [&::-webkit-slider-thumb]:bg-white
+            [&::-webkit-slider-thumb]:bg-surface-container-lowest
             [&::-webkit-slider-thumb]:border-2
             [&::-webkit-slider-thumb]:border-primary
             [&::-webkit-slider-thumb]:
@@ -136,7 +136,7 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-moz-range-thumb]:w-5
             [&::-moz-range-thumb]:h-5
             [&::-moz-range-thumb]:rounded-full
-            [&::-moz-range-thumb]:bg-white
+            [&::-moz-range-thumb]:bg-surface-container-lowest
             [&::-moz-range-thumb]:border-2
             [&::-moz-range-thumb]:border-primary
             [&::-moz-range-thumb]:

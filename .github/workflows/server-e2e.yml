@@ -293,13 +293,15 @@ jobs:
       # and 4 of its 5 failures in 60 days were this gate, not the build. This
       # job builds on most crates pushes anyway, so it carries the check. The
       # thin, default-feature binary is not the shipped one, so its ceiling is
-      # the shipped ceiling scaled by the two measured on main on 2026-10-21:
-      # fat 104 MB (ceiling 115), thin 126 MB (132,462,792 bytes, run
-      # 39589624107), so 126 x 115/104 = 139. Move both ceilings together.
+      # the shipped ceiling scaled by the two measured on main on 2026-11-05:
+      # fat 113 MB (ceiling 115, run 42080359585), thin 139 MB, so
+      # 139 x 115/113 = 141. Re-scaled on 2026-11-06 from main's fat 114 MB
+      # (runs 42323514435, 42316877305) and thin 141 MB: 141 x 115/114 = 142.
+      # Move both ceilings together.
       - name: Check the server binary size (thin release)
         run: |
           BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
-          MAX_SIZE_MB=139
+          MAX_SIZE_MB=142
           WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
           echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
           if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
@@ -650,10 +652,12 @@ jobs:
             sleep 1
           done
 
-          # GET /mcp/tools is tiered exactly like JSON-RPC tools/list, so only a
-          # global admin sees the complete registry the generated types describe.
-          # The server has applied the migrations by now, so the CLI can write to
-          # the same on-disk database.
+          # GET /mcp/tools answers exactly like JSON-RPC tools/list: the public
+          # profile every external client is offered, a global admin included,
+          # which is what the generated types describe. An admin's tenant is on
+          # the top plan, so no plan leaves a tool out. The server has applied
+          # the migrations by now, so the CLI can write to the same on-disk
+          # database.
           ./target/release/pierre-cli user create \
             --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
 
@@ -698,6 +702,11 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          # A deployment with no USDA key leaves the food-database tools out of
+          # tools/list (deployment_tools::retain_answerable), and the committed
+          # types describe a deployment that holds one. Only listing reads it:
+          # this run calls no tool, so the key is never sent to USDA.
+          USDA_API_KEY: "sdk-types-ci-key-never-sent"
 
   sdk-tests:
     name: SDK Test Suite
@@ -784,6 +793,10 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          # tools/list leaves the food-database tools out without a USDA key, and
+          # these suites assert they are listed; none calls one, so the key is
+          # never sent to USDA.
+          USDA_API_KEY: "sdk-tests-ci-key-never-sent"
 
       - name: Run SDK E2E tests
         working-directory: sdk
@@ -798,6 +811,10 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          # tools/list leaves the food-database tools out without a USDA key, and
+          # these suites assert they are listed; none calls one, so the key is
+          # never sent to USDA.
+          USDA_API_KEY: "sdk-tests-ci-key-never-sent"
 
       - name: Upload SDK test results
         if: always()

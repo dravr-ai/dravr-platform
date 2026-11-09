@@ -19,8 +19,13 @@ describe('OnboardingProgress', () => {
   it('renders every step label', () => {
     render(<OnboardingProgress steps={STEPS} />);
     expect(screen.getByText('About you')).toBeInTheDocument();
-    expect(screen.getByText('Connect')).toBeInTheDocument();
+    expect(screen.getAllByText('Connect')).toHaveLength(2);
     expect(screen.getByText('Your team')).toBeInTheDocument();
+  });
+
+  it('names only the current step in the caption a narrow screen shows under the dots', () => {
+    render(<OnboardingProgress steps={STEPS} />);
+    expect(screen.getByTestId('onboarding-current-step')).toHaveTextContent('Connect');
   });
 
   it('announces the current step (1-indexed) to assistive tech', () => {

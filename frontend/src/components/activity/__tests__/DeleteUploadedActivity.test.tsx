@@ -57,6 +57,7 @@ function detail(provider: string, id: string): ActivityDetailResponse {
     splits: [],
     laps: [],
     conversation_id: null,
+    utc_offset_seconds: null,
   };
 }
 

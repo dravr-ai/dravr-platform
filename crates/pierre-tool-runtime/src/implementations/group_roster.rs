@@ -170,13 +170,23 @@ pub(super) enum CallRoom {
     Private,
     /// A group's room, read by every member: the group's id.
     Group(String),
-    /// A conversation that does not resolve for the caller. It may be any
-    /// room, so nothing about an athlete is published into it.
+    /// A conversation confirmed neither private to the caller nor a group's
+    /// room: one that does not resolve for them, which may be any room; a
+    /// chat other people read that no group is bound to — a messaging group
+    /// chat whose binding failed (carnet#1421); or a call that names a
+    /// conversation without saying who reads it. Nothing about an athlete is
+    /// published into it.
     Unresolved,
 }
 
 /// The room `context`'s conversation is, resolved under the conversation's
 /// own tenant (a shared room's row lives under the bot tenant).
+///
+/// A row with no group is private only on a turn the caller alone reads
+/// ([`ToolExecutionContext::turn_direct_message`] is `Some(true)`): a
+/// messaging group chat keeps no group when its binding fails, and nothing on
+/// its row tells it from a direct message. A call that does not say is not
+/// taken for private, so an executor built outside a turn fails closed.
 ///
 /// # Errors
 ///
@@ -202,9 +212,11 @@ pub(super) async fn call_room(context: &ToolExecutionContext) -> AppResult<CallR
     };
     Ok(match conversation {
         None => CallRoom::Unresolved,
-        Some(conversation) => conversation
-            .group_id
-            .map_or(CallRoom::Private, CallRoom::Group),
+        Some(conversation) => match conversation.group_id {
+            Some(group) => CallRoom::Group(group),
+            None if context.turn_direct_message == Some(true) => CallRoom::Private,
+            None => CallRoom::Unresolved,
+        },
     })
 }
 
@@ -423,7 +435,11 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              covers that group only. Use `get_group_member_activities` for one athlete's full \
              session history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
-            annotations("Get roster overview", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get roster overview",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -458,8 +474,9 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
     }
 }
 
-// Athlete display names and session titles are third-party text.
-crate::declare_security!(GetRosterOverviewTool => UNTRUSTED_OUTPUT);
+// A coach's tool over other athletes' data: Dravr's own surfaces list and run
+// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+crate::declare_security!(GetRosterOverviewTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {

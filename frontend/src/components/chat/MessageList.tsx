@@ -19,6 +19,7 @@ import {
   opensPrivateStretch,
   PRIVATE_LANE_KEYS,
   type TurnTrail,
+  canRegenerateReply,
 } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import MessageBubble from './MessageBubble';
@@ -335,7 +336,7 @@ export default function MessageList({
           onSubmitReason={
             ownReply ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
           }
-          onRetry={ownReply ? () => onRetryMessage(msg.id) : undefined}
+          onRetry={ownReply && canRegenerateReply(msg) ? () => onRetryMessage(msg.id) : undefined}
           onShowVerdict={onShowVerdict}
           onAskAboutClaim={isPrivate ? (privateLane?.onAskAboutClaim ?? onAskAboutClaim) : onAskAboutClaim}
           onActionClick={isPrivate ? privateLane?.onActionClick : onActionClick}
@@ -465,14 +466,14 @@ export default function MessageList({
               {onRetryError && (
                 <button
                   onClick={onRetryError}
-                  className="text-xs font-medium text-error underline transition-colors hover:text-error"
+                  className="touch-target text-xs font-medium text-error underline transition-colors hover:text-error"
                 >
                   {t('chat.retry')}
                 </button>
               )}
               <button
                 onClick={onDismissError}
-                className="text-xs text-error underline transition-colors hover:text-error"
+                className="touch-target text-xs text-error underline transition-colors hover:text-error"
               >
                 {t('chat.dismiss')}
               </button>

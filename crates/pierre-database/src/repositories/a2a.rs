@@ -18,24 +18,20 @@ use uuid::Uuid;
 /// A2A (Agent-to-Agent) client and session management repository
 #[async_trait]
 pub trait A2ARepository: Send + Sync {
-    /// Create a new A2A client bound to the API key it authenticates with.
+    /// Create a new A2A client.
     ///
     /// No secret is stored here: the client's secret lives in its
     /// `oauth2_clients` registration, where the `client_credentials` grant
     /// verifies it.
-    async fn create_client(&self, client: &A2AClient, api_key_id: &str) -> AppResult<String>;
+    async fn create_client(&self, client: &A2AClient) -> AppResult<String>;
     /// Get A2A client by ID
     async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>>;
-    /// Get A2A client by API key ID
-    async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>>;
     /// List all A2A clients for a user
     async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>>;
     /// Deactivate an A2A client
     async fn deactivate_client(&self, client_id: &str) -> AppResult<()>;
     /// Invalidate all active sessions for a client
     async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()>;
-    /// Deactivate all API keys associated with a client
-    async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()>;
     /// Create a new A2A session
     async fn create_session(
         &self,
@@ -146,12 +142,11 @@ pub trait A2ARepository: Send + Sync {
 // expression that mints a usage row's id, and the cast an IP address needs.
 
 /// The client projection every client read returns. The model's
-/// `public_key` lives in `api_key_hash`, its `rate_limit_requests` in
-/// `rate_limit_per_minute` and its `rate_limit_window_seconds` in
-/// `rate_limit_per_day`.
+/// `rate_limit_requests` lives in `rate_limit_per_minute` and its
+/// `rate_limit_window_seconds` in `rate_limit_per_day`.
 macro_rules! client_columns {
     () => {
-        "client_id, user_id, name, description, api_key_hash, capabilities, redirect_uris, \
+        "client_id, user_id, name, description, capabilities, redirect_uris, \
          contact_email, rate_limit_per_minute, rate_limit_per_day, is_active, created_at, \
          updated_at"
     };
@@ -160,17 +155,11 @@ macro_rules! client_columns {
 /// Register a client.
 pub(crate) const INSERT_CLIENT_SQL: &str = r"
             INSERT INTO a2a_clients (
-                client_id, user_id, name, description, api_key_hash,
+                client_id, user_id, name, description,
                 capabilities, redirect_uris, contact_email,
                 rate_limit_per_minute, rate_limit_per_day, is_active,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ";
-
-/// Bind a client to the API key it authenticates with.
-pub(crate) const INSERT_CLIENT_API_KEY_SQL: &str = r"
-            INSERT INTO a2a_client_api_keys (client_id, api_key_id, created_at)
-            VALUES ($1, $2, $3)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
 /// One client by id, active or not.
@@ -179,16 +168,6 @@ pub(crate) const GET_CLIENT_SQL: &str = concat!(
     client_columns!(),
     " FROM a2a_clients WHERE client_id = $1"
 );
-
-/// The active client behind an API key: how API-key auth resolves a caller.
-pub(crate) const GET_CLIENT_BY_API_KEY_SQL: &str = r"
-            SELECT c.client_id, c.user_id, c.name, c.description, c.api_key_hash, c.capabilities,
-                   c.redirect_uris, c.contact_email, c.rate_limit_per_minute, c.rate_limit_per_day,
-                   c.is_active, c.created_at, c.updated_at
-            FROM a2a_clients c
-            INNER JOIN a2a_client_api_keys k ON c.client_id = k.client_id
-            WHERE k.api_key_id = $1 AND c.is_active = TRUE
-            ";
 
 /// Every active client, newest first: the system-wide (admin) listing.
 pub(crate) const LIST_ALL_CLIENTS_SQL: &str = concat!(
@@ -211,10 +190,6 @@ pub(crate) const DEACTIVATE_CLIENT_SQL: &str =
 /// End every session of a client by moving its expiry into the past.
 pub(crate) const INVALIDATE_CLIENT_SESSIONS_SQL: &str =
     "UPDATE a2a_sessions SET expires_at = $1 WHERE client_id = $2";
-
-/// Retire every API key a client was bound to.
-pub(crate) const DEACTIVATE_CLIENT_API_KEYS_SQL: &str = "UPDATE api_keys SET is_active = FALSE \
-     WHERE id IN (SELECT api_key_id FROM a2a_client_api_keys WHERE client_id = $1)";
 
 /// The session projection every session read returns.
 macro_rules! session_columns {

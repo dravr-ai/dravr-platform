@@ -368,14 +368,19 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
 
 /**
  * Panes an operator does not get: provider connections, the gear ledger,
- * messaging and About are athlete-account surfaces. Gated on `role`, as the
- * Dashboard gates.
+ * messaging, About, coaching style, notification preferences, memory and
+ * privacy all describe an athlete's own account. Profile and Account stay:
+ * Account holds security and sign-out. Gated on `role`, as the Dashboard gates.
  */
 export const ADMIN_HIDDEN_PANES: ReadonlySet<SettingsPaneId> = new Set([
   'connections',
   'gear',
   'about',
   'messaging',
+  'coaching',
+  'notifications',
+  'memory',
+  'privacy',
 ]);
 
 /** The panes a platform lists in its settings menu, in menu order. */
@@ -478,6 +483,13 @@ export function settingsPaneSections(id: SettingsPaneId): readonly SettingsSecti
  */
 export const HELP_URL = 'https://dravr.ai/docs';
 export const LEGAL_URL = 'https://dravr.ai/privacy';
+
+/**
+ * The privacy policy's section that describes usage analytics, linked beside
+ * every place the app asks for that consent (carnet#1366): the policy has no
+ * anchor of its own for the paragraph, so this is the section holding it.
+ */
+export const ANALYTICS_POLICY_URL = `${LEGAL_URL}#what-we-do-with-it`;
 
 /**
  * The marketing site the brand lockups and the sign-in page's website link

@@ -134,8 +134,7 @@ describe('ReconnectBanner', () => {
     screen.rerenderBanner();
 
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(2));
-    await mockGetProvidersStatus.mock.results[1].value;
-    expect(screen.queryByTestId('reconnect-banner')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('reconnect-banner')).toBeNull());
   });
 
   it('comes back when leaving the pane with a connection still flagged', async () => {

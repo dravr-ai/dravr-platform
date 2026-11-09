@@ -275,6 +275,18 @@ WF
 [ "$(run "$R" lane dravr-canot)" = "bump-canot.yml" ] \
   && ok "a real caller wins over a declared claim" || bad "a stale declaration outranked a live caller"
 
+# --------------------------------------------------------------------------
+echo "-- target: a run queued behind a newer pin never moves it back"
+R=$(fixture crates-io)
+target_is() {  # target_is <label> <want> <pinned> <version> <may_move_back>
+  [ "$(run "$R" target "$3" "$4" "$5")" = "$2" ] && ok "$1" || bad "$1: got $(run "$R" target "$3" "$4" "$5"), want $2"
+}
+target_is "a newer release moves the pin" 0.14.5 0.14.4 0.14.5 false
+target_is "main already past it stands down on the pin" 0.14.5 0.14.5 0.14.4 false
+target_is "the same version stays" 0.14.5 0.14.5 0.14.5 false
+target_is "versions compare as numbers, not text" 0.14.10 0.14.10 0.14.9 false
+target_is "a person naming an older version rolls back" 0.14.4 0.14.5 0.14.4 true
+
 echo
 echo "==== ${PASS} passed, ${FAIL} failed ===="
 [ "$FAIL" -eq 0 ] || exit 1

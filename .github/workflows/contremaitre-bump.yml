@@ -237,6 +237,10 @@ jobs:
           # the moved entries rather than every crate (carnet#1282).
           gh workflow run ci-backend.yml --ref main -f scope=true || rc=1
           gh workflow run ci-postgres.yml --ref main -f scope=true || rc=1
+          # A bump moves the web locale copies under packages/i18n, and the
+          # mocked e2e suite finds controls by those labels, so a renamed string
+          # reddens web tests. No scope input: this lane always runs in full.
+          gh workflow run frontend-tests.yml --ref main || rc=1
           exit $rc
 
       - name: Run the messaging eval asserters on the bumped prompts

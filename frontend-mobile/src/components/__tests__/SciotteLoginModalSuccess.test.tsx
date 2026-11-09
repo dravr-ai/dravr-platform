@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The mobile credential login's success state names the platform in one sentence, in the app language
-// ABOUTME: It used to put the platform name in front of an English "is ready to sync" whatever the language
+// ABOUTME: The mobile credential login's success state names the platform in one sentence, in the app language; history mode says the copy runs
+// ABOUTME: A sign-in the server refuses because Garmin now connects through its authorization says so in the open window and tells the caller
 
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { SciotteLoginModal } from '../SciotteLoginModal';
 import { oauthApi } from '../../services/api';
@@ -25,9 +25,9 @@ jest.mock('../OAuthAppSetupModal', () => ({ OAuthAppSetupModal: () => null }));
 
 const sciotteLogin = oauthApi.sciotteLogin as jest.Mock;
 
-async function connectGarmin(): Promise<void> {
+async function connectGarmin(props: Partial<React.ComponentProps<typeof SciotteLoginModal>> = {}): Promise<void> {
   render(
-    <SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="garmin" />,
+    <SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="garmin" {...props} />,
   );
   fireEvent.changeText(screen.getByTestId('sciotte-email'), 'athlete@example.test');
   fireEvent.changeText(screen.getByTestId('sciotte-password'), 'not-a-real-password');
@@ -55,5 +55,75 @@ describe('SciotteLoginModal (mobile) — connected', () => {
     } finally {
       await i18n.changeLanguage('en');
     }
+  });
+});
+
+describe('SciotteLoginModal (mobile) — history mode', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    sciotteLogin.mockResolvedValue({ status: 'connected' });
+  });
+
+  it('says the sign-in copies the history once, and that the copy runs', async () => {
+    await connectGarmin({ historyMode: true });
+
+    expect(await screen.findByTestId('sciotte-success-line')).toHaveTextContent(i18n.t('providers.history.modalCopying'));
+    expect(screen.queryByText('Garmin is ready to sync')).toBeNull();
+  });
+
+  it('says what the sign-in is for before it starts', () => {
+    render(<SciotteLoginModal visible historyMode onClose={jest.fn()} onConnected={jest.fn()} target="garmin" />);
+
+    expect(screen.getByTestId('sciotte-history-intro')).toHaveTextContent(
+      i18n.t('providers.history.modalIntro', { provider: 'Garmin' }),
+    );
+  });
+
+  it('says nothing of history on an ordinary sign-in', () => {
+    render(<SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="garmin" />);
+
+    expect(screen.queryByTestId('sciotte-history-intro')).toBeNull();
+  });
+});
+
+describe('SciotteLoginModal (mobile) — Garmin now connects through its authorization', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('stays open saying Garmin now connects through its official sign-in, and tells the caller', async () => {
+    sciotteLogin.mockRejectedValue({ response: { status: 403, data: { details: { reason: 'oauth_required' } } } });
+    const onClose = jest.fn();
+    const onOAuthRequired = jest.fn();
+
+    await connectGarmin({ onClose, onOAuthRequired });
+
+    expect(
+      await screen.findByText(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin')),
+    ).toBeTruthy();
+    expect(onOAuthRequired).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('says it in the window though no caller listens', async () => {
+    sciotteLogin.mockRejectedValue({ response: { status: 403, data: { details: { reason: 'oauth_required' } } } });
+
+    await connectGarmin();
+
+    expect(
+      await screen.findByText(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin')),
+    ).toBeTruthy();
+  });
+
+  it('shows any other refusal in the window', async () => {
+    sciotteLogin.mockRejectedValue({ response: { status: 401, data: { message: 'bad password' } } });
+    const onClose = jest.fn();
+    const onOAuthRequired = jest.fn();
+
+    await connectGarmin({ onClose, onOAuthRequired });
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(onOAuthRequired).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

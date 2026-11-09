@@ -91,7 +91,7 @@ pub struct DispatchRequest<'a> {
     pub text: &'a str,
     /// Tool-dispatch runtime handed through to
     /// [`PlatformCommandContext::tool_runtime`] for handlers that execute
-    /// MCP tools (`/confirm`). Same concrete `ServerContext` as `ctx`,
+    /// MCP tools. Same concrete `ServerContext` as `ctx`,
     /// behind a separate trait to avoid a crate cycle through
     /// `pierre-runtime-context`.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,

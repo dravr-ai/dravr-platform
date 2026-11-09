@@ -25,6 +25,7 @@ use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_web_admin::WebAdminRoutes;
+use pierre_services::pricing::cost_for_record;
 use serde_json::Value;
 use serial_test::serial;
 use std::sync::Arc;
@@ -218,6 +219,7 @@ async fn seed_conversations_and_messages(
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             };
             resources
                 .common
@@ -388,8 +390,8 @@ async fn test_recent_activity_empty_database() -> Result<()> {
     assert_eq!(summary["total_tokens_today"].as_i64().unwrap_or(-1), 0);
     assert_eq!(summary["active_conversations"].as_i64().unwrap_or(-1), 0);
     assert!(
-        summary["estimated_cost_today"].as_f64().unwrap_or(-1.0) == 0.0,
-        "Expected estimated_cost_today == 0.0 on empty database"
+        summary["cost_today_usd"].as_f64().unwrap_or(-1.0) == 0.0,
+        "Expected cost_today_usd == 0.0 on empty database"
     );
 
     Ok(())
@@ -446,16 +448,47 @@ async fn test_recent_activity_unauthenticated() -> Result<()> {
 }
 
 // ============================================================================
-// Test 5: Recent activity includes cost estimation
+// Test 5: Recent activity's cost is a true sum
 // ============================================================================
 
+fn priced_call<'a>(
+    tenant_id: &'a str,
+    user_id: &'a str,
+    model: &'a str,
+    prompt_tokens: i64,
+) -> InsertLlmUsage<'a> {
+    InsertLlmUsage {
+        tenant_id,
+        user_id,
+        conversation_id: None,
+        turn_id: ConversationTurnId::new(),
+        provider: "anthropic",
+        model,
+        prompt_tokens,
+        completion_tokens: 1_000,
+        total_tokens: prompt_tokens + 1_000,
+        cached_tokens: 0,
+        cached_write_tokens: 0,
+        cached_write_1h_tokens: 0,
+        reasoning_tokens: 0,
+        call_type: "chat",
+        tool_calls_count: 0,
+        tools_called: "[]",
+        execution_time_ms: Some(200),
+        cost_usd: 0.0,
+        call_sequence: Some(1),
+    }
+}
+
+/// More rows than the recent list holds, all differently priced, plus a tool row.
+/// The old figure was the mean of the 20 newest rows times the day's row count,
+/// with the zero-cost tool row in both, so it matched no sum.
 #[tokio::test]
 #[serial]
-async fn test_recent_activity_cost_estimation() -> Result<()> {
+async fn test_recent_activity_cost_is_the_sum_of_every_call_today() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (user_id, auth_token) =
         create_admin_user_and_token(&resources, "cost_admin@test.com").await;
-
     let tenants = resources
         .common
         .repos
@@ -465,40 +498,58 @@ async fn test_recent_activity_cost_estimation() -> Result<()> {
     let tenant = tenants.first().expect("admin user should have a tenant");
     let tenant_id_str = tenant.id.to_string();
     let user_id_str = user_id.to_string();
+    let repo = &resources.common.repos.llm_usage;
 
-    // Seed LLM usage with known token counts
-    seed_llm_usage(&resources, &tenant_id_str, &user_id_str, 3).await;
+    let mut expected = 0.0;
+    for i in 0..25_i64 {
+        let call = priced_call(
+            &tenant_id_str,
+            &user_id_str,
+            "claude-sonnet-5-5",
+            10_000 + i * 2_000,
+        );
+        let row = repo.insert_llm_usage(&call).await?;
+        expected += cost_for_record(&row);
+    }
+    // 30 calls of 40K on a model with a 100K long-prompt threshold: their sum is
+    // 1.2M prompt tokens, and pricing that sum would apply the long rate to all.
+    for _ in 0..30 {
+        let call = priced_call(&tenant_id_str, &user_id_str, "claude-haiku-5-5", 40_000);
+        let row = repo.insert_llm_usage(&call).await?;
+        expected += cost_for_record(&row);
+    }
+    repo.insert_llm_usage(&InsertLlmUsage::for_direct_tool_call(
+        &tenant_id_str,
+        &user_id_str,
+        ConversationTurnId::new(),
+        "get_activities",
+        "[\"get_activities\"]",
+        40,
+    ))
+    .await?;
+    assert!(expected > 0.0, "the seeded models must be priced");
 
     let router = build_admin_analytics_router(resources);
-
     let response = AxumTestRequest::get("/api/admin/analytics/recent-activity")
         .header("authorization", &auth_token)
         .send(router)
         .await;
-
     assert_eq!(response.status(), 200);
-
     let body: Value = response.json();
-
-    // Verify each LLM call has a non-negative cost
-    let recent_llm = body["recent_llm_calls"]
-        .as_array()
-        .expect("recent_llm_calls should be an array");
-    for call in recent_llm {
-        let cost = call["cost_usd"]
-            .as_f64()
-            .expect("cost_usd should be a number");
-        assert!(cost >= 0.0, "Cost should be non-negative, got {cost}");
-    }
-
-    // Verify the estimated_cost_today field exists and is non-negative
     let summary = &body["summary"];
-    let estimated_cost = summary["estimated_cost_today"]
-        .as_f64()
-        .expect("estimated_cost_today should be a number");
+
+    assert_eq!(summary["llm_calls_today"].as_i64(), Some(55), "no tool row");
+    assert_eq!(body["recent_limit"].as_i64(), Some(20));
+    let recent = body["recent_llm_calls"].as_array().expect("an array");
+    assert_eq!(recent.len(), 20, "the list is capped");
     assert!(
-        estimated_cost >= 0.0,
-        "Estimated cost should be non-negative, got {estimated_cost}"
+        recent.iter().all(|call| call["provider"] != "direct"),
+        "no tool row in the list"
+    );
+    let cost = summary["cost_today_usd"].as_f64().expect("a number");
+    assert!(
+        (cost - expected).abs() < 1e-9,
+        "cost {cost} must be the sum of every call, {expected}"
     );
 
     Ok(())

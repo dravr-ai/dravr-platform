@@ -38,7 +38,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
           ref={ref}
           id={id ?? reactId}
           type="search"
-          className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-0"
+          className="min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 text-sm text-on-surface placeholder:text-ellipsis placeholder:text-outline focus:outline-none focus:ring-0"
           {...props}
         />
       </div>

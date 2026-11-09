@@ -55,8 +55,6 @@ impl ServerContext {
             self.common.config.clone(),
             #[cfg(feature = "protocol-a2a")]
             self.a2a.a2a_client_manager.clone(),
-            #[cfg(feature = "protocol-a2a")]
-            self.a2a.a2a_system_user_service.clone(),
             self.agent.admin_config.clone(),
         )
     }

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
-use serde_json::to_value;
+use serde_json::{json, to_value, Value};
 use tracing::info;
 
 use pierre_core::admin::models::ValidatedAdminToken;
@@ -24,6 +24,7 @@ use super::types::{
     UpdateSignupSettingsRequest,
 };
 use super::users::deny_without_manage_users;
+use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
 /// What the sign-up settings mean, returned with every read and write.
@@ -89,8 +90,22 @@ pub(crate) async fn handle_set_auto_approval(
         return Ok(denied.into_response());
     }
 
+    let before = get_auto_approval_settings(&context.database, &context.app_behavior).await?;
     set_auto_approval(&context.database, request.enabled).await?;
     let effective = get_auto_approval_settings(&context.database, &context.app_behavior).await?;
+    let audit = AuditDetail::new(
+        "settings.auto_approval.update",
+        format!(
+            "Auto-approval {} → {}",
+            on_off(before.enabled),
+            on_off(effective.enabled)
+        ),
+    )
+    .change(
+        json!({ "enabled": before.enabled }),
+        json!({ "enabled": effective.enabled, "requested": request.enabled,
+                "overridden_by_env": effective.overridden_by_env }),
+    );
 
     info!(
         requested = request.enabled,
@@ -115,21 +130,23 @@ pub(crate) async fn handle_set_auto_approval(
         )
     };
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message,
-            data: to_value(AutoApprovalResponse {
-                enabled: effective.enabled,
-                auto_approve_domains: effective.auto_approve_domains,
-                overridden_by_env: effective.overridden_by_env,
-                description: AUTO_APPROVAL_DESCRIPTION.to_owned(),
-            })
-            .ok(),
-        },
-        StatusCode::OK,
-    )
-    .into_response())
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message,
+                data: to_value(AutoApprovalResponse {
+                    enabled: effective.enabled,
+                    auto_approve_domains: effective.auto_approve_domains,
+                    overridden_by_env: effective.overridden_by_env,
+                    description: AUTO_APPROVAL_DESCRIPTION.to_owned(),
+                })
+                .ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }
 
 /// The sign-up settings in force, with the count the ceiling meets.
@@ -145,6 +162,57 @@ async fn signup_settings(context: &AdminApiContext) -> AppResult<SignupSettingsR
         turnstile_configured: context.human_check_configured,
         description: SIGNUP_DESCRIPTION.to_owned(),
     })
+}
+
+/// "on" or "off", for a trail sentence.
+const fn on_off(enabled: bool) -> &'static str {
+    if enabled {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+/// The three operator-set sign-up values, as the trail stores them.
+fn signup_policy_json(settings: &SignupSettingsResponse) -> Value {
+    json!({
+        "open": settings.open,
+        "daily_limit": settings.daily_limit,
+        "activate_on_verified_email": settings.activate_on_verified_email,
+    })
+}
+
+/// One sentence naming each sign-up value that changed, or that none did.
+fn signup_change_summary(
+    before: &SignupSettingsResponse,
+    after: &SignupSettingsResponse,
+) -> String {
+    let mut changes = Vec::new();
+    if before.open != after.open {
+        changes.push(format!(
+            "sign-up {} → {}",
+            on_off(before.open),
+            on_off(after.open)
+        ));
+    }
+    if before.daily_limit != after.daily_limit {
+        changes.push(format!(
+            "daily limit {} → {}",
+            before.daily_limit, after.daily_limit
+        ));
+    }
+    if before.activate_on_verified_email != after.activate_on_verified_email {
+        changes.push(format!(
+            "activate on verified email {} → {}",
+            on_off(before.activate_on_verified_email),
+            on_off(after.activate_on_verified_email)
+        ));
+    }
+    if changes.is_empty() {
+        "Saved the sign-up settings unchanged".to_owned()
+    } else {
+        format!("Sign-up settings: {}", changes.join(", "))
+    }
 }
 
 /// Handle getting the self-serve sign-up settings (carnet#1063).
@@ -178,6 +246,7 @@ pub(crate) async fn handle_set_signup_settings(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
+    let before = signup_settings(&context).await?;
     set_signup_policy(
         &context.database,
         SignupPolicyUpdate {
@@ -196,15 +265,22 @@ pub(crate) async fn handle_set_signup_settings(
         token_id = %admin_token.token_id,
         "Sign-up settings updated"
     );
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "Sign-up settings updated".to_owned(),
-            data: to_value(settings).ok(),
-        },
-        StatusCode::OK,
+    let audit = AuditDetail::new(
+        "settings.signup.update",
+        signup_change_summary(&before, &settings),
     )
-    .into_response())
+    .change(signup_policy_json(&before), signup_policy_json(&settings));
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: "Sign-up settings updated".to_owned(),
+                data: to_value(settings).ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }
 
 /// Handle resetting the daily ceiling's count to zero now, leaving the limit
@@ -219,13 +295,19 @@ pub(crate) async fn handle_reset_signup_count(
     reset_ceiling_count(&context.database, admin_token.operator_user_id).await?;
     let settings = signup_settings(&context).await?;
     info!(token_id = %admin_token.token_id, "Sign-up daily count reset");
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "Sign-up daily count reset".to_owned(),
-            data: to_value(settings).ok(),
-        },
-        StatusCode::OK,
-    )
-    .into_response())
+    let audit = AuditDetail::new(
+        "settings.signup.reset_count",
+        "Reset the sign-up daily count to 0",
+    );
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: "Sign-up daily count reset".to_owned(),
+                data: to_value(settings).ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }

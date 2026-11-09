@@ -18,7 +18,9 @@ use pierre_core::constants::oauth_providers::{
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::activity_source::resolve_activity_source;
-use pierre_providers::backend_resolver::serving_backends;
+use pierre_providers::backend_resolver::{
+    serving_backends, session_beside_grant, user_facing_name,
+};
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::precedence::{key_source, rank, Kind};
@@ -46,6 +48,9 @@ pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Opti
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
 }
+
+/// The `provider` argument of a tool that reads the athlete's activities.
+pub const PROVIDER_ARGUMENT: &str = "Provider or `upload`; default is their best source.";
 
 /// What the model is told when a tool needs a provider and the athlete has none.
 ///
@@ -86,7 +91,8 @@ pub fn no_provider_refusal() -> UniversalResponse {
 /// 2. Deployment-wide `PIERRE_DEFAULT_PROVIDER` env override.
 /// 3. The user's most-recently-used connection from `provider_connections`
 ///    (ordered by `last_used_at DESC NULLS LAST, connected_at DESC`).
-/// 4. Returns the [`no_provider_refusal`] when the user has no connection: the
+/// 4. What the athlete brought in themselves (uploads, imported archives).
+/// 5. Returns the [`no_provider_refusal`] when the user has none of them: the
 ///    model is told there is no data and answers what it can.
 ///
 /// Replaces the historical `.and_then(|v| v.as_str()).map_or_else(default_provider, String::from)`
@@ -95,8 +101,8 @@ pub fn no_provider_refusal() -> UniversalResponse {
 ///
 /// # Errors
 ///
-/// Returns a boxed `UniversalResponse` when the user has no provider connections at
-/// all: the [`no_provider_refusal`].
+/// Returns a boxed `UniversalResponse` when the user has no source at all: the
+/// [`no_provider_refusal`].
 pub async fn resolve_provider_for_request(
     parameters: &JsonValue,
     executor: &UniversalToolExecutor,
@@ -165,10 +171,7 @@ pub async fn resolve_provider_for_tool(
 }
 
 /// The one priority chain both resolvers answer with: the explicit `provider`
-/// argument, then the deployment-wide `PIERRE_DEFAULT_PROVIDER`, then the
-/// connection elected to answer activity questions
-/// ([`resolve_activity_source`]: health, then capability, then recency). `None`
-/// when the user has none.
+/// argument, then [`elected_source`].
 async fn elect_provider(
     parameters: &JsonValue,
     runtime: &Arc<dyn ToolRuntime>,
@@ -183,31 +186,76 @@ async fn elect_provider(
     {
         return Ok(Some(p.to_owned()));
     }
+    elected_source(runtime, user_id, tenant).await
+}
 
-    // 2. Env override
+/// The source that answers a read naming no provider.
+///
+/// The deployment-wide `PIERRE_DEFAULT_PROVIDER`, then the connection elected to
+/// answer activity questions ([`resolve_activity_source`]: health, then
+/// capability, then recency), then what the athlete brought in themselves.
+/// `None` when the athlete has none of them.
+///
+/// An uploaded file or an imported archive has no connection behind it, so the
+/// election alone refused an athlete holding only those while the dispatch
+/// chokepoint let them through on the same evidence
+/// (`athlete_has_data_source`). They are read through
+/// [`AuthService::create_authenticated_provider`] like any other source.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when a repository read fails.
+pub async fn elected_source(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: Option<TenantId>,
+) -> Result<Option<String>, AppError> {
     if let Some(env_p) = default_provider() {
         return Ok(Some(env_p));
     }
 
-    // 3. The connection elected to answer activity questions
-    let Some(conn) = resolve_activity_source(
+    if let Some(conn) = resolve_activity_source(
         runtime.repos().provider_connections.as_ref(),
         runtime.provider_registry(),
         user_id,
         tenant,
     )
     .await?
-    else {
+    {
+        // A usr/pwd session beside a grant that serves its provider serves
+        // nothing: the grant answers in its place (carnet#1386).
+        let beside_grant = match TenantId::parse_str(&conn.tenant_id).ok().or(tenant) {
+            Some(tid) => session_beside_grant(runtime.repos(), user_id, tid, &conn.provider).await,
+            None => false,
+        };
+        let provider = if beside_grant {
+            user_facing_name(&conn.provider).to_owned()
+        } else {
+            conn.provider
+        };
+        // A diagnostic line, not a catalogued business event: on the notify
+        // target it reached Slack and PostHog as a nameless event.
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            "resolved provider from the user's elected activity source"
+        );
+        return Ok(Some(provider));
+    }
+
+    // What the athlete brought in belongs to the tenant they brought it into.
+    let Some(tenant) = tenant else {
         return Ok(None);
     };
-    // A diagnostic line, not a catalogued business event: on the notify target
-    // it reached Slack and PostHog as a nameless event.
-    info!(
-        user_id = %user_id,
-        provider = %conn.provider,
-        "resolved provider from the user's elected activity source"
-    );
-    Ok(Some(conn.provider))
+    let held = runtime
+        .repos()
+        .activity_cache
+        .held_user_provided(user_id, &tenant)
+        .await?;
+    Ok(USER_PROVIDED_PROVIDERS
+        .iter()
+        .find(|key| held.iter().any(|held| held == *key))
+        .map(|key| (*key).to_owned()))
 }
 
 /// Create a standard auth error response

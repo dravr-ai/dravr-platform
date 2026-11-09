@@ -55,6 +55,11 @@ use pierre_services::auth::AuthService;
 #[cfg(feature = "protocol-rest")]
 use tracing::info;
 
+#[cfg(feature = "protocol-rest")]
+use crate::services::archive_import::ops::OFFERED_SOURCES;
+#[cfg(all(feature = "protocol-rest", feature = "tools-data"))]
+use pierre_services::history_import::HistoryImports;
+
 /// Centralized resource container for dependency injection.
 ///
 /// Composed of 8 slice structs partitioning the ~50 shared Arc handles into
@@ -129,12 +134,6 @@ impl ServerContext {
     #[must_use]
     pub fn messaging_context_prompt(&self) -> String {
         self.mcp.prompt_registry.messaging_context_prompt()
-    }
-
-    /// Get the plan-then-verify planner's workflow grammar.
-    #[must_use]
-    pub fn guardian_planner_prompt(&self) -> String {
-        self.mcp.prompt_registry.guardian_planner_prompt()
     }
 
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
@@ -219,12 +218,27 @@ impl ServerContext {
         )
     }
 
+    /// The one-time history import the auth routes report a sign-in beside a
+    /// grant to, run on this context as a tool runtime. The context is a set
+    /// of shared handles, so the runtime the import holds is a copy of those
+    /// handles: the same repositories, registry and services.
+    #[cfg(feature = "tools-data")]
+    fn history_imports(&self) -> Arc<dyn HistoryImports> {
+        use pierre_tool_runtime::history_import::RuntimeHistoryImports;
+        use pierre_tool_runtime::runtime::ToolRuntime;
+
+        let runtime: Arc<dyn ToolRuntime> = Arc::new(self.clone());
+        Arc::new(RuntimeHistoryImports::new(runtime))
+    }
+
     /// Build an [`pierre_routes_auth::AuthRoutesContext`] view over this
     /// `ServerContext` — collects every Arc handle the auth route group
     /// needs (auth manager, JWKS, CSRF, repos, config, data, optional
     /// Firebase / Resend, OAuth notification sender, tenant OAuth client,
     /// provider registry, sync notifier, optional sync orchestrator,
-    /// cache, string catalogue, admin JWT secret, the `OAuth2` rate limiter, and — under `provider-sciotte` — the
+    /// cache, string catalogue, admin JWT secret, the `OAuth2` rate limiter, the
+    /// import sources offered here, the one-time history import over this
+    /// context's tool runtime, and — under `provider-sciotte` — the
     /// hosted-login rate limiter and nonce store).
     #[must_use]
     pub fn auth_routes_context(&self) -> pierre_routes_auth::AuthRoutesContext {
@@ -250,8 +264,22 @@ impl ServerContext {
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             // The import routes the hosted page calls are mounted with the
             // client settings routes.
-            archive_imports_offered: cfg!(feature = "client-settings")
-                && self.common.archive_imports.is_enabled(),
+            offered_archive_sources: if cfg!(feature = "client-settings")
+                && self.common.archive_imports.is_enabled()
+            {
+                OFFERED_SOURCES
+                    .iter()
+                    .map(|source| source.as_str())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            #[cfg(feature = "tools-data")]
+            history_imports: Some(self.history_imports()),
+            // No backfill rail in this build: a sign-in beside a grant only
+            // warms the session, as any sign-in does.
+            #[cfg(not(feature = "tools-data"))]
+            history_imports: None,
             rate_limiter: self.auth.oauth2_rate_limiter.clone(),
             play_integrity: self.auth.play_integrity.clone(),
             human_check: self.auth.human_check.clone(),

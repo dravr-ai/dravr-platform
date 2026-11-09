@@ -7,6 +7,7 @@
 //! Each test builds a value with a distinctive sentinel in every hidden field,
 //! formats it with `{:?}` and `{:#?}`, and asserts no sentinel comes out.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::fmt::Debug;
 
 use pierre_chat_pipeline::stages::viz_blocks::VizExtraction;
@@ -93,6 +94,7 @@ fn a_turn_request_prints_the_size_of_the_message_never_its_text_or_sender() {
         sender_id: Some("+15550007f3a"),
         transport: Transport::WebApp,
         hooks: PipelineHooks::none(),
+        grant: OAuthScope::self_grant(),
     };
     let printed = printed_without(
         &request,
@@ -130,6 +132,7 @@ fn a_persisted_user_message_prints_its_size_never_its_text() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         },
         conversation: ConversationRecord {
             id: "conv-1".to_owned(),
@@ -243,6 +246,7 @@ fn a_turn_input_prints_the_size_of_the_message_never_its_text_or_the_room() {
         quota: QuotaState::default(),
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let printed = printed_without(&input, &["sentinel-message-7f3a", "sentinel-room-7f3a"]);
     assert!(printed.starts_with("TurnInput"), "{printed}");

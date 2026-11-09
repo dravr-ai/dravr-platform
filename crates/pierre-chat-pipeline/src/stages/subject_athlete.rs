@@ -9,7 +9,7 @@
 //! A group's human coach opens one thread per coached athlete from Group
 //! info. Every turn in it is about that athlete, never about the coach who
 //! writes it, so prompt assembly skips the sender's own context — their
-//! connected providers, dossier, playbooks, notes, followups, commitments and
+//! connected providers, dossier, playbooks, commitments and
 //! plan — and runs this stage in its place.
 //!
 //! The coaching gates run again on every turn
@@ -25,10 +25,12 @@
 //! - their roster line, projected exactly as `get_roster_overview` lists it,
 //!   so form arrives banded as a share of their own fitness;
 //! - their live season and the coach's draft, with where the draft stands;
-//! - their wellness, only what the coach's link filed under the athlete's
-//!   `wellness_read` consent ([`linked_wellness`]).
+//! - their wellness, only under the athlete's `wellness_read` grant: the data
+//!   tools that read it, and the newest readings the coach's link filed
+//!   ([`linked_wellness`]); without the grant, that only the athlete shares
+//!   it, and where.
 //!
-//! Never their dossier, memory, notes, followups or commitments, and never
+//! Never their dossier, memory or commitments, and never
 //! another member's data. The plan block that follows (stage 7f.2) is the
 //! athlete's too: the coach's draft over their live weeks, or their live
 //! season ([`GrantedSubject::plan_shown`]).
@@ -56,6 +58,7 @@ use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
 use pierre_services::linked_wellness::{linked_wellness, LinkedWellness, LINKED_WELLNESS_DAYS};
+use pierre_tool_runtime::read_subject::{self, DataClass, WELLNESS_GRANT_WHERE};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -269,9 +272,25 @@ pub(crate) async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> Stri
                     .unwrap_or(&readings.provider);
                 (brand, readings)
             });
-            granted_block(granted, &training, shown)
+            // The tools that read the athlete here, from what each declares:
+            // a read added later is named without a prompt edit.
+            let registry = ctx.tool_runtime.tool_registry();
+            let readable = Readable {
+                training: registry.chat_callable_of_class(DataClass::Training),
+                wellness: registry.chat_callable_of_class(DataClass::Wellness),
+            };
+            granted_block(granted, &training, shown, &readable)
         }
     }
+}
+
+/// The chat-callable tools that read the thread's athlete, by class.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Readable {
+    /// They read the athlete's training.
+    training: Vec<String>,
+    /// They read the athlete's wellness, under their wellness grant.
+    wellness: Vec<String>,
 }
 
 /// The athlete's training, as the coach's roster lists it.
@@ -353,11 +372,16 @@ fn name(raw: &str) -> String {
 }
 
 /// The block for a granted turn. `wellness` is the linked wellness with the
-/// brand of the platform it came through.
+/// brand of the platform it came through; `readable` names the tools that
+/// read the athlete in this thread. The wellness ones are named only while
+/// the athlete shares their wellness with the coach — the same grant the
+/// linked wellness is read under; otherwise the block says who turns it on,
+/// and where.
 fn granted_block(
     granted: &GrantedSubject,
     training: &RosterLine,
     wellness: Option<(&str, &LinkedWellness)>,
+    readable: &Readable,
 ) -> String {
     let athlete = name(&granted.access.display_name);
     let group = name(&granted.access.group.name);
@@ -376,12 +400,14 @@ fn granted_block(
          A publish that would overwrite a week {athlete} changed since it was drafted, or a \
          season {athlete} re-laid, is refused and names each such week; publish over them \
          with `overwrite_athlete_changes` only when the coach says to.\n\
-         - Tools that read \"your own\" data — activities, sleep, recovery, profile, goals, \
-         physiology — read the coach's own account, never {athlete}'s. Never present what \
-         they return as {athlete}'s.\n\
+         - Data tools act on {athlete} by default: leave `athlete` out. They read {athlete}'s \
+         training under {athlete}'s consent: {training_reads}. {wellness_reads} The coach's own \
+         data is never read in this thread.\n\
          - Nothing said here is saved to the coach's own account: the tools that would write \
          it — facts, notes, follow-ups, commitments, goals, physiology — are not offered in \
-         this thread.\n"
+         this thread.\n",
+        training_reads = readable.training.join(", "),
+        wellness_reads = wellness_reads(&athlete, granted.access.consents.wellness_read, readable),
     );
     training_section(&mut out, &athlete, training);
     plan_section(&mut out, &athlete, granted.view.as_ref());
@@ -389,6 +415,26 @@ fn granted_block(
         wellness_section(&mut out, &athlete, brand, wellness);
     }
     out
+}
+
+/// What the granted block says of the athlete's wellness: the tools that
+/// read it when `shared`, the athlete's grant to the coach; else that none
+/// does, and where only the athlete shares it.
+fn wellness_reads(athlete: &str, shared: bool, readable: &Readable) -> String {
+    let wellness = read_subject::wellness_data();
+    if shared {
+        format!(
+            "{athlete} shares their wellness with the coach ({wellness}), so these read it \
+             too: {}.",
+            readable.wellness.join(", ")
+        )
+    } else {
+        format!(
+            "{athlete} has not shared their wellness with the coach ({wellness}), so no tool \
+             here reads it: say so rather than estimating it, and that only {athlete} can share \
+             it, {WELLNESS_GRANT_WHERE}."
+        )
+    }
 }
 
 fn training_section(out: &mut String, athlete: &str, training: &RosterLine) {

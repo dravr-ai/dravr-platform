@@ -199,6 +199,7 @@ async fn no_history_capture_is_started_for_a_push_only_provider() {
             ..ActivityQueryParams::default()
         },
         pierre_conversation_id: None,
+        history_import: false,
     })
     .await;
 

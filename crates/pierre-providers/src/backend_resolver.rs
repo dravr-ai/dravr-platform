@@ -1,5 +1,5 @@
 // ABOUTME: Resolves user-facing provider names to the actual backend implementation
-// ABOUTME: Routes Strava and Garmin to OAuth when a token exists, else to the sciotte* mirror
+// ABOUTME: Routes Strava and Garmin to OAuth when a token exists, else to the sciotte* mirror; a session beside a grant serves nothing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,15 +32,17 @@
 //! way since Dravr joined the Garmin Connect Developer Program (carnet#1155):
 //! a user holding a `garmin` token is served from what Garmin pushed, and every
 //! other Garmin athlete stays on the connection using usr/pwd from Dravr.
-//! Garmin pushes only what the athlete records after connecting, so a live
-//! usr/pwd session, which reads the whole history, serves Garmin whenever the
-//! athlete holds one, whatever the grant's store holds; the grant serves only
-//! an athlete with no live session (carnet#1302, [`oauth_grant`]).
+//! The grant is then the only ongoing source: a usr/pwd session beside it
+//! ([`session_beside_grant`]) serves no read, and is never retried or
+//! surfaced as a reconnect. What such a session imported stays served, read
+//! beside the grant's pushes under the mirror's key (carnet#1386).
 //! TrainingPeaks and COROS stay on the mirror: neither has an API Pierre can
 //! call.
 //!
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
+
+use std::iter;
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -187,8 +189,8 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
 /// provider through its own backend. Garmin's OAuth backend is never pulled:
 /// Garmin pushes its data ([`pushed_backend_for`]), so a user whose grant
 /// serves Garmin ([`oauth_grant`]) is skipped by the sync rather than read
-/// through it, while one with a live usr/pwd session beside the grant is
-/// pulled through that session. The sync stamps its rows
+/// through it, whatever usr/pwd session stands beside the grant. The sync
+/// stamps its rows
 /// with the provider name, so a stored night is `coros` whichever backend fed
 /// it, while the session lives on `sciotte_coros`.
 #[must_use]
@@ -210,8 +212,7 @@ pub fn sync_backend(provider: &str) -> String {
 /// so the background sync, which pulls through [`sync_backend`], leaves alone
 /// a user whose grant for this backend serves Garmin ([`oauth_grant`]):
 /// reading them through the usr/pwd session as well would write the same days
-/// twice. A live usr/pwd session beside the grant serves Garmin instead, and
-/// is pulled (carnet#1302).
+/// twice.
 #[must_use]
 pub fn pushed_backend_for(provider: &str) -> Option<&'static str> {
     (user_facing_name(provider) == oauth_providers::GARMIN).then_some(oauth_providers::GARMIN)
@@ -284,31 +285,23 @@ async fn has_token_row(
     )
 }
 
-/// Whether the push-fed store behind `oauth_backend` holds no activity for
-/// the user in this tenant: the provider pushes only what the athlete records
-/// after connecting, so a fresh grant holds nothing, whatever the window.
+/// Whether the user holds any activity under the cache `key` in this tenant.
 ///
-/// `false` for a backend that is not push-fed (its API reads history on
-/// request) and when the store cannot be read: a failed read keeps the grant
-/// the user chose rather than moving them on a guess. Existence is read from
-/// the rows themselves, never from `latest_activity_sync`, which a push of
-/// wellness data alone also advances.
-async fn pushed_store_is_empty(
+/// Read from the rows themselves. A store that cannot be read counts as
+/// holding some: callers keep what the user has rather than act on a guess.
+pub async fn holds_activities(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
-    oauth_backend: &str,
+    key: &str,
 ) -> bool {
-    if pushed_backend_for(oauth_backend) != Some(oauth_backend) {
-        return false;
-    }
-    matches!(
+    !matches!(
         repos
             .activity_cache
             .get_cached_activities(
                 user_id,
                 &tenant_id,
-                Some(oauth_backend),
+                Some(key),
                 DateTime::<Utc>::UNIX_EPOCH,
                 Utc::now(),
                 1,
@@ -318,28 +311,72 @@ async fn pushed_store_is_empty(
     )
 }
 
-/// Whether the user holds a usable session for `mirror` in this tenant: a
-/// token row, and a connection that has not been flagged for a reconnect or
-/// revoked. A dead session serves nothing, so it never takes over from an
-/// OAuth grant.
-async fn mirror_session_is_live(
+/// The activity-cache keys a read of `backend`'s own window serves.
+///
+/// The backend itself, and for a push-fed OAuth backend
+/// ([`pushed_backend_for`]) its mirror too, whose usr/pwd session's imported
+/// history keeps being served beside the pushes (carnet#1386). One key per
+/// backend otherwise.
+///
+/// The athlete's own uploads
+/// ([`companion_keys`](oauth_providers::companion_keys)) are not among them:
+/// those are served by their own path.
+#[must_use]
+pub fn history_keys(backend: &str) -> Vec<&str> {
+    let mirror = (pushed_backend_for(backend) == Some(backend))
+        .then(|| mirror_backend_for(backend))
+        .flatten();
+    iter::once(backend).chain(mirror).collect()
+}
+
+/// Whether `backend` is a usr/pwd session standing beside an OAuth grant that
+/// serves its provider.
+///
+/// It is when `backend` is a mirror whose user-facing provider's own OAuth
+/// backend serves it (Garmin, Strava), for a user who holds a token row for
+/// that OAuth backend in this tenant.
+///
+/// Such a session serves nothing: the grant is the provider's one ongoing
+/// source, so the session is never read, retried, elected or surfaced as a
+/// reconnect, and a flag on it sends no notice (carnet#1386). The grant's row
+/// alone decides, whatever its connection's status: a dead grant raises its
+/// own reconnect. `false` for COROS and TrainingPeaks (no OAuth backend
+/// serves them), for a session with no grant beside it, and for any backend
+/// that is not a mirror.
+pub async fn session_beside_grant(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
-    mirror: &str,
+    backend: &str,
 ) -> bool {
-    if !has_token_row(repos, user_id, tenant_id, mirror).await {
+    if !is_mirror_backend(backend) {
         return false;
     }
-    repos
-        .provider_connections
-        .get_for_user(user_id, Some(tenant_id))
-        .await
-        .is_ok_and(|connections| {
-            connections
-                .iter()
-                .any(|conn| conn.provider == mirror && !conn.status.requires_reauth())
-        })
+    let user_facing = user_facing_name(backend);
+    oauth_serves(user_facing) && has_token_row(repos, user_id, tenant_id, user_facing).await
+}
+
+/// Whether a sign-in of `backend` is a one-time history import (carnet#1386).
+///
+/// It is for a usr/pwd session beside a grant whose own reads serve what that
+/// session stores ([`history_keys`]), which is then no ongoing source.
+///
+/// It is when [`session_beside_grant`] holds and the grant is push-fed, so
+/// the rows the session imports keep being served through the grant's
+/// window (Garmin). `false` for `sciotte` beside a Strava grant: Strava's
+/// API reads history on request and never serves the session's rows, and
+/// for every session no grant stands beside.
+pub async fn session_imports_history(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    let Some(grant) = pushed_backend_for(backend) else {
+        return false;
+    };
+    history_keys(grant).contains(&backend)
+        && session_beside_grant(repos, user_id, tenant_id, backend).await
 }
 
 /// What the user's OAuth grant for a mirror-backed provider amounts to.
@@ -347,22 +384,16 @@ async fn mirror_session_is_live(
 pub enum OAuthGrant {
     /// The user holds no OAuth token row for the provider.
     Absent,
-    /// The grant serves the provider's reads.
+    /// The grant serves the provider's reads. Where the athlete's history
+    /// from before it stands is the card's own `history`, read apart.
     Serves,
-    /// A live mirror session serves the provider instead, whatever the
-    /// grant's push-fed store holds (carnet#1302).
-    DefersToMirror,
-    /// The grant's push-fed store holds no activity yet and no live mirror
-    /// session stands beside it: the grant serves, with nothing to read, so
-    /// the clients offer the mirror login for the athlete's history.
-    AwaitsActivities,
 }
 
 impl OAuthGrant {
     /// Whether the OAuth backend serves the provider's reads.
     #[must_use]
     pub const fn serves(self) -> bool {
-        matches!(self, Self::Serves | Self::AwaitsActivities)
+        matches!(self, Self::Serves)
     }
 }
 
@@ -371,16 +402,10 @@ impl OAuthGrant {
 /// so routing and every status surface agree (carnet#1302).
 ///
 /// Strava's grant serves whenever its row exists: its API reads history on
-/// request. Garmin's API pushes only what the athlete records after
-/// connecting, so a live usr/pwd session beside the grant serves Garmin
-/// whatever the grant's store holds: the session reads the whole history,
-/// the pushes only what came after the grant. A session flagged for a
-/// reconnect or revoked serves nothing, and then the grant serves: reading
-/// [`OAuthGrant::AwaitsActivities`] while its store holds no activity at all
-/// (the clients then offer the usr/pwd login), [`OAuthGrant::Serves`] once it
-/// holds one. "No activity" is the whole store, never a requested window, so
-/// one user resolves to one backend — and one cache key — whatever they ask
-/// for.
+/// request. Garmin's grant serves whenever its row exists too, whatever
+/// usr/pwd session stands beside it (carnet#1386), so one user resolves to
+/// one backend whatever they ask for. Whether the history from before the
+/// grant is in is the card's to say, never the routing's.
 /// Providers whose OAuth backend never serves beside its mirror, and those
 /// with no mirror, read [`OAuthGrant::Absent`].
 pub async fn oauth_grant(
@@ -389,23 +414,13 @@ pub async fn oauth_grant(
     tenant_id: TenantId,
     user_facing: &str,
 ) -> OAuthGrant {
-    let Some(mirror) = mirror_backend_for(user_facing) else {
+    if mirror_backend_for(user_facing).is_none()
+        || !oauth_serves(user_facing)
+        || !has_token_row(repos, user_id, tenant_id, user_facing).await
+    {
         return OAuthGrant::Absent;
-    };
-    if !oauth_serves(user_facing) || !has_token_row(repos, user_id, tenant_id, user_facing).await {
-        return OAuthGrant::Absent;
     }
-    if pushed_backend_for(user_facing) != Some(user_facing) {
-        return OAuthGrant::Serves;
-    }
-    if mirror_session_is_live(repos, user_id, tenant_id, mirror).await {
-        return OAuthGrant::DefersToMirror;
-    }
-    if pushed_store_is_empty(repos, user_id, tenant_id, user_facing).await {
-        OAuthGrant::AwaitsActivities
-    } else {
-        OAuthGrant::Serves
-    }
+    OAuthGrant::Serves
 }
 
 /// Resolve a user-facing provider name to the backend that should actually
@@ -414,14 +429,20 @@ pub async fn oauth_grant(
 /// Rules:
 /// - `strava` → `strava` when the user holds a Strava OAuth token row, else
 ///   `sciotte` when a sciotte token row exists, else `strava`
-/// - `garmin` → `sciotte_garmin` while the user holds a live `sciotte_garmin`
-///   session, whatever the Garmin API store holds; else `garmin` when the
-///   user holds a Garmin API token row; else `sciotte_garmin`, with or
-///   without a session row (carnet#1155, carnet#1302 — [`oauth_grant`])
+/// - `garmin` → `garmin` when the user holds a Garmin API token row, whatever
+///   usr/pwd session stands beside it; else `sciotte_garmin`, with or without
+///   a session row (carnet#1155, carnet#1386 — [`oauth_grant`])
 /// - `trainingpeaks` → `sciotte_trainingpeaks` always (no API to call)
 /// - `coros` → `sciotte_coros` always (its partner API is not approved)
+/// - `sciotte_garmin` named directly → `garmin` when the session stands
+///   beside a Garmin grant ([`session_beside_grant`]): that session serves
+///   nothing, and the grant's window carries what it stored
+///   ([`history_keys`]), so a read naming it is the grant's. `sciotte` beside
+///   a Strava grant stays `sciotte`: Strava's API never serves the session's
+///   rows, and every caller that walks connections leaves that session out
+///   by [`session_beside_grant`] itself
 /// - any other name (including a mirror backend name passed through
-///   directly) is returned unchanged
+///   directly with no grant beside it) is returned unchanged
 ///
 /// The resolver honours the user's explicit preference even when the
 /// mirror session is stale. Downstream code surfaces an auth failure in
@@ -440,21 +461,27 @@ pub async fn resolve_backend(
     tenant_id: Option<TenantId>,
     requested: &str,
 ) -> String {
-    let Some(mirror) = mirror_backend_for(requested) else {
+    let Some(tid) = tenant_id else {
         return requested.to_owned();
     };
-    let Some(tid) = tenant_id else {
+    let Some(mirror) = mirror_backend_for(requested) else {
+        // Only a grant whose own reads serve the session's stored history
+        // (`history_keys`) takes over a read naming the session: Strava's API
+        // reads on request and never serves what a `sciotte` session stored.
+        let user_facing = user_facing_name(requested);
+        if pushed_backend_for(user_facing) == Some(user_facing)
+            && session_beside_grant(repos, user_id, tid, requested).await
+        {
+            return user_facing.to_owned();
+        }
         return requested.to_owned();
     };
     // Strava → OAuth-API migration, and the Garmin Developer Program API
     // (carnet#1155): the OAuth backend wins whenever the user holds a token
-    // row for it, except that a live Garmin usr/pwd session serves Garmin
-    // whatever the grant holds (carnet#1302). Mirror-only users have no such
-    // row, so they keep the mirror until they authorize OAuth.
-    match oauth_grant(repos, user_id, tid, requested).await {
-        grant if grant.serves() => return requested.to_owned(),
-        OAuthGrant::DefersToMirror => return mirror.to_owned(),
-        _ => {}
+    // row for it (carnet#1386). Mirror-only users have no such row, so they
+    // keep the mirror until they authorize OAuth.
+    if oauth_grant(repos, user_id, tid, requested).await.serves() {
+        return requested.to_owned();
     }
     if has_token_row(repos, user_id, tid, mirror).await {
         return mirror.to_owned();
@@ -599,5 +626,84 @@ pub async fn coalesced_status(
         connected: false,
         backend_kind: BackendKind::None,
         delegation: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Garmin grant's reads serve its pushes and the usr/pwd session's
+    /// copy beside it; no other grant serves a session's rows.
+    #[test]
+    fn only_a_push_fed_grant_serves_its_sessions_rows() {
+        assert_eq!(
+            history_keys(oauth_providers::GARMIN),
+            vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
+            "bug: a Garmin grant's window serves its pushes and its session's copy"
+        );
+        assert_eq!(
+            history_keys(oauth_providers::STRAVA),
+            vec![oauth_providers::STRAVA],
+            "bug: a Strava grant's window serves only its own key"
+        );
+        assert_eq!(
+            history_keys(oauth_providers::COROS),
+            vec![oauth_providers::COROS],
+            "bug: COROS has one key"
+        );
+    }
+
+    /// `session_imports_history` reads the grant a session imports for
+    /// through `pushed_backend_for`: Garmin's session has one, Strava's has
+    /// none, so a Strava sign-in beside a Strava grant is never an import.
+    #[test]
+    fn only_the_garmin_session_has_a_pushed_grant() {
+        assert_eq!(
+            pushed_backend_for(oauth_providers::SCIOTTE_GARMIN),
+            Some(oauth_providers::GARMIN),
+            "bug: the Garmin session's grant is the Garmin push"
+        );
+        assert_eq!(
+            pushed_backend_for(oauth_providers::SCIOTTE),
+            None,
+            "bug: Strava's session has no push-fed grant"
+        );
+        assert_eq!(
+            pushed_backend_for(oauth_providers::SCIOTTE_COROS),
+            None,
+            "bug: COROS has no push-fed grant"
+        );
+        assert!(
+            history_keys(oauth_providers::GARMIN).contains(&oauth_providers::SCIOTTE_GARMIN),
+            "bug: a Garmin grant's window serves its session's copy"
+        );
+        assert!(
+            !history_keys(oauth_providers::STRAVA).contains(&oauth_providers::SCIOTTE),
+            "bug: a Strava grant never serves its session's rows"
+        );
+    }
+
+    /// The mirror of a user-facing provider and back.
+    #[test]
+    fn a_mirror_maps_to_its_user_facing_provider_and_back() {
+        assert_eq!(
+            mirror_backend_for(oauth_providers::GARMIN),
+            Some(oauth_providers::SCIOTTE_GARMIN),
+            "bug: Garmin's mirror is sciotte_garmin"
+        );
+        assert_eq!(
+            user_facing_name(oauth_providers::SCIOTTE_GARMIN),
+            oauth_providers::GARMIN,
+            "bug: sciotte_garmin is the athlete's Garmin"
+        );
+        assert!(
+            is_mirror_backend(oauth_providers::SCIOTTE_GARMIN),
+            "bug: sciotte_garmin is the Garmin mirror"
+        );
+        assert!(
+            !is_mirror_backend(oauth_providers::GARMIN),
+            "bug: the Garmin grant is no mirror"
+        );
     }
 }

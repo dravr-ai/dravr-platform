@@ -29,12 +29,12 @@ function ActivityLine({ activity, onNavigate }: { activity: HomeActivity; onNavi
         type="button"
         data-testid={`calendar-activity-${activity.provider}-${activity.id}`}
         onClick={() => onNavigate(activityViewRoute(activity.provider, activity.id))}
-        className="flex w-full min-w-0 items-baseline gap-2 rounded py-1 text-left text-sm transition-colors hover:text-primary focus-ring"
+        className="block w-full min-w-0 rounded py-1 text-left text-sm transition-colors hover:text-primary focus-ring"
       >
-        <span className="min-w-0 truncate font-medium text-on-surface">{activity.name}</span>
-        <span className="shrink-0 text-on-surface-variant">
+        <span className="block truncate font-medium text-on-surface" title={activity.name}>{activity.name}</span>
+        <span className="block text-on-surface-variant">
           {sportLabel(t, activity.sport_type)}
-          {/* Beside the title, as served: the name truncates, never the attribution (carnet#1154). */}
+          {/* Under the title, as served: the line wraps and the name truncates, never the attribution (carnet#1154). */}
           {activity.attribution && (
             <span data-testid="calendar-activity-attribution">{` · ${activity.attribution}`}</span>
           )}

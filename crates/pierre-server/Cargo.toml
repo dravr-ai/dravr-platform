@@ -104,7 +104,7 @@ tools-admin = ["tools-agents", "pierre-tool-runtime/tools-admin"]  # admin tools
 tools-mobility = ["pierre-tool-runtime/tools-mobility"]        # stretching exercises, yoga poses, mobility recommendations
 tools-groups = ["dep:pierre-groups", "pierre-tool-runtime/tools-groups", "pierre-commands?/tools-groups", "pierre-chat-pipeline?/tools-groups"]  # group coaching tools (create, join, manage, analytics) + group_fitness snapshot fetcher
 tools-memory = ["pierre-tool-runtime/tools-memory"]          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
-tools-verification = ["pierre-services/tools-verification", "pierre-routes-admin/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # bullshit detector: verify_claim tool + dispatch hook
+tools-verification = ["pierre-services/tools-verification", "pierre-tool-runtime/tools-verification", "pierre-chat-pipeline?/tools-verification"]  # bullshit detector: verify_claim tool + dispatch hook
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]
@@ -174,7 +174,7 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
 client-messaging = ["protocol-rest", "dep:dravr-canot", "dep:pierre-commands", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
-client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-services/client-notifications", "pierre-routes-agents/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
+client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-routes-agents/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 

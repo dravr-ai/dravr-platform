@@ -21,8 +21,8 @@ use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_a2a::client::USAGE_HISTORY_DAYS;
 use pierre_config::environment::{
-    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig,
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, GuardianSettings,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig,
 };
 use pierre_core::models::a2a::A2AUsage;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
@@ -95,6 +95,7 @@ fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
         client_manager: resources.a2a.a2a_client_manager.clone(),
         auth_middleware: resources.auth.auth_middleware.clone(),
         tool_runtime,
+        coaching: None,
     };
     A2ARoutes::routes(state)
 }
@@ -394,10 +395,11 @@ async fn test_a2a_refuses_a_first_party_session_token() {
 
 #[tokio::test]
 async fn test_a2a_jsonrpc_send_message_plain_text_is_refused_not_echoed() {
-    // SendMessage executes registered tools addressed by a `data` part. A
-    // plain-text message names no tool, so it is refused with the spec's
-    // ContentTypeNotSupported error — never answered by handing the caller
-    // its own sentence back as the agent's reply.
+    // A build with no coaching pipeline behind it (these routes carry none)
+    // executes only registered tools addressed by a `data` part. A plain-text
+    // message names no tool, so it is refused with the spec's
+    // ContentTypeNotSupported error — never answered by handing the caller its
+    // own sentence back as the agent's reply.
     let resources = create_a2a_test_resources().await;
     let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-auth@example.com")
         .await
@@ -715,6 +717,116 @@ async fn test_client_credentials_tasks_keyed_to_acting_client() {
         .expect("load task")
         .expect("task exists");
     assert_eq!(record.client_id, client_id);
+}
+
+#[tokio::test]
+async fn a_guardian_denial_reaches_the_client_as_data_beside_the_failure_text() {
+    // carnet#1411: a client must be able to tell a Guardian refusal from a tool
+    // failure and branch on why. The machine-readable part is additive: the text
+    // part stays first and says what it always said.
+    common::init_server_config();
+    let resources = common::create_test_server_resources_with_config(
+        common::test_server_config_with_guardian(GuardianSettings {
+            mode: Some("enforce".to_owned()),
+            max_destructive_per_turn: Some("0".to_owned()),
+            ..GuardianSettings::default()
+        }),
+    )
+    .await
+    .expect("server resources");
+    let (user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-denied@example.com")
+        .await
+        .expect("seed user + tenant + JWT with active_tenant_id");
+    // The task is keyed to a client; the delegated grant is what reaches a write.
+    register_client_and_mint_token(&resources, user.id).await;
+    let routes = a2a_router_from(&resources);
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-denied-1",
+                "role": "ROLE_USER",
+                "parts": [{ "data": {
+                    "tool_name": "disconnect_provider",
+                    "parameters": { "provider": "strava" }
+                } }]
+            }
+        },
+        "id": 41
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let envelope: serde_json::Value = response.json();
+    let task = &envelope["result"]["task"];
+    assert_eq!(task["status"]["state"], "TASK_STATE_FAILED", "{envelope:?}");
+    let parts = task["status"]["message"]["parts"]
+        .as_array()
+        .expect("the failed status carries its message");
+    assert_eq!(
+        parts[0]["text"],
+        "Tool 'disconnect_provider' was blocked by security policy"
+    );
+    let expected = serde_json::json!({
+        "error_code": "guardian_denied",
+        "reason": "budget_exceeded"
+    });
+    assert_eq!(parts[1]["data"], expected, "{envelope:?}");
+
+    // The stored row answers a later GetTask with the same data.
+    let record = A2ACtx::repos(resources.as_ref())
+        .a2a
+        .get_task(task["id"].as_str().expect("task id"))
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(record.result.as_ref(), Some(&expected));
+    let status_message = record.status_message.expect("persisted status message");
+    assert_eq!(status_message["parts"][1]["data"], expected);
+}
+
+#[tokio::test]
+async fn a_failure_that_is_not_the_guardians_carries_no_data_part() {
+    let resources = create_a2a_test_resources().await;
+    let (user, _jwt) = common::create_test_tenant(&resources, "a2a-plain-fail@example.com")
+        .await
+        .expect("seed user + tenant");
+    let (_, token) = register_client_and_mint_token(&resources, user.id).await;
+    let routes = a2a_router_from(&resources);
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "m-plain-fail-1",
+                "role": "ROLE_USER",
+                "parts": [{ "data": { "tool_name": "definitely_not_a_tool", "parameters": {} } }]
+            }
+        },
+        "id": 42
+    });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {token}"))
+        .json(&body)
+        .send(routes)
+        .await;
+
+    let envelope: serde_json::Value = response.json();
+    let task = &envelope["result"]["task"];
+    assert_eq!(task["status"]["state"], "TASK_STATE_FAILED", "{envelope:?}");
+    let parts = task["status"]["message"]["parts"]
+        .as_array()
+        .expect("parts");
+    assert_eq!(parts.len(), 1, "{envelope:?}");
 }
 
 #[tokio::test]

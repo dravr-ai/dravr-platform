@@ -17,7 +17,7 @@ vi.mock('../../services/api', () => ({
       published_count: 12,
       rejected_count: 3,
       total_installs: 150,
-      rejection_rate: 0.2,
+      rejection_rate: 20,
     }),
     getStoreReviewQueue: vi.fn().mockResolvedValue({
       agents: [],
@@ -63,7 +63,7 @@ describe('CoachStoreManagement', () => {
       published_count: 12,
       rejected_count: 3,
       total_installs: 150,
-      rejection_rate: 0.2,
+      rejection_rate: 20,
     });
   });
 
@@ -85,7 +85,8 @@ describe('CoachStoreManagement', () => {
 
     expect(screen.getByText('12')).toBeInTheDocument(); // published_count
     expect(screen.getByText('150')).toBeInTheDocument(); // total_installs
-    expect(screen.getByText('20.0%')).toBeInTheDocument(); // rejection_rate (0.2 * 100)
+    // The server sends a percentage: 3 rejected of 15 decided is 20, not 0.2.
+    expect(screen.getByText('20.0%')).toBeInTheDocument();
   });
 
   it('shows loading state for stats', () => {
@@ -166,7 +167,7 @@ describe('CoachStoreManagement', () => {
       published_count: 5678,
       rejected_count: 90,
       total_installs: 12345,
-      rejection_rate: 0.156,
+      rejection_rate: 1.56,
     });
 
     renderCoachStoreManagement();
@@ -176,7 +177,7 @@ describe('CoachStoreManagement', () => {
       expect(screen.getByText('1,234')).toBeInTheDocument();
       expect(screen.getByText('5,678')).toBeInTheDocument();
       expect(screen.getByText('12,345')).toBeInTheDocument();
-      expect(screen.getByText('15.6%')).toBeInTheDocument();
+      expect(screen.getByText('1.6%')).toBeInTheDocument();
     });
   });
 

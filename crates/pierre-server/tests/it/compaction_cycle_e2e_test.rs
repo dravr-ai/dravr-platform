@@ -224,6 +224,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .expect("message should be added");
@@ -532,6 +533,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .expect("message should be added");
@@ -658,6 +660,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .expect("message should be added");

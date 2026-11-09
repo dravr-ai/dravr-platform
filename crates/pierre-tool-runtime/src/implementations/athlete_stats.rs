@@ -14,6 +14,7 @@
 //! pipeline's prefetch stage calls those same handlers directly.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -92,7 +93,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -106,7 +107,11 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "Get the athlete profile a connected provider reports: the provider's athlete ID, \
              username, first and last name where public, and profile picture.",
             schema,
-            annotations("Get athlete profile", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get athlete profile",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -274,7 +279,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -299,7 +304,11 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
              report them: call get_activities for the period and sum distance across all \
              related sport types.",
             schema,
-            annotations("Get activity totals", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get activity totals",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -463,7 +472,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetAthleteTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetAthleteTool => empty);
 crate::declare_security!(GetStatsTool => empty);
 
 // ============================================================================

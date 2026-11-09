@@ -16,6 +16,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -226,6 +227,7 @@ impl Fixture {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();
@@ -244,6 +246,7 @@ impl Fixture {
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,
+            grant: OAuthScope::self_grant(),
         };
         let profile = SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

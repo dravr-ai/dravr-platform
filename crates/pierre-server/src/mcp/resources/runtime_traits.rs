@@ -9,6 +9,8 @@ use crate::config::admin::AdminConfigService;
 use dravr_tronc::http_client::guard::FetchPolicy;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
+#[cfg(feature = "protocol-a2a")]
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::security::csrf::CsrfTokenManager;
 #[cfg(feature = "transport-sse")]
 use pierre_config::environment::SseBufferStrategy;
@@ -123,8 +125,8 @@ impl pierre_runtime_context::A2ACtx for ServerContext {
         &self.common.repos
     }
 
-    fn base_url(&self) -> &str {
-        &self.common.config.base_url
+    fn oauth2_server_config(&self) -> &OAuth2ServerConfig {
+        &self.common.config.oauth2_server
     }
 
     fn spawn_detached_task(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {

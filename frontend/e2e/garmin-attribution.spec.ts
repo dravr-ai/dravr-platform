@@ -182,4 +182,22 @@ test.describe('Garmin attribution on Home (carnet#1154)', () => {
       await shoot(page, `web-phone-home-${theme}`);
     }
   });
+
+  test('an open day keeps the name and the whole Garmin line in the narrow Today panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openHome(page);
+
+    await page.getByTestId(`home-week-day-${TODAY}`).click();
+    const row = page.getByTestId('calendar-activity-garmin-g-1');
+    await expect(row).toContainText('Tempo run');
+    await expect(page.getByTestId('calendar-activity-attribution')).toBeVisible();
+    // The name keeps its width above the figures, and the whole line stays inside the card.
+    const measured = await row.evaluate((button) => {
+      const [name, figures] = Array.from(button.children);
+      const edge = (button.parentElement as HTMLElement).getBoundingClientRect().right;
+      return { name: name.getBoundingClientRect().width, past: figures.getBoundingClientRect().right - edge };
+    });
+    expect(measured.name).toBeGreaterThan(40);
+    expect(measured.past).toBeLessThanOrEqual(0);
+  });
 });

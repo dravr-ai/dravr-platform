@@ -12,6 +12,7 @@ use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::MessagingRepository;
 use tracing::{error, info, warn};
@@ -49,6 +50,8 @@ use super::turn_guard::{
 };
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
+use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
+use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
@@ -320,6 +323,18 @@ async fn report_dispatch_failure(
         .get(KEY_ERROR_GENERIC, &dispatch.locale);
     let user_message = format_template(&template, &[&short_id]);
     send_plain_reply(dispatch, channel_config, &user_message).await;
+}
+
+/// The thread a messaging turn writes into, as its closing notice addresses
+/// it: the session's conversation, under the session tenant the transcript
+/// lives in.
+fn failed_turn_thread(dispatch: &PendingDispatch) -> TurnThread<'_> {
+    TurnThread {
+        resources: &dispatch.resources,
+        conversation_id: &dispatch.session.conversation,
+        user_id: dispatch.auth_result.user_id.to_string(),
+        tenant_id: dispatch.session_tenant_id,
+    }
 }
 
 /// Close a turn that was cut short and will not be run again.
@@ -818,9 +833,13 @@ async fn serve_turn(
         profile.render,
         athlete_color_scheme(&dispatch.resources, dispatch.auth_result.user_id).await,
     );
+    // No stop control on a channel: the handle only records the question the
+    // turn stores, so a failed turn can close it on the thread.
+    let stop = TurnStop::recording();
     let hooks = PipelineHooks {
         agui: messaging_agui.map(MessagingAgUiWiring::run),
         scene_publisher: Some(&scene_publisher),
+        stop: Some(Arc::clone(&stop)),
         ..PipelineHooks::none()
     };
 
@@ -857,6 +876,8 @@ async fn serve_turn(
         channel_type: &dispatch.channel,
         // A channel the athlete linked is one of Dravr's own surfaces.
         transport: Transport::Messaging,
+        // A linked channel is the athlete acting directly: not narrowed.
+        grant: OAuthScope::self_grant(),
         is_direct_message: !dispatch.is_group_chat,
         // The ingress answered any slash command before this turn was queued,
         // so these only say what the messaging surface's answer is: the
@@ -899,7 +920,15 @@ async fn serve_turn(
         }
         // Includes a panic caught inside any pipeline stage: the athlete gets
         // an apology carrying a correlation id instead of silence.
+        //
+        // A turn that failed after storing its question — the LLM health gate
+        // refusing it while the provider is down — would leave that question
+        // open on the thread, which the app reads as a reply on its way when
+        // the thread is the athlete's personal one (carnet#840). Closed with
+        // the notice row first, under the thread's lock; the channel still
+        // hears only the apology below (carnet#1362).
         TurnOutcome::Failed(e) => {
+            close_failed_turn(&failed_turn_thread(dispatch), &stop, &dispatch.locale).await;
             report_dispatch_failure(dispatch, channel_config, &e).await;
             return Served::Ended(TurnClose::Finished);
         }

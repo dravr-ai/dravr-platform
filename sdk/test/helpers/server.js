@@ -193,15 +193,49 @@ function findPierreCli() {
 }
 
 /**
- * Promote an already-registered user to a GLOBAL admin via pierre-cli.
+ * Run one pierre-cli command against the shared file-backed test database.
+ */
+function runPierreCli(cliPath, args, databaseUrl, encryptionKey) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cliPath, args, {
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        PIERRE_MASTER_ENCRYPTION_KEY: encryptionKey || process.env.PIERRE_MASTER_ENCRYPTION_KEY,
+        RUST_LOG: 'warn'
+      },
+      stdio: 'pipe'
+    });
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`pierre-cli ${args.slice(0, 2).join(' ')} failed (code ${code}):\n${stderr}`));
+      }
+    });
+  });
+}
+
+/**
+ * Promote an already-registered user to a GLOBAL admin on the top plan via
+ * pierre-cli.
  *
- * tools/list returns the complete tool catalog only for a global admin
- * (`User.is_admin`); a plain tenant owner is correctly limited to their plan's
- * tenant-filtered subset (e.g. starter-tier tenants don't see professional-gated
- * analytics tools). Catalog-completeness assertions therefore require a global
- * admin. The CLI writes directly to the shared file-backed SQLite DB the server
- * reads, and the server resolves is_admin on every request, so the next login's
- * token authenticates as admin without a server restart.
+ * `tools/list` on /mcp is the public profile for every caller, a global admin
+ * included, narrowed by the tenant's plan: a tool the plan does not cover is
+ * left out rather than offered and refused. Registration gives the user a
+ * personal tenant on the starter plan, and `user create --force` on an existing
+ * user keeps that tenant, so the plan is raised to enterprise here — the plan a
+ * freshly created admin's tenant gets, and the one `packages/mcp-types` is
+ * generated against. Catalog-completeness assertions compare against that
+ * generated roster. The CLI writes directly to the shared file-backed SQLite DB
+ * the server reads; both writes land before the user first lists tools, so the
+ * server's tenant tool cache never holds the starter plan.
  *
  * No-op for in-memory databases, which are private to the server process and
  * unreachable from a separate CLI invocation.
@@ -219,45 +253,20 @@ async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryption
     throw new Error('pierre-cli binary not found. Please run: cargo build --bin pierre-cli');
   }
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(
-      cliPath,
-      [
-        'user',
-        'create',
-        '--email',
-        email,
-        '--password',
-        password,
-        '--force',
-        '--super-admin'
-      ],
-      {
-        env: {
-          ...process.env,
-          DATABASE_URL: databaseUrl,
-          PIERRE_MASTER_ENCRYPTION_KEY:
-            encryptionKey || process.env.PIERRE_MASTER_ENCRYPTION_KEY,
-          RUST_LOG: 'warn'
-        },
-        stdio: 'pipe'
-      }
-    );
-
-    let stderr = '';
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString();
-    });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code === 0) {
-        console.log(`🔑 Promoted ${email} to global admin (full tool catalog)`);
-        resolve(true);
-      } else {
-        reject(new Error(`pierre-cli promotion failed (code ${code}):\n${stderr}`));
-      }
-    });
-  });
+  await runPierreCli(
+    cliPath,
+    ['user', 'create', '--email', email, '--password', password, '--force', '--super-admin'],
+    databaseUrl,
+    encryptionKey
+  );
+  await runPierreCli(
+    cliPath,
+    ['tenant', 'set-plan', '--email', email, '--plan', 'enterprise'],
+    databaseUrl,
+    encryptionKey
+  );
+  console.log(`🔑 Promoted ${email} to global admin on the enterprise plan (full tool roster)`);
+  return true;
 }
 
 /**
@@ -289,8 +298,8 @@ async function issueApiKey(baseUrl, sessionToken) {
  * Register a test user, promote it to a global admin, and login to get a real
  * RS256 JWT token. The server uses RS256 (RSA) JWT validation, so test tokens
  * must come from the actual server login endpoint rather than being locally
- * generated. The global-admin promotion makes tools/list return the full tool
- * catalog (see promoteUserToGlobalAdmin).
+ * generated. The promotion to a global admin on the enterprise plan makes
+ * tools/list return the generated roster (see promoteUserToGlobalAdmin).
  */
 async function registerAndGetToken(port, databaseUrl, encryptionKey) {
   const baseUrl = `http://localhost:${port}`;
@@ -320,7 +329,8 @@ async function registerAndGetToken(port, databaseUrl, encryptionKey) {
     console.warn(`⚠️ Registration failed: ${error.message}`);
   }
 
-  // Promote to a global admin so tools/list returns the full catalog.
+  // Promote to a global admin on the top plan so tools/list returns the
+  // generated roster.
   await promoteUserToGlobalAdmin(testEmail, testPassword, databaseUrl, encryptionKey);
 
   // Sign in as the mobile app does — hosted login page, authorization code,

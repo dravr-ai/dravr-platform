@@ -20,7 +20,12 @@
 //!
 //! The sleep, recovery, snapshot and activity rows are read through
 //! `pierre_services::stored_health`, which applies each row's provider terms
-//! (carnet#771) and then merges them per night or per day (carnet#1281).
+//! (carnet#771) and then merges them per night or per day (carnet#1281). On a
+//! coach's read of a coached athlete each stored row is cut down to what the
+//! athlete's wellness grant names before the merge
+//! (`read_subject::readable_wellness`): no blood pressure, glucose, body
+//! composition or daily activity totals, nor a source that recorded only
+//! those.
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
@@ -43,6 +48,7 @@ use crate::conversions::{
     tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::parse_output_format;
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -203,6 +209,11 @@ pub struct SleepSessionsResult {
     /// provider (`null` when it never has), so an empty or short window can
     /// be told apart from a source that stopped syncing.
     pub last_synced_at: BTreeMap<String, Option<String>>,
+    /// On a coach's read: what of the athlete's health their wellness
+    /// sharing leaves out, said once whatever their sources record. Absent on
+    /// the athlete's own read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_shared: Option<String>,
 }
 
 /// What `get_recovery_metrics` answers with.
@@ -224,6 +235,11 @@ pub struct RecoveryMetricsResult {
     /// provider (`null` when it never has), so an empty or short window can
     /// be told apart from a source that stopped syncing.
     pub last_synced_at: BTreeMap<String, Option<String>>,
+    /// On a coach's read: what of the athlete's health their wellness
+    /// sharing leaves out, said once whatever their sources record. Absent on
+    /// the athlete's own read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_shared: Option<String>,
 }
 
 /// What `get_health_snapshots` answers with.
@@ -248,6 +264,11 @@ pub struct HealthSnapshotsResult {
     /// provider (`null` when it never has), so an empty or short window can
     /// be told apart from a source that stopped syncing.
     pub last_synced_at: BTreeMap<String, Option<String>>,
+    /// On a coach's read: what of the athlete's health their wellness
+    /// sharing leaves out, said once whatever their sources record. Absent on
+    /// the athlete's own read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_shared: Option<String>,
 }
 
 /// What `list_data_sources` answers with.
@@ -311,6 +332,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
                 &tenant_id,
                 (start, end),
                 SourceFilter::All,
+                read_subject::readable_wellness(),
             )
             .await
             {
@@ -322,6 +344,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
                         sessions,
                         attribution: read.attribution,
                         last_synced_at,
+                        not_shared: read_subject::unnamed_wellness_note(),
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -411,6 +434,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                 &tenant_id,
                 (start, end),
                 SourceFilter::All,
+                read_subject::readable_wellness(),
             )
             .await
             {
@@ -422,6 +446,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                         metrics,
                         attribution: read.attribution,
                         last_synced_at,
+                        not_shared: read_subject::unnamed_wellness_note(),
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -491,6 +516,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                     &tenant_id,
                     (start, end),
                     SourceFilter::All,
+                    read_subject::readable_wellness(),
                 )
                 .await?;
                 let activity = stored_health::merged_daily_activity(
@@ -500,6 +526,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                     &tenant_id,
                     (start, end),
                     SourceFilter::All,
+                    read_subject::readable_wellness(),
                 )
                 .await?;
                 AppResult::Ok((body, activity))
@@ -514,6 +541,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                         daily_activity: activity.records,
                         attribution: body.attribution.or(activity.attribution),
                         last_synced_at,
+                        not_shared: read_subject::unnamed_wellness_note(),
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -596,14 +624,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-//
-// Provider-synced health records: the same third-party-scrape provenance as
-// GetActivities/GetAthlete (Whoop/Garmin/Terra), carrying
-// provider-controlled free-text fields (device/source names, data_source_id —
-// cf. the garmin data_source_id blob leak). A taint SOURCE, so a later
-// consequential sink in the same turn is gated.
-crate::declare_security!(GetSleepSessionsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetRecoveryMetricsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetHealthSnapshotsTool => UNTRUSTED_OUTPUT);
-// Surfaces provider/source names synced from third parties as free text.
-crate::declare_security!(ListDataSourcesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetSleepSessionsTool => empty);
+crate::declare_security!(GetRecoveryMetricsTool => empty);
+crate::declare_security!(GetHealthSnapshotsTool => empty);
+crate::declare_security!(ListDataSourcesTool => empty);

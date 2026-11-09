@@ -279,6 +279,7 @@ describe('buildConversationRow', () => {
       timestamp: '09:50',
       unreadCount: 3,
       lastActivityAt: localIso(2026, 8, 27, 9, 50),
+      listedAt: localIso(2026, 8, 27, 9, 50),
       archived: false,
     });
   });
@@ -413,6 +414,34 @@ describe('sortRowsByActivity', () => {
     expect(sortRowsByActivity(input).map((row) => row.id)).toEqual(['busy', 'middle', 'quiet']);
     // The caller's array is not reordered in place.
     expect(input.map((row) => row.id)).toEqual(['quiet', 'busy', 'middle']);
+  });
+
+  it('heads the list with a thread the coach just opened, by its updated_at like the server', () => {
+    // Opening a coach's thread touches its updated_at and adds no message, so
+    // its last message is older than another thread's while the server lists
+    // it first (carnet#1364).
+    const opened = buildConversationRow(
+      conversation({
+        id: 'opened',
+        updated_at: '2026-08-27T12:00:00Z',
+        last_message: { preview: 'plan', role: 'assistant', created_at: '2026-08-20T10:00:00Z' },
+      }),
+      LABELS,
+      NOW,
+    );
+    const recent = buildConversationRow(
+      conversation({
+        id: 'recent',
+        updated_at: '2026-08-27T10:00:00Z',
+        last_message: { preview: 'hi', role: 'user', created_at: '2026-08-27T10:00:00Z' },
+      }),
+      LABELS,
+      NOW,
+    );
+
+    expect(sortRowsByActivity([recent, opened]).map((row) => row.id)).toEqual(['opened', 'recent']);
+    // The row still stamps the time of its last message, not of the open.
+    expect(opened.lastActivityAt).toBe('2026-08-20T10:00:00Z');
   });
 });
 

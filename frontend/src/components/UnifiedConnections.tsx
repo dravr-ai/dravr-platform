@@ -107,7 +107,9 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
 
 export default function UnifiedConnections() {
   const { user } = useAuth();
-  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>(user?.is_admin ? 'api-keys' : 'oauth-apps');
+  // Gate on `role`, as the Dashboard's rail does: `is_admin` has skewed from it before.
+  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
+  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>(isAdminUser ? 'api-keys' : 'oauth-apps');
   const [activeView, setActiveView] = useState<View>('overview');
   const [selectedToken, setSelectedToken] = useState<AdminToken | null>(null);
   const [showTokenSuccess, setShowTokenSuccess] = useState(false);
@@ -129,7 +131,7 @@ export default function UnifiedConnections() {
   const renderTabs = () => (
     <div className="border-b ghost-border mb-6">
       <nav className="-mb-px flex space-x-8">
-        {user?.is_admin && (
+        {isAdminUser && (
           <button
             className={`tab-dark ${activeConnectionType === 'api-keys' ? 'tab-dark-active' : ''}`}
             onClick={() => {
@@ -178,9 +180,6 @@ export default function UnifiedConnections() {
           onBack={() => {
             setActiveView('overview');
             setSelectedToken(null);
-          }}
-          onTokenUpdated={() => {
-            // Refresh will happen automatically via react-query
           }}
         />
       );

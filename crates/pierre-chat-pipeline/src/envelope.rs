@@ -76,9 +76,9 @@ pub struct TurnEnvelope {
     /// Title of the agent the reply speaks as: the conversation's bound agent,
     /// or the one the athlete's message mentioned. `None` when no agent
     /// answered — a thread with none bound, or a reply the platform wrote
-    /// itself. The canonical title, as the conversation list shows it; the
-    /// conversation's own title is not this, since it keeps whatever the
-    /// thread was created under.
+    /// itself. The title in the athlete's stored language, falling back to the
+    /// canonical one; the conversation's own title is not this, since it keeps
+    /// whatever the thread was created under.
     pub answered_by: Option<String>,
     /// Whether [`Self::assistant`] was stored in the conversation.
     ///

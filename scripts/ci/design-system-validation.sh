@@ -38,8 +38,9 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # comment and explaining why in the commit, because it means the design system
 # lost ground.
 # ============================================================================
-BASELINE_WEB_RAW_INPUT=29
+BASELINE_WEB_RAW_INPUT=28
 BASELINE_WEB_RAW_PALETTE=2
+BASELINE_WEB_WHITE_LITERAL=9
 BASELINE_MOBILE_RAW_PALETTE=0
 BASELINE_MOBILE_RAW_TEXTINPUT=12
 BASELINE_WEB_LEGACY_PIERRE=0
@@ -52,9 +53,9 @@ BASELINE_WEB_HERO_GRADIENT=4
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=124
+BASELINE_WEB_CARD_SITES=99
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
-BASELINE_WEB_LARGE_TEXT=60
+BASELINE_WEB_LARGE_TEXT=49
 
 # Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): the density and token
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration
@@ -253,6 +254,18 @@ WEB_LEGACY=$(grep -rEoh '\b[a-z]+-pierre-[a-z0-9-]+' "$PROJECT_ROOT/frontend/src
 check_ratchet "web legacy pierre-* classnames" \
     "$WEB_LEGACY" "$BASELINE_WEB_LEGACY_PIERRE" \
     "Use the canonical token (primary, error, on-surface, the pillar tokens…) — they track the theme."
+echo ""
+
+# `white` has no shade number, so PALETTE_RE above cannot match it: a `bg-white`
+# surface sits under the dark theme's light ink, and a `divide-white/10` hairline
+# disappears on the light one. The baseline counts what is white in both themes on
+# purpose: a switch knob, a QR plate.
+echo "-- White literals that do not follow the theme --"
+WEB_WHITE=$(grep -rEoh --exclude-dir=__tests__ '\b(bg|divide|border)-white\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+    | wc -l | tr -d ' ')
+check_ratchet "web white-literal classnames" \
+    "$WEB_WHITE" "$BASELINE_WEB_WHITE_LITERAL" \
+    "A surface or hairline is a token (surface-container-lowest, outline-variant); only something white in BOTH themes stays white."
 echo ""
 
 echo "-- Stock Tailwind palette vs Boreal tokens --"

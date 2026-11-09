@@ -528,7 +528,7 @@ async fn the_planned_calendar_reaches_the_model_as_data() {
 }
 
 #[test]
-fn the_athlete_facing_agent_can_call_it_and_it_is_untrusted_output() {
+fn the_athlete_facing_agent_can_call_it_and_it_is_a_read() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
@@ -549,8 +549,8 @@ fn the_athlete_facing_agent_can_call_it_and_it_is_untrusted_output() {
         registry
             .security_class("get_planned_workouts")
             .expect("the tool is registered")
-            .is_untrusted_output(),
-        "the plan's text taints the turn that read it"
+            .is_empty(),
+        "reading the plan commits nothing, so it spends no budget"
     );
     let tool = registry
         .get("get_planned_workouts")

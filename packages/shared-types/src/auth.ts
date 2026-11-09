@@ -78,6 +78,13 @@ export interface User {
   analytics_consent?: boolean;
   /** When the user last updated their analytics consent preference */
   analytics_consent_at?: string;
+  /**
+   * Whether the user has answered the analytics question, yes or no. `false`
+   * means never asked, and onboarding asks once (carnet#1366). Sent with
+   * `analytics_consent` on every response that hands a client its own user;
+   * absent means unknown (an older server or cached user), which never asks.
+   */
+  analytics_consent_answered?: boolean;
   /** Output-format / cadence preference. Defaults to `casual` for new users. */
   coaching_persona?: CoachingPersona;
   /** True when the user has access to the Coach-tier roster UI. */
@@ -224,15 +231,24 @@ export interface RedeemSignupCodeResponse {
 // ========== SIGNUP ATTRIBUTION ==========
 
 /**
- * The campaign a sign-up arrived from: the `utm_*` parameters of the link the
- * person landed on. Sent, when known, in the register body and the Firebase
- * login body; the server attaches them to the `user.signed_up` event and never
- * stores them on the user.
+ * Where a sign-up arrived from: the `utm_*` campaign parameters of the link the
+ * person landed on, and the `ref`, `placement` and `lang` a dravr.ai
+ * create-account button adds to it. Sent, when known, in the register body and
+ * the Firebase login body; the server attaches them to the `user.signed_up`
+ * event and never stores them on the user.
  */
 export interface SignupAttribution {
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+  /** The site whose button sent the visitor, e.g. `dravr.ai`. */
+  ref?: string;
+  /** Which button on that site, e.g. `hero`. */
+  placement?: string;
+  /** The language of the page the button was on, e.g. `fr`. */
+  lang?: string;
 }
 
 // ========== AUTH RESPONSE TYPES ==========
@@ -344,14 +360,14 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
-   * The card is connected through its provider's OAuth grant, whose push-fed
-   * store has received no activity yet, and no live usr/pwd session serves
-   * the card beside it. Garmin's API pushes only what the athlete records
-   * after connecting, so the history is reached through the usr/pwd login:
-   * the card offers it, and a Garmin grant just completed opens it
-   * (`historyLoginTarget` in `@pierre/shared-constants`).
+   * The move the card asks of an athlete connected by usr/pwd alone:
+   * `'oauth_required'` on the Garmin card of an athlete whose own usr/pwd
+   * session serves it, with no Garmin grant, while a seat is free on Garmin's
+   * OAuth client. The card offers Garmin's official connection; the athlete
+   * keeps their session until they move. Absent otherwise, and always with
+   * the pool full.
    */
-  oauth_awaiting_activities: boolean;
+  migration?: 'oauth_required';
   /**
    * How the connection behind a connected card was made: `"oauth"` for a
    * provider authorization, `"manual"` for a pasted credential (an
@@ -369,27 +385,19 @@ export interface ExtendedProviderStatus {
    * needed" instead of a healthy "Connected".
    */
   needs_reauth: boolean;
-  /**
-   * The card's username-and-password session is flagged for a reconnect while
-   * another of its backends — the provider's OAuth grant — serves the card.
-   * The card still syncs, so `needs_reauth` stays `false`, but the session the
-   * reconnect notice named is expired: the card shows the reconnect and opens
-   * the username-and-password login (`sessionReconnectTarget` in
-   * `@pierre/shared-constants`). A dead grant beside it is `needs_reauth`,
-   * which the card shows first.
-   */
-  session_needs_reauth: boolean;
   capabilities: string[];
   /**
-   * For a user-facing provider with more than one auth backend (Strava can be
-   * served by shared-app OAuth or by the Sciotte mirror), the backend a NEW
-   * connection should use: `"oauth"` while shared seats remain, otherwise
-   * `"mirror"`. Absent for single-backend providers.
+   * For a user-facing provider with more than one auth backend (Strava and
+   * Garmin can each be served by their OAuth or by the usr/pwd connection),
+   * the backend a NEW connection should use: `"oauth"` while seats remain or
+   * the athlete holds the grant, otherwise `"mirror"`. Absent for
+   * single-backend providers.
    */
   recommended_backend?: 'oauth' | 'mirror';
   /**
-   * Remaining shared-app OAuth athlete seats for this provider when it is
-   * seat-limited (Strava). Absent for providers without a seat cap.
+   * Remaining OAuth seats for this provider when it is seat-limited: Strava's
+   * shared apps and Garmin's Developer Program client. Absent for providers
+   * without a seat cap.
    */
   seats_left?: number;
   /**
@@ -442,6 +450,31 @@ export interface ExtendedProviderStatus {
    * answer. Absent when there is none.
    */
   delegation?: ProviderDelegation;
+  /**
+   * Where the card's past workouts stand, and how they can be brought in
+   * (carnet#1386). Present on every card a current server serves; absent
+   * from an older one.
+   */
+  history?: HistoryStatus;
+}
+
+/**
+ * Where a provider card's history stands: `needed` while the grant serves and
+ * nothing from before it is held, `importing` while a one-time copy runs,
+ * `incomplete` when the last copy ended before the history landed,
+ * `imported` once a sign-in's copy or an imported export is held (the
+ * grant's own pushes never count), `not_applicable` for a card whose ongoing
+ * source reads history itself.
+ */
+export type HistoryState = 'needed' | 'importing' | 'incomplete' | 'imported' | 'not_applicable';
+
+/** A provider card's history: where it stands and how it can be brought in. */
+export interface HistoryStatus {
+  state: HistoryState;
+  /** The sign-in that copies the history once; `null` when not applicable. */
+  sign_in_target: string | null;
+  /** The export source this server offers for the provider (`GET /api/imports`), or `null`. */
+  archive_source: string | null;
 }
 
 /** A group coach's link to the user's provider, as the provider card shows it. */
@@ -565,8 +598,12 @@ export interface OAuthProvider {
 export interface OAuthGrant {
   /** Grant id — pass to the revoke endpoint. */
   id: string;
-  /** OAuth client the user approved (shown as the app name). */
+  /** OAuth client the user approved. */
   client_id: string;
+  /** The name the client registered, which it chose for itself; show it with `client_host`. */
+  client_name: string | null;
+  /** Where the client is: its metadata document's host, else where it receives its code. */
+  client_host: string | null;
   /** Scope the grant covers (space-delimited). */
   scope: string;
   /** When the grant was made (RFC 3339). */

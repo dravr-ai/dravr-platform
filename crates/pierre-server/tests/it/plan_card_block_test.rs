@@ -18,6 +18,7 @@
 //! after that — the save, the projection, the block on the envelope — is the
 //! production path.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -231,6 +232,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
 
     let ctx = resources.chat_pipeline_context();
@@ -340,6 +342,7 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let ctx = resources.chat_pipeline_context();
     let envelope = pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none())
@@ -503,6 +506,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
 
     let ctx = resources.chat_pipeline_context();

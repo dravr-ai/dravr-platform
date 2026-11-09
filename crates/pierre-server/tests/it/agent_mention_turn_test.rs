@@ -16,6 +16,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
@@ -341,6 +342,7 @@ async fn web_turn(
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &profile,
     )

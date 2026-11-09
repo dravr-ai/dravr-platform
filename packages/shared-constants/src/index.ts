@@ -63,6 +63,7 @@ export {
   defaultNotificationPreference,
   localTimezone,
   notificationCapLabel,
+  displayNotificationCategory,
   mergeNotificationPreferences,
   notificationPreferenceUpdate,
   formatNotificationTime,
@@ -108,6 +109,7 @@ export {
   settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
+  ANALYTICS_POLICY_URL,
   SITE_URL,
   APP_VERSION,
 } from './surfaces';
@@ -167,6 +169,9 @@ export {
 // catalogue key naming each one)
 export {
   AI_CONSENT_KEYS,
+  HISTORY_ACTION_KEYS,
+  HISTORY_IMPORTING_REFRESH_MS,
+  HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
@@ -175,13 +180,14 @@ export {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   aiConsentCards,
-  historyLoginTarget,
+  cardHistoryState,
+  historyActionKey,
+  historyImporting,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
-  sessionReconnectTarget,
   syncAuthorizationOwed,
 } from './providers';
 export type {
@@ -194,6 +200,20 @@ export type {
   ProviderScope,
   SciotteLoginPreset,
 } from './providers';
+
+// What a provider card offers — its connect or reconnect, history choices, the
+// move to the official connection, and where a refused grant goes
+export {
+  OAUTH_NO_SEAT,
+  SIGN_IN_OAUTH_REQUIRED,
+  cardForSlug,
+  cardStatus,
+  connectPlan,
+  credentialFallbackOnRefusal,
+  refusalReloadsCards,
+  refusalReturnsToCard,
+} from './connect-plan';
+export type { CardStatus, ConnectPlanCard, HistoryChoice } from './connect-plan';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
@@ -278,7 +298,10 @@ export {
   DELEGATION_CONNECTION_REFUSALS,
   isDelegationRefusal,
   delegationRefusalKey,
+  coachDelegationRefusalKey,
   DELEGATION_CONSENT_KEYS,
+  consentPlatformName,
+  WELLNESS_WIDENED_NOTICE_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   WELLNESS_READ_SKIP_KEYS,
   offeredConsents,
@@ -287,7 +310,6 @@ export {
   confirmConsents,
   DELEGATION_REVOKE_CONFIRM_KEYS,
   consentChangeConfirm,
-  COACH_CALENDAR_PLATFORM,
   COACH_CONSENTS_KEYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
@@ -357,6 +379,7 @@ export {
   CLAIM_VERDICT_SUMMARY_KEYS,
   CLAIM_VERDICT_SUMMARY_STATUS_ONLY_KEYS,
   COLLAPSED_SIMILAR_KEYS,
+  FEEDBACK_ACCOUNT_MENU_UNREAD_KEYS,
   GEAR_ACTIVITY_COUNT_KEYS,
   IMPORT_COMPLETED_KEYS,
   IMPORT_DELETE_CONFIRM_ACTION_KEYS,

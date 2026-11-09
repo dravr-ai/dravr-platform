@@ -63,6 +63,10 @@ fn spawn_turn_advice_capture(
         debug!(seat = ?standing.seat, "the sender is not this turn's subject: no advice it gives is captured");
         return;
     }
+    if !input.may_learn() {
+        debug!("the turn's grant does not write fitness data: no advice is captured");
+        return;
+    }
     let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction::new(
         Arc::clone(&ctx.prompt_registry),
     ));

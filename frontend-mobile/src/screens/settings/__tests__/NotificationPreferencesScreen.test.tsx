@@ -168,24 +168,24 @@ describe('NotificationPreferencesScreen', () => {
     getPreferences.mockResolvedValue({
       user_id: 'u1',
       tenant_id: 't1',
-      preferences: [pref({ category: 'ai', quiet_hours_start: null, timezone: 'Europe/Paris' })],
+      preferences: [pref({ category: 'achievement', quiet_hours_start: null, timezone: 'Europe/Paris' })],
     });
 
     renderScreen();
-    await waitFor(() => expect(screen.getByTestId('notification-pref-details-ai')).toBeTruthy());
-    fireEvent.press(screen.getByTestId('notification-pref-details-ai'));
+    await waitFor(() => expect(screen.getByTestId('notification-pref-details-achievement')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('notification-pref-details-achievement'));
 
-    fireEvent.press(screen.getByTestId('notification-pref-quiet-start-ai-23:00'));
+    fireEvent.press(screen.getByTestId('notification-pref-quiet-start-achievement-23:00'));
 
     await waitFor(() => expect(updatePreference).toHaveBeenCalledTimes(1));
     expect(updatePreference.mock.calls[0][0]).toMatchObject({
-      category: 'ai',
+      category: 'achievement',
       quiet_hours_start: '23:00',
       timezone: 'Europe/Paris',
     });
   });
 
-  // Turns red if the card comes back: the seven categories are seven sections
+  // Turns red if the card comes back: the five categories are five sections
   // in a gap-8 column, with no colour dot before the label and no pill anywhere
   // (Boreal v2.2, DESIGN.md §10 — sections are separated by space, not a box).
   it('lays each category out as its own section, with no card, colour dot or pill', async () => {
@@ -194,7 +194,7 @@ describe('NotificationPreferencesScreen', () => {
     const { toJSON } = renderScreen();
     await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
 
-    expect(screen.getAllByTestId(/^notification-pref-(training|recovery|coach|achievement|system|ai|reminders)$/)).toHaveLength(7);
+    expect(screen.getAllByTestId(/^notification-pref-(training|recovery|coach|achievement|system)$/)).toHaveLength(5);
     expect(screen.getByTestId('notification-prefs-list').props.className).toContain('gap-8');
     for (const category of NOTIFICATION_CATEGORIES) {
       const section = screen.getByTestId(`notification-pref-${category}`);

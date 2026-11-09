@@ -53,13 +53,13 @@ use pierre_services::delegation_refusal::Refusal;
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::{refusal, room_refusal};
-use super::plan_scope::{match_coached_member, MemberMiss};
 use super::provider_roster::{platform_refusal, roster_states, ProviderRosterRefusal};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::protocol::coach_calendar::delegation_services;
+use crate::read_subject::{match_coached_member, MemberMiss};
 use crate::runtime::ToolRuntime;
 
 /// What `propose_athlete_link` answers with.
@@ -138,8 +138,8 @@ fn state_refusal(state: &LinkState, name: &str, brand: &str) -> Option<ProviderR
         LinkState::MemberOwnConnection { .. } => refused(
             Refusal::OwnConnection.as_str(),
             format!(
-                "{name} connects {brand} with an account of their own, so a link through yours \
-                 is refused while they do."
+                "{name} connects {brand} with an account of their own, so there is nothing to \
+                 link: you reach their calendar through your own account."
             ),
         ),
         LinkState::MemberNotSharing { .. } => refused(
@@ -278,12 +278,15 @@ fn choose<'a>(
     }
     if !read.is_empty() {
         let brands: Vec<&str> = read.iter().map(|p| p.brand()).collect();
+        let brands = brands.join(" or ");
         return Err(refused(
             "no_roster_match",
             format!(
-                "No athlete on your {} roster has {name}'s verified Dravr email: the email your \
-                 platform lists for them must be the one they verified on Dravr.",
-                brands.join(" or ")
+                "No athlete on your {brands} roster has {name}'s verified Dravr email: the email \
+                 your platform lists for them must be the one they verified on Dravr. If your \
+                 platform lists no email for them, a link cannot be made: once they connect \
+                 {brands} themselves in Dravr, you reach their calendar through your own \
+                 account, with no link needed."
             ),
         ));
     }
@@ -488,10 +491,10 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 }
 
 // It stores a proposal and notifies the member; the member's confirm is the
-// consent, so it is not destructive. Its answer echoes the member's Dravr
-// display name and the group name, peer-written text the roster tools label
-// untrusted, so this one does too.
-crate::declare_security!(ProposeAthleteLinkTool => UNTRUSTED_OUTPUT);
+// consent, so it is not destructive.
+// A coach's tool over other athletes' data: Dravr's own surfaces list and run
+// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+crate::declare_security!(ProposeAthleteLinkTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {

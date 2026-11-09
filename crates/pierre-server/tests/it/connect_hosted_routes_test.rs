@@ -12,13 +12,15 @@ use crate::helpers;
 
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use dravr_canot::channels::descriptor_for;
 use helpers::axum_test::AxumTestRequest;
+use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::messaging::{channel_label, ChannelType};
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
@@ -42,7 +44,16 @@ fn tp_terms_version() -> &'static str {
 }
 
 async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
-    let resources = common::create_test_server_resources().await.unwrap();
+    // The hosted login's own pages are under test, not the move to Garmin's
+    // OAuth, so no Garmin seat is offered (carnet#1454).
+    setup_with(common::test_server_config_usr_pwd_garmin()).await
+}
+
+/// [`test_setup`] over `config`.
+async fn setup_with(config: ServerConfig) -> (Arc<ServerContext>, Uuid, TenantId) {
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let (user_id, _) = common::create_test_user(&resources.agent.database)
         .await
         .unwrap();
@@ -1084,4 +1095,132 @@ fn without_stylesheet(body: &str) -> String {
         }
         _ => body.to_owned(),
     }
+}
+
+/// The picker's Garmin card, as `GET /providers/connect` embeds it for
+/// `user_id`.
+async fn garmin_picker_card(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> serde_json::Value {
+    let token = connect_token(resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(AuthRoutes::routes(resources.auth_routes_context()))
+    .await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "bug: the picker renders for a valid link"
+    );
+    picker_card(&picker_cards(&resp.text()), "garmin").clone()
+}
+
+/// A live Garmin grant for `user_id`: its token row and its connection.
+async fn hold_garmin_grant(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
+    let mut token = UserOAuthToken::new(
+        user_id,
+        tenant_id.to_string(),
+        oauth_providers::GARMIN.to_owned(),
+        "garmin-access".to_owned(),
+        Some("garmin-refresh".to_owned()),
+        Some(Utc::now() + Duration::hours(12)),
+        None,
+    );
+    // A seat is one Garmin user, counted by the id Garmin knows them by.
+    token.provider_user_id = Some(format!("garmin-{user_id}"));
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&token)
+        .await
+        .unwrap();
+    register_connection(resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+}
+
+/// A usr/pwd-only Garmin card is asked to move to Garmin's OAuth while a seat
+/// is free (`migrate`), and asked nothing once the pool is full
+/// (carnet#1454).
+#[tokio::test]
+async fn picker_asks_a_usr_pwd_only_garmin_card_to_move_only_while_a_seat_is_free() {
+    let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
+    assert_eq!(card["connected"], true, "{card}");
+    assert_eq!(
+        card["migrate"], true,
+        "bug: a seat is free, so the usr/pwd-only card is asked to move: {card}"
+    );
+
+    let mut full = common::test_server_config();
+    full.oauth.garmin_seat_cap = Some(1);
+    let (resources, user_id, tenant_id) = setup_with(full).await;
+    let (holder, _holder_user, holder_tenant) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("garmin-seat-holder-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    hold_garmin_grant(&resources, holder, holder_tenant).await;
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
+    assert_eq!(card["connected"], true, "{card}");
+    assert_eq!(
+        card["migrate"], false,
+        "bug: with the pool full the usr/pwd connection stays the way in: {card}"
+    );
+}
+
+/// A Garmin grant whose history the usr/pwd session copied reads `imported`
+/// on the picker, and is asked no move.
+#[tokio::test]
+async fn picker_reads_an_imported_garmin_history_on_a_grant() {
+    let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
+    hold_garmin_grant(&resources, user_id, tenant_id).await;
+    let copied = ActivityBuilder::new(
+        "garmin-history-1".to_owned(),
+        "Sortie".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(60),
+        3_600,
+        oauth_providers::SCIOTTE_GARMIN.to_owned(),
+    )
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            user_id,
+            &tenant_id,
+            oauth_providers::SCIOTTE_GARMIN,
+            &[copied],
+        )
+        .await
+        .unwrap();
+
+    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
+    assert_eq!(card["connected"], true, "{card}");
+    assert_eq!(
+        card["history_state"], "imported",
+        "bug: what the session copied is the history: {card}"
+    );
+    assert_eq!(card["migrate"], false, "a grant holder has moved: {card}");
 }

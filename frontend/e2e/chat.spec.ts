@@ -537,7 +537,7 @@ test.describe('Chat - No provider connected', () => {
           contentType: 'application/json',
           body: JSON.stringify({
             code: 'NoProviderConnected',
-            message: 'Connect a fitness provider before using messaging features',
+            message: 'Connect a fitness provider or upload an activity to use this',
             details: { action: 'connect_provider' },
           }),
         });

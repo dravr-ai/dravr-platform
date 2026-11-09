@@ -7,25 +7,16 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import { GARMIN_ARCHIVE_SOURCE, STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
 import { importSourceCopy, offeredImportSources } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { DravrLogo } from '../DravrLogo';
 import SourceImport from './SourceImport';
 import { importStateLine } from './importCopy';
+import { importSourceForHash, importWindowHash } from './openImportWindow';
 
-/** The hash a link into the window names each source's import by. */
-const SOURCE_HASHES: Record<string, string> = {
-  [STRAVA_ARCHIVE_SOURCE]: '#strava',
-  [GARMIN_ARCHIVE_SOURCE]: '#garmin',
-};
-
-/** The source a link into the window opens: `#strava` the Strava import, `#garmin` the Garmin one; else none, the list. */
-function sourceFromHash(): string | null {
-  const hash = window.location.hash;
-  return Object.keys(SOURCE_HASHES).find((source) => SOURCE_HASHES[source] === hash) ?? null;
-}
+/** The source a link into the window opens: each source's own hash; else none, the list. */
+const sourceFromHash = (): string | null => importSourceForHash(window.location.hash);
 
 interface ImportWindowProps {
   /** Leave the window: close it when it was opened as one, else go back to the app. */
@@ -43,7 +34,7 @@ export default function ImportWindow({ onClose }: ImportWindowProps) {
   }, []);
 
   const open = (next: string | null) => {
-    window.history.pushState(null, '', (next && SOURCE_HASHES[next]) ?? window.location.pathname);
+    window.history.pushState(null, '', (next && importWindowHash(next)) || window.location.pathname);
     setOpenSource(next);
   };
 

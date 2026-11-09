@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use super::PostgresDatabase;
 use crate::repositories::impersonation::{
-    impl_impersonation_repository, session_column_error, ImpersonationRepository,
+    impl_impersonation_repository, session_column_error, ImpersonationRepository, SessionCursor,
     CREATE_SESSION_SQL, END_ALL_SESSIONS_SQL, END_SESSION_SQL, GET_ACTIVE_SESSION_SQL,
-    GET_SESSION_SQL, LIST_SESSIONS_SQL,
+    GET_SESSION_SQL, LIST_SESSIONS_PAGE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

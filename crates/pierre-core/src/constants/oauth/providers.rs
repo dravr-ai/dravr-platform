@@ -466,6 +466,27 @@ pub const STRAVA_ARCHIVE: &str = "strava_archive";
 /// disconnected, and never pruned for age.
 pub const GARMIN_ARCHIVE: &str = "garmin_archive";
 
+/// The source key of a history the athlete imported from their own Apple
+/// Health export, held by dravr-barrage.
+///
+/// Its activities are served from the activity cache, its sleep, resting heart
+/// rate and HRV from the wellness stores. No connection shares it: Apple
+/// Health has no live provider here, so nothing names it as a companion.
+pub const APPLE_HEALTH_ARCHIVE: &str = "apple_health_archive";
+
+/// The source key of a history the athlete imported from their own COROS
+/// export, held by dravr-barrage. It is apart from [`COROS`], the live
+/// connection, whose disconnect never reaches it.
+pub const COROS_ARCHIVE: &str = "coros_archive";
+
+/// The source key of a history the athlete imported from their own WHOOP
+/// export, held by dravr-barrage.
+///
+/// It is apart from [`WHOOP`], the live connection: the export is the
+/// athlete's copy, its importer withholds WHOOP's own scores, and WHOOP's API
+/// terms apply only to [`WHOOP`]'s rows.
+pub const WHOOP_ARCHIVE: &str = "whoop_archive";
+
 /// The key a reading the athlete entered by hand is stored under: it ranks
 /// above every device's copy of the same reading for the fields it sets.
 pub const ATHLETE: &str = "athlete";
@@ -476,7 +497,14 @@ pub const ATHLETE: &str = "athlete";
 ///
 /// Every SQL statement that names user-provided keys lists exactly these, a
 /// rule `activity_cache::sql`'s tests hold the literals to.
-pub const USER_PROVIDED_PROVIDERS: &[&str] = &[UPLOAD, STRAVA_ARCHIVE, GARMIN_ARCHIVE];
+pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
+    UPLOAD,
+    STRAVA_ARCHIVE,
+    GARMIN_ARCHIVE,
+    APPLE_HEALTH_ARCHIVE,
+    COROS_ARCHIVE,
+    WHOOP_ARCHIVE,
+];
 
 /// Whether `provider` is a key the athlete brought data in under
 /// ([`USER_PROVIDED_PROVIDERS`]).
@@ -485,14 +513,18 @@ pub fn is_user_provided(provider: &str) -> bool {
     USER_PROVIDED_PROVIDERS.contains(&provider)
 }
 
-/// The keys an athlete's own copies of `provider`'s activities are held under:
-/// asking for `strava` also reads the Strava history they imported, `garmin`
-/// the Garmin one.
+/// The keys an athlete's own copies of `provider`'s activities are held under.
+///
+/// Asking for `strava` also reads the Strava history they imported, and
+/// `garmin`, `coros` and `whoop` theirs. Apple Health has no live key to ask
+/// for.
 #[must_use]
 pub fn companion_keys(provider: &str) -> &'static [&'static str] {
     match provider {
         STRAVA => &[STRAVA_ARCHIVE],
         GARMIN => &[GARMIN_ARCHIVE],
+        COROS => &[COROS_ARCHIVE],
+        WHOOP => &[WHOOP_ARCHIVE],
         _ => &[],
     }
 }

@@ -24,8 +24,8 @@ use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::archive_import::ArchiveImports;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_import_link_token, mint_link_token, verify_link_token,
-    MintProviderLinkTokenArgs, CONNECT_PROVIDER,
+    mint_connect_link_token, mint_import_link_token, mint_link_token, verify_import_link_token,
+    verify_link_token, MintProviderLinkTokenArgs, CONNECT_PROVIDER,
 };
 use pierre_routes_auth::AuthRoutes;
 use serde_json::{json, Value};
@@ -387,6 +387,13 @@ async fn a_server_without_imports_says_so_to_the_hosted_page() {
     .await
     .expect("a server context");
     let athlete = seed_athlete(&resources, "hosted-disabled").await;
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(athlete.user_id, "en")
+        .await
+        .expect("store the athlete's locale");
     let token = import_token(&resources, &athlete);
 
     let (status, body) = call(&resources, "GET", CURRENT, &token, None).await;
@@ -411,15 +418,26 @@ async fn a_server_without_imports_says_so_to_the_hosted_page() {
     .send(AuthRoutes::routes(resources.auth_routes_context()))
     .await
     .text();
-    assert!(!picker.contains("id=\"import-own-data\""), "{picker}");
+    assert!(
+        !picker.contains("\"archive_url\""),
+        "no card links an export: {picker}"
+    );
     let page = AxumTestRequest::get(&format!(
         "/providers/connect/import?token={}",
         urlencoding::encode(&connect)
     ))
+    .header("accept-language", "en")
     .send(AuthRoutes::routes(resources.auth_routes_context()))
     .await
     .text();
-    assert!(page.contains("enabled: false"), "{page}");
+    assert!(
+        page.contains("Importing your own data isn&#x27;t available here yet."),
+        "the page says imports do not run here: {page}"
+    );
+    assert!(
+        !page.contains("token: \""),
+        "no import token is minted: {page}"
+    );
 }
 
 #[tokio::test]
@@ -448,15 +466,22 @@ async fn the_picker_offers_the_import_beside_the_credential_connect() {
         "the picker renders for a valid connect token"
     );
     let picker = picker.text();
-    let import_href = format!(
-        "href=\"/providers/connect/import?token={}\"",
-        urlencoding::encode(&connect)
-    );
+    // Each card whose provider's export is imported here links the import
+    // page with the picker's own token and the source.
+    for source in ["strava_archive", "garmin_archive"] {
+        let archive_url = format!(
+            "\"archive_url\":\"/providers/connect/import?token={}&source={source}\"",
+            urlencoding::encode(&connect)
+        );
+        assert!(
+            picker.contains(&archive_url),
+            "the {source} card links its export's import page: {picker}"
+        );
+    }
     assert!(
-        picker.contains(&import_href),
-        "the picker links the import page with its own token: {picker}"
+        picker.contains("\"importExportLink\":\"Have an export? Import it\""),
+        "{picker}"
     );
-    assert!(picker.contains(">Import your own data</a>"), "{picker}");
     // Scraping is never retired: the Strava and Garmin cards stay, and the
     // credential sign-in stays offered beside the import.
     assert!(picker.contains("\"target\":\"strava\""), "{picker}");
@@ -487,7 +512,7 @@ async fn the_import_page_carries_an_import_token_and_never_the_connect_token_to_
         page.contains("<meta name=\"referrer\" content=\"no-referrer\">"),
         "the page sends no referrer carrying its link: {page}"
     );
-    assert!(page.contains("enabled: true"), "{page}");
+    assert!(page.contains("source: \"strava_archive\""), "{page}");
 
     let script_token = page
         .split("token: \"")
@@ -520,6 +545,107 @@ async fn the_import_page_carries_an_import_token_and_never_the_connect_token_to_
         assert!(
             !page.contains("token: \""),
             "no token for a refused link: {page}"
+        );
+    }
+}
+
+/// The page a card's export link opens is that source's: `?source=` names
+/// it, its import token is minted for it alone, and the lines that name the
+/// service are its own. An upload-only source, an unknown one, and a link
+/// with none keep their pages: unavailable, unavailable, Strava's.
+#[tokio::test]
+async fn the_import_page_takes_its_source_from_the_link() {
+    let resources = importing_server().await;
+    let athlete = seed_athlete(&resources, "hosted-source").await;
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(athlete.user_id, "en")
+        .await
+        .expect("store the athlete's locale");
+    let connect = connect_token(&resources, athlete.user_id, athlete.tenant);
+    let open = |source: Option<&str>| {
+        let url = source.map_or_else(
+            || {
+                format!(
+                    "/providers/connect/import?token={}",
+                    urlencoding::encode(&connect)
+                )
+            },
+            |source| {
+                format!(
+                    "/providers/connect/import?token={}&source={source}",
+                    urlencoding::encode(&connect)
+                )
+            },
+        );
+        let resources = Arc::clone(&resources);
+        async move {
+            AxumTestRequest::get(&url)
+                .send(AuthRoutes::routes(resources.auth_routes_context()))
+                .await
+                .text()
+        }
+    };
+    let script_token = |page: &str| {
+        page.split("token: \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .map(str::to_owned)
+    };
+
+    let garmin = open(Some("garmin_archive")).await;
+    assert!(garmin.contains("source: \"garmin_archive\""), "{garmin}");
+    assert!(
+        garmin.contains("https://www.garmin.com/account/datamanagement/exportdata/"),
+        "the Garmin page opens Garmin's export request: {garmin}"
+    );
+    assert!(
+        garmin.contains("Step 1 of 3 · Request your Garmin export"),
+        "the Garmin page speaks of Garmin: {garmin}"
+    );
+    assert!(
+        !garmin.contains("strava.com"),
+        "the Garmin page never sends the athlete to Strava: {garmin}"
+    );
+    let token = script_token(&garmin).expect("the Garmin page carries an import token");
+    let secret = &resources.auth.admin_jwt_secret;
+    assert!(
+        verify_import_link_token(&token, secret, "garmin_archive").is_ok(),
+        "the token is minted for Garmin's export"
+    );
+    assert!(
+        verify_import_link_token(&token, secret, "strava_archive").is_err(),
+        "the Garmin page's token starts no Strava import"
+    );
+    let (status, body) = call(
+        &resources,
+        "GET",
+        "/providers/connect/import/garmin_archive/current",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the token follows the Garmin import: {body}"
+    );
+
+    let strava = open(None).await;
+    assert!(strava.contains("source: \"strava_archive\""), "{strava}");
+    assert!(strava.contains("Request your Strava export"), "{strava}");
+
+    for refused in ["coros_archive", "fitbit_archive"] {
+        let page = open(Some(refused)).await;
+        assert!(
+            script_token(&page).is_none(),
+            "no import token for {refused}: {page}"
+        );
+        assert!(
+            page.contains("available here yet"),
+            "the {refused} page says it is not imported here: {page}"
         );
     }
 }

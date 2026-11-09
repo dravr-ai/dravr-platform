@@ -247,6 +247,58 @@ async fn an_invitation_outliving_its_operator_still_creates_the_account_unattrib
     );
 }
 
+/// The form's usage-analytics answer is stored with the account and its time,
+/// as the register form's is; an acceptance carrying none leaves the account
+/// unasked, so onboarding asks (carnet#1366).
+#[tokio::test]
+async fn the_forms_analytics_answer_is_stored_with_the_invited_account() {
+    let resources = setup().await;
+    let repos = &resources.common.repos;
+    let answered = invite(&resources, "answered-yes@example.com", None).await;
+    let unasked = invite(&resources, "unasked@example.com", None).await;
+
+    let response = AxumTestRequest::post("/api/auth/accept-invitation")
+        .json(&json!({
+            "token": answered.token,
+            "password": PASSWORD,
+            "analytics_consent": true,
+        }))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(
+        response.status(),
+        201,
+        "acceptance must create the account: {}",
+        response.body_text()
+    );
+    let (status, body) = accept(&resources, &unasked.token, PASSWORD, None).await;
+    assert_eq!(status, 201, "acceptance must create the account: {body}");
+
+    let yes = repos
+        .users
+        .get_by_email("answered-yes@example.com")
+        .await
+        .unwrap()
+        .expect("the invited address must now have an account");
+    assert!(yes.analytics_consent, "the ticked box is a yes");
+    assert!(
+        yes.analytics_consent_at.is_some(),
+        "the answer carries its time"
+    );
+
+    let none = repos
+        .users
+        .get_by_email("unasked@example.com")
+        .await
+        .unwrap()
+        .expect("the invited address must now have an account");
+    assert!(!none.analytics_consent, "no answer is never a yes");
+    assert!(
+        none.analytics_consent_at.is_none(),
+        "no answer leaves the account unasked"
+    );
+}
+
 #[tokio::test]
 async fn a_second_redemption_of_the_same_token_fails() {
     let resources = setup().await;

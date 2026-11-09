@@ -15,8 +15,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// User registration request
-///
-/// LIMITATION(registre#1366): `RegisterRequest` carries no `analytics_consent`, so signup never asks for it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegisterRequest {
     /// User's email address
@@ -25,6 +23,13 @@ pub struct RegisterRequest {
     pub password: SecretString,
     /// Optional display name for the user
     pub display_name: Option<String>,
+    /// The answer to the sign-up form's usage-analytics opt-in, recorded with
+    /// its time as `PUT /api/user/analytics-consent` records it. `None` is a
+    /// door that does not ask (the messaging link page, in-chat sign-up): the
+    /// account stays unasked, and the chat or onboarding asks instead
+    /// (carnet#1366).
+    #[serde(default)]
+    pub analytics_consent: Option<bool>,
 }
 
 /// What a new account waits on before it can be used.
@@ -114,8 +119,9 @@ pub struct FirebaseLoginRequest {
 /// Longest campaign tag kept; anything longer is dropped, not truncated.
 const MAX_CAMPAIGN_TAG_LEN: usize = 64;
 
-/// The `utm_*` campaign tags a sign-up arrived with, carried by the client
-/// from the landing URL.
+/// Where a sign-up came from, carried by the client from the landing URL:
+/// the `utm_*` campaign tags, and the `ref`, `placement` and `lang` a
+/// dravr.ai create-account button adds to its link.
 ///
 /// They reach the `user.signed_up` notify event through the handler's span
 /// ([`Self::record_on_current_span`]), so a sign-up the service layer
@@ -131,11 +137,27 @@ pub struct SignupAttribution {
     /// `utm_campaign`, e.g. `fall-launch`
     #[serde(default)]
     pub utm_campaign: Option<String>,
+    /// `utm_term`, e.g. `cycling-coach`
+    #[serde(default)]
+    pub utm_term: Option<String>,
+    /// `utm_content`, e.g. `footer`
+    #[serde(default)]
+    pub utm_content: Option<String>,
+    /// `ref`, the site whose button sent the visitor, e.g. `dravr.ai`
+    #[serde(default, rename = "ref")]
+    pub referring_site: Option<String>,
+    /// `placement`, which button on that site, e.g. `hero`
+    #[serde(default)]
+    pub placement: Option<String>,
+    /// `lang`, the language of the page the button was on, e.g. `fr`
+    #[serde(default)]
+    pub lang: Option<String>,
 }
 
 impl SignupAttribution {
     /// Record each tag that reads as a campaign tag on the current span,
-    /// which must declare `utm_source`, `utm_medium` and `utm_campaign`.
+    /// which must declare `utm_source`, `utm_medium`, `utm_campaign`,
+    /// `utm_term`, `utm_content`, `ref`, `placement` and `lang`.
     ///
     /// A value that is not tag-shaped is dropped rather than recorded: the
     /// span feeds the analytics sink, and a query string is free text a
@@ -146,6 +168,11 @@ impl SignupAttribution {
             ("utm_source", &self.utm_source),
             ("utm_medium", &self.utm_medium),
             ("utm_campaign", &self.utm_campaign),
+            ("utm_term", &self.utm_term),
+            ("utm_content", &self.utm_content),
+            ("ref", &self.referring_site),
+            ("placement", &self.placement),
+            ("lang", &self.lang),
         ] {
             if let Some(tag) = value.as_deref().and_then(campaign_tag) {
                 span.record(field, tag);
@@ -223,6 +250,10 @@ pub struct UserInfo {
     /// mobile clients start their analytics SDK only when this is true, so
     /// every response that hands a client its user must carry it.
     pub analytics_consent: bool,
+    /// Whether the user has answered the analytics question at all, yes or
+    /// no. `false` means never asked, and the clients ask once in onboarding
+    /// (carnet#1366); `analytics_consent` alone cannot tell a "no" from that.
+    pub analytics_consent_answered: bool,
 }
 
 /// The live tombstone a deleted account left on this account's email.
@@ -353,6 +384,10 @@ pub struct AcceptInvitationRequest {
     pub password: String,
     /// Optional display name for the account
     pub display_name: Option<String>,
+    /// The answer to the form's usage-analytics opt-in, as on
+    /// [`RegisterRequest::analytics_consent`]
+    #[serde(default)]
+    pub analytics_consent: Option<bool>,
 }
 
 impl fmt::Debug for AcceptInvitationRequest {
@@ -361,6 +396,7 @@ impl fmt::Debug for AcceptInvitationRequest {
             .field("token", &"[REDACTED]")
             .field("password", &"[REDACTED]")
             .field("display_name", &self.display_name)
+            .field("analytics_consent", &self.analytics_consent)
             .finish()
     }
 }
@@ -540,6 +576,52 @@ impl fmt::Debug for OAuthAuthorizationResponse {
     }
 }
 
+/// The move a provider card asks of an athlete whose connection the
+/// provider's own OAuth replaces (carnet#1454).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderMigration {
+    /// Connect through the provider's official OAuth: the card is served by
+    /// a usr/pwd session alone, and a seat is free.
+    OauthRequired,
+}
+
+/// Where a provider card's history stands (carnet#1386).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryState {
+    /// The grant serves the card, and nothing is held from before it: the
+    /// athlete can sign in once, or import an export, to bring it in.
+    Needed,
+    /// A one-time import of the card's history is running.
+    Importing,
+    /// The last one-time import ended before the history landed (its
+    /// sign-in expired mid-copy), and nothing else brought it in.
+    Incomplete,
+    /// The card holds activities from a history source: what a usr/pwd
+    /// sign-in copied, or an imported export. Rows the grant pushed itself
+    /// start at the day it connected, so they never make the history imported.
+    Imported,
+    /// The card has no history to bring in this way: its ongoing source reads
+    /// history itself, or it is not connected through a grant that does not.
+    NotApplicable,
+}
+
+/// A provider card's history: where it stands and how it can be brought in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoryStatus {
+    /// Where the history stands.
+    pub state: HistoryState,
+    /// The sign-in that copies the history once (the card's usr/pwd login
+    /// backend, e.g. `"sciotte_garmin"`), for a card whose history it can
+    /// bring in; `None` when the state is `not_applicable`.
+    pub sign_in_target: Option<String>,
+    /// The import source this server offers for the provider's own export
+    /// (e.g. `"garmin_archive"`), as `GET /api/imports` lists it; `None` when
+    /// none is offered here.
+    pub archive_source: Option<String>,
+}
+
 /// Connection status for fitness providers
 #[derive(Debug, Serialize)]
 pub struct ConnectionStatus {
@@ -580,13 +662,13 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
-    /// The card is connected through its provider's OAuth grant, whose
-    /// push-fed store has received no activity yet, and no live usr/pwd
-    /// session serves the card beside it (carnet#1302). Garmin's API pushes
-    /// only what the athlete records after connecting, so the history is
-    /// reached through the usr/pwd login: a client offers it from the card,
-    /// and opens it when a Garmin grant it just completed reads `true`.
-    pub oauth_awaiting_activities: bool,
+    /// The move the card asks of an athlete connected by usr/pwd alone
+    /// (carnet#1454): [`ProviderMigration::OauthRequired`] on the Garmin card
+    /// of an athlete whose own usr/pwd session serves it, with no Garmin
+    /// grant, while a seat is free on Garmin's OAuth client. They keep their
+    /// session until they move. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub migration: Option<ProviderMigration>,
     /// How the connection behind a connected card was made, as
     /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
     /// `"oauth"` for a provider authorization, `"manual"` for a pasted
@@ -604,15 +686,6 @@ pub struct ProviderStatus {
     /// refresh failure. Lets the connection screen show "Reconnect needed" instead
     /// of a healthy-looking "Connected" for a session that no longer works.
     pub needs_reauth: bool,
-    /// The card's username-and-password session is flagged for a reconnect
-    /// while another of the card's backends — the provider's OAuth grant —
-    /// serves it. The card still syncs through the grant, so `needs_reauth`
-    /// stays `false` and every "is it syncing" surface reads it healthy, but
-    /// the session it shows beside the grant is expired: a client shows the
-    /// reconnect on the card and starts the username-and-password login, the
-    /// flow the reconnect notice links to. A dead grant beside it is
-    /// `needs_reauth`, which a client shows first.
-    pub session_needs_reauth: bool,
     /// Provider capabilities (e.g., `["activities", "sleep"]`)
     pub capabilities: Vec<String>,
     /// For a user-facing provider with more than one auth backend (Strava and
@@ -670,6 +743,10 @@ pub struct ProviderStatus {
     /// none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegation: Option<ProviderDelegation>,
+    /// Where the card's past workouts stand, and how they can be brought in
+    /// (carnet#1386). Present on every served card; a card with no history
+    /// to bring in reads [`HistoryState::NotApplicable`].
+    pub history: HistoryStatus,
 }
 
 /// A group coach's link to the user's provider, as the provider card shows it.
@@ -739,5 +816,44 @@ mod tests {
         );
         assert_eq!(request.attribution.utm_medium, None);
         assert_eq!(request.attribution.utm_campaign.as_deref(), Some("fall"));
+    }
+
+    #[test]
+    fn firebase_login_reads_the_dravr_ai_button_and_the_remaining_utm_tags() {
+        let request: FirebaseLoginRequest = serde_json::from_value(serde_json::json!({
+            "id_token": "t",
+            "ref": "dravr.ai",
+            "placement": "hero",
+            "lang": "fr",
+            "utm_term": "cycling-coach",
+            "utm_content": "footer"
+        }))
+        .unwrap();
+        let attribution = request.attribution;
+        assert_eq!(
+            attribution.referring_site.as_deref(),
+            Some("dravr.ai"),
+            "bug: the wire key `ref` must deserialize into `referring_site`"
+        );
+        assert_eq!(
+            attribution.placement.as_deref(),
+            Some("hero"),
+            "bug: `placement` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.lang.as_deref(),
+            Some("fr"),
+            "bug: `lang` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.utm_term.as_deref(),
+            Some("cycling-coach"),
+            "bug: `utm_term` must deserialize from the flattened body"
+        );
+        assert_eq!(
+            attribution.utm_content.as_deref(),
+            Some("footer"),
+            "bug: `utm_content` must deserialize from the flattened body"
+        );
     }
 }

@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use pierre_core::transport::Transport;
 use pierre_core::transport::TransportPolicy;
@@ -217,6 +218,7 @@ async fn add_row(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap()
@@ -717,6 +719,7 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &profile,
     )

@@ -22,6 +22,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Admin token management and authorization
 pub mod admin;
+/// The admin audit trail (`SQLite`) backing `AdminAuditRepository`.
+pub mod admin_audit;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
 pub mod agent_artefacts;
 /// Coaches (custom AI personas) storage and management
@@ -36,6 +38,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`SQLite`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The calendar an athlete chose for Dravr's pushes (`SQLite`)
+pub mod calendar_preferences;
 /// Chat conversation and message storage
 pub mod chat;
 /// The check-in cadence each athlete chose (`SQLite`)
@@ -56,6 +60,8 @@ pub mod commitments;
 pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
 pub mod email_verification_tokens;
+/// The admin Engagement screen's scoped reads (`SQLite`) backing `EngagementRepository`.
+pub mod engagement;
 /// Database error types
 pub mod errors;
 /// Tenant defaults + per-user overrides (`SQLite`) backing `FeatureFlagsRepository`.
@@ -86,7 +92,7 @@ pub mod llm_credentials;
 pub mod llm_usage;
 /// MCP Tasks extension handle persistence
 pub mod mcp_tasks;
-/// Coaching harness memory foundations (facts, compaction, notes, followups, sessions)
+/// Coaching harness memory foundations (facts, compaction, sessions)
 pub mod memory;
 /// Post-turn memory extractions still owed, leased to one re-runner at a time
 pub mod memory_extraction_jobs;
@@ -167,6 +173,8 @@ pub mod uploaded_activity_files;
 pub mod usage_counters;
 /// Use-case starters shown to and tapped by each athlete (`SQLite`)
 pub mod use_case_exposures;
+/// An athlete's own data, one page at a time, for the portable export (`SQLite`)
+pub mod user_export;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (`SQLite`)

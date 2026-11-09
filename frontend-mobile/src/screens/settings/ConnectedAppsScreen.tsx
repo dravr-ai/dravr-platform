@@ -16,6 +16,9 @@ import { formatDate } from '@pierre/chat-utils';
 
 const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
 
+/** The app's registered name, else the id it was approved under. */
+const connectedAppName = (grant: OAuthGrant): string => grant.client_name || grant.client_id;
+
 export function ConnectedAppsScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -44,7 +47,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
       t('app.revokeAccessQ'),
       // The same sentence the web card's confirmation uses, from the same key:
       // revoking is the same act on both, so it cannot promise two things.
-      t('app.confirmRevokeAppAccess', { app: grant.client_id }),
+      t('app.confirmRevokeAppAccess', { app: connectedAppName(grant) }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -107,8 +110,14 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                   <Row
                     key={grant.id}
                     testID={`connected-app-${grant.id}`}
-                    title={grant.client_id}
-                    subtitle={`${grant.scope} · ${t('app.connectedOn', { date: formatDate(grant.granted_at, language) })}`}
+                    title={connectedAppName(grant)}
+                    subtitle={[
+                      grant.client_host,
+                      grant.scope,
+                      t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                     last={index === grants.length - 1}
                     trailing={
                       revoking ? (
@@ -117,7 +126,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                         <Text
                           className="text-sm font-medium text-primary"
                           accessibilityRole="button"
-                          accessibilityLabel={t('app.revokeAppLabel', { app: grant.client_id })}
+                          accessibilityLabel={t('app.revokeAppLabel', { app: connectedAppName(grant) })}
                           onPress={() => handleRevoke(grant)}
                           testID={`revoke-${grant.id}`}
                         >

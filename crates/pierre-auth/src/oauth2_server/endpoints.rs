@@ -8,21 +8,25 @@
 // - String ownership transfers to struct constructors (OAuth2AuthCode, TokenResponse)
 // - Arc clone for database manager creation
 
-use super::client_registration::ClientRegistrationManager;
+use super::cimd::{self, MetadataFetcher, MetadataResolver};
+use super::client_registration::{
+    is_public_client, redirect_uri_matches, redirects_to_any_local_process,
+    ClientRegistrationManager,
+};
 use super::first_party::{is_first_party, FirstPartyRedirects};
 use super::models::{
     AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
     OAuth2Error, TokenRequest, TokenResponse,
 };
 use super::pkce::{check_code_challenge, check_pkce};
+use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, DelegatedGrant};
+use crate::config::oauth::ClientRetentionConfig;
 use crate::config::OAuth2ServerConfig;
-use crate::refresh_rotation::{
-    consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
-};
+use crate::refresh_rotation::{generate_refresh_token, refresh_token_lifetime};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -39,6 +43,8 @@ use uuid::Uuid;
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
+pub use grant_checks::TokenGrant;
+mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
 
@@ -57,7 +63,7 @@ struct AuthCodeParams<'a> {
 
 /// What an accepted authorization request is granted: the scope the code
 /// carries and the RFC 8707 resource its tokens are bound to, if it named one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct CheckedAuthorization {
     /// The granted scope, space-delimited
     pub scope: String,
@@ -66,6 +72,12 @@ pub struct CheckedAuthorization {
     pub resource: Option<String>,
     /// The name the client registered, shown on the consent screen
     pub client_name: Option<String>,
+    /// Whether this request must show consent even for a remembered grant
+    pub consent_every_time: bool,
+    /// The client a metadata document describes, when it has no row yet:
+    /// [`OAuth2AuthorizationServer::enroll_checked_client`] stores it once an
+    /// athlete is signed in
+    pub unstored_client: Option<OAuth2Client>,
 }
 
 /// OAuth 2.0 Authorization Server
@@ -85,12 +97,25 @@ pub struct OAuth2AuthorizationServer {
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
     resources: Vec<String>,
+    /// Identifiers of the A2A resource server this authorization server also
+    /// mints for: `/a2a` on those origins; empty until
+    /// [`Self::with_a2a_resources`] names them
+    a2a_resources: Vec<String>,
     /// Identifiers of the satellite MCP servers this authorization server also
     /// mints for, one each; empty until [`Self::with_satellite_resources`]
     satellites: Vec<String>,
     /// Where Dravr's own apps may receive a code; empty until
     /// [`Self::with_first_party_redirects`] names it, which refuses them
     first_party: FirstPartyRedirects,
+    /// Reads the client metadata document a URL `client_id` names
+    metadata_fetcher: Arc<dyn MetadataFetcher>,
+    /// Pending registrations that may exist at once, new metadata-document
+    /// clients included
+    max_pending_registrations: u64,
+    /// Meters the grants each user's tokens redeem; `None` until
+    /// [`Self::with_token_limiter`] names it, which meters nobody per user.
+    /// Shared with the routes' limiter, so one store counts every window
+    token_limiter: Option<Arc<OAuth2RateLimiter>>,
 }
 
 impl fmt::Debug for OAuth2AuthorizationServer {
@@ -137,8 +162,12 @@ impl OAuth2AuthorizationServer {
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
             resources,
+            a2a_resources: Vec::new(),
             satellites: Vec::new(),
             first_party: FirstPartyRedirects::default(),
+            metadata_fetcher: cimd::production_fetcher(),
+            max_pending_registrations: ClientRetentionConfig::default().max_pending_registrations,
+            token_limiter: None,
         }
     }
 
@@ -172,8 +201,45 @@ impl OAuth2AuthorizationServer {
                 .map(str::to_owned)
                 .collect(),
         )
+        .with_a2a_resources(config.a2a_resources())
         .with_satellite_resources(config.satellite_resources.clone())
         .with_first_party_redirects(config.first_party_redirects.clone())
+        .with_max_pending_registrations(config.client_retention.max_pending_registrations)
+    }
+
+    /// Cap the registrations no user has authorized yet, which a client
+    /// metadata document client counts against like a dynamic one.
+    #[must_use]
+    pub const fn with_max_pending_registrations(mut self, ceiling: u64) -> Self {
+        self.max_pending_registrations = ceiling;
+        self
+    }
+
+    /// Meter each user's grant redemptions at [`Self::token`] in `limiter`'s
+    /// per-user window. The per-address window stays the route's; this one has
+    /// to be counted here, once the client authenticated and the grant named a
+    /// user, and before the grant is spent.
+    #[must_use]
+    pub fn with_token_limiter(mut self, limiter: Arc<OAuth2RateLimiter>) -> Self {
+        self.token_limiter = Some(limiter);
+        self
+    }
+
+    /// Read client metadata documents through `fetcher` instead of the SSRF
+    /// guarded client; for a test that serves them itself.
+    #[must_use]
+    pub fn with_metadata_fetcher(mut self, fetcher: Arc<dyn MetadataFetcher>) -> Self {
+        self.metadata_fetcher = fetcher;
+        self
+    }
+
+    /// Also mint for the A2A resource server, known by `a2a_resources`
+    /// (`OAuth2ServerConfig::a2a_resources`): a grant bound to it never mints
+    /// for the MCP resource server, or the reverse.
+    #[must_use]
+    pub fn with_a2a_resources(mut self, a2a_resources: Vec<String>) -> Self {
+        self.a2a_resources = a2a_resources;
+        self
     }
 
     /// Also mint for the satellite MCP servers `satellites` names
@@ -198,6 +264,7 @@ impl OAuth2AuthorizationServer {
     fn served(&self) -> Vec<&str> {
         self.resources
             .iter()
+            .chain(&self.a2a_resources)
             .chain(&self.satellites)
             .map(String::as_str)
             .collect()
@@ -220,14 +287,25 @@ impl OAuth2AuthorizationServer {
         &self,
         request: &AuthorizeRequest,
     ) -> Result<CheckedAuthorization, AuthorizeRejection> {
-        let client = self
-            .client_manager
-            .get_client(&request.client_id)
-            .await
-            .map_err(|e| {
-                ClientRegistrationManager::log_lookup_failure(&request.client_id, &e);
-                AuthorizeRejection::ShownToUser(ClientRegistrationManager::lookup_refusal(&e))
-            })?;
+        let (client, is_stored) = if cimd::is_metadata_document_id(&request.client_id) {
+            // An https URL `client_id` names its own metadata document.
+            let resolved = self
+                .metadata_resolver()
+                .resolve(&request.client_id)
+                .await
+                .map_err(|e| AuthorizeRejection::ShownToUser(e.into_oauth2_error()))?;
+            (resolved.client, resolved.is_stored)
+        } else {
+            let client = self
+                .client_manager
+                .get_client(&request.client_id)
+                .await
+                .map_err(|e| {
+                    ClientRegistrationManager::log_lookup_failure(&request.client_id, &e);
+                    AuthorizeRejection::ShownToUser(ClientRegistrationManager::lookup_refusal(&e))
+                })?;
+            (client, true)
+        };
 
         // Exact match against the client's registration (RFC 6749 Section
         // 3.1.2.3), or for Dravr's own apps against the deployment's policy.
@@ -235,7 +313,7 @@ impl OAuth2AuthorizationServer {
             self.first_party
                 .accepts(&client.client_id, &request.redirect_uri)
         } else {
-            client.redirect_uris.contains(&request.redirect_uri)
+            redirect_uri_matches(&client.redirect_uris, &request.redirect_uri)
         };
         if !redirect_accepted {
             // Dravr's own apps only ever send this deployment's callbacks, so
@@ -255,8 +333,42 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
-        self.check_verified_client_request(&client, request)
-            .map_err(AuthorizeRejection::RedirectedToClient)
+        let mut checked = self
+            .check_verified_client_request(&client, request)
+            .map_err(AuthorizeRejection::RedirectedToClient)?;
+        if !is_stored {
+            checked.unstored_client = Some(client);
+        }
+        Ok(checked)
+    }
+
+    fn metadata_resolver(&self) -> MetadataResolver {
+        MetadataResolver::new(
+            self.metadata_fetcher.clone(),
+            self.oauth2_server.clone(),
+            self.max_pending_registrations,
+        )
+    }
+
+    /// Store the metadata-document client a checked request found no row for.
+    /// The caller has a signed-in athlete; nothing before that writes a row.
+    ///
+    /// # Errors
+    /// Returns the error to send the client when the row cannot be stored.
+    pub async fn enroll_checked_client(
+        &self,
+        checked: &CheckedAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        let Some(client) = &checked.unstored_client else {
+            return Ok(());
+        };
+        self.metadata_resolver()
+            .enroll(client)
+            .await
+            .map_err(|error| {
+                warn!(error = %error, "metadata document client could not be stored");
+                error.into_oauth2_error()
+            })
     }
 
     /// The checks that follow a verified client and `redirect_uri`: the
@@ -307,6 +419,8 @@ impl OAuth2AuthorizationServer {
             scope,
             resource,
             client_name: client.client_name.clone(),
+            consent_every_time: redirects_to_any_local_process(client, &request.redirect_uri),
+            unstored_client: None,
         })
     }
 
@@ -334,6 +448,7 @@ impl OAuth2AuthorizationServer {
         // user once the request has passed client, redirect_uri, scope, and PKCE checks.
         let user_id =
             user_id.ok_or_else(|| OAuth2Error::invalid_request("User authentication required"))?;
+        self.enroll_checked_client(&checked).await?;
 
         // Generate authorization code with tenant isolation and state binding
         // Resolve tenant_id from JWT claims (active_tenant_id) or database lookup
@@ -401,10 +516,10 @@ impl OAuth2AuthorizationServer {
         // MCP clients are confidential clients, so authentication is REQUIRED
         let client = self
             .client_manager
-            .validate_client(&request.client_id, request.client_secret.expose_secret())
+            .authenticate_client(&request.client_id, request.client_secret.expose_secret())
             .await
             .inspect_err(|e| {
-                // A refused client is the caller's mistake. `validate_client`
+                // A refused client is the caller's mistake. `authenticate_client`
                 // already logged each cause at its own level, the server faults
                 // among them (a failed lookup, an unreadable stored hash) at
                 // ERROR, so this line only adds the grant being attempted.
@@ -436,6 +551,22 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
+        // A public client proves possession of the authorization code with
+        // PKCE alone, so its code exchange without a verifier is refused here
+        // whatever the stored code says (RFC 9700 §2.1.1).
+        if is_public_client(&client) {
+            if request.grant_type == "client_credentials" {
+                return Err(OAuth2Error::unauthorized_client(
+                    "A public client cannot use the client_credentials grant",
+                ));
+            }
+            if request.grant_type == "authorization_code" && request.code_verifier.is_none() {
+                return Err(OAuth2Error::invalid_request(
+                    "code_verifier is required for a public client (PKCE S256)",
+                ));
+            }
+        }
+
         refuse_control_characters(&[
             request.code.as_deref(),
             request.redirect_uri.as_deref(),
@@ -447,12 +578,17 @@ impl OAuth2AuthorizationServer {
             request.scope.as_deref(),
         ])?;
 
-        match request.grant_type.as_str() {
+        let response = match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,
             "client_credentials" => self.handle_client_credentials_grant(&client, request).await,
             "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
+        }?;
+        // A refresh token was issued through this client: it is in use.
+        if response.refresh_token.is_some() {
+            self.client_manager.record_activity(&client).await;
         }
+        Ok(response)
     }
 
     /// Handle authorization code grant
@@ -471,6 +607,9 @@ impl OAuth2AuthorizationServer {
         // A resource this server does not serve is refused before the code is
         // spent, so a client that named the wrong one can still correct it.
         self.check_requested_resource(request.resource.as_deref())?;
+
+        self.admit_code_user(&code, &request.client_id, &redirect_uri)
+            .await?;
 
         // Validate and consume authorization code (with PKCE verification)
         let auth_code = self
@@ -523,6 +662,8 @@ impl OAuth2AuthorizationServer {
             created_at: now,
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
+            // The first token of a chain stamps when the chain began.
+            family_created_at: Some(now),
             // The grant keeps the resource it was authorized for; a token
             // request that narrowed an unbound grant bound only that token.
             resource: auth_code.resource,
@@ -601,11 +742,14 @@ impl OAuth2AuthorizationServer {
         // server, is refused before the refresh token is rotated away, and a
         // grant whose tenant the user left is revoked.
         self.check_requested_resource(request.resource.as_deref())?;
-        self.check_refresh_grant(
-            refresh_token_value.expose_secret(),
-            request.resource.as_deref(),
-        )
-        .await?;
+        let grant = self
+            .check_refresh_grant(
+                refresh_token_value.expose_secret(),
+                request.resource.as_deref(),
+            )
+            .await?;
+        self.admit_refresh_user(grant.as_ref(), &request.client_id)
+            .await?;
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
@@ -863,18 +1007,6 @@ impl OAuth2AuthorizationServer {
         })
     }
 
-    /// The scopes this server advertises in both metadata documents.
-    ///
-    /// Served from the vocabulary rather than a literal list, so a scope cannot
-    /// be published without being enforceable or enforced without being
-    /// published — which is how the three names this replaces came to mean
-    /// nothing. Only the delegable part: a client is never granted `admin`, and
-    /// a spec-following MCP client requests whatever is listed here.
-    #[must_use]
-    pub fn supported_scopes() -> Vec<&'static str> {
-        OAuthScope::delegable_as_str()
-    }
-
     /// Resolve the scope an authorization request is granted, or refuse it.
     ///
     /// The requested scope, or the default grant when the client named none —
@@ -1048,49 +1180,5 @@ impl OAuth2AuthorizationServer {
         refresh_token: &super::models::OAuth2RefreshToken,
     ) -> AppResult<()> {
         self.oauth2_server.store_refresh_token(refresh_token).await
-    }
-
-    /// Exchange a presented refresh token for its successor.
-    ///
-    /// Follows the one rotation rule in [`crate::refresh_rotation`]: the token
-    /// is consumed in the statement that reads it (live, unexpired and owned by
-    /// `client_id`), and the successor joins its family. A token that no longer
-    /// exchanges revokes its whole family and yields `None`, as does an
-    /// unknown one.
-    ///
-    /// Returns the consumed token's record and the successor's value.
-    async fn rotate_refresh_token(
-        &self,
-        presented: &str,
-        client_id: &str,
-    ) -> AppResult<Option<(super::models::OAuth2RefreshToken, String)>> {
-        let now = Utc::now();
-        let Some(consumed) = consume_or_revoke_family(
-            self.oauth2_server
-                .consume_refresh_token(presented, client_id, now),
-            || self.oauth2_server.revoke_refresh_token_family(presented),
-        )
-        .await?
-        else {
-            return Ok(None);
-        };
-
-        let successor_value = generate_refresh_token()?;
-        let successor = super::models::OAuth2RefreshToken {
-            token: SecretString::from(successor_value.clone()), // Safe: Clone for storage
-            client_id: consumed.client_id.clone(),
-            user_id: consumed.user_id,
-            tenant_id: consumed.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: Self::rendered_scope(&Self::delegated_grant(consumed.scope.as_deref())),
-            expires_at: now + self.refresh_token_lifetime,
-            created_at: now,
-            revoked: false,
-            family_id: consumed.family_id.clone(),
-            // Rotation keeps the grant's resource binding.
-            resource: consumed.resource.clone(),
-        };
-        self.store_refresh_token(&successor).await?;
-
-        Ok(Some((consumed, successor_value)))
     }
 }

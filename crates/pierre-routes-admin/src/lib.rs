@@ -15,8 +15,7 @@
 //!
 //! - Human admin cookie-auth routes mounted at `/api/admin/...`
 //!   ([`AdminRoutes::cookie_admin_routes`]) — claim verdicts, memory worker
-//!   metrics, agent followup triage, agent notes audit, myth-busting,
-//!   agent grading, harness configuration. Powers the admin web UI tabs.
+//!   metrics, myth-busting, agent grading, harness configuration. Powers the admin web UI tabs.
 //!
 //! The cookie-auth surface gates on
 //! [`pierre_middleware::cookie_admin_middleware`], itself generic over
@@ -30,6 +29,9 @@
 //! path (notably `routes::auth::login::handle_register`).
 
 #![warn(missing_docs)]
+
+/// The admin audit trail's recorder: one row per operator write (carnet#1391).
+pub mod audit;
 
 /// Admin authentication services (JWT-token and cookie-derived).
 pub mod auth;
@@ -46,6 +48,7 @@ pub mod tool_selection;
 mod context;
 mod routes;
 
+pub use audit::{record_admin_writes, AuditDetail, AuditRecorder};
 pub use auth::{
     middleware::admin_auth_middleware, service::AdminAuthService, AdminJwtManager,
     TokenGenerationConfig,

@@ -62,6 +62,11 @@ const MAX_ATTEMPTS: i64 = 3;
 /// before their lease lapsed.
 const SWEEP_BATCH: i64 = 20;
 
+/// How long a row stays in the run ledger. The screen reads a week; the rest
+/// answers "when did it last run" after a long quiet spell, and bounds a table
+/// that takes one insert per turn.
+const RUN_RETENTION: Duration = Duration::from_hours(24 * 30);
+
 /// Claim and re-run every extraction whose spawn is presumed dead.
 ///
 /// Returns how many extractions this pass ran to the end. A claimed row
@@ -97,6 +102,7 @@ pub async fn resume_extraction_jobs(
         limit: SWEEP_BATCH,
     };
     reap_exhausted_jobs(repos, now_ms).await;
+    prune_run_ledger(repos, now_ms).await;
     let claimed = repos
         .memory_extraction_jobs
         .claim_stale_extraction_jobs(claim)
@@ -124,6 +130,18 @@ async fn reap_exhausted_jobs(repos: &RepositoryRegistry, now_ms: i64) {
         Err(e) => {
             warn!(error = %e, "memory extraction resume: exhausted jobs could not be reaped");
         }
+    }
+}
+
+/// Drop the run rows past their retention.
+async fn prune_run_ledger(repos: &RepositoryRegistry, now_ms: i64) {
+    let before_ms = now_ms.saturating_sub(millis(RUN_RETENTION));
+    if let Err(e) = repos
+        .memory_extraction_jobs
+        .prune_extraction_runs(before_ms)
+        .await
+    {
+        warn!(error = %e, "memory extraction resume: the run ledger could not be pruned");
     }
 }
 
@@ -158,6 +176,7 @@ async fn resume_one(
     let renewal = keep_extraction_lease(Arc::clone(&repos.memory_extraction_jobs), lease.clone());
     let run = run_extraction_job(
         repos.memory.as_ref(),
+        repos.memory_extraction_jobs.as_ref(),
         usage,
         chat_provider,
         dedup,

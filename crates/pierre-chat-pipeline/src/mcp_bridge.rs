@@ -20,6 +20,7 @@
 
 use embacle_tool_host::ToolSession;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 
@@ -33,8 +34,8 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 /// `turn_id` is the Guardian turn key for this utterance, the same value the
 /// in-process `ReAct` loop binds. The agent's loop runs in another process and
 /// reaches the executor from a task outside any tool body, so the task-local
-/// inherit cannot supply it; passing it here is what makes taint and the
-/// per-turn blast-radius budgets accumulate across the loopback calls of one
+/// inherit cannot supply it; passing it here is what makes the per-turn
+/// blast-radius budgets accumulate across the loopback calls of one
 /// message instead of resetting on every call.
 ///
 /// `turn_agent_id` is the agent the turn answers as, passed for the same
@@ -70,6 +71,9 @@ pub struct ToolSessionTurn<'a> {
     /// The tools an operator switched off for the caller: the session's
     /// listing leaves them out, as the turn's declarations do.
     pub switched_off: &'a SwitchedOff,
+    /// The grant the turn runs under: its executor's, and what the session's
+    /// listing is narrowed to.
+    pub grant: &'a [OAuthScope],
 }
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.

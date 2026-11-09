@@ -24,7 +24,9 @@ import { ConnectedAppsScreen } from '../src/screens/settings/ConnectedAppsScreen
 
 const GRANT = {
   id: 'grant-1',
-  client_id: 'Claude Desktop',
+  client_id: 'mcp_client_0123456789abcdef',
+  client_name: 'Claude Desktop' as string | null,
+  client_host: null as string | null,
   scope: 'fitness:read',
   granted_at: '2026-08-01T10:00:00Z',
 };
@@ -51,6 +53,20 @@ describe('ConnectedAppsScreen', () => {
     jest.clearAllMocks();
     mockListConnectedApps.mockResolvedValue([GRANT]);
     mockRevokeConnectedApp.mockResolvedValue(undefined);
+  });
+
+  it('names the app with its host, never its opaque client id', async () => {
+    mockListConnectedApps.mockResolvedValue([{ ...GRANT, client_host: 'claude.ai' }]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText('Claude Desktop')).toBeTruthy());
+    expect(screen.getByText(/claude\.ai · fitness:read/)).toBeTruthy();
+    expect(screen.queryByText(GRANT.client_id)).toBeNull();
+  });
+
+  it('falls back to the client id for an app with no registered name', async () => {
+    mockListConnectedApps.mockResolvedValue([{ ...GRANT, client_name: null, client_host: null }]);
+    renderScreen();
+    await waitFor(() => expect(screen.getByText(GRANT.client_id)).toBeTruthy());
   });
 
   it('explains the screen from the shared catalogue key, not a paragraph of its own', async () => {

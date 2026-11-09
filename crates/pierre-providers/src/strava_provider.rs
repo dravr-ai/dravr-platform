@@ -21,7 +21,7 @@ use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::StatsCoverage;
 use crate::models::{
-    activity::{Lap, Split},
+    activity::{utc_offset_seconds_if_civil, Lap, Split},
     resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
@@ -333,7 +333,8 @@ impl StravaProvider {
         .city_opt(activity.location_city)
         .region_opt(activity.location_state)
         .country_opt(activity.location_country)
-        .sport_type_detail_opt(Some(effective_type)))
+        .sport_type_detail_opt(Some(effective_type))
+        .utc_offset_seconds_opt(activity.utc_offset.and_then(strava_utc_offset)))
     }
 
     fn convert_strava_activity(activity: StravaActivityResponse) -> AppResult<Activity> {
@@ -1069,4 +1070,15 @@ impl ProviderFactory for StravaProviderFactory {
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::STRAVA]
     }
+}
+
+/// Seconds east of UTC from Strava's `utc_offset`, or `None` for a value that
+/// is not a whole second count inside every civil zone.
+fn strava_utc_offset(seconds: f64) -> Option<i32> {
+    use num_traits::ToPrimitive;
+
+    if seconds.fract() != 0.0 {
+        return None;
+    }
+    seconds.to_i64().and_then(utc_offset_seconds_if_civil)
 }

@@ -24,6 +24,10 @@ const startImport = vi.fn();
 const cancelImport = vi.fn();
 const getReport = vi.fn();
 const deleteHistory = vi.fn();
+const startUpload = vi.fn();
+const getUploadSession = vi.fn();
+const writeUpload = vi.fn();
+const finishUpload = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   importsApi: {
@@ -33,6 +37,10 @@ vi.mock('../../../services/api', () => ({
     cancelImport: (...args: unknown[]) => cancelImport(...args),
     getReport: (...args: unknown[]) => getReport(...args),
     deleteHistory: (...args: unknown[]) => deleteHistory(...args),
+    startUpload: (...args: unknown[]) => startUpload(...args),
+    getUploadSession: (...args: unknown[]) => getUploadSession(...args),
+    writeUpload: (...args: unknown[]) => writeUpload(...args),
+    finishUpload: (...args: unknown[]) => finishUpload(...args),
   },
 }));
 
@@ -200,5 +208,131 @@ describe('SourceImport', () => {
     await user.click(screen.getByTestId('import-start'));
 
     await waitFor(() => expect(startImport).toHaveBeenCalledWith('garmin_archive', link));
+  });
+});
+
+describe('SourceImport, an export the athlete uploads', () => {
+  const SESSION = { kind: 'session', url: 'https://storage.example.com/session-secret' };
+  const CHUNK_RANGE = /^bytes \d+-\d+\/\d+$/;
+
+  /** A store's session: asked where it stands first, then takes every chunk. */
+  function sessionFetch() {
+    return vi.fn(async (_url: string, init: RequestInit) => {
+      const range = (init.headers as Record<string, string>)['Content-Range'];
+      return {
+        status: CHUNK_RANGE.test(range) ? 201 : 308,
+        headers: { get: () => null },
+      } as unknown as Response;
+    });
+  }
+
+  function exportFile() {
+    return new File(['PK-export'], 'export.zip', { type: 'application/zip' });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('offers a file, never a link, and opens no export page', async () => {
+    getCurrentImport.mockResolvedValue(null);
+    renderImport('apple_health_archive');
+
+    expect(await screen.findByTestId('import-upload-pick')).toBeInTheDocument();
+    expect(screen.queryByTestId('import-link-input')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('opens an upload of the file, sends it to the session and says it landed', async () => {
+    getCurrentImport.mockResolvedValue(null);
+    startUpload.mockResolvedValue({ import: job({ id: 'job-9', status: 'awaiting_link' }), upload: SESSION });
+    finishUpload.mockResolvedValue(job({ id: 'job-9', status: 'downloading' }));
+    const fetchMock = sessionFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    renderImport('apple_health_archive');
+
+    await user.upload(await screen.findByTestId('import-upload-pick-input'), exportFile());
+
+    await waitFor(() => expect(finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-9'));
+    expect(startUpload).toHaveBeenCalledWith('apple_health_archive', 9);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>)['Content-Range'])).toEqual([
+      'bytes */9',
+      'bytes 0-8/9',
+    ]);
+  });
+
+  it('resumes the import that waits rather than opening another', async () => {
+    getCurrentImport.mockResolvedValue(job({ id: 'job-7', status: 'awaiting_link', imported: 0 }));
+    getUploadSession.mockResolvedValue(SESSION);
+    finishUpload.mockResolvedValue(job({ id: 'job-7', status: 'downloading' }));
+    vi.stubGlobal('fetch', sessionFetch());
+    const user = userEvent.setup();
+    renderImport('apple_health_archive');
+
+    await user.upload(await screen.findByTestId('import-upload-pick-input'), exportFile());
+
+    await waitFor(() => expect(finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-7'));
+    expect(getUploadSession).toHaveBeenCalledWith('apple_health_archive', 'job-7');
+    expect(startUpload).not.toHaveBeenCalled();
+  });
+
+  it('says a store session that is gone cannot continue, and does not finish', async () => {
+    getCurrentImport.mockResolvedValue(job({ id: 'job-7', status: 'awaiting_link', imported: 0 }));
+    getUploadSession.mockResolvedValue(SESSION);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, headers: { get: () => null } })));
+    const user = userEvent.setup();
+    renderImport('apple_health_archive');
+
+    await user.upload(await screen.findByTestId('import-upload-pick-input'), exportFile());
+
+    expect(await screen.findByTestId('import-upload-error')).toBeInTheDocument();
+    expect(finishUpload).not.toHaveBeenCalled();
+  });
+
+  it('cancels an upload that waits', async () => {
+    getCurrentImport.mockResolvedValue(job({ id: 'job-7', status: 'awaiting_link', imported: 0 }));
+    cancelImport.mockResolvedValue(true);
+    const user = userEvent.setup();
+    renderImport('apple_health_archive');
+
+    await user.click(await screen.findByTestId('import-upload-cancel'));
+
+    await waitFor(() => expect(cancelImport).toHaveBeenCalledWith('apple_health_archive', 'job-7'));
+  });
+
+  it('keeps sending when opening the upload moves a finished import to one that waits', async () => {
+    getCurrentImport
+      .mockResolvedValueOnce(job({ id: 'job-1', status: 'completed' }))
+      .mockResolvedValue(job({ id: 'job-9', status: 'awaiting_link', imported: 0 }));
+    startUpload.mockResolvedValue({ import: job({ id: 'job-9', status: 'awaiting_link' }), upload: SESSION });
+    finishUpload.mockResolvedValue(job({ id: 'job-9', status: 'downloading' }));
+    // Answers only once the screen has re-read the import, so an unmount in between would abort this request.
+    let reread = false;
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      await waitFor(() => expect(getCurrentImport.mock.calls.length).toBeGreaterThan(1));
+      await waitFor(() => expect(screen.getByTestId('import-upload-cancel')).toBeInTheDocument());
+      reread = true;
+      if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError');
+      const range = (init.headers as Record<string, string>)['Content-Range'];
+      return { status: CHUNK_RANGE.test(range) ? 201 : 308, headers: { get: () => null } } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    renderImport('apple_health_archive');
+
+    await user.upload(await screen.findByTestId('import-upload-pick-input'), exportFile());
+
+    await waitFor(() => expect(finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-9'));
+    expect(reread).toBe(true);
+  });
+
+  it('offers another file after a finished import, with no link to wait on', async () => {
+    getCurrentImport.mockResolvedValue(job({ source: 'apple_health_archive', status: 'completed' }));
+    renderImport('apple_health_archive');
+
+    expect(await screen.findByTestId('import-upload-pick')).toBeInTheDocument();
+    expect(screen.queryByText('providers.import.strava.importNewer')).not.toBeInTheDocument();
   });
 });

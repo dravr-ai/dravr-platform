@@ -10,7 +10,7 @@ import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   activityRowFigures,
-  formatInstant,
+  formatActivityDay,
   formatSyncTime,
   type RecentActivitiesSync,
   ROW_DATE,
@@ -32,7 +32,7 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
   const unit = useDistanceUnit();
   return (
     <Text className="text-sm text-text-secondary" numberOfLines={1}>
-      <Text className="font-mono tabular-nums">{formatInstant(activity.start_date, language, ROW_DATE)}</Text>
+      <Text className="font-mono tabular-nums">{formatActivityDay(activity.start_date, language, ROW_DATE)}</Text>
       {' · '}
       {sportLabel(t, activity.sport_type)}
       {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}

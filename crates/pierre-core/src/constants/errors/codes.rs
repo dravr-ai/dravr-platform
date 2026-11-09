@@ -29,5 +29,7 @@ pub const ERROR_AUTHORIZATION: i32 = -32003; // Server error - authorization fai
 /// Data serialization/deserialization failed
 pub const ERROR_SERIALIZATION: i32 = -32004; // Server error - data serialization failed
 
-/// Rate limit exceeded (daily or weekly quota exhausted)
-pub const ERROR_RATE_LIMIT_EXCEEDED: i32 = -32029; // Server error - rate limit exceeded
+// A spent quota has no code of its own. A refused `tools/call` reaches the client
+// as an `isError` result whose second text block carries `data` (`limit_type`,
+// `current`, `limit`, `resets_at`), which is where a client reads the reason. The
+// in-band error uses `ERROR_TOOL_EXECUTION` like every other tool refusal.

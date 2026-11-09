@@ -1,4 +1,4 @@
-// ABOUTME: The turn subject's own athlete context — freshness, OKF bundle, playbooks, notes, followups, commitments
+// ABOUTME: The turn subject's own athlete context — freshness, OKF bundle, playbooks, commitments
 // ABOUTME: One gate for prompt assembly: a coach's seat in their group skips all of it (carnet#741)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,8 +18,7 @@ use uuid::Uuid;
 use super::super::surface_profile::SurfaceProfile;
 use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
-use super::followups::inject_pending_followups;
-use super::memory::{inject_agent_notes, inject_okf_bundle, inject_playbooks};
+use super::memory::{inject_okf_bundle, inject_playbooks};
 use super::refresh::refresh_and_hint;
 use crate::ChatPipelineContext;
 
@@ -33,7 +32,7 @@ pub struct SubjectContextInputs<'a> {
     pub profile: &'a SurfaceProfile,
     /// The sender's id, parsed.
     pub user_uuid: Uuid,
-    /// The agent answering this turn, whose playbooks, notes and followups apply.
+    /// The agent answering this turn, whose playbooks apply.
     pub turn_agent_id: Option<&'a str>,
     /// The sender's IANA timezone, when reported.
     pub user_timezone: Option<&'a str>,
@@ -56,19 +55,16 @@ impl fmt::Debug for SubjectContextInputs<'_> {
 pub struct SubjectContext {
     /// The system prompt with the subject's blocks appended.
     pub prompt: String,
-    /// The followups it surfaced, marked delivered after the turn succeeds.
-    pub pending_followup_ids: Vec<String>,
     /// The provider freshness hint, sent with the turn clock rather than in
     /// the cached prompt (see [`super::refresh`]).
     pub freshness_hint: Option<String>,
 }
 
-// The prompt holds the athlete's facts, notes and plan: only its length prints.
+// The prompt holds the athlete's facts and plan: only its length prints.
 impl fmt::Debug for SubjectContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SubjectContext")
             .field("prompt_len", &self.prompt.len())
-            .field("pending_followup_ids", &self.pending_followup_ids)
             .field("freshness_hint", &self.freshness_hint)
             .finish()
     }
@@ -137,30 +133,6 @@ pub async fn inject_subject_context(
     )
     .await;
 
-    // Stage 7e.3: The notes the answering agent wrote about this athlete with
-    // `agent_note_add`, newest first, suppressed ones left out. Scoped to the
-    // TOOL tenant — the tenant the note tool writes under.
-    let base_prompt = inject_agent_notes(
-        ctx.repos.memory.as_ref(),
-        input.tool_tenant_id,
-        &input.user_id,
-        turn_agent_id,
-        base_prompt,
-    )
-    .await;
-
-    // Stage 7f: Render pending agent followups. Surfaced IDs are marked
-    // delivered after the turn succeeds. Scoped to the TOOL tenant — the
-    // tenant the followup tool writes under.
-    let (base_prompt, pending_followup_ids) = inject_pending_followups(
-        &ctx.data,
-        input.tool_tenant_id,
-        &input.user_id,
-        turn_agent_id,
-        base_prompt,
-    )
-    .await;
-
     // Stage 7f.1: Render the athlete's own open commitments. Scoped to the
     // TOOL tenant — the tenant `commitment_create` writes under and the one
     // their activity data lives in, so the block and the sweep agree on which
@@ -177,7 +149,6 @@ pub async fn inject_subject_context(
 
     SubjectContext {
         prompt: base_prompt,
-        pending_followup_ids,
         freshness_hint,
     }
 }

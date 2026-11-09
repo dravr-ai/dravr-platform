@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The words and figures Home prints on both clients — calendar days, instants, sports, row figures, plan drafts
-// ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone
+// ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone, unless date-only: then it is the day it names
 
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
 import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
@@ -16,12 +16,24 @@ export type Translate = (key: string, options?: Record<string, unknown>) => stri
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAYS_PER_WEEK = 7;
+const MS_PER_DAY = 86_400_000;
 
 /** The weekday, day and month a chat draft names a day by — "Tuesday 23 September", "mardi 23 septembre". */
 export const DRAFT_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' };
 
 /** The short form a row or a heading carries — "Tue 23 Sep". */
 export const ROW_DATE: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
+
+/** A row's short date with the time of day — "Tue 23 Sep, 07:04", a 24-hour clock in every locale. */
+const ROW_DATE_TIME: Intl.DateTimeFormatOptions = {
+  ...ROW_DATE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+};
+
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
 
 /** When the activity cache last heard from a provider — a 24-hour clock in every locale, like the chat list. */
 const SYNC_TIME: Intl.DateTimeFormatOptions = {
@@ -83,6 +95,52 @@ export function formatInstant(instant: string, language: string, options: Intl.D
   const ms = instantMs(instant);
   if (Number.isNaN(ms)) return instant;
   return new Intl.DateTimeFormat(language, options).format(new Date(ms));
+}
+
+/**
+ * The day an activity is listed under, in the app's language. A start at exactly
+ * midnight UTC is a date-only provider row (`civil_time::is_date_only` on the
+ * server): it names a day, not a moment, so it is drawn in UTC. In the device's
+ * zone it would read as the day before everywhere west of Greenwich, while the
+ * week strip, which the server buckets by the same rule, marks the right one.
+ */
+export function formatActivityDay(start: string, language: string, options: Intl.DateTimeFormatOptions): string {
+  if (!isDateOnlyStart(start)) return formatInstant(start, language, options);
+  return new Intl.DateTimeFormat(language, { ...options, timeZone: 'UTC' }).format(new Date(instantMs(start)));
+}
+
+/** Whether a start is a date-only provider row: exactly midnight UTC, which carries no clock to print. */
+export function isDateOnlyStart(start: string): boolean {
+  const ms = instantMs(start);
+  return !Number.isNaN(ms) && ms % MS_PER_DAY === 0;
+}
+
+/**
+ * An activity's start line: the date as every row prints it, or, when its
+ * recording's clock is not the one this device reads at that instant, the date
+ * and time on that clock ("Tue 23 Sep, 07:04 local time").
+ *
+ * The device's offset is asked of that instant, not of today, so a summer ride
+ * read in winter compares against summer time. The clock is drawn by moving the
+ * instant by the offset and formatting in UTC, the way `formatCivilDate` draws a
+ * day: no zone name, which a recording does not state and the phone's reduced
+ * `Intl` could not be trusted to resolve.
+ */
+export function activityStartLine(
+  t: Translate,
+  activity: { start_date: string },
+  utcOffsetSeconds: number | null,
+  language: string,
+): string {
+  const ms = instantMs(activity.start_date);
+  const deviceOffsetSeconds = -new Date(ms).getTimezoneOffset() * SECONDS_PER_MINUTE;
+  if (Number.isNaN(ms) || utcOffsetSeconds === null || utcOffsetSeconds === deviceOffsetSeconds) {
+    return formatActivityDay(activity.start_date, language, ROW_DATE);
+  }
+  const time = new Intl.DateTimeFormat(language, { ...ROW_DATE_TIME, timeZone: 'UTC' }).format(
+    new Date(ms + utcOffsetSeconds * MS_PER_SECOND),
+  );
+  return t('home.activity.localTime', { time });
 }
 
 /** "Last synced" time for the activity cache's `as_of`. */
@@ -161,7 +219,7 @@ export function activityNaming(
 ): { name: string; date: string } {
   return {
     name: activity.name.trim() || sportLabel(t, activity.sport_type),
-    date: formatInstant(activity.start_date, language, DRAFT_DATE),
+    date: formatActivityDay(activity.start_date, language, DRAFT_DATE),
   };
 }
 

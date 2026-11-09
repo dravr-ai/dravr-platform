@@ -53,6 +53,19 @@ use pierre_services::stored_health::{self, SourceFilter};
 /// Seconds in an hour, for the nightly sleep total.
 const SECONDS_PER_HOUR: f64 = 3600.0;
 
+/// Whether the ladder reads the athlete's recovery series: their sleep, HRV
+/// and resting heart rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecoveryRead {
+    /// Read from every source the athlete's provider terms let the rail see:
+    /// the athlete's own read, or a human coach holding their wellness grant.
+    Read,
+    /// Never read: the reader is the athlete's human coach, and the athlete
+    /// has not granted them their wellness (carnet#1423). The ladder reads
+    /// training load alone, so no recovery alert is raised.
+    Withheld,
+}
+
 /// What the ladder said about an athlete and the weeks it was read against.
 ///
 /// Returned rather than only logged: the rails compute a verdict on every
@@ -76,7 +89,8 @@ pub struct ReadinessReading {
 /// ladder can see, and a level read from less is still worth reporting.
 /// `None` means the ladder could not be read at all — no flavour, or a
 /// flavour this athlete's catalogue does not carry — which is not the same
-/// as a clear week.
+/// as a clear week. `recovery` says whether the athlete's sleep, HRV and
+/// resting heart rate are read at all.
 pub(super) async fn read_ladder(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
@@ -84,6 +98,7 @@ pub(super) async fn read_ladder(
     user_id: Uuid,
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
+    recovery: RecoveryRead,
 ) -> Option<ReadinessReading> {
     let selection = plan.flavour.as_ref()?;
 
@@ -105,7 +120,7 @@ pub(super) async fn read_ladder(
     };
 
     let today = Utc::now().date_naive();
-    let input = gather(state, repos, tenant, user_id, today).await;
+    let input = gather(state, repos, tenant, user_id, today, recovery).await;
     let raised = alerts(&input.alert_input);
     let level = readiness_level(&ReadinessInput {
         form_pct: input.form_pct,
@@ -177,7 +192,17 @@ pub(super) async fn emit_week_readiness(
     plan: &TrainingPlan,
     saved: &[PlanWeek],
 ) {
-    let Some(reading) = read_ladder(state, repos, tenant, user_id, plan, saved).await else {
+    let Some(reading) = read_ladder(
+        state,
+        repos,
+        tenant,
+        user_id,
+        plan,
+        saved,
+        RecoveryRead::Read,
+    )
+    .await
+    else {
         return;
     };
     for week in &reading.weeks {
@@ -336,13 +361,15 @@ struct Gathered {
 /// One span of history per source — the kernel's baseline, the longest
 /// window any alert reads. The kernel windows each alert by `days_ago`
 /// itself, so the week-long recovery alerts read their own seven days out of
-/// the same span the 28-day baselines read.
+/// the same span the 28-day baselines read. The recovery series are read only
+/// when `recovery` says so.
 async fn gather(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     today: NaiveDate,
+    recovery: RecoveryRead,
 ) -> Gathered {
     let from = today - Duration::days(i64::from(BASELINE_DAYS));
     let history = history_rows_for_model(state, tenant, user_id, from, today)
@@ -376,15 +403,22 @@ async fn gather(
             .collect()
     });
 
-    let recovery = recovery_series(
-        repos,
-        state.provider_registry().as_ref(),
-        tenant,
-        user_id,
-        today,
-        from,
-    )
-    .await;
+    // Withheld, the athlete's wellness is never fetched, rather than fetched
+    // and dropped.
+    let recovery = match recovery {
+        RecoveryRead::Read => {
+            recovery_series(
+                repos,
+                state.provider_registry().as_ref(),
+                tenant,
+                user_id,
+                today,
+                from,
+            )
+            .await
+        }
+        RecoveryRead::Withheld => Vec::new(),
+    };
 
     Gathered {
         alert_input: AlertInput {
@@ -431,6 +465,7 @@ async fn recovery_series(
         &tenant,
         (start, end),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .map_or_else(
@@ -493,6 +528,7 @@ async fn sleep_by_night(
         &tenant,
         (start, end),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await
     .map_or_else(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-contremaitre-sync.sh — Check 3's tool list from the one registry scan,
-# ABOUTME: Check 1's server-rendered keys read from contremaitre, and Check 8's bot-only pin
+# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan in all five locales
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -38,11 +38,16 @@ mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/cargo"
 chmod +x "$TMP/bin/cargo"
 
+# served <root> <json> — the admin tools/list fixture: what /mcp serves.
+served() {
+    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+}
+
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
 tree() {
     local root="$TMP/$1"
     mkdir -p "$root/scripts/ci" "$root/crates/demo/src" "$root/crates/pierre-server/tests/it" \
-             "$root/packages/mcp-types/src"
+             "$root/crates/pierre-server/tests/fixtures/mcp_surface" "$root/packages/mcp-types/src"
     cp "$UNDER_TEST" "$root/scripts/ci/check-contremaitre-sync.sh"
     cp "$SCRIPT_DIR/tool_schema_properties.py" "$root/scripts/ci/tool_schema_properties.py"
     cat > "$root/crates/demo/src/tools.rs" <<'RS'
@@ -66,6 +71,7 @@ RS
         > "$root/crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
     printf '// Tool count: 2\nexport type ToolName = "alpha_tool" | "beta_tool";\n' \
         > "$root/packages/mcp-types/src/tools.ts"
+    served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"}]}'
     echo "$root"
 }
 
@@ -91,6 +97,41 @@ echo "==== check-contremaitre-sync.sh fixture test ===="
 root="$(tree baseline)"
 run "$root"
 expect_output "two registered tools match their mirrors" "MCP tool list: 2 tools match EXPECTED_TOOLS"
+
+# 1b. The SDK types mirror what /mcp serves, not every registered tool: a tool
+#     kept to Dravr's own surfaces is registered, unserved and absent from them.
+root="$(tree first_party)"
+served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
+run "$root"
+expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 /mcp serves"
+
+root="$(tree sdk_lists_unserved)"
+served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+run "$root"
+expect_output "SDK types naming an unserved tool fail Check 3" "SDK type drift"
+expect_absent "no clean tool list over SDK types naming an unserved tool" "MCP tool list: 2 tools match"
+
+root="$(tree phantom_served)"
+served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"},{"name":"ghost_tool"}]}'
+run "$root"
+expect_output "a served tool src does not register fails Check 3" "serves tools src does not register"
+
+root="$(tree no_fixture)"
+rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+run "$root"
+expect_output "a missing served fixture fails Check 3" "tools_list_admin.json not found"
+
+root="$(tree bad_fixture)"
+served "$root" 'not json'
+run "$root"
+expect_output "an unreadable served fixture fails Check 3 closed" "Could not read the tool names"
+expect_absent "no clean tool list over an unreadable fixture" "MCP tool list: 2 tools match"
+
+root="$(tree empty_fixture)"
+served "$root" '{"tools":[]}'
+run "$root"
+expect_output "an empty served fixture fails Check 3 closed" "lists no tools"
 
 # 2. A property declared after the final tool_definition. The shared scan
 #    refuses it (its attribution would read the schema as empty), and Check 3
@@ -259,6 +300,45 @@ root="$(catalogue_tree no_origin)"
 git -C "$root" update-ref -d refs/remotes/origin/main
 run "$root"
 expect_output "no origin/main fails Check 8 closed" "Pin ownership cannot be judged"
+
+# 13. Check 4 reads every locale. A line presenting a load ratio as injury risk
+# fails, the same line forbidding it passes, and a negation word from another
+# language excuses nothing: "no" is Spanish, and in Portuguese means "in the".
+framing() {
+    local agent="$CM/prompts/agents/training/framing-agent"
+    mkdir -p "$agent"
+    printf '%s\n' "$1" > "$agent/$2.md"
+    run_override "$(catalogue_tree "framing_$3")" "$CM"
+    rm -rf "$agent"
+}
+expect_framing_hit() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "[ACWR presented as injury risk]"
+}
+expect_framing_clean() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "Contremaitre catalogues carry no retired ACWR/TSB framing"
+}
+expect_green_verdict() {
+    framing "$2" "$3" "$4"
+    expect_output "$1" "[red/green safety verdict]"
+}
+expect_green_verdict "Spanish green band fails" "Un ACWR de 1,1 está en la banda verde." es es_green
+expect_green_verdict "German green zone fails" "Ein ACWR von 1,1 liegt im grünen Bereich." de de_green
+expect_green_verdict "Portuguese green band fails" "Um ACWR de 1,1 está na faixa verde." pt pt_green
+expect_green_verdict "French green band still fails" "Un ACWR de 1,1 est dans la bande verte." fr fr_green
+expect_framing_hit "Spanish injury framing fails" "Un ACWR de 1,6 es un riesgo de lesión." es es_hit
+expect_framing_hit "Spanish framing with a word between fails" "El ACWR alto supone riesgo alto de lesión." es es_gap
+expect_framing_clean "Spanish negated framing passes" "Nunca presentes el ACWR como un riesgo de lesión." es es_clean
+expect_framing_hit "German injury framing fails" "Ein ACWR über 1,5 bedeutet Verletzungsrisiko." de de_hit
+expect_framing_clean "German negated framing passes" "Das ACWR ist niemals ein Verletzungsrisiko." de de_clean
+expect_framing_hit "Portuguese injury framing fails" "Um ACWR de 1,6 indica risco de lesão." pt pt_hit
+expect_framing_hit "Portuguese 'no' negates nothing" "O risco de lesão aparece no ACWR acima de 1,5." pt pt_no
+expect_framing_clean "Portuguese negated framing passes" "O ACWR não é um risco de lesão." pt pt_clean
+expect_framing_hit "a Spanish 'no' does not excuse English framing" "ACWR above 1.5 is an injury risk, no matter the base." en en_no
+expect_framing_hit "French framing still fails" "Un ACWR élevé est un risque de blessure." fr fr_hit
+expect_framing_clean "French negated framing still passes" "Ne présente jamais l'ACWR comme un risque de blessure." fr fr_clean
+expect_framing_clean "an injury word with no load word passes" "La fuerza reduce el riesgo de lesión." es es_noload
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

@@ -15,17 +15,21 @@
 //!   under the `cat_llm_pricing` category by [`crate::pricing_loader`] and
 //!   cached in-process; the table remains the fallback for models the
 //!   operator has not repriced.
-//! - [`cost_for_record`] and [`cost_for_aggregate`] price a stored
-//!   `llm_usage` row, so every read path credits cache reads the same way.
+//! - [`cost_for_record`] prices a stored `llm_usage` row and
+//!   [`cost_of_usage_group`] an aggregate of them, so every read path credits
+//!   cache reads the same way and no reader prices summed tokens at a rate that
+//!   depends on one call's prompt.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
 use embacle::pricing::{
     calculate_cost_for, cost_from_pricing, lookup_pricing, pool_family, zero_cost_for_unpriced,
-    ModelPricing, TokenCounts,
+    LongPromptRates, ModelPricing, TokenCounts,
 };
+use pierre_core::errors::AppResult;
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageRecord};
+use pierre_database::repositories::{LlmUsageRepository, LlmUsageScope};
 
 /// Process-wide [`PricingRegistry`] singleton.
 ///
@@ -142,6 +146,34 @@ fn longest_prefix_match(
         .map(|(_, pricing)| *pricing)
 }
 
+/// The card and the long-prompt rates of a model whose rates depend on each
+/// call's own prompt size, so summed tokens cannot be priced as they stand: a
+/// day of short prompts adds up to one long one and would read at the
+/// long-prompt rate. `None` for a model priced by token alone.
+fn long_prompt_card(provider: &str, model: &str) -> Option<(ModelPricing, LongPromptRates)> {
+    let pricing = lookup_pricing(pool_family(provider), model)?;
+    pricing.long_prompt.map(|long| (pricing, long))
+}
+
+/// The single card every call of one side of the threshold bills on: the base
+/// rates below it, the long-prompt rates above it. With the threshold taken out,
+/// summed tokens price exactly as the calls they sum do.
+fn card_of_band(pricing: ModelPricing, long: LongPromptRates, long_prompt: bool) -> ModelPricing {
+    let card = ModelPricing {
+        long_prompt: None,
+        ..pricing
+    };
+    if long_prompt {
+        ModelPricing {
+            input_per_million: long.input_per_million,
+            output_per_million: long.output_per_million,
+            ..card
+        }
+    } else {
+        card
+    }
+}
+
 /// Cost of one recorded LLM call, crediting the prompt tokens it served from
 /// cache.
 ///
@@ -165,17 +197,73 @@ pub fn cost_for_record(record: &LlmUsageRecord) -> f64 {
 /// Cost of a grouped usage row, crediting its summed cache reads and
 /// charging its summed cache writes and reasoning tokens.
 ///
-/// Counterpart to [`cost_for_record`] for the aggregate and daily series.
-#[must_use]
-pub fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
-    calculate_cost_for(
-        &row.provider,
-        &row.model,
-        &TokenCounts::new(row.prompt_tokens, row.completion_tokens)
-            .with_cache(row.cached_tokens, row.cached_write_tokens)
-            .with_cache_write_1h(row.cached_write_1h_tokens)
-            .with_reasoning(row.reasoning_tokens),
-    )
+/// Only true of a model priced by token alone; every reader goes through
+/// [`cost_of_usage_group`], which knows the other kind.
+fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
+    calculate_cost_for(&row.provider, &row.model, &summed_counts(row))
+}
+
+/// The summed tokens of a grouped row, as one call's counts.
+fn summed_counts(row: &LlmUsageAggregateRow) -> TokenCounts {
+    TokenCounts::new(row.prompt_tokens, row.completion_tokens)
+        .with_cache(row.cached_tokens, row.cached_write_tokens)
+        .with_cache_write_1h(row.cached_write_1h_tokens)
+        .with_reasoning(row.reasoning_tokens)
+}
+
+/// The true cost of one aggregate row at current prices.
+///
+/// `scope` is what the row was summed over. A group is priced from its summed
+/// tokens, one query's worth of work whatever the row count. A model whose rates
+/// depend on each call's prompt is read again summed per side of its threshold
+/// (at most two rows, whatever the window), and each side is priced on the one
+/// card all its calls bill on. That equals pricing every call on its own, except
+/// for a call reporting more cache tokens than prompt tokens, which the price
+/// table clamps per call and a sum clamps once.
+///
+/// # Errors
+///
+/// Returns an error when reading the rows behind the group fails.
+pub async fn cost_of_usage_group(
+    usage: &dyn LlmUsageRepository,
+    scope: LlmUsageScope<'_>,
+    group: &LlmUsageAggregateRow,
+    since: &str,
+) -> AppResult<f64> {
+    let Some((pricing, long)) = long_prompt_card(&group.provider, &group.model) else {
+        return Ok(cost_for_aggregate(group));
+    };
+    let bands = usage
+        .get_llm_usage_prompt_bands_since(scope, group, since, long.above_prompt_tokens)
+        .await?;
+    Ok(bands
+        .iter()
+        .map(|band| {
+            cost_from_pricing(
+                &card_of_band(pricing, long, band.long_prompt),
+                &summed_counts(&band.totals),
+            )
+        })
+        .sum())
+}
+
+/// [`cost_of_usage_group`] of every row of `groups`, in their order: what each
+/// reader of an aggregate prices its rows with.
+///
+/// # Errors
+///
+/// Returns an error when reading the calls behind a row fails.
+pub async fn costs_of_usage_groups(
+    usage: &dyn LlmUsageRepository,
+    scope: LlmUsageScope<'_>,
+    groups: &[LlmUsageAggregateRow],
+    since: &str,
+) -> AppResult<Vec<f64>> {
+    let mut costs = Vec::with_capacity(groups.len());
+    for group in groups {
+        costs.push(cost_of_usage_group(usage, scope, group, since).await?);
+    }
+    Ok(costs)
 }
 
 #[cfg(test)]
@@ -183,8 +271,30 @@ mod tests {
     use std::collections::HashMap;
 
     use embacle::pricing::{ModelPricing, TokenCounts};
+    use pierre_core::models::usage::LlmUsageAggregateRow;
 
-    use super::PricingRegistry;
+    use super::{cost_for_aggregate, PricingRegistry};
+
+    /// Why no reader may price this model from a sum: two calls below the
+    /// long-prompt threshold add up to one above it.
+    #[test]
+    fn summed_haiku_tokens_read_at_the_long_prompt_rate() {
+        let row = LlmUsageAggregateRow {
+            provider: "anthropic".to_owned(),
+            model: "claude-haiku-5-5".to_owned(),
+            call_type: "chat".to_owned(),
+            total_tokens: 120_000,
+            prompt_tokens: 120_000,
+            completion_tokens: 0,
+            cached_tokens: 0,
+            cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
+            reasoning_tokens: 0,
+            calls: 2,
+        };
+        let cost = cost_for_aggregate(&row);
+        assert!(close(cost, 0.06), "{cost}");
+    }
 
     fn close(actual: f64, expected: f64) -> bool {
         (actual - expected).abs() < 1e-9

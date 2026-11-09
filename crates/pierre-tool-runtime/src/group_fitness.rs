@@ -30,8 +30,8 @@ use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::activity_cache_retention_days;
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
+use crate::activity_fetch::{activity_cache_retention_days, connection_beside_grant};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
@@ -185,6 +185,7 @@ async fn persist_fetched(
             WriteThrough {
                 retention_days: activity_cache_retention_days(),
                 read: params,
+                announces_sessions: true,
             },
         )
         .await;
@@ -658,11 +659,16 @@ async fn fetch_single_member_snapshot(
     // Named as the athlete knows it: a row stored under a mirror backend
     // (`sciotte_garmin`) is their Garmin, signed in with the username and
     // password they gave Dravr, so both halves of a pair name it once.
-    let mut needs_reauth: Vec<String> = connections
-        .iter()
-        .filter(|c| c.status.requires_reauth())
-        .map(|c| backend_resolver::user_facing_name(&c.provider).to_owned())
-        .collect();
+    // A usr/pwd session beside a grant that serves its provider serves
+    // nothing, so its flag asks nothing of the athlete (carnet#1386): only the
+    // grant's own flag names the provider.
+    let mut needs_reauth: Vec<String> = Vec::new();
+    let flagged = connections.iter().filter(|c| c.status.requires_reauth());
+    for connection in flagged {
+        if !connection_beside_grant(runtime, user_id, connection).await {
+            needs_reauth.push(backend_resolver::user_facing_name(&connection.provider).to_owned());
+        }
+    }
     needs_reauth.sort_unstable();
     needs_reauth.dedup();
     snapshot.needs_reauth_providers = needs_reauth;

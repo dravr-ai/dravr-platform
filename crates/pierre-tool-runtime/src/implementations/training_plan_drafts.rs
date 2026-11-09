@@ -50,7 +50,7 @@ use serde_json::{json, Value};
 use tracing::info;
 use uuid::Uuid;
 
-use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
+use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
 use super::training_plan_push::calendar_preview_after_save;
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
@@ -168,7 +168,7 @@ pub(super) async fn draft_section(
     live_weeks: &[PlanWeek],
     fueling: &FuelingDisclosure,
 ) -> AppResult<Option<DraftSection>> {
-    if scope.acting_for.is_none() {
+    if scope.acting_for().is_none() {
         return Ok(None);
     }
     let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
@@ -383,19 +383,19 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
         answers_with::<PublishTrainingPlanResult>(tool_definition(
             "publish_training_plan",
             "Publish or discard a group's human coach's draft of a coached athlete's training \
-             plan (a coach's save_training_plan for an athlete writes that unseen draft). \
-             publish makes it their live plan in one step — weeks the coach did not draft keep \
-             the athlete's version. Call it only when the coach asks. When the athlete's own \
-             agent changed a drafted week or re-laid the season since, publish is refused with \
-             status `conflict` and nothing changes: tell the coach which weeks, and publish \
-             again with overwrite_athlete_changes only if they choose to replace them. \
-             Publishing does not touch the calendar; push_training_plan does that afterwards. \
-             The caller's own plan has no draft: their saves are already live.",
+             plan (their save_training_plan for an athlete writes that unseen draft). publish \
+             makes it the live plan in one step; weeks not drafted keep the athlete's version. \
+             Call it only when the coach asks. If the athlete's own agent changed a drafted \
+             week or re-laid the season since, publish is refused with status `conflict` and \
+             nothing changes: tell the coach which weeks, and publish again with \
+             overwrite_athlete_changes only if they choose. Publishing leaves the calendar \
+             alone: push_training_plan is a separate step, so say so. The caller's own plan has no draft: their saves are \
+             already live.",
             schema,
             annotations(
                 "Publish training plan",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }
@@ -452,7 +452,12 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let (Some(name), Some(group_id)) = (scope.acting_for.clone(), scope.group_id) else {
+            let PlanSubject::Coached {
+                athlete: name,
+                group_id,
+                ..
+            } = &scope.subject
+            else {
                 return Ok(refusal(
                     "own_plan",
                     "Your own saves are already live — there is no draft of your own plan to \
@@ -462,9 +467,21 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             };
             let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
             match action {
-                DraftAction::Discard => discard(repos, &target, name).await,
+                DraftAction::Discard => discard(repos, &target, name.clone()).await,
+                // The rails a publish runs read the athlete's load to report
+                // back to the coach, under the athlete's own AI consents
+                // (carnet#1419).
                 DraftAction::Publish => {
-                    publish(state, &context, &scope, &target, group_id, name, overwrite).await
+                    let publishing = Box::pin(publish(
+                        state,
+                        &context,
+                        &scope,
+                        &target,
+                        *group_id,
+                        name.clone(),
+                        overwrite,
+                    ));
+                    scope.read_as_athlete(repos, publishing).await
                 }
             }
         }
@@ -559,7 +576,8 @@ async fn publish(
     };
     let message = format!(
         "Your draft is {name}'s live plan now. The weeks you did not draft keep {name}'s own \
-         version. {told}{room}"
+         version. {told}{room} Putting it on the calendar with push_training_plan is a \
+         separate step: offer that, and call it only if the coach asks."
     );
     ok_typed(
         PUBLISH_TOOL,
@@ -588,7 +606,6 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 
 // Publishing replaces the athlete's live season and weeks — the athlete's own
 // changes too, under overwrite — and discarding throws the coach's draft
-// away; neither can be undone from here. Irreversible, so at most one per
-// turn under the Guardian's default budget, as push_training_plan is, and
-// the confirm path applies to it when armed.
+// away; neither can be undone from here. Irreversible, so it spends the Guardian's
+// per-turn destructive budget, as push_training_plan does.
 crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE);

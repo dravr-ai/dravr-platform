@@ -33,10 +33,10 @@ fn answered() -> ToolLoopResult {
         activity_list: None,
         tool_calls_count: 1,
         tools_called: vec!["get_activities".to_owned()],
+        write_attempted: false,
         pending_provider_auth_required: None,
         served_without_provider: None,
         guardian_denied: None,
-        guardian_confirm: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),
     }
@@ -116,7 +116,9 @@ fn a_guardian_denial_is_not_lost() {
         content: String::new(),
         guardian_denied: Some(GuardianDenial {
             tool_name: "delete_training_plan".to_owned(),
-            reason: "destructive without confirmation".to_owned(),
+            reason: "budget_exceeded".to_owned(),
+            committed: Vec::new(),
+            unconfirmed: Vec::new(),
         }),
         ..answered()
     };

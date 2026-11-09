@@ -12,10 +12,10 @@ import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
 import { Button, Card, ConfirmDialog, Input, Select } from './ui';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { featureFlagsQuery } from './featureFlagsQuery';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface SettingSwitchProps {
   checked: boolean;
@@ -51,7 +51,6 @@ function SettingSwitch({ checked, label, onToggle, disabled = false, title }: Se
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
-  const { language } = useTranslation();
   const { user } = useAuth();
   const adminTenantId = user?.tenant_id ?? null;
 
@@ -184,7 +183,7 @@ export default function AdminSettings() {
                   'When enabled, new registrations are auto-approved. When disabled, only emails from auto_approve_domains are auto-approved.'}
               </p>
               {autoApprovalLockedByEnv && (
-                <p className="text-xs text-warning mt-2" data-testid="auto-approval-env-lock">
+                <p className="text-xs text-on-warning-container mt-2" data-testid="auto-approval-env-lock">
                   Locked by the AUTO_APPROVE_USERS environment variable on the server. Change it
                   there and restart — a value saved here would be ignored.
                 </p>
@@ -340,7 +339,7 @@ export default function AdminSettings() {
                       {signupData.daily_limit > 0 ? ` / ${signupData.daily_limit}` : ''}
                     </dd>
                     <dd className="mt-1 text-xs text-on-surface-variant" data-testid="signup-counted-since">
-                      counted since {formatDateTime(signupData.counted_since, language)}
+                      counted since {formatDateTime(signupData.counted_since, ADMIN_LOCALE)}
                     </dd>
                     <dd className="mt-2">
                       <Button

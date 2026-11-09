@@ -1,30 +1,35 @@
 <!DOCTYPE html>
-<!-- ABOUTME: OAuth 2.0 consent page: names the client and the scopes it asks for, then approve or deny -->
+<!-- ABOUTME: OAuth 2.0 consent page, in the reader's language: names the client and the scopes it asks for, then approve or deny -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; each scope arrives as an escaped list item -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Authorize access - Dravr</title>
+    <title>{{T_TITLE}} - Dravr</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card card-center">
         <div class="lockup" role="img" aria-label="Dravr"></div>
-        <h1>Authorize access</h1>
-        <p class="lead"><span class="client">{{CLIENT_LABEL}}</span> wants to access your Dravr fitness data.</p>
-        <p class="fineprint">It will return you to {{REDIRECT_HOST}}</p>
+        <h1>{{T_TITLE}}</h1>
+        <p class="lead">{{T_LEAD}}</p>
+        {{TRUST_LINE}}
+        <p class="fineprint">{{T_RETURNS_TO}}</p>
         <div class="scopes">
-            <div class="scopes-title">This will allow it to</div>
+            <div class="scopes-title">{{T_SCOPES_TITLE}}</div>
             <ul>
                 {{SCOPE_ITEMS}}
             </ul>
         </div>
+        {{HEALTH_LINE}}
+        {{FIRST_PARTY_ONLY_LINE}}
+        {{OUTSIDE_QUEBEC_LINE}}
+        {{EXPRESS_CONSENT_LINE}}
         <form method="post" action="/oauth2/consent">
             <input type="hidden" name="client_id" value="{{CLIENT_ID}}">
             <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">
@@ -36,12 +41,13 @@
             <input type="hidden" name="resource" value="{{RESOURCE}}">
             <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
             <div class="actions">
-                <button type="submit" name="decision" value="approve" class="btn btn-primary btn-block">Allow access</button>
-                <button type="submit" name="decision" value="deny" class="btn btn-secondary btn-block">Deny</button>
+                <button type="submit" name="decision" value="approve" class="btn btn-primary btn-block">{{T_ALLOW}}</button>
+                <button type="submit" name="decision" value="deny" class="btn btn-secondary btn-block">{{T_DENY}}</button>
             </div>
         </form>
-        <p class="fineprint">Signed in as {{ACCOUNT_EMAIL}} · <a href="{{SWITCH_ACCOUNT_URL}}">Use another account</a></p>
-        <p class="fineprint">You can revoke this access at any time in your Dravr settings.</p>
+        <p class="fineprint">{{T_SIGNED_IN_AS}} · <a href="{{SWITCH_ACCOUNT_URL}}">{{T_USE_ANOTHER_ACCOUNT}}</a></p>
+        <p class="fineprint">{{T_REVOKE_ANYTIME}}</p>
+        <p class="fineprint"><a href="https://dravr.ai/privacy">{{T_PRIVACY_POLICY}}</a> · <a href="https://dravr.ai/terms">{{T_TERMS}}</a></p>
     </main>
 </body>
 </html>

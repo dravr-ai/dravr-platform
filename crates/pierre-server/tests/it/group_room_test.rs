@@ -271,6 +271,7 @@ async fn the_cap_refuses_only_a_room_not_yet_held() {
     let coach = fx.coach.id.to_string();
     let group = fx.group.id.to_string();
     let room = NewConversation {
+        id: None,
         user_id: &coach,
         tenant_id: fx.coach.tenant,
         title: "Room Squad",
@@ -331,6 +332,7 @@ async fn opening_a_room_for_no_group_is_refused() {
         .chat
         .open_group_conversation(
             &NewConversation {
+                id: None,
                 user_id: &coach,
                 tenant_id: fx.coach.tenant,
                 title: "No group",

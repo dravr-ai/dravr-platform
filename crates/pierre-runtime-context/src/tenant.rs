@@ -69,6 +69,7 @@
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthResult;
+use pierre_core::admin::scope::{AdminScope, ScopeCaller};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 
@@ -136,6 +137,79 @@ where
         TenantMode::Optional => Ok(None),
         TenantMode::Required => Err(AppError::auth_invalid("no tenant associated with user")),
     }
+}
+
+/// The admin scope rule's view of a caller authenticated as a user.
+///
+/// The role is the one `cookie_admin_middleware` reads, `users.role`, fetched
+/// here on every request so a role change applies at once and nothing in the
+/// request or the token's claims can claim it. Anyone else is bound to the
+/// tenant [`resolve_tenant`] verifies they belong to.
+///
+/// # Errors
+///
+/// A repository failure, an unknown user, or a caller with no tenant.
+pub async fn scope_caller<C>(ctx: &Arc<C>, auth: &AuthResult) -> AppResult<ScopeCaller>
+where
+    C: MiddlewareCtx + ?Sized,
+{
+    Ok(scope_caller_and_platform_admin(ctx, auth).await?.0)
+}
+
+/// [`scope_caller`], plus whether the caller holds a platform admin role, both
+/// read from the one `users` row.
+async fn scope_caller_and_platform_admin<C>(
+    ctx: &Arc<C>,
+    auth: &AuthResult,
+) -> AppResult<(ScopeCaller, bool)>
+where
+    C: MiddlewareCtx + ?Sized,
+{
+    // SECURITY: Global lookup — the role is what decides whether a tenant applies.
+    let user = ctx
+        .repos()
+        .users
+        .get_global(auth.user_id)
+        .await?
+        .ok_or_else(|| AppError::auth_invalid("user no longer exists"))?;
+    if user.role.is_super_admin() {
+        return Ok((ScopeCaller::SuperAdmin, true));
+    }
+    let own = require(resolve_tenant(ctx, auth, TenantMode::Required).await?)?;
+    Ok((ScopeCaller::BoundTo(own), user.role.is_admin_or_higher()))
+}
+
+/// The scope of an analytics read on a route that keeps user auth, so a tenant
+/// owner who is not a platform admin is admitted on their tenant role.
+///
+/// A super admin is decided by `users.role`. Anyone else must be a platform admin
+/// or hold an admin or owner role in the tenant they are bound to, then stays on
+/// it; a plain member is refused with the error `role_refusal` builds, a 403, which leaves their
+/// session alone where a 401 would sign them out.
+///
+/// # Errors
+///
+/// `PermissionDenied` for a plain member, everything [`scope_caller`] returns, and
+/// whatever [`ScopeCaller::resolve`] refuses in `requested`.
+pub async fn analytics_read_scope<C>(
+    ctx: &Arc<C>,
+    auth: &AuthResult,
+    requested: Option<&str>,
+    role_refusal: impl FnOnce() -> AppError,
+) -> AppResult<AdminScope>
+where
+    C: MiddlewareCtx + ?Sized,
+{
+    let (caller, platform_admin) = scope_caller_and_platform_admin(ctx, auth).await?;
+    if let ScopeCaller::BoundTo(own) = caller {
+        if !platform_admin {
+            let tenant_role = ctx.repos().tenants.get_user_role(auth.user_id, own).await?;
+            if !matches!(tenant_role.as_deref(), Some("admin" | "owner")) {
+                return Err(role_refusal());
+            }
+        }
+    }
+    caller.resolve(requested)
 }
 
 /// Convenience wrapper that errors on `Optional` resolutions that returned

@@ -79,7 +79,6 @@ export interface A2AClient {
   id: string;
   name: string;
   description: string;
-  public_key?: string;
   capabilities: string[];
   redirect_uris: string[];
   agent_version?: string;
@@ -106,7 +105,6 @@ export interface A2AClientRegistrationRequest {
 export interface A2AClientCredentials {
   client_id: string;
   client_secret: string;
-  api_key: string;
 }
 
 /**

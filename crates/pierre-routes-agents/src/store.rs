@@ -186,7 +186,8 @@ async fn handle_browse<C: AgentsCtx + MiddlewareCtx>(
     Query(query): Query<BrowseAgentsQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let viewer_tenant = get_user_tenant(&auth)?;
+    // A caller with no tenant has no business reading the store.
+    get_user_tenant(&auth)?;
 
     let coach_tools = coach_tools_for(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
@@ -210,7 +211,7 @@ async fn handle_browse<C: AgentsCtx + MiddlewareCtx>(
         auth.user_id,
     )
     .await;
-    let page = browse_store(&ctx.repos().agent_repos(), viewer_tenant, &params, &locale).await?;
+    let page = browse_store(&ctx.repos().agent_repos(), &params, &locale).await?;
 
     info!(
         "User {} browsed store: {} coaches (category={:?}, sort={:?}, has_more={})",

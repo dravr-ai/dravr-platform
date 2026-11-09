@@ -32,6 +32,12 @@ export interface TeamStepChoice {
 export interface OnboardingState {
   ctx: OnboardingContext;
   /**
+   * Store the answer to the usage-analytics question and wait for it. Not
+   * best-effort: an unsaved answer would be asked again, so a failure
+   * rejects and the step keeps the person on screen to retry.
+   */
+  answerAnalyticsConsent: (enabled: boolean) => Promise<void>;
+  /**
    * Athlete/coach choice made — persist + advance. `trains: false` (a coach who
    * does not train) takes the athlete steps out of the journey.
    */
@@ -82,7 +88,7 @@ export interface OnboardingState {
  * (carnet#1042).
  */
 export function useOnboardingState(): OnboardingState {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, updateUser } = useAuth();
 
   // Admins are exempt: their primary intent is administering, not chatting, so
   // a missing provider on the admin account must not block them from the
@@ -263,6 +269,16 @@ export function useOnboardingState(): OnboardingState {
     [athleteStepsWaivedKey, profileTypeKey, persistStep],
   );
 
+  // The session's user is what App boots analytics on, so a yes starts
+  // PostHog at once; the answered flag closes the step on this surface.
+  const answerAnalyticsConsent = useCallback(
+    async (enabled: boolean) => {
+      await userApi.updateAnalyticsConsent(enabled);
+      updateUser({ analytics_consent: enabled, analytics_consent_answered: true });
+    },
+    [updateUser],
+  );
+
   // Not best-effort like the other steps: this write is what puts agents on
   // the athlete's team, so its failure reaches the step.
   const persistCoachProposal = useCallback(
@@ -357,10 +373,12 @@ export function useOnboardingState(): OnboardingState {
     messagingChannelChosen,
     messagingChannelDone,
     messagingConfigureDone,
+    analyticsConsentAnswered: user?.analytics_consent_answered !== false,
   };
 
   return {
     ctx,
+    answerAnalyticsConsent,
     completeProfileType,
     completeAboutYou,
     completeParq,

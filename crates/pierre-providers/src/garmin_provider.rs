@@ -40,6 +40,26 @@
 //!
 //! A read before the stores are bound — no tenant to read in — is refused,
 //! never answered from Garmin.
+//!
+//! ## The training calendar
+//!
+//! The one thing Dravr writes to Garmin is the athlete's training calendar,
+//! through the Training API, served from the Health API's host under its own
+//! paths. An entry is a workout in the athlete's Garmin Connect library and
+//! a schedule putting it on its day, rendered neutral ([`training`]). Every
+//! call is made only once Garmin reports the athlete granted Dravr
+//! `WORKOUT_IMPORT` (`GET user/permissions`, read once per provider); a
+//! connection without it is refused by name before anything is sent, and a
+//! grant withdrawn since (Garmin's `412`) is refused the same way.
+//!
+//! The schedule listing names each entry's workout, schedule and day and
+//! nothing else, so the reconcile matches its ledger by provider id alone:
+//! an entry the athlete removed is written again, a changed one updated in
+//! place, a withdrawn one deleted. A listed entry carries no change stamp
+//! and no key of Dravr's, which reading every workout in the window would
+//! cost (one call per entry, against Garmin's per-athlete daily allowance),
+//! so an edit made in Garmin Connect is not told apart from Dravr's own
+//! write, and an entry whose ledger row was lost is not adopted.
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
@@ -53,25 +73,54 @@ use crate::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
 };
 use crate::constants::{api_provider_limits, oauth_providers};
-use crate::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
-use crate::models::{Activity, Athlete, Stats, StatsCoverage, TimeSeriesData};
+use crate::models::{
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind, Stats, StatsCoverage,
+    TimeSeriesData,
+};
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use async_trait::async_trait;
-use chrono::Utc;
-use reqwest::StatusCode;
-use secrecy::ExposeSecret;
+use chrono::{NaiveDate, Utc};
+use reqwest::{Method, StatusCode};
+use secrecy::{ExposeSecret, SecretString};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde_json::Value;
 use std::fmt;
 use std::sync::OnceLock;
-use tokio::sync::RwLock;
-use tracing::{debug, info, instrument};
+use tokio::sync::{OnceCell, RwLock};
+use tracing::{debug, info, instrument, warn};
 
+mod training;
 mod wire;
 
+use training::{EventId, Permissions, Schedule, StoredWorkout};
 use wire::GarminUserIdResponse;
+
+/// The path the Health API sits under on Garmin's API host; the Training
+/// API's paths sit beside it.
+const HEALTH_API_PATH: &str = "/wellness-api/rest";
+
+/// The permission that lets Dravr put workouts on the athlete's calendar.
+const WORKOUT_IMPORT: &str = "WORKOUT_IMPORT";
+
+/// The refusal of a calendar write for an athlete who has not let Dravr add
+/// workouts to their Garmin Connect calendar, naming the permission.
+fn workout_import_refused() -> AppError {
+    AppError::invalid_input(
+        "Garmin Connect has not given Dravr permission to add workouts to this athlete's \
+         calendar (WORKOUT_IMPORT). The athlete can allow workout import for Dravr in Garmin \
+         Connect's connected-app settings, then push again.",
+    )
+}
+
+/// The refusal of a week note: Garmin's calendar holds workouts only.
+fn week_note_refused() -> AppError {
+    AppError::invalid_input("Garmin's calendar holds workouts only, not week notes")
+}
 
 /// What an activity is called in a read's errors.
 const ACTIVITY: &str = "Garmin activity";
@@ -84,6 +133,9 @@ pub struct GarminProvider {
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
     stores: OnceLock<OwnerStores>,
+    /// Whether the athlete granted Dravr `WORKOUT_IMPORT`, read once per
+    /// provider before the first calendar call.
+    workout_import: OnceCell<bool>,
 }
 
 impl fmt::Debug for GarminProvider {
@@ -94,6 +146,7 @@ impl fmt::Debug for GarminProvider {
             .field("client", &self.client)
             .field("circuit_breaker", &self.circuit_breaker)
             .field("stores", &self.stores.get())
+            .field("workout_import", &self.workout_import.get())
             .finish_non_exhaustive()
     }
 }
@@ -125,6 +178,7 @@ impl GarminProvider {
             client: shared_client().clone(),
             token_refresh_callback: OnceLock::new(),
             stores: OnceLock::new(),
+            workout_import: OnceCell::new(),
         }
     }
 
@@ -156,31 +210,7 @@ impl GarminProvider {
     where
         T: for<'de> Deserialize<'de>,
     {
-        // Check circuit breaker before making request
-        if !self.circuit_breaker.is_allowed() {
-            let err = ProviderError::CircuitBreakerOpen {
-                provider: oauth_providers::GARMIN.to_owned(),
-                retry_after_secs: 30,
-            };
-            return Err(AppError::external_service("Garmin", err.to_string()));
-        }
-
-        self.refresh_token_if_needed().await?;
-
-        // Clone access token to avoid holding lock across await
-        let access_token = {
-            let guard = self.credentials.read().await;
-            let credentials = guard.as_ref().ok_or_else(|| {
-                AppError::internal("No credentials available for Garmin API request")
-            })?;
-
-            let token = credentials
-                .access_token
-                .clone() // Safe: String ownership needed for async request
-                .ok_or_else(|| AppError::internal("No access token available"))?;
-            drop(guard); // Release lock immediately after cloning
-            token
-        };
+        let access_token = self.bearer().await?;
 
         let url = format!(
             "{}/{}",
@@ -217,6 +247,178 @@ impl GarminProvider {
 
         result
     }
+
+    /// A Training API URL: `path` on the Health API's host.
+    fn training_url(&self, path: &str) -> String {
+        let base = self.config.api_base_url.trim_end_matches('/');
+        let host = base.strip_suffix(HEALTH_API_PATH).unwrap_or(base);
+        format!("{host}/{}", path.trim_start_matches('/'))
+    }
+
+    /// The access token a Health or Training API call carries: refused while
+    /// the circuit is open, refreshed when it is about to expire. The token is
+    /// cloned out so the credentials lock is not held across the request.
+    async fn bearer(&self) -> AppResult<SecretString> {
+        if !self.circuit_breaker.is_allowed() {
+            let err = ProviderError::CircuitBreakerOpen {
+                provider: oauth_providers::GARMIN.to_owned(),
+                retry_after_secs: 30,
+            };
+            return Err(AppError::external_service(
+                oauth_providers::GARMIN,
+                err.to_string(),
+            ));
+        }
+        self.refresh_token_if_needed().await?;
+        self.credentials
+            .read()
+            .await
+            .as_ref()
+            .and_then(|credentials| credentials.access_token.clone())
+            .ok_or_else(|| AppError::provider_auth_required(oauth_providers::GARMIN))
+    }
+
+    /// One Training API call, with a JSON `body` when given. Returns the
+    /// success body; a `DELETE` of a record already gone is `Ok(None)`.
+    ///
+    /// A `412` is Garmin refusing for want of the athlete's permission, named
+    /// as such; a `404` the record Dravr named no longer exists.
+    async fn training_call(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> AppResult<Option<String>> {
+        let access_token = self.bearer().await?;
+        let url = self.training_url(path);
+        let budget = request_budget::carried_by(&self.credentials).await;
+        request_budget::admit(budget.as_ref(), oauth_providers::GARMIN).await?;
+        debug!("Garmin Training API {method} {path}");
+        let mut request = self
+            .client
+            .request(method.clone(), &url)
+            .bearer_auth(access_token.expose_secret())
+            .header("Accept", "application/json");
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let response = request.send().await.map_err(|e| {
+            AppError::external_service(oauth_providers::GARMIN, format!("{method} {path}: {e}"))
+        })?;
+        let status = response.status();
+        let text = response.text().await;
+        if status.is_success() {
+            // A success whose body did not arrive is an error, never an empty
+            // answer: a schedule listing read as empty would have the
+            // reconcile write every live entry again.
+            let text = text.map_err(|e| {
+                AppError::external_service(
+                    oauth_providers::GARMIN,
+                    format!("{method} {path} answer unreadable: {e}"),
+                )
+            })?;
+            self.circuit_breaker.record_success();
+            return Ok(Some(text));
+        }
+        let text = text.unwrap_or_default();
+        let error = match status {
+            StatusCode::NOT_FOUND if method == Method::DELETE => return Ok(None),
+            StatusCode::NOT_FOUND => return Err(AppError::not_found("Garmin calendar entry")),
+            StatusCode::PRECONDITION_FAILED => return Err(workout_import_refused()),
+            StatusCode::TOO_MANY_REQUESTS => AppError::new(
+                ErrorCode::ExternalRateLimited,
+                format!("Garmin is rate limiting {method} {path}"),
+            )
+            .with_retry_after(
+                api_provider_limits::garmin::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
+            ),
+            _ => utils::api_error(status, &text, oauth_providers::GARMIN),
+        };
+        self.circuit_breaker.record_error(&error);
+        Err(error)
+    }
+
+    /// A Training API read, decoded; an empty answer reads as `T`'s default.
+    async fn training_get<T>(&self, path: &str) -> AppResult<T>
+    where
+        T: DeserializeOwned + Default,
+    {
+        let body = self
+            .training_call(Method::GET, path, None)
+            .await?
+            .unwrap_or_default();
+        if body.trim().is_empty() {
+            return Ok(T::default());
+        }
+        decode(path, &body)
+    }
+
+    /// Refuse every calendar call unless the athlete granted Dravr
+    /// `WORKOUT_IMPORT`, as Garmin reports it once per provider.
+    async fn ensure_workout_import(&self) -> AppResult<()> {
+        let granted = *self
+            .workout_import
+            .get_or_try_init(|| async {
+                let permissions: Permissions = self.api_request("user/permissions").await?;
+                Ok::<bool, AppError>(permissions.grants(WORKOUT_IMPORT))
+            })
+            .await?;
+        if granted {
+            Ok(())
+        } else {
+            Err(workout_import_refused())
+        }
+    }
+
+    /// The schedules on the athlete's calendar over `[from, to]`.
+    async fn schedules(&self, from: NaiveDate, to: NaiveDate) -> AppResult<Vec<Schedule>> {
+        self.training_get(&format!(
+            "training-api/schedule?startDate={}&endDate={}",
+            from.format("%Y-%m-%d"),
+            to.format("%Y-%m-%d")
+        ))
+        .await
+    }
+
+    /// Put `workout_id` on `date` and return the schedule's id. A create
+    /// whose answer names no id is looked up on the day's listing.
+    async fn schedule(&self, workout_id: i64, date: NaiveDate) -> AppResult<i64> {
+        let body = training::schedule_body(workout_id, date, None);
+        let answer = self
+            .training_call(Method::POST, "training-api/schedule/", Some(&body))
+            .await?
+            .unwrap_or_default();
+        if let Some(id) = training::created_schedule_id(&answer) {
+            return Ok(id);
+        }
+        self.schedules(date, date)
+            .await?
+            .iter()
+            .find(|schedule| schedule.workout_id == workout_id)
+            .map(|schedule| schedule.id)
+            .ok_or_else(|| {
+                AppError::external_service(
+                    oauth_providers::GARMIN,
+                    format!("the schedule of workout {workout_id} is not on {date}"),
+                )
+            })
+    }
+}
+
+/// Decode a Training API answer. The error names the category and position
+/// only: serde's message can quote the athlete's data.
+fn decode<T: DeserializeOwned>(path: &str, body: &str) -> AppResult<T> {
+    serde_json::from_str(body).map_err(|e| {
+        AppError::external_service(
+            oauth_providers::GARMIN,
+            format!(
+                "{path} answer unreadable: {:?} at line {} column {}",
+                e.classify(),
+                e.line(),
+                e.column()
+            ),
+        )
+    })
 }
 
 impl Default for GarminProvider {
@@ -402,6 +604,148 @@ impl FitnessProvider for GarminProvider {
             year_to_date: None,
         })
     }
+
+    /// Every schedule in the window, by the workout and schedule it pairs.
+    /// LIMITATION(registre#1389): `GarminProvider::list_calendar_events` sets no `external_id` and no `updated_at`.
+    /// Garmin's listing names no writer and no change (see the module's
+    /// "training calendar").
+    #[instrument(
+        skip(self),
+        fields(provider = "garmin", api_call = "list_calendar_events")
+    )]
+    async fn list_calendar_events(
+        &self,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<Vec<CalendarEventRef>> {
+        self.ensure_workout_import().await?;
+        let schedules = self.schedules(from, to).await?;
+        Ok(schedules
+            .iter()
+            .filter_map(|schedule| {
+                let date = schedule.date()?;
+                (from..=to).contains(&date).then(|| CalendarEventRef {
+                    provider_event_id: schedule.event_id().to_string(),
+                    external_id: None,
+                    date,
+                    updated_at: None,
+                })
+            })
+            .collect())
+    }
+
+    /// LIMITATION(registre#1390): `GarminProvider::push_planned_session` sends without Dravr's own transfer consent.
+    /// Create the workout, then schedule it on the session's day. A schedule
+    /// that fails takes its workout with it, so the library never holds a
+    /// workout of Dravr's that no calendar entry names.
+    #[instrument(
+        skip(self, session),
+        fields(provider = "garmin", api_call = "push_planned_session")
+    )]
+    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
+        if session.kind == PlannedSessionKind::WeekNote {
+            return Err(week_note_refused());
+        }
+        let body = training::workout_body(session)?;
+        self.ensure_workout_import().await?;
+        let created = self
+            .training_call(Method::POST, "workoutportal/workout/v2", Some(&body))
+            .await?
+            .unwrap_or_default();
+        let workout: StoredWorkout = decode("workoutportal/workout/v2", &created)?;
+        match self.schedule(workout.workout_id, session.date).await {
+            Ok(schedule_id) => Ok(EventId {
+                workout_id: workout.workout_id,
+                schedule_id,
+            }
+            .to_string()),
+            Err(e) => {
+                let path = format!("training-api/workout/v2/{}", workout.workout_id);
+                if let Err(cleanup) = self.training_call(Method::DELETE, &path, None).await {
+                    warn!(
+                        workout_id = workout.workout_id,
+                        error = %cleanup,
+                        "Garmin workout left unscheduled in the athlete's library"
+                    );
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Replace the workout in place under the id and owner Garmin gave it,
+    /// then move its schedule to the session's day (a replaced prescription
+    /// can name another).
+    #[instrument(
+        skip(self, session),
+        fields(provider = "garmin", api_call = "update_planned_session")
+    )]
+    async fn update_planned_session(
+        &self,
+        provider_event_id: &str,
+        session: &PlannedSession,
+    ) -> AppResult<()> {
+        let id = EventId::parse(provider_event_id)?;
+        if session.kind == PlannedSessionKind::WeekNote {
+            return Err(week_note_refused());
+        }
+        self.ensure_workout_import().await?;
+        let path = format!("training-api/workout/v2/{}", id.workout_id);
+        let current = self
+            .training_call(Method::GET, &path, None)
+            .await?
+            .unwrap_or_default();
+        let stored: StoredWorkout = decode(&path, &current)?;
+        let body = training::updated_workout_body(session, &stored)?;
+        self.training_call(Method::PUT, &path, Some(&body)).await?;
+        let schedule = training::schedule_body(id.workout_id, session.date, Some(id.schedule_id));
+        self.training_call(
+            Method::PUT,
+            &format!("training-api/schedule/{}", id.schedule_id),
+            Some(&schedule),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Remove each entry's schedule, then its workout: Dravr wrote both, and
+    /// a workout left in the library would be one no calendar entry names.
+    /// Counts the schedules removed; an entry already gone is skipped.
+    #[instrument(
+        skip(self, provider_event_ids),
+        fields(provider = "garmin", api_call = "delete_planned_sessions")
+    )]
+    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
+        let ids = provider_event_ids
+            .iter()
+            .map(|id| EventId::parse(id))
+            .collect::<AppResult<Vec<_>>>()?;
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        self.ensure_workout_import().await?;
+        let mut deleted = 0;
+        for id in ids {
+            if self
+                .training_call(
+                    Method::DELETE,
+                    &format!("training-api/schedule/{}", id.schedule_id),
+                    None,
+                )
+                .await?
+                .is_some()
+            {
+                deleted += 1;
+            }
+            self.training_call(
+                Method::DELETE,
+                &format!("training-api/workout/v2/{}", id.workout_id),
+                None,
+            )
+            .await?;
+        }
+        Ok(deleted)
+    }
 }
 
 // ============================================================================
@@ -521,6 +865,19 @@ mod tests {
         let provider = GarminProvider::new();
         provider.bind_owner_stores(stores);
         provider
+    }
+
+    #[test]
+    fn the_garmin_descriptor_writes_a_calendar_of_workouts_only() {
+        let caps = GarminDescriptor.capabilities();
+        assert!(
+            caps.supports_calendar_write(),
+            "bug: the Training API writes the Garmin calendar"
+        );
+        assert!(
+            !caps.supports_calendar_week_notes(),
+            "bug: a Garmin calendar holds no week notes"
+        );
     }
 
     #[test]

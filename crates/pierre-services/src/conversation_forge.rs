@@ -76,6 +76,8 @@ pub enum ForgeAgent<'a> {
 /// Everything [`forge_conversation`] needs.
 #[derive(Debug)]
 pub struct ForgeParams<'a> {
+    /// The id the row takes when the caller chose it; `None` mints one.
+    pub id: Option<&'a str>,
     /// The athlete the conversation belongs to.
     pub user_id: &'a str,
     /// Tenant that will own the `chat_conversations` row.
@@ -421,6 +423,7 @@ pub async fn forge_conversation(
     params: ForgeParams<'_>,
 ) -> AppResult<String> {
     let ForgeParams {
+        id,
         user_id,
         tenant_id,
         title_fallback,
@@ -452,6 +455,7 @@ pub async fn forge_conversation(
         repos,
         quota,
         &NewConversation {
+            id,
             user_id,
             tenant_id,
             title: &title,

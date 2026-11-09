@@ -7,11 +7,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatDate, formatDateTime } from '@pierre/chat-utils';
-import { useTranslation, type TFunction } from '@pierre/i18n';
 import { adminApi } from '../services/api';
 import { newUsersQueryKey, type NewUserCohort, type NewUserRow } from '../services/api/admin';
 import { percentOf, sinceSignup } from '../utils/newUserCohort';
 import { Button, Section } from './ui';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /** The windows the view offers, in days. */
 const NEW_USER_WINDOWS = [7, 30, 90] as const;
@@ -24,16 +24,16 @@ const STATUS_DOT: Record<string, string> = {
   suspended: 'bg-error',
 };
 
-const STATUS_KEY: Record<string, string> = {
-  pending: 'newUsers.statusPending',
-  active: 'newUsers.statusActive',
-  suspended: 'newUsers.statusSuspended',
+const STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  active: 'Active',
+  suspended: 'Suspended',
 };
 
-const SOURCE_KEY: Record<string, string> = {
-  email: 'newUsers.sourceEmail',
-  google: 'newUsers.sourceGoogle',
-  apple: 'newUsers.sourceApple',
+const SOURCE_LABEL: Record<string, string> = {
+  email: 'Email',
+  google: 'Google',
+  apple: 'Apple',
 };
 
 function FunnelTile({
@@ -51,7 +51,7 @@ function FunnelTile({
 }) {
   return (
     <div data-testid={testId} className="p-4 rounded-lg bg-surface-container-low border ghost-border">
-      <p className="text-xs font-medium text-on-surface-variant">{label}</p>
+      <p className="break-words text-xs font-medium text-on-surface-variant">{label}</p>
       <p className="mt-1 font-mono text-xl text-on-surface" data-testid={`${testId}-count`}>
         {count}
       </p>
@@ -62,76 +62,80 @@ function FunnelTile({
 }
 
 /** A milestone cell: how long after sign-up, the full date on hover, a dash when not reached. */
-function MilestoneCell({ row, at, t, language }: { row: NewUserRow; at: string | null; t: TFunction; language: string }) {
+function MilestoneCell({ row, at }: { row: NewUserRow; at: string | null }) {
   if (at === null) {
-    return <span className="text-outline" aria-label={t('newUsers.notYet')}>—</span>;
+    return <span className="text-outline" aria-label="Not yet">—</span>;
   }
   return (
-    <span className="text-on-surface" title={formatDateTime(at, language)}>
-      {sinceSignup(row.signed_up_at, at, t)}
+    <span className="text-on-surface" title={formatDateTime(at, ADMIN_LOCALE)}>
+      {sinceSignup(row.signed_up_at, at)}
     </span>
   );
 }
 
-function Funnel({ cohort, t }: { cohort: NewUserCohort; t: TFunction }) {
+function Funnel({ cohort }: { cohort: NewUserCohort }) {
   const { funnel } = cohort;
   const ofSignups = (n: number) => {
     const percent = percentOf(n, funnel.signed_up);
-    return percent === null ? null : t('newUsers.percentOfSignups', { percent });
+    return percent === null ? null : `${percent}% of sign-ups`;
   };
   const returnedPercent = percentOf(funnel.active_after_day_7, funnel.day_7_eligible);
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3" data-testid="new-users-funnel">
-      <FunnelTile testId="funnel-signed-up" label={t('newUsers.signedUp')} count={funnel.signed_up} percent={null} />
+    <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3" data-testid="new-users-funnel">
+      <FunnelTile testId="funnel-signed-up" label="Signed up" count={funnel.signed_up} percent={null} />
       <FunnelTile
         testId="funnel-approved"
-        label={t('newUsers.approved')}
+        label="Approved"
         count={funnel.approved_or_active}
         percent={ofSignups(funnel.approved_or_active)}
       />
       <FunnelTile
         testId="funnel-verified"
-        label={t('newUsers.emailVerified')}
+        label="Email verified"
         count={funnel.email_verified}
         percent={ofSignups(funnel.email_verified)}
       />
       <FunnelTile
         testId="funnel-connected"
-        label={t('newUsers.providerConnected')}
+        label="Provider connected"
         count={funnel.provider_connected}
         percent={ofSignups(funnel.provider_connected)}
       />
       <FunnelTile
         testId="funnel-synced"
-        label={t('newUsers.firstSync')}
+        label="Data synced"
         count={funnel.first_sync}
         percent={ofSignups(funnel.first_sync)}
       />
       <FunnelTile
         testId="funnel-first-turn"
-        label={t('newUsers.firstTurn')}
+        label="First message"
         count={funnel.first_turn}
         percent={ofSignups(funnel.first_turn)}
       />
       <FunnelTile
         testId="funnel-returned"
-        label={t('newUsers.returned')}
+        label="Back after a week"
         count={funnel.active_after_day_7}
-        percent={returnedPercent === null ? null : t('newUsers.percentOfEligible', { percent: returnedPercent })}
-        hint={t('newUsers.returnedHint', { count: funnel.day_7_eligible })}
+        percent={returnedPercent === null ? null : `${returnedPercent}% of those a week old`}
+        hint={
+          funnel.day_7_eligible === 1
+            ? 'of 1 account a week old or more'
+            : `of ${funnel.day_7_eligible} accounts a week old or more`
+        }
       />
     </div>
   );
 }
 
-function UsersTable({ cohort, t, language }: { cohort: NewUserCohort; t: TFunction; language: string }) {
+function UsersTable({ cohort }: { cohort: NewUserCohort }) {
   // Whole class names, never `text-${align}`: Tailwind only emits the classes
   // it finds spelled out in the source.
-  const header = (key: string, align: 'left' | 'right' = 'left') => (
+  const header = (label: string, align: 'left' | 'right' = 'left') => (
     <th
       className={`px-3 py-2 ${align === 'right' ? 'text-right' : 'text-left'} text-xs font-medium text-on-surface-variant whitespace-nowrap`}
     >
-      {t(key)}
+      {label}
     </th>
   );
   return (
@@ -139,16 +143,16 @@ function UsersTable({ cohort, t, language }: { cohort: NewUserCohort; t: TFuncti
       <table className="min-w-full divide-y divide-outline-variant" data-testid="new-users-table">
         <thead className="bg-surface-container">
           <tr>
-            {header('newUsers.colAccount')}
-            {header('newUsers.colSignedUp')}
-            {header('newUsers.colSource')}
-            {header('newUsers.colStatus')}
-            {header('newUsers.colVerified')}
-            {header('newUsers.colConnected')}
-            {header('newUsers.colSynced')}
-            {header('newUsers.colFirstTurn')}
-            {header('newUsers.colTurnsWeek', 'right')}
-            {header('newUsers.colLastSeen')}
+            {header('Account')}
+            {header('Signed up')}
+            {header('Source')}
+            {header('Status')}
+            {header('Verified')}
+            {header('Connected')}
+            {header('Synced')}
+            {header('First message')}
+            {header('Messages, week 1', 'right')}
+            {header('Last seen')}
           </tr>
         </thead>
         <tbody className="divide-y divide-outline-variant">
@@ -158,35 +162,35 @@ function UsersTable({ cohort, t, language }: { cohort: NewUserCohort; t: TFuncti
                 <div className="text-on-surface">{row.display_name ?? row.email}</div>
                 {row.display_name && <div className="text-xs text-outline">{row.email}</div>}
               </td>
-              <td className="px-3 py-2 text-sm text-on-surface-variant whitespace-nowrap" title={formatDateTime(row.signed_up_at, language)}>
-                {formatDate(row.signed_up_at, language)}
+              <td className="px-3 py-2 text-sm text-on-surface-variant whitespace-nowrap" title={formatDateTime(row.signed_up_at, ADMIN_LOCALE)}>
+                {formatDate(row.signed_up_at, ADMIN_LOCALE)}
               </td>
               <td className="px-3 py-2 text-sm text-on-surface-variant">
-                {SOURCE_KEY[row.signup_source] ? t(SOURCE_KEY[row.signup_source]) : row.signup_source}
+                {SOURCE_LABEL[row.signup_source] ?? row.signup_source}
               </td>
               <td className="px-3 py-2 text-sm">
                 <span className="inline-flex items-center gap-2 text-on-surface-variant">
                   <span className={`w-2 h-2 rounded-full ${STATUS_DOT[row.status] ?? 'bg-outline-variant'}`} aria-hidden="true" />
-                  {STATUS_KEY[row.status] ? t(STATUS_KEY[row.status]) : row.status}
+                  {STATUS_LABEL[row.status] ?? row.status}
                 </span>
               </td>
               <td className="px-3 py-2 text-sm text-on-surface-variant">
-                {row.email_verified ? t('newUsers.yes') : t('newUsers.no')}
+                {row.email_verified ? 'Yes' : 'No'}
               </td>
               <td className="px-3 py-2 text-sm whitespace-nowrap">
-                <MilestoneCell row={row} at={row.provider_connected_at} t={t} language={language} />
+                <MilestoneCell row={row} at={row.provider_connected_at} />
               </td>
               <td className="px-3 py-2 text-sm whitespace-nowrap">
-                <MilestoneCell row={row} at={row.first_sync_at} t={t} language={language} />
+                <MilestoneCell row={row} at={row.first_sync_at} />
               </td>
               <td className="px-3 py-2 text-sm whitespace-nowrap">
-                <MilestoneCell row={row} at={row.first_turn_at} t={t} language={language} />
+                <MilestoneCell row={row} at={row.first_turn_at} />
               </td>
               <td className="px-3 py-2 text-sm text-right font-mono text-on-surface" data-testid="turns-first-week">
                 {row.turns_first_week}
               </td>
               <td className="px-3 py-2 text-sm text-on-surface-variant whitespace-nowrap">
-                {row.last_active_at ? formatDate(row.last_active_at, language) : '—'}
+                {row.last_active_at ? formatDate(row.last_active_at, ADMIN_LOCALE) : '—'}
               </td>
             </tr>
           ))}
@@ -202,7 +206,6 @@ function UsersTable({ cohort, t, language }: { cohort: NewUserCohort; t: TFuncti
  * sign-up.
  */
 export default function NewUsersView() {
-  const { t, language } = useTranslation();
   const [days, setDays] = useState<Window>(30);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: newUsersQueryKey(days),
@@ -210,7 +213,7 @@ export default function NewUsersView() {
   });
 
   const windowPicker = (
-    <div className="flex gap-1" role="group" aria-label={t('newUsers.window')}>
+    <div className="flex gap-1" role="group" aria-label="Window">
       {NEW_USER_WINDOWS.map((option) => (
         <button
           key={option}
@@ -224,7 +227,7 @@ export default function NewUsersView() {
               : 'ghost-border text-on-surface-variant hover:text-on-surface'
           }`}
         >
-          {t('newUsers.windowDays', { count: option })}
+          {option} days
         </button>
       ))}
     </div>
@@ -232,8 +235,8 @@ export default function NewUsersView() {
 
   return (
     <Section
-      title={t('newUsers.title')}
-      description={t('newUsers.description', { count: days })}
+      title="New users"
+      description={`Accounts created in the last ${days} days and how far each got.`}
       actions={windowPicker}
     >
       {isLoading ? (
@@ -244,25 +247,25 @@ export default function NewUsersView() {
         </div>
       ) : isError || !data ? (
         <div className="p-6 text-center" data-testid="new-users-error">
-          <p className="text-sm font-medium text-on-surface mb-4">{t('newUsers.loadFailed')}</p>
+          <p className="text-sm font-medium text-on-surface mb-4">Couldn't load new users.</p>
           <Button variant="secondary" onClick={() => void refetch()}>
-            {t('newUsers.retry')}
+            Try again
           </Button>
         </div>
       ) : (
         <div className="space-y-6">
-          <Funnel cohort={data} t={t} />
+          <Funnel cohort={data} />
           {data.truncated && (
             <p className="text-xs text-on-surface-variant" data-testid="new-users-truncated">
-              {t('newUsers.truncated', { count: data.users.length })}
+              Showing the newest {data.users.length} accounts.
             </p>
           )}
           {data.users.length === 0 ? (
             <p className="p-6 text-center text-sm text-on-surface-variant" data-testid="new-users-empty">
-              {t('newUsers.empty')}
+              No accounts were created in this window.
             </p>
           ) : (
-            <UsersTable cohort={data} t={t} language={language} />
+            <UsersTable cohort={data} />
           )}
         </div>
       )}

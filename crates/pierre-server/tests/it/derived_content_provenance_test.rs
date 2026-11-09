@@ -18,7 +18,6 @@ use tokio::time::sleep;
 
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{
     AddMessageParams, CalendarEventSource, MessageRecord, PrescribedWorkout, SportType, TenantId,
     UserPhysiologicalProfile,
@@ -26,9 +25,8 @@ use pierre_core::models::{
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{
-    InsertAgentFollowupParams, InsertAgentNoteParams, InsertClaimVerdictParams,
-    InsertCompactionBlockParams, MergeUserFactParams, PlanOutlineInput, PlanWeekInput,
-    RecordedOutcome, SavePlanBundleParams, UpsertUserFactParams,
+    InsertClaimVerdictParams, InsertCompactionBlockParams, MergeUserFactParams, PlanOutlineInput,
+    PlanWeekInput, RecordedOutcome, SavePlanBundleParams, UpsertUserFactParams,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
@@ -73,6 +71,7 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
                 transport_policy: policy,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();
@@ -221,73 +220,6 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
         .await
         .unwrap();
     assert_eq!(listed[0].transport_policy, FirstPartyOnly);
-
-    let agent = repos
-        .agents
-        .create(
-            user_id,
-            tenant,
-            &CreateAgentRequest {
-                title: "Hill Coach".to_owned(),
-                description: None,
-                system_prompt: "You coach climbing.".to_owned(),
-                category: AgentCategory::Custom,
-                tags: vec![],
-                sample_prompts: vec![],
-                startup_query: None,
-                data_requirements: None,
-                purpose: None,
-                when_to_use: None,
-                instructions: None,
-                example_inputs: None,
-                example_outputs: None,
-                success_criteria: None,
-                max_tool_iterations: None,
-            },
-        )
-        .await
-        .unwrap();
-    let agent_id = agent.id.to_string();
-
-    repos
-        .memory
-        .insert_agent_note(&InsertAgentNoteParams {
-            tenant_id: tenant,
-            user_id: &user,
-            agent_id: &agent_id,
-            conversation_id: None,
-            scope: MemoryScope::User,
-            content: "prefers the relay's hill loop",
-            transport_policy: FirstPartyOnly,
-        })
-        .await
-        .unwrap();
-    let notes = repos
-        .memory
-        .list_agent_notes(tenant, &user, &agent_id, 10, FirstPartyOnly)
-        .await
-        .unwrap();
-    assert_eq!(notes[0].transport_policy, FirstPartyOnly);
-
-    repos
-        .memory
-        .insert_agent_followup(&InsertAgentFollowupParams {
-            tenant_id: tenant,
-            user_id: &user,
-            agent_id: &agent_id,
-            conversation_id: None,
-            content: "ask how the hill loop went",
-            due_at: None,
-            transport_policy: FirstPartyOnly,
-        })
-        .await
-        .unwrap();
-    let followups = repos
-        .memory
-        .list_pending_followups(tenant, &user, &agent_id)
-        .await
-        .unwrap();
-    assert_eq!(followups[0].transport_policy, FirstPartyOnly);
 }
 
 fn trigger() -> TriggerPattern {
@@ -428,6 +360,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
             transport_policy: FirstPartyOnly,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -660,6 +593,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
                     transport_policy: policy,
                     channel_type: None,
                     about_user_id: None,
+                    turn_attempted_write: None,
                 })
                 .await
                 .unwrap();

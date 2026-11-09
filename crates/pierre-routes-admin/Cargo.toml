@@ -19,6 +19,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
@@ -42,7 +43,6 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [features]
 default = []
-tools-verification = ["pierre-services/tools-verification"]
 
 [lints]
 workspace = true

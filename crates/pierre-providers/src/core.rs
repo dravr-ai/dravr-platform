@@ -657,11 +657,12 @@ pub trait FitnessProvider: Send + Sync {
     //
     // The four methods below are the whole write surface a provider with a
     // training calendar offers. They default to an unsupported-capability
-    // error: the read-side providers (Strava/Garmin/Whoop) have no
-    // planned-workout write API and inherit the defaults; Intervals.icu
-    // overrides all four, and a future calendar provider (TrainingPeaks)
-    // implements the same four. The reconciler in
-    // `pierre_services::plan_calendar_push` is written against these alone.
+    // error: the read-side providers (Strava, WHOOP, the scraped mirrors) have
+    // no planned-workout write API and inherit the defaults; Intervals.icu,
+    // Wahoo and Garmin (its Training API) override all four, and a future
+    // calendar provider (TrainingPeaks) implements the same four. The
+    // reconciler in `pierre_services::plan_calendar_push` is written against
+    // these alone.
 
     /// The key this provider's calendar stores for the entry Dravr keys
     /// `external_id` — what a reconcile compares a listed event's

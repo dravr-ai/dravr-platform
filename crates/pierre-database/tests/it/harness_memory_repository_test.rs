@@ -1,5 +1,5 @@
 // ABOUTME: Covers the coaching harness memory repository against whichever backend DATABASE_URL names
-// ABOUTME: Compaction blocks, user facts, agent notes, followups and sessions, each read back with real values
+// ABOUTME: Compaction blocks, user facts and sessions, each read back with real values
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,8 +7,7 @@
 //! `HarnessMemoryRepository` is emitted from one shared body for both
 //! backends, so these assertions are what pins the two drivers to the same
 //! behaviour: timestamps that round-trip, optional filters that narrow the
-//! way they say, counters that count, and the state machines of notes,
-//! followups and sessions.
+//! way they say, counters that count, and the state machine of sessions.
 //!
 //! These run on `SQLite` and on `PostgreSQL`: `create_test_db` opens whichever
 //! `DATABASE_URL` names, so the same assertions cover both.
@@ -21,12 +20,9 @@ use pierre_core::models::{Pillar, Tenant, TenantId, User};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
-    InsertAgentFollowupParams, InsertAgentNoteParams, InsertCompactionBlockParams,
-    MergeUserFactParams, UpsertUserFactParams,
+    InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
-use pierre_memory::{
-    FactKind, FactSource, FollowupStatus, MemoryScope, PredicateCode, SessionStatus,
-};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, SessionStatus};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
@@ -649,7 +645,10 @@ async fn fact_metrics_count_the_tenant_by_kind_and_recency() {
     let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
-    let empty = memory.count_user_facts_metrics(seed.tenant).await.unwrap();
+    let empty = memory
+        .count_user_facts_metrics(seed.tenant.into())
+        .await
+        .unwrap();
     assert_eq!(empty.total_facts, 0);
     assert_eq!(empty.distinct_users, 0);
     assert_eq!(empty.facts_last_24h, 0);
@@ -694,7 +693,10 @@ async fn fact_metrics_count_the_tenant_by_kind_and_recency() {
         .await
         .unwrap();
 
-    let metrics = memory.count_user_facts_metrics(seed.tenant).await.unwrap();
+    let metrics = memory
+        .count_user_facts_metrics(seed.tenant.into())
+        .await
+        .unwrap();
     assert_eq!(metrics.total_facts, 4);
     assert_eq!(metrics.distinct_users, 2);
     assert_eq!(metrics.facts_last_24h, 4);
@@ -710,229 +712,10 @@ async fn fact_metrics_count_the_tenant_by_kind_and_recency() {
     );
 
     let elsewhere = memory
-        .count_user_facts_metrics(TenantId::generate())
+        .count_user_facts_metrics(TenantId::generate().into())
         .await
         .unwrap();
     assert_eq!(elsewhere.total_facts, 0);
-}
-
-#[tokio::test]
-async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
-    let db = create_test_db().await.unwrap();
-    let memory = &db.repositories().memory;
-    let seed = seed(&db).await;
-
-    let note = memory
-        .insert_agent_note(&InsertAgentNoteParams {
-            tenant_id: seed.tenant,
-            user_id: &seed.user_id,
-            agent_id: &seed.agent_id,
-            conversation_id: None,
-            scope: MemoryScope::User,
-            content: "prefers short answers",
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
-    assert!(!note.suppressed);
-
-    let recalled = memory
-        .list_agent_notes(
-            seed.tenant,
-            &seed.user_id,
-            &seed.agent_id,
-            10,
-            TransportPolicy::FirstPartyOnly,
-        )
-        .await
-        .unwrap();
-    assert_eq!(recalled.len(), 1);
-    assert_eq!(recalled[0].id, note.id);
-    assert_eq!(recalled[0].content, "prefers short answers");
-    assert_eq!(recalled[0].scope, MemoryScope::User);
-    assert_eq!(recalled[0].agent_id, seed.agent_id);
-    assert_eq!(recalled[0].conversation_id, None);
-    assert!(!recalled[0].suppressed);
-    assert_same_instant(recalled[0].created_at, note.created_at, "note created_at");
-
-    assert!(memory
-        .set_agent_note_suppressed(&note.id, seed.tenant, true, "admin@example.com")
-        .await
-        .unwrap());
-    assert!(
-        !memory
-            .set_agent_note_suppressed(&note.id, seed.tenant, true, "admin@example.com")
-            .await
-            .unwrap(),
-        "suppressing twice changes nothing"
-    );
-
-    assert!(memory
-        .list_agent_notes(
-            seed.tenant,
-            &seed.user_id,
-            &seed.agent_id,
-            10,
-            TransportPolicy::FirstPartyOnly
-        )
-        .await
-        .unwrap()
-        .is_empty());
-    let audited = memory
-        .list_agent_notes_for_tenant(seed.tenant, 10)
-        .await
-        .unwrap();
-    assert_eq!(audited.len(), 1);
-    assert!(audited[0].suppressed);
-    assert!(audited[0].updated_at >= note.updated_at - Duration::seconds(1));
-
-    assert!(memory
-        .set_agent_note_suppressed(&note.id, seed.tenant, false, "admin@example.com")
-        .await
-        .unwrap());
-    let back = memory
-        .list_agent_notes(
-            seed.tenant,
-            &seed.user_id,
-            &seed.agent_id,
-            10,
-            TransportPolicy::FirstPartyOnly,
-        )
-        .await
-        .unwrap();
-    assert_eq!(back.len(), 1);
-    assert!(!back[0].suppressed);
-
-    assert!(!memory
-        .set_agent_note_suppressed(&note.id, TenantId::generate(), true, "admin@example.com")
-        .await
-        .unwrap());
-}
-
-#[tokio::test]
-async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
-    let db = create_test_db().await.unwrap();
-    let memory = &db.repositories().memory;
-    let seed = seed(&db).await;
-    let now = Utc::now();
-
-    let overdue = memory
-        .insert_agent_followup(&InsertAgentFollowupParams {
-            tenant_id: seed.tenant,
-            user_id: &seed.user_id,
-            agent_id: &seed.agent_id,
-            conversation_id: None,
-            content: "ask how the long run went",
-            due_at: Some(now - Duration::hours(2)),
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
-    let later = memory
-        .insert_agent_followup(&InsertAgentFollowupParams {
-            tenant_id: seed.tenant,
-            user_id: &seed.user_id,
-            agent_id: &seed.agent_id,
-            conversation_id: None,
-            content: "check the race entry",
-            due_at: Some(now + Duration::days(3)),
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
-    let undated = memory
-        .insert_agent_followup(&InsertAgentFollowupParams {
-            tenant_id: seed.tenant,
-            user_id: &seed.user_id,
-            agent_id: &seed.agent_id,
-            conversation_id: None,
-            content: "mention the new shoes",
-            due_at: None,
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
-    assert_eq!(overdue.status, FollowupStatus::Pending);
-    assert_eq!(undated.due_at, None);
-
-    let pending = memory
-        .list_pending_followups(seed.tenant, &seed.user_id, &seed.agent_id)
-        .await
-        .unwrap();
-    let order: Vec<&str> = pending.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(
-        order,
-        vec![overdue.id.as_str(), later.id.as_str(), undated.id.as_str()],
-        "soonest due first, undated last"
-    );
-    assert_eq!(pending[0].content, "ask how the long run went");
-    assert_same_instant(
-        pending[0]
-            .due_at
-            .expect("the overdue followup has a due time"),
-        now - Duration::hours(2),
-        "due_at",
-    );
-    assert_eq!(pending[0].delivered_at, None);
-
-    let for_tenant = memory
-        .list_pending_followups_for_tenant(seed.tenant, 2)
-        .await
-        .unwrap();
-    assert_eq!(for_tenant.len(), 2);
-    assert_eq!(for_tenant[0].id, overdue.id);
-
-    let due = memory.list_due_followups(now, 10).await.unwrap();
-    let due_here: Vec<&str> = due
-        .iter()
-        .filter(|f| f.tenant_id == seed.tenant.to_string())
-        .map(|f| f.id.as_str())
-        .collect();
-    assert_eq!(
-        due_here,
-        vec![overdue.id.as_str()],
-        "only a dated, past-due followup is due"
-    );
-
-    assert!(memory
-        .mark_followup_delivered(&overdue.id, seed.tenant)
-        .await
-        .unwrap());
-    assert!(
-        !memory
-            .mark_followup_delivered(&overdue.id, seed.tenant)
-            .await
-            .unwrap(),
-        "a delivered followup is not delivered twice"
-    );
-    assert!(memory
-        .cancel_followup(&later.id, seed.tenant)
-        .await
-        .unwrap());
-    assert!(!memory
-        .cancel_followup(&later.id, seed.tenant)
-        .await
-        .unwrap());
-    assert!(
-        !memory
-            .mark_followup_delivered(&later.id, seed.tenant)
-            .await
-            .unwrap(),
-        "a cancelled followup cannot be delivered"
-    );
-
-    let left = memory
-        .list_pending_followups(seed.tenant, &seed.user_id, &seed.agent_id)
-        .await
-        .unwrap();
-    assert_eq!(left.len(), 1);
-    assert_eq!(left[0].id, undated.id);
-    assert!(memory
-        .list_due_followups(now, 10)
-        .await
-        .unwrap()
-        .iter()
-        .all(|f| f.id != overdue.id));
 }
 
 #[tokio::test]

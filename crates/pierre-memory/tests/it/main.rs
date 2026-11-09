@@ -16,7 +16,6 @@ mod claims_test;
 mod commitments_test;
 mod compaction_test;
 mod facts_test;
-mod followups_test;
 mod playbooks_test;
 mod scope_test;
 mod sessions_test;

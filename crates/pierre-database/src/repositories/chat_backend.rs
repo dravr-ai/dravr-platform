@@ -32,6 +32,7 @@ macro_rules! impl_chat_repository {
         $crate::repositories::chat_member_rows::impl_chat_member_rows!($ty, $ids);
         $crate::repositories::chat_feedback::impl_chat_feedback!($ty, $ids);
         $crate::repositories::chat_participants::impl_chat_participants!($ty, $ids);
+        $crate::repositories::chat_archive::impl_chat_archive!($ty, $ids);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -105,7 +106,9 @@ macro_rules! impl_chat_repository {
                 mut tx: sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 new: &NewConversation<'_>,
             ) -> AppResult<ConversationRecord> {
-                let id = Uuid::new_v4().to_string();
+                let id = new
+                    .id
+                    .map_or_else(|| Uuid::new_v4().to_string(), ToOwned::to_owned);
                 let now = Utc::now();
                 let user = $ids::bind_text(new.user_id)?;
                 let group = $ids::bind_text_opt(new.group_id)?;
@@ -182,6 +185,7 @@ macro_rules! impl_chat_repository {
                 group_id: Option<&str>,
             ) -> AppResult<ConversationRecord> {
                 let new = NewConversation {
+                    id: None,
                     user_id,
                     tenant_id,
                     title,
@@ -431,16 +435,37 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
+                let task_key = Uuid::parse_str(user_id)
+                    .map(user_task_key)
+                    .map_err(|e| AppError::invalid_input(format!("Invalid user id: {e}")))?;
+                let mut tx = self.pool().begin_with($begin).await.map_err(|e| {
+                    AppError::database(format!("Failed to delete conversation: {e}"))
+                })?;
                 let result = sqlx::query(DELETE_CONVERSATION_SQL)
                     .bind(conversation_id)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to delete conversation: {e}"))
                     })?;
-                Ok(result.rows_affected() > 0)
+                if result.rows_affected() == 0 {
+                    // Dropping the transaction rolls it back; nothing was written.
+                    return Ok(false);
+                }
+                sqlx::query(DELETE_CONVERSATION_TASKS_SQL)
+                    .bind(conversation_id)
+                    .bind(task_key)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to delete conversation tasks: {e}"))
+                    })?;
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to delete conversation: {e}"))
+                })?;
+                Ok(true)
             }
 
             async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
@@ -464,6 +489,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
+                    .bind(params.turn_attempted_write)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -515,6 +541,7 @@ macro_rules! impl_chat_repository {
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
+                    turn_attempted_write: params.turn_attempted_write,
                 })
             }
 
@@ -657,6 +684,15 @@ macro_rules! impl_chat_repository {
                     .await
             }
 
+            async fn get_message_feedback(
+                &self,
+                feedback_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<MessageFeedbackRecord>> {
+                self.feedback_by_id(feedback_id, user_id, tenant_id).await
+            }
+
             async fn count_conversations(
                 &self,
                 user_id: &str,
@@ -676,17 +712,7 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
-                let result = sqlx::query(ARCHIVE_CONVERSATION_SQL)
-                    .bind(Utc::now())
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to archive conversation: {e}"))
-                    })?;
-                Ok(result.rows_affected() > 0)
+                self.archive(conversation_id, user_id, tenant_id).await
             }
 
             async fn is_conversation_archived(
@@ -695,18 +721,7 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
-                sqlx::query_scalar::<_, bool>(IS_ARCHIVED_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .fetch_optional(self.pool())
-                    .await
-                    .map(|archived| archived.unwrap_or(false))
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to read conversation archive state: {e}"
-                        ))
-                    })
+                self.archived(conversation_id, user_id, tenant_id).await
             }
 
             async fn reactivate_conversation(
@@ -716,40 +731,8 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
                 cap: Option<i64>,
             ) -> AppResult<Reactivation> {
-                let user = $ids::bind_text(user_id)?;
-                let tenant = tenant_id.to_string();
-                let failed = |e: sqlx::Error| {
-                    AppError::database(format!("Failed to reactivate conversation: {e}"))
-                };
-
-                let (mut tx, at_cap) = self.open_slot_transaction(user_id, &tenant, cap).await?;
-                // Read under the lock: a concurrent turn may have reactivated
-                // the row since the caller looked.
-                let state = sqlx::query_as::<_, (bool, bool)>(ARCHIVED_SLOT_SQL)
-                    .bind(conversation_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .fetch_optional(&mut *tx)
+                self.reactivate(conversation_id, user_id, tenant_id, cap)
                     .await
-                    .map_err(failed)?;
-                let Some((true, holds_slot)) = state else {
-                    return Ok(Reactivation::NotArchived);
-                };
-                // A row that holds no slot once active takes none of the
-                // owner's, so the count does not decide it.
-                if let Some(current) = at_cap.filter(|_| holds_slot) {
-                    // Dropping the transaction rolls it back; the row stays archived.
-                    return Ok(Reactivation::AtCap { current });
-                }
-                sqlx::query(REACTIVATE_CONVERSATION_SQL)
-                    .bind(conversation_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(failed)?;
-                tx.commit().await.map_err(failed)?;
-                Ok(Reactivation::Reactivated)
             }
 
             async fn add_participant(
@@ -783,9 +766,11 @@ macro_rules! impl_chat_repository {
 
             async fn get_recent_conversations_admin(
                 &self,
+                scope: AdminScope,
                 limit: i64,
             ) -> AppResult<Vec<ConversationRecord>> {
                 let rows = sqlx::query(RECENT_CONVERSATIONS_ADMIN_SQL)
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(limit)
                     .fetch_all(self.pool())
                     .await
@@ -795,8 +780,13 @@ macro_rules! impl_chat_repository {
                 rows.iter().map(conversation_from_row).collect()
             }
 
-            async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64> {
+            async fn count_active_conversations_since(
+                &self,
+                scope: AdminScope,
+                since: &str,
+            ) -> AppResult<i64> {
                 sqlx::query_scalar(COUNT_ACTIVE_SINCE_SQL)
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(instant_from_rfc3339(since)?)
                     .fetch_one(self.pool())
                     .await
@@ -914,6 +904,24 @@ macro_rules! impl_chat_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to find group conversation: {e}"))
+                    })?;
+                row.as_ref().map(conversation_from_row).transpose()
+            }
+
+            async fn latest_channel_thread(
+                &self,
+                user_id: &str,
+                tenant_id: TenantId,
+                channel_type: &str,
+            ) -> AppResult<Option<ConversationRecord>> {
+                let row = sqlx::query(LATEST_CHANNEL_THREAD_SQL)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind(channel_type)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to find the channel thread: {e}"))
                     })?;
                 row.as_ref().map(conversation_from_row).transpose()
             }
@@ -1132,6 +1140,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
+                    .bind(params.turn_attempted_write)
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1163,6 +1172,7 @@ macro_rules! impl_chat_repository {
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
+                    turn_attempted_write: params.turn_attempted_write,
                 }))
             }
         }

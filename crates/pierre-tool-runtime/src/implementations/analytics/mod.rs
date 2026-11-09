@@ -47,6 +47,7 @@ pub use inner::{generate_nutrition_recommendations, load_nutrition_athlete, Nutr
 pub use inner::generate_training_recommendations;
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -117,7 +118,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -141,7 +142,11 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
              rate, or pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), \
              form as a percentage of CTL with its band, weekly TSS totals and a taper reading.",
             schema,
-            annotations("Analyze training load", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Analyze training load",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -186,7 +191,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -213,7 +218,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             annotations(
                 "Detect training patterns",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -259,7 +264,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -300,7 +305,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             annotations(
                 "Calculate fitness score",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -346,7 +351,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -365,7 +370,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "analyze_activity",
             "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            annotations("Analyze activity", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Analyze activity", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -450,7 +455,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -469,7 +474,11 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
              gain, heart rate and calories, with its performance metrics. An ID that is not \
              found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            annotations("Get activity insights", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Get activity insights",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -517,7 +526,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -554,15 +563,12 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, Some(vec!["activity_id".to_owned()]));
         answers_with::<Formatted<ActivityMetricsResult>>(task_capable(tool_definition(
             "calculate_metrics",
             "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
             schema,
-            annotations("Calculate activity metrics", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Calculate activity metrics", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -607,7 +613,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -643,7 +649,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             annotations(
                 "Analyze performance trends",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -692,7 +698,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -731,7 +737,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
             schema,
-            annotations("Compare activities", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Compare activities", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -776,7 +782,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -806,7 +812,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             annotations(
                 "Generate training recommendations",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -852,7 +858,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
+                description: Some(PROVIDER_ARGUMENT.to_owned()),
                 ..Default::default()
             },
         );
@@ -875,7 +881,11 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
              fastest-paced recent run of 3 km or more that took under 2 hours, returned under \
              `best_performance`. Running only.",
             schema,
-            annotations("Predict race times", Effect::ReadOnly, Reach::OpenWorld),
+            annotations(
+                "Predict race times",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         )))
     }
 
@@ -925,14 +935,14 @@ pub fn create_analytics_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(AnalyzeActivityTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AnalyzeActivityTool => empty);
 crate::declare_security!(AnalyzePerformanceTrendsTool => empty);
 crate::declare_security!(AnalyzeTrainingLoadTool => empty);
-crate::declare_security!(AnalyzeWeatherImpactTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AnalyzeWeatherImpactTool => empty);
 crate::declare_security!(CalculateFitnessScoreTool => empty);
 crate::declare_security!(CalculateMetricsTool => empty);
-crate::declare_security!(CompareActivitiesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(CompareActivitiesTool => empty);
 crate::declare_security!(DetectPatternsTool => empty);
-crate::declare_security!(GenerateRecommendationsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetActivityIntelligenceTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GenerateRecommendationsTool => empty);
+crate::declare_security!(GetActivityIntelligenceTool => empty);
 crate::declare_security!(PredictPerformanceTool => empty);

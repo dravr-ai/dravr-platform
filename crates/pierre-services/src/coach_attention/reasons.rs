@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Days, NaiveDate, Utc};
+use chrono_tz::Tz;
 use pierre_config::coach_home::CoachHomeConfig;
+use pierre_core::civil_time;
 use pierre_core::models::FormBand;
 use serde_json::Value;
 
@@ -109,13 +111,13 @@ pub(super) fn unverified_figure(reply: &ReplySignal) -> Option<AttentionReason> 
     })
 }
 
-/// The line naming when `source` last delivered a session.
-fn last_received(source: &str, at: DateTime<Utc>) -> AttentionEvidence {
+/// The line naming the athlete's day `source` last delivered a session.
+fn last_received(source: &str, at: DateTime<Utc>, zone: Tz) -> AttentionEvidence {
     AttentionEvidence {
         key: "coachHome.evidence.lastReceived",
         params: params([
             ("provider", Value::String(source.to_owned())),
-            ("date", day(at.date_naive())),
+            ("date", day(civil_time::local_date(at, zone))),
         ]),
         source: EvidenceSource::with(EvidenceSourceKind::Provider, vec![source.to_owned()]),
         at,
@@ -128,6 +130,7 @@ fn last_received(source: &str, at: DateTime<Utc>) -> AttentionEvidence {
 /// stale, this week otherwise.
 pub(super) fn source_reasons(
     training: &TrainingSignals<'_>,
+    zone: Tz,
     thresholds: &CoachHomeConfig,
 ) -> Vec<AttentionReason> {
     let mut reconnect: Vec<&String> = training.needs_reconnect.iter().collect();
@@ -135,27 +138,31 @@ pub(super) fn source_reasons(
     reconnect.dedup();
     let mut reasons: Vec<AttentionReason> = reconnect
         .iter()
-        .map(|provider| provider_reconnect(training, provider))
+        .map(|provider| provider_reconnect(training, provider, zone))
         .collect();
     let threshold = i32::try_from(thresholds.days_without_activity).unwrap_or(i32::MAX);
     if training
         .days_since_last_activity
         .is_none_or(|days| days >= threshold)
     {
-        reasons.push(nothing_received(training, reconnect.first().copied()));
+        reasons.push(nothing_received(training, reconnect.first().copied(), zone));
     }
     reasons
 }
 
 /// The line saying `provider` must be reconnected: since when it refuses
-/// access when the connection recorded it, else that it does.
-fn refused(training: &TrainingSignals<'_>, provider: &str) -> AttentionEvidence {
+/// access when the connection recorded it, else that it does. The refusal is
+/// a moment the server recorded, never a date-only row, so it always converts.
+fn refused(training: &TrainingSignals<'_>, provider: &str, zone: Tz) -> AttentionEvidence {
     let source = EvidenceSource::with(EvidenceSourceKind::Connection, vec![provider.to_owned()]);
     let name = Value::String(provider.to_owned());
     match training.refused_since.get(provider) {
         Some(since) => AttentionEvidence {
             key: "coachHome.evidence.sourceRefusedSince",
-            params: params([("provider", name), ("date", day(since.date_naive()))]),
+            params: params([
+                ("provider", name),
+                ("date", day(civil_time::clock_date(*since, zone))),
+            ]),
             source,
             at: *since,
         },
@@ -168,10 +175,10 @@ fn refused(training: &TrainingSignals<'_>, provider: &str) -> AttentionEvidence 
     }
 }
 
-fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str) -> AttentionReason {
-    let mut evidence = vec![refused(training, provider)];
+fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str, zone: Tz) -> AttentionReason {
+    let mut evidence = vec![refused(training, provider, zone)];
     let last = training.last_activity_per_source.get(provider).copied();
-    evidence.extend(last.map(|at| last_received(provider, at)));
+    evidence.extend(last.map(|at| last_received(provider, at, zone)));
     let kind = AttentionKind::ProviderReconnect;
     AttentionReason {
         id: format!("{}:{provider}", kind.as_str()),
@@ -191,12 +198,16 @@ fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str) -> Attenti
     }
 }
 
-fn nothing_received(training: &TrainingSignals<'_>, dead: Option<&String>) -> AttentionReason {
+fn nothing_received(
+    training: &TrainingSignals<'_>,
+    dead: Option<&String>,
+    zone: Tz,
+) -> AttentionReason {
     let source_down = dead.is_some() || training.stale;
     let mut evidence: Vec<AttentionEvidence> = training
         .last_activity_per_source
         .iter()
-        .map(|(source, at)| last_received(source, *at))
+        .map(|(source, at)| last_received(source, *at, zone))
         .collect();
     let providers: Vec<String> = training.last_activity_per_source.keys().cloned().collect();
     if evidence.is_empty() {
@@ -210,7 +221,7 @@ fn nothing_received(training: &TrainingSignals<'_>, dead: Option<&String>) -> At
     // The first dead source is named after the sessions: reconnecting it is
     // the coach's ask.
     if let Some(provider) = dead {
-        evidence.push(refused(training, provider));
+        evidence.push(refused(training, provider, zone));
     }
     if training.stale {
         evidence.push(AttentionEvidence {
@@ -283,11 +294,14 @@ fn nothing_received(training: &TrainingSignals<'_>, dead: Option<&String>) -> At
 /// threshold's mornings — never on data a dead or stale source left behind.
 pub(super) fn deep_fatigue_streak(
     training: &TrainingSignals<'_>,
+    zone: Tz,
     thresholds: &CoachHomeConfig,
 ) -> Option<AttentionReason> {
     let mornings = u32::try_from(training.deep_fatigue_mornings.len()).unwrap_or(u32::MAX);
-    if training.form_band != Some(FormBand::DeepFatigue)
-        || mornings < thresholds.fatigue_streak_mornings
+    let Some((FormBand::DeepFatigue, form_as_of)) = training.form else {
+        return None;
+    };
+    if mornings < thresholds.fatigue_streak_mornings
         || !training.needs_reconnect.is_empty()
         || training.stale
     {
@@ -295,10 +309,9 @@ pub(super) fn deep_fatigue_streak(
     }
     let providers: Vec<String> = training.last_activity_per_source.keys().cloned().collect();
     let date_of = |days_ago: u32| {
-        training
-            .form_as_of
+        form_as_of
             .checked_sub_days(Days::new(u64::from(days_ago)))
-            .unwrap_or(training.form_as_of)
+            .unwrap_or(form_as_of)
     };
     let mut evidence: Vec<AttentionEvidence> = training
         .deep_fatigue_mornings
@@ -321,7 +334,7 @@ pub(super) fn deep_fatigue_streak(
         evidence.push(AttentionEvidence {
             key: "coachHome.evidence.lastSession",
             params: params([
-                ("date", day(at.date_naive())),
+                ("date", day(civil_time::local_date(*at, zone))),
                 ("sport", Value::String(sport.to_owned())),
                 ("duration_seconds", Value::from(seconds)),
             ]),
@@ -406,19 +419,21 @@ fn plan_draft_waiting(draft: &DraftSignals) -> AttentionReason {
 
 fn new_member_no_plan(inputs: &AttentionInputs<'_>) -> AttentionReason {
     let joined = inputs.joined;
+    // A moment the server recorded, never a date-only row: it always converts.
+    let joined_day = day(civil_time::clock_date(joined.at, inputs.zone));
     let mut evidence = vec![AttentionEvidence {
         key: "coachHome.evidence.joinedGroup",
         params: params([
             ("group", Value::String(joined.group.name.clone())),
-            ("date", day(joined.at.date_naive())),
+            ("date", joined_day.clone()),
         ]),
         source: EvidenceSource::of(EvidenceSourceKind::Membership),
         at: joined.at,
     }];
     if let Some(training) = inputs.training {
         if training
-            .form_band
-            .is_none_or(|band| band == FormBand::InsufficientHistory)
+            .form
+            .is_none_or(|(band, _)| band == FormBand::InsufficientHistory)
         {
             evidence.push(AttentionEvidence {
                 key: "coachHome.evidence.historyTooShort",
@@ -438,7 +453,7 @@ fn new_member_no_plan(inputs: &AttentionInputs<'_>) -> AttentionReason {
         horizon: AttentionHorizon::Week,
         rank: TIER_NEW_MEMBER,
         key: "coachHome.reason.newMemberNoPlan",
-        params: params([("date", day(joined.at.date_naive()))]),
+        params: params([("date", joined_day)]),
         evidence,
         action: AttentionAction::CreatePlan,
         target: AttentionTarget {

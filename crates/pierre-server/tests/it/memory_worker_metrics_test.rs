@@ -52,7 +52,7 @@ async fn empty_tenant_returns_zero_metrics() -> Result<()> {
     let repos = db.repositories();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
-    let metrics = repos.memory.count_user_facts_metrics(tenant).await?;
+    let metrics = repos.memory.count_user_facts_metrics(tenant.into()).await?;
 
     assert_eq!(metrics.total_facts, 0);
     assert_eq!(metrics.facts_last_24h, 0);
@@ -105,7 +105,7 @@ async fn mixed_kinds_aggregate_correctly() -> Result<()> {
         ))
         .await?;
 
-    let metrics = repos.memory.count_user_facts_metrics(tenant).await?;
+    let metrics = repos.memory.count_user_facts_metrics(tenant.into()).await?;
 
     assert_eq!(metrics.total_facts, 4);
     assert_eq!(metrics.distinct_users, 2);
@@ -152,8 +152,14 @@ async fn metrics_are_tenant_scoped() -> Result<()> {
         ))
         .await?;
 
-    let metrics_a = repos.memory.count_user_facts_metrics(tenant_a).await?;
-    let metrics_b = repos.memory.count_user_facts_metrics(tenant_b).await?;
+    let metrics_a = repos
+        .memory
+        .count_user_facts_metrics(tenant_a.into())
+        .await?;
+    let metrics_b = repos
+        .memory
+        .count_user_facts_metrics(tenant_b.into())
+        .await?;
 
     assert_eq!(metrics_a.total_facts, 2);
     assert_eq!(metrics_a.facts_by_kind.get("goal").copied(), Some(2));

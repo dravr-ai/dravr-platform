@@ -93,6 +93,22 @@ pub fn to_app_error(error: ClientError) -> AppError {
     to_app_error_as(error, UNNAMED_BRAND)
 }
 
+/// [`to_app_error_as`] for a call that read `backend`'s session.
+///
+/// An auth-shaped error names `backend` (`sciotte_trainingpeaks`) rather than
+/// the generic `sciotte` slug, so the reconnect it raises is that provider's
+/// sign-in. For a caller that reads a session outside the provider, which
+/// re-tags its own.
+#[must_use]
+pub fn to_app_error_for(error: ClientError, backend: &str, brand: &str) -> AppError {
+    let mapped = to_app_error_as(error, brand);
+    if mapped.provider_auth_required_provider().is_some() {
+        AppError::provider_auth_required(backend)
+    } else {
+        mapped
+    }
+}
+
 /// The platform error for a failed call to the sciotte scraper service,
 /// worded about `brand`, the provider the athlete signed in to ("Garmin").
 ///
@@ -678,6 +694,35 @@ mod tests {
                 Some("sciotte")
             );
         }
+    }
+
+    #[test]
+    fn a_session_read_outside_the_provider_names_its_own_backend() {
+        let expired = to_app_error_for(
+            ClientError::SessionExpired {
+                exchange: exchange(Operation::Activities).into(),
+                message: None,
+            },
+            "sciotte_trainingpeaks",
+            "TrainingPeaks",
+        );
+        assert_eq!(
+            expired.provider_auth_required_provider().as_deref(),
+            Some("sciotte_trainingpeaks"),
+            "bug: a dead TrainingPeaks session reconnects TrainingPeaks, never Strava"
+        );
+        let lost = to_app_error_for(
+            ClientError::SessionLostOnResend {
+                exchange: exchange(Operation::Activities).into(),
+            },
+            "sciotte_trainingpeaks",
+            "TrainingPeaks",
+        );
+        assert_eq!(
+            lost.code,
+            ErrorCode::ExternalServiceUnavailable,
+            "bug: a non-auth error keeps its own code"
+        );
     }
 
     #[test]

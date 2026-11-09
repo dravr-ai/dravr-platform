@@ -1,23 +1,18 @@
-// ABOUTME: Tenant-access tests for the cookie-admin observability handlers (followups, notes, grading, memory, myths)
+// ABOUTME: Tenant-access tests for the cookie-admin observability handlers ( grading, memory, myths)
 // ABOUTME: A tenant-bound token is refused for another tenant at every site; its own tenant and a super-admin pass
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Seven handlers under the cookie-admin mount take a client-supplied
-//! `tenant_id` query and used to gate on `require_permission` alone, while
-//! their siblings (`claim_verdicts`, `eval_harness`, `feature_flags`) also
-//! apply [`ValidatedAdminToken::require_tenant_access`]. Through the cookie
-//! mount a plain `Admin` fails the permission gate first and a `SuperAdmin`
-//! bypasses both, so the gap was unreachable — but the invariant that every
-//! tenant-scoped admin handler reconciles the token with the tenant it names
-//! is what keeps a tenant-bound bearer token from crossing tenants the day
-//! one of these routes gains such a mount.
+//! These handlers under the cookie-admin mount take a client-supplied
+//! `tenant_id` query. Grading, memory and myth busting gate on the scope rule
+//! (`pierre_core::admin::scope`). A token bound to one tenant must not cross to
+//! another.
 //!
 //! The tests drive the handlers directly (the `feature_flags_admin_authz_test`
 //! pattern) with a token that holds the permissions but is bound to one
 //! tenant, so the refusal can only come from the tenant gate under test, and
-//! they pin its message: the one `require_tenant_access` writes.
+//! they pin its message, which both gates share.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -27,8 +22,8 @@ use crate::common;
 use pierre_config::mcp::AppBehaviorConfig;
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Extension;
 use chrono::Utc;
@@ -40,9 +35,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::handlers::{
-    agent_followups, agent_grading, agent_notes, memory_worker, myth_busting,
-};
+use pierre_routes_admin::handlers::{agent_grading, memory_worker, myth_busting};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use uuid::Uuid;
@@ -149,7 +142,7 @@ fn super_admin_token() -> ValidatedAdminToken {
 
 /// Tenant-bound admin token: holds every permission these handlers ask for,
 /// but is bound to one tenant and is NOT super-admin — so `require_permission`
-/// passes and a refusal can only come from `require_tenant_access`.
+/// passes and a refusal can only come from the tenant gate.
 fn tenant_bound_token(tenant_id: TenantId) -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("admin-token:{}", Uuid::new_v4()),
@@ -157,7 +150,6 @@ fn tenant_bound_token(tenant_id: TenantId) -> ValidatedAdminToken {
         permissions: AdminPermissions::new(vec![
             AdminPermission::ViewConfiguration,
             AdminPermission::ManageConfiguration,
-            AdminPermission::ViewAuditLogs,
         ]),
         is_super_admin: false,
         tenant_id: Some(tenant_id.as_uuid().to_string()),
@@ -200,174 +192,6 @@ fn assert_ok(resp: impl IntoResponse, site: &str) {
 }
 
 // ============================================================================
-// agent_followups
-// ============================================================================
-
-#[tokio::test]
-async fn followups_list_reconciles_the_token_with_the_tenant_named() {
-    let (context, repos) = build_context().await;
-    let own = seed_tenant(&repos).await;
-    let foreign = seed_tenant(&repos).await;
-
-    let err = refusal(
-        agent_followups::handle_list_pending_followups(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Query(agent_followups::ListFollowupsQuery {
-                tenant_id: foreign.to_string(),
-                limit: None,
-            }),
-        )
-        .await,
-        "followups list",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "followups list");
-
-    let ok = agent_followups::handle_list_pending_followups(
-        State(context.clone()),
-        Extension(tenant_bound_token(own)),
-        Query(agent_followups::ListFollowupsQuery {
-            tenant_id: own.to_string(),
-            limit: None,
-        }),
-    )
-    .await
-    .expect("own tenant lists");
-    assert_ok(ok, "followups list");
-
-    let ok = agent_followups::handle_list_pending_followups(
-        State(context),
-        Extension(super_admin_token()),
-        Query(agent_followups::ListFollowupsQuery {
-            tenant_id: foreign.to_string(),
-            limit: None,
-        }),
-    )
-    .await
-    .expect("super-admin lists any tenant");
-    assert_ok(ok, "followups list (super-admin)");
-}
-
-#[tokio::test]
-async fn followup_cancel_reconciles_the_token_with_the_tenant_named() {
-    let (context, repos) = build_context().await;
-    let own = seed_tenant(&repos).await;
-    let foreign = seed_tenant(&repos).await;
-    let followup_id = Uuid::new_v4().to_string();
-
-    let err = refusal(
-        agent_followups::handle_cancel_followup(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Path(followup_id.clone()),
-            Query(agent_followups::CancelFollowupQuery {
-                tenant_id: foreign.to_string(),
-            }),
-        )
-        .await,
-        "followup cancel",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "followup cancel");
-
-    let ok = agent_followups::handle_cancel_followup(
-        State(context),
-        Extension(tenant_bound_token(own)),
-        Path(followup_id),
-        Query(agent_followups::CancelFollowupQuery {
-            tenant_id: own.to_string(),
-        }),
-    )
-    .await
-    .expect("own tenant cancel is idempotent on a missing row");
-    assert_ok(ok, "followup cancel");
-}
-
-// ============================================================================
-// agent_notes
-// ============================================================================
-
-#[tokio::test]
-async fn notes_audit_reconciles_the_token_with_the_tenant_named() {
-    let (context, repos) = build_context().await;
-    let own = seed_tenant(&repos).await;
-    let foreign = seed_tenant(&repos).await;
-
-    let err = refusal(
-        agent_notes::handle_list_audit(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Query(agent_notes::AuditQuery {
-                tenant_id: foreign.to_string(),
-                limit: None,
-            }),
-        )
-        .await,
-        "notes audit",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "notes audit");
-
-    let ok = agent_notes::handle_list_audit(
-        State(context),
-        Extension(tenant_bound_token(own)),
-        Query(agent_notes::AuditQuery {
-            tenant_id: own.to_string(),
-            limit: None,
-        }),
-    )
-    .await
-    .expect("own tenant audit lists");
-    assert_ok(ok, "notes audit");
-}
-
-#[tokio::test]
-async fn note_suppress_reconciles_the_token_with_the_tenant_named() {
-    let (context, repos) = build_context().await;
-    let own = seed_tenant(&repos).await;
-    let foreign = seed_tenant(&repos).await;
-    let note_id = Uuid::new_v4().to_string();
-
-    let err = refusal(
-        agent_notes::handle_suppress_note(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Path(note_id.clone()),
-            Query(agent_notes::SuppressQuery {
-                tenant_id: foreign.to_string(),
-            }),
-        )
-        .await,
-        "note suppress",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "note suppress");
-
-    let err = refusal(
-        agent_notes::handle_unsuppress_note(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Path(note_id.clone()),
-            Query(agent_notes::SuppressQuery {
-                tenant_id: foreign.to_string(),
-            }),
-        )
-        .await,
-        "note unsuppress",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "note unsuppress");
-
-    let ok = agent_notes::handle_suppress_note(
-        State(context),
-        Extension(tenant_bound_token(own)),
-        Path(note_id),
-        Query(agent_notes::SuppressQuery {
-            tenant_id: own.to_string(),
-        }),
-    )
-    .await
-    .expect("own tenant suppress is idempotent on a missing row");
-    assert_ok(ok, "note suppress");
-}
-
-// ============================================================================
 // agent_grading, memory_worker, myth_busting
 // ============================================================================
 
@@ -382,7 +206,7 @@ async fn grading_summary_reconciles_the_token_with_the_tenant_named() {
             State(context.clone()),
             Extension(tenant_bound_token(own)),
             Query(agent_grading::AgentGradingQuery {
-                tenant_id: foreign.to_string(),
+                tenant_id: Some(foreign.to_string()),
                 limit: None,
             }),
         )
@@ -392,16 +216,28 @@ async fn grading_summary_reconciles_the_token_with_the_tenant_named() {
     assert_cross_tenant_refusal(&err, own, foreign, "grading summary");
 
     let ok = agent_grading::handle_get_summary(
-        State(context),
+        State(context.clone()),
         Extension(tenant_bound_token(own)),
         Query(agent_grading::AgentGradingQuery {
-            tenant_id: own.to_string(),
+            tenant_id: Some(own.to_string()),
             limit: None,
         }),
     )
     .await
     .expect("own tenant summary reads");
     assert_ok(ok, "grading summary");
+
+    let ok = agent_grading::handle_get_summary(
+        State(context),
+        Extension(super_admin_token()),
+        Query(agent_grading::AgentGradingQuery {
+            tenant_id: Some(foreign.to_string()),
+            limit: None,
+        }),
+    )
+    .await
+    .expect("a super admin reads any tenant");
+    assert_ok(ok, "grading summary (super-admin)");
 }
 
 #[tokio::test]
@@ -415,7 +251,7 @@ async fn memory_metrics_reconcile_the_token_with_the_tenant_named() {
             State(context.clone()),
             Extension(tenant_bound_token(own)),
             Query(memory_worker::MemoryMetricsQuery {
-                tenant_id: foreign.to_string(),
+                tenant_id: Some(foreign.to_string()),
             }),
         )
         .await,
@@ -427,7 +263,7 @@ async fn memory_metrics_reconcile_the_token_with_the_tenant_named() {
         State(context),
         Extension(tenant_bound_token(own)),
         Query(memory_worker::MemoryMetricsQuery {
-            tenant_id: own.to_string(),
+            tenant_id: Some(own.to_string()),
         }),
     )
     .await
@@ -445,8 +281,9 @@ async fn myth_busting_summary_reconciles_the_token_with_the_tenant_named() {
         myth_busting::handle_get_summary(
             State(context.clone()),
             Extension(tenant_bound_token(own)),
+            HeaderMap::new(),
             Query(myth_busting::MythBustingQuery {
-                tenant_id: foreign.to_string(),
+                tenant_id: Some(foreign.to_string()),
                 limit: None,
             }),
         )
@@ -458,8 +295,9 @@ async fn myth_busting_summary_reconciles_the_token_with_the_tenant_named() {
     let ok = myth_busting::handle_get_summary(
         State(context),
         Extension(tenant_bound_token(own)),
+        HeaderMap::new(),
         Query(myth_busting::MythBustingQuery {
-            tenant_id: own.to_string(),
+            tenant_id: Some(own.to_string()),
             limit: None,
         }),
     )

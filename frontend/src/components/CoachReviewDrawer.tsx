@@ -13,7 +13,7 @@ import { clsx } from 'clsx';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -57,7 +57,6 @@ interface CoachReviewDrawerProps {
 }
 
 export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachReviewDrawerProps) {
-  const { language } = useTranslation();
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const queryClient = useQueryClient();
@@ -180,7 +179,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
                 System Prompt
               </h4>
               <span className="text-xs text-outline">
-                {coach.token_count.toLocaleString()} tokens
+                {coach.token_count.toLocaleString(ADMIN_LOCALE)} tokens
               </span>
             </div>
             <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
@@ -288,11 +287,11 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-outline">Created</span>
-                <span className="text-on-surface">{formatDateTime(coach.created_at, language)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.created_at, ADMIN_LOCALE)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Submitted for Review</span>
-                <span className="text-on-surface">{formatDateTime(coach.submitted_at, language)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.submitted_at, ADMIN_LOCALE)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>
@@ -323,7 +322,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">
-                <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                 Approving...
               </span>
             ) : (

@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.14.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.14.0#5f1db16512ce917828e9b3feebe171f5d741c191"
+version = "0.15.1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.15.1#24dffd752b05a30e330efdcd82713bfdeb1cb487"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1374,8 +1374,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.44.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.44.0#b6205b7e4eb780cf6f77fce6453b3856e2dc10ca"
+version = "0.46.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.46.0#54d1eb724e9fd7fe76de98b0210ae05e6faa97f0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1419,8 +1419,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.7.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.7.0#c21a63dca0c55d8adc1e057709dd7f3ba6a34d85"
+version = "0.8.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.8.0#cab0115dd8b40d55f3ab4c3f99ac30116881714e"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1439,12 +1439,12 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=19b692ff25922ca1f42ac0daa39b403444585bfe#19b692ff25922ca1f42ac0daa39b403444585bfe"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=d0c512f8a4d70aac1419081cd18b954421df6933#d0c512f8a4d70aac1419081cd18b954421df6933"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.16.5"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.16.5#1bf741ecb496362643e7f6595cf37df46114a962"
+version = "0.17.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.17.1#9a0ff158f9b61c7190bfbed05e8680107b1512df"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1507,8 +1507,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "1.3.1"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.3.1#52856ffc926aaac4cb97418a4414db70096d22cd"
+version = "1.4.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.4.0#1300da115fb08da19d15bcabc46cd0b96c18b971"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1545,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "6.5.0"
+version = "6.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74bf885724d7169000ca41d195a14bdda30349b30ff50b78e4d9540d0026a649"
+checksum = "26aa1dfa3e442107d7ef6a73d79d4b913a9877f6470e1c3d821b5ae5c231f648"
 dependencies = [
  "async-trait",
  "axum",
@@ -1574,6 +1574,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3649,11 +3650,10 @@ dependencies = [
 name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
- "bcrypt",
+ "async-trait",
  "chrono",
  "dravr-tronc",
  "pierre-auth",
- "pierre-config",
  "pierre-core",
  "pierre-database",
  "pierre-logging",
@@ -3661,7 +3661,6 @@ dependencies = [
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-tool-runtime",
- "rand 0.9.5",
  "reqwest 0.12.28",
  "secrecy",
  "serde",
@@ -3708,7 +3707,6 @@ dependencies = [
  "ciborium",
  "der 0.7.10",
  "dravr-tronc",
- "ed25519-dalek",
  "http",
  "jsonwebtoken",
  "pierre-cache",
@@ -3730,7 +3728,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "x509-cert",
- "zeroize",
 ]
 
 [[package]]
@@ -3901,6 +3898,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4009,6 +4007,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dravr-contremaitre",
+ "futures-util",
  "pierre-core",
  "pierre-llm",
  "pierre-memory",
@@ -4110,6 +4109,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rustls",
  "serde_json",
+ "tokio",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -4262,6 +4262,7 @@ dependencies = [
  "pierre-database",
  "pierre-email",
  "pierre-llm",
+ "pierre-logging",
  "pierre-memory",
  "pierre-middleware",
  "pierre-runtime-context",
@@ -4335,6 +4336,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-stream",
  "tracing",
  "urlencoding",
  "uuid",

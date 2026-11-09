@@ -137,6 +137,29 @@ else
   fail "default run budget '${DEFAULT_RUN}' must exceed ci-backend's longest job timeout '${LONGEST}' (empty means the lookup broke)"
 fi
 
+# A run queued behind another release of this satellite starts long after its
+# trigger, so resolve takes the branch's tip and every later job takes the tree
+# resolve read. github.sha would be from before that release landed (carnet#1416:
+# conflicts at the squash after a 27-minute gate). This reads the workflow's text
+# because actions/checkout has no local seam.
+checkout_ref() {
+  awk -v job="  $1:" '
+    $0 == job { in_job = 1; next }
+    in_job && /^  [a-z_-]+:$/ { exit }
+    in_job && /uses: actions\/checkout/ { in_checkout = 1; next }
+    in_checkout && /^ *ref:/ { sub(/^ *ref: */, ""); print; exit }
+    in_checkout && /^ *- / { exit }
+  ' "${WORKFLOW}"
+}
+[ "$(checkout_ref resolve)" = '${{ github.ref_name }}' ] \
+  && pass "resolve reads the branch's tip, not the trigger's sha" \
+  || fail "resolve checkout ref is '$(checkout_ref resolve)'"
+for job in bump gate; do
+  [ "$(checkout_ref "${job}")" = '${{ needs.resolve.outputs.tree }}' ] \
+    && pass "${job} reads the tree resolve read" \
+    || fail "${job} checkout ref is '$(checkout_ref "${job}")'"
+done
+
 echo
 [ "${FAILURES}" -eq 0 ] && { echo "all satellite-bump gate scenarios pass"; exit 0; }
 echo "${FAILURES} scenario(s) failed"; exit 1

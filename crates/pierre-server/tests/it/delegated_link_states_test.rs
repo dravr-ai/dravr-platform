@@ -20,6 +20,9 @@
 //! - the picker of one group suggests that group's member the roster email
 //!   binds, and leaves out an athlete a link holds in another group;
 //! - an athlete the platform gives the coach no access to is never proposed;
+//! - a sharing member whose own session carries a roster athlete's id is that
+//!   athlete, whatever email the roster lists or omits, and is never proposed
+//!   a link, while an athlete no session names still needs the roster email;
 //! - a member who joins by `/group join` is proposed the link the picker
 //!   would suggest for them, with every consent left to them, and nothing
 //!   else: the join stands whatever the roster says or fails to say, and a
@@ -573,6 +576,18 @@ async fn person(res: &Arc<ServerContext>, email: &str, verified: bool) -> Person
 
 /// `who`'s own `coachhub` grant and connection, stored in `tenant`.
 async fn connect_coachhub(res: &Arc<ServerContext>, who: Person, tenant: TenantId) {
+    let account = format!("ch{}", who.id.as_simple());
+    connect_coachhub_as(res, who, tenant, &account).await;
+}
+
+/// The same, for the platform account `account`: the id the platform's
+/// roster lists the account under.
+async fn connect_coachhub_as(
+    res: &Arc<ServerContext>,
+    who: Person,
+    tenant: TenantId,
+    account: &str,
+) {
     let now = Utc::now();
     let mut token = UserOAuthToken::new(
         who.id,
@@ -583,7 +598,7 @@ async fn connect_coachhub(res: &Arc<ServerContext>, who: Person, tenant: TenantI
         Some(now + Duration::hours(6)),
         None,
     );
-    token.provider_user_id = Some(format!("ch{}", who.id.as_simple()));
+    token.provider_user_id = Some(account.to_owned());
     let repos = &res.common.repos;
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
     repos
@@ -977,6 +992,148 @@ async fn an_athlete_the_platform_gives_no_access_to_is_never_proposed() {
     .unwrap();
     assert_eq!(link.member_user_id, follower.id);
     assert_eq!(link.provider_athlete_id, "c2");
+}
+
+/// Why the coach's proposal of roster athlete `athlete` as `member` in
+/// `group` was refused.
+async fn refusal_of(w: &World, group: &CoachingGroup, member: Person, athlete: &str) -> String {
+    let refused = propose(
+        w.services(),
+        group,
+        w.coach.id,
+        w.coach.tenant,
+        Proposal {
+            provider: COACHHUB,
+            provider_athlete_id: athlete,
+            member_user_id: member.id,
+        },
+    )
+    .await
+    .expect_err("the proposal is refused");
+    let details = refused.details.as_deref().expect("the refusal says why");
+    assert_eq!(details["provider"], COACHHUB, "{details}");
+    details["reason"].as_str().unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn a_member_whose_own_session_carries_the_athlete_s_id_needs_no_link() {
+    let w = World::new().await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    let quiet = person(&w.res, "quiet@link-states.test", true).await;
+    let renamed = person(&w.res, "renamed@link-states.test", true).await;
+    let withheld = person(&w.res, "withheld@link-states.test", true).await;
+    let unlinked = person(&w.res, "unlinked@link-states.test", true).await;
+    let elsewhere = person(&w.res, "elsewhere@link-states.test", true).await;
+    let by_email = person(&w.res, "by-email@link-states.test", true).await;
+    for member in [quiet, renamed, unlinked, elsewhere, by_email] {
+        w.join(&squad, member, true).await;
+    }
+    w.join(&squad, withheld, false).await;
+    // Their own sessions, as the platform accounts the roster lists; the
+    // first kept under another tenant than their own: any tenant counts.
+    // The last names an account the coach's roster does not list.
+    connect_coachhub_as(&w.res, quiet, w.owner.tenant, "d1").await;
+    connect_coachhub_as(&w.res, renamed, renamed.tenant, "d2").await;
+    connect_coachhub_as(&w.res, withheld, withheld.tenant, "d3").await;
+    connect_coachhub_as(&w.res, elsewhere, elsewhere.tenant, "d9").await;
+    // An own connection under another account than the roster entry their
+    // email names.
+    connect_coachhub(&w.res, by_email, by_email.tenant).await;
+    w.roster.set(vec![
+        athlete("d1", None),
+        athlete("d2", Some("someone-else@link-states.test")),
+        athlete("d3", None),
+        athlete("d4", None),
+        athlete("d5", Some("by-email@link-states.test")),
+    ]);
+
+    let states = w.states().await;
+    assert!(
+        matches!(
+            state_of(&states, "d1"),
+            LinkState::MemberOwnConnection { .. }
+        ),
+        "no roster email, but their own session names them"
+    );
+    assert_eq!(
+        member_of(state_of(&states, "d1")),
+        (quiet.id, squad.id),
+        "the member their own session names, in the group a link would be made in"
+    );
+    assert!(
+        matches!(
+            state_of(&states, "d2"),
+            LinkState::MemberOwnConnection { .. }
+        ),
+        "their own session outweighs a roster email that is not theirs"
+    );
+    assert_eq!(
+        member_of(state_of(&states, "d2")).0,
+        renamed.id,
+        "the member their own session names, not the one the roster email might"
+    );
+    assert!(
+        matches!(state_of(&states, "d3"), LinkState::RosterEmailMissing),
+        "the sessions of a member who stopped sharing are never read"
+    );
+    assert!(
+        matches!(state_of(&states, "d4"), LinkState::RosterEmailMissing),
+        "an athlete no session names and the roster lists with no email binds no one"
+    );
+    assert!(
+        matches!(
+            state_of(&states, "d5"),
+            LinkState::MemberOwnConnection { .. }
+        ),
+        "the member the roster email binds connects the platform themselves"
+    );
+
+    let suggested: Vec<(String, Option<Uuid>)> = w
+        .picker(&squad)
+        .await
+        .into_iter()
+        .map(|e| (e.athlete.id, e.suggested_member_user_id))
+        .collect();
+    assert!(
+        suggested.iter().all(|(_, member)| member.is_none()),
+        "nothing to link is suggested: {suggested:?}"
+    );
+
+    assert_eq!(
+        refusal_of(&w, &squad, quiet, "d1").await,
+        "own_connection",
+        "the athlete is the member by their own session: the roster's missing email is never \
+         the reason"
+    );
+    assert_eq!(
+        refusal_of(&w, &squad, unlinked, "d4").await,
+        "athlete_email_missing",
+        "an athlete no session names still needs the roster email"
+    );
+    assert_eq!(
+        refusal_of(&w, &squad, unlinked, "d1").await,
+        "athlete_email_missing",
+        "another member's session binds no one else"
+    );
+    assert_eq!(
+        refusal_of(&w, &squad, withheld, "d3").await,
+        "athlete_email_missing",
+        "a proposal never reads the sessions of a member who stopped sharing either"
+    );
+    assert_eq!(
+        refusal_of(&w, &squad, elsewhere, "d9").await,
+        "athlete_not_on_roster",
+        "a member's own session answers only for an athlete on the coach's roster"
+    );
+    let live = w
+        .res
+        .common
+        .repos
+        .delegated_connections
+        .list_live_for_coach(w.coach.id, w.coach.tenant, COACHHUB)
+        .await
+        .unwrap();
+    assert!(live.is_empty(), "nothing was stored: {live:?}");
 }
 
 #[tokio::test]

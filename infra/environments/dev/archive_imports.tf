@@ -42,6 +42,30 @@ resource "google_storage_bucket" "barrage" {
     retention_duration_seconds = 0
   }
 
+  # The backstop for an upload nothing else can sweep: a session that completes
+  # after its account was erased, or one stranded when its job was never
+  # created. The expiry sweep deletes every other abandoned upload within the
+  # hour (`archive_import/sweeps.rs`).
+  #
+  # Never an age rule and never a prefix rule: keys are
+  # t/{tenant}/u/{user}/import_spool/{id}, so no literal prefix selects spools,
+  # and the kept originals live in this same bucket and must never age out.
+  # Custom time is what marks an object this rule may take. Only an object whose
+  # writer set it can match.
+  #
+  # dravr-barrage's open_session sets `customTime` in the metadata of a session
+  # opened for a client, and on nothing else. Fourteen days clears the six an
+  # upload may wait, and leaves a long import time to finish before its spool
+  # could go.
+  lifecycle_rule {
+    condition {
+      days_since_custom_time = 14
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
   labels = merge(var.labels, { component = "barrage" })
 
   depends_on = [module.project]
@@ -91,5 +115,17 @@ resource "google_cloud_tasks_queue_iam_member" "archive_import_enqueuer" {
   location = google_cloud_tasks_queue.archive_import.location
   name     = google_cloud_tasks_queue.archive_import.name
   role     = "roles/cloudtasks.enqueuer"
+  member   = "serviceAccount:${module.service_accounts.app_service_account_email}"
+}
+
+# The app service account reads an import step's task: a spent task's name stays
+# reserved for up to a day and a create under it answers as if the task were
+# queued, so the read is how a retried upload tells the two apart. The enqueuer
+# role above does not hold cloudtasks.tasks.get.
+resource "google_cloud_tasks_queue_iam_member" "archive_import_reader" {
+  project  = var.project_id
+  location = google_cloud_tasks_queue.archive_import.location
+  name     = google_cloud_tasks_queue.archive_import.name
+  role     = "roles/cloudtasks.viewer"
   member   = "serviceAccount:${module.service_accounts.app_service_account_email}"
 }

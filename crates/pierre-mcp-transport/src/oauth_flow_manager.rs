@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use html_escape::encode_text;
-use pierre_core::html::with_hosted_page_css;
+use pierre_core::html::{oauth_error_page, with_hosted_page_css};
 
 use crate::OAuthCallbackResponse;
 
@@ -40,23 +40,9 @@ impl OAuthTemplateRenderer {
         })
     }
 
-    /// Render OAuth error template
+    /// Render the OAuth failure page in `lang`, escaping what it says.
     #[must_use]
-    pub fn render_error_template(provider: &str, error: &str, description: Option<&str>) -> String {
-        const TEMPLATE: &str = include_str!("../templates/oauth_error.html");
-
-        // Escape description text before wrapping in HTML structure
-        let description_html = description
-            .map(|d| {
-                let escaped = encode_text(d);
-                format!("<div class=\"description\"><strong>Description:</strong> {escaped}</div>")
-            })
-            .unwrap_or_default();
-
-        // Escape provider and error values to prevent XSS
-        with_hosted_page_css(TEMPLATE)
-            .replace("{{PROVIDER}}", &encode_text(provider))
-            .replace("{{ERROR}}", &encode_text(error))
-            .replace("{{DESCRIPTION}}", &description_html)
+    pub fn render_error_template(lang: &str, title: &str, message: &str) -> String {
+        oauth_error_page(lang, &encode_text(title), &encode_text(message))
     }
 }

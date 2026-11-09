@@ -4,9 +4,16 @@
 // ABOUTME: A provider connect runs in the athlete's own tab and comes back to the page it started from
 // ABOUTME: Keeps the starting route across the provider round trip and settles the callback's result on return
 
-import { historyLoginTarget } from '@pierre/shared-constants';
-import type { ExtendedProviderStatus } from '@pierre/shared-types';
-import type { ImportTombstoneRefusal } from '@pierre/ui-logic';
+import {
+  OAUTH_NO_SEAT,
+  cardForSlug,
+  connectPlan,
+  credentialFallbackOnRefusal,
+  refusalReturnsToCard,
+  type ConnectPlanCard,
+} from '@pierre/shared-constants';
+import type { SciotteTarget } from '@pierre/shared-types';
+import { cardAwaitingHistory, type ImportTombstoneRefusal } from '@pierre/ui-logic';
 import { writeSessionRoute } from './sessionRoute';
 
 /** The `sessionStorage` key holding the dashboard route a connect started from. */
@@ -41,6 +48,11 @@ export interface OAuthResult {
   success: boolean;
   /** Raw error messages may carry sensitive detail, so only that one occurred is kept. */
   hasError: boolean;
+  /**
+   * Why the grant was refused, kept only for a reason on the allow-list: the
+   * provider's OAuth seats ran out (`no_seat`). Any other error is dropped.
+   */
+  reason?: typeof OAUTH_NO_SEAT;
   /** A refusal resolved on the callback page: no other way in may be offered. */
   tombstoned: boolean;
   timestamp: number;
@@ -100,40 +112,66 @@ export function returnToConnectStart(): void {
 }
 
 /**
- * Whether a refused grant for `provider` opens the usr/pwd login for the same
- * data, on the card or in Settings, instead of an error: Strava and Garmin.
+ * The card whose "Bring in your history" sheet a completed grant opens, or
+ * `null`: the granted provider's card — named by its key, or by the backend
+ * that serves it (the Garmin grant serves the `sciotte_garmin` card) — read
+ * after the grant, whose history is still `needed` and which offers a way to
+ * bring it in this build can show (`cardAwaitingHistory`). Garmin's API
+ * pushes only what the athlete records after connecting, so the athlete
+ * chooses how to bring in what came before.
  */
-export function refusalOpensCredentialLogin(provider: string): provider is 'strava' | 'garmin' {
-  return provider === 'strava' || provider === 'garmin';
+export function historyChoiceAfterGrant<T extends ConnectPlanCard>(
+  result: Pick<OAuthResult, 'provider' | 'success'>,
+  providers: readonly T[],
+): T | null {
+  if (!result.success) return null;
+  return cardAwaitingHistory(providers, result.provider) ?? null;
 }
 
+/** A refused grant's answer on its card: its account sign-in, or a retry on the row ({@link refusalAnswer}). */
+export type RefusalAnswer<T> = { kind: 'sign_in'; target: SciotteTarget; card: T | undefined } | { kind: 'retry'; card: T };
+
 /**
- * The card whose usr/pwd login a completed grant leads to, or `null`: the
- * granted provider's card, read after the grant, is connected through an
- * OAuth grant that has received no activity yet (`historyLoginTarget`).
- * Garmin's API pushes only what the athlete records after connecting, so a
- * fresh Garmin grant chains into the Garmin usr/pwd login for the history —
- * "oauth, no activities, sciotte".
+ * How a card answers a refused grant that came back to it
+ * (`refusalReturnsToCard`), read from the cards as they are after it:
+ * - `sign_in`: Strava's account sign-in, its fallback for any refusal; and
+ *   Garmin's when the grant was refused because the seats ran out under the
+ *   athlete (`reason` `no_seat`) and its plan now signs in — while they are
+ *   out a Garmin connection signs in.
+ * - `retry`: the card shows "didn't connect, try again" — any other refused
+ *   Garmin grant, and one whose plan still authorizes; a refused Garmin grant
+ *   never opens the sign-in while a seat is free.
+ * - `null`: no card answers it (a tombstone, which the callback page resolved,
+ *   or a provider no card is for).
  */
-export function historyLoginAfterGrant(
-  result: Pick<OAuthResult, 'provider' | 'success'>,
-  providers: readonly ExtendedProviderStatus[],
-): ExtendedProviderStatus | null {
-  if (!result.success) return null;
-  return providers.find((card) => historyLoginTarget(card) === result.provider) ?? null;
+export function refusalAnswer<T extends ConnectPlanCard>(
+  result: Pick<OAuthResult, 'provider' | 'success' | 'tombstoned' | 'reason'>,
+  providers: readonly T[],
+): RefusalAnswer<T> | null {
+  if (result.success || result.tombstoned || !refusalReturnsToCard(result.provider)) return null;
+  const card = cardForSlug(result.provider, providers);
+  const fallback = credentialFallbackOnRefusal(result.provider);
+  if (fallback) return { kind: 'sign_in', target: fallback, card };
+  if (!card) return null;
+  const primary = connectPlan(card).primary;
+  if (result.reason === OAUTH_NO_SEAT && primary.kind === 'sign_in') {
+    return { kind: 'sign_in', target: primary.target, card };
+  }
+  return { kind: 'retry', card };
 }
 
 /**
  * Whether the athlete goes straight back to the page the connect started
  * from. A grant does; so does a refused Strava or Garmin grant started in
- * this tab, whose card opens the usr/pwd login for the same data. Any other
- * refusal stays on the callback page, which gives its reason — as does every
- * refusal in a tab the chat opened, where no card is there to answer it — and
- * a tombstone, which that page resolves.
+ * this tab (`refusalReturnsToCard`), whose card answers it — Strava's with its
+ * sign-in, Garmin's with what its plan now says. Any other refusal stays on
+ * the callback page, which gives its reason — as does every refusal in a tab
+ * the chat opened, where no card is there to answer it — and a tombstone,
+ * which that page resolves.
  */
 function returnsAtOnce(params: OAuthCallbackParams): boolean {
   if (params.tombstone !== undefined) return false;
-  return params.success || (startedInThisTab() && refusalOpensCredentialLogin(params.provider));
+  return params.success || (startedInThisTab() && refusalReturnsToCard(params.provider));
 }
 
 /** Whether the connect this tab came back from started here ([`startOAuthInThisTab`]). */
@@ -161,6 +199,7 @@ export function settleOAuthReturn(params: OAuthCallbackParams | null): OAuthCall
     provider: params.provider,
     success: params.success,
     hasError: !params.success && !!params.error,
+    reason: params.error === OAUTH_NO_SEAT ? OAUTH_NO_SEAT : undefined,
     tombstoned: params.tombstone !== undefined,
     timestamp: Date.now(),
   };

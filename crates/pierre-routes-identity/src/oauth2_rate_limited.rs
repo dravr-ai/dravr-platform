@@ -32,7 +32,7 @@ pub(crate) const LIMITER_UNAVAILABLE: &str =
     "Rate limiting is temporarily unavailable; retry later";
 
 /// The `error_description` of a request past its window's allowance.
-const RATE_LIMIT_EXCEEDED: &str = "Rate limit exceeded";
+pub(crate) const RATE_LIMIT_EXCEEDED: &str = "Rate limit exceeded";
 
 /// What the limiter decided about one request.
 enum Admission {

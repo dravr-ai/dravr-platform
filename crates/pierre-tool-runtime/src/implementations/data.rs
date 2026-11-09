@@ -22,7 +22,6 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
-use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -51,10 +50,8 @@ use crate::activity_fetch::{
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{
-    answers_with, format_property, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
-};
+use crate::conversions::{ok_typed, tool_result_to_response};
+use crate::implementations::activities_definition::get_activities_definition;
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::activity_detail_promotion::promote_to_detail;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
@@ -94,7 +91,6 @@ use pierre_core::models::connection_needs_reauth;
 use pierre_database::repositories::historical_depth_covered;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
-use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
@@ -114,119 +110,7 @@ pub struct GetActivitiesTool;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
     fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-
-        properties.insert(
-            "provider".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "limit".to_owned(),
-            PropertySchema {
-                property_type: "integer".to_owned(),
-                description: Some(
-                    "Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "offset".to_owned(),
-            PropertySchema {
-                property_type: "integer".to_owned(),
-                description: Some("Number of activities to skip for pagination.".to_owned()),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "sport_type".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Filter by sport type (e.g., 'run', 'ride', 'swim'). Case-insensitive."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "before".to_owned(),
-            PropertySchema {
-                property_type: "integer".to_owned(),
-                description: Some(
-                    "Upper bound, epoch seconds. Pair with `after` for a year or date range (all of 2022 = after 1640995200, before 1672531200).".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "after".to_owned(),
-            PropertySchema {
-                property_type: "integer".to_owned(),
-                description: Some(
-                    "Lower bound, epoch seconds. REQUIRED for any year- or date-scoped question ('my 2022 races', 'runs last spring'): set it to the range start and `before` to its end; date bounds are the only way to query history. A deep historical window may first return a 'fetching, ask again shortly' status.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "mode".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "'summary' (default, minimal fields) or 'detailed' (full activity data)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "analysis_type".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Tunes the data-sufficiency guidance: 'weekly_summary', 'trend_analysis', 'race_preparation', 'recovery_assessment' or 'general_overview' (default).".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert("format".to_owned(), format_property());
-
-        properties.insert(
-            "sort_by".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Applied BEFORE `limit`, so the truncated set keeps the right activities: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc', 'duration_desc' (longest time first) or 'duration_asc'. 'longest to shortest' / 'de la plus longue à la plus courte' => distance_desc; 'oldest first' / 'du début' => date_asc.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        // All parameters are optional.
-        let schema = object_schema(properties, None);
-
-        answers_with::<GetActivitiesResult>(task_capable(tool_definition(
-            "get_activities",
-            "Retrieve the user's activities from connected providers. For a year or date range \
-             (e.g. '2022 races'), pass `after`/`before`; do NOT page recent activities with \
-             `limit` to reach old data. Use `sort_by` for an explicit ordering request (e.g. \
-             longest to shortest).",
-            schema,
-            annotations("Get activities", Effect::ReadOnly, Reach::OpenWorld),
-        )))
+        get_activities_definition()
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -720,8 +604,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // turns this `Err` into the `auth_required_provider` metadata
                         // the tool loop scans for, and `auth_recovery` hands back the
                         // short reconnect link this turn. The link is re-sent on EVERY
-                        // such ask until a real reconnect clears the flag via
-                        // `mark_active`.
+                        // such ask until a real reconnect clears the flag via `mark_active`.
                         let fallback = if provider_pinned {
                             None
                         } else {
@@ -758,6 +641,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            history_import: false,
                         };
                         match backfill_inline_and_serve(job, &coverage_params, before).await {
                             InlineHistoricalServe::AuthRequired => {
@@ -793,6 +677,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            history_import: false,
                         })
                         .await;
                         // `started == false` means a backfill for this window is
@@ -1196,4 +1081,4 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetActivitiesTool => empty);

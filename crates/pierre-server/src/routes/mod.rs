@@ -81,6 +81,8 @@ pub mod admin;
 /// the user still needs to connect a fitness provider.
 pub mod oauth_grants;
 
+/// The connected calendar Dravr's plan and workout pushes go to (carnet#1393)
+pub mod calendar_preference;
 /// How often the coach checks in with the athlete on its own (carnet#831)
 pub mod check_in;
 /// A coach's own coach-access request (carnet#738)

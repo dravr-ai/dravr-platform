@@ -238,6 +238,13 @@ pub struct PlanStateBlock {
     /// that a fortnight needs writing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coverage_gaps: Vec<String>,
+    /// Present when the reader is the athlete's human coach and the athlete
+    /// has not granted them their wellness: no sleep, HRV or resting heart
+    /// rate was read, so `readiness` and `alerts` come from training load
+    /// alone and no recovery alert can be raised. Say so; never call the
+    /// athlete rested or recovered from this block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_unread: Option<String>,
 }
 
 /// The kernel's readiness verdict for one week, with the week named and each
@@ -505,6 +512,11 @@ pub struct CalendarBlock {
     /// updates it and `push_training_plan` is not theirs to call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_by: Option<CalendarPusher>,
+    /// Present only when the calendar the athlete chose for Dravr's pushes
+    /// was passed over for this read — not connected, or not one these
+    /// pushes write — naming the calendar read instead (carnet#1393).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }
 
 /// Who puts Dravr's plan on a calendar when it is not the athlete reading it.
@@ -552,4 +564,8 @@ pub struct CalendarPreview {
     /// this calendar (see [`CalendarBlock::pushed_by`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_by: Option<CalendarPusher>,
+    /// Present only when the athlete's chosen calendar was passed over (see
+    /// [`CalendarBlock::calendar_note`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_note: Option<String>,
 }

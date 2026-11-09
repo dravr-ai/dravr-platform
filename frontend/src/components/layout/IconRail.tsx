@@ -9,7 +9,12 @@ import { clsx } from 'clsx';
 import { LogOut, MessageSquareText, Settings } from 'lucide-react';
 import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
-import { badgeLabel } from '@pierre/shared-constants';
+import {
+  badgeLabel,
+  countKey,
+  FEEDBACK_ACCOUNT_MENU_UNREAD_KEYS,
+  UNREAD_COUNT_ARIA_KEYS,
+} from '@pierre/shared-constants';
 
 /** One destination the rail offers. */
 export interface RailTab {
@@ -34,6 +39,8 @@ interface IconRailProps {
   userInitial: string;
   /** The athlete's name or email, at the top of the account menu. */
   userLabel: string;
+  /** The Dravr team's replies waiting unread in the feedback thread. */
+  feedbackUnread: number;
 }
 
 /**
@@ -55,6 +62,7 @@ export function IconRail({
   settingsActive,
   userInitial,
   userLabel,
+  feedbackUnread,
 }: IconRailProps) {
   const { t } = useTranslation();
   return (
@@ -129,6 +137,7 @@ export function IconRail({
           userLabel={userLabel}
           onOpenSettings={onOpenSettings}
           onSendFeedback={onSendFeedback}
+          feedbackUnread={feedbackUnread}
           onSignOut={onSignOut}
         />
       </div>
@@ -142,6 +151,7 @@ interface AccountMenuProps {
   onOpenSettings: () => void;
   onSendFeedback: () => void;
   onSignOut: () => void;
+  feedbackUnread: number;
 }
 
 const MENU_ITEM_CLASS =
@@ -151,10 +161,19 @@ const MENU_ITEM_CLASS =
  * The avatar opens what every messenger keeps under it: the account's name,
  * Settings, a way to tell the team something, and signing out. A disclosure
  * rather than an ARIA menu — plain buttons in Tab order — closed by Escape,
- * by a click outside it, and by any choice made in it.
+ * by a click outside it, and by any choice made in it. A reply from the team
+ * waiting unread puts a dot on the avatar and its count on the feedback item.
  */
-function AccountMenu({ userInitial, userLabel, onOpenSettings, onSendFeedback, onSignOut }: AccountMenuProps) {
-  const { t } = useTranslation();
+function AccountMenu({
+  userInitial,
+  userLabel,
+  onOpenSettings,
+  onSendFeedback,
+  onSignOut,
+  feedbackUnread,
+}: AccountMenuProps) {
+  const { t, language } = useTranslation();
+  const unreadLabel = t(countKey(feedbackUnread, language, UNREAD_COUNT_ARIA_KEYS), { count: feedbackUnread });
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -192,15 +211,26 @@ function AccountMenu({ userInitial, userLabel, onOpenSettings, onSendFeedback, o
         ref={toggleRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label={t('feedback.accountMenu')}
+        aria-label={
+          feedbackUnread > 0
+            ? t(countKey(feedbackUnread, language, FEEDBACK_ACCOUNT_MENU_UNREAD_KEYS), { count: feedbackUnread })
+            : t('feedback.accountMenu')
+        }
         aria-expanded={open}
         aria-controls={menuId}
         title={t('feedback.accountMenu')}
         data-testid="rail-account-menu"
         className="flex h-11 w-11 items-center justify-center focus-ring rounded-full"
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-container text-sm font-semibold text-on-primary-container">
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-primary-container text-sm font-semibold text-on-primary-container">
           {userInitial}
+          {feedbackUnread > 0 && (
+            <span
+              data-testid="feedback-unread-dot"
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-surface"
+              aria-hidden="true"
+            />
+          )}
         </span>
       </button>
       {open && (
@@ -217,6 +247,15 @@ function AccountMenu({ userInitial, userLabel, onOpenSettings, onSendFeedback, o
           <button type="button" onClick={choose(onSendFeedback)} className={MENU_ITEM_CLASS}>
             <MessageSquareText className="h-4 w-4 text-primary" aria-hidden="true" />
             {t('feedback.navSendFeedback')}
+            {feedbackUnread > 0 && (
+              <span
+                data-testid="feedback-unread-count"
+                className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-on-primary"
+              >
+                <span aria-hidden="true">{badgeLabel(feedbackUnread)}</span>
+                <span className="sr-only">{unreadLabel}</span>
+              </span>
+            )}
           </button>
           <div className="mx-1 my-1.5 h-px bg-outline-variant/40" aria-hidden="true" />
           <button type="button" onClick={choose(onSignOut)} className={MENU_ITEM_CLASS}>

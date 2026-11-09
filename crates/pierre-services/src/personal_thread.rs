@@ -290,6 +290,7 @@ async fn forge_personal(
     let forged_id = forge_conversation(
         repos,
         ForgeParams {
+            id: None,
             user_id,
             tenant_id,
             title_fallback: forge.title_fallback,
@@ -492,6 +493,7 @@ async fn write_divider(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
 }

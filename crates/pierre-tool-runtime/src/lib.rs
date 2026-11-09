@@ -87,20 +87,28 @@ pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.
 pub mod conversions;
 pub mod decorators;
+/// Tools the deployment is not configured to answer with, left out of an external listing
+pub mod deployment_tools;
 /// Holds a thread opened from an activity to that activity's terms (carnet#769)
 pub mod derived_content;
+/// Tools only Dravr's own surfaces list and run, kept off MCP and A2A.
+pub mod first_party_tools;
 /// Stale-while-revalidate activity cache backing the group member snapshots
 #[cfg(feature = "tools-groups")]
 pub mod group_activity_cache;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
-/// The Guardian: dispatch-time taint/budget/egress guard + the absorbed tenant
+/// The Guardian: dispatch-time budget/egress guard + the absorbed tenant
 /// tool-disable allowlist, interposed at the universal execution chokepoint.
 pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
 #[cfg(feature = "client-chat")]
 pub mod headless_stream;
+/// The one-time history import a usr/pwd sign-in beside a Garmin grant runs on
+/// the backfill rail, and the session retirement that ends it (carnet#1386).
+#[cfg(feature = "tools-data")]
+pub mod history_import;
 pub mod implementations;
 /// The gate streamed reply text crosses on its way to the turn sink: canary
 /// and `<tool_call>` filtering, and the retraction of text that is not the reply
@@ -110,6 +118,8 @@ pub mod prose_stream;
 pub mod protocol;
 /// Protocol conversion + universal request/response re-exports
 pub mod protocols;
+/// Whose data a read tool reads: the caller's own or a coached athlete's (carnet#1387).
+pub mod read_subject;
 /// Throttled retry of a scrape session flagged `needs_reauth`.
 pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.
@@ -132,6 +142,7 @@ pub mod scopes;
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
+pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
 

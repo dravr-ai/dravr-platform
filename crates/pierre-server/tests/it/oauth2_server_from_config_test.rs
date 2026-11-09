@@ -112,3 +112,24 @@ async fn the_configured_satellite_is_a_served_resource() {
         .expect("the configured satellite is served");
     assert_eq!(checked.resource.as_deref(), Some(SATELLITE));
 }
+
+/// The A2A resource is served from the configuration alone, no setting of its
+/// own: a client following the document an A2A 401 names can authorize for it.
+#[tokio::test]
+async fn the_a2a_resource_is_a_served_resource_bound_as_itself() {
+    let server = server().await;
+    let a2a_resource = OAuth2ServerConfig::default().a2a_resource_url();
+
+    let checked = server
+        .check_authorize_request(&web_request(
+            format!("{WEB_ORIGIN}{CALLBACK_PATH}"),
+            Some(&a2a_resource),
+        ))
+        .await
+        .expect("the A2A resource is served");
+    assert_eq!(
+        checked.resource.as_deref(),
+        Some(a2a_resource.as_str()),
+        "bound to the origin it would be an MCP token, refused at /a2a"
+    );
+}

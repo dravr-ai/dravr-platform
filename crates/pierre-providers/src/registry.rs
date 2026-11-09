@@ -10,6 +10,16 @@ use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 use pierre_auth::config::oauth::ProviderEndpointOverrides;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
+#[cfg(any(
+    feature = "provider-strava",
+    feature = "provider-garmin",
+    feature = "provider-terra",
+    feature = "provider-whoop",
+    feature = "provider-coros",
+    feature = "provider-sciotte",
+    feature = "provider-intervals-icu",
+    feature = "provider-wahoo"
+))]
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -614,6 +624,10 @@ impl ProviderTerms for ProviderRegistry {
             .map(|(_, policy)| *policy)
     }
 
+    fn served_over_every_transport(&self) -> Vec<&'static str> {
+        self.sources_served(TransportPolicy::AnyTransport)
+    }
+
     /// Every sciotte backend stamps its items `sciotte` with the scraped
     /// service as `source`, while `sciotte` is also the name of its Strava
     /// backend: a Garmin activity it scraped is the `sciotte_garmin` backend's
@@ -636,6 +650,39 @@ impl ProviderTerms for ProviderRegistry {
 }
 
 impl ProviderRegistry {
+    /// The services whose terms keep their data inside Dravr's own surfaces,
+    /// by the name an athlete knows them by, sorted and without repeats: what
+    /// the OAuth consent screen tells an athlete stays out of the assistant
+    /// they are connecting.
+    #[must_use]
+    pub fn first_party_only_sources(&self) -> Vec<&'static str> {
+        self.sources_served(TransportPolicy::FirstPartyOnly)
+    }
+
+    /// The display names of the services whose descriptors declare `policy`.
+    ///
+    /// A reader of another service ([`ProviderDescriptor::origin`]) is named
+    /// as that service when it is registered too, so the sciotte Garmin
+    /// backend and the Garmin API read as one service, not "Garmin" beside
+    /// "Garmin Connect".
+    fn sources_served(&self, policy: TransportPolicy) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = self
+            .descriptors
+            .values()
+            .filter(|descriptor| descriptor.transport_policy() == policy)
+            .map(|descriptor| {
+                descriptor
+                    .origin()
+                    .and_then(|origin| self.descriptors.get(origin))
+                    .unwrap_or(descriptor)
+                    .display_name()
+            })
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
     /// Every registered provider whose terms cap how long a copy of its data
     /// may be held, with that cap, sorted by name: what the cache TTL sweep
     /// enforces.

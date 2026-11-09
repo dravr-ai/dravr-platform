@@ -13,6 +13,7 @@ use std::fs;
 #[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use embacle::auth::check_readiness;
@@ -280,9 +281,19 @@ async fn test_opencode_runner_handles_error() {
 // Discovery tests
 // ============================================================================
 
+/// Discovery reads the process environment, and these tests write it. Run in
+/// parallel, one test's `CLAUDE_CODE_BINARY` was found by the test expecting
+/// none (a red main, Backend PostgreSQL shard 1, 8e82d8b3c).
+static DISCOVERY_ENV: Mutex<()> = Mutex::new(());
+
+fn discovery_env() -> MutexGuard<'static, ()> {
+    DISCOVERY_ENV.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_discover_runner_finds_claude() {
+    let _env = discovery_env();
     let script = create_mock_cli_script("claude", "echo 'claude v1.0'");
     let bin_dir = script.parent().expect("script has parent dir");
 
@@ -303,6 +314,7 @@ async fn test_discover_runner_finds_claude() {
 
 #[tokio::test]
 async fn test_discover_runner_returns_error_when_none_found() {
+    let _env = discovery_env();
     // Clear all env overrides so discovery falls back to PATH-based search
     env::remove_var("CLAUDE_CODE_BINARY");
     env::remove_var("CURSOR_AGENT_BINARY");

@@ -17,152 +17,69 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_core::models::{ConnectionStatus, TenantId};
+use pierre_core::models::TenantId;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
+use super::calendar::{calendars_held, recorded_calendar, CalendarConnections};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
+};
+use crate::protocol::provider_offer::{
+    describe_offers, provider_offers, readable_over, APP_ONLY_NOTE,
+};
+use crate::protocol::provider_states::{
+    offered_providers, provider_state, read_status_by_provider, user_facing_providers,
+    ProviderState,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+/// The seat refusal [`mint_oauth_authorize_url`] answers with, read where its
+/// callers branch on it.
+pub use pierre_auth::garmin_seats::is_no_seat_refusal;
+use pierre_auth::garmin_seats::require_garmin_seat;
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
+use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::untrusted::display_line;
-use pierre_database::RepositoryRegistry;
+use pierre_core::transport::Transport;
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
-use pierre_services::delegated_connections::describe_link;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_notice::{require_notice_accepted, NOTICE_REFUSAL_ACTION};
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
 
-/// The user-facing providers this build actually ships, in name order.
-///
-/// Read off [`ProviderRegistry`], which registers each provider under its own
-/// cargo feature, with every mirror backend (`sciotte`, `sciotte_garmin`,
-/// `sciotte_trainingpeaks`) folded into the user-facing provider it serves
-/// (`strava`, `garmin`, `trainingpeaks`). Folding rather than dropping matters
-/// for TrainingPeaks: it has no backend of its own, so it is only ever named
-/// through its mirror. Deriving it means a provider the binary cannot connect
-/// can never be named: the hand-written list this replaced went on offering
-/// `fitbit`, `terra` and `coros` to MCP clients long after the 2026-Q2 cleanup
-/// left them out of `server-production` (carnet#233).
-fn user_facing_providers(registry: &ProviderRegistry) -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = registry
-        .supported_providers()
-        .into_iter()
-        .map(backend_resolver::user_facing_name)
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    names
-}
-
-/// Whether the connection serving `user_facing` needs the athlete to reconnect.
-///
-/// Connection rows are stored under the BACKEND name (`sciotte_garmin`) while
-/// the status tool reports the user-facing one (`garmin`), so a lookup by the
-/// user-facing name never saw a mirror's dead session. When a backend serves
-/// the provider, that backend's row decides — a dormant mirror row behind a
-/// working Strava OAuth grant is not a reconnect. With nothing serving, any
-/// serving backend's flagged row counts: a dead session whose token is gone is
-/// still a reconnect, not a fresh connect.
-fn serving_row_needs_reauth(
-    status_by_provider: &HashMap<String, ConnectionStatus>,
-    user_facing: &str,
-    backend_kind: BackendKind,
-) -> bool {
-    let flagged = |backend: &str| {
-        status_by_provider
-            .get(backend)
-            .is_some_and(ConnectionStatus::requires_reauth)
-    };
-    match backend_kind {
-        BackendKind::Oauth => flagged(user_facing),
-        BackendKind::Mirror => {
-            backend_resolver::mirror_backend_for(user_facing).is_some_and(flagged)
-        }
-        // The session is the coach's, and nothing the athlete re-authorizes
-        // renews it: the coach's own state is reported instead.
-        BackendKind::Delegated => false,
-        BackendKind::None => backend_resolver::serving_backends(user_facing)
-            .iter()
-            .any(|backend| flagged(backend)),
+/// What `connect_provider` answers when no provider is named: the providers
+/// this deployment offers with the athlete's state on each, read from the same
+/// list `get_connection_status` gives. A caller on an external transport also
+/// reads which of them keep their data inside the Dravr app. When the list
+/// cannot be read it names none.
+async fn name_a_provider_text(ctx: &ToolExecutionContext, transport: Option<Transport>) -> String {
+    let transport = transport.unwrap_or(Transport::McpHttp);
+    let offers = provider_offers(
+        ctx.resources.as_ref(),
+        ctx.user_id,
+        ctx.tenant_id,
+        transport,
+    )
+    .await;
+    if offers.is_empty() {
+        return "Missing required 'provider' parameter. Nothing was started. Call \
+                get_connection_status for the providers on offer, then ask the athlete which one."
+            .to_owned();
     }
-}
-
-/// Longest coach name the status reports for a delegated provider. The name
-/// is the coach's own Dravr display name, so it reaches the model as one
-/// defanged line.
-const COACH_NAME_MAX_CHARS: usize = 60;
-
-/// One provider's state, as both status shapes report it.
-struct ProviderState {
-    connected: bool,
-    status: &'static str,
-    needs_reauth: bool,
-    backend: BackendKind,
-    delegated_by: Option<String>,
-}
-
-/// The state of `provider`, which `status` coalesced, as the athlete reads it.
-///
-/// A provider read through the group coach's session (a delegated link)
-/// names the coach, and reads `coach_reconnect_needed` while the coach's own
-/// session needs the coach to sign in again: the athlete has nothing to
-/// re-authorize, so `needs_reauth` stays false. A link whose roster athlete
-/// is not the athlete by email reads its reason instead
-/// (`athlete_email_missing`, `athlete_email_mismatch`,
-/// `member_email_unverified`), as every read through it is refused until the
-/// coach links the athlete again.
-async fn provider_state(
-    repos: &RepositoryRegistry,
-    status_by_provider: &HashMap<String, ConnectionStatus>,
-    provider: &str,
-    status: CoalescedStatus,
-) -> ProviderState {
-    let needs_reauth = serving_row_needs_reauth(status_by_provider, provider, status.backend_kind);
-    let (delegated_by, coach_needs_reconnect, read_refused) = match status.delegation {
-        Some(link) => match describe_link(repos, link).await {
-            Ok(Some(view)) => (
-                Some(display_line(&view.coach_name, COACH_NAME_MAX_CHARS)),
-                view.coach_needs_reconnect,
-                view.read_refused,
-            ),
-            Ok(None) => (None, false, None),
-            Err(e) => {
-                warn!(error = %e, "Could not read the coach behind a delegated provider");
-                (None, false, None)
-            }
-        },
-        None => (None, false, None),
-    };
-    let word = if needs_reauth {
-        "needs_reauth"
-    } else if let Some(reason) = read_refused {
-        reason
-    } else if coach_needs_reconnect {
-        "coach_reconnect_needed"
-    } else if status.connected {
-        "connected"
-    } else {
-        "disconnected"
-    };
-    ProviderState {
-        connected: status.connected,
-        status: word,
-        needs_reauth,
-        backend: status.backend_kind,
-        delegated_by,
-    }
+    format!(
+        "Missing required 'provider' parameter, so nothing was started. Ask the athlete \
+         which of these to connect:\n{}",
+        describe_offers(&offers)
+    )
 }
 
 /// Canonicalise a provider name into its static entry from
@@ -242,12 +159,18 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 /// or the hosted connect picker — never by a model's tool argument. So a provider whose
 /// notice is outstanding for the account is refused here, and nothing is minted.
 ///
+/// Garmin's OAuth takes a seat of a capped pool, so its authorization URL is minted only
+/// while [`require_garmin_seat`] lets this athlete through — the rule every other surface
+/// that starts Garmin's OAuth reads. With the pool full the caller offers the usr/pwd
+/// sign-in instead.
+///
 /// # Errors
 ///
 /// Returns the precondition's refusal (`details.action = "accept_provider_notice"`) while
-/// the provider's notice is outstanding, or an error if no OAuth app (the user's own, the
-/// tenant's or the server's) is configured for the provider, the authorization URL cannot
-/// be generated, or the CSRF state row cannot be persisted.
+/// the provider's notice is outstanding, the seat refusal ([`is_no_seat_refusal`]) for a
+/// Garmin athlete with no grant while the pool is full, or an error if no OAuth app (the
+/// user's own, the tenant's or the server's) is configured for the provider, the
+/// authorization URL cannot be generated, or the CSRF state row cannot be persisted.
 pub async fn mint_oauth_authorize_url(
     resources: &dyn ToolRuntime,
     user_id: uuid::Uuid,
@@ -266,6 +189,15 @@ pub async fn mint_oauth_authorize_url(
         provider,
         &brand,
         false,
+    )
+    .await?;
+    require_garmin_seat(
+        resources.repos().oauth_tokens.as_ref(),
+        resources.repos().provider_connections.as_ref(),
+        &resources.config().oauth,
+        user_id,
+        tenant_id,
+        provider,
     )
     .await?;
 
@@ -413,7 +345,39 @@ pub enum ConnectionStatusResult {
     All {
         /// Each provider's state.
         providers: BTreeMap<String, ProviderConnectionStatus>,
+        /// Which calendar Dravr's plan and workout pushes go to, present when
+        /// the athlete holds several calendars or recorded one (carnet#1393).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        calendar: Option<CalendarChoiceStatus>,
     },
+}
+
+/// The calendar Dravr's pushes go to, as `get_connection_status` reports it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CalendarChoiceStatus {
+    /// The calendar the athlete chose (`set_preferred_calendar`, or the app's
+    /// Connections settings); absent while they have chosen none, and a push
+    /// with several connected asks which.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chosen: Option<String>,
+    /// The connected calendars that can be chosen, as the push tools'
+    /// `provider` names them. A chosen calendar missing from them is no
+    /// longer connected, and pushes pass it over.
+    pub connected: Vec<String>,
+}
+
+/// The calendar block of `get_connection_status`: `None` for an athlete who
+/// holds at most one calendar and recorded none, where there is nothing to
+/// choose.
+async fn calendar_choice_status(
+    ctx: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: uuid::Uuid,
+) -> AppResult<Option<CalendarChoiceStatus>> {
+    let chosen = recorded_calendar(ctx, tenant_id, user_id).await?;
+    let connected = calendars_held(ctx, tenant_id, user_id, CalendarConnections::Own).await?;
+    Ok((chosen.is_some() || connected.len() > 1)
+        .then_some(CalendarChoiceStatus { chosen, connected }))
 }
 
 /// What `disconnect_provider` answers with.
@@ -444,7 +408,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to connect (e.g., 'strava', 'garmin', 'whoop')".to_owned(),
+                    "Provider to connect, as get_connection_status names it".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -466,12 +430,13 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 
         answers_with::<ConnectProviderResult>(tool_definition(
             "connect_provider",
-            "Start the OAuth flow to connect a fitness provider (e.g. Strava, Garmin, WHOOP).",
+            "Start the OAuth flow for the provider the athlete names, from those \
+             get_connection_status lists.",
             schema,
             annotations(
                 "Connect fitness provider",
                 Effect::AdditiveWrite,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }
@@ -502,11 +467,12 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         let repos = &ctx.resources.repos();
 
         let Some(provider) = args.get("provider").and_then(Value::as_str) else {
-            let supported = user_facing_providers(registry).join(", ");
+            // No provider named starts nothing: picking one for the athlete
+            // would open a flow for an account they may not have. The answer
+            // is the list, with the athlete's state on each.
+            let transport = ai_scope::declared_transport();
             return Ok(ToolResult::error(json!({
-                "error": format!(
-                    "Missing required 'provider' parameter. Supported providers: {supported}"
-                )
+                "error": name_a_provider_text(&ctx, transport).await
             })));
         };
 
@@ -611,10 +577,14 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                     "Generated OAuth URL for user {} provider {}{}",
                     user_uuid, provider, flow_type
                 );
-                ok_typed(
-                    "connect_provider",
-                    build_oauth_success_payload(provider, &url, &state),
-                )
+                let mut payload = build_oauth_success_payload(provider, &url, &state);
+                if let Some(transport) = ai_scope::declared_transport() {
+                    if !readable_over(registry.as_ref(), provider, transport) {
+                        payload.instructions.push_str("\n\n");
+                        payload.instructions.push_str(APP_ONLY_NOTE);
+                    }
+                }
+                ok_typed("connect_provider", payload)
             }
             Err(e) if is_notice_refusal(&e) => {
                 info!(
@@ -623,6 +593,17 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                     "connect_provider: the provider's notice is outstanding, nothing minted"
                 );
                 Ok(notice_required_result(provider, &e.message))
+            }
+            // Garmin's pool is full and the athlete holds no grant: the
+            // usr/pwd sign-in is the way in, handed off as the mirror-default
+            // providers are, to the hosted login the chat pipeline mints.
+            Err(e) if is_no_seat_refusal(&e) => {
+                info!(
+                    user_id = %user_uuid,
+                    provider = provider,
+                    "connect_provider: no Garmin seat left, handing off to the usr/pwd sign-in"
+                );
+                Err(AppError::provider_auth_required(SCIOTTE_GARMIN))
             }
             Err(e) => {
                 // No OAuth app to run under (the athlete has none of their
@@ -661,7 +642,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "A specific provider (e.g., 'strava'); omit to check all supported providers."
+                    "A specific provider, by the name this tool lists; omit to check all supported providers."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -702,16 +683,10 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             // Lifecycle status per connected provider (best-effort). Lets us report a
             // connected-but-dead provider as `needs_reauth` — a token row still exists, but a
             // non-recoverable refresh failure means the user must reconnect before data flows.
-            let status_by_provider: HashMap<String, ConnectionStatus> = ctx
-                .resources
-                .repos()
-                .provider_connections
-                .get_for_user(user_uuid, Some(tenant_id))
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|c| (c.provider, c.status))
-                .collect();
+            let status_by_provider =
+                read_status_by_provider(ctx.resources.repos(), user_uuid, tenant_id)
+                    .await
+                    .unwrap_or_default();
 
             if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
                 // Mirror backends are internal-only.
@@ -767,32 +742,25 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     },
                 )
             } else {
-                let mut providers_status: BTreeMap<String, ProviderConnectionStatus> =
-                    BTreeMap::new();
-
-                let repos = ctx.resources.repos();
-                for user_facing in user_facing_providers(ctx.resources.provider_registry()) {
-                    let status = backend_resolver::coalesced_status(
-                        repos,
+                let providers_status: BTreeMap<String, ProviderConnectionStatus> =
+                    offered_providers(
+                        ctx.resources.repos(),
+                        ctx.resources.provider_registry(),
                         user_uuid,
                         tenant_id,
-                        user_facing,
-                    )
-                    .await;
-                    let state = provider_state(
-                        ctx.resources.repos(),
                         &status_by_provider,
-                        user_facing,
-                        status,
                     )
-                    .await;
-                    providers_status.insert(user_facing.to_owned(), state.into());
-                }
+                    .await
+                    .into_iter()
+                    .map(|(name, state)| (name.to_owned(), state.into()))
+                    .collect();
 
+                let calendar = calendar_choice_status(&ctx, tenant_id, user_uuid).await?;
                 ok_typed(
                     "get_connection_status",
                     ConnectionStatusResult::All {
                         providers: providers_status,
+                        calendar,
                     },
                 )
             }
@@ -819,7 +787,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to disconnect (e.g., 'strava', 'garmin', 'whoop')".to_owned(),
+                    "Provider to disconnect, as get_connection_status names it".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -834,7 +802,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             annotations(
                 "Disconnect fitness provider",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         ))
     }

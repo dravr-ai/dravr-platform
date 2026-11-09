@@ -26,6 +26,8 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
+/// The admin audit trail (`Postgres`) backing `AdminAuditRepository`.
+pub mod admin_audit;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (Postgres)
 pub mod agent_artefacts;
 /// Coaches repository implementation
@@ -40,6 +42,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`Postgres`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The calendar an athlete chose for Dravr's pushes (Postgres)
+pub mod calendar_preferences;
 /// Chat repository implementation
 pub mod chat;
 /// The check-in cadence each athlete chose (`PostgreSQL`)
@@ -62,6 +66,8 @@ pub mod delegated_connections;
 pub mod email_verification;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
+/// The admin Engagement screen's scoped reads (`Postgres`) backing `EngagementRepository`.
+pub mod engagement;
 /// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
 /// The external sign-in identities (a Google account id) each account is reached by (Postgres)
@@ -90,7 +96,7 @@ pub mod llm_credentials;
 pub mod llm_usage;
 /// MCP Tasks extension handle repository implementation
 pub mod mcp_tasks;
-/// Coaching harness memory (compaction, facts, notes, followups, sessions)
+/// Coaching harness memory (compaction, facts, sessions)
 pub mod memory;
 /// Post-turn memory extractions still owed, leased to one re-runner at a time
 pub mod memory_extraction_jobs;
@@ -167,6 +173,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// User and profile repository implementations
 pub mod user;
+/// An athlete's own data, one page at a time, for the portable export (`Postgres`)
+pub mod user_export;
 /// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (Postgres)
@@ -202,10 +210,12 @@ use super::shared::keyring::{Keyring, KeyringCell};
 use super::DatabaseProvider;
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use crate::repositories::system_settings::{
-    impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
+    impl_system_settings, next_setting_stamp, system_setting_from_row, GET_SYSTEM_SETTING_SQL,
+    INSERT_SYSTEM_SETTING_IF_ABSENT_SQL, SET_SYSTEM_SETTING_SQL,
+    UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};

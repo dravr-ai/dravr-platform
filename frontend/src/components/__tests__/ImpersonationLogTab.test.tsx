@@ -78,6 +78,31 @@ describe('ImpersonationLogTab', () => {
     expect(await screen.findByTestId('impersonation-details-imp-1')).toHaveTextContent('Support ticket 4412');
   });
 
+  it('loads older sessions from the cursor the server returned', async () => {
+    listImpersonationSessions
+      .mockResolvedValueOnce({
+        sessions: [ENDED],
+        total_count: 1,
+        next_before: ENDED.started_at,
+        next_before_id: ENDED.id,
+      })
+      .mockResolvedValueOnce({
+        sessions: [{ ...ENDED, id: 'imp-0', started_at: '2026-09-26T09:00:00Z' }],
+        total_count: 1,
+        next_before: null,
+        next_before_id: null,
+      });
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(await screen.findByRole('button', { name: 'Load older' }));
+
+    expect(listImpersonationSessions).toHaveBeenLastCalledWith({ before: ENDED.started_at, before_id: 'imp-1' });
+    expect(await screen.findByTestId('impersonation-session-imp-0')).toBeInTheDocument();
+    expect(screen.getByTestId('impersonation-session-imp-1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument();
+  });
+
   it('says so when no one has impersonated anyone', async () => {
     listImpersonationSessions.mockResolvedValue({ sessions: [], total_count: 0 });
     renderTab();

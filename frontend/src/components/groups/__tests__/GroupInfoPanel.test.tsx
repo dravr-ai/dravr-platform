@@ -38,6 +38,7 @@ function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachCon
     wellness_read_at: null,
     wellness_read_supported: false,
     wellness_read_skipped: null,
+    wellness_notice_due: false,
     ...overrides,
   };
 }
@@ -1130,16 +1131,16 @@ describe('GroupInfoPanel', () => {
     expect(leave).toHaveTextContent('Your Intervals.icu link through this group ends too.');
   });
 
-  it('lets a member who connects Intervals.icu themselves, with no link, allow calendar writes', async () => {
+  it('lets a member with no link allow calendar writes, and asks them for their wellness too', async () => {
     vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }));
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [member({ role: 'member' })],
     });
     vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'member' });
-    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents({ calendar_write_supported: true }));
-    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
-      coachConsents({ calendar_write: true, calendar_write_supported: true }),
-    );
+    // Every coached member is offered wellness, which covers each app they connect.
+    const offered = { calendar_write_supported: true, wellness_read_supported: true };
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents(offered));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(coachConsents({ ...offered, calendar_write: true }));
     const user = userEvent.setup();
     renderPanel();
 
@@ -1148,7 +1149,7 @@ describe('GroupInfoPanel', () => {
     expect(screen.getByTestId('coach-consent-calendar-step')).toHaveTextContent(
       'open intervals.icu/athletes, click Casey Coach and pick the Coach role, not Follower.',
     );
-    expect(screen.queryByTestId('coach-consent-wellness_read')).toBeNull();
+    expect(screen.getByTestId('coach-consent-wellness_read')).not.toBeChecked();
     await user.click(calendar);
     await waitFor(() =>
       expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { calendar_write: true }),

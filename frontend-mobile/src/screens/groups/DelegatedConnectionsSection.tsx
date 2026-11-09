@@ -11,6 +11,7 @@ import {
   DELEGATION_CONNECTION_REFUSALS,
   DELEGATION_CONSENT_KEYS,
   QUERY_KEYS,
+  coachDelegationRefusalKey,
   coachPlatformName,
   confirmConsents,
   consentNoteKey,
@@ -71,12 +72,15 @@ function StatusLine({ tone, text, testID }: { tone: 'success' | 'warning'; text:
   );
 }
 
-/** Says a failed step from its refusal reason, naming the platform it is about. */
-function useRefusalAlert() {
+/**
+ * Says a failed step from its refusal reason, naming the platform it is
+ * about; `keyOf` picks the words for who reads them, the coach or the member.
+ */
+function useRefusalAlert(keyOf: (reason: unknown) => string) {
   const { t } = useTranslation();
   return (err: unknown) => {
     const platform = coachPlatformName(refusalProvider(err));
-    Alert.alert(t('common.error'), t(delegationRefusalKey(refusalReason(err)), { platform }));
+    Alert.alert(t('common.error'), t(keyOf(refusalReason(err)), { platform }));
   };
 }
 
@@ -113,7 +117,7 @@ function CoachLinks({
 }: Omit<DelegatedConnectionsSectionProps, 'mode'>) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const showRefusal = useRefusalAlert();
+  const showRefusal = useRefusalAlert(coachDelegationRefusalKey);
   const { athletes, provider, isLoading, isError, error } = useDelegationRoster(groupId, true);
   const { refreshRoster, isPending: isRefreshing } = useRefreshDelegationRoster(groupId);
   const { proposeLink } = useProposeDelegatedConnection(groupId);
@@ -168,7 +172,7 @@ function CoachLinks({
     body = (
       <View className="py-2 gap-1" testID="delegation-roster-refused">
         <Text className="text-sm text-text-secondary">
-          {refused ? t(delegationRefusalKey(reason), { platform }) : t('delegation.rosterFailed', { platform })}
+          {refused ? t(coachDelegationRefusalKey(reason), { platform }) : t('delegation.rosterFailed', { platform })}
         </Text>
         {refused && DELEGATION_CONNECTION_REFUSALS.has(reason) && onOpenConnections && (
           <InkAction label={t('delegation.openConnections')} onPress={onOpenConnections} testID="delegation-open-connections" />
@@ -193,7 +197,7 @@ function CoachLinks({
             // each on a line of its own.
             subtitle = [
               link.read_refused
-                ? t(delegationRefusalKey(link.read_refused), { platform })
+                ? t(coachDelegationRefusalKey(link.read_refused), { platform })
                 : t('delegation.linkedTo', { member: linkedName }),
               ...consentStateKeys(link).map((key) => t(key)),
             ].join('\n');
@@ -285,7 +289,7 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   const { t } = useTranslation();
   const colors = useThemeColors();
   const platform = coachPlatformName(link.provider);
-  const showRefusal = useRefusalAlert();
+  const showRefusal = useRefusalAlert(delegationRefusalKey);
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
   // What the member grants with their confirm: nothing until they switch it on.

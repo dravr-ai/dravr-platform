@@ -56,16 +56,21 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
     KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
+use pierre_contremaitre::reauth_strings::{
+    KEY_PROVIDER_REAUTH_OAUTH_REQUIRED, KEY_PROVIDER_REAUTH_OAUTH_REQUIRED_NO_LINK,
+    KEY_PROVIDER_REAUTH_OAUTH_SERVED, KEY_PROVIDER_REAUTH_OAUTH_SERVED_NO_LINK,
+};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
-use pierre_providers::backend_resolver;
+use pierre_providers::{ai_scope, backend_resolver};
 use pierre_tool_runtime::implementations::connection::{
-    is_notice_refusal, mint_oauth_authorize_url,
+    is_no_seat_refusal, is_notice_refusal, mint_oauth_authorize_url,
 };
+use pierre_tool_runtime::protocol::reauth_notice::reconnects_through_oauth;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -162,15 +167,25 @@ impl ReconnectStanding {
     }
 
     /// The messaging key for this standing, with and without a minted URL.
-    const fn keys(&self) -> (&'static str, &'static str) {
-        match self {
-            Self::Blank => (
+    /// `through_oauth` words the move to the provider's official connection
+    /// (a usr/pwd-only Garmin session while a seat is free, carnet#1454).
+    const fn keys(&self, through_oauth: bool) -> (&'static str, &'static str) {
+        match (self, through_oauth) {
+            (Self::Blank, false) => (
                 KEY_PROVIDER_REAUTH_REQUIRED,
                 KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
             ),
-            Self::Served => (
+            (Self::Served, false) => (
                 KEY_PROVIDER_REAUTH_SERVED,
                 KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
+            ),
+            (Self::Blank, true) => (
+                KEY_PROVIDER_REAUTH_OAUTH_REQUIRED,
+                KEY_PROVIDER_REAUTH_OAUTH_REQUIRED_NO_LINK,
+            ),
+            (Self::Served, true) => (
+                KEY_PROVIDER_REAUTH_OAUTH_SERVED,
+                KEY_PROVIDER_REAUTH_OAUTH_SERVED_NO_LINK,
             ),
         }
     }
@@ -219,7 +234,17 @@ pub async fn apply_auth_recovery(
         backend_resolver::brand_name(deps.tool_runtime.provider_registry(), &provider_slug)
             .unwrap_or(&provider_slug)
             .to_owned();
-    let (linked_key, bare_key) = standing.keys();
+    // A usr/pwd-only Garmin session reconnects through Garmin's OAuth while a
+    // seat is free: its copy says so and its link is the connect picker,
+    // never the usr/pwd sign-in.
+    let through_oauth = reconnects_through_oauth(
+        deps.tool_runtime,
+        user_id,
+        input.tool_tenant_id,
+        &provider_slug,
+    )
+    .await;
+    let (linked_key, bare_key) = standing.keys(through_oauth);
     let replaces_reply = standing.replaces_reply();
 
     // A shared room never receives the link. The minted URL is a hosted login
@@ -229,14 +254,20 @@ pub async fn apply_auth_recovery(
     // The room gets the same sentence a failed mint renders, naming which
     // provider dropped; the athlete picks the actual link up in their own DM
     // or in the app, where the mint path below is unchanged.
-    if !input.is_direct_message {
+    //
+    // Nor does a caller outside Dravr's own surfaces: an agent is not the
+    // athlete, and the link signs in as them.
+    let served_externally =
+        ai_scope::declared_transport().is_some_and(|served| !served.is_first_party());
+    if !input.is_direct_message || served_externally {
         info!(
             user_id = %user_id,
             provider = %provider_slug,
             locale = %locale,
             replaces_reply,
-            "auth_recovery_room_link_suppressed: shared-room turn gets the linkless \
-             reconnect sentence; the user-scoped link is DM-only"
+            served_externally,
+            "auth_recovery_room_link_suppressed: the reply's reader gets the linkless \
+             reconnect sentence; the user-scoped link is for the athlete's own DM"
         );
         return deliver_linkless_sentence(
             &deps,
@@ -256,7 +287,16 @@ pub async fn apply_auth_recovery(
     // convenience, so its absence costs the link and not the message. On a
     // served turn it costs even less: the answer is already written, and this
     // only appends the sentence naming what dropped.
-    let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
+    let minted = mint_offer_url(
+        &deps,
+        &provider_slug,
+        through_oauth,
+        user_id,
+        input,
+        profile,
+    )
+    .await;
+    let Some(url) = minted else {
         warn!(
             user_id = %user_id,
             provider = %provider_slug,
@@ -388,11 +428,31 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
     };
 }
 
+/// The URL the reconnect offer for `provider_slug` carries: the connect
+/// picker when the athlete moves to the provider's OAuth (`through_oauth`),
+/// else the provider's own reconnect ([`mint_reconnect_url`]).
+async fn mint_offer_url(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    through_oauth: bool,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
+    if through_oauth {
+        mint_connect_picker_url(deps, user_id, input, profile).await
+    } else {
+        mint_reconnect_url(deps, provider_slug, user_id, input, profile).await
+    }
+}
+
 /// The hosted connect picker for this user, shortened, or `None` after
 /// logging why it could not be minted.
 ///
 /// Used for an OAuth provider whose notice is outstanding: the picker shows
-/// the notice and carries its acceptance onto the OAuth start.
+/// the notice and carries its acceptance onto the OAuth start. And for a
+/// usr/pwd-only Garmin session moving to Garmin's OAuth, whose card the
+/// picker offers as that move.
 async fn mint_connect_picker_url(
     deps: &AuthRecoveryDeps<'_>,
     user_id: Uuid,
@@ -465,45 +525,7 @@ async fn mint_reconnect_url(
     profile: &SurfaceProfile,
 ) -> Option<String> {
     if let Some(target) = backend_resolver::hosted_login_target(provider_slug) {
-        let token = match mint_link_token(
-            &MintProviderLinkTokenArgs {
-                user_id,
-                tenant_id: input.tool_tenant_id.as_uuid(),
-                provider: "sciotte",
-                target,
-                channel: profile.surface.as_str(),
-                channel_thread: None,
-            },
-            deps.admin_jwt_secret,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                warn!(
-                    user_id = %user_id,
-                    provider = %provider_slug,
-                    error = %e,
-                    "auth_recovery: failed to mint hosted-login token"
-                );
-                return None;
-            }
-        };
-        let full_url = format!(
-            "{}{HOSTED_SIGNIN_PATH}?token={}",
-            deps.base_url,
-            urlencoding::encode(&token)
-        );
-        // Shorten to a dot-free `<base>/r/<code>` so WhatsApp keeps the whole
-        // link tappable; degrades to the full URL if the store write fails.
-        return Some(
-            shorten_url(
-                deps.short_links.as_ref(),
-                deps.base_url,
-                &full_url,
-                &input.tool_tenant_id.as_uuid().to_string(),
-                &user_id.to_string(),
-            )
-            .await,
-        );
+        return mint_hosted_login_url(deps, provider_slug, target, user_id, input, profile).await;
     }
 
     if relinks_with_api_key(deps, provider_slug, user_id, input).await {
@@ -523,6 +545,58 @@ async fn mint_reconnect_url(
     }
 
     mint_oauth_reconnect_url(deps, provider_slug, user_id, input, profile).await
+}
+
+/// The Dravr-hosted login (email + password) for the scrape mirror whose
+/// login `target` names, shortened, or `None` after logging why it could not
+/// be minted — the same short-TTL link-token mint the channel bots use.
+async fn mint_hosted_login_url(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    target: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
+    let token = match mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: input.tool_tenant_id.as_uuid(),
+            provider: "sciotte",
+            target,
+            channel: profile.surface.as_str(),
+            channel_thread: None,
+        },
+        deps.admin_jwt_secret,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                error = %e,
+                "auth_recovery: failed to mint hosted-login token"
+            );
+            return None;
+        }
+    };
+    let full_url = format!(
+        "{}{HOSTED_SIGNIN_PATH}?token={}",
+        deps.base_url,
+        urlencoding::encode(&token)
+    );
+    // Shorten to a dot-free `<base>/r/<code>` so WhatsApp keeps the whole
+    // link tappable; degrades to the full URL if the store write fails.
+    Some(
+        shorten_url(
+            deps.short_links.as_ref(),
+            deps.base_url,
+            &full_url,
+            &input.tool_tenant_id.as_uuid().to_string(),
+            &user_id.to_string(),
+        )
+        .await,
+    )
 }
 
 /// Whether the athlete's dead `provider_slug` link is relinked with an API
@@ -566,8 +640,9 @@ async fn relinks_with_api_key(
     }
 }
 
-/// The reconnect URL for an OAuth provider: its authorization URL, or the
-/// hosted connect picker while the provider's notice is outstanding.
+/// The reconnect URL for an OAuth provider: its authorization URL, the
+/// hosted connect picker while the provider's notice is outstanding, or the
+/// provider's usr/pwd sign-in when its OAuth has no seat for the athlete.
 async fn mint_oauth_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -597,6 +672,11 @@ async fn mint_oauth_reconnect_url(
             );
             mint_connect_picker_url(deps, user_id, input, profile).await
         }
+        // Garmin's pool is full and the athlete holds no grant to re-sign:
+        // its usr/pwd sign-in is the way back in.
+        Err(e) if is_no_seat_refusal(&e) => {
+            mint_no_seat_sign_in_url(deps, provider_slug, user_id, input, profile).await
+        }
         Err(e) => {
             warn!(
                 user_id = %user_id,
@@ -607,4 +687,24 @@ async fn mint_oauth_reconnect_url(
             None
         }
     }
+}
+
+/// The usr/pwd sign-in offered in place of `provider_slug`'s OAuth when it has
+/// no seat for the athlete: the hosted login of its mirror, or `None` for a
+/// provider with none.
+async fn mint_no_seat_sign_in_url(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        "auth_recovery: no seat on the provider's OAuth, offering its usr/pwd sign-in"
+    );
+    let target = backend_resolver::mirror_backend_for(provider_slug)
+        .and_then(backend_resolver::hosted_login_target)?;
+    mint_hosted_login_url(deps, provider_slug, target, user_id, input, profile).await
 }

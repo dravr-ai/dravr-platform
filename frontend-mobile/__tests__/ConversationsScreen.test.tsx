@@ -300,6 +300,21 @@ describe('ConversationsScreen — one flat list', () => {
     await waitFor(() => expect(mockGetConversations).toHaveBeenCalledTimes(2));
   });
 
+  // Coming back from a thread re-reads the list, and the thread just read
+  // moves to the top. FlashList's default content-position correction would
+  // scroll by the height of every row inserted above the one it tracked,
+  // leaving the list parked under the search bar. A conversation list shows
+  // its newest row at the top, so the correction is off. This asserts the
+  // prop, not the native scroll offset jest cannot see.
+  it('does not hold its old first row in place when a re-read moves rows above it', async () => {
+    mockGetConversations.mockResolvedValue(page([makeConv({ id: 'c1', title: 'Training plan' })]));
+
+    const { findByTestId, getByTestId } = render(<ConversationsScreen />);
+    await findByTestId('conversation-row-c1');
+
+    expect(getByTestId('conversations-list').props.maintainVisibleContentPosition).toMatchObject({ disabled: true });
+  });
+
   it('filters rows by title, coach handle and preview from the search field', async () => {
     mockGetConversations.mockResolvedValue(
       page([

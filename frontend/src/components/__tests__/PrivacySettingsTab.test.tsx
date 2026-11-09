@@ -58,7 +58,7 @@ describe('PrivacySettingsTab — analytics consent', () => {
 
     fireEvent.click(screen.getByRole('switch'))
 
-    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: true }))
+    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: true, analytics_consent_answered: true }))
     expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(true)
     expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
   })
@@ -70,7 +70,7 @@ describe('PrivacySettingsTab — analytics consent', () => {
 
     fireEvent.click(screen.getByRole('switch'))
 
-    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: false }))
+    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: false, analytics_consent_answered: true }))
     expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(false)
   })
 

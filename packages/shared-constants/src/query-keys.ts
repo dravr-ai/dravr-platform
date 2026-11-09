@@ -39,8 +39,14 @@ export const QUERY_KEYS = {
     units: () => ['user-units'] as const,
     /** How often the coach checks in on its own (carnet#831). */
     checkIn: () => ['user-check-in'] as const,
+    /** The calendar Dravr's plan and workout pushes go to (carnet#1393). */
+    preferredCalendar: () => ['user-preferred-calendar'] as const,
     /** The athlete's feedback thread with the Dravr team (carnet#1235). */
     feedbackThread: () => ['user-feedback-thread'] as const,
+    /** The team's replies in that thread the athlete has not opened (carnet#1392). */
+    feedbackUnread: () => ['user-feedback-unread'] as const,
+    /** The screenshot one of the athlete's own messages in that thread carries (carnet#1392). */
+    feedbackImage: (messageId: string) => ['user-feedback-image', messageId] as const,
   },
 
   // ==================== SIGN-UP ====================
@@ -258,7 +264,7 @@ export const QUERY_KEYS = {
   dashboard: {
     all: ['dashboard'] as const,
     usageAnalytics: (days?: number) => ['usage-analytics', days] as const,
-    recentActivity: () => ['admin-recent-activity'] as const,
+    recentActivity: (tenantId?: string) => ['admin-recent-activity', tenantId] as const,
   },
 
   // ==================== A2A (Agent-to-Agent) ====================

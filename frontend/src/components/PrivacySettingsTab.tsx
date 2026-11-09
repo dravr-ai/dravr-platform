@@ -9,6 +9,7 @@ import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { Section } from './ui';
 import AccountDeletionSection from './AccountDeletionSection';
+import DataExportSection from './DataExportSection';
 import AiConsentSettings from './settings/AiConsentSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
@@ -30,7 +31,7 @@ export default function PrivacySettingsTab() {
     onSuccess: (data, consent) => {
       // The session's user is what App boots and stops analytics on: a grant
       // starts PostHog now, a revoke stops it now, not at the next sign-in.
-      updateUser({ analytics_consent: consent });
+      updateUser({ analytics_consent: consent, analytics_consent_answered: true });
       setMessage({ type: 'success', text: data.message });
       setTimeout(() => setMessage(null), 3000);
     },
@@ -147,6 +148,7 @@ export default function PrivacySettingsTab() {
           )}
         </div>
       </Section>
+      <DataExportSection />
       <AccountDeletionSection />
     </div>
   );

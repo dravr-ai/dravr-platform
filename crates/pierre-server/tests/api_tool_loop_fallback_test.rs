@@ -858,6 +858,7 @@ async fn the_pipeline_opens_the_tool_session_for_a_copilot_tier_behind_an_api_he
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

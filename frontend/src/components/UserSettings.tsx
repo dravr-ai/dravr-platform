@@ -10,28 +10,27 @@ import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi, importsApi } from '../services/api';
+import BringHistorySheet from './import/BringHistorySheet';
+import { useImportResultRefresh } from './import/useImportResultRefresh';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
-import { openImportWindow } from './import/openImportWindow';
+import ProviderRow from './settings/ProviderRow';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
-  historyLoginAfterGrant,
-  refusalOpensCredentialLogin,
+  historyChoiceAfterGrant,
+  refusalAnswer,
   startOAuthInThisTab,
   type OAuthResult,
 } from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
-import { STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
   ACTIVE_TOKEN_COUNT_KEYS,
   AI_CONSENT_KEYS,
-  ADMIN_HIDDEN_PANES,
   APP_VERSION,
   countKey,
   HELP_URL,
-  IMPORT_HISTORY_ON_CARD_KEYS,
   LEGAL_URL,
   providerGlyphInk,
   settingsPaneSections,
@@ -41,7 +40,8 @@ import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
-import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+import type { SettingsTab } from './settings/settingsTabs';
+import { visibleSettingsTabs } from './settings/visibleSettingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
 import GearSettings from './settings/GearSettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
@@ -50,15 +50,12 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
-  coachPlatformName,
-  delegationRefusalKey,
-  historyLoginTarget,
+  HISTORY_IMPORTING_REFRESH_MS,
+  cardStatus,
+  connectPlan,
+  historyImporting,
   intervalsConnectPath,
   noticeRequired,
-  providerScopeLabelKey,
-  sciotteTargetForBackend,
-  sessionReconnectTarget,
-  syncAuthorizationOwed,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
@@ -69,6 +66,7 @@ import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import UnitsSettings from './settings/UnitsSettings';
 import CheckInSettings from './settings/CheckInSettings';
+import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -98,11 +96,6 @@ interface McpToken {
 const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
 
 const MIN_PASSWORD_LENGTH = 8;
-
-// The two backends behind the Strava card, which hold one connection at a
-// time: native OAuth (`strava`) and the credential login (`sciotte`).
-type StravaBackend = 'strava' | 'sciotte';
-const isStravaBackend = (id: string): id is StravaBackend => id === 'strava' || id === 'sciotte';
 
 // Query key for the caller's connected OAuth apps (external MCP clients they
 // approved on the consent screen). Kept local rather than in the shared
@@ -139,22 +132,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
-  // Admin users don't need Data Providers, About, or Messaging tabs.
+  // Admin users don't get the panes about an athlete's own account.
   // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
   // see migration 20260518000001 for the historic skew between the two.
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const { flags: featureFlags } = useFeatureFlags();
-  const visibleTabs = useMemo(() => {
-    const base = isAdminUser
-      ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_PANES.has(tab.id))
-      : SETTINGS_TABS;
-    // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
-    // off until an admin flips it on.
-    if (!featureFlags[FEATURE_KEYS.apiTokens]) {
-      return base.filter(tab => tab.id !== 'tokens' && tab.id !== 'api-keys');
-    }
-    return base;
-  }, [isAdminUser, featureFlags]);
+  // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
+  // off until an admin flips it on.
+  const visibleTabs = useMemo(
+    () => visibleSettingsTabs(isAdminUser, Boolean(featureFlags[FEATURE_KEYS.apiTokens])),
+    [isAdminUser, featureFlags],
+  );
 
   // Snap activeTab back to a visible tab when the API Tokens flag flips off
   // while the user is sitting on that tab.
@@ -192,9 +180,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The id goes to the API; the card's display name is what the user reads.
   const [providerToDisconnect, setProviderToDisconnect] = useState<{ id: string; name: string } | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
-  // Whether the chosen card still needs its exposure notice accepted.
-  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
+  // The account sign-in on screen: its target, whether the card still needs
+  // its exposure notice accepted, and whether it is the one-time history copy.
+  const [signIn, setSignIn] = useState<{ target: SciotteTarget; consentRequired: boolean; historyMode: boolean } | null>(
+    null,
+  );
+  // The card whose "Bring in your history" sheet is open.
+  const [historySheetCard, setHistorySheetCard] = useState<ProviderStatus | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
@@ -204,10 +196,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The Intervals.icu dialog, and whether it leads with the authorization
   // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
   const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
-  const [providerConflict, setProviderConflict] = useState<{
-    connecting: StravaBackend;
-    disconnecting: StravaBackend;
-  } | null>(null);
 
   // Connected OAuth apps (external MCP clients) revoke-confirmation target
   const [appToRevoke, setAppToRevoke] = useState<OAuthGrant | null>(null);
@@ -228,23 +216,30 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     // elsewhere (onboarding/chat OAuth, which uses a different query key) would
     // otherwise show stale t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
+    // A card copying its history is read again until the copy settles.
+    refetchInterval: (query) =>
+      historyImporting(query.state.data?.providers ?? []) ? HISTORY_IMPORTING_REFRESH_MS : false,
   });
 
   // The cards render as the server serves them: it withholds the raw rows a
   // mirror card covers and coalesces both backends onto that card.
   const fitnessProviders: ProviderStatus[] = providersResponse?.providers ?? [];
+  // Which providers are connected, in a stable form: the calendar choice reads
+  // its calendars again when a connection is made or removed here.
+  const connectedProviders = fitnessProviders
+    .filter((provider) => provider.connected)
+    .map((provider) => provider.provider)
+    .sort()
+    .join(',');
 
-  // The Strava history the athlete imported, shown on the Strava card.
+  // The history the athlete imported from each export, shown on its card.
   const { data: importsOverview } = useQuery({
     queryKey: QUERY_KEYS.imports.overview(),
     queryFn: () => importsApi.getImports(),
     enabled: activeTab === 'connections',
   });
-  const importedStravaCount =
-    importsOverview?.imports.find(
-      (entry) =>
-        entry.source === STRAVA_ARCHIVE_SOURCE && entry.status === 'completed' && entry.history_held,
-    )?.imported ?? 0;
+  // An import the import window finishes reloads the cards and their counts.
+  useImportResultRefresh();
 
   // Fetch OAuth apps
   const { data: oauthAppsResponse, isLoading: isLoadingApps } = useQuery({
@@ -433,28 +428,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     });
   };
 
-  // Connect to a fitness provider via OAuth in a new tab
-  // Check for Strava/Sciotte conflict before connecting. `backendId` is the
-  // backend the connection will actually use, not the card that was clicked:
-  // the `sciotte` card connects through native `strava` OAuth while shared
-  // seats remain, and re-authing that same backend is not a conflict.
-  const checkProviderConflict = (backendId: string): boolean => {
-    if (!isStravaBackend(backendId)) return false;
-    const otherProvider: StravaBackend = backendId === 'strava' ? 'sciotte' : 'strava';
-    // The Strava card names the backend whose row serves it.
-    const stravaCard = fitnessProviders.find(p => p.provider === 'sciotte');
-    if (stravaCard?.connected && stravaCard.connected_backend === otherProvider) {
-      setProviderConflict({ connecting: backendId, disconnecting: otherProvider });
-      return true;
-    }
-    return false;
-  };
-
-  // What the switch dialog calls each Strava backend: the OAuth connection is
-  // plain "Strava", the credential one says it signs in through Dravr.
-  const stravaBackendLabel = (backend: StravaBackend): string =>
-    backend === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava');
-
   // The Connect button's start: an app of the athlete's own first when no app
   // of the server's can authorize the provider for them, then the provider's
   // notice while it is owed, then the OAuth flow.
@@ -483,6 +456,34 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       return;
     }
     setIntervalsModal({ offersAuthorize: path === 'choose' });
+  };
+
+  // A card's Connect follows what it shows (`cardStatus`) and how it connects
+  // (`connectPlan`): a card owing its authorization shows its notice first;
+  // Intervals.icu opens its dialog; an authorization goes to the provider the
+  // plan names (`garmin`, `strava`, `whoop`…); an account sign-in opens the
+  // sign-in window for its target. A reconnect goes back the way the card is
+  // connected, so it never switches a card's backend.
+  const connectCard = (provider: ProviderStatus) => {
+    if (cardStatus(provider) === 'authorize_owed') {
+      startOAuthConnect(provider);
+      return;
+    }
+    const primary = connectPlan(provider).primary;
+    switch (primary.kind) {
+      case 'intervals':
+        startIntervalsConnect(provider);
+        return;
+      case 'oauth':
+        if (primary.provider === provider.provider) startOAuthConnect(provider);
+        else handleConnectProvider(primary.provider);
+        return;
+      case 'sign_in':
+        setSignIn({ target: primary.target, consentRequired: provider.consent_required, historyMode: false });
+        return;
+      case 'none':
+        return;
+    }
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
@@ -529,26 +530,22 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     localStorage.removeItem(OAUTH_RESULT_KEY);
     if (result.success) {
       setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
-      // A Garmin grant with nothing pushed yet chains into the Garmin usr/pwd
-      // login, which reaches the history (carnet#1302).
-      const historyCard = historyLoginAfterGrant(result, providersResponse?.providers ?? []);
-      const historyTarget = historyCard ? historyLoginTarget(historyCard) : null;
-      if (historyCard && historyTarget) {
-        setSciotteConsentRequired(historyCard.consent_required);
-        setSciotteModalTarget(historyTarget);
-      }
+      // A grant whose card still needs its history (Garmin pushes only what
+      // comes after it) opens the sheet that chooses how to bring it in.
+      const historyCard = historyChoiceAfterGrant(result, providersResponse?.providers ?? []);
+      if (historyCard) setHistorySheetCard(historyCard);
       return;
     }
-    if (result.tombstoned) {
-      // The account belonged to a deleted Dravr account: the callback page
-      // worded it and offered to start fresh. Another way in to the same
-      // account would only be refused the same way.
-    } else if (refusalOpensCredentialLogin(result.provider)) {
-      // Strava or Garmin OAuth failed (athlete cap actually exceeded in a
-      // seat-count race, or the provider rejected the grant). Fall back to the
-      // credential login — same data — instead of leaving the user on an
-      // error message.
-      setSciotteModalTarget(result.provider);
+    // The account belonged to a deleted Dravr account: the callback page
+    // worded it and offered to start fresh. Another way in to the same
+    // account would only be refused the same way.
+    if (result.tombstoned) return;
+    // A refused Strava grant falls back to its sign-in, same data; a refused
+    // Garmin grant signs in only while the seats are out, and otherwise says
+    // it failed, the card's Connect trying again (`refusalAnswer`).
+    const answer = refusalAnswer(result, providersResponse?.providers ?? []);
+    if (answer?.kind === 'sign_in') {
+      setSignIn({ target: answer.target, consentRequired: answer.card?.consent_required ?? false, historyMode: false });
     } else {
       setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
     }
@@ -803,272 +800,29 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 <EmptyState>{t('providers.none')}</EmptyState>
               ) : (
                 <div>
-                  {fitnessProviders.map((provider) => {
-                    const description = provider.description;
-                    const glyphInk = providerGlyphInk(provider.provider, scheme);
-                    const isConnecting = connectingProvider === provider.provider;
-                    // A connection the user's group coach serves: confirmed, it is
-                    // read through the coach's account; proposed, it waits for the
-                    // user's answer in the group.
-                    const delegation = provider.delegation;
-                    const isDelegated = provider.connected && delegation?.status === 'confirmed';
-
-                    return (
-                      <div
-                        key={provider.provider}
-                        data-testid={`provider-row-${provider.provider}`}
-                        className="border-t ghost-border-faint py-3 first:border-t-0 first:pt-0 last:pb-0"
-                      >
-                        <div className="flex items-center gap-3">
-                          {/* The provider's colour lives in its letter, not in a tile —
-                              in a scheme where the brand clears the 3:1 icon floor on
-                              the canvas; elsewhere the letter takes the body ink. */}
-                          <span
-                            aria-hidden="true"
-                            data-testid={`provider-glyph-${provider.provider}`}
-                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center font-display text-sm font-bold text-on-surface"
-                            style={glyphInk ? { color: glyphInk } : undefined}
-                          >
-                            {provider.display_name.charAt(0)}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium text-on-surface">{provider.display_name}</p>
-                              {provider.account_role === 'coach' && (
-                                <span data-testid={`provider-coach-account-${provider.provider}`}>
-                                  <Badge variant="secondary">{t('humanCoach.trainingpeaksAccount')}</Badge>
-                                </span>
-                              )}
-                              {isDelegated ? (
-                                <span
-                                  className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
-                                  data-testid={`provider-delegated-${provider.provider}`}
-                                >
-                                  <span
-                                    aria-hidden="true"
-                                    className={`h-2 w-2 rounded-full ${delegation.coach_needs_reauth || delegation.read_refused ? 'bg-warning' : 'bg-success'}`}
-                                  />
-                                  {delegation.read_refused
-                                    ? t(delegationRefusalKey(delegation.read_refused), {
-                                        platform: coachPlatformName(provider.provider),
-                                      })
-                                    : delegation.coach_needs_reauth
-                                      ? t('delegation.coachReconnectNeeded', {
-                                          platform: coachPlatformName(provider.provider),
-                                          coach: delegation.coach_display_name,
-                                        })
-                                      : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
-                                </span>
-                              ) : provider.connected && (
-                                syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
-                                  <span
-                                    className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
-                                    data-testid={`provider-authorization-owed-${provider.provider}`}
-                                  >
-                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
-                                    {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
-                                  </span>
-                                ) : provider.needs_reauth || sessionReconnectTarget(provider) ? (
-                                  // A usr/pwd session expired beside a grant that still
-                                  // serves reads the same: the reconnect notice named it.
-                                  <span
-                                    className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
-                                    data-testid={`provider-reconnect-needed-${provider.provider}`}
-                                  >
-                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
-                                    {t('providers.reconnectNeeded')}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
-                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-success" />
-                                    {historyLoginTarget(provider) ? t('providers.awaitingActivities') : t('settingsUi.connected')}
-                                  </span>
-                                )
-                              )}
-                            </div>
-                            <p className="text-xs text-on-surface-variant truncate">{description}</p>
-                            {provider.provider === 'sciotte' && importedStravaCount > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => openImportWindow('#strava')}
-                                className="text-xs font-medium text-primary hover:text-primary-hover mt-0.5"
-                                data-testid="provider-imported-history-sciotte"
-                              >
-                                {t(countKey(importedStravaCount, language, IMPORT_HISTORY_ON_CARD_KEYS), { count: importedStravaCount })}{' '}
-                                <span aria-hidden="true">›</span>
-                              </button>
-                            )}
-                            {delegation?.status === 'proposed' && (
-                              <p
-                                className="text-xs text-on-surface-variant mt-0.5"
-                                data-testid={`provider-pending-link-${provider.provider}`}
-                              >
-                                {t('providers.pendingLink', {
-                                  coach: delegation.coach_display_name,
-                                  group: delegation.group_name,
-                                })}
-                              </p>
-                            )}
-                            {provider.account_role === 'coach' && (
-                              <p className="text-xs text-outline mt-0.5">{t('humanCoach.trainingpeaksAccountHint')}</p>
-                            )}
-                            {provider.capabilities.length > 0 && (
-                              <p className="text-xs text-outline mt-0.5">
-                                {provider.capabilities
-                                  .map((scope) => {
-                                    // A slug the catalogue has no word for prints as
-                                    // itself — a provider that starts advertising a new
-                                    // capability must not show a missing-key string.
-                                    const key = providerScopeLabelKey(scope);
-                                    return key ? t(key) : scope;
-                                  })
-                                  .join(', ')}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex-shrink-0">
-                            {/* A connected-but-dead session (needs_reauth) falls through to the
-                                connect flow below, relabelled t('app.reconnect'), so the user can revive
-                                it rather than being stuck looking at a healthy-seeming row. */}
-                            {/* A connected WHOOP that owes its owner authorization falls through
-                                the same way, to the connect button that shows the notice first. */}
-                            {provider.connected && !provider.needs_reauth
-                              && !syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
-                              <div className="flex flex-wrap items-center justify-end gap-1">
-                                {/* Withdrawing the consent to AI use is one tap; the
-                                    connection stays, and the card then asks for the
-                                    authorization again to give it back (carnet#726). */}
-                                {provider.ai_consent === true && (
-                                  <Button
-                                    variant="tertiary"
-                                    size="sm"
-                                    onClick={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
-                                    disabled={aiConsent.isPending}
-                                    data-testid={`provider-ai-consent-withdraw-${provider.provider}`}
-                                  >
-                                    {t(AI_CONSENT_KEYS.withdraw)}
-                                  </Button>
-                                )}
-                                {/* A usr/pwd session expired beside the grant that still serves
-                                    the card reconnects through its own login, the flow the
-                                    reconnect notice links to — never the grant's OAuth. */}
-                                {sessionReconnectTarget(provider) && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSciotteConsentRequired(provider.consent_required);
-                                      setSciotteModalTarget(sessionReconnectTarget(provider));
-                                    }}
-                                    data-testid={`provider-session-reconnect-${provider.provider}`}
-                                  >
-                                    {t('settingsUi.reconnect')}
-                                  </Button>
-                                )}
-                                {/* A card connected through an OAuth grant that has received no
-                                    activity yet (Garmin before its first push) offers the usr/pwd
-                                    login, which reaches the history (carnet#1302) — unless that
-                                    login is already offered as the reconnect above. */}
-                                {!sessionReconnectTarget(provider) && historyLoginTarget(provider) && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSciotteConsentRequired(provider.consent_required);
-                                      setSciotteModalTarget(historyLoginTarget(provider));
-                                    }}
-                                    data-testid={`provider-history-login-${provider.provider}`}
-                                    aria-label={t('providers.importHistoryAria', { provider: provider.display_name })}
-                                  >
-                                    {t('providers.importHistory')}
-                                  </Button>
-                                )}
-                                {(provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
-                                  <Button
-                                    variant="tertiary"
-                                    size="sm"
-                                    onClick={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
-                                    className="text-error"
-                                    data-testid={`provider-disconnect-${provider.provider}`}
-                                  >
-                                    {/* Disconnecting a delegated connection ends the coach's link. */}
-                                    {isDelegated ? t('delegation.unlink') : t('settingsUi.disconnect')}
-                                  </Button>
-                                )}
-                              </div>
-                            ) : provider.provider === 'intervals_icu' ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => startIntervalsConnect(provider)}
-                                loading={isConnecting}
-                                data-testid={`provider-connect-${provider.provider}`}
-                              >
-                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
-                              </Button>
-                            ) : sciotteTargetForBackend(provider.provider) ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  // The Strava and Garmin cards connect through the provider's own
-                                  // OAuth (named by the card's target) while seats remain (server
-                                  // recommends `oauth`); once the athlete cap is reached it
-                                  // recommends `mirror` and we open the credential login. If the
-                                  // OAuth attempt itself fails, the connect's return opens it too
-                                  // (`refusalOpensCredentialLogin`). TrainingPeaks is always the
-                                  // credential flow, after its notice while the account has not
-                                  // accepted it.
-                                  const target = sciotteTargetForBackend(provider.provider);
-                                  const backend =
-                                    target && provider.recommended_backend === 'oauth'
-                                      ? target
-                                      : provider.provider;
-                                  // Guard on the resolved backend so re-authing the backend that
-                                  // already holds the grant isn't mistaken for a provider switch.
-                                  if (checkProviderConflict(backend)) return;
-                                  if (backend !== provider.provider) {
-                                    void handleConnectProvider(backend);
-                                  } else {
-                                    setSciotteConsentRequired(provider.consent_required);
-                                    setSciotteModalTarget(target);
-                                  }
-                                }}
-                              >
-                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
-                              </Button>
-                            ) : provider.requires_oauth ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  if (checkProviderConflict(provider.provider)) return;
-                                  startOAuthConnect(provider);
-                                }}
-                                loading={isConnecting}
-                                data-testid={`provider-connect-${provider.provider}`}
-                              >
-                                {syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required)
-                                  ? t('providers.authorizeAction')
-                                  : provider.needs_reauth
-                                    ? t('settingsUi.reconnect')
-                                    : t('shell.intervalsConnectAction')}
-                              </Button>
-                            ) : (
-                              <Badge variant="secondary">{t('settingsUi.manual')}</Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {fitnessProviders.map((provider) => (
+                    <ProviderRow
+                      key={provider.provider}
+                      provider={provider}
+                      importsOverview={importsOverview}
+                      isConnecting={connectingProvider === provider.provider}
+                      aiConsentPending={aiConsent.isPending}
+                      onConnect={() => connectCard(provider)}
+                      onAddHistory={() => setHistorySheetCard(provider)}
+                      onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
+                      onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
+                    />
+                  ))}
                 </div>
               )}
+
+              {/* Which connected calendar the plan goes on (carnet#1393) */}
+              <PreferredCalendarSettings connected={connectedProviders} />
 
               {/* Privacy note */}
               <p className="mt-4 text-xs text-outline">{t('providers.privacyNote')}</p>
 
-              {/* Import your own data: below the providers, never one of them */}
+              {/* Import your own data (Apple Health has no card): below the providers, never one of them */}
               <div className="mt-4">
                 <ImportOwnDataLink hairline={false} />
               </div>
@@ -1707,7 +1461,10 @@ Authorization: Bearer <your-token-here>`}
                                 className="flex items-start justify-between gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                               >
                                 <div className="min-w-0">
-                                  <p className="font-medium text-on-surface break-all">{app.client_id}</p>
+                                  <p className="font-medium text-on-surface break-all">{app.client_name || app.client_id}</p>
+                                  {app.client_host && (
+                                    <p className="text-sm text-on-surface-variant break-all">{app.client_host}</p>
+                                  )}
                                   <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
@@ -1864,7 +1621,7 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setAppToRevoke(null)}
         onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
         title={t('tokens.revokeAccess')}
-        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_id ?? '' })}
+        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
         confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revokeConnectedAppMutation.isPending}
@@ -1878,36 +1635,6 @@ Authorization: Bearer <your-token-here>`}
         title={t('providers.disconnectProvider')}
         message={t('app.confirmDisconnect', { provider: providerToDisconnect?.name ?? '' })}
         confirmLabel={t('app.disconnect')}
-        variant="danger"
-      />
-
-      {/* Provider conflict confirmation (Strava vs Sciotte) */}
-      <ConfirmDialog
-        isOpen={providerConflict !== null}
-        onClose={() => setProviderConflict(null)}
-        onConfirm={async () => {
-          if (!providerConflict) return;
-          const { connecting, disconnecting } = providerConflict;
-          // Disconnect first, then connect the other way: Sciotte through its
-          // credential modal, anything else through its OAuth, in this tab.
-          await handleDisconnectProvider(disconnecting, stravaBackendLabel(disconnecting));
-          setProviderConflict(null);
-          if (connecting === 'sciotte') {
-            setSciotteModalTarget('strava');
-          } else {
-            startOAuthInThisTab(oauthApi.authorizeUrl(connecting));
-          }
-        }}
-        title={t('providers.switchProvider')}
-        message={
-          providerConflict
-            ? t('app.providerConflictWarning', {
-                connecting: stravaBackendLabel(providerConflict.connecting),
-                disconnecting: stravaBackendLabel(providerConflict.disconnecting),
-              })
-            : ''
-        }
-        confirmLabel={t('app.switch')}
         variant="danger"
       />
 
@@ -1936,16 +1663,28 @@ Authorization: Bearer <your-token-here>`}
         />
       )}
 
-      {/* Sciotte login modal */}
+      {historySheetCard && (
+        <BringHistorySheet
+          card={historySheetCard}
+          onClose={() => setHistorySheetCard(null)}
+          onSignIn={(target) =>
+            setSignIn({ target, consentRequired: historySheetCard.consent_required, historyMode: true })
+          }
+        />
+      )}
+
+      {/* The provider's own account sign-in */}
       <SciotteLoginModal
-        isOpen={sciotteModalTarget !== null}
-        onClose={() => setSciotteModalTarget(null)}
+        isOpen={signIn !== null}
+        onClose={() => setSignIn(null)}
         onConnected={() => {
           refetchProviders();
-          setSciotteModalTarget(null);
+          setSignIn(null);
         }}
-        target={sciotteModalTarget ?? 'strava'}
-        consentRequired={sciotteConsentRequired}
+        onPlanChanged={() => void refetchProviders()}
+        target={signIn?.target ?? 'strava'}
+        consentRequired={signIn?.consentRequired ?? false}
+        historyMode={signIn?.historyMode ?? false}
       />
 
       {/* Intervals.icu: the authorization when offered, and the API-key form */}

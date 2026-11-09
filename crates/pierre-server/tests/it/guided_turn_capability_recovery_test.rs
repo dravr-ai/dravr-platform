@@ -22,6 +22,7 @@
 
 #[cfg(feature = "provider-sciotte")]
 mod guided_turn {
+    use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_core::transport::TransportPolicy;
     use std::sync::{Arc, Mutex};
@@ -261,6 +262,7 @@ mod guided_turn {
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
                 hooks: PipelineHooks::none(),
+                grant: OAuthScope::self_grant(),
             },
             &SurfaceProfile::resolve(&SurfaceRequest {
                 surface: SurfaceId::Web,
@@ -321,6 +323,7 @@ mod guided_turn {
                     transport_policy: TransportPolicy::AnyTransport,
                     channel_type: None,
                     about_user_id: None,
+                    turn_attempted_write: None,
                 })
                 .await
                 .unwrap();

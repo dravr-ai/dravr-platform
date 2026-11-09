@@ -214,9 +214,9 @@ async fn test_redirect_uri_that_reads_two_ways_is_rejected() {
     );
 }
 
-/// Test redirect URI validation - out-of-band URN
+/// The out-of-band URN is refused: OAuth 2.1 drops it
 #[tokio::test]
-async fn test_redirect_uri_oob_urn() {
+async fn test_redirect_uri_oob_urn_is_refused() {
     let encryption_key = generate_encryption_key().to_vec();
 
     let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
@@ -225,7 +225,6 @@ async fn test_redirect_uri_oob_urn() {
     let repos = database.repositories();
     let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
-    // Out-of-band URN should succeed (for native apps per RFC 8252)
     let oob_registration = ClientRegistrationRequest {
         redirect_uris: vec!["urn:ietf:wg:oauth:2.0:oob".to_owned()],
         client_name: Some("OOB Client".to_owned()),
@@ -238,7 +237,7 @@ async fn test_redirect_uri_oob_urn() {
     let result = registration_manager
         .register_client(oob_registration, MAX_PENDING_REGISTRATIONS)
         .await;
-    assert!(result.is_ok());
+    assert_eq!(result.unwrap_err().error, "invalid_request");
 }
 
 /// Test Argon2id hashing and verification
@@ -327,7 +326,7 @@ async fn test_client_secret_validation() {
 
     // Test 1: Correct secret should succeed
     let result = registration_manager
-        .validate_client(
+        .authenticate_client(
             &registration_response.client_id,
             registration_response.client_secret.expose_secret(),
         )
@@ -336,14 +335,14 @@ async fn test_client_secret_validation() {
 
     // Test 2: Wrong secret should fail
     let result = registration_manager
-        .validate_client(&registration_response.client_id, "wrong_secret")
+        .authenticate_client(&registration_response.client_id, "wrong_secret")
         .await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().error, "invalid_client");
 
     // Test 3: Non-existent client should fail
     let result = registration_manager
-        .validate_client("non_existent_client", "any_secret")
+        .authenticate_client("non_existent_client", "any_secret")
         .await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().error, "invalid_client");

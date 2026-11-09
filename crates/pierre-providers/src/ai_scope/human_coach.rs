@@ -71,6 +71,10 @@ impl ProviderTerms for ConsentOnly<'_> {
     fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
         self.0.relayed_transport_policy(relay, source)
     }
+
+    fn served_over_every_transport(&self) -> Vec<&'static str> {
+        self.0.served_over_every_transport()
+    }
 }
 
 #[cfg(test)]

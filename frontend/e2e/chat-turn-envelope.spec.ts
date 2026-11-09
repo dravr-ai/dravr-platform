@@ -157,6 +157,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
     role: 'assistant',
     content: assistantContent(withScene),
     created_at: '2026-08-20T10:01:00Z',
+    turn_attempted_write: false,
     ...(sceneBlocks.length > 0 ? { scene_blocks: JSON.stringify(sceneBlocks) } : {}),
   };
 
@@ -637,6 +638,7 @@ function turnEnvelope(options: { content?: string; finishReason?: string } = {})
         role: 'assistant',
         content,
         created_at: '2026-08-24T10:05:02Z',
+        turn_attempted_write: false,
       },
       blocks: [{ type: 'prose', text: content }],
       finish_reason: finishReason,
@@ -809,6 +811,64 @@ test.describe('Chat - one transport for every turn', () => {
 
     await expect(page.getByText('Coach Tempo is active.')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/HTTP error/i)).toHaveCount(0);
+  });
+
+  // Focus leaving the field unfolds the tab bar, which lifts the composer out
+  // from under the finger: the press has to leave focus where it is.
+  test.describe('on a phone, where the tab bar folds away while typing', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 393, height: 852 } });
+
+    test('the first tap on Send sends', async ({ page }) => {
+      await setupChatMocks(page);
+      await loginToDashboard(page);
+      await openConversation(page);
+
+      const input = page.getByPlaceholder('Message Dravr...');
+      await input.tap();
+      await input.pressSequentially('And next week?', { delay: 10 });
+      const posted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/messages'));
+      await page.getByRole('button', { name: 'Send message' }).tap();
+      await posted;
+      await expect(input).toHaveValue('');
+    });
+  });
+
+  test('a mouse press on Send in a narrow window sends', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await setupChatMocks(page);
+    await loginToDashboard(page);
+    await openConversation(page);
+
+    const input = page.getByPlaceholder('Message Dravr...');
+    await input.click();
+    await input.pressSequentially('And next week?', { delay: 10 });
+    const posted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/messages'));
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await posted;
+  });
+
+  test('a failed turn offers Retry and Dismiss as 44px targets on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await setupChatMocks(page);
+    await page.route('**/api/chat/conversations/*/messages', async (route, request) => {
+      if (request.method() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+    });
+
+    await loginToDashboard(page);
+    await openConversation(page);
+    await composeAndSend(page, 'And next week?');
+
+    const errorBox = page.getByTestId('turn-error-box');
+    await expect(errorBox).toBeVisible({ timeout: 10000 });
+    for (const name of ['Retry', 'Dismiss']) {
+      const box = await errorBox.getByRole('button', { name }).boundingBox();
+      expect(box?.height, `${name} height`).toBeGreaterThanOrEqual(44);
+      expect(box?.width, `${name} width`).toBeGreaterThanOrEqual(44);
+    }
   });
 
   test('an error frame reads as the catalogue sentence for its code, with the question kept and no retry for a quota', async ({ page }) => {

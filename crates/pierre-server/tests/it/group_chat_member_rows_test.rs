@@ -24,6 +24,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -36,7 +37,7 @@ use pierre_chat_pipeline::TurnOrigin;
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::{AddMessageParams, MessageRecord, TenantId};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
@@ -412,8 +413,9 @@ mod turns {
         }
 
         /// One coach turn in the room: every non-system message the model was
-        /// sent on it. The turn runs under its own provenance, as the turn
-        /// service runs every turn: the reply is stamped from it.
+        /// sent on it. The turn runs under its own provenance and over the web
+        /// app, as the turn service runs a web turn: the reply is stamped from
+        /// it, and the coach tools run only on Dravr's own surfaces.
         async fn turn(&self, content: &str) -> String {
             let from = self.model.calls();
             let profile = SurfaceProfile::resolve(&SurfaceRequest {
@@ -437,10 +439,14 @@ mod turns {
                 quota: QuotaState::Ok,
                 mentioned_agent: None,
                 steps_after: None,
+                grant: OAuthScope::self_grant(),
             };
-            ai_scope::tracking(
-                Provenance::new(),
-                pierre_chat_pipeline::run(&self.ctx, input, &profile, &PipelineHooks::none()),
+            ai_scope::serve_over(
+                Transport::WebApp,
+                ai_scope::tracking(
+                    Provenance::new(),
+                    pierre_chat_pipeline::run(&self.ctx, input, &profile, &PipelineHooks::none()),
+                ),
             )
             .await
             .expect("the turn completes");
@@ -749,6 +755,7 @@ fn message<'a>(
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
         about_user_id: about,
+        turn_attempted_write: None,
     }
 }
 

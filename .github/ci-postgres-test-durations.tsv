@@ -317,8 +317,6 @@ guardian_config_admin_test	1.0
 guardian_config_registry_test	0.3
 guardian_confirm_flow_test	1.9
 guardian_e2e_test	1.7
-guardian_plan_routing_test	1.2
-guardian_plan_verify_test	0.0
 guardian_test	0.0
 guided_flow_release_test	0.0
 guided_flow_tool_withhold_test	1.3

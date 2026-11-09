@@ -15,6 +15,12 @@
 
 set -e
 
+# The MCP specification revision this lane validates against. The server
+# advertises it first in SUPPORTED_VERSIONS (crates/pierre-server/src/mcp/
+# host_seams.rs), and the lane fails when it stops serving it, so a revision
+# bump is a change to this line and to that list together.
+MCP_SPEC_REVISION="2026-07-28"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -93,7 +99,12 @@ trap handle_interrupt INT TERM
 cd "$PROJECT_ROOT/sdk"
 
 echo ""
-echo -e "${BLUE}==== MCP Spec Compliance Validation ====${NC}"
+echo -e "${BLUE}==== MCP Spec Compliance Validation (revision ${MCP_SPEC_REVISION}) ====${NC}"
+
+if ! grep -Eq "SUPPORTED_VERSIONS: [^=]*= &\[[^]]*\"${MCP_SPEC_REVISION}\"" "$PROJECT_ROOT/crates/pierre-server/src/mcp/host_seams.rs"; then
+    echo -e "${RED}[FAIL] The server does not list MCP revision ${MCP_SPEC_REVISION} in SUPPORTED_VERSIONS${NC}"
+    exit 1
+fi
 
 # Check if SDK directory exists
 if [ ! -d "." ]; then

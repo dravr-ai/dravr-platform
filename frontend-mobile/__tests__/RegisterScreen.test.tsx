@@ -40,6 +40,12 @@ jest.mock('react-native-webview', () => {
   return { WebView };
 });
 
+const mockOpenExternal = jest.fn();
+jest.mock('../src/utils/openExternal', () => ({
+  openExternal: (...args: unknown[]) => mockOpenExternal(...args),
+}));
+
+import { ANALYTICS_POLICY_URL } from '@pierre/shared-constants';
 import { RegisterScreen } from '../src/screens/auth/RegisterScreen';
 import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
@@ -147,7 +153,7 @@ describe('RegisterScreen', () => {
       fireEvent.press(getByTestId('register-submit-button'));
 
       await waitFor(() =>
-        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined),
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined, false),
       );
       await waitFor(() =>
         expect(mockRouter.replace).toHaveBeenCalledWith({
@@ -240,6 +246,7 @@ describe('RegisterScreen', () => {
           'Jean',
           undefined,
           'BETA-ABCD-EFGH',
+          false,
         ),
       );
     });
@@ -254,7 +261,7 @@ describe('RegisterScreen', () => {
       fireEvent.press(getByTestId('register-submit-button'));
 
       await waitFor(() =>
-        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined),
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined, false),
       );
     });
 
@@ -323,7 +330,7 @@ describe('RegisterScreen', () => {
       fireEvent.press(getByTestId('register-submit-button'));
 
       await waitFor(() =>
-        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', 'tok-1', undefined),
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', 'tok-1', undefined, false),
       );
     });
 
@@ -360,6 +367,34 @@ describe('RegisterScreen', () => {
 
       await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Registration Failed', message));
       expect(mockRouter.replace).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('analytics consent (carnet#1366)', () => {
+    it('asks with its own box, unticked', async () => {
+      const { getByTestId } = await renderReady();
+      const box = getByTestId('register-analytics-consent-checkbox');
+      expect(box.props.accessibilityState).toEqual({ checked: false });
+      expect(box.props.accessibilityLabel).toBe('Help improve Dravr with usage analytics');
+    });
+
+    it('sends a yes once the box is ticked', async () => {
+      mockRegister.mockResolvedValueOnce(registered({ user_id: 'u1', user_status: 'pending', message: 'ok' }));
+      const { getByTestId } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-analytics-consent-checkbox'));
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      await waitFor(() =>
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined, true),
+      );
+    });
+
+    it("opens the privacy policy's usage-analytics section", async () => {
+      const { getByTestId } = await renderReady();
+      fireEvent.press(getByTestId('register-analytics-consent-policy'));
+      expect(mockOpenExternal).toHaveBeenCalledWith(ANALYTICS_POLICY_URL, expect.any(Function));
     });
   });
 

@@ -127,8 +127,16 @@ export interface ConversationRowModel {
   timestamp: string;
   /** `user`/`assistant` rows the caller has not read. */
   unreadCount: number;
-  /** ISO 8601 of the last activity — what {@link sortRowsByActivity} orders on. */
+  /** ISO 8601 of the last activity — what `timestamp` is stamped from. */
   lastActivityAt: string;
+  /**
+   * ISO 8601 of the last touch — what {@link sortRowsByActivity} orders on.
+   * The later of the conversation's `updated_at` and its last message: the
+   * server touches `updated_at` on every message and when a coach opens a
+   * thread, and lists newest `updated_at` first, so a thread just opened
+   * heads both lists although its last message is older.
+   */
+  listedAt: string;
   /**
    * `/reset` archived the thread: it holds none of the athlete's conversation
    * slots, and a turn into it has to take one back. Both lists mark the row so
@@ -271,7 +279,8 @@ export function formatListTimestamp(iso: string, locale: string, now: Date = new
  * its agent when it is created, and a rename replaces that, so the row has
  * nothing to derive. Last activity is the newest message when there is one
  * and the conversation's own `updated_at` otherwise, so a renamed empty
- * thread still sorts and stamps sensibly. `labels` carries the reader's
+ * thread still stamps sensibly. The row sorts on the later of the two, as the
+ * server lists it (see {@link ConversationRowModel.listedAt}). `labels` carries the reader's
  * locale and the three words the row cannot spell on its own (see
  * {@link CONVERSATION_ROW_LABEL_KEYS}).
  */
@@ -303,13 +312,22 @@ export function buildConversationRow(
     timestamp: formatListTimestamp(lastActivityAt, labels.locale, now),
     unreadCount: Math.max(0, conversation.unread_count ?? 0),
     lastActivityAt,
+    listedAt: laterInstant(lastActivityAt, conversation.updated_at),
     archived: Boolean(conversation.archived_at),
   };
 }
 
-function activityTime(row: ConversationRowModel): number {
-  const time = Date.parse(row.lastActivityAt);
+function instantMs(iso: string): number {
+  const time = Date.parse(iso);
   return Number.isNaN(time) ? 0 : time;
+}
+
+function laterInstant(a: string, b: string): string {
+  return instantMs(b) > instantMs(a) ? b : a;
+}
+
+function activityTime(row: ConversationRowModel): number {
+  return instantMs(row.listedAt);
 }
 
 /** The rows newest activity first. Returns a new array; the input is untouched. */

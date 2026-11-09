@@ -12,7 +12,7 @@ import { clsx } from 'clsx';
 import { ConfirmDialog } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDate } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -50,7 +50,6 @@ interface PublishedCoach {
 }
 
 export default function PublishedCoachesList() {
-  const { language } = useTranslation();
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [confirmUnpublish, setConfirmUnpublish] = useState<PublishedCoach | null>(null);
   const queryClient = useQueryClient();
@@ -166,13 +165,13 @@ export default function PublishedCoachesList() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                {coach.install_count.toLocaleString()} installs
+                {coach.install_count.toLocaleString(ADMIN_LOCALE)} installs
               </span>
               <span className="flex items-center gap-1">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                {coach.published_at ? formatDate(coach.published_at, language) : '—'}
+                {coach.published_at ? formatDate(coach.published_at, ADMIN_LOCALE) : '—'}
               </span>
             </div>
 

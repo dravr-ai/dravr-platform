@@ -283,7 +283,9 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
 
   /**
    * Open a group's room from Coach Home. The server finds the caller's room
-   * or opens one, so asking twice lands in the same room; the guard is set at
+   * or opens one, so asking twice lands in the same room. The list is
+   * refetched before the promise resolves, so a room opened here is already a
+   * row of it when the caller navigates; the guard is set at
    * the tap itself, before the next render, so a double tap sends one request.
    */
   function useOpenGroupRoom(): UseOpenGroupRoomResult {
@@ -297,10 +299,11 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
         setPendingRoomAthleteId(athleteUserId);
         return chatApi
           .openGroupRoom(groupId)
-          .then((room) => {
-            void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-            return room;
-          })
+          // The list is refetched before the promise resolves, as a plan
+          // thread's is, so the room the caller navigates to is already a row.
+          .then((room) =>
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() }).then(() => room),
+          )
           .finally(() => {
             opening.current = false;
             setPendingRoomAthleteId(null);

@@ -70,10 +70,13 @@ export { topicsApi } from './topics';
 // Home's Getting started, web-only until native Home has it (registre#1102).
 export { gettingStartedApi } from './gettingStarted';
 // The feedback thread with the Dravr team, web-only until the phone has it (registre#1241).
-export { feedbackApi } from './feedback';
+export { feedbackApi, feedbackUnreadApi } from './feedback';
 export type { ThreadTopic } from './topics';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 
 // Export types from shared package
 export type { Agent, StoreAgent } from '@pierre/shared-types';
 export type { ExtendedProviderStatus as ProviderStatus, ProvidersStatusResponse } from '@pierre/shared-types';
+
+// The athlete's data export, as a blob the browser saves.
+export { dataExportApi, type UserDataExportFile } from './dataExport';

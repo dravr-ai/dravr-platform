@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
     Activity, ActivityBuilder, Lap, Split, SportType, Tenant, TenantId, User,
@@ -41,7 +41,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 /// Every key the detail body carries, null or not.
-const DETAIL_KEYS: [&str; 10] = [
+const DETAIL_KEYS: [&str; 11] = [
     "activity",
     "average_heart_rate",
     "max_heart_rate",
@@ -52,6 +52,7 @@ const DETAIL_KEYS: [&str; 10] = [
     "splits",
     "laps",
     "conversation_id",
+    "utc_offset_seconds",
 ];
 
 struct Athlete {
@@ -379,6 +380,96 @@ fn manual_and_recorded_run(day: DateTime<Utc>) -> [Activity; 2] {
         .average_heart_rate(152)
         .build(),
     ]
+}
+
+#[tokio::test]
+async fn the_view_states_the_recording_s_offset_and_the_home_row_does_not() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "detail-offset").await;
+    let started = days_ago(1);
+    let recorded = ActivityBuilder::new(
+        "offset-ride",
+        "Ride in Delhi",
+        SportType::Ride,
+        started,
+        3_600,
+        oauth_providers::STRAVA,
+    )
+    .utc_offset_seconds(19_800)
+    .build();
+    let unstated = ActivityBuilder::new(
+        "plain-ride",
+        "Ride at home",
+        SportType::Ride,
+        days_ago(3),
+        3_600,
+        oauth_providers::STRAVA,
+    )
+    .build();
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[recorded, unstated],
+    )
+    .await;
+
+    let body = detail(&resources, &athlete.token, "strava", "offset-ride").await;
+    assert_eq!(body["utc_offset_seconds"], 19_800);
+    let body = detail(&resources, &athlete.token, "strava", "plain-ride").await;
+    assert_eq!(body["utc_offset_seconds"], Value::Null);
+
+    let (status, recent) = get_json(&resources, &athlete.token, "/api/me/activities/recent").await;
+    assert_eq!(status, StatusCode::OK, "{recent}");
+    for row in recent["activities"].as_array().unwrap() {
+        assert!(row.get("utc_offset_seconds").is_none(), "{row}");
+    }
+}
+
+#[tokio::test]
+async fn a_date_only_session_states_no_clock_even_when_a_recording_gave_it_an_offset() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "detail-date-only").await;
+    let day = days_ago(1).date_naive().and_time(NaiveTime::MIN).and_utc();
+    // Garmin's capture, read date-only, stands for the workout over Strava's
+    // copy; the merge fills its missing offset from that copy's recording.
+    let capture = ActivityBuilder::new(
+        "555",
+        "Evening ride",
+        SportType::Ride,
+        day,
+        3_600,
+        oauth_providers::SCIOTTE,
+    )
+    .source(oauth_providers::GARMIN)
+    .distance_meters(30_000.0)
+    .start_latitude(45.5)
+    .start_longitude(-73.6)
+    .build();
+    let recording = ActivityBuilder::new(
+        "888",
+        "Evening ride",
+        SportType::Ride,
+        day + Duration::hours(17),
+        3_600,
+        oauth_providers::STRAVA,
+    )
+    .distance_meters(30_010.0)
+    .utc_offset_seconds(19_800)
+    .build();
+    cache(&resources, &athlete, oauth_providers::SCIOTTE, &[capture]).await;
+    cache(&resources, &athlete, oauth_providers::STRAVA, &[recording]).await;
+
+    let body = detail(&resources, &athlete.token, "strava", "888").await;
+    assert_eq!(
+        body["activity"]["id"], "555",
+        "the premise: the date-only capture is the canonical row: {body}"
+    );
+    assert_eq!(
+        body["utc_offset_seconds"],
+        Value::Null,
+        "midnight UTC is a day, not a moment, so no clock can be drawn from it"
+    );
 }
 
 #[tokio::test]

@@ -19,7 +19,7 @@ import {
   trustedActionUrl,
   verdictSupportReference,
 } from '@pierre/chat-utils';
-import { intervalsConnectPath, noticeRequired } from '@pierre/shared-constants';
+import { cardForSlug, connectPlan, noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
 import { privateSendFailureText, type PlanThreadDraft, type UsePrivateLaneResult } from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
@@ -33,6 +33,8 @@ import type {
 
 import { Sheet } from '../../components/ui';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
+import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { useSignInModal } from '../../hooks/useSignInModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { openExternal } from '../../utils/openExternal';
@@ -174,6 +176,10 @@ export function ChatThread({
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
   // form alone.
   const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
+  // The provider sign-in a reply's reconnect opens for a card that signs in
+  // (COROS, TrainingPeaks, Strava or Garmin with no seat).
+  const signIn = useSignInModal();
+  const openSignIn = signIn.open;
 
   // Opening the keyboard shortens the visible list. `onContentSizeChange` only
   // fires when the CONTENT changes, so tapping into the composer on an existing
@@ -380,43 +386,62 @@ export function ChatThread({
   }, [t]);
 
   /**
-   * Authorize a provider from a reply that asks for it.
+   * Reconnect the provider a reply names (`garmin`, `strava`, `sciotte_coros`,
+   * `whoop`…) the way its card's `connectPlan` says.
    *
-   * `WebBrowser.openAuthSessionAsync` presents a sheet over the app that
-   * hands the callback back to it. Opening the reply's URL with the generic
-   * opener instead sends the athlete to Safari, where the callback has
-   * nowhere to return to.
+   * An authorization runs through `WebBrowser.openAuthSessionAsync`, which
+   * presents a sheet over the app that hands the callback back to it, named
+   * as the authorize route takes it — never a card's `sciotte_*` key.
+   * Opening the reply's URL with the generic opener instead sends the athlete
+   * to Safari, where the callback has nowhere to return to. A card that signs
+   * in opens the sign-in window here.
    */
   const handleConnectProvider = useCallback(async (provider: string) => {
-    const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
-    // Intervals.icu reconnects the way its card was linked, and never through
-    // an own-app setup: a key-linked card (a coach's — only the key reads the
-    // athletes they coach) reopens the key form, an authorized card goes back
-    // to the authorization, and with no client to authorize under the key
-    // form is the only way in.
-    if (provider === 'intervals_icu' && status) {
-      const path = intervalsConnectPath(status);
-      if (path !== 'authorize') {
-        setIntervalsSheet({ offersAuthorize: path === 'choose' });
+    const cards = providerStatus.connectedProviders;
+    const card = cardForSlug(provider, cards) ?? cards.find((p) => p.provider === provider);
+    if (!card) {
+      // No card read yet: a sign-in backend still signs in, anything else
+      // is the authorization of the slug itself.
+      const target = sciotteTargetForBackend(provider);
+      if (target) {
+        openSignIn(target, undefined);
         return;
       }
       await providerStatus.handleConnectProvider(provider);
       return;
     }
+    const primary = connectPlan(card).primary;
+    // Intervals.icu reconnects the way its card was linked, and never through
+    // an own-app setup: a key-linked card (a coach's — only the key reads the
+    // athletes they coach) reopens the key form, an authorized card goes back
+    // to the authorization, and with no client to authorize under the key
+    // form is the only way in.
+    if (primary.kind === 'intervals') {
+      if (primary.path !== 'authorize') {
+        setIntervalsSheet({ offersAuthorize: primary.path === 'choose' });
+        return;
+      }
+      await providerStatus.handleConnectProvider(card.provider);
+      return;
+    }
+    if (primary.kind === 'sign_in') {
+      openSignIn(primary.target, card);
+      return;
+    }
     // No app of the server's can authorize the provider for this athlete:
     // the credentials sheet asks for their own before any notice.
-    if (status?.own_app_required) {
-      providerStatus.setNeedsCredentialsProvider(provider);
+    if (card.own_app_required) {
+      providerStatus.setNeedsCredentialsProvider(card.provider);
       return;
     }
     // A provider whose notice the account has not accepted (WHOOP's owner
     // authorization) states it first; its Continue starts the flow.
-    if (noticeRequired(provider, status?.consent_required)) {
-      setNoticeFor(provider);
+    if (noticeRequired(card.provider, card.consent_required)) {
+      setNoticeFor(card.provider);
       return;
     }
-    await providerStatus.handleConnectProvider(provider);
-  }, [providerStatus]);
+    await providerStatus.handleConnectProvider(primary.kind === 'oauth' ? primary.provider : card.provider);
+  }, [providerStatus, openSignIn]);
 
   // An app saved in the credentials sheet changes the status the gate above
   // reads (`own_app_required`), so closing the sheet re-reads it: the next
@@ -634,6 +659,22 @@ export function ChatThread({
           void providerStatus.refreshAfterLink();
         }}
       />
+
+      {/* Mounted only while a reply's reconnect signs in, so a thread that
+          never asks carries none of the sign-in's state. */}
+      {signIn.target !== null && (
+        <SciotteLoginModal
+          visible
+          onClose={signIn.close}
+          onConnected={() => {
+            signIn.close();
+            void providerStatus.refreshAfterLink();
+          }}
+          target={signIn.target}
+          consentRequired={signIn.consentRequired}
+          onOAuthRequired={() => void providerStatus.refreshAfterLink()}
+        />
+      )}
 
       <Sheet
         visible={providerStatus.needsCredentialsProvider !== null}

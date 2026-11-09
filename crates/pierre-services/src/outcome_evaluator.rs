@@ -281,6 +281,7 @@ impl EvalCtx<'_> {
             &self.tenant_id,
             (self.start(), self.end()),
             SourceFilter::All,
+            stored_health::as_stored,
         )
         .await
         .inspect_err(|e| warn!(error = %e, "recovery read failed; will retry"))
@@ -518,7 +519,7 @@ async fn run_judge(
 
 /// Spawn the background outcome evaluator.
 ///
-/// Mirrors the followup scheduler: a [`spawn_periodic`] loop whose schedule
+/// A [`spawn_periodic`] loop whose schedule
 /// lives in the worker ledger, so a restart resumes it; each tick scans due
 /// advice, evaluates it, and records the outcome. Best-effort — every error
 /// is logged, never propagated. Needs the shared [`ChatProvider`] singleton for
@@ -1092,7 +1093,7 @@ mod tests {
                 .db
                 .repositories()
                 .llm_usage
-                .get_recent_llm_calls_admin(10)
+                .get_recent_llm_calls_admin(None, 10)
                 .await
                 .unwrap();
             if !rows.is_empty() {

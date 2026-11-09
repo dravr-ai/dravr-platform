@@ -294,6 +294,7 @@ fi
 EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
+SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7
 # compare against it and must not run on a truncated scan.
@@ -385,15 +386,40 @@ else
         fi
 
         # 3c. generated TS SDK types — stale types red CI: Server E2E (SDK Types Up-to-Date)
+        # The SDK is generated from what /mcp serves, which is the registry minus
+        # the tools kept to Dravr's own surfaces (declare_security! first_party_only).
+        # The admin tools/list fixture is that served set, and
+        # mcp_surface_fixture_test pins it to the live wire, so the types are
+        # compared against it, and it against src.
         if [[ ! -f "$TS_FILE" ]]; then
             echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
             TOOL_DRIFT=true
+        elif [[ ! -f "$SERVED_FIXTURE" ]]; then
+            echo -e "${RED}❌ ${SERVED_FIXTURE} not found — this check is stale.${NC}"
+            TOOL_DRIFT=true
+        elif ! SERVED_SCAN="$(python3 -c 'import json,sys; print("\n".join(t["name"] for t in json.load(open(sys.argv[1]))["tools"]))' "$SERVED_FIXTURE")"; then
+            # Judged on the reader's own exit status: a fixture it cannot parse
+            # must not read as an empty served set.
+            echo -e "${RED}❌ Could not read the tool names in ${SERVED_FIXTURE}.${NC}"
+            TOOL_DRIFT=true
+        elif [[ -z "${SERVED_SCAN//[[:space:]]/}" ]]; then
+            # Fail closed: a served set of no tools verifies nothing.
+            echo -e "${RED}❌ ${SERVED_FIXTURE} lists no tools — this check would compare nothing.${NC}"
+            TOOL_DRIFT=true
         else
+            SERVED_TOOLS="$(printf '%s\n' "$SERVED_SCAN" | sort -u)"
+            SERVED_COUNT="$(printf '%s\n' "$SERVED_TOOLS" | grep -c . || true)"
+            PHANTOM_SERVED="$(comm -13 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$SERVED_TOOLS") || true)"
+            if [[ -n "$PHANTOM_SERVED" ]]; then
+                echo -e "${RED}❌ ${SERVED_FIXTURE} serves tools src does not register:${NC}"
+                printf '%s\n' "$PHANTOM_SERVED" | sed 's/^/   /'
+                TOOL_DRIFT=true
+            fi
             TS_TOOLS="$(grep -oE '"[a-z0-9_]+"' "$TS_FILE" | tr -d '"' | sort -u || true)"
             TS_HEADER="$(grep -oE '^// Tool count: [0-9]+' "$TS_FILE" | grep -oE '[0-9]+' || true)"
-            TS_DIFF="$(comm -3 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
-            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SRC_COUNT" ]]; then
-                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SRC_COUNT} tools in src (header says '${TS_HEADER}').${NC}"
+            TS_DIFF="$(comm -3 <(printf '%s\n' "$SERVED_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
+            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SERVED_COUNT" ]]; then
+                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SERVED_COUNT} tools /mcp serves (header says '${TS_HEADER}').${NC}"
                 [[ -n "$TS_DIFF" ]] && printf '%s\n' "$TS_DIFF" | sed 's/^/   /'
                 echo -e "${YELLOW}   Regenerate against a running server: cd packages/mcp-types && bun run generate${NC}"
                 TOOL_DRIFT=true
@@ -405,7 +431,7 @@ else
             echo -e "${YELLOW}   and regenerated SDK types in the SAME change — else main reds post-merge.${NC}"
             FAILED=true
         else
-            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS, the count assertion, and the SDK types.${NC}"
+            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${SERVED_COUNT} /mcp serves.${NC}"
         fi
     fi
 fi
@@ -433,12 +459,34 @@ root = pathlib.Path(sys.argv[1])
 INJURY = re.compile(r"injury risk|injury probabilit|risque de blessure|probabilit\w* de blessure", re.I)
 LOAD = re.compile(r"acwr|load spike|load increase|acute:chronic|charge aigu|pic de charge|hausses soudaines", re.I)
 NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re.I)
-GREEN = re.compile(r"green band|bande verte", re.I)
+# The translated locales each pair their own injury and load phrases with their
+# own negations. A negation does not cross languages: Spanish "no" would excuse
+# an English line, and Portuguese "no" means "in the", not "not".
+TRANSLATED = (
+    (  # es
+        re.compile(r"riesgo(?:\s+\w+){0,2}\s+de\s+lesi|probabilidad(?:\s+\w+){0,2}\s+de\s+lesi", re.I),
+        re.compile(r"acwr|picos? de carga|saltos? de carga|carga aguda|relaci[o\u00f3]n de carga|relaci[o\u00f3]n aguda|aumentos? (?:brusco|repentino)", re.I),
+        re.compile(r"nunca|jam[a\u00e1]s|\bno\b|\bni\b|retirad", re.I),
+    ),
+    (  # de
+        re.compile(r"verletzungs(?:risik|wahrscheinlich|gefahr|prognose|chance)", re.I),
+        re.compile(r"acwr|belastungsspitze|belastungssprung|belastungsspr\u00fcnge|belastungsverh\u00e4ltnis|akute[rn]? belastung|belastungssteigerung", re.I),
+        re.compile(r"niemals|\bnie\b|\bnicht\b|\bkein\w*|ausgemustert", re.I),
+    ),
+    (  # pt
+        re.compile(r"risco(?:\s+\w+){0,2}\s+de\s+les|probabilidade(?:\s+\w+){0,2}\s+de\s+les", re.I),
+        re.compile(r"acwr|picos? de carga|saltos? de carga|carga aguda|r[a\u00e1]cio de carga|r[a\u00e1]cio agudo|aumentos? s[u\u00fa]bito", re.I),
+        re.compile(r"nunca|jamais|\bn[a\u00e3]o\b|\bnem\b|retirad", re.I),
+    ),
+)
+GREEN = re.compile(r"green band|bande verte|banda verde|faixa verde|gr\u00fcne[rsn]? (?:band|bereich|zone)", re.I)
 ABS_TSB = re.compile(r"TSB\s*[<>\u2264\u2265]\s*[-\u2212+]?\d", re.I)
 hits = []
 
 def classify(text):
     if INJURY.search(text) and LOAD.search(text) and not NEGATED.search(text):
+        return "ACWR presented as injury risk"
+    if any(i.search(text) and l.search(text) and not n.search(text) for i, l, n in TRANSLATED):
         return "ACWR presented as injury risk"
     if GREEN.search(text):
         return "red/green safety verdict"

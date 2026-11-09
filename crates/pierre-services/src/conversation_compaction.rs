@@ -11,15 +11,16 @@
 //! prompt is about to be, compares it against the model's context window,
 //! and takes one of three actions:
 //!
-//! 1. **Under warn threshold (70%) and within the message cap** — do nothing.
-//! 2. **Warn band (70%–95%) OR over the message cap** — summarize the oldest N
+//! 1. **Under the warn threshold and within the message cap** — do nothing.
+//! 2. **Between the warn and emergency thresholds OR over the message cap** —
+//!    summarize the oldest N
 //!    turns via the LLM, persist a [`CompactionBlock`], and replace those
 //!    turns in the outgoing [`ChatMessage`] vector with a single system
 //!    message. The block is re-injected on later turns by
 //!    `build_llm_messages_with_blocks`, so summarized context survives instead
 //!    of being lost. The message cap routes here too (rather than dropping)
 //!    because it is an under-estimation backstop, not a reason to lose history.
-//! 3. **Above emergency (95% — the hard token cliff)** — sliding-window
+//! 3. **Above the emergency threshold** — sliding-window
 //!    fallback: drop the oldest turns outright. This is the one place there is
 //!    no budget for a summarizer LLM call before the window would overflow, and
 //!    the backstop when summarization can't shrink an over-cap thread.
@@ -220,11 +221,12 @@ impl ConversationCompactor {
                 // raw-dropping, so the thread keeps its context. `try_summarize`
                 // already falls back to sliding on an LLM error. If it returns
                 // `NoOp` (too few real turns to compact) while we are still over
-                // the message cap, slide as the backstop so the cap is never
-                // violated.
+                // the message cap, slide as the backstop. A summary that did run
+                // can leave the turn over the cap: it removes at most
+                // `summarize_oldest_n` rows per turn.
                 let outcome = self.try_summarize(&mut ctx, before).await?;
-                // The backstop still exists — the cap must never be violated —
-                // but it is now genuinely a last resort rather than the live
+                // The backstop still exists, but it is genuinely a last resort
+                // rather than the live
                 // path. `pick_range` truncates a short run instead of aborting
                 // on it, so `NoOp` here means there really was nothing to
                 // summarize, and the log says so.

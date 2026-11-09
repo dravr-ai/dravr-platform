@@ -8,6 +8,7 @@
 //! the rows of the workout's splits and laps, and the projection of its
 //! merged session into [`ActivityDetailResponse`].
 
+use pierre_core::civil_time;
 use pierre_core::models::{Lap, Split};
 use serde::Serialize;
 
@@ -109,6 +110,11 @@ impl ActivityDetailResponse {
                 .map(|laps| laps.iter().map(ActivityLap::from).collect())
                 .unwrap_or_default(),
             conversation_id: None,
+            // A date-only start is a day, not a moment: a clock drawn from it
+            // would be midnight UTC moved by the offset a recording filled in.
+            utc_offset_seconds: session
+                .utc_offset_seconds()
+                .filter(|_| !civil_time::is_date_only(session.start_date())),
         }
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A failed turn is one line — the message in the error ink and an inline retry, no slab, no chip
+// ABOUTME: A failed turn is one line — the message in the error ink and, when retryable, an inline retry
 // ABOUTME: Pins the retry's testID and the path it calls, and that the clock still sits on the row
 
 import React from 'react';
@@ -11,17 +11,24 @@ import { MessageList } from '../src/screens/chat/MessageList';
 import type { Message } from '../src/types';
 
 const ERROR_ID = 'error-1';
-const ERROR_TEXT = '⚠️ Network request failed\n\nPlease try again.';
+const ERROR_TEXT = '⚠️ Network request failed';
 
 const MESSAGES: Message[] = [
   { id: 'user-1', role: 'user', content: 'Comment était ma semaine ?', created_at: '2026-09-02T10:00:00Z' },
-  { id: ERROR_ID, role: 'assistant', content: ERROR_TEXT, created_at: '2026-09-02T10:00:04Z', isError: true },
+  {
+    id: ERROR_ID,
+    role: 'assistant',
+    content: ERROR_TEXT,
+    created_at: '2026-09-02T10:00:04Z',
+    isError: true,
+    retryable: true,
+  },
 ];
 
-function renderList(onRetryMessage = jest.fn()) {
+function renderList(onRetryMessage = jest.fn(), messages: Message[] = MESSAGES) {
   return render(
     <MessageList
-      messages={MESSAGES}
+      messages={messages}
       isLoading={false}
       isSending={false}
       messageFeedback={{}}
@@ -61,6 +68,14 @@ describe('MessageList error turn', () => {
     expect(retry.props.className).toContain('text-primary');
     expect(retry.props.className).toContain('font-medium');
     expect(retry.props.children).toBe('Retry');
+  });
+
+  it('offers no retry on a failure a retry would only repeat', () => {
+    const refused: Message[] = [MESSAGES[0], { ...MESSAGES[1], retryable: undefined }];
+    const { getByText, queryByTestId } = renderList(jest.fn(), refused);
+
+    expect(getByText(ERROR_TEXT)).toBeTruthy();
+    expect(queryByTestId('message-retry')).toBeNull();
   });
 
   it('pressing retry re-sends that message', () => {

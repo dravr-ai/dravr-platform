@@ -6,6 +6,7 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 // Mock dashboard barrel via explicit /index path to avoid macOS case-insensitive
 // collision between ../dashboard (resolves to Dashboard.tsx) and dashboard/ directory
@@ -92,7 +93,9 @@ function renderDashboard() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <Dashboard />
+      <ThemeProvider>
+        <Dashboard />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
@@ -119,10 +122,10 @@ describe('Dashboard Component', () => {
     });
 
     // Admin sidebar tabs: Users, Agents, Agent Store, Groups,
-    // Tool Management, Prompts, Activity, Engagement, Notifications,
+    // Tool Management, Prompts, Activity, Engagement,
     // Service Tokens, Analytics (Overview was removed)
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Service Tokens').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^(Service|API) Tokens$/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
@@ -205,7 +208,7 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Service Tokens');
+    const buttons = screen.getAllByText(/^(Service|API) Tokens$/);
     await user.click(buttons[0]);
 
     // Wait for lazy component to load

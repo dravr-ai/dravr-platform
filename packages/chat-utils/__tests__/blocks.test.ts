@@ -262,6 +262,13 @@ describe('isModelReply', () => {
     expect(isModelReply('agent_welcome')).toBe(false);
   });
 
+  it("is false for the notice the platform closes a failed turn with (carnet#1363)", () => {
+    // The `messaging.turn_interrupted` notice already says to send the
+    // question again: a Regenerate on it offered retry twice and re-sent the
+    // question, and a rating filed feedback against a row no model wrote.
+    expect(isModelReply('interrupted')).toBe(false);
+  });
+
   it('is true for a model turn, whatever it stopped on, and for a row with no stamp', () => {
     expect(isModelReply('stop')).toBe(true);
     expect(isModelReply('length')).toBe(true);

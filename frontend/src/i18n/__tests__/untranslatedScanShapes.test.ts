@@ -299,7 +299,7 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
     // athlete by its name during the audit and it is not — the walk was right
     // and the reading was wrong.
     ['components/UnifiedConnections.tsx', "'connections' is an ADMIN_ONLY_TAB"],
-    ['components/EvalHarnessTab.tsx', 'the eval harness is operator chrome'],
+    ['components/VerdictCalibrationPanel.tsx', 'the verdict calibration panel is operator chrome'],
     ['components/UserDetailDrawer.tsx', 'user administration'],
   ])('%s is operator — %s', (relative) => {
     expect(isAthleteSurface(path.join(web, relative))).toBe(false);
@@ -376,7 +376,7 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
  *
  * `name: 'Telegram'` and `name: 'Cancel'` are the same shape: one capitalised
  * word behind a key that carries copy elsewhere. Every Dashboard tab is
- * `name: t('shell.navUsers')`, so `name` cannot be dropped from the pattern
+ * `name: t('nav.home')`, so `name` cannot be dropped from the pattern
  * without blinding the scanner to the tab strip — which is the exact miss this
  * scanner was built for. Its opening comment records it: the first sweep
  * "reported a file clean that still had 44 strings in it — `Cancel` is one

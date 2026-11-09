@@ -31,6 +31,7 @@ use uuid::Uuid;
 use crate::implementations::configuration_output::{
     ConfigurationDocument, UserConfigurationResult,
 };
+use crate::read_subject;
 
 /// Override keys that belong to the athlete's physiological profile, saved
 /// with `set_physiology` rather than here: its twelve fields, then the other
@@ -54,6 +55,11 @@ pub const MEASUREMENT_KEYS: [&str; 17] = [
     "weight_kg",
     "threshold_pace",
 ];
+
+/// The [`MEASUREMENT_KEYS`] that are the athlete's wellness, as carnet#1387
+/// splits their physiology: a document saved before measurements were
+/// refused may still carry them.
+const WELLNESS_KEYS: [&str; 3] = ["resting_hr", "weight", "weight_kg"];
 
 /// Compose the document for `profile` and `overrides`: the template's values
 /// as the base parameters, the overrides on top.
@@ -124,6 +130,26 @@ pub fn configuration_payload(user_id: &Uuid, stored: Option<&Value>) -> UserConf
         configuration,
         available_parameters: AVAILABLE_PARAMETERS_COUNT,
     }
+}
+
+/// `result` as the in-flight read may show it.
+///
+/// Whole on the athlete's own read and wherever their wellness reads; else
+/// without the overrides that are their wellness ([`WELLNESS_KEYS`]), from
+/// the overrides and from what they amount to. The template's values carry
+/// none.
+#[must_use]
+pub(crate) fn readable_configuration(
+    mut result: UserConfigurationResult,
+) -> UserConfigurationResult {
+    if !read_subject::wellness_readable() {
+        let document = &mut result.configuration;
+        for key in WELLNESS_KEYS {
+            document.session_overrides.remove(key);
+            document.effective_parameters.remove(key);
+        }
+    }
+    result
 }
 
 /// Refuse overrides that belong to the physiological profile, naming each

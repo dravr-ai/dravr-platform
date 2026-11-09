@@ -23,6 +23,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use pierre_core::transport::Transport;
 use pierre_core::transport::TransportPolicy;
@@ -381,6 +382,7 @@ async fn turn_prompt(
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &web_profile("fr"),
     )
@@ -614,6 +616,7 @@ async fn platform_rows_do_not_stand_in_for_the_introduction() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -968,6 +971,7 @@ async fn a_first_reply_on_a_surface_without_a_list_panel_introduces_the_agent_be
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
+            grant: OAuthScope::self_grant(),
         },
         &telegram,
     )

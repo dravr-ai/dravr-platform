@@ -94,14 +94,14 @@ describe('PreApprovedEmails', () => {
     expect(screen.getAllByText(/Invitation expires:/)).toHaveLength(1);
   });
 
-  it('stamps each allow in the reader language, not a hard-coded en-US', async () => {
+  it('stamps each allow in English in a French session', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([WAITING]);
     await i18n.changeLanguage('fr');
     try {
       renderView();
 
-      expect(await screen.findByText('Allowed: 20 août 2026')).toBeTruthy();
-      expect(screen.queryByText('Allowed: Aug 20, 2026')).toBeNull();
+      expect(await screen.findByText('Allowed: Aug 20, 2026')).toBeTruthy();
+      expect(screen.queryByText('Allowed: 20 août 2026')).toBeNull();
     } finally {
       await i18n.changeLanguage('en');
     }
@@ -176,7 +176,11 @@ describe('PreApprovedEmails', () => {
 
     renderView();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+    const remove = await screen.findByRole('button', { name: 'Remove pre-approval' });
+    // The control withdraws the allow only; it must not read as deleting a user.
+    expect(remove.getAttribute('title')).toMatch(/is not deleted/);
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    fireEvent.click(remove);
 
     await waitFor(() => expect(adminApi.disallowEmail).toHaveBeenCalledWith('alpha@example.com'));
     expect(

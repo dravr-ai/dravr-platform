@@ -70,8 +70,8 @@ use uuid::Uuid;
 
 use crate::coach_consents::{link_offer, require_app_for_grant, set_coach_consents, ConsentChange};
 use crate::coach_platform::{coach_platform, CoachPlatform, RosterRead};
-use crate::delegated_link_states::{assess, Assessed, LinkState};
-use crate::delegated_read::{holds_own_connection, OwnLogins};
+use crate::delegated_link_states::{assess, shares_with_coach, Assessed, LinkState};
+use crate::delegated_read::{holds_own_connection, own_platform_ids, OwnLogins};
 use crate::delegation_refusal::Refusal;
 use crate::provider_notice::notice_in_force;
 use crate::trainingpeaks_accounts::{email_binding, link_binding, EmailBinding};
@@ -85,7 +85,9 @@ pub struct RosterEntry {
     pub link: Option<DelegatedConnection>,
     /// The live member of the group whose verified Dravr email is the
     /// athlete's roster email, when no link of the coach's holds the athlete
-    /// or the member and the platform gives the coach access to the athlete.
+    /// or the member, the member does not connect the platform with an
+    /// account of their own, and the platform gives the coach access to the
+    /// athlete.
     /// It preselects the picker, and is the member a join proposes
     /// ([`crate::delegated_link_on_join::propose_on_join`]).
     pub suggested_member_user_id: Option<Uuid>,
@@ -498,14 +500,18 @@ pub async fn roster_for_group(
                 return None;
             }
             // A member who already holds a live link of the coach's on the
-            // platform is no unlinked member: proposing them is refused.
-            let holds_a_link = matches!(view.state, LinkState::MemberHoldsAnotherLink { .. });
+            // platform is no unlinked member, and one who connects it with an
+            // account of their own needs no link: neither is suggested.
+            let needs_no_link = matches!(
+                view.state,
+                LinkState::MemberHoldsAnotherLink { .. } | LinkState::MemberOwnConnection { .. }
+            );
             let suggested_member_user_id = view
                 .state
                 .member()
                 .filter(|member| {
                     bound
-                        && !holds_a_link
+                        && !needs_no_link
                         && member.group.id == group.id
                         && view.athlete.access != Some(RosterAccess::NoAccess)
                 })
@@ -530,9 +536,11 @@ pub async fn roster_for_group(
 /// missing or is not the member's verified email, a member whose email is
 /// unverified, or the coach naming themselves; a
 /// not-found error when the member is not a live member of the group; an
-/// already-exists error (`already_proposed`, `athlete_already_linked`) when a
-/// live link holds the member or the athlete; the roster's own refusals; or a
-/// repository error.
+/// already-exists error when the member shares with the coach and their own
+/// session on the platform carries the roster athlete's id (`own_connection`:
+/// they need no link), or a live link holds the member or the athlete
+/// (`already_proposed`, `athlete_already_linked`); the roster's own refusals;
+/// or a repository error.
 pub async fn propose(
     services: DelegationServices<'_>,
     group: &CoachingGroup,
@@ -566,6 +574,19 @@ pub async fn propose(
     let Some(entry) = roster.into_iter().find(|a| a.id == athlete) else {
         return Err(Refusal::AthleteNotOnRoster.error(Some(platform)));
     };
+    // A sharing member's own session carrying the roster athlete's id is
+    // proof the athlete is them, stronger than the email binding, which a
+    // roster entry with no email could never pass: they need no link. The
+    // sessions of a member who stopped sharing are never read, as the roster's
+    // link states read them ([`crate::delegated_link_states`]).
+    if shares_with_coach(repos, coach_user_id, member).await?
+        && own_platform_ids(repos.oauth_tokens.as_ref(), member, backend)
+            .await?
+            .iter()
+            .any(|id| id == athlete)
+    {
+        return Err(Refusal::OwnConnection.error(Some(platform)));
+    }
     // The platform lists the athlete but lets the coach read nothing of
     // theirs: a link would serve no read.
     if entry.access == Some(RosterAccess::NoAccess) {

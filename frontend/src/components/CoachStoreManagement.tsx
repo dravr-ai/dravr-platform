@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Lazy load tab content components
 const CoachReviewQueue = lazy(() => import('./CoachReviewQueue'));
@@ -74,12 +75,14 @@ export default function CoachStoreManagement() {
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined) return '—';
-    return num.toLocaleString();
+    return num.toLocaleString(ADMIN_LOCALE);
   };
 
+  // `rejection_rate` arrives as a percentage already (rejected / decided * 100,
+  // `store_listings.rs`), so it is printed as is, never scaled again.
   const formatPercentage = (num: number | undefined) => {
     if (num === undefined) return '—';
-    return `${(num * 100).toFixed(1)}%`;
+    return `${num.toFixed(1)}%`;
   };
 
   return (
@@ -212,7 +215,7 @@ export default function CoachStoreManagement() {
                 'flex items-center gap-2 px-1 py-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === tab.id
                   ? 'border-primary text-primary'
-                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-white/30'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline'
               )}
             >
               {tab.icon}

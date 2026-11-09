@@ -24,10 +24,12 @@ use tracing::{debug, warn};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
 use crate::chat_catalogue;
+use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
 use crate::security::{RuntimeTool, SecurityLabels};
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
+use pierre_core::transport::TransportPolicy;
 
 /// Build a typed [`ToolSchema`] from a tronc [`Tool`] definition.
 ///
@@ -99,6 +101,9 @@ pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn RuntimeTool>>,
     /// Tool categories for organization, ordered for the same reason.
     categories: BTreeMap<String, Vec<String>>,
+    /// What each tool that declared it reads ([`DataClass`]). A tool absent
+    /// here declared none: it reads its caller's own data, if any.
+    data_classes: BTreeMap<String, DataClass>,
     /// External tool description overlays from contremaitre (hot-reloadable)
     tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
 }
@@ -110,6 +115,7 @@ impl ToolRegistry {
         Self {
             tools: BTreeMap::new(),
             categories: BTreeMap::new(),
+            data_classes: BTreeMap::new(),
             tool_descriptions: None,
         }
     }
@@ -120,10 +126,25 @@ impl ToolRegistry {
     }
 
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
+    ///
+    /// A training- or wellness-class tool ([`DataClass::reads_a_coached_athlete`])
+    /// is listed with the shared `athlete` property ([`athlete_property`]):
+    /// the class is what lets the dispatch chokepoint read a named coached
+    /// athlete for it, so the argument follows the declaration rather than
+    /// each tool's own schema. Chat strips it again
+    /// ([`Self::chat_callable_schemas`]).
     fn build_schema(&self, tool: &Arc<dyn RuntimeTool>) -> ToolSchema {
         let def = tool.definition();
         let name = def.name.clone();
         let mut schema = schema_from_definition(def);
+        if self.reads_a_coached_athlete(&name) {
+            let (property, declared) = athlete_property();
+            schema
+                .input_schema
+                .properties
+                .get_or_insert_with(Default::default)
+                .insert(property, declared);
+        }
 
         if let Some(desc_registry) = &self.tool_descriptions {
             if let Some(overlay) = desc_registry.get_overlay(&name) {
@@ -178,6 +199,32 @@ impl ToolRegistry {
         }
     }
 
+    /// Declare what the registered tool `name` reads ([`DataClass`]).
+    ///
+    /// Returns whether `name` is registered; a class declared for a tool this
+    /// build does not register is dropped, as the tool is.
+    pub fn declare_data_class(&mut self, name: &str, class: DataClass) -> bool {
+        if !self.tools.contains_key(name) {
+            return false;
+        }
+        self.data_classes.insert(name.to_owned(), class);
+        true
+    }
+
+    /// What a tool reads, as it declared; `None` for an unknown tool and for
+    /// one that declared no class.
+    #[must_use]
+    pub(crate) fn data_class(&self, name: &str) -> Option<DataClass> {
+        self.data_classes.get(name).copied()
+    }
+
+    /// Whether `name` reads a coached athlete a call names: a training- or
+    /// wellness-class tool, which takes `athlete=` over MCP and A2A.
+    fn reads_a_coached_athlete(&self, name: &str) -> bool {
+        self.data_class(name)
+            .is_some_and(DataClass::reads_a_coached_athlete)
+    }
+
     /// Get a tool by name
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Arc<dyn RuntimeTool>> {
@@ -193,6 +240,25 @@ impl ToolRegistry {
     #[must_use]
     pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {
         self.tools.get(name).map(|tool| tool.security_class())
+    }
+
+    /// Where a tool may be listed and run, as it declares through
+    /// [`RuntimeTool::transport_policy`]. `None` for an unknown tool name.
+    ///
+    /// Read off the tool object like [`Self::security_class`], never from a
+    /// table beside the registry.
+    #[must_use]
+    pub fn transport_policy(&self, name: &str) -> Option<TransportPolicy> {
+        self.tools.get(name).map(|tool| tool.transport_policy())
+    }
+
+    /// Whether the tool named `name` can only fail with no USDA key configured.
+    /// A name the registry does not resolve needs nothing.
+    #[must_use]
+    pub fn requires_food_database(&self, name: &str) -> bool {
+        self.tools
+            .get(name)
+            .is_some_and(|tool| tool.requires_food_database())
     }
 
     /// The MCP task support a tool declares on its own definition (SEP-2663).
@@ -211,6 +277,46 @@ impl ToolRegistry {
             .get(name)
             .and_then(|tool| tool.definition().execution)
             .map(|execution| execution.task_support)
+    }
+
+    /// The name a tool goes by in front of a person: the title its annotations
+    /// declare, read off the tool object like [`Self::security_class`].
+    ///
+    /// The registry id is for machines and logs. Consent worded around
+    /// `disconnect_provider` asks the athlete to approve an identifier. An
+    /// unknown tool, or one that declared no title, reads as its id.
+    #[must_use]
+    pub fn display_name(&self, name: &str) -> String {
+        self.tools
+            .get(name)
+            .and_then(|tool| tool.definition().annotations)
+            .and_then(|annotations| annotations.title)
+            .unwrap_or_else(|| name.to_owned())
+    }
+
+    /// Whether `tool` declares the `WRITES_DATA` capability, or `None` for a name
+    /// the registry does not hold.
+    #[cfg(feature = "client-chat")]
+    #[must_use]
+    pub(crate) fn writes_data(&self, tool: &str) -> Option<bool> {
+        self.tools.get(tool).map(|registered| {
+            registered
+                .capabilities()
+                .contains(ToolCapabilities::WRITES_DATA)
+        })
+    }
+
+    /// Whether a call of `tool` may change data: it declares `WRITES_DATA`, it is
+    /// labelled irreversible, or the registry does not hold it, since nothing
+    /// then vouches that it only reads.
+    #[must_use]
+    pub fn may_change_data(&self, tool: &str) -> bool {
+        self.tools.get(tool).is_none_or(|registered| {
+            registered
+                .capabilities()
+                .contains(ToolCapabilities::WRITES_DATA)
+                || registered.security_class().is_irreversible()
+        })
     }
 
     /// Check if a tool is registered
@@ -331,7 +437,10 @@ impl ToolRegistry {
     ///
     /// Each schema here omits `format`: a chat turn never picks TOON
     /// (carnet#1314). The MCP listings (`user_visible_schemas` and the rest)
-    /// keep it, for external clients that opt in.
+    /// keep it, for external clients that opt in. A training- or
+    /// wellness-class tool also omits `athlete`: in a coach's thread the
+    /// athlete is implicit, and anywhere else in chat a name would be the
+    /// model's guess, which the dispatch chokepoint refuses (carnet#1387).
     #[must_use]
     pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
         const CHAT_CALLABLE_CATEGORIES: &[&str] = &[
@@ -376,9 +485,14 @@ impl ToolRegistry {
                 allowed_names.contains(name.as_str())
                     && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
-            .map(|(_, tool)| {
+            .map(|(name, tool)| {
                 let mut schema = self.build_schema(tool);
                 chat_catalogue::withhold_chat_parameters(&mut schema.input_schema);
+                if self.reads_a_coached_athlete(name) {
+                    if let Some(properties) = &mut schema.input_schema.properties {
+                        properties.remove(ATHLETE_ARGUMENT);
+                    }
+                }
                 schema
             })
             .collect();
@@ -396,6 +510,17 @@ impl ToolRegistry {
         // fixed the chat path alone and left `tools/list` shuffled; ordering
         // the container fixes every accessor at once.
         schemas
+    }
+
+    /// The chat-callable tools that declared `class`, in name order: what a
+    /// prompt names as callable for it is what a chat turn is offered.
+    #[must_use]
+    pub fn chat_callable_of_class(&self, class: DataClass) -> Vec<String> {
+        self.chat_callable_schemas()
+            .into_iter()
+            .map(|schema| schema.name)
+            .filter(|name| self.data_class(name) == Some(class))
+            .collect()
     }
 
     /// List schemas for admin tools only
@@ -503,7 +628,8 @@ impl fmt::Debug for ToolRegistry {
         debug
             .field("tool_count", &self.tools.len())
             .field("tools", &self.tool_names())
-            .field("categories", &self.categories());
+            .field("categories", &self.categories())
+            .field("data_classes", &self.data_classes);
         debug.field(
             "tool_descriptions",
             &self.tool_descriptions.as_ref().map(|r| r.count()),

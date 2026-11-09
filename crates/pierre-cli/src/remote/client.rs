@@ -86,6 +86,24 @@ impl RemoteClient {
             .map_err(|e| Self::transport_error(path, &e))
     }
 
+    /// PUT JSON and return the raw response so the caller can inspect status.
+    ///
+    /// Used by the Guardian and harness saves, whose 409 body says what the super
+    /// admin must read, which [`Self::put_json`] would flatten into one sentence.
+    ///
+    /// # Errors
+    /// Returns an error only when the request cannot be sent.
+    pub async fn put_raw<B: Serialize + Sync>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> AppResult<reqwest::Response> {
+        self.authed(self.http.put(self.url(path)).json(body))
+            .send()
+            .await
+            .map_err(|e| Self::transport_error(path, &e))
+    }
+
     /// POST JSON, requiring a 2xx; returns the parsed body.
     ///
     /// # Errors
@@ -172,8 +190,12 @@ impl RemoteClient {
     }
 
     /// Parse a 2xx JSON body, or map a non-2xx to an actionable error. Reads the
-    /// server's `AdminResponse.message` when present so the operator sees why.
-    async fn json_or_error(path: &str, resp: reqwest::Response) -> AppResult<Value> {
+    /// server's `AdminResponse.message` when present so the super admin sees why: a
+    /// 403 has several causes, and that message is the one that names which.
+    ///
+    /// # Errors
+    /// Returns an error on a non-2xx status.
+    pub async fn json_or_error(path: &str, resp: reqwest::Response) -> AppResult<Value> {
         let status = resp.status();
         let body = resp.json::<Value>().await.unwrap_or(Value::Null);
         if status.is_success() {
@@ -191,7 +213,7 @@ impl RemoteClient {
                 "Not authorized calling {path}. Run `pierre-cli auth login`. ({message})"
             ))),
             403 => Err(AppError::auth_invalid(format!(
-                "Forbidden calling {path}: {message} (a super-admin login is required)"
+                "Forbidden calling {path}: {message}"
             ))),
             _ => Err(AppError::external_service(
                 "pierre-server",

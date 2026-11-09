@@ -6,9 +6,10 @@
 
 //! Stored continuous series (carnet#999).
 //!
-//! The sync writes a provider's intraday samples into `data_point_series`
+//! A sync writes a provider's intraday samples, and an archive import an
+//! export's HRV readings, into `data_point_series`
 //! through riviere's [`TimeSeriesStore`](dravr_riviere::TimeSeriesStore),
-//! keyed on the data source that synced them and a riviere [`SeriesType`].
+//! keyed on the data source that holds them and a riviere [`SeriesType`].
 //! That table carries no user or tenant column: a series belongs to whoever
 //! owns its data source. So this read never takes a data-source id from its
 //! caller. It lists the athlete's own sources in the tenant, and reads only

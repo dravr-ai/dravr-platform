@@ -53,10 +53,11 @@ impl OAuth2Routes {
             &headers,
             &known_device_cookie_name(Self::cookies_secure(&context)),
         );
-        let text = LoginText::for_request(
+        let text = LoginText::for_client(
             &context.strings,
             &headers,
             form.get("ui_locales").map(String::as_str),
+            form.get("client_id").map(String::as_str),
         );
         let render = |error: &OAuth2Error| {
             Self::login_failure_response(&form, &text, &text.refusal(error), error.http_status())

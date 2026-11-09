@@ -623,7 +623,10 @@ pub(crate) fn test_server_config() -> ServerConfig {
     ServerConfig {
         llm_chain: placeholder_llm_chain(),
         oauth: test_oauth_config(),
-        usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
+        // A key the listing can see, whatever the process exports: `tools/list`
+        // leaves out what a keyless deployment can only fail. Nothing here calls
+        // USDA; the live suite injects the real one.
+        usda_api_key: Some(SecretString::from("test-usda-key")),
         // ServerConfig::default() leaves this at 0 (the derived usize default);
         // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
         // every activity-fetch path (group snapshots, the all-provider fetch) read
@@ -747,6 +750,24 @@ pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
         remote_url: Some(url.to_owned()),
         audience: None,
     };
+    config
+}
+
+/// [`test_server_config`] with no Garmin OAuth client, so no Garmin seat is
+/// offered and a usr/pwd Garmin sign-in stays the way in (carnet#1454): for a
+/// test that signs in to Garmin by usr/pwd for what the sign-in itself does,
+/// not for the move to Garmin's OAuth.
+pub(crate) fn test_server_config_usr_pwd_garmin() -> ServerConfig {
+    let mut config = test_server_config();
+    config.oauth.garmin = OAuthProviderConfig::default();
+    config
+}
+
+/// [`test_server_config_usr_pwd_garmin`] with the sciotte scraper service at
+/// `url`.
+pub(crate) fn test_server_config_with_sciotte_usr_pwd_garmin(url: &str) -> ServerConfig {
+    let mut config = test_server_config_with_sciotte(url);
+    config.oauth.garmin = OAuthProviderConfig::default();
     config
 }
 

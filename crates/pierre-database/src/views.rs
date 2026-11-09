@@ -51,7 +51,7 @@ use dravr_riviere::TimeSeriesStore;
 ///
 /// Consumers: middleware (`tenant`, `auth`), admin-route context, identity
 /// route layer, OAuth backend resolver, provider-refresh service, the A2A
-/// client (which authenticates via `api_keys` + `a2a` together).
+/// client (which authenticates via `oauth2_server` + `a2a` together).
 ///
 /// Every field listed here has its canonical home in this view; other views
 /// must not duplicate them.
@@ -146,7 +146,7 @@ pub struct AgentRepos {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout-template overrides
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
-    /// Coaching harness memory (compaction, facts, notes, followups, sessions)
+    /// Coaching harness memory (compaction, facts, sessions)
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,

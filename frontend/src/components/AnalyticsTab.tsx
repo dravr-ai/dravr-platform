@@ -7,6 +7,8 @@
 import { useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { useAdminTimeRange } from '../hooks/useAdminTimeRange';
+import { useAdminScope } from '../hooks/useAdminScope';
+import AdminScopeBar from './AdminScopeBar';
 import { usageAnalyticsQuery, llmConsumptionQuery, toolUsageQuery } from './analyticsQueries';
 import UsageAnalytics from './UsageAnalytics';
 import LlmConsumptionPanel from './LlmConsumptionPanel';
@@ -14,8 +16,13 @@ import ToolUsagePanel from './ToolUsagePanel';
 
 export default function AnalyticsTab() {
   const { timeRange } = useAdminTimeRange();
+  const { requested } = useAdminScope();
   const results = useQueries({
-    queries: [usageAnalyticsQuery(timeRange), llmConsumptionQuery(timeRange), toolUsageQuery(timeRange)],
+    queries: [
+      usageAnalyticsQuery(timeRange, requested),
+      llmConsumptionQuery(timeRange, requested),
+      toolUsageQuery(timeRange, requested),
+    ],
   });
   const settled = results.every((result) => !result.isPending);
   // Hold the panels back only for the first load. A later range change is
@@ -35,6 +42,7 @@ export default function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
+      <AdminScopeBar scope={results[1].data?.scope} />
       <UsageAnalytics />
       <LlmConsumptionPanel />
       <ToolUsagePanel />

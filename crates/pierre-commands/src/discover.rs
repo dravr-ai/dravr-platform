@@ -96,16 +96,9 @@ impl DiscoverHandler {
         let (offset, words) = split_page(&ctx.args);
         Ok(match Scope::parse(words) {
             Scope::All => {
-                let page = browse_store_page(
-                    &repos,
-                    ctx.tenant_id,
-                    None,
-                    coach_tools,
-                    offset,
-                    PAGE_SIZE,
-                    &ctx.locale,
-                )
-                .await?;
+                let page =
+                    browse_store_page(&repos, None, coach_tools, offset, PAGE_SIZE, &ctx.locale)
+                        .await?;
                 Listing {
                     agents: page.agents,
                     next_page: page
@@ -117,7 +110,6 @@ impl DiscoverHandler {
             Scope::Category(category) => {
                 let page = browse_store_page(
                     &repos,
-                    ctx.tenant_id,
                     Some(category),
                     coach_tools,
                     offset,

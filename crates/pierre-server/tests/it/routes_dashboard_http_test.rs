@@ -149,19 +149,13 @@ async fn record_call(setup: &DashboardTestSetup, key: &ApiKey, tool_name: &str) 
 }
 
 #[tokio::test]
-async fn test_dashboard_top_tools_ranks_calls_across_all_the_users_keys() {
+async fn test_dashboard_analytics_reports_no_api_key_tool_ranking() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let database = setup.resources.agent.database.as_ref();
-    let first = common::create_and_store_test_api_key(database, setup.user_id, "First Key")
+    let key = common::create_and_store_test_api_key(database, setup.user_id, "First Key")
         .await
-        .expect("create first key");
-    let second = common::create_and_store_test_api_key(database, setup.user_id, "Second Key")
-        .await
-        .expect("create second key");
-    record_call(&setup, &first, "get_athlete").await;
-    record_call(&setup, &first, "get_athlete").await;
-    record_call(&setup, &second, "get_athlete").await;
-    record_call(&setup, &second, "get_activities").await;
+        .expect("create key");
+    record_call(&setup, &key, "get_athlete").await;
 
     let response = AxumTestRequest::get("/api/dashboard/analytics?days=1")
         .header("authorization", &setup.auth_header())
@@ -170,22 +164,11 @@ async fn test_dashboard_top_tools_ranks_calls_across_all_the_users_keys() {
 
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json();
-    let ranked: Vec<(&str, u64)> = body["top_tools"]
-        .as_array()
-        .expect("top_tools is a list")
-        .iter()
-        .map(|t| {
-            (
-                t["tool_name"].as_str().unwrap(),
-                t["request_count"].as_u64().unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        ranked,
-        [("get_athlete", 3), ("get_activities", 1)],
-        "get_athlete's calls on both keys are summed"
+    assert!(
+        body.get("top_tools").is_none(),
+        "the Analytics tab counts tools from llm_usage alone: {body}"
     );
+    assert!(body.get("time_series").is_some(), "{body}");
 }
 
 #[tokio::test]

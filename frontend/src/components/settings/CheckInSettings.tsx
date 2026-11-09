@@ -20,7 +20,7 @@ export default function CheckInSettings() {
   const preference = checkIn.preference;
 
   return (
-    <div className="mt-5 pt-5 border-t ghost-border-faint flex items-start justify-between gap-4" data-testid="check-in-settings">
+    <div className="mt-5 pt-5 border-t ghost-border-faint flex flex-col items-start justify-between gap-4 sm:flex-row" data-testid="check-in-settings">
       <div className="min-w-0">
         <p className="font-medium text-on-surface">{t('settings.checkIn')}</p>
         <p className="text-sm text-on-surface-variant">{t('settings.checkInDescription')}</p>
@@ -30,7 +30,7 @@ export default function CheckInSettings() {
           </p>
         )}
       </div>
-      <div className="inline-block w-56 shrink-0">
+      <div className="w-full shrink-0 sm:w-80">
         <Select
           data-testid="check-in-settings-select"
           value={preference?.cadence ?? 'off'}

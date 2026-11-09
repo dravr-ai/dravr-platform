@@ -1,5 +1,5 @@
 // ABOUTME: Hot-reloadable harness config snapshot — compaction + guardrails dispatched from a single registry
-// ABOUTME: Loaded from system_settings at startup; PUT /admin/settings/harness installs a new snapshot
+// ABOUTME: Loaded from system_settings at startup and re-read by every instance; PUT /admin/settings/harness installs a new snapshot
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,11 +9,15 @@
 //! Holds the canonical [`HarnessConfigDocument`] snapshot the chat pipeline
 //! reads through `ServerContext`. Bootstrapped at server startup from
 //! `system_settings.harness_config`; if the row is absent or invalid, the
-//! registry seeds with [`HarnessConfigDocument::default`] and logs a warning.
+//! registry seeds with [`HarnessConfigDocument::default`] and logs at `error!`
+//! for an invalid row.
 //!
 //! `PUT /admin/settings/harness` validates and persists the new document,
 //! then calls [`HarnessConfigRegistry::install`] so subsequent chat turns
-//! see the new values without a server restart.
+//! see the new values without a server restart. That install reaches the one
+//! instance the request landed on, so every instance also re-reads the row on
+//! an interval ([`HarnessConfigRegistry::reload_from_database`]). A read failure
+//! or a row that does not parse keeps the values in force.
 //!
 //! Each snapshot caches the runtime-shaped projections (`CompactionConfig`,
 //! `Arc<TextGuardrails>`) so per-turn reads are an `Arc` clone, not a
@@ -25,13 +29,14 @@ use arc_swap::{ArcSwap, Guard};
 use chrono::{DateTime, Utc};
 use pierre_database::backends::factory::Database;
 use serde_json::from_str;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use pierre_core::config::CompactionConfig;
 
 use crate::harness_config_document::{
-    HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig, HarnessMemoryConfig,
-    HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
+    validate_document, HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig,
+    HarnessMemoryConfig, HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
 };
 use crate::text_guardrails::TextGuardrails;
 
@@ -41,7 +46,7 @@ pub enum HarnessConfigSource {
     /// Compile-time defaults — used when the `system_settings.harness_config`
     /// row is absent at startup or has not yet been written by an admin.
     Defaults,
-    /// Loaded from `system_settings.harness_config` at startup.
+    /// Read from `system_settings.harness_config`, at startup or on a poll.
     Database,
     /// Installed by the admin PUT handler after a successful write.
     AdminUpdate,
@@ -66,17 +71,34 @@ pub struct HarnessConfigSnapshot {
     pub source: HarnessConfigSource,
     /// When the snapshot was installed.
     pub loaded_at: DateTime<Utc>,
+    /// Why this snapshot does not reflect the stored row, when it cannot: the
+    /// row could not be read or parsed.
+    pub load_failure: Option<String>,
+}
+
+/// What one [`HarnessConfigRegistry::reload_from_database`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HarnessReloadOutcome {
+    /// The row matches the snapshot.
+    Unchanged,
+    /// The snapshot now reflects the row.
+    Installed,
+    /// The row could not be read; the snapshot stays.
+    KeptOnReadFailure,
+    /// The row does not parse; the snapshot's values stay, marked.
+    KeptOnInvalidRow,
 }
 
 /// Thread-safe registry holding the current harness config snapshot.
 ///
 /// Reads (`current`, `current_compaction`, `current_guardrails`) are
 /// lock-free and return an `Arc` clone or a `Copy` value, so they are safe
-/// to call from the hot chat-turn path. Writes (`install`) are
-/// expected only on admin PUT — a couple per day at most.
+/// to call from the hot chat-turn path. A write is an admin PUT (`install`)
+/// or a poll that found the row changed.
 #[derive(Debug)]
 pub struct HarnessConfigRegistry {
     snapshot: ArcSwap<HarnessConfigSnapshot>,
+    instance_nonce: String,
 }
 
 impl HarnessConfigRegistry {
@@ -96,8 +118,8 @@ impl HarnessConfigRegistry {
     ///
     /// On any read or parse failure, falls back to compile-time defaults
     /// so the server still boots and the chat pipeline still has runtime
-    /// values to work with. Each fallback path emits a `warn!` with the
-    /// underlying error so operators can spot a corrupted row.
+    /// values to work with, logs at `error!` and marks the snapshot. The first
+    /// poll that reads a good row repairs it.
     pub async fn from_database(db: &Database) -> Self {
         match db.get_system_setting(HARNESS_CONFIG_SETTING_KEY).await {
             Ok(Some(row)) => Self::from_persisted_value(&row.value),
@@ -106,11 +128,13 @@ impl HarnessConfigRegistry {
                 Self::bootstrap()
             }
             Err(e) => {
-                warn!(
+                error!(
                     error = %e,
                     "harness_config DB load failed; falling back to compiled-in defaults"
                 );
-                Self::bootstrap()
+                Self::degraded_defaults(
+                    "the row could not be read at boot; running the compiled-in defaults".into(),
+                )
             }
         }
     }
@@ -121,7 +145,7 @@ impl HarnessConfigRegistry {
     /// the cognitive-complexity ceiling — the outer arm handles read /
     /// missing / error, this arm handles parse-success / parse-error.
     fn from_persisted_value(json: &str) -> Self {
-        match from_str::<HarnessConfigDocument>(json) {
+        match parse_row(json) {
             Ok(doc) => {
                 info!(
                     schema_version = doc.schema_version,
@@ -129,20 +153,106 @@ impl HarnessConfigRegistry {
                 );
                 Self::new_with(doc, HarnessConfigSource::Database)
             }
+            Err(cause) => {
+                log_invalid_row(&cause);
+                Self::degraded_defaults(format!("{cause}; running the compiled-in defaults"))
+            }
+        }
+    }
+
+    /// A registry on the defaults because the row could not be used at boot.
+    fn degraded_defaults(reason: String) -> Self {
+        let registry = Self::bootstrap();
+        registry.snapshot.store(Arc::new(HarnessConfigSnapshot {
+            load_failure: Some(reason),
+            ..(*registry.current()).clone()
+        }));
+        registry
+    }
+
+    /// Re-read the row and install it when it differs from the snapshot: one
+    /// poll tick.
+    ///
+    /// A read failure keeps the snapshot and logs at `warn!`. A row that does
+    /// not parse, or breaks a rule a save enforces (a hand edit is the only way
+    /// to get one), keeps the values in force, marks them and logs at `error!` on
+    /// every tick, so an alert stays lit until the row is fixed. Neither path
+    /// reverts to defaults; only a read that finds no row does, since that is
+    /// what an absent row means at boot too.
+    ///
+    /// The swap is against the snapshot held before the read, so a tick that
+    /// read the row just before an admin PUT landed on this instance cannot put
+    /// the older document back.
+    pub async fn reload_from_database(&self, db: &Database) -> HarnessReloadOutcome {
+        let before = self.snapshot.load_full();
+        let row = match db.get_system_setting(HARNESS_CONFIG_SETTING_KEY).await {
+            Ok(row) => row,
             Err(e) => {
                 warn!(
                     error = %e,
-                    "harness_config row failed to deserialize; falling back to compiled-in defaults"
+                    "harness_config poll could not read the row; keeping the current values"
                 );
-                Self::bootstrap()
+                return HarnessReloadOutcome::KeptOnReadFailure;
+            }
+        };
+        let Some(row) = row else {
+            return self.settle(
+                &before,
+                HarnessConfigDocument::default(),
+                HarnessConfigSource::Defaults,
+            );
+        };
+        match parse_row(&row.value) {
+            Ok(document) => self.settle(&before, document, HarnessConfigSource::Database),
+            Err(cause) => {
+                log_invalid_row(&cause);
+                self.keep_marked_invalid(&before, &cause);
+                HarnessReloadOutcome::KeptOnInvalidRow
             }
         }
+    }
+
+    /// Install `document` unless the snapshot already holds it, against the
+    /// snapshot the caller read before going to the database.
+    fn settle(
+        &self,
+        before: &Arc<HarnessConfigSnapshot>,
+        document: HarnessConfigDocument,
+        source: HarnessConfigSource,
+    ) -> HarnessReloadOutcome {
+        if before.load_failure.is_none() && *before.document == document {
+            return HarnessReloadOutcome::Unchanged;
+        }
+        let next = Arc::new(build_snapshot(document, source));
+        let prior = self.snapshot.compare_and_swap(before, next);
+        if Arc::ptr_eq(&*prior, before) {
+            info!("harness_config poll installed a changed row");
+            HarnessReloadOutcome::Installed
+        } else {
+            HarnessReloadOutcome::Unchanged
+        }
+    }
+
+    /// Say on the snapshot that the row is unusable, keeping its values.
+    fn keep_marked_invalid(&self, before: &Arc<HarnessConfigSnapshot>, cause: &str) {
+        let reason = format!("{cause}; keeping the last good values");
+        if before.load_failure.as_deref() == Some(reason.as_str()) {
+            return;
+        }
+        let next = HarnessConfigSnapshot {
+            load_failure: Some(reason),
+            ..(**before).clone()
+        };
+        // Losing this swap to a concurrent install is fine: the next tick marks
+        // whatever that install left in place.
+        drop(self.snapshot.compare_and_swap(before, Arc::new(next)));
     }
 
     fn new_with(document: HarnessConfigDocument, source: HarnessConfigSource) -> Self {
         let snapshot = build_snapshot(document, source);
         Self {
             snapshot: ArcSwap::from_pointee(snapshot),
+            instance_nonce: Uuid::new_v4().simple().to_string(),
         }
     }
 
@@ -181,6 +291,13 @@ impl HarnessConfigRegistry {
         self.read().verification
     }
 
+    /// A value unique to this registry, so two instances of one revision tell
+    /// apart on a screen that asks which one answered.
+    #[must_use]
+    pub fn instance_nonce(&self) -> &str {
+        &self.instance_nonce
+    }
+
     /// Replace the current snapshot with a fresh document.
     ///
     /// Called by the admin PUT handler after
@@ -212,7 +329,22 @@ fn build_snapshot(
         verification,
         source,
         loaded_at: Utc::now(),
+        load_failure: None,
     }
+}
+
+/// The document a stored row holds, or why it cannot be used.
+fn parse_row(json: &str) -> Result<HarnessConfigDocument, String> {
+    let document: HarnessConfigDocument =
+        from_str(json).map_err(|e| format!("the row does not parse ({e})"))?;
+    validate_document(&document).map_err(|e| format!("the row is invalid ({e})"))?;
+    Ok(document)
+}
+
+/// The line an alert matches for a row that does not parse, at boot and on
+/// every poll tick: one literal so the two paths cannot drift apart.
+fn log_invalid_row(cause: &str) {
+    error!(error = %cause, "harness_config row is invalid");
 }
 
 fn compaction_from(c: &HarnessCompactionConfig) -> CompactionConfig {
@@ -227,9 +359,34 @@ fn compaction_from(c: &HarnessCompactionConfig) -> CompactionConfig {
 }
 
 fn guardrails_from(g: &HarnessGuardrailsConfig) -> TextGuardrails {
-    TextGuardrails::compile(
-        g.max_response_chars as usize,
-        g.blocked_topics.clone(),
-        g.locales.clone(),
-    )
+    TextGuardrails::compile(g.blocked_topics.clone(), g.locales.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The poll's guard against reverting a save: a tick that read the row just
+    /// before a PUT installed on this instance loses the swap.
+    #[test]
+    fn a_tick_holding_a_snapshot_a_save_replaced_cannot_put_the_old_row_back() {
+        let registry = HarnessConfigRegistry::bootstrap();
+        let held_by_tick = registry.current();
+
+        let mut saved = HarnessConfigDocument::default();
+        saved.guardrails.blocked_topics = vec!["saved".to_owned()];
+        registry.install(saved.clone(), HarnessConfigSource::AdminUpdate);
+
+        let mut row_the_tick_read = HarnessConfigDocument::default();
+        row_the_tick_read.guardrails.blocked_topics = vec!["older".to_owned()];
+        assert_eq!(
+            registry.settle(
+                &held_by_tick,
+                row_the_tick_read,
+                HarnessConfigSource::Database
+            ),
+            HarnessReloadOutcome::Unchanged
+        );
+        assert_eq!(*registry.current().document, saved);
+    }
 }

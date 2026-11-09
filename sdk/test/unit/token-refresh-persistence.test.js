@@ -104,6 +104,42 @@ describe('a refresh persists the pair it minted', () => {
       await closeServer(pierre.server);
     }
   });
+
+  /**
+   * `retry_later` is the server's refresh window refusing to count the call,
+   * not a verdict on the session: nothing rotated, so signing the athlete out
+   * would throw away a session the server still honours.
+   */
+  test('a retry_later answer keeps the stored session for the next call', async () => {
+    const pierre = await startPierreStub({
+      '/oauth2/validate-and-refresh': () => ({
+        body: {
+          status: 'retry_later',
+          reason: 'slow_down',
+          requires_full_reauth: false,
+          retry_after: 30,
+        },
+      }),
+    });
+
+    const provider = makeProvider({}, pierre.url);
+    const writes = [];
+    provider.secureStorage = recordingStorage(writes);
+    provider.allStoredTokens = storedSession();
+
+    try {
+      const tokens = await provider.tokens();
+
+      expect(tokens).toBeUndefined();
+      expect(provider.allStoredTokens.pierre.access_token).toBe('stale-access');
+      expect(provider.allStoredTokens.pierre.refresh_token).toBe('rotating-refresh');
+      expect(writes).toHaveLength(0);
+      const refreshCalls = pierre.requests.filter((r) => r.url === '/oauth2/validate-and-refresh');
+      expect(refreshCalls).toHaveLength(1);
+    } finally {
+      await closeServer(pierre.server);
+    }
+  });
 });
 
 describe('tool-call recovery after an authentication error', () => {

@@ -411,6 +411,7 @@ async fn test_parity_chat_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         };
         sqlite_repos
             .chat
@@ -432,6 +433,7 @@ async fn test_parity_chat_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         };
         pg_repos
             .chat
@@ -1476,37 +1478,14 @@ async fn create_parity_a2a_client(
 ) -> A2AClient {
     let (user_id, _tenant_id) = create_test_user(repos).await;
 
-    let api_key = ApiKey {
-        id: Uuid::new_v4().to_string(),
-        user_id,
-        name: "parity-a2a-key".to_owned(),
-        key_prefix: "pk_a2a".to_owned(),
-        key_hash: format!("parity-a2a-hash-{}", Uuid::new_v4()),
-        description: None,
-        tier: ApiKeyTier::Starter,
-        rate_limit_requests: 1000,
-        rate_limit_window_seconds: 3600,
-        is_active: true,
-        last_used_at: None,
-        expires_at: None,
-        created_at: Utc::now(),
-    };
-    repos
-        .api_keys
-        .create(&api_key)
-        .await
-        .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
-
     let client = A2AClient {
         id: Uuid::new_v4().to_string(),
         name: format!("parity-client-{}", Uuid::new_v4()),
         contact_email: None,
         description: "parity a2a client".to_owned(),
-        public_key: "parity-public-key".to_owned(),
         user_id,
         capabilities: vec!["fitness-data-analysis".to_owned()],
         redirect_uris: vec!["https://test.example.com".to_owned()],
-        permissions: vec!["read_activities".to_owned()],
         rate_limit_requests: 1000,
         rate_limit_window_seconds,
         is_active: true,
@@ -1515,7 +1494,7 @@ async fn create_parity_a2a_client(
     };
     repos
         .a2a
-        .create_client(&client, &api_key.id)
+        .create_client(&client)
         .await
         .unwrap_or_else(|e| panic!("{backend}: a2a client create must succeed: {e}"));
     client

@@ -26,11 +26,14 @@ use pierre_contremaitre::tool_descriptions::{
     FetchedOverlay, ParameterOverlay, ToolDescriptionOverlay,
 };
 use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -91,7 +94,22 @@ async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
         .first()
         .expect("the test user owns a tenant")
         .id;
-    tronc_context(user_id, Some(tenant_id), true)
+    // The top plan: the listing leaves out what a plan does not cover.
+    resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .set_plan(tenant_id, "enterprise")
+        .await
+        .expect("set the test tenant's plan");
+    let mut context = tronc_context(user_id, Some(tenant_id), true);
+    // A first-party session's full grant: the listing narrows to the grant.
+    context.scopes = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    context
 }
 
 /// First text content block of a tool response (the in-band error/result text).
@@ -145,27 +163,6 @@ async fn test_every_registered_tool_has_security_class() {
             "registered tool {name} has no Guardian security_class"
         );
     }
-}
-
-/// A stored training plan is agent/LLM/athlete-authored text re-entering the
-/// LLM context, so `get_training_plan` must taint the turn as
-/// `UNTRUSTED_OUTPUT` (like recalled memory); the write tool's small ack is
-/// not untrusted content.
-#[tokio::test]
-async fn test_training_plan_tools_taint_classification() {
-    use pierre_tool_runtime::security::SecurityLabels;
-    let mut registry = ToolRegistry::new();
-    register_builtin_tools(&mut registry);
-    assert_eq!(
-        registry.security_class("get_training_plan"),
-        Some(SecurityLabels::UNTRUSTED_OUTPUT),
-        "get_training_plan must taint the turn"
-    );
-    assert_eq!(
-        registry.security_class("save_training_plan"),
-        Some(SecurityLabels::empty()),
-        "save_training_plan output is a plain ack, not untrusted content"
-    );
 }
 
 #[tokio::test]
@@ -820,7 +817,9 @@ async fn test_list_tools_carries_every_declared_output_schema() {
     let state: Arc<dyn ToolRuntime> = resources.clone();
     let tools = dispatcher.list_tools(&state, &context).await;
 
-    // What the registry says is declared, read straight off each tool.
+    // What the registry says is declared, read straight off each tool — less
+    // the tools kept on Dravr's own surfaces, which this external listing
+    // leaves out.
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
     let mut declared: Vec<&str> = registry
@@ -830,12 +829,16 @@ async fn test_list_tools_carries_every_declared_output_schema() {
             registry
                 .get(name)
                 .is_some_and(|tool| tool.definition().output_schema.is_some())
+                && !first_party_tools::withholds(&registry, name, Some(Transport::McpHttp))
+                && !registry
+                    .get(name)
+                    .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
         })
         .collect();
     declared.sort_unstable();
     assert!(
-        declared.len() > 100,
-        "the typed set should be nearly every tool, found {}",
+        declared.len() > 85,
+        "the typed set should be nearly every tool /mcp serves, found {}",
         declared.len()
     );
 

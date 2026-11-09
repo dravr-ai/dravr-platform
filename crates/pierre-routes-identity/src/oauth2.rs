@@ -11,38 +11,34 @@
 
 use axum::{
     extract::{ConnectInfo, Form, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
-use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
+use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::oauth::OAuth2ServerConfig;
-use pierre_auth::dto::auth::LoginResponse;
 use pierre_auth::oauth2_server::{
+    client_auth::{is_basic_authorization, resolve_client_credentials},
     client_registration::ClientRegistrationManager,
-    endpoints::OAuth2AuthorizationServer,
+    endpoints::{CheckedAuthorization, OAuth2AuthorizationServer},
     first_party::is_first_party,
     models::{
-        AuthorizeRequest, ClientRegistrationRequest, OAuth2Error, TokenRequest,
-        ValidateRefreshRequest,
+        AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
+        ValidateRefreshRequest, ValidateRefreshResponse, ValidationStatus,
     },
     rate_limiting::OAuth2RateLimiter,
 };
 use pierre_auth::rate_limiting::OAuth2Endpoint;
-use pierre_auth::security::cookies::{
-    auth_cookie_name_on, host_cookie_name, SameSitePolicy, SecureCookieConfig,
-};
+use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_contremaitre::MessagingStringsRegistry;
-use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_services::auth::AuthService;
 use secrecy::{ExposeSecret, SecretString};
-use sha2::{Digest, Sha256};
 use std::fmt;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
@@ -51,41 +47,35 @@ use tracing::{debug, error, info, trace, warn};
 use crate::authorize_redirect::{code_redirect, error_redirect, rejection_response};
 use crate::oauth2_rate_limited::{page_refusal, refusal};
 
+use self::session::SignInCookie;
+
 /// The consent form's submission: the user's decision on an authorization
 mod consent;
+/// What the consent screen says about who is asking and where the data goes
+mod consent_copy;
+/// The consent flow's text, in the reader's language
+mod consent_text;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
+/// The JWKS endpoint serving the RS256 public keys
+mod jwks;
 /// The hosted login form's submission: a metered password sign-in
 mod login_form;
 /// The hosted login page's text, in the athlete's language
 mod login_text;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
+/// RFC 7009 token revocation
+mod revoke;
+/// The sign-in cookie: its name, value and reading.
+mod session;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
+pub use consent_text::ConsentText;
 pub use google_login::GoogleSignIn;
 pub use login_text::LoginPageLabels;
 pub use pages::{ConsentHtmlParams, LoginHtmlParams};
-
-/// Name of the authorization server's own session cookie, before the
-/// `__Host-` prefix an HTTPS issuer gives it
-const SESSION_COOKIE: &str = "pierre_session";
-
-/// Lifetime of the session cookie: the 24 hours of the JWT it carries
-const SESSION_COOKIE_MAX_AGE_SECS: i64 = 86_400;
-
-/// Which cookie signed the athlete in at `/oauth2/authorize`, which decides
-/// the audience its token must carry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SignInCookie {
-    /// The authorization server's own `pierre_session`, set by the hosted
-    /// login: the authorize-flow audience only (carnet#787).
-    AuthorizationServer,
-    /// The web app's session cookie, bridged so a signed-in athlete is not
-    /// asked to log in twice: the platform audience.
-    WebApp,
-}
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -123,6 +113,9 @@ pub struct OAuth2Context {
     pub google_sign_in: Option<GoogleSignIn>,
     /// The string catalogue the hosted login page speaks from, the apps' own
     pub strings: Arc<MessagingStringsRegistry>,
+    /// Services whose terms keep their data on Dravr's surfaces, named on the
+    /// consent screen; read-only, shared by every clone of this context
+    pub first_party_only_sources: Arc<[&'static str]>,
 }
 
 impl fmt::Debug for OAuth2Context {
@@ -138,6 +131,7 @@ impl fmt::Debug for OAuth2Context {
             .field("accounts", &self.accounts)
             .field("google_sign_in", &self.google_sign_in)
             .field("strings", &self.strings)
+            .field("first_party_only_sources", &self.first_party_only_sources)
             .finish_non_exhaustive()
     }
 }
@@ -145,6 +139,13 @@ impl fmt::Debug for OAuth2Context {
 /// OAuth 2.0 routes implementation
 #[derive(Debug)]
 pub struct OAuth2Routes;
+
+/// The `Authorization` header of a token or revocation request, when it is text.
+fn authorization_header(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+}
 
 impl OAuth2Routes {
     /// Create all OAuth 2.0 routes with context
@@ -160,6 +161,12 @@ impl OAuth2Routes {
                 "/.well-known/oauth-protected-resource",
                 get(Self::handle_protected_resource_metadata),
             )
+            // RFC 9728 §3.1: the document of a path-bearing resource
+            // (`/mcp`, `/a2a`) sits beneath the well-known path
+            .route(
+                "/.well-known/oauth-protected-resource/{*path}",
+                get(Self::handle_protected_resource_metadata_at),
+            )
             // RFC 7517: JWKS endpoint
             .route("/.well-known/jwks.json", get(Self::handle_jwks))
             // RFC 7591: Dynamic Client Registration
@@ -168,6 +175,8 @@ impl OAuth2Routes {
             .route("/oauth2/authorize", get(Self::handle_authorization))
             // OAuth 2.0 Token endpoint
             .route("/oauth2/token", post(Self::handle_token))
+            // RFC 7009: Token Revocation
+            .route("/oauth2/revoke", post(Self::handle_revoke))
             // Login page and submission
             .route("/oauth2/login", get(Self::handle_oauth_login_page))
             .route("/oauth2/login", post(Self::handle_oauth_login_submit))
@@ -193,7 +202,7 @@ impl OAuth2Routes {
         State(context): State<OAuth2Context>,
         ConnectInfo(addr): ConnectInfo<SocketAddr>,
         headers: HeaderMap,
-        Json(request): Json<ClientRegistrationRequest>,
+        Json(payload): Json<ClientRegistrationPayload>,
     ) -> Response {
         let limiter = &context.rate_limiter;
         if let Some(refused) = refusal(limiter, OAuth2Endpoint::Register, addr, &headers).await {
@@ -205,7 +214,10 @@ impl OAuth2Routes {
         let ceiling = context.config.client_retention.max_pending_registrations;
         let client_manager = ClientRegistrationManager::new(context.oauth2_server.clone());
 
-        match client_manager.register_client(request, ceiling).await {
+        match client_manager
+            .register_client_with_auth_method(payload.request, payload.auth_method, ceiling)
+            .await
+        {
             Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
             Err(error) => (error.http_status(), Json(error)).into_response(),
         }
@@ -219,7 +231,8 @@ impl OAuth2Routes {
         headers: HeaderMap,
     ) -> Response {
         let limiter = &context.rate_limiter;
-        let render = Self::render_oauth_error_response;
+        let browser = ConsentText::for_browser(&context.strings, &headers);
+        let render = |error: &OAuth2Error| Self::render_oauth_error_response(error, &browser);
         if let Some(refused) = page_refusal(limiter, addr, &headers, render).await {
             return refused;
         }
@@ -227,7 +240,10 @@ impl OAuth2Routes {
         // Parse query parameters into AuthorizeRequest
         let request = match Self::parse_authorize_request(&params) {
             Ok(req) => req,
-            Err(error) => return Self::render_oauth_error_response(&error),
+            Err(error) => {
+                let text = Self::reader_text(&context, &headers).await;
+                return Self::render_oauth_error_response(&error, &text);
+            }
         };
 
         // Check the request before the user is asked to log in or consent, so
@@ -237,7 +253,10 @@ impl OAuth2Routes {
             .await
         {
             Ok(checked) => checked,
-            Err(rejection) => return rejection_response(rejection, &request),
+            Err(rejection) => {
+                let text = Self::reader_text(&context, &headers).await;
+                return rejection_response(&context.config.issuer_url, rejection, &request, &text);
+            }
         };
 
         let redirect_uri = request.redirect_uri.clone();
@@ -274,7 +293,8 @@ impl OAuth2Routes {
             authenticated_user_id,
             tenant_id,
             redirect_uri,
-            checked.client_name.as_deref(),
+            &checked,
+            &headers,
         )
         .await
     }
@@ -340,7 +360,8 @@ impl OAuth2Routes {
         authenticated_user_id: uuid::Uuid,
         tenant_id: Option<String>,
         redirect_uri: String,
-        client_name: Option<&str>,
+        checked: &CheckedAuthorization,
+        headers: &HeaderMap,
     ) -> Response {
         // Dravr's own app is signing the athlete in, not asking for access:
         // no consent screen (carnet#787).
@@ -351,20 +372,20 @@ impl OAuth2Routes {
                 authenticated_user_id,
                 tenant_id,
                 redirect_uri,
+                headers,
             )
             .await;
         }
 
         // Only an active account authorizes a client: a pending one would get
         // a connector every call of which is refused, a suspended one none.
-        let user = match Self::account_gate(context, authenticated_user_id).await {
+        let user = match Self::account_gate(context, authenticated_user_id, headers).await {
             Ok(user) => user,
             Err(refused) => return *refused,
         };
 
         // Skip the consent screen only when the user has already approved this client
         // for the requested scope; otherwise show consent before any code is minted.
-        let scope = request.scope.clone().unwrap_or_default();
         let grant_tenant =
             Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
         let has_grant = match &grant_tenant {
@@ -374,7 +395,7 @@ impl OAuth2Routes {
                     &authenticated_user_id.to_string(),
                     tid,
                     &request.client_id,
-                    &scope,
+                    &checked.scope,
                 )
                 .await
                 .unwrap_or_else(|e| {
@@ -385,7 +406,7 @@ impl OAuth2Routes {
             None => false,
         };
 
-        if has_grant {
+        if has_grant && !checked.consent_every_time {
             return Self::mint_authorization_code(
                 context,
                 request,
@@ -396,17 +417,24 @@ impl OAuth2Routes {
             .await;
         }
 
+        let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
-            Ok(csrf_token) => {
-                Self::render_consent_page(&request, &csrf_token, client_name, &user.email)
-            }
+            Ok(csrf_token) => Self::render_consent_page(
+                &request,
+                &csrf_token,
+                checked.client_name.as_deref(),
+                &user.email,
+                &context.first_party_only_sources,
+                &text,
+            ),
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");
-                Self::render_oauth_error_response(&OAuth2Error::server_error(
-                    "The consent screen could not be prepared",
-                ))
+                Self::render_oauth_error_response(
+                    &OAuth2Error::server_error(consent::CONSENT_UNAVAILABLE),
+                    &text,
+                )
             }
         }
     }
@@ -445,6 +473,7 @@ impl OAuth2Routes {
             context.jwks_manager.clone(),
             context.refresh_token_expiry_days,
         )
+        .with_token_limiter(context.rate_limiter.clone())
     }
 
     /// Mint an authorization code and redirect back to the client.
@@ -469,14 +498,24 @@ impl OAuth2Routes {
                     "OAuth authorization successful for user {}, redirecting with code",
                     authenticated_user_id
                 );
-                code_redirect(&redirect_uri, &response.code, response.state.as_deref())
+                code_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    &response.code,
+                    response.state.as_deref(),
+                )
             }
             Err(error) => {
                 warn!(
                     "OAuth authorization failed for user {}: {:?}",
                     authenticated_user_id, error
                 );
-                error_redirect(&redirect_uri, state.as_deref(), &error)
+                error_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    state.as_deref(),
+                    &error,
+                )
             }
         }
     }
@@ -489,22 +528,25 @@ impl OAuth2Routes {
         Form(form): Form<HashMap<String, String>>,
     ) -> Response {
         let limiter = &context.rate_limiter;
+
         if let Some(refused) = refusal(limiter, OAuth2Endpoint::Token, addr, &headers).await {
             return refused;
         }
 
-        let request = match Self::parse_and_log_token_request(&form) {
+        let basic = is_basic_authorization(authorization_header(&headers));
+        let request = match Self::parse_and_log_token_request(&form, &headers) {
             Ok(req) => req,
-            Err(error) => return (StatusCode::BAD_REQUEST, Json(error)).into_response(),
+            Err(error) => return Self::token_error_response(&error, basic),
         };
 
         let auth_server = Self::authorization_server(&context);
 
-        Self::execute_token_exchange(auth_server, request, &form).await
+        Self::execute_token_exchange(auth_server, request, basic).await
     }
 
     fn parse_and_log_token_request(
         form: &HashMap<String, String>,
+        headers: &HeaderMap,
     ) -> Result<TokenRequest, OAuth2Error> {
         debug!(
             "OAuth token request received with grant_type: {:?}, client_id: {:?}",
@@ -512,7 +554,7 @@ impl OAuth2Routes {
             form.get("client_id")
         );
 
-        Self::parse_token_request(form).map_err(|error| {
+        Self::parse_token_request(form, headers).map_err(|error| {
             warn!("OAuth token request parsing failed: {:?}", error);
             error
         })
@@ -521,25 +563,45 @@ impl OAuth2Routes {
     async fn execute_token_exchange(
         auth_server: OAuth2AuthorizationServer,
         request: TokenRequest,
-        form: &HashMap<String, String>,
+        basic: bool,
     ) -> Response {
+        let client_id = request.client_id.clone();
         match auth_server.token(request).await {
             Ok(response) => {
-                info!(
-                    "OAuth token exchange successful for client: {}",
-                    form.get("client_id").map_or("unknown", |v| v)
-                );
+                info!("OAuth token exchange successful for client: {}", client_id);
                 (StatusCode::OK, Json(response)).into_response()
             }
             Err(error) => {
                 warn!(
                     "OAuth token exchange failed for client {}: {:?}",
-                    form.get("client_id").map_or("unknown", |v| v),
-                    error
+                    client_id, error
                 );
-                (error.http_status(), Json(error)).into_response()
+                Self::token_error_response(&error, basic)
             }
         }
+    }
+
+    /// The token endpoint's error response. A client that authenticated with
+    /// an `Authorization` header and failed is answered 401 with the scheme it
+    /// should retry with (RFC 6749 §5.2); every other refusal keeps the status
+    /// the error carries, a throttled one with its wait as `Retry-After`.
+    fn token_error_response(error: &OAuth2Error, basic: bool) -> Response {
+        let body = Json(error);
+        if basic && error.error == "invalid_client" {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Basic realm=\"oauth2\"")],
+                body,
+            )
+                .into_response();
+        }
+        let mut response = (error.http_status(), body).into_response();
+        if let Some(wait) = error.retry_after {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(wait));
+        }
+        response
     }
 
     /// Handle validate and refresh request (POST /oauth2/validate-and-refresh)
@@ -570,7 +632,7 @@ impl OAuth2Routes {
                     "Token validation completed with status: {:?}",
                     response.status
                 );
-                (StatusCode::OK, Json(response)).into_response()
+                Self::validate_and_refresh_response(response)
             }
             Err(error) => {
                 error!("Validate-and-refresh failed: {}", error);
@@ -584,6 +646,28 @@ impl OAuth2Routes {
                     .into_response()
             }
         }
+    }
+
+    /// The verdict on the wire: `200` for anything said about the token, and
+    /// the window's own status with its `Retry-After` when nothing was, so a
+    /// client neither signs the athlete out nor retries at once.
+    fn validate_and_refresh_response(verdict: ValidateRefreshResponse) -> Response {
+        if verdict.status != ValidationStatus::RetryLater {
+            return (StatusCode::OK, Json(verdict)).into_response();
+        }
+        let status = if verdict.retry_after.is_some() {
+            StatusCode::TOO_MANY_REQUESTS
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        let wait = verdict.retry_after;
+        let mut response = (status, Json(verdict)).into_response();
+        if let Some(wait) = wait {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(wait));
+        }
+        response
     }
 
     /// Build validation response for valid credentials
@@ -684,12 +768,14 @@ impl OAuth2Routes {
         Query(params): Query<HashMap<String, String>>,
         headers: HeaderMap,
     ) -> Html<String> {
-        let labels = login_text::LoginText::for_request(
+        let labels = login_text::LoginText::for_client(
             &context.strings,
             &headers,
             params.get("ui_locales").map(String::as_str),
+            params.get("client_id").map(String::as_str),
         )
         .labels();
+        let lang = labels.lang.clone();
         // Extract OAuth parameters to preserve them through login flow (including PKCE)
         let client_id = params
             .get("client_id")
@@ -764,100 +850,9 @@ impl OAuth2Routes {
             })
         })
         .await
-        .unwrap_or_else(|_| Self::generic_error_html());
+        .unwrap_or_else(|_| Self::generic_error_html(&ConsentText::new(&context.strings, &lang)));
 
         Html(html)
-    }
-
-    /// Handle JWKS endpoint (GET /oauth2/jwks or GET /.well-known/jwks.json)
-    async fn handle_jwks(State(context): State<OAuth2Context>, headers: HeaderMap) -> Response {
-        // Return JWKS with RS256 public keys for token validation
-        let jwks = match context.jwks_manager.get_jwks() {
-            Ok(jwks) => jwks,
-            Err(e) => {
-                error!("Failed to generate JWKS: {}", e);
-                // Return empty JWKS on error (graceful degradation)
-                return (
-                    StatusCode::OK,
-                    [(header::CACHE_CONTROL, "public, max-age=3600")],
-                    Json(serde_json::json!({ "keys": [] })),
-                )
-                    .into_response();
-            }
-        };
-
-        debug!("JWKS endpoint accessed, returning {} keys", jwks.keys.len());
-
-        // Calculate ETag from JWKS content for efficient caching
-        let (_jwks_json, etag) = match Self::compute_jwks_etag(jwks.clone()).await {
-            Ok(result) => result,
-            Err(response) => return *response,
-        };
-
-        // Check if client's cached version matches current version
-        if Self::check_etag_match(&headers, &etag) {
-            debug!("JWKS ETag match, returning 304 Not Modified");
-            return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response();
-        }
-
-        // Return JWKS with ETag and Cache-Control headers
-        (
-            StatusCode::OK,
-            [
-                (header::CACHE_CONTROL, "public, max-age=3600".to_owned()),
-                (header::ETAG, etag),
-            ],
-            Json(jwks),
-        )
-            .into_response()
-    }
-
-    // ============================================================================
-    // Helper Functions
-    // ============================================================================
-
-    /// Compute JWKS `ETag` from JSON content
-    async fn compute_jwks_etag(jwks: JsonWebKeySet) -> Result<(String, String), Box<Response>> {
-        let etag_result = spawn_blocking(move || {
-            let jwks_json = serde_json::to_string(&jwks)?;
-            let mut hasher = Sha256::new();
-            hasher.update(jwks_json.as_bytes());
-            let hash = hasher.finalize();
-            let etag = format!(r#""{}""#, hex::encode(&hash[..16]));
-            Ok::<(String, String), serde_json::Error>((jwks_json, etag))
-        })
-        .await;
-
-        match etag_result {
-            Ok(Ok((json, tag))) => Ok((json, tag)),
-            Ok(Err(_)) => {
-                error!("Failed to serialize JWKS for ETag calculation");
-                Err(Box::new(Self::jwks_error_response()))
-            }
-            Err(_) => {
-                error!("Spawn blocking task panicked during JWKS serialization");
-                Err(Box::new(Self::jwks_error_response()))
-            }
-        }
-    }
-
-    /// Create error response for JWKS endpoint
-    fn jwks_error_response() -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "keys": []
-            })),
-        )
-            .into_response()
-    }
-
-    /// Check if client has current JWKS version (`ETag` match)
-    fn check_etag_match(headers: &HeaderMap, etag: &str) -> bool {
-        headers
-            .get(header::IF_NONE_MATCH)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|client_etag| client_etag == etag)
     }
 
     /// Extract Bearer token from Authorization header
@@ -1065,24 +1060,27 @@ impl OAuth2Routes {
     }
 
     /// Parse form data into `TokenRequest`
-    fn parse_token_request(form: &HashMap<String, String>) -> Result<TokenRequest, OAuth2Error> {
+    fn parse_token_request(
+        form: &HashMap<String, String>,
+        headers: &HeaderMap,
+    ) -> Result<TokenRequest, OAuth2Error> {
         let grant_type = form
             .get("grant_type")
             .ok_or_else(|| OAuth2Error::invalid_request("Missing grant_type parameter"))?
             .clone(); // Safe: String ownership required for OAuth2 request struct
 
-        // Client credentials are REQUIRED for all grant types.
-        // Pierre MCP clients are confidential clients (RFC 6749 Section 2.1),
-        // so client authentication is mandatory including for refresh_token grants.
-        let client_id = form
-            .get("client_id")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id parameter"))?
-            .clone(); // Safe: String ownership for OAuth validation
-
-        let client_secret = form
-            .get("client_secret")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing client_secret parameter"))?
-            .replace(' ', "+");
+        // The client identifies itself on every grant type: by an
+        // `Authorization: Basic` header (`client_secret_basic`), by the form
+        // body (`client_secret_post`), or, for a public client, by its
+        // `client_id` alone (`none`, held to PKCE). Whether the client may
+        // authenticate the way it did is decided against what it registered.
+        let credentials = resolve_client_credentials(
+            authorization_header(headers),
+            form.get("client_id").map(String::as_str),
+            form.get("client_secret").map(String::as_str),
+        )?;
+        let client_id = credentials.client_id;
+        let client_secret = credentials.client_secret;
 
         let code = form.get("code").cloned();
         let redirect_uri = form.get("redirect_uri").cloned();
@@ -1096,100 +1094,12 @@ impl OAuth2Routes {
             code,
             redirect_uri,
             client_id,
-            client_secret: SecretString::from(client_secret),
+            client_secret,
             scope,
             refresh_token: refresh_token.map(SecretString::from),
             code_verifier,
             resource,
         })
-    }
-
-    /// Whether this deployment's cookies are `Secure`: its issuer is HTTPS.
-    fn cookies_secure(context: &OAuth2Context) -> bool {
-        context.config.issuer_url.starts_with("https://")
-    }
-
-    /// The name of the authorization server's session cookie here:
-    /// `__Host-pierre_session` on an HTTPS issuer, so a sibling host cannot
-    /// set one, and `pierre_session` over plain HTTP.
-    fn session_cookie_name(context: &OAuth2Context) -> String {
-        host_cookie_name(SESSION_COOKIE, Self::cookies_secure(context))
-    }
-
-    /// The authorization server's own sign-in for an account the login rules
-    /// just admitted (carnet#787).
-    ///
-    /// Never the first-party session the login minted for the web app: the
-    /// hosted login form is a page any script can post a password to and read
-    /// the cookie off, so what it hands back is a token whose audience only
-    /// `/oauth2/authorize` and its consent form accept. Chat, REST, MCP and A2A
-    /// refuse it.
-    async fn authorization_session(
-        context: &OAuth2Context,
-        login: &LoginResponse,
-    ) -> AppResult<String> {
-        let user_id = uuid::Uuid::parse_str(&login.user.user_id)
-            .map_err(|e| AppError::internal(format!("Login named a malformed user id: {e}")))?;
-        // SECURITY: Global lookup — the account the login rules just admitted.
-        let user = context
-            .users
-            .get_global(user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
-        context.auth_manager.generate_authorization_session_token(
-            &user,
-            &context.jwks_manager,
-            login.user.tenant_id.clone(),
-        )
-    }
-
-    /// The `Set-Cookie` value carrying the authorization server's sign-in
-    /// token, the same for the password and the Google sign-in: `HttpOnly`,
-    /// `Secure` on an HTTPS issuer, `SameSite=Lax` so the redirect into
-    /// `/oauth2/authorize` sends it, and the JWT's own 24-hour lifetime.
-    fn session_cookie(context: &OAuth2Context, token: &str) -> String {
-        SecureCookieConfig {
-            name: Self::session_cookie_name(context),
-            value: token.to_owned(),
-            max_age_secs: SESSION_COOKIE_MAX_AGE_SECS,
-            http_only: true,
-            secure: Self::cookies_secure(context),
-            same_site: SameSitePolicy::Lax,
-            path: "/".to_owned(),
-        }
-        .build()
-    }
-
-    /// Extract the sign-in token from the cookie header, with the cookie it
-    /// came from
-    fn extract_session_token(
-        cookie_header: &str,
-        session_cookie: &str,
-        app_cookie: &str,
-    ) -> Option<(SignInCookie, String)> {
-        // Accept the authorization server's own session cookie and, as a
-        // bridge, the first-party web app's session cookie. This lets a user
-        // already logged into the web app authorize an MCP client without a
-        // second login. Each carries its own audience (carnet#787): the
-        // server's cookie the authorize-flow audience, the app's the platform
-        // one, and each is validated for exactly that.
-        // `app_cookie` is `auth_cookie_name_on(issuer is HTTPS)`: `__Host-auth_token`
-        // when either the issuer or `BASE_URL` is HTTPS, so a plain `auth_token`
-        // planted by a sibling host is never read here, and `auth_token` only
-        // when both are plain HTTP. The session cookie wins when both are present.
-        let mut app_token = None;
-        for cookie in cookie_header.split(';') {
-            let Some((name, value)) = cookie.trim().split_once('=') else {
-                continue;
-            };
-            if name == session_cookie {
-                return Some((SignInCookie::AuthorizationServer, value.to_owned()));
-            }
-            if name == app_cookie {
-                app_token = Some((SignInCookie::WebApp, value.to_owned()));
-            }
-        }
-        app_token
     }
 }
 

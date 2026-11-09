@@ -13,7 +13,10 @@ import pt from '../../i18n/src/locales/pt/translation.json';
 import type { ArchiveImport, ImportStatus } from '@pierre/shared-types';
 import {
   AWAITING_LINK_LATE_MS,
+  APPLE_HEALTH_COPY,
   IMPORT_SOURCE_COPY,
+  uploadErrorKey,
+  uploadPercent,
   importDeleteCopy,
   importFailureKey,
   importHistoryCopy,
@@ -22,6 +25,7 @@ import {
   importSize,
   importSourceCopy,
   importStateCopy,
+  importedHistoryCount,
   linkRefusalKey,
   offeredImportSources,
   startErrorKey,
@@ -195,6 +199,66 @@ describe('an import, as both clients say it', () => {
   });
 
 
+  it('blames no link for an upload that stopped while it was read', () => {
+    expect(importFailureKey('link_expired', APPLE_HEALTH_COPY)).toBe('providers.import.strava.genericError');
+    expect(importFailureKey('link_expired', GARMIN)).toBe('providers.import.strava.failure.link_expired');
+    expect(importFailureKey('archive_too_large', APPLE_HEALTH_COPY)).toBe('providers.import.strava.failure.archive_too_large');
+  });
+
+  it('lists the sources an athlete uploads beside those they link', () => {
+    const offered = ['strava_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive'];
+    expect(offeredImportSources(offered).map((copy) => [copy.source, copy.intake])).toEqual([
+      ['strava_archive', 'link'],
+      ['apple_health_archive', 'upload'],
+      ['coros_archive', 'upload'],
+      ['whoop_archive', 'upload'],
+    ]);
+    expect(importSourceCopy('apple_health_archive')).toBe(APPLE_HEALTH_COPY);
+  });
+
+  it('names each upload source in its own strings', () => {
+    for (const service of ['coros', 'whoop']) {
+      const copy = importSourceCopy(`${service}_archive`);
+      expect(copy?.name, service).toBe(`providers.import.sources.${service}`);
+      expect(copy?.notAnExport, service).toBe(`providers.import.${service}.failure.not_an_export`);
+    }
+  });
+
+  it('tells a WHOOP athlete why its columns were refused, and no other source', () => {
+    const whoop = importSourceCopy('whoop_archive');
+    const coros = importSourceCopy('coros_archive');
+    if (!whoop || !coros) throw new Error('both sources have copy');
+    expect(importFailureKey('unknown_columns', whoop)).toBe('providers.import.whoop.failure.unknown_columns');
+    expect(importFailureKey('unknown_columns', coros)).toBe('providers.import.strava.genericError');
+  });
+
+  it('says an upload waits for its file, not for an email', () => {
+    const line = importStateCopy(entry('awaiting_link', { source: 'apple_health_archive' }), APPLE_HEALTH_COPY, 'en');
+    expect(line.key).toBe('providers.import.apple.awaitingUpload');
+  });
+
+  it('never names a link refusal of a source that has no link', () => {
+    expect(linkRefusalKey('link_expired', APPLE_HEALTH_COPY)).toBe('providers.import.strava.refusal.link_unreachable');
+  });
+
+  it('names why an upload stopped, by the failure it carries or the status it answered', () => {
+    expect(uploadErrorKey({ failure: 'stalled' }, APPLE_HEALTH_COPY)).toBe(APPLE_HEALTH_COPY.stalled);
+    expect(uploadErrorKey({ failure: 'gone' }, APPLE_HEALTH_COPY)).toBe(APPLE_HEALTH_COPY.gone);
+    expect(uploadErrorKey({ response: { status: 409, data: {} } }, APPLE_HEALTH_COPY)).toBe(APPLE_HEALTH_COPY.inProgress);
+    expect(uploadErrorKey({ response: { status: 413, data: {} } }, APPLE_HEALTH_COPY)).toBe(
+      'providers.import.strava.failure.archive_too_large',
+    );
+    expect(uploadErrorKey({ failure: 'refused' }, APPLE_HEALTH_COPY)).toBe('providers.import.strava.genericError');
+    expect(uploadErrorKey(new Error('network'), APPLE_HEALTH_COPY)).toBe('providers.import.strava.genericError');
+  });
+
+  it('reads 100% only once the whole file has landed', () => {
+    expect(uploadPercent(0, 1000)).toBe(0);
+    expect(uploadPercent(999, 1000)).toBe(99);
+    expect(uploadPercent(1000, 1000)).toBe(100);
+    expect(uploadPercent(0, 0)).toBe(0);
+  });
+
   it('names only keys every shipped locale carries', () => {
     const keys = [
       ...(['awaiting_link', 'queued', 'downloading', 'importing', 'completed', 'failed'] as ImportStatus[]).map(
@@ -213,18 +277,28 @@ describe('an import, as both clients say it', () => {
         copy.intro,
         copy.step1Title,
         copy.step1Body,
-        copy.step1Open,
         copy.step2Title,
-        copy.linkLabel,
-        copy.linkHint,
         copy.progressStarting,
+        copy.progress,
         copy.inProgress,
-        copy.awaitingLink,
-        copy.awaitingLinkLate,
         ...(['link_invalid', 'link_host_not_allowed', 'link_expired', 'link_unreachable'] as const).map((refusal) =>
           linkRefusalKey(refusal, copy),
         ),
         copy.notAnExport,
+        ...(copy.unknownColumns ? [copy.unknownColumns] : []),
+        ...(copy.intake === 'link'
+          ? [copy.step1Open, copy.linkLabel, copy.linkHint, copy.awaitingLink, copy.awaitingLinkLate]
+          : [
+              copy.pick,
+              copy.pickHint,
+              copy.resume,
+              copy.resumeHint,
+              copy.uploading,
+              copy.keepOpen,
+              copy.awaitingUpload,
+              copy.stalled,
+              copy.gone,
+            ]),
       ]),
       ...[
         'download_failed',
@@ -253,5 +327,31 @@ describe('an import, as both clients say it', () => {
         expect(typeof lookup(catalogue, key), `${locale}: ${key}`).toBe('string');
       }
     }
+  });
+});
+
+describe('the history a provider card counts (carnet#1386)', () => {
+  const overview = (imports: ArchiveImport[]) => ({ enabled: true, sources: ['strava_archive', 'garmin_archive'], imports });
+
+  it('counts the completed import of the card\'s own source, while its history is held', () => {
+    const imports = [
+      entry('completed', { imported: 412 }),
+      entry('completed', { source: 'garmin_archive', imported: 87 }),
+    ];
+    expect(importedHistoryCount(overview(imports), 'strava_archive')).toBe(412);
+    expect(importedHistoryCount(overview(imports), 'garmin_archive')).toBe(87);
+  });
+
+  it('counts nothing while the import runs or after it stopped', () => {
+    for (const status of ['awaiting_link', 'queued', 'downloading', 'importing', 'failed', 'cancelled'] as const) {
+      expect(importedHistoryCount(overview([entry(status, { source: 'garmin_archive' })]), 'garmin_archive')).toBe(0);
+    }
+  });
+
+  it('counts nothing once the athlete deleted the history, for a source with no import, or before the overview is read', () => {
+    expect(importedHistoryCount(overview([entry('completed', { history_held: false })]), 'strava_archive')).toBe(0);
+    expect(importedHistoryCount(overview([entry('completed')]), 'garmin_archive')).toBe(0);
+    expect(importedHistoryCount(undefined, 'strava_archive')).toBe(0);
+    expect(importedHistoryCount(null, 'strava_archive')).toBe(0);
   });
 });

@@ -47,5 +47,7 @@ mod oauth2_rate_limited;
 /// Per-user OAuth-app credential management endpoints.
 pub mod user_oauth_apps;
 
-pub use oauth2::{ConsentHtmlParams, GoogleSignIn, LoginHtmlParams, LoginPageLabels, OAuth2Routes};
+pub use oauth2::{
+    ConsentHtmlParams, ConsentText, GoogleSignIn, LoginHtmlParams, LoginPageLabels, OAuth2Routes,
+};
 pub use user_oauth_apps::UserOAuthAppRoutes;

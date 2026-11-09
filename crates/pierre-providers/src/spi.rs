@@ -409,10 +409,13 @@ pub trait ProviderDescriptor: Send + Sync {
     }
 
     /// Where this provider's terms let its data be served: only to Dravr's
-    /// own surfaces, or over every transport (the default). The declared
-    /// policies live in [`crate::provider_terms`].
+    /// own surfaces (the default), or over every transport. The default fails
+    /// closed: a provider whose terms nobody has read keeps its data off MCP,
+    /// A2A and API keys until its descriptor declares
+    /// [`TransportPolicy::AnyTransport`]. The declared policies live in
+    /// [`crate::provider_terms`].
     fn transport_policy(&self) -> TransportPolicy {
-        TransportPolicy::AnyTransport
+        TransportPolicy::FirstPartyOnly
     }
 
     /// The relayed sources this provider's terms settle by name, each with
@@ -643,9 +646,14 @@ impl ProviderDescriptor for GarminDescriptor {
 
     /// Every Garmin summary is pushed to Dravr; the Starter tier serves no
     /// list, detail or backfill read, so reads come from what each push
-    /// stored ([`ProviderCapabilities::PUSH_ONLY`]).
+    /// stored ([`ProviderCapabilities::PUSH_ONLY`]). The training calendar is
+    /// written through the Training API ([`ProviderCapabilities::CALENDAR_WRITE`]),
+    /// for an athlete who granted Dravr `WORKOUT_IMPORT`; the provider refuses
+    /// one who did not, by name. Its calendar holds workouts, never week notes.
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::full_health().union(ProviderCapabilities::PUSH_ONLY)
+        ProviderCapabilities::full_health()
+            .union(ProviderCapabilities::PUSH_ONLY)
+            .union(ProviderCapabilities::CALENDAR_WRITE)
     }
 
     /// Garmin's `OAuth2` PKCE flow, per the Garmin Connect Developer Program

@@ -20,6 +20,10 @@ pub mod archive_import;
 pub mod cloud_tasks;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
+/// The interrupted notice that closes a turn which stored its question and produced no reply.
+// Needs the chat pipeline, which only `client-chat` brings in.
+#[cfg(feature = "client-chat")]
+pub(crate) mod failed_turn_notice;
 /// Key rotation: the per-instance keyring reload and the rotation controller (carnet#1347)
 pub mod key_rotation;
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.
@@ -103,6 +107,9 @@ pub mod adapter_resolver;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// The coaching text skill's turns: an A2A message entering the chat pipeline.
+#[cfg(feature = "protocol-a2a")]
+pub mod a2a_coaching;
 /// A verified coach post the platform makes on its own initiative.
 #[cfg(feature = "client-messaging")]
 pub mod platform_post;
@@ -142,6 +149,9 @@ pub mod commitment_refresher;
 
 /// Assembles and starts the Strava seat reclaimer (carnet#505).
 pub mod seat_reclaim_worker;
+
+/// Per-instance poll that keeps the Guardian and harness policy converged on the database
+pub mod settings_poll;
 
 /// The periodic walk of each Strava athlete's history that seeds their
 /// all-time best efforts before any is announced (carnet#582).

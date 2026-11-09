@@ -1,5 +1,5 @@
 // ABOUTME: Claim-verification admin tab — triage flagged claim verdicts from the bullshit detector
-// ABOUTME: Health card, message lookup, status/category/agent/layer/disposition filters, drawer with disposition + knob
+// ABOUTME: Health card, message lookup, status/category/agent/layer/disposition filters, drawer with knob and the disposition, writable by a super admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,11 +13,12 @@ import type { ClaimVerdict } from '@pierre/shared-types';
 import { CLAIM_VERDICT_LAYERS, VERDICT_DISPOSITIONS } from '@pierre/shared-types';
 import { Card, Button, Badge, Select, Input, Section } from './ui';
 import VerdictDrawer from './chat/VerdictDrawer';
+import VerdictCalibrationPanel from './VerdictCalibrationPanel';
 import VerdictTriagePanel from './VerdictTriagePanel';
 import type { DispositionInput } from './VerdictTriagePanel';
-import { useAuth } from '../hooks/useAuth';
-import { describeApiError } from '@pierre/ui-logic';
-import { useTranslation } from '@pierre/i18n';
+import { useAdminScope } from '../hooks/useAdminScope';
+import AdminScopeBar from './AdminScopeBar';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -81,7 +82,7 @@ const DISPOSITION_VARIANT: Record<NonNullable<ClaimVerdict['disposition']>, Badg
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(ADMIN_LOCALE);
   } catch {
     return iso;
   }
@@ -112,7 +113,7 @@ function HealthCard({
   return (
     <Section
       title="Detector health"
-      description="Flagged claims over the window and what triage made of them. The rate is false positives over dispositions, so it says nothing until someone has read the flags."
+      description="Every unsupported or contradicted verdict over the window, before any exclusion, and what triage made of them: unsupported training advice and dismissed false positives count here. Myth Busting reads a narrower set. The rate is false positives over dispositions, so it says nothing until someone has triaged these."
       actions={
         <div className="w-32">
           <Select
@@ -135,7 +136,7 @@ function HealthCard({
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-6">
             {(
               [
-                ['flagged', health.totals.flagged],
+                ['unsupported or contradicted', health.totals.flagged],
                 ['disposed', health.totals.disposed],
                 ['true catches', health.totals.true_catches],
                 ['false positives', health.totals.false_positives],
@@ -165,13 +166,13 @@ function HealthCard({
             <div>
               <h3 className="mb-2 text-sm font-semibold text-on-surface">By layer</h3>
               {health.by_layer.length === 0 ? (
-                <p className="text-xs text-outline">No flagged claims in the window.</p>
+                <p className="text-xs text-outline">No unsupported or contradicted verdicts in the window.</p>
               ) : (
                 <table className="min-w-full text-sm" data-testid="verdict-health-by-layer">
                   <thead>
                     <tr className="text-left text-xs text-on-surface-variant">
                       <th className="py-1 pr-3">Layer</th>
-                      <th className="py-1 pr-3">Flagged</th>
+                      <th className="py-1 pr-3">Unsupported or contradicted</th>
                       <th className="py-1 pr-3">Disposed</th>
                       <th className="py-1 pr-3">False positives</th>
                       <th className="py-1">Rate</th>
@@ -221,10 +222,16 @@ function HealthCard({
   );
 }
 
+/** The tenant a row belongs to. Every admin read sends it; the shared type also serves the chat's. */
+function tenantHolding(verdict: ClaimVerdict): string {
+  if (!verdict.tenant_id) {
+    throw new Error(`Verdict ${verdict.id} came back without its tenant`);
+  }
+  return verdict.tenant_id;
+}
+
 export default function ClaimVerdictsTab() {
-  const { t } = useTranslation();
-  const { user } = useAuth();
-  const tenantId = user?.tenant_id ?? '';
+  const { requested, isSuperAdmin } = useAdminScope();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -244,7 +251,7 @@ export default function ClaimVerdictsTab() {
       [
         'admin',
         'claim-verdicts',
-        tenantId,
+        requested,
         statusFilter,
         categoryFilter,
         coachFilter,
@@ -252,14 +259,14 @@ export default function ClaimVerdictsTab() {
         dispositionFilter,
         limit,
       ] as const,
-    [tenantId, statusFilter, categoryFilter, coachFilter, layerFilter, dispositionFilter, limit],
+    [requested, statusFilter, categoryFilter, coachFilter, layerFilter, dispositionFilter, limit],
   );
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () =>
       adminApi.listClaimVerdicts({
-        tenant_id: tenantId,
+        tenant_id: requested,
         status: statusFilter || undefined,
         category: categoryFilter || undefined,
         agent_id: coachFilter || undefined,
@@ -267,13 +274,11 @@ export default function ClaimVerdictsTab() {
         disposition: dispositionFilter || undefined,
         limit,
       }),
-    enabled: Boolean(tenantId),
   });
 
   const healthQuery = useQuery({
-    queryKey: ['admin', 'claim-verdicts-health', tenantId, windowDays] as const,
-    queryFn: () => adminApi.getClaimVerdictHealth(tenantId, windowDays),
-    enabled: Boolean(tenantId),
+    queryKey: ['admin', 'claim-verdicts-health', requested, windowDays] as const,
+    queryFn: () => adminApi.getClaimVerdictHealth(requested, windowDays),
   });
 
   // Hold the page for its first load until the health stats and the first
@@ -287,19 +292,19 @@ export default function ClaimVerdictsTab() {
   }
 
   const lookupQuery = useQuery({
-    queryKey: ['admin', 'claim-verdicts-message', tenantId, lookupMessageId] as const,
-    queryFn: () => adminApi.listVerdictsForMessage(lookupMessageId, tenantId),
-    enabled: Boolean(tenantId) && Boolean(lookupMessageId),
+    queryKey: ['admin', 'claim-verdicts-message', requested, lookupMessageId] as const,
+    queryFn: () => adminApi.listVerdictsForMessage(lookupMessageId, requested),
+    enabled: Boolean(lookupMessageId),
   });
 
   // The knob is per verdict and lives on the detail read, so the drawer
   // resolves one detail per row it shows. `combine` keeps the map's identity
-  // stable while nothing in it changes.
+  // stable while nothing in it changes. A row names its own tenant: on the
+  // every-tenant read that is the only place to learn which one holds it.
   const knobs = useQueries({
     queries: drawerVerdicts.map((v) => ({
-      queryKey: ['admin', 'claim-verdict', tenantId, v.id] as const,
-      queryFn: () => adminApi.getClaimVerdict(v.id, tenantId),
-      enabled: Boolean(tenantId),
+      queryKey: ['admin', 'claim-verdict', v.tenant_id, v.id] as const,
+      queryFn: () => adminApi.getClaimVerdict(v.id, tenantHolding(v)),
     })),
     combine: (results): Record<string, VerdictKnob | undefined> =>
       Object.fromEntries(drawerVerdicts.map((v, i) => [v.id, results[i]?.data?.knob])),
@@ -308,7 +313,7 @@ export default function ClaimVerdictsTab() {
   const dispositionMutation = useMutation({
     mutationFn: ({ verdict, input }: { verdict: ClaimVerdict; input: DispositionInput }) =>
       adminApi.setClaimVerdictDisposition(verdict.id, {
-        tenant_id: tenantId,
+        tenant_id: tenantHolding(verdict),
         disposition: input.disposition,
         reason: input.reason,
         note: input.note,
@@ -319,7 +324,7 @@ export default function ClaimVerdictsTab() {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'claim-verdicts-health'] });
       void queryClient.invalidateQueries({ queryKey: ['admin', 'claim-verdicts-message'] });
       void queryClient.invalidateQueries({
-        queryKey: ['admin', 'claim-verdict', tenantId, detail.verdict.id],
+        queryKey: ['admin', 'claim-verdict', detail.verdict.tenant_id, detail.verdict.id],
       });
     },
   });
@@ -336,28 +341,24 @@ export default function ClaimVerdictsTab() {
       <VerdictTriagePanel
         verdict={verdict}
         knob={knobs[verdict.id]}
-        onSetDisposition={onSetDisposition}
+        // The route requires ManageConfiguration, which only a super admin holds.
+        onSetDisposition={isSuperAdmin ? onSetDisposition : undefined}
       />
     ),
-    [knobs, onSetDisposition],
+    [knobs, onSetDisposition, isSuperAdmin],
   );
 
   const verdicts = useMemo(() => data?.verdicts ?? [], [data?.verdicts]);
   const total = data?.total ?? 0;
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<StatusKey, number> = {
-      supported: 0,
-      unsupported: 0,
-      contradicted: 0,
-      rhetorical: 0,
-      unverifiable: 0,
-    };
-    for (const v of verdicts) {
-      counts[v.status] += 1;
-    }
-    return counts;
-  }, [verdicts]);
+  // The server counts every verdict the filters select, not just this page.
+  const statusCounts: Record<StatusKey, number> = data?.status_counts ?? {
+    supported: 0,
+    unsupported: 0,
+    contradicted: 0,
+    rhetorical: 0,
+    unverifiable: 0,
+  };
 
   // A looked-up message opens the drawer on its rows once they land — once
   // per lookup, so closing the drawer does not reopen it — and a message with
@@ -377,16 +378,6 @@ export default function ClaimVerdictsTab() {
     setLookupMessageId(messageIdInput.trim());
   };
 
-  if (!tenantId) {
-    return (
-      <Card className="p-6">
-        <p className="text-sm text-on-surface-variant">
-          Tenant id not available on your session. Reload the page and try again.
-        </p>
-      </Card>
-    );
-  }
-
   if (!revealed) {
     return (
       <div className="flex justify-center py-8" role="status" aria-label="Loading claim verdicts">
@@ -397,12 +388,16 @@ export default function ClaimVerdictsTab() {
 
   return (
     <div className="space-y-4">
+      <AdminScopeBar scope={data?.scope} />
+
       <HealthCard
         health={healthQuery.data}
         isLoading={healthQuery.isLoading}
         windowDays={windowDays}
         onWindowChange={setWindowDays}
       />
+
+      <VerdictCalibrationPanel />
 
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
@@ -415,7 +410,8 @@ export default function ClaimVerdictsTab() {
               messaging are evaluated by the claim verifier and recorded here,
               with the claims MCP and A2A clients submit through verify_claim.
               A reply an MCP or A2A client writes itself is not checked. Filter,
-              drill into the source message, record whether the flag was right,
+              drill into the source message,{' '}
+              {isSuperAdmin ? 'record whether the flag was right, ' : ''}
               and course-correct agents that ship unsupported or contradicted
               claims.
             </p>
@@ -469,7 +465,7 @@ export default function ClaimVerdictsTab() {
         {lookupMessageId && lookupQuery.isError ? (
           <p className="mt-2 text-xs text-error">
             Lookup failed:{' '}
-            {describeApiError(lookupQuery.error, { t, fallbackKey: 'errors.unknown' })}
+            {describeAdminError(lookupQuery.error)}
           </p>
         ) : null}
         {lookupMessageId && lookupVerdicts && lookupVerdicts.length === 0 ? (
@@ -522,7 +518,7 @@ export default function ClaimVerdictsTab() {
           </div>
         ) : isError ? (
           <div className="p-6 text-sm text-error">
-            Failed to load verdicts: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
+            Failed to load verdicts: {describeAdminError(error)}
           </div>
         ) : verdicts.length === 0 ? (
           <div className="p-12 text-center">
@@ -562,12 +558,12 @@ export default function ClaimVerdictsTab() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-outline-variant bg-white">
+              <tbody className="divide-y divide-outline-variant">
                 {verdicts.map((v) => (
                   <tr
                     key={v.id}
                     className={clsx(
-                      'cursor-pointer hover:bg-surface-container dark:hover:bg-surface-container',
+                      'cursor-pointer hover:bg-surface-container',
                       drawerVerdicts.some((d) => d.id === v.id) && 'bg-primary/10',
                     )}
                     onClick={() => setDrawerVerdicts([v])}

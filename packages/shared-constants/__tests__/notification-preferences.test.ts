@@ -40,7 +40,7 @@ describe('NOTIFICATION_CATEGORY_BLURB_KEYS', () => {
   it('describes every category, the coach category as its agent and its human coach', () => {
     expect(Object.keys(NOTIFICATION_CATEGORY_BLURB_KEYS).sort()).toEqual([...NOTIFICATION_CATEGORIES].sort());
     expect(NOTIFICATION_CATEGORY_BLURB_KEYS.coach).toBe('notifPrefs.blurbCoach');
-    expect(NOTIFICATION_CATEGORY_BLURB_KEYS.reminders).toBe('notifPrefs.blurbReminders');
+    expect(NOTIFICATION_CATEGORY_BLURB_KEYS.system).toBe('notifPrefs.blurbSystem');
   });
 });
 

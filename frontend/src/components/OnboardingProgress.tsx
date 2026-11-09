@@ -28,7 +28,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
   return (
     <nav
       aria-label={t('onboarding.progressAria')}
-      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-4 pt-6 pad-safe-top"
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center gap-1.5 px-4 pt-6 pad-safe-top"
     >
       {current ? (
         <span className="sr-only">
@@ -44,15 +44,15 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
           <li key={step.id} className="flex items-start">
             {index > 0 ? (
               <span
-                className={`mt-[4px] h-0.5 w-8 rounded-full sm:w-12 ${
+                className={`mt-[4px] h-0.5 w-5 rounded-full lg:w-12 ${
                   steps[index - 1].status === 'done' ? 'bg-primary' : 'bg-outline-variant'
                 }`}
               />
             ) : null}
-            <div className="flex min-w-16 flex-col items-center gap-1.5">
+            <div className="flex flex-col items-center gap-1.5 lg:min-w-16">
               <StepDot status={step.status} />
               <span
-                className={`text-center text-xs leading-tight ${labelClass(step.status)}`}
+                className={`hidden text-center text-xs leading-tight lg:block ${labelClass(step.status)}`}
               >
                 {t(step.labelKey)}
               </span>
@@ -60,6 +60,12 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
           </li>
         ))}
       </ol>
+      {/* Eight labels do not fit under 1024px, so the dots stay and only this step is named. */}
+      {current ? (
+        <span aria-hidden="true" data-testid="onboarding-current-step" className={`text-center text-xs leading-tight lg:hidden ${labelClass('current')}`}>
+          {t(current.labelKey)}
+        </span>
+      ) : null}
     </nav>
   );
 }

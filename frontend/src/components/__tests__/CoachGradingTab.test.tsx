@@ -34,28 +34,37 @@ const { adminApi } = await import('../../services/api/admin');
 
 function sampleSummary(overrides: Partial<AgentGradingSummary> = {}): AgentGradingSummary {
   return {
-    tenant_id: 'tenant-a',
+    scope: { kind: 'tenant', tenant_id: 'tenant-a' },
     verdicts_scanned: 100,
+    judge_era_after: '2026-08-11',
+    verdicts_before_judge_era: 60,
+    unattributed_verdicts: 8,
     grades: [
       {
         agent_id: 'coach-broscience',
+        agent_name: 'Bro Science',
         total_verdicts: 12,
         supported: 2,
         unsupported: 6,
+        unsupported_prescription: 0,
         contradicted: 4,
         rhetorical: 0,
         unverifiable: 0,
+        false_positives: 0,
         score: 0.12,
         grade: 'F',
       },
       {
         agent_id: 'coach-stable',
+        agent_name: null,
         total_verdicts: 20,
-        supported: 18,
+        supported: 15,
         unsupported: 1,
+        unsupported_prescription: 1,
         contradicted: 0,
         rhetorical: 1,
-        unverifiable: 0,
+        unverifiable: 1,
+        false_positives: 1,
         score: 0.93,
         grade: 'A',
       },
@@ -112,8 +121,51 @@ describe('CoachGradingTab', () => {
     await waitFor(() => {
       expect(screen.getByText('coach-broscience')).toBeInTheDocument();
     });
-    const failingLabel = screen.getByText(/Failing/i);
+    const failingLabel = screen.getByText('Low grades (D / F)');
     const card = failingLabel.closest('.rounded-lg');
     expect(card?.textContent ?? '').toContain('1');
+    expect(screen.queryByText(/Failing/i)).not.toBeInTheDocument();
+  });
+
+  it('names the agent, and says so when the id no longer resolves', async () => {
+    vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByText('Bro Science')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Agent not found')).toBeInTheDocument();
+  });
+
+  it('makes each row add up to its total', async () => {
+    vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('not-scored')).toHaveLength(2);
+    });
+    const [none, four] = screen.getAllByTestId('not-scored');
+    expect(none).toHaveTextContent('0');
+    // 15 supported + 1 unsupported + 0 contradicted + 4 not scored = 20 total.
+    expect(four).toHaveTextContent('4');
+  });
+
+  it('states the judge-era cut and what it leaves out', async () => {
+    vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByTestId('judge-era-after')).toHaveTextContent('2026-08-11');
+    });
+    expect(screen.getByTestId('judge-era-verdicts')).toHaveTextContent('40');
+    expect(screen.getByTestId('older-verdicts')).toHaveTextContent('60 older not counted');
+    expect(screen.getByTestId('unattributed-verdicts')).toHaveTextContent('8');
+  });
+
+  it('makes no claim about store rank or an unpublish action', async () => {
+    vi.mocked(adminApi.getCoachGradingSummary).mockResolvedValueOnce(sampleSummary());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByTestId('judge-era-after')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/rank higher/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unpublish/i)).not.toBeInTheDocument();
   });
 });

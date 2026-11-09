@@ -528,12 +528,15 @@ mod tests {
         use std::time::Duration;
 
         use async_trait::async_trait;
+        use chrono::{DateTime, Utc};
         use pierre_core::errors::AppResult;
         use pierre_core::models::usage::{
             InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
         };
         use pierre_core::models::{ConversationTurnId, TenantId};
-        use pierre_database::repositories::LlmUsageRepository;
+        use pierre_database::repositories::{
+            LlmUsagePromptBand, LlmUsageRepository, LlmUsageScope,
+        };
         use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
         use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
         use pierre_test_support::db::create_test_db;
@@ -562,14 +565,14 @@ mod tests {
             }
             async fn get_llm_usage_aggregates(
                 &self,
-                tenant_id: &str,
+                tenant_id: Option<&str>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageAggregateRow>> {
                 self.0.get_llm_usage_aggregates(tenant_id, since).await
             }
             async fn get_llm_usage_daily_series(
                 &self,
-                tenant_id: &str,
+                tenant_id: Option<&str>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageDailyRow>> {
                 self.0.get_llm_usage_daily_series(tenant_id, since).await
@@ -592,24 +595,61 @@ mod tests {
                     .get_llm_usage_daily_series_by_user(user_id, since)
                     .await
             }
+            async fn get_llm_usage_aggregates_by_user_in_tenant(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+                self.0
+                    .get_llm_usage_aggregates_by_user_in_tenant(user_id, tenant_id, since)
+                    .await
+            }
+            async fn get_llm_usage_daily_series_by_user_in_tenant(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageDailyRow>> {
+                self.0
+                    .get_llm_usage_daily_series_by_user_in_tenant(user_id, tenant_id, since)
+                    .await
+            }
             async fn get_recent_llm_calls_admin(
                 &self,
+                tenant_id: Option<&str>,
                 limit: i64,
             ) -> AppResult<Vec<LlmUsageRecord>> {
-                self.0.get_recent_llm_calls_admin(limit).await
+                self.0.get_recent_llm_calls_admin(tenant_id, limit).await
             }
-            async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
-                self.0.count_llm_calls_since(since).await
-            }
-            async fn get_tenant_tool_calls_since(
+            async fn get_llm_calls_between(
                 &self,
-                tenant_id: TenantId,
+                tenant_id: Option<&str>,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+                limit: i64,
+            ) -> AppResult<Vec<LlmUsageRecord>> {
+                self.0
+                    .get_llm_calls_between(tenant_id, start, end, limit)
+                    .await
+            }
+            async fn get_tool_calls_since(
+                &self,
+                tenant_id: Option<TenantId>,
                 since: &str,
             ) -> AppResult<Vec<LlmUsageRecord>> {
-                self.0.get_tenant_tool_calls_since(tenant_id, since).await
+                self.0.get_tool_calls_since(tenant_id, since).await
             }
-            async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)> {
-                self.0.sum_llm_usage_since(since).await
+            async fn get_llm_usage_prompt_bands_since(
+                &self,
+                scope: LlmUsageScope<'_>,
+                group: &LlmUsageAggregateRow,
+                since: &str,
+                above_prompt_tokens: i64,
+            ) -> AppResult<Vec<LlmUsagePromptBand>> {
+                self.0
+                    .get_llm_usage_prompt_bands_since(scope, group, since, above_prompt_tokens)
+                    .await
             }
             async fn find_llm_usage_by_turn_id(
                 &self,

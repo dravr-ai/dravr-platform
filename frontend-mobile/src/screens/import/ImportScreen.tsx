@@ -31,9 +31,10 @@ import { importsApi } from '../../services/api';
 import { Button, Input, PaneScrollView, Section, Sheet } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { openExternal } from '../../utils/openExternal';
+import { UploadIntake } from './UploadIntake';
 
 interface ImportScreenProps {
-  /** Open straight on a source's import (`strava_archive`, `garmin_archive`), as the Strava card's history link does. */
+  /** Open straight on an offered source's import (`strava_archive`, `whoop_archive`, ...), as a card's export link and the history sheet do. */
   initialSource?: string;
   /** Leave the screen; shown as a close action where the stack has no header (onboarding). */
   onClose?: () => void;
@@ -243,12 +244,14 @@ function SourceImportView({ copy, enabled }: { copy: ImportSourceCopy; enabled: 
             {historyLine && t(historyLine.key, historyLine.values)}
           </Text>
           <View className="mt-3 gap-2">
-            <Button
-              title={t('providers.import.strava.importNewer')}
-              variant="secondary"
-              onPress={() => start.mutate(undefined)}
-              loading={start.isPending}
-            />
+            {copy.intake === 'link' && (
+              <Button
+                title={t('providers.import.strava.importNewer')}
+                variant="secondary"
+                onPress={() => start.mutate(undefined)}
+                loading={start.isPending}
+              />
+            )}
             <Button
               title={t('providers.import.strava.delete')}
               variant="danger"
@@ -263,7 +266,7 @@ function SourceImportView({ copy, enabled }: { copy: ImportSourceCopy; enabled: 
         <Section title={t('providers.import.strava.step3Title')} testID="import-running">
           <Text className="text-sm text-text-primary">
             {current.status === 'importing' && current.total_rows !== null
-              ? t('providers.import.strava.progress', {
+              ? t(copy.progress, {
                   processed: current.processed_rows,
                   total: current.total_rows,
                 })
@@ -282,7 +285,25 @@ function SourceImportView({ copy, enabled }: { copy: ImportSourceCopy; enabled: 
         </Section>
       )}
 
-      {(phase === 'request' || phase === 'awaiting_link') && (
+      {(phase === 'request' || phase === 'awaiting_link') && copy.intake === 'upload' && (
+        <View>
+          {current?.status === 'failed' && (
+            <Text className="text-sm text-error mb-2" testID="import-failed">
+              {t(importFailureKey(current.error_code, copy))} {t('providers.import.strava.retry')}
+            </Text>
+          )}
+          <Section title={t(copy.step1Title)}>
+            <Text className="text-sm text-text-secondary">{t(copy.step1Body)}</Text>
+          </Section>
+        </View>
+      )}
+
+      {/* One place for every phase that takes a file: opening an upload moves the phase, and unmounting would stop the bytes. */}
+      {phase !== 'running' && copy.intake === 'upload' && (
+        <UploadIntake copy={copy} current={current} onChanged={refresh} />
+      )}
+
+      {(phase === 'request' || phase === 'awaiting_link') && copy.intake === 'link' && (
         <View>
           {current?.status === 'failed' && (
             <Text className="text-sm text-error mb-2" testID="import-failed">

@@ -1,4 +1,4 @@
-// ABOUTME: Sign-up attribution end to end: the personal tenant and the landing campaign a web sign-up records on its span
+// ABOUTME: Sign-up attribution end to end: the personal tenant, campaign and dravr.ai button a sign-up records on its span
 // ABOUTME: Then the admin approval names the same tenant, so neither operational event lands on the shared `service` id
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,8 +13,10 @@
 //! span, so what that span records is what the event carries:
 //!
 //! 1. the web register route records the account's personal tenant and the
-//!    campaign tags that read as tags, and drops one that is free text;
-//! 2. the admin approval names that same personal tenant on `user.approved`.
+//!    campaign tags (and the dravr.ai button's `ref`, `placement` and `lang`)
+//!    that read as tags, and drops one that is free text;
+//! 2. a Google (Firebase) sign-up records the same tags on its login span;
+//! 3. the admin approval names that same personal tenant on `user.approved`.
 
 use crate::common;
 use crate::helpers;
@@ -22,8 +24,12 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
+use dravr_tronc::iam::GoogleKeySet;
 use helpers::axum_test::AxumTestRequest;
+use helpers::google_token::{FirebaseTokenClaims, TestSigner};
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, only, recorded};
+use pierre_auth::firebase::FirebaseAuth;
+use pierre_config::environment::FirebaseConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -149,6 +155,104 @@ async fn a_web_sign_up_records_its_personal_tenant_and_only_tag_shaped_campaign_
         recorded(&spans, "utm_medium").is_empty(),
         "free text in a campaign field never reaches the analytics sink"
     );
+}
+
+/// What a dravr.ai button link can carry, every value tag-shaped: the button's
+/// `ref`, `placement` and `lang`, and all five `utm_*` campaign tags.
+const BUTTON_AND_CAMPAIGN: [(&str, &str); 8] = [
+    ("ref", "dravr.ai"),
+    ("placement", "hero"),
+    ("lang", "fr"),
+    ("utm_source", "newsletter"),
+    ("utm_medium", "email"),
+    ("utm_campaign", "fall-2026"),
+    ("utm_term", "cycling-coach"),
+    ("utm_content", "footer"),
+];
+
+/// `body` with every field of [`BUTTON_AND_CAMPAIGN`] beside its own.
+fn with_button_and_campaign(mut body: Value) -> Value {
+    for (field, value) in BUTTON_AND_CAMPAIGN {
+        body[field] = json!(value);
+    }
+    body
+}
+
+#[tokio::test]
+async fn a_web_sign_up_from_a_dravr_ai_button_records_the_button_and_every_utm_tag() {
+    let resources = common::create_test_server_resources().await.unwrap();
+
+    let (_, spans, guard) = capture_logs_and_spans();
+    register(
+        &resources,
+        with_button_and_campaign(json!({
+            "email": "hero-visitor@example.com",
+            "password": "securePassword123",
+        })),
+    )
+    .await;
+    register(
+        &resources,
+        json!({
+            "email": "free-text-visitor@example.com",
+            "password": "securePassword123",
+            "utm_term": "cycling coach",
+        }),
+    )
+    .await;
+    drop(guard);
+
+    // One value per field: the first sign-up's. The second sign-up's term has
+    // a space, so it is free text and is dropped rather than recorded.
+    for (field, expected) in BUTTON_AND_CAMPAIGN {
+        assert_eq!(
+            recorded(&spans, field),
+            vec![expected.to_owned()],
+            "the sign-up span must carry `{field}` for user.signed_up, and only when tag-shaped"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_google_sign_up_from_a_dravr_ai_button_records_the_button_and_every_utm_tag() {
+    const PROJECT: &str = "dravr-test-project";
+    let resources = common::create_test_server_resources().await.unwrap();
+    let signer = TestSigner::generate();
+    let jwks = signer.serve_jwks().await;
+    let mut ctx = resources.auth_routes_context();
+    ctx.firebase_auth = Some(Arc::new(FirebaseAuth::with_key_set(
+        FirebaseConfig {
+            project_id: Some(PROJECT.to_owned()),
+            api_key: None,
+            enabled: true,
+            ..FirebaseConfig::default()
+        },
+        GoogleKeySet::new(&jwks.url, reqwest::Client::new()),
+    )));
+    let id_token = signer.mint(&FirebaseTokenClaims::google_sign_in(
+        PROJECT,
+        "uid-hero",
+        "google-hero@example.com",
+        Some(true),
+    ));
+
+    let (_, spans, guard) = capture_logs_and_spans();
+    let response = AxumTestRequest::post("/api/auth/firebase")
+        .json(&with_button_and_campaign(json!({ "id_token": id_token })))
+        .send(AuthRoutes::routes(ctx))
+        .await;
+    drop(guard);
+    let status = response.status();
+    let body = response.text();
+    assert_eq!(status, 200, "the Google sign-up must succeed: {body}");
+
+    for (field, expected) in BUTTON_AND_CAMPAIGN {
+        assert_eq!(
+            recorded(&spans, field),
+            vec![expected.to_owned()],
+            "the Firebase login span must carry `{field}` for user.signed_up"
+        );
+    }
 }
 
 #[tokio::test]

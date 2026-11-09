@@ -150,8 +150,9 @@ async fn authorize_with_session(
 }
 
 /// Assert an `/oauth2/authorize` answer sent no code anywhere: the error
-/// page, never a redirect to `redirect_uri`.
-fn assert_no_code_sent(response: &AxumTestResponse, redirect_uri: &str) {
+/// page, saying `refusal` in the reader's language, never a redirect to
+/// `redirect_uri`.
+fn assert_no_code_sent(response: &AxumTestResponse, redirect_uri: &str, refusal: &str) {
     assert!(
         !is_redirect(response),
         "{redirect_uri}: {} {:?}",
@@ -160,7 +161,7 @@ fn assert_no_code_sent(response: &AxumTestResponse, redirect_uri: &str) {
     );
     assert_eq!(response.status(), 400, "{}", response.body_text());
     assert!(
-        response.body_text().contains("Invalid redirect_uri"),
+        response.body_text().contains(refusal),
         "{}",
         response.body_text()
     );
@@ -343,7 +344,7 @@ async fn a_suspended_account_is_refused_and_no_code_is_issued() {
         authorized.header("location")
     );
     assert!(
-        authorized.body_text().contains("suspended"),
+        authorized.body_text().contains("suspendu"),
         "{}",
         authorized.body_text()
     );
@@ -519,10 +520,16 @@ async fn a_redirect_outside_the_policy_is_refused_and_gets_no_code() {
     ];
     for (client_id, redirect_uri) in refused {
         let signed_out = authorize_signed_out(&resources, client_id, redirect_uri).await;
-        assert_no_code_sent(&signed_out, redirect_uri);
+        // Nobody signed in, no browser language: English
+        assert_no_code_sent(&signed_out, redirect_uri, "Invalid redirect_uri");
 
         let signed_in = authorize_signed_in(&resources, user_id, client_id, redirect_uri).await;
-        assert_no_code_sent(&signed_in, redirect_uri);
+        // The session's stored language is the default, French
+        assert_no_code_sent(
+            &signed_in,
+            redirect_uri,
+            "Cette demande de connexion n’est pas valide",
+        );
     }
 }
 
@@ -552,7 +559,11 @@ async fn an_expo_go_callback_is_accepted_when_the_server_opts_in() {
         "exp://evil.example/x/--/auth/callback",
     )
     .await;
-    assert_no_code_sent(&smuggled, "exp://evil.example/x/--/auth/callback");
+    assert_no_code_sent(
+        &smuggled,
+        "exp://evil.example/x/--/auth/callback",
+        "Invalid redirect_uri",
+    );
 }
 
 /// The consent skip is the apps' alone: a registered integration signed in

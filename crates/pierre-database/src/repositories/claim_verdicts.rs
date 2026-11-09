@@ -5,10 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::transport::TransportPolicy;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 
 use pierre_core::models::TenantId;
@@ -21,8 +23,7 @@ use pierre_memory::{
 mod health;
 use health::ratio;
 pub(crate) use health::{
-    agent_health, apply_status_count, category_health, daily_health, fold_health_breakdown,
-    health_breakdown_rows, health_totals, layer_health, reason_count_from_row,
+    apply_status_count, health_breakdown_rows, reason_count_from_row, verdict_health_stats,
 };
 
 /// Parameters for inserting a claim verdict via [`ClaimVerdictRepository`].
@@ -152,6 +153,7 @@ macro_rules! undisposed_filter {
         "undisposed"
     };
 }
+pub mod status_counts;
 
 /// The wire value that selects rows with no disposition.
 pub const UNDISPOSED_FILTER: &str = undisposed_filter!();
@@ -218,8 +220,8 @@ pub struct VerdictDailyBucket {
 /// Calibration summary emitted by
 /// [`ClaimVerdictRepository::aggregate_verdict_stats`].
 ///
-/// Drives the admin "Verdict calibration" panel in the eval harness
-/// tab — shows the live claim verdict mix and how it drifts day to
+/// Drives the admin "Verdict calibration" panel on the Claim
+/// Verdicts tab — shows the live claim verdict mix and how it drifts day to
 /// day over the requested window.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct VerdictCalibrationStats {
@@ -235,9 +237,12 @@ pub struct VerdictCalibrationStats {
 
 /// Disposition counters over one set of flagged verdicts.
 ///
-/// A flagged verdict is one whose status is `unsupported` or `contradicted`
-/// — the rows an athlete sees a warning for, and the only rows a disposition
-/// says anything about.
+/// A flagged verdict here is any whose status is `unsupported` or
+/// `contradicted`, the only rows a disposition says anything about. That is
+/// wider than what an athlete is warned about, which leaves out an unsupported
+/// training prescription, and wider than the myth-busting summary's set, which
+/// also leaves out a dismissed false positive. The screen labels this count
+/// "unsupported or contradicted".
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct VerdictHealthTotals {
     /// Flagged verdicts in the window.
@@ -373,7 +378,7 @@ pub struct VerdictHealthStats {
 
 /// Claim verdict repository — persists post-LLM detector output.
 #[async_trait]
-pub trait ClaimVerdictRepository: Send + Sync {
+pub trait ClaimVerdictRepository: status_counts::VerdictStatusCounts {
     /// Persist a new claim verdict.
     async fn insert_claim_verdict(
         &self,
@@ -394,30 +399,31 @@ pub trait ClaimVerdictRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Vec<ClaimVerdict>>;
 
-    /// Every verdict extracted from one message, oldest first. Support's entry
-    /// point: an athlete disputes a reply, support pastes its message id.
+    /// Every verdict of `scope` extracted from one message, oldest first.
+    /// Support's entry point: an athlete disputes a reply, support pastes its
+    /// message id.
     async fn list_verdicts_for_message(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
         message_id: &str,
     ) -> AppResult<Vec<ClaimVerdict>>;
 
-    /// The tenant's verdicts matching `filter`, newest first. The admin
+    /// The verdicts of `scope` matching `filter`, newest first. The admin
     /// triage list.
     async fn list_verdicts_filtered(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
         filter: &VerdictListFilter,
     ) -> AppResult<Vec<ClaimVerdict>>;
 
-    /// List the most recent verdicts for a tenant, newest first — the
-    /// unfiltered scan agent grading and myth-busting read.
+    /// The most recent verdicts of `scope`, newest first — the unfiltered
+    /// scan agent grading and myth-busting read.
     async fn list_recent_verdicts(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
         limit: i64,
     ) -> AppResult<Vec<ClaimVerdict>> {
-        self.list_verdicts_filtered(tenant_id, &VerdictListFilter::recent(limit))
+        self.list_verdicts_filtered(scope, &VerdictListFilter::recent(limit))
             .await
     }
 
@@ -431,23 +437,23 @@ pub trait ClaimVerdictRepository: Send + Sync {
         params: &SetVerdictDispositionParams<'_>,
     ) -> AppResult<ClaimVerdict>;
 
-    /// Aggregate verdict counts over the last `window_days` for a tenant.
+    /// Aggregate verdict counts of `scope` over the last `window_days`.
     ///
     /// Returns both the full-window totals and a per-day breakdown so
     /// the admin calibration panel can show drift. `window_days` is
     /// clamped to `1..=365` by callers.
     async fn aggregate_verdict_stats(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
         window_days: i64,
     ) -> AppResult<VerdictCalibrationStats>;
 
-    /// Flagged verdicts and their dispositions over the last `window_days`,
-    /// broken down by layer, category, agent, reason and day. `window_days`
-    /// is clamped to `1..=365`.
+    /// Flagged verdicts of `scope` and their dispositions over the last
+    /// `window_days`, broken down by layer, category, agent, reason and day.
+    /// `window_days` is clamped to `1..=365`.
     async fn aggregate_verdict_health(
         &self,
-        tenant_id: TenantId,
+        scope: AdminScope,
         window_days: i64,
     ) -> AppResult<VerdictHealthStats>;
 
@@ -505,21 +511,23 @@ pub(crate) const LIST_VERDICTS_FOR_CONVERSATION_SQL: &str = concat!(
             "
 );
 
-/// Every verdict extracted from one message, oldest first, scoped by tenant.
+/// Every verdict extracted from one message, oldest first, in tenant `$2`
+/// or, bound `NULL`, in every tenant: the super-admin path.
 pub(crate) const LIST_VERDICTS_FOR_MESSAGE_SQL: &str = concat!(
     "
             SELECT ",
     verdict_columns!(),
     "
             FROM claim_verdicts
-            WHERE message_id = $1 AND tenant_id = $2
+            WHERE message_id = $1 AND ($2 IS NULL OR tenant_id = $2)
             ORDER BY created_at ASC
             "
 );
 
-/// The tenant's verdicts matching every bound axis, newest first.
+/// The verdicts matching every bound axis, newest first.
 ///
-/// Each optional axis binds `NULL` to mean "any", so one statement serves
+/// Each optional axis binds `NULL` to mean "any", the tenant included (the
+/// super-admin path reads every tenant), so one statement serves
 /// every combination the admin list can ask for and the plan can use the
 /// `(tenant_id, …)` indexes on whichever axis is set. The disposition axis is
 /// three-way — any, none, or one value — so it binds a sentinel
@@ -532,7 +540,7 @@ pub(crate) const LIST_VERDICTS_FILTERED_SQL: &str = concat!(
     verdict_columns!(),
     "
             FROM claim_verdicts
-            WHERE tenant_id = $1
+            WHERE ($1 IS NULL OR tenant_id = $1)
               AND ($2 IS NULL OR status = $2)
               AND ($3 IS NULL OR category = $3)
               AND ($4 IS NULL OR agent_id = $4)
@@ -558,8 +566,9 @@ pub(crate) const SET_VERDICT_DISPOSITION_SQL: &str = r"
             WHERE id = $1 AND tenant_id = $2
             ";
 
-/// Daily status counts over a window, with `$day` the engine's own way of
-/// cutting a calendar day out of `created_at`.
+/// Daily status counts of tenant `$1` (every tenant when it binds `NULL`) over
+/// a window, with `$day` the engine's own way of cutting a calendar day out of
+/// `created_at`.
 ///
 /// This is the one construct the two engines cannot share. `created_at` is
 /// `TEXT` holding RFC3339 on `SQLite` and `TIMESTAMPTZ` on Postgres, so the
@@ -576,7 +585,7 @@ macro_rules! verdict_daily_counts_sql {
                    status AS status,
                    COUNT(*) AS c
             FROM claim_verdicts
-            WHERE tenant_id = $1 AND created_at >= $2
+            WHERE ($1 IS NULL OR tenant_id = $1) AND created_at >= $2
             GROUP BY day, status
             ORDER BY day ASC
             "
@@ -590,8 +599,9 @@ pub(crate) use verdict_daily_counts_sql;
 /// One shape serves every health breakdown: `$dim` is a column for the layer,
 /// category and agent tables, and the engine's own day expression for the
 /// daily one — the same split [`verdict_daily_counts_sql`] makes, for the same
-/// reason. Flagged means `unsupported` or `contradicted`, the two statuses an
-/// athlete is warned about.
+/// reason. Flagged means `unsupported` or `contradicted`; see
+/// [`VerdictHealthTotals`] for how that differs from what an athlete is warned
+/// about.
 macro_rules! verdict_health_breakdown_sql {
     ($dim:literal) => {
         concat!(
@@ -602,7 +612,7 @@ macro_rules! verdict_health_breakdown_sql {
                    disposition AS disposition,
                    COUNT(*) AS c
             FROM claim_verdicts
-            WHERE tenant_id = $1
+            WHERE ($1 IS NULL OR tenant_id = $1)
               AND created_at >= $2
               AND status IN ('unsupported', 'contradicted')
             GROUP BY dim, disposition
@@ -625,13 +635,39 @@ pub(crate) const HEALTH_BY_REASON_SQL: &str = r"
             SELECT disposition_reason AS reason,
                    COUNT(*) AS c
             FROM claim_verdicts
-            WHERE tenant_id = $1
+            WHERE ($1 IS NULL OR tenant_id = $1)
               AND created_at >= $2
               AND status IN ('unsupported', 'contradicted')
               AND disposition_reason IS NOT NULL
             GROUP BY reason
             ORDER BY reason ASC
             ";
+
+/// Fold `(day, status, count)` rows into the calibration totals and series.
+pub(crate) fn calibration_from_counts(
+    rows: impl Iterator<Item = (String, String, i64)>,
+    window_start: DateTime<Utc>,
+    window_days: i64,
+) -> VerdictCalibrationStats {
+    let mut totals = VerdictStatusBreakdown::default();
+    let mut daily_map: BTreeMap<String, VerdictStatusBreakdown> = BTreeMap::new();
+
+    for (day, status, count) in rows {
+        let bucket = daily_map.entry(day).or_default();
+        apply_status_count(bucket, &status, count);
+        apply_status_count(&mut totals, &status, count);
+    }
+
+    VerdictCalibrationStats {
+        window_start: window_start.to_rfc3339(),
+        window_days,
+        totals,
+        daily: daily_map
+            .into_iter()
+            .map(|(date, counts)| VerdictDailyBucket { date, counts })
+            .collect(),
+    }
+}
 
 /// Decode one verdict row via `try_get` only, rejecting an enum value the
 /// application no longer knows rather than substituting a default.
@@ -846,12 +882,12 @@ macro_rules! impl_claim_verdict_repository {
 
             async fn list_verdicts_for_message(
                 &self,
-                tenant_id: TenantId,
+                scope: AdminScope,
                 message_id: &str,
             ) -> AppResult<Vec<ClaimVerdict>> {
                 let rows = sqlx::query(LIST_VERDICTS_FOR_MESSAGE_SQL)
                     .bind(message_id)
-                    .bind(tenant_id.to_string())
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .fetch_all(&self.pool)
                     .await
                     .map_err(|e| {
@@ -863,11 +899,11 @@ macro_rules! impl_claim_verdict_repository {
 
             async fn list_verdicts_filtered(
                 &self,
-                tenant_id: TenantId,
+                scope: AdminScope,
                 filter: &VerdictListFilter,
             ) -> AppResult<Vec<ClaimVerdict>> {
                 let rows = sqlx::query(LIST_VERDICTS_FILTERED_SQL)
-                    .bind(tenant_id.to_string())
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(filter.status.map(ClaimStatus::as_str))
                     .bind(filter.category.map(ClaimCategory::as_str))
                     .bind(filter.agent_id.as_deref())
@@ -916,14 +952,14 @@ macro_rules! impl_claim_verdict_repository {
 
             async fn aggregate_verdict_stats(
                 &self,
-                tenant_id: TenantId,
+                scope: AdminScope,
                 window_days: i64,
             ) -> AppResult<VerdictCalibrationStats> {
                 let days = window_days.clamp(1, 365);
                 let window_start = Utc::now() - Duration::days(days);
 
                 let rows = sqlx::query($daily_sql)
-                    .bind(tenant_id.to_string())
+                    .bind(scope.tenant_filter().map(|t| t.to_string()))
                     .bind(window_start)
                     .fetch_all(&self.pool)
                     .await
@@ -931,39 +967,22 @@ macro_rules! impl_claim_verdict_repository {
                         AppError::database(format!("Failed to aggregate claim verdicts: {e}"))
                     })?;
 
-                let mut totals = VerdictStatusBreakdown::default();
-                let mut daily_map: BTreeMap<String, VerdictStatusBreakdown> = BTreeMap::new();
-
-                for row in &rows {
-                    let day: String = row.get("day");
-                    let status: String = row.get("status");
-                    let count: i64 = row.get("c");
-                    let bucket = daily_map.entry(day).or_default();
-                    apply_status_count(bucket, &status, count);
-                    apply_status_count(&mut totals, &status, count);
-                }
-
-                let daily = daily_map
-                    .into_iter()
-                    .map(|(date, counts)| VerdictDailyBucket { date, counts })
-                    .collect();
-
-                Ok(VerdictCalibrationStats {
-                    window_start: window_start.to_rfc3339(),
-                    window_days: days,
-                    totals,
-                    daily,
-                })
+                Ok(calibration_from_counts(
+                    rows.iter()
+                        .map(|row| (row.get("day"), row.get("status"), row.get("c"))),
+                    window_start,
+                    days,
+                ))
             }
 
             async fn aggregate_verdict_health(
                 &self,
-                tenant_id: TenantId,
+                scope: AdminScope,
                 window_days: i64,
             ) -> AppResult<VerdictHealthStats> {
                 let days = window_days.clamp(1, 365);
                 let window_start = Utc::now() - Duration::days(days);
-                let tenant = tenant_id.to_string();
+                let tenant = scope.tenant_filter().map(|t| t.to_string());
                 let fetch_failed =
                     |e| AppError::database(format!("Failed to aggregate verdict health: {e}"));
 
@@ -1012,20 +1031,12 @@ macro_rules! impl_claim_verdict_repository {
                     .map(reason_count_from_row)
                     .collect::<AppResult<Vec<_>>>()?;
 
-                let totals = health_totals(&layer_rows);
-                let false_positive_rate = totals.false_positive_rate();
-
-                Ok(VerdictHealthStats {
-                    window_start: window_start.to_rfc3339(),
-                    window_days: days,
-                    totals,
-                    false_positive_rate,
-                    by_layer: layer_health(fold_health_breakdown(&layer_rows)),
-                    by_category: category_health(fold_health_breakdown(&category_rows)),
-                    by_agent: agent_health(fold_health_breakdown(&agent_rows)),
+                Ok(verdict_health_stats(
+                    window_start.to_rfc3339(),
+                    days,
+                    (layer_rows, category_rows, agent_rows, daily_rows),
                     by_reason,
-                    daily: daily_health(fold_health_breakdown(&daily_rows)),
-                })
+                ))
             }
 
             async fn grading_pool(

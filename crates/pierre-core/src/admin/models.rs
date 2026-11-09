@@ -15,6 +15,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 use uuid::Uuid;
 
+use super::scope::{no_tenant_refusal, other_tenant_refusal};
 use crate::errors::{AppError, AppResult, ErrorCode};
 
 /// Admin token with full details
@@ -580,6 +581,25 @@ impl ValidatedAdminToken {
         })
     }
 
+    /// Verify the token may act on a setting global to the platform.
+    ///
+    /// A token scoped to one tenant must not read or change what applies to
+    /// every tenant. A super-admin passes whatever its `tenant_id` says: a
+    /// console session carries the admin's active tenant there, and
+    /// [`Self::require_tenant_access`] already treats a super-admin as reaching
+    /// every tenant. A token that has no tenant is not scoped.
+    ///
+    /// # Errors
+    /// Returns `AppError` with `PermissionDenied` if the token is scoped to one tenant.
+    pub fn require_global_scope(&self) -> AppResult<()> {
+        (self.is_super_admin || self.tenant_id.is_none()).ok_or_else(|| {
+            AppError::new(
+                ErrorCode::PermissionDenied,
+                "This setting applies to the whole platform; a token scoped to one tenant cannot read or change it",
+            )
+        })
+    }
+
     /// Verify the token is allowed to access the given tenant.
     ///
     /// - Super-admin tokens (`is_super_admin = true`) can access any tenant.
@@ -596,16 +616,8 @@ impl ValidatedAdminToken {
         }
         match &self.tenant_id {
             Some(bound) if bound == requested_tenant => Ok(()),
-            Some(bound) => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                format!(
-                    "Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}"
-                ),
-            )),
-            None => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Token has no tenant scope — super-admin required for cross-tenant access",
-            )),
+            Some(bound) => Err(other_tenant_refusal(bound, requested_tenant)),
+            None => Err(no_tenant_refusal()),
         }
     }
 }
@@ -626,7 +638,34 @@ pub struct AdminConfigOverrideRow {
 
 #[cfg(test)]
 mod tests {
-    use super::AdminAction;
+    use super::{AdminAction, AdminPermissions, ValidatedAdminToken};
+
+    fn token(is_super_admin: bool, tenant_id: Option<&str>) -> ValidatedAdminToken {
+        ValidatedAdminToken {
+            token_id: "token".to_owned(),
+            service_name: "service".to_owned(),
+            permissions: AdminPermissions::super_admin(),
+            is_super_admin,
+            tenant_id: tenant_id.map(str::to_owned),
+            operator_user_id: None,
+            user_info: None,
+        }
+    }
+
+    #[test]
+    fn only_a_token_scoped_to_one_tenant_is_refused_a_global_setting() {
+        assert_eq!(
+            token(false, Some("tenant-a"))
+                .require_global_scope()
+                .map_err(|refused| refused.code.http_status()),
+            Err(403)
+        );
+
+        // A console super-admin carries the active tenant here and is not scoped by it.
+        assert!(token(true, Some("tenant-a")).require_global_scope().is_ok());
+        assert!(token(true, None).require_global_scope().is_ok());
+        assert!(token(false, None).require_global_scope().is_ok());
+    }
 
     #[test]
     fn the_clone_action_reads_back_as_stored() {

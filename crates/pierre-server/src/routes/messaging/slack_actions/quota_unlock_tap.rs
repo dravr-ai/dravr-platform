@@ -243,6 +243,7 @@ mod tests {
             channel_name: channel_name.to_owned(),
             message_ts: "1.0".to_owned(),
             message_blocks: Vec::new(),
+            trigger_id: String::new(),
         }
     }
 

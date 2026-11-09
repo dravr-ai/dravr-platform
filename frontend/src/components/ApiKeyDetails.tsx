@@ -7,19 +7,20 @@ import { format } from 'date-fns';
 import { Button, Card, CardHeader, Badge, Textarea } from './ui';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
+import type { RotateAdminTokenResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface ApiKeyDetailsProps {
   token: AdminToken;
   onBack: () => void;
-  onTokenUpdated: () => void;
 }
 
 interface TokenSuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
   newToken: string;
-  tokenInfo: AdminToken;
+  tokenInfo: Pick<AdminToken, 'service_name' | 'token_prefix'>;
 }
 
 const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ 
@@ -123,16 +124,15 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
   );
 };
 
-export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyDetailsProps) {
+export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
   const queryClient = useQueryClient();
   const [showRotateModal, setShowRotateModal] = useState(false);
-  const [rotatedToken, setRotatedToken] = useState<string>('');
+  const [rotated, setRotated] = useState<RotateAdminTokenResponse | null>(null);
 
   const revokeTokenMutation = useMutation({
     mutationFn: () => adminApi.revokeAdminToken(token.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminTokens.all });
-      onTokenUpdated();
       onBack();
     },
   });
@@ -140,10 +140,9 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
   const rotateTokenMutation = useMutation({
     mutationFn: () => adminApi.rotateAdminToken(token.id),
     onSuccess: (data) => {
-      setRotatedToken(data.jwt_token);
+      setRotated(data);
       setShowRotateModal(true);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminTokens.all });
-      onTokenUpdated();
     },
   });
 
@@ -193,9 +192,14 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
     <div className="max-w-4xl mx-auto space-y-6">
       <TokenSuccessModal
         isOpen={showRotateModal}
-        onClose={() => setShowRotateModal(false)}
-        newToken={rotatedToken}
-        tokenInfo={token}
+        // Rotation deactivates this token and mints another under a new id, so
+        // the `token` prop is now a dead row: the list is the one place to go back to.
+        onClose={() => {
+          setShowRotateModal(false);
+          onBack();
+        }}
+        newToken={rotated?.jwt_token ?? ''}
+        tokenInfo={rotated ?? token}
       />
 
       {/* Header */}
@@ -245,7 +249,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                   the required type is exactly why neither side caught it. An
                   unguarded deref here throws past this component to the root
                   ErrorBoundary and blanks the whole SPA. */}
-              {(token.usage_count ?? 0).toLocaleString()}
+              {(token.usage_count ?? 0).toLocaleString(ADMIN_LOCALE)}
             </div>
           </div>
           <div>

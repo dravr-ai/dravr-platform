@@ -68,6 +68,7 @@ pub(super) async fn upsert_feedback(
     feedback_events::emit_feedback_recorded(&FeedbackRecorded {
         tenant_id,
         user_id: &user_id,
+        feedback_id: &record.id,
         source: FeedbackSource::Thumbs,
         surface: "app",
         rating: Some(&record.rating),
@@ -75,6 +76,7 @@ pub(super) async fn upsert_feedback(
         message_id: Some(&record.message_id),
         agent_id: agent_id.as_deref(),
         comment: record.comment.as_deref(),
+        has_image: false,
     });
 
     let entry = MessageFeedbackEntry {

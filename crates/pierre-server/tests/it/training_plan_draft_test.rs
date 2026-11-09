@@ -587,6 +587,13 @@ async fn publishing_puts_the_draft_live_and_untouched_weeks_keep_the_athletes_sa
 
     let published = fx.coach_publishes(json!({ "action": "publish" })).await;
     assert_eq!(published["status"], "published", "{published}");
+    // carnet#1403: told before it tries, so the model offers the push instead of
+    // treating publish as if it had reached the calendar.
+    let told = published["message"].as_str().expect("message");
+    assert!(
+        told.contains("push_training_plan") && told.contains("separate step"),
+        "{published}"
+    );
     assert_eq!(published["athlete"], SUBJECT_NAME);
     assert_eq!(published["weeks_published"], json!([ymd(monday(0))]));
     // The athlete is told whenever the server sends notices at all

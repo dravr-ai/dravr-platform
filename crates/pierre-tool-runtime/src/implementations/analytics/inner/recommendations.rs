@@ -13,6 +13,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::read_subject::{self, WellnessInput};
 use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::pattern_detection::PatternDetector;
@@ -860,6 +861,26 @@ pub(crate) fn handle_generate_recommendations(
                  use one of {}",
                 RECOMMENDATION_TYPES.join(", ")
             )));
+        }
+        // The nutrition mode scales its amounts from the athlete's body weight
+        // and reads their medical flag: their wellness, which a coach's read
+        // shows only under their wellness grant, on any transport
+        // (carnet#1387). Refused before anything is read; every other mode
+        // reads their training alone.
+        let withheld = if recommendation_type == "nutrition" {
+            read_subject::wellness_withheld()
+        } else {
+            None
+        };
+        if let Some(withheld) = withheld {
+            return Ok(read_subject::wellness_refusal(
+                "generate_recommendations",
+                WellnessInput::Mode {
+                    argument: "recommendation_type",
+                    value: "nutrition",
+                },
+                &withheld,
+            ));
         }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,

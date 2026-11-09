@@ -14,6 +14,7 @@
 //! gave. The model is the one part of the turn that is mocked: it records the
 //! system prompt it was sent.
 
+use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -210,6 +211,7 @@ async fn a_room_turn_carries_the_north_star_stamped_in_the_athletes_own_workspac
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,
+            grant: OAuthScope::self_grant(),
         },
         &profile,
         &PipelineHooks::none(),

@@ -32,6 +32,20 @@ fn summarize_oldest_n_plus_two_equal_to_max_messages_is_valid() {
     validate_document(&doc).expect("n + 2 == max_messages must validate");
 }
 
+/// The compactor needs a run of 2 turns: 0 or 1 passed validation and silently
+/// turned every over-cap thread into a raw slide with no summary.
+#[test]
+fn summarize_oldest_n_below_what_a_summary_can_compact_is_rejected() {
+    for n in [0, 1] {
+        let mut doc = HarnessConfigDocument::default();
+        doc.compaction.summarize_oldest_n = n;
+        assert!(validate_document(&doc).is_err(), "n = {n}");
+    }
+    let mut doc = HarnessConfigDocument::default();
+    doc.compaction.summarize_oldest_n = 2;
+    validate_document(&doc).expect("2 is the shortest run a summary compacts");
+}
+
 #[test]
 fn warn_must_be_strictly_less_than_emergency() {
     let mut doc = HarnessConfigDocument::default();
@@ -83,32 +97,19 @@ fn warn_threshold_above_one_is_rejected() {
     assert!(validate_document(&doc).is_err());
 }
 
+/// A row written before the copy moved to the catalogue still parses, and the text
+/// it carries is ignored: reading it would leave two sources for one sentence.
 #[test]
-fn empty_disclaimer_with_triggers_is_rejected() {
-    let mut doc = HarnessConfigDocument::default();
-    let en = doc
-        .guardrails
-        .locales
-        .get_mut("en")
-        .expect("default ships an en locale");
-    en.disclaimer_text = String::new();
-    assert!(
-        validate_document(&doc).is_err(),
-        "disclaimer_text must be required when the locale has triggers"
+fn a_row_with_the_old_length_cap_and_disclaimer_text_still_parses() {
+    let mut value = serde_json::to_value(HarnessConfigDocument::default()).expect("to value");
+    value["guardrails"]["max_response_chars"] = serde_json::json!(5_000);
+    value["guardrails"]["locales"]["en"]["disclaimer_text"] = serde_json::json!("Old copy.");
+    let parsed: HarnessConfigDocument = serde_json::from_value(value).expect("an old row parses");
+    validate_document(&parsed).expect("and is valid");
+    assert_eq!(
+        parsed.guardrails.locales["en"].disclaimer_triggers,
+        HarnessConfigDocument::default().guardrails.locales["en"].disclaimer_triggers
     );
-}
-
-#[test]
-fn empty_triggers_allow_empty_disclaimer() {
-    let mut doc = HarnessConfigDocument::default();
-    let en = doc
-        .guardrails
-        .locales
-        .get_mut("en")
-        .expect("default ships an en locale");
-    en.disclaimer_triggers.clear();
-    en.disclaimer_text = String::new();
-    validate_document(&doc).expect("no triggers means disclaimer is unused");
 }
 
 #[test]

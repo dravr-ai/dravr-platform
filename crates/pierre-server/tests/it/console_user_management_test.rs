@@ -767,6 +767,158 @@ async fn a_plain_admin_cannot_edit_a_system_prompt() -> Result<()> {
     Ok(())
 }
 
+/// The Prompts screen reads an agent by locale through the console session, and
+/// is told which locale it is reading when the default one stands in
+/// (carnet#1428).
+#[tokio::test]
+#[serial]
+async fn an_operator_reads_an_agent_prompt_by_locale() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let registry = &resources.mcp.prompt_registry;
+    for locale in ["en", "fr", "es"] {
+        registry.update_agent_prompt(
+            "endurance-agent",
+            locale,
+            format!("text-{locale}"),
+            format!("sha-{locale}"),
+        );
+    }
+    let session = session_with_role(
+        &resources,
+        "prompt-reader@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+
+    let listed: Value = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
+        .header("authorization", &session.auth)
+        .send(router(&resources))
+        .await
+        .json();
+    assert_eq!(
+        listed["prompts"],
+        json!([{ "key": "endurance-agent", "locales": ["en", "es", "fr"] }])
+    );
+
+    let spanish: Value =
+        AxumTestRequest::get("/api/admin/contremaitre/agent-prompts/endurance-agent?locale=es")
+            .header("authorization", &session.auth)
+            .send(router(&resources))
+            .await
+            .json();
+    assert_eq!(spanish["locale"], "es");
+    assert_eq!(spanish["content"], "text-es");
+
+    let german: Value =
+        AxumTestRequest::get("/api/admin/contremaitre/agent-prompts/endurance-agent?locale=de")
+            .header("authorization", &session.auth)
+            .send(router(&resources))
+            .await
+            .json();
+    assert_eq!(german["requested_locale"], "de");
+    assert_eq!(german["locale"], "fr");
+    assert_eq!(german["content"], "text-fr");
+
+    let refused =
+        AxumTestRequest::get("/api/admin/contremaitre/agent-prompts/endurance-agent?locale=it")
+            .header("authorization", &session.auth)
+            .send(router(&resources))
+            .await;
+    assert_eq!(refused.status(), 400);
+    Ok(())
+}
+
+/// A plain admin reads agent prompts on the Prompts screen: the two agent reads
+/// answer, and nothing else about prompts or their sync does.
+#[tokio::test]
+#[serial]
+async fn a_plain_admin_reads_agent_prompts_and_nothing_else_of_the_screen() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    resources.mcp.prompt_registry.update_agent_prompt(
+        "endurance-agent",
+        "en",
+        "text-en".to_owned(),
+        "sha-en".to_owned(),
+    );
+    let admin = session_with_role(&resources, "prompt-viewer@example.com", UserRole::Admin).await?;
+
+    let listed = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
+        .header("authorization", &admin.auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(listed.status(), 200);
+    let listed: Value = listed.json();
+    assert_eq!(listed["total"], 1, "{listed}");
+
+    let detail =
+        AxumTestRequest::get("/api/admin/contremaitre/agent-prompts/endurance-agent?locale=en")
+            .header("authorization", &admin.auth)
+            .send(router(&resources))
+            .await;
+    assert_eq!(detail.status(), 200);
+    let detail: Value = detail.json();
+    assert_eq!(detail["content"], "text-en");
+
+    for path in [
+        "/api/admin/contremaitre/prompts",
+        "/api/admin/contremaitre/prompts/coaching",
+        "/api/admin/contremaitre/status",
+    ] {
+        let refused = AxumTestRequest::get(path)
+            .header("authorization", &admin.auth)
+            .send(router(&resources))
+            .await;
+        assert_eq!(refused.status(), 403, "{path}");
+    }
+    let sync = AxumTestRequest::post("/api/admin/contremaitre/sync")
+        .header("authorization", &admin.auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(sync.status(), 403);
+
+    // The role is the gate on these two reads: an athlete is still refused.
+    let athlete =
+        session_with_role(&resources, "prompt-athlete@example.com", UserRole::User).await?;
+    let refused = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
+        .header("authorization", &athlete.auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(refused.status(), 403);
+    Ok(())
+}
+
+/// The Prompts header adds up: every prompt the registry holds is in exactly one
+/// of the kinds and exactly one of the sources.
+#[tokio::test]
+#[serial]
+async fn the_prompt_status_counts_add_up() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let session = session_with_role(
+        &resources,
+        "prompt-status@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+
+    let status: Value = AxumTestRequest::get("/api/admin/contremaitre/status")
+        .header("authorization", &session.auth)
+        .send(router(&resources))
+        .await
+        .json();
+    let count = |field: &str| {
+        status[field]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{field}: {status}"))
+    };
+    assert!(count("persona_count") > 0, "{status}");
+    assert_eq!(
+        count("system_prompt_count") + count("agent_prompt_count") + count("persona_count"),
+        count("compiled_in_count") + count("contremaitre_count"),
+        "{status}"
+    );
+    Ok(())
+}
+
 /// A coach with no TrainingPeaks coach account is granted `manages_roster` by
 /// an operator (carnet#643): a super-admin console session grants and revokes
 /// it, the grant records that operator, and a plain admin is refused.

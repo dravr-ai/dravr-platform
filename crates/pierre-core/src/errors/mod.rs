@@ -215,7 +215,7 @@ impl ErrorCode {
                 "A connected fitness provider needs to be (re)authenticated"
             }
             Self::NoProviderConnected => {
-                "Connect a fitness provider before using messaging features"
+                "Connect a fitness provider or upload an activity to use this"
             }
             Self::PermissionDenied => "You do not have permission to perform this action",
             Self::RateLimitExceeded => "Rate limit exceeded. Please slow down your requests",
@@ -542,7 +542,7 @@ impl AppError {
     pub fn no_provider_connected() -> Self {
         let mut err = Self::new(
             ErrorCode::NoProviderConnected,
-            "Connect a fitness provider before using messaging features",
+            "Connect a fitness provider or upload an activity to use this",
         );
         err.details = Some(Box::new(serde_json::json!({
             "action": "connect_provider",

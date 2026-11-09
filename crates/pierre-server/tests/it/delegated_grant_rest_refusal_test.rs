@@ -522,6 +522,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         accounts: resources.account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),
@@ -589,7 +590,7 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     );
     let page = response.text();
     assert!(
-        page.contains("<li>fitness:read</li>") && page.contains("<li>profile:read</li>"),
+        page.contains("(fitness:read)</li>") && page.contains("(profile:read)</li>"),
         "the consent screen shows the default grant the code will carry"
     );
 }

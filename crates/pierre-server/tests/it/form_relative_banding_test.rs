@@ -142,21 +142,32 @@ fn every_platform_reading_divides_form_by_yesterdays_ctl() {
 }
 
 #[test]
-fn weekly_digest_card_renders_form_pct_next_to_tsb() {
+fn weekly_digest_card_renders_form_pct_and_never_the_raw_tsb() {
     let card = WeeklyDigestSummarizer.summarize_member(&snapshot(85.0, 151.0, -66.0));
     assert!(
-        card.summary_text.contains("TSB -66 (-78% of CTL"),
-        "card should carry form % so the LLM reads TSB relative to the athlete: {}",
+        card.summary_text.contains("-78% of CTL"),
+        "card should carry form % so the LLM reads form relative to the athlete: {}",
+        card.summary_text
+    );
+    assert!(
+        !card.summary_text.contains("TSB"),
+        "the raw TSB is a number a model compares across athletes: the card never \
+         carries it (carnet#1387): {}",
         card.summary_text
     );
 }
 
 #[test]
-fn roster_card_renders_form_pct_next_to_tsb() {
+fn roster_card_renders_form_pct_and_never_the_raw_tsb() {
     let card = RosterCardSummarizer.summarize_member(&snapshot(120.0, 150.0, -30.0));
     assert!(
-        card.summary_text.contains("TSB -30 (-25% of CTL"),
+        card.summary_text.contains("-25% of CTL"),
         "roster card should carry form %: {}",
+        card.summary_text
+    );
+    assert!(
+        !card.summary_text.contains("TSB"),
+        "roster card never carries the raw TSB (carnet#1387): {}",
         card.summary_text
     );
 }

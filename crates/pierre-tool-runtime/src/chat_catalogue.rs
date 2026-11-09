@@ -50,8 +50,11 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use pierre_config::environment::ServerConfig;
 use pierre_core::models::{EffectiveTool, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::tokens::estimate_context_tokens;
+use pierre_core::transport::Transport;
 use pierre_llm::{FunctionDeclaration, Tool};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use serde::Serialize;
@@ -61,6 +64,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
+use crate::deployment_tools;
+use crate::first_party_tools;
+use crate::scopes::missing_scope;
 use crate::tool_selection::ToolSelectionService;
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 
@@ -116,8 +122,7 @@ pub(crate) fn withhold_chat_parameters(schema: &mut JsonSchema) {
 /// A chat tool call's arguments, less [`CHAT_WITHHELD_PARAMETERS`].
 ///
 /// Every path a chat model's call reaches a tool through goes through this:
-/// the API tool loop, the loopback MCP surface an agent CLI calls, and the
-/// Guardian's plan runner.
+/// the API tool loop and the loopback MCP surface an agent CLI calls.
 #[must_use]
 pub fn chat_arguments(mut arguments: Value) -> Value {
     if let Some(object) = arguments.as_object_mut() {
@@ -295,24 +300,40 @@ impl SwitchedOff {
     }
 }
 
-/// The chat-callable tools one turn offers, in registry order: less those
-/// `seat` withholds and those switched off for the caller.
+/// The chat-callable tools one turn offers, in registry order.
+///
+/// Less those `seat` withholds, those switched off for the caller, those
+/// kept on Dravr's own surfaces when the turn is served over `transport`
+/// outside them ([`first_party_tools::withholds`]; `None` is external, as at
+/// dispatch), and those the deployment can only fail
+/// ([`deployment_tools::answers_with`]: a food-database tool with no USDA key),
+/// the same predicate the MCP and A2A listings read.
 ///
 /// The one set a turn's declarations, its names index and its loopback listing
-/// are built from, so the three cannot disagree. Neither input moves within a
-/// conversation turn to turn, so the set stays byte-stable and the provider's
-/// cached prefix survives (carnet#1256).
+/// are built from, so the three cannot disagree, and none offers a tool the
+/// executor would refuse the turn. No input moves within a conversation turn
+/// to turn, so the set stays byte-stable and the provider's cached prefix
+/// survives (carnet#1256).
 #[must_use]
 pub fn offered_schemas(
     registry: &ToolRegistry,
     seat: TurnSeat,
     switched_off: &SwitchedOff,
+    transport: Option<Transport>,
+    grant: &[OAuthScope],
+    deployment: &ServerConfig,
 ) -> Vec<ToolSchema> {
     registry
         .chat_callable_schemas()
         .into_iter()
         .filter(|schema| {
-            !switched_off.contains(&schema.name) && !seat.withholds(registry, &schema.name)
+            !switched_off.contains(&schema.name)
+                && !seat.withholds(registry, &schema.name)
+                && !first_party_tools::withholds(registry, &schema.name, transport)
+                && deployment_tools::answers_with(registry, &schema.name, deployment)
+                && registry
+                    .get(&schema.name)
+                    .is_none_or(|tool| missing_scope(grant, tool.capabilities()).is_none())
         })
         .collect()
 }
@@ -749,5 +770,70 @@ mod tests {
         assert_eq!(size.bytes, 2);
         assert!(size.per_tool.is_empty());
         assert_eq!(size.largest(20), "");
+    }
+
+    /// What one chat turn offers from the nutrition tools on a deployment
+    /// holding `usda_key`, over the A2A door a text turn comes in through.
+    #[cfg(feature = "tools-nutrition")]
+    fn offered_nutrition(usda_key: Option<&str>) -> Vec<String> {
+        use secrecy::SecretString;
+
+        use crate::implementations::nutrition::create_nutrition_tools;
+
+        let mut registry = ToolRegistry::new();
+        for tool in create_nutrition_tools() {
+            registry.register_with_category(Arc::from(tool), "nutrition");
+        }
+        let deployment = ServerConfig {
+            usda_api_key: usda_key.map(SecretString::from),
+            ..ServerConfig::default()
+        };
+        offered_schemas(
+            &registry,
+            TurnSeat::Subject,
+            &SwitchedOff::default(),
+            Some(Transport::A2a),
+            &OAuthScope::self_grant(),
+            &deployment,
+        )
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect()
+    }
+
+    #[cfg(feature = "tools-nutrition")]
+    const FOOD_DATABASE_TOOLS: [&str; 3] =
+        ["search_food", "get_food_details", "analyze_meal_nutrition"];
+
+    #[cfg(feature = "tools-nutrition")]
+    #[test]
+    fn a_deployment_holding_the_usda_key_offers_the_food_tools_to_chat() {
+        let offered = offered_nutrition(Some("a-usda-key"));
+        for food_tool in FOOD_DATABASE_TOOLS {
+            assert!(
+                offered.iter().any(|name| name == food_tool),
+                "bug: a deployment holding the USDA key must offer {food_tool} to chat: {offered:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "tools-nutrition")]
+    #[test]
+    fn a_deployment_with_no_usda_key_offers_chat_no_food_tool() {
+        for key in [None, Some("")] {
+            let offered = offered_nutrition(key);
+            for food_tool in FOOD_DATABASE_TOOLS {
+                assert!(
+                    !offered.iter().any(|name| name == food_tool),
+                    "bug: a chat turn on a deployment with no USDA key ({key:?}) is offered {food_tool}, which can only fail"
+                );
+            }
+            assert!(
+                offered
+                    .iter()
+                    .any(|name| name == "calculate_daily_nutrition"),
+                "bug: a nutrition tool that calls no food database stays offered: {offered:?}"
+            );
+        }
     }
 }

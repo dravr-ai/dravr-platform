@@ -15,6 +15,8 @@ use tracing::{debug, warn};
 use super::activity_source::{training_load_activities, training_load_of};
 #[cfg(feature = "client-notifications")]
 use super::recovery_notice::fire_low_recovery_notification;
+#[cfg(feature = "client-notifications")]
+use crate::context::scoped_read_subject;
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -373,14 +375,18 @@ pub(crate) fn handle_calculate_recovery_score(
                 (score, None, None, None)
             };
 
-        // Fire low recovery score notification if below threshold
+        // Fire low recovery score notification if below threshold. It is the
+        // athlete's own: a coach's read of their recovery notifies no one
+        // (carnet#1387).
         #[cfg(feature = "client-notifications")]
-        fire_low_recovery_notification(
-            &executor.resources,
-            user_uuid,
-            request.tenant_id.as_deref(),
-            recovery_score.overall_score,
-        );
+        if scoped_read_subject().is_none() {
+            fire_low_recovery_notification(
+                &executor.resources,
+                user_uuid,
+                request.tenant_id.as_deref(),
+                recovery_score.overall_score,
+            );
+        }
 
         let payload = recovery_score_payload(
             recovery_score.clone(),

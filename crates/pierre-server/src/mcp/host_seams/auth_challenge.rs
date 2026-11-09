@@ -5,27 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::mcp::auth::AuthError;
+use pierre_auth::config::{protected_resource_metadata_url, www_authenticate_challenge};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use tracing::{debug, error};
-
-/// The RFC 9728 protected resource metadata document for the resource
-/// `resource_url`: the well-known path on the origin clients dial for MCP.
-fn resource_metadata_url(resource_url: &str) -> String {
-    format!("{resource_url}/.well-known/oauth-protected-resource")
-}
-
-/// Build the RFC 9728 `WWW-Authenticate` challenge value pointing clients at the
-/// protected resource metadata document of `resource_url`, the MCP resource
-/// identifier (`MCP_RESOURCE_URL`). `error` carries an optional RFC 6750 error
-/// code (e.g. `invalid_token`).
-pub(super) fn www_authenticate_challenge(resource_url: &str, error: Option<&str>) -> String {
-    let metadata_url = resource_metadata_url(resource_url);
-    error.map_or_else(
-        || format!("Bearer resource_metadata=\"{metadata_url}\""),
-        |err| format!("Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\""),
-    )
-}
 
 /// Build the RFC 6750 §3.1 `insufficient_scope` challenge naming the grant the
 /// caller is missing.
@@ -35,7 +18,7 @@ pub(super) fn www_authenticate_challenge(resource_url: &str, error: Option<&str>
 /// bare 403 tells it only that it lost. `resource_metadata` rides along so the
 /// client also knows *which* authorization server to ask.
 pub(super) fn insufficient_scope_challenge(resource_url: &str, missing: OAuthScope) -> String {
-    let metadata_url = resource_metadata_url(resource_url);
+    let metadata_url = protected_resource_metadata_url(resource_url);
     format!(
         "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{missing}\""
     )

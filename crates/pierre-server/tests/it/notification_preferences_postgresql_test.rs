@@ -29,6 +29,11 @@ use uuid::Uuid;
 /// which 20260826000007 re-created under the same name.
 const CATEGORY_CHECK_CONSTRAINT: &str = "notification_preferences_category_check";
 
+/// The shipped statements, so this replays what a deploy runs on `PostgreSQL`.
+const DELETE_AI_AND_REMINDERS_ROWS_MIGRATION_SQL: &str = include_str!(
+    "../../../../migrations_pg/20261106140000_delete_ai_and_reminders_notification_rows.sql"
+);
+
 async fn insert_preference(
     pool: &sqlx::PgPool,
     user_id: Uuid,
@@ -46,6 +51,80 @@ async fn insert_preference(
     .execute(pool)
     .await
     .map(|_| ())
+}
+
+// carnet#1436: the retired categories go from both tables and every other
+// category's rows stay. Nothing can create or manage a schedule any more, so every
+// schedule goes, whatever its type.
+#[tokio::test]
+async fn test_pg_migration_deletes_the_retired_rows_and_schedules_and_nothing_else() {
+    let db = create_test_db().await.unwrap();
+    let pool = db.postgres_pool().expect("PG lane");
+    let user_id = Uuid::new_v4();
+    let tenant_id = Uuid::new_v4();
+    for category in ["ai", "reminders", "training"] {
+        insert_preference(pool, user_id, tenant_id, category)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO notifications \
+                (id, user_id, tenant_id, category, notification_type, title, body) \
+             VALUES ($1, $2, $3, $4, 'event', 'title', 'body')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(category)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    for notification_type in [
+        "weekly_training_summary",
+        "workout_reminder",
+        "weekly_digest",
+        "some_other_type",
+    ] {
+        sqlx::query(
+            "INSERT INTO scheduled_notifications \
+                (id, user_id, tenant_id, notification_type, schedule_cron) \
+             VALUES ($1, $2, $3, $4, '0 8 * * 1')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(notification_type)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    sqlx::raw_sql(DELETE_AI_AND_REMINDERS_ROWS_MIGRATION_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    for (sql, expected) in [
+        (
+            "SELECT category FROM notification_preferences WHERE tenant_id = $1",
+            vec!["training"],
+        ),
+        (
+            "SELECT category FROM notifications WHERE tenant_id = $1",
+            vec!["training"],
+        ),
+        (
+            "SELECT notification_type FROM scheduled_notifications WHERE tenant_id = $1",
+            Vec::new(),
+        ),
+    ] {
+        let remaining: Vec<String> = sqlx::query_scalar(sql)
+            .bind(tenant_id.to_string())
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, expected, "{sql}");
+    }
 }
 
 #[tokio::test]

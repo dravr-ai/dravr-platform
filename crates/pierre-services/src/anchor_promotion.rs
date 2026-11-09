@@ -234,6 +234,7 @@ async fn week_median_resting_hr(
         &tenant,
         (now - Duration::days(RESTING_HR_WINDOW_DAYS + 1), now),
         SourceFilter::All,
+        stored_health::as_stored,
     )
     .await?
     .records;

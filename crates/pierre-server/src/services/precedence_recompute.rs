@@ -16,8 +16,8 @@
 //! recomputed; a capture only re-warms its default window.
 //!
 //! So the rule carries a generation, [`PRECEDENCE_GENERATION`], bumped by
-//! every change to how a workout's copies rank or what the session takes from
-//! them — the change itself and its
+//! every change to which copies make one workout, how they rank or what the
+//! session takes from them — the change itself and its
 //! rollback alike. A
 //! pass on [`spawn_periodic`] (once across instances, through the worker
 //! ledger) reads the generation the stored rollups were computed under from
@@ -72,7 +72,13 @@ pub const GENERATION_SETTING_KEY: &str = "derived.precedence_generation";
 /// 2: the session takes the title and sport the athlete gave Strava's copy
 /// when they renamed or retyped it there, the recorder's figures staying
 /// (carnet#1315): a retyped session is scored as the sport it was.
-pub const PRECEDENCE_GENERATION: u32 = 2;
+///
+/// 3: the 15-minute start window no longer joins what one provider's rows or
+/// one device's clock say are two workouts (carnet#1381), a source, its export
+/// and a timed capture counting as one provider, and a copy it ties adds no
+/// volume (carnet#1384): two short rides summed into one session, stops between
+/// them included, score as two, and one ride summed with its copy scores as one.
+pub const PRECEDENCE_GENERATION: u32 = 3;
 
 /// What one pass did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

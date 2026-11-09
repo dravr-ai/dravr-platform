@@ -329,11 +329,18 @@ pub async fn load_stored_window(
     let zone = resolve_zone(timezone.as_deref());
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
+    // One copy of each workout per key the backends' reads serve: a Garmin
+    // grant's window carries its usr/pwd session's key too
+    // (`backend_resolver::history_keys`), so both copies still fit the cap.
+    let stored_keys: usize = backends
+        .iter()
+        .map(|backend| backend_resolver::history_keys(&backend.slug).len())
+        .sum();
     let read = read_cached_window(
         sources,
         tenant_id,
         user_id,
-        backends.len(),
+        stored_keys,
         from - Duration::days(warmup),
         to,
     )
@@ -460,6 +467,9 @@ const MAX_COPIES_PER_WORKOUT: usize = 4;
 /// because that is what the write side keys on: a Garmin athlete's rows are
 /// written under `sciotte_garmin` while the connection says `garmin`, and a
 /// capture asked of the raw connection slug would page the wrong backend.
+///
+/// LIMITATION(registre#1388): `resolve_compute_backends` keeps every activity-serving
+/// connection, WHOOP included, so an athlete cannot hold a source to wellness only.
 ///
 /// # Errors
 ///

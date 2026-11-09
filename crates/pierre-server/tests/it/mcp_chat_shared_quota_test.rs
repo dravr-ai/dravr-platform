@@ -325,6 +325,45 @@ mod shared_quota_tests {
         Ok(())
     }
 
+    /// The counters being unreadable is not an allowance: a public surface
+    /// that metered nothing during a counter outage would be an open tap. The
+    /// call is refused in-band and says why, and it stays allowed while the
+    /// counters work (the sibling threshold test).
+    #[tokio::test]
+    async fn an_unreadable_quota_refuses_the_mcp_tool_call() -> Result<()> {
+        let (resources, user_id, tenant_id) = setup().await?;
+        assert!(
+            !mcp_refused(&resources, user_id, tenant_id).await,
+            "control: with working counters the call is allowed"
+        );
+
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query("DROP TABLE usage_counters")
+                    .execute(db.pool())
+                    .await?;
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query("DROP TABLE usage_counters CASCADE")
+                    .execute(db.pool())
+                    .await?;
+            }
+        }
+
+        let response = mcp_response(&resources, user_id, tenant_id).await;
+        let text = response.to_string();
+        assert!(
+            text.contains("Usage limits could not be verified"),
+            "an unreadable quota must refuse the call, got {text}"
+        );
+        assert!(
+            !text.contains("connection"),
+            "the refusal names no backend detail: {text}"
+        );
+        Ok(())
+    }
+
     /// The admin role used to walk past the `/mcp` ladder and never past the
     /// chat one. Sharing the policy removed that exemption: the only bypass is
     /// `QUOTA_BYPASS_USER_IDS`, which both surfaces honour.

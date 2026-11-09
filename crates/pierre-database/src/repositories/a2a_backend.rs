@@ -141,9 +141,8 @@ macro_rules! impl_a2a_repository {
         $ty:ty, $row:ty, $ids:ident, $lists:ident,
         day = $day:literal, usage_id = $usage_id:literal, inet = $inet:literal
     ) => {
-        /// A client row. `permissions` has no column and reads as its
-        /// default; the rate-limit pair is stored in `rate_limit_per_minute`
-        /// / `rate_limit_per_day`.
+        /// A client row. The rate-limit pair is stored in
+        /// `rate_limit_per_minute` / `rate_limit_per_day`.
         fn client_from_row(row: &$row) -> AppResult<A2AClient> {
             let col = |name: &str| -> AppResult<String> {
                 row.try_get(name).map_err(|e| a2a_column_error(name, &e))
@@ -159,7 +158,6 @@ macro_rules! impl_a2a_repository {
                 user_id: $ids::read(row, "user_id")?,
                 name: col("name")?,
                 description: col("description")?,
-                public_key: col("api_key_hash")?,
                 capabilities: $lists::read_json(row, "capabilities")?,
                 redirect_uris: $lists::read_json(row, "redirect_uris")?,
                 contact_email: row
@@ -171,7 +169,6 @@ macro_rules! impl_a2a_repository {
                 created_at: row
                     .try_get("created_at")
                     .map_err(|e| a2a_column_error("created_at", &e))?,
-                permissions: vec!["read_activities".to_owned()],
                 rate_limit_requests: u32_from_count(i64::from(per_minute), "rate_limit_per_minute")?,
                 rate_limit_window_seconds: u32_from_count(
                     i64::from(per_day),
@@ -264,27 +261,12 @@ macro_rules! impl_a2a_repository {
 
         #[async_trait::async_trait]
         impl A2ARepository for $ty {
-            async fn create_client(
-                &self,
-                client: &A2AClient,
-                api_key_id: &str,
-            ) -> AppResult<String> {
-                // One transaction: the client row and its API-key association
-                // land together or not at all, so API-key auth can never find
-                // a client the association does not name.
-                let tx = self
-                    .pool()
-                    .begin()
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to begin transaction: {e}")))?;
-                let mut guard = TransactionGuard::new(tx);
-
+            async fn create_client(&self, client: &A2AClient) -> AppResult<String> {
                 sqlx::query(INSERT_CLIENT_SQL)
                     .bind(&client.id)
                     .bind($ids::bind(client.user_id))
                     .bind(&client.name)
                     .bind(&client.description)
-                    .bind(&client.public_key)
                     .bind($lists::bind_json(&client.capabilities))
                     .bind($lists::bind_json(&client.redirect_uris))
                     .bind(client.contact_email.as_deref().map(normalize_email))
@@ -293,29 +275,11 @@ macro_rules! impl_a2a_repository {
                     .bind(client.is_active)
                     .bind(client.created_at)
                     .bind(client.updated_at)
-                    .execute(guard.executor()?)
+                    .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert A2A client: {e}")))?;
 
-                sqlx::query(INSERT_CLIENT_API_KEY_SQL)
-                    .bind(&client.id)
-                    .bind(api_key_id)
-                    .bind(Utc::now())
-                    .execute(guard.executor()?)
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to insert A2A client API key association: {e}"
-                        ))
-                    })?;
-
-                guard.commit().await?;
-
-                debug!(
-                    client_id = %client.id,
-                    api_key_id = %api_key_id,
-                    "Created A2A client with API key association"
-                );
+                debug!(client_id = %client.id, "Created A2A client");
                 Ok(client.id.clone())
             }
 
@@ -325,20 +289,6 @@ macro_rules! impl_a2a_repository {
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to query A2A client: {e}")))?;
-                row.as_ref().map(client_from_row).transpose()
-            }
-
-            async fn get_client_by_api_key_id(
-                &self,
-                api_key_id: &str,
-            ) -> AppResult<Option<A2AClient>> {
-                let row = sqlx::query(GET_CLIENT_BY_API_KEY_SQL)
-                    .bind(api_key_id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to query A2A client by API key: {e}"))
-                    })?;
                 row.as_ref().map(client_from_row).transpose()
             }
 
@@ -378,17 +328,6 @@ macro_rules! impl_a2a_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to invalidate A2A client sessions: {e}"))
-                    })?;
-                Ok(())
-            }
-
-            async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()> {
-                sqlx::query(DEACTIVATE_CLIENT_API_KEYS_SQL)
-                    .bind(client_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to deactivate client API keys: {e}"))
                     })?;
                 Ok(())
             }

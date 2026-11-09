@@ -1,5 +1,5 @@
 // ABOUTME: ApprovalNotifier — the concrete UserApprovalNotifier wired in the binary:
-// ABOUTME: sends the account-approved email and a localized message on each linked channel.
+// ABOUTME: the account-approved email, a localized message on each linked channel, then any unasked analytics question.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,6 +28,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::messaging_ingress::consent_ask::ask_linked_chats_after_approval;
 
 /// Account-approved notifier: sends the approval email plus a localized message
 /// on each of the user's linked messaging channels.
@@ -86,6 +87,9 @@ impl UserApprovalNotifier for ApprovalNotifier {
     async fn notify_user_approved(&self, user_id: Uuid, email: &str, display_name: Option<&str>) {
         self.send_email(email, display_name).await;
         self.send_channel_messages(user_id).await;
+        // A chat sign-up linked while pending was not asked at link time; it
+        // is asked now, after the approval message (carnet#1366).
+        ask_linked_chats_after_approval(&self.repos, &self.strings, user_id).await;
     }
 
     async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool {

@@ -8,7 +8,7 @@
 //!
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Arc resource sharing for A2A client management
-// - String ownership for client IDs, names, and API keys
+// - String ownership for client IDs and names
 //!
 //! Handles registration, management, and monitoring of A2A clients
 //! that connect to Pierre for agent-to-agent communication.
@@ -18,36 +18,37 @@ pub use crate::client_types::{
 };
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
 use crate::constants::time::HOUR_SECONDS;
-use crate::system_user::A2ASystemUserService;
 use crate::{map_db_error, A2AError};
 use chrono::{DateTime, Datelike, Days, NaiveTime, Utc};
-use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
-use pierre_auth::crypto::A2AKeyManager;
 use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
-use pierre_core::models::ApiKey;
 use secrecy::SecretString;
-// Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
+// Trait methods are dispatched through repos.a2a / repos.oauth2_server Arc<dyn Trait>;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use uuid::Uuid;
 
 /// The calendar days, today included, a client's daily usage breakdown
 /// covers.
 pub const USAGE_HISTORY_DAYS: u32 = 30;
 
+/// How many capability labels a client may declare.
+const MAX_CAPABILITY_LABELS: usize = 16;
+
+/// How long one capability label may be.
+const MAX_CAPABILITY_LABEL_CHARS: usize = 64;
+
 /// A2A Client Manager
 pub struct A2AClientManager {
     /// Narrow view over `users`-adjacent repositories — `A2AClientManager`
     /// only ever touches `repos.a2a` (client lifecycle, sessions, usage) and
-    /// `repos.api_keys` (key issuance during registration).
+    /// the `client_credentials` registration in `repos.oauth2_server`.
     repos: AuthRepos,
-    system_user_service: Arc<A2ASystemUserService>,
     active_sessions: Arc<RwLock<HashMap<String, A2ASession>>>,
 }
 
@@ -57,7 +58,6 @@ impl fmt::Debug for A2AClientManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("A2AClientManager")
             .field("repos", &self.repos)
-            .field("system_user_service", &self.system_user_service)
             .finish_non_exhaustive()
     }
 }
@@ -66,13 +66,12 @@ impl A2AClientManager {
     /// Creates a new A2A client manager instance.
     ///
     /// Takes the narrow `AuthRepos` view — the manager only consults
-    /// `repos.a2a` (client lifecycle, sessions, usage) and
-    /// `repos.api_keys` (key issuance during registration).
+    /// `repos.a2a` (client lifecycle, sessions, usage) and the
+    /// `client_credentials` registration in `repos.oauth2_server`.
     #[must_use]
-    pub fn new(repos: &AuthRepos, system_user_service: Arc<A2ASystemUserService>) -> Self {
+    pub fn new(repos: &AuthRepos) -> Self {
         Self {
             repos: repos.clone(),
-            system_user_service,
             active_sessions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -88,8 +87,6 @@ impl A2AClientManager {
     ///
     /// Returns an error if:
     /// - Registration request validation fails
-    /// - Keypair generation fails
-    /// - System user creation fails
     /// - Database storage fails
     #[allow(clippy::cast_possible_truncation)] // Safe: HOUR_SECONDS is 3600, well within u32 range
     pub async fn register_client(
@@ -104,24 +101,11 @@ impl A2AClientManager {
         // when the client is stored.
         let client_id = format!("a2a_client_{}", Uuid::new_v4());
 
-        // Generate Ed25519 keypair for the client
-        let keypair = A2AKeyManager::generate_keypair()
-            .map_err(|e| A2AError::InternalError(format!("Failed to generate keypair: {e}")))?;
-
-        // Create proper system user (not dummy user)
-        let system_user_id = self
-            .system_user_service
-            .create_or_get_system_user(&client_id)
-            .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to create system user: {e}")))?;
-
-        // Create client record with real public key
         let client = A2AClient {
             id: client_id.clone(),
             user_id, // Use the authenticated user's ID for ownership tracking
             name: request.name.clone(),
             description: request.description.clone(), // Safe: Option<String> ownership for client struct
-            public_key: keypair.public_key.clone(),   // Safe: String ownership for client struct
             capabilities: request.capabilities.clone(), // Safe: Vec ownership for client struct
             redirect_uris: request.redirect_uris.clone(),
             // The repository stores it normalized; a blank one is no address.
@@ -130,15 +114,13 @@ impl A2AClientManager {
                 .map(ToOwned::to_owned),
             is_active: true,
             created_at: Utc::now(),
-            permissions: vec!["read_activities".into()], // Default permissions
             rate_limit_requests: DEFAULT_BURST_LIMIT * 10,
             rate_limit_window_seconds: HOUR_SECONDS as u32,
             updated_at: Utc::now(),
         };
 
-        // Store the client with its OAuth2 registration and API key
-        let (client_secret, generated_api_key) =
-            self.store_client_secure(&client, system_user_id).await?;
+        // Store the client with its OAuth2 registration
+        let client_secret = self.store_client_secure(&client).await?;
 
         info!(
             client_id = %client_id,
@@ -149,10 +131,6 @@ impl A2AClientManager {
         Ok(ClientCredentials {
             client_id,
             client_secret: SecretString::from(client_secret),
-            api_key: SecretString::from(generated_api_key),
-            public_key: keypair.public_key,
-            private_key: keypair.private_key,
-            key_type: "ed25519".into(),
         })
     }
 
@@ -162,28 +140,21 @@ impl A2AClientManager {
             return Err(A2AError::InvalidRequest("Client name is required".into()));
         }
 
-        if request.capabilities.is_empty() {
-            return Err(A2AError::InvalidRequest(
-                "At least one capability is required".into(),
-            ));
+        // Descriptive labels nothing authorizes on, so any label is acceptable;
+        // the bound is here because every call copies them onto its usage row.
+        if request.capabilities.len() > MAX_CAPABILITY_LABELS {
+            return Err(A2AError::InvalidRequest(format!(
+                "At most {MAX_CAPABILITY_LABELS} capability labels are accepted"
+            )));
         }
-
-        // Validate capabilities are known
-        let valid_capabilities = [
-            "fitness-data-analysis",
-            "activity-intelligence",
-            "goal-management",
-            "performance-prediction",
-            "training-analytics",
-            "provider-integration",
-        ];
-
-        for capability in &request.capabilities {
-            if !valid_capabilities.contains(&capability.as_str()) {
-                return Err(A2AError::InvalidRequest(format!(
-                    "Unknown capability: {capability}"
-                )));
-            }
+        if request
+            .capabilities
+            .iter()
+            .any(|label| label.chars().count() > MAX_CAPABILITY_LABEL_CHARS)
+        {
+            return Err(A2AError::InvalidRequest(format!(
+                "A capability label is at most {MAX_CAPABILITY_LABEL_CHARS} characters"
+            )));
         }
 
         Ok(())
@@ -203,13 +174,8 @@ impl A2AClientManager {
     /// deleted again, so no credential outlives a client that was never
     /// stored.
     ///
-    /// Returns the client secret and the generated API key so callers can
-    /// pass both to the registrant.
-    async fn store_client_secure(
-        &self,
-        client: &A2AClient,
-        system_user_id: Uuid,
-    ) -> Result<(String, String), A2AError> {
+    /// Returns the client secret so callers can pass it to the registrant.
+    async fn store_client_secure(&self, client: &A2AClient) -> Result<String, A2AError> {
         let oauth2_clients = self.oauth2_clients();
         let client_secret = oauth2_clients
             .register_client_credentials_client(&client.id, &client.name)
@@ -221,80 +187,12 @@ impl A2AClientManager {
                 ))
             })?;
 
-        match self.store_client_rows(client, system_user_id).await {
-            Ok(generated_key) => Ok((client_secret, generated_key)),
-            Err(e) => {
-                if let Err(cleanup) = oauth2_clients.delete_client(&client.id).await {
-                    error!(
-                        client_id = %client.id,
-                        error = %cleanup,
-                        "Failed to delete the client_credentials registration of an A2A client that was not stored"
-                    );
-                }
-                Err(e)
-            }
-        }
-    }
-
-    /// Create and store the API key an A2A client is issued, owned by its
-    /// system user; returns the stored key and its one-time plaintext.
-    async fn issue_api_key(
-        &self,
-        client: &A2AClient,
-        system_user_id: Uuid,
-    ) -> Result<(ApiKey, String), A2AError> {
-        // Create API key using the proper system user
-        let api_key_manager = ApiKeyManager::new();
-
-        let request = CreateApiKeyRequest {
-            name: format!("A2A Client: {}", client.name),
-            description: Some(format!("API key for A2A client: {}", client.description)),
-            tier: ApiKeyTier::Professional, // Default tier for A2A clients
-            rate_limit_requests: None,      // Use tier default
-            expires_in_days: None,          // No expiration
-        };
-
-        let (api_key_obj, generated_key) = api_key_manager
-            .create_api_key(system_user_id, request)
-            .map_err(|e| A2AError::InternalError(format!("Failed to create API key: {e}")))?;
-
-        // Store the API key in database
-        self.repos
-            .api_keys
-            .create(&api_key_obj)
-            .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to store API key: {e}")))?;
-
-        debug!(
-            api_key_id = %api_key_obj.id,
-            "Generated API key for A2A client"
-        );
-        Ok((api_key_obj, generated_key))
-    }
-
-    /// Store the client's API key and its `a2a_clients` row, returning the
-    /// generated API key.
-    async fn store_client_rows(
-        &self,
-        client: &A2AClient,
-        system_user_id: Uuid,
-    ) -> Result<String, A2AError> {
-        let (api_key_obj, generated_key) = self.issue_api_key(client, system_user_id).await?;
-
-        // Create A2A client entry linked to the API key. A key whose client
-        // row never landed is switched off, so it cannot authenticate as a
-        // client that does not exist.
-        if let Err(e) = self.repos.a2a.create_client(client, &api_key_obj.id).await {
-            if let Err(cleanup) = self
-                .repos
-                .api_keys
-                .deactivate(&api_key_obj.id, system_user_id)
-                .await
-            {
+        if let Err(e) = self.repos.a2a.create_client(client).await {
+            if let Err(cleanup) = oauth2_clients.delete_client(&client.id).await {
                 error!(
-                    api_key_id = %api_key_obj.id,
+                    client_id = %client.id,
                     error = %cleanup,
-                    "Failed to deactivate the API key of an A2A client that was not stored"
+                    "Failed to delete the client_credentials registration of an A2A client that was not stored"
                 );
             }
             return Err(A2AError::InternalError(format!(
@@ -305,11 +203,9 @@ impl A2AClientManager {
         info!(
             client_id = %client.id,
             client_name = %client.name,
-            system_user_id = %system_user_id,
-            api_key_id = %api_key_obj.id,
             "A2A client stored securely in database"
         );
-        Ok(generated_key)
+        Ok(client_secret)
     }
 
     /// Get client by ID
@@ -379,15 +275,6 @@ impl A2AClientManager {
                 client_id, e
             );
             // Continue with deactivation even if session invalidation fails
-        }
-
-        // Deactivate associated API keys - this is critical for security
-        if let Err(e) = self.repos.a2a.deactivate_client_api_keys(client_id).await {
-            error!(
-                "Failed to deactivate API keys for client {}: {}",
-                client_id, e
-            );
-            // Continue with deactivation even if API key deactivation fails
         }
 
         Ok(())
@@ -557,4 +444,67 @@ fn oauth2_refusal(error: &OAuth2Error) -> String {
         || error.error.clone(),
         |description| format!("{}: {description}", error.error),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(capabilities: Vec<String>) -> ClientRegistrationRequest {
+        ClientRegistrationRequest {
+            name: "Agent".to_owned(),
+            description: "An agent".to_owned(),
+            capabilities,
+            redirect_uris: Vec::new(),
+            contact_email: "ops@example.com".to_owned(),
+        }
+    }
+
+    /// Nothing authorizes on a capability, so no list of them may stand in
+    /// for an authorization: a client declares what it likes, or nothing.
+    #[test]
+    fn any_label_or_none_registers() {
+        for capabilities in [Vec::new(), vec!["anything-at-all".to_owned()]] {
+            assert!(
+                A2AClientManager::validate_registration_request(&request(capabilities)).is_ok(),
+                "bug: a capability label authorizes nothing, so any label or none registers"
+            );
+        }
+    }
+
+    #[test]
+    fn too_many_labels_are_refused() {
+        let at_cap = vec!["label".to_owned(); MAX_CAPABILITY_LABELS];
+        assert!(
+            A2AClientManager::validate_registration_request(&request(at_cap)).is_ok(),
+            "bug: a client declaring exactly the cap of labels registers"
+        );
+
+        let over_cap = vec!["label".to_owned(); MAX_CAPABILITY_LABELS + 1];
+        assert!(
+            matches!(
+                A2AClientManager::validate_registration_request(&request(over_cap)),
+                Err(A2AError::InvalidRequest(_))
+            ),
+            "bug: one label past the cap is the caller's invalid request"
+        );
+    }
+
+    #[test]
+    fn an_oversized_label_is_refused() {
+        let at_cap = vec!["x".repeat(MAX_CAPABILITY_LABEL_CHARS)];
+        assert!(
+            A2AClientManager::validate_registration_request(&request(at_cap)).is_ok(),
+            "bug: a label of exactly the cap in characters registers"
+        );
+
+        let over_cap = vec!["x".repeat(MAX_CAPABILITY_LABEL_CHARS + 1)];
+        assert!(
+            matches!(
+                A2AClientManager::validate_registration_request(&request(over_cap)),
+                Err(A2AError::InvalidRequest(_))
+            ),
+            "bug: a label one character past the cap is the caller's invalid request"
+        );
+    }
 }

@@ -42,6 +42,7 @@ use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PA
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::messaging_outbound::{process_pending_batch, OutboundRetryContext};
+use pierre_tool_runtime::activity_backfill::backfill_session_expired;
 use pierre_tool_runtime::protocol::reauth_notice::{notify_needs_reauth, ReauthNotice};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -49,7 +50,7 @@ use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
-use crate::messaging_fixtures::{seed_channel_link, strings};
+use crate::messaging_fixtures::{seed_channel_link, seed_conversation, seed_session, strings};
 
 /// The secret the notifier under test signs reconnect-link tokens with.
 const LINK_SECRET: &str = "test-jwt-secret";
@@ -227,8 +228,19 @@ struct Fixture {
 }
 
 /// A fresh athlete whose notifier sends through `first_send`, with a stored
-/// channel config for each channel so the retry worker can load one.
+/// channel config for each channel so the retry worker can load one. The
+/// notifier weighs no Garmin seat.
 async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixture {
+    fixture_over(first_send, worker, false).await
+}
+
+/// [`fixture`], whose notifier weighs Garmin's seats under the server's own
+/// OAuth clients when `weighs_garmin_seats` (carnet#1454).
+async fn fixture_over(
+    first_send: ScriptedChannels,
+    worker: ScriptedChannels,
+    weighs_garmin_seats: bool,
+) -> Fixture {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
@@ -243,13 +255,19 @@ async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixt
         .id;
 
     let mut context: ServerContext = (*resources).clone();
-    context.mcp.backfill_notifier = Some(Arc::new(ServerBackfillNotifier::with_resolver(
+    let notifier = ServerBackfillNotifier::with_resolver(
         Arc::clone(&context.common.repos),
         strings(),
         Arc::new(first_send),
         Arc::from(LINK_SECRET),
         BASE_URL.to_owned(),
-    )));
+    );
+    let notifier = if weighs_garmin_seats {
+        notifier.with_oauth(context.common.config.oauth.clone())
+    } else {
+        notifier
+    };
+    context.mcp.backfill_notifier = Some(Arc::new(notifier));
     let service = Arc::new(match context.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
@@ -711,4 +729,89 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
     let rows = f.queue().await;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["status"], "dlq");
+}
+
+/// The detached backfill's answer to the conversation that asked, for a dead
+/// usr/pwd Garmin session of the athlete's own while a seat is free on
+/// Garmin's OAuth: it names the move to Garmin's official connection with no
+/// sign-in link, and a refused send is queued with no link expiry to bound
+/// it, then delivered as written (carnet#1454).
+#[tokio::test]
+async fn a_refused_oauth_move_nudge_is_queued_with_no_link_expiry() {
+    let whatsapp_first = ScriptedChannel::new(ChannelType::WhatsApp, 1, 0);
+    let whatsapp_retry = ScriptedChannel::new(ChannelType::WhatsApp, 0, 0);
+    let f = fixture_over(
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_first))]),
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_retry))]),
+        true,
+    )
+    .await;
+    f.connect("sciotte_garmin").await;
+    let user = f.user_id.to_string();
+    let conversation = seed_conversation(&f.database, &user, f.tenant).await;
+    seed_session(
+        &f.database,
+        &user,
+        f.tenant,
+        "whatsapp",
+        "15145550660",
+        None,
+        &conversation,
+    )
+    .await;
+
+    backfill_session_expired(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        Some(&conversation),
+        Utc::now(),
+    )
+    .await;
+    assert!(
+        whatsapp_first.delivered.lock().unwrap().is_empty(),
+        "the first send was refused"
+    );
+
+    let queued = f.pending().await;
+    assert_eq!(queued.len(), 1, "the refused nudge is queued: {queued:?}");
+    let entry = &queued[0];
+    assert_eq!(
+        entry["channel_type"], "whatsapp",
+        "bug: queued for the channel it was refused on"
+    );
+    assert_eq!(
+        entry["reauth_provider"], "sciotte_garmin",
+        "bug: the retry is guarded by the dead connection"
+    );
+    assert!(
+        entry["expires_at"].is_null(),
+        "bug: the move carries no link, so nothing in it expires: {entry}"
+    );
+
+    f.run_worker().await;
+    let delivered = whatsapp_retry.raw_delivered.lock().unwrap().clone();
+    assert_eq!(delivered.len(), 1, "delivered once on the retry");
+    assert_eq!(
+        delivered[0]["to"], "15145550660",
+        "bug: the retry reaches the athlete's number"
+    );
+    let body = delivered[0]["text"].as_str().unwrap();
+    let moves = ["fr", "en"].map(|locale| {
+        strings().render(
+            "messaging.provider.reauth_oauth_required_no_link",
+            locale,
+            &["Garmin"],
+        )
+    });
+    assert!(
+        moves.iter().any(|copy| copy == body),
+        "bug: the nudge names the move to Garmin's official connection: {body}"
+    );
+    assert!(
+        !body.contains("/r/") && !body.contains(HOSTED_SIGNIN_PATH),
+        "bug: no usr/pwd sign-in link: {body}"
+    );
+    assert!(!body.contains("sciotte"), "never the backend slug: {body}");
 }

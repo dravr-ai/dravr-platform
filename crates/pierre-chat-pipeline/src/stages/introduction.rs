@@ -43,6 +43,7 @@ use pierre_core::chunking::split_sentences;
 use pierre_core::models::{AgentRuntimeContext, ConversationRecord, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::repositories::ChatRepository;
+use pierre_services::locale::resolve_user_locale;
 use tracing::{info, warn};
 
 use crate::turn::TurnInput;
@@ -302,23 +303,24 @@ pub(crate) async fn record_if_named(
 ///
 /// Read under the tenant the agent resolved in for this turn: the athlete's
 /// own for an `@handle`, the conversation's for the bound agent — the same
-/// split `resolve_turn_agent_ctx` makes.
+/// split and the same visibility as `resolve_turn_agent_ctx`. A group's agent
+/// belongs to whoever set the group up, so the member it answers need not own
+/// it or be assigned it.
 async fn localized_title(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     agent_id: &str,
     locale: &str,
 ) -> Option<String> {
-    let user = parse_uuid(&input.user_id).ok()?;
     let tenant = if input.mentioned_agent.is_some() {
         input.tool_tenant_id
     } else {
         input.conversation_tenant_id
     };
-    let agent = match ctx.repos.agents.get_by_id(agent_id, user, tenant).await {
+    let agent = match ctx.repos.agents.get_in_tenant(agent_id, tenant).await {
         Ok(agent) => agent?,
         Err(e) => {
-            warn!(error = %e, agent_id, "agent unreadable for its introduction title");
+            warn!(error = %e, agent_id, "agent unreadable for its localized title");
             return None;
         }
     };
@@ -329,6 +331,31 @@ async fn localized_title(
     }
     let [agent] = agents;
     Some(agent.title)
+}
+
+/// The title the turn's athlete knows the agent answering them by, for the
+/// notification naming it, or the canonical title when they have no
+/// translation. `None` when no agent answered.
+///
+/// Read in the athlete's stored language, not the turn's: the localizer renders
+/// the notification's sentence in that one, whatever language this message was
+/// written in, and the name has to read with the sentence around it.
+pub(crate) async fn answering_title(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    conv: &ConversationRecord,
+    agent: Option<&AgentRuntimeContext>,
+) -> Option<String> {
+    let agent = agent?;
+    let (Some(agent_id), Ok(user)) = (input.turn_agent_id(conv), parse_uuid(&input.user_id)) else {
+        return Some(agent.title.clone());
+    };
+    let locale = resolve_user_locale(ctx.repos.users.as_ref(), user).await;
+    Some(
+        localized_title(ctx, input, agent_id, &locale)
+            .await
+            .unwrap_or_else(|| agent.title.clone()),
+    )
 }
 
 /// `text` with every run of whitespace collapsed to one space, trimmed.

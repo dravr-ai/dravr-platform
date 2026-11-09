@@ -230,7 +230,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             annotations(
                 "Calculate recovery score",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -335,7 +335,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
              and TSB use the thresholds saved with set_physiology (FTP, threshold, max and \
              resting HR, weight).",
             schema,
-            annotations("Suggest rest day", Effect::ReadOnly, Reach::OpenWorld),
+            annotations("Suggest rest day", Effect::ReadOnly, Reach::AthleteAccount),
         )))
     }
 
@@ -521,7 +521,7 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
             annotations(
                 "Optimize sleep schedule",
                 Effect::ReadOnly,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }

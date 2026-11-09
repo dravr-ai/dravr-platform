@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::DataSource;
@@ -26,4 +27,16 @@ pub trait DataSourceRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
     ) -> AppResult<Vec<DataSource>>;
+    /// The earliest day a wellness row of the user's `provider` filed under
+    /// a data source marked `source` holds in `tenant_id`: a night by the day
+    /// it ended, a recovery, body or daily-activity row by its date. `None`
+    /// when no such row exists. Soft-deleted rows count: the source held the
+    /// day.
+    async fn earliest_source_day(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        source: &str,
+    ) -> AppResult<Option<NaiveDate>>;
 }

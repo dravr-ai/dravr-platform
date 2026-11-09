@@ -4,6 +4,43 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use chrono::{DateTime, Utc};
+use pierre_core::errors::{AppError, AppResult};
+
+/// The error one column read raises.
+pub(crate) fn chat_column_error(column: &str, e: &sqlx::Error) -> AppError {
+    AppError::database(format!("chat column {column}: {e}"))
+}
+
+/// Read a timestamp column of either backend in the RFC 3339 text the wire
+/// DTOs carry: a TIMESTAMPTZ on Postgres, RFC 3339 text on `SQLite` that
+/// sqlx parses and this renders again — the same text, for a value this
+/// repository wrote.
+///
+/// # Errors
+/// Returns a database error naming the column when it cannot be decoded.
+pub(crate) fn stamp_column<R>(row: &R, column: &str) -> AppResult<String>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let at: DateTime<Utc> = row
+        .try_get(column)
+        .map_err(|e| chat_column_error(column, &e))?;
+    Ok(at.to_rfc3339())
+}
+
+/// Parse the RFC 3339 instant a caller hands the repository as text.
+///
+/// # Errors
+/// Returns an invalid-input error when the text is not an RFC 3339 instant.
+pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(since)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{since}': {e}")))
+}
+
 /// Emit the row parsers [`impl_chat_repository!`](super::chat_backend::impl_chat_repository)
 /// decodes with, for one backend's row type and uuid codec.
 ///
@@ -147,6 +184,9 @@ macro_rules! impl_chat_row_parsers {
                 ),
                 channel_type: opt("channel_type")?,
                 about_user_id: $ids::read_opt(row, "about_user_id")?,
+                turn_attempted_write: row
+                    .try_get("turn_attempted_write")
+                    .map_err(|e| chat_column_error("turn_attempted_write", &e))?,
             })
         }
 

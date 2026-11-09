@@ -70,8 +70,9 @@ pub const INTRADAY_SERIES: [SeriesType; 3] = [
 /// A run of intraday samples of one series: the only shape the series store
 /// takes.
 ///
-/// Built only by [`IntradaySeries::try_new`], which refuses a daily kind, so a
-/// day's reading cannot reach a store no daily reader looks at.
+/// Built only by [`IntradaySeries::try_new`], which refuses a daily kind, and
+/// by constructors naming an intraday kind, so a day's reading cannot reach a
+/// store no daily reader looks at.
 #[derive(Debug, Clone)]
 pub struct IntradaySeries {
     series: SeriesType,
@@ -91,6 +92,18 @@ impl IntradaySeries {
                 "{} is a day's reading, stored on a day's row, never as a series",
                 series.as_str()
             )))
+        }
+    }
+
+    /// HRV readings measured as SDNN, each `(instant, milliseconds)`.
+    #[must_use]
+    pub fn hrv_sdnn(readings: impl IntoIterator<Item = (DateTime<Utc>, f64)>) -> Self {
+        Self {
+            series: SeriesType::HrvSdnn,
+            points: readings
+                .into_iter()
+                .map(|(at, milliseconds)| DataPoint::new(at, milliseconds))
+                .collect(),
         }
     }
 

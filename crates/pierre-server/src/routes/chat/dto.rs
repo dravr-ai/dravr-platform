@@ -655,6 +655,14 @@ pub struct MessageResponse {
     pub quote: Option<RoomQuoteResponse>,
     /// Creation timestamp
     pub created_at: String,
+    /// On an assistant row: whether its turn was blocked by the Guardian, or
+    /// called a tool that writes, is irreversible or cannot be classified,
+    /// whether or not the call succeeded. Regenerate is a new turn on a fresh
+    /// budget, so a client offers it only when this is exactly `false`. Absent
+    /// when nobody knows: a row from before the column, or one no model turn
+    /// wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_attempted_write: Option<bool>,
 }
 
 /// An athlete's group-room message, quoted by their coach.

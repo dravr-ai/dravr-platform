@@ -255,6 +255,12 @@ export function ConversationsScreen() {
           keyExtractor={keyExtractor}
           // The system header, search field and tab bar inset the list themselves.
           contentInsetAdjustmentBehavior="automatic"
+          // FlashList keeps its first visible row in place by default, so a
+          // re-read on focus that moves the thread just read to the top
+          // scrolled the list by the rows inserted above it and left it
+          // parked under the search bar. Newest activity belongs at the top:
+          // the list keeps its offset, not its old first row.
+          maintainVisibleContentPosition={{ disabled: true }}
           contentContainerStyle={{ paddingBottom: spacing.lg }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"

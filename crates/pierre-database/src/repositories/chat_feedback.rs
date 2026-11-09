@@ -46,6 +46,14 @@ pub(crate) const DELETE_FEEDBACK_SQL: &str = r"
     DELETE FROM chat_message_feedback
     WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3";
 
+/// One feedback row by its id, for the athlete who gave it in this tenant.
+pub(crate) const FEEDBACK_BY_ID_SQL: &str = concat!(
+    "SELECT ",
+    feedback_columns!(),
+    " FROM chat_message_feedback \
+     WHERE id = $1 AND user_id = $2 AND tenant_id = $3"
+);
+
 /// All of the caller's feedback rows for a conversation.
 pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
     "SELECT ",
@@ -56,14 +64,16 @@ pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
 
 /// Emit the feedback writes and reads for one backend type: the bodies
 /// behind [`ChatRepository::upsert_message_feedback`],
-/// [`ChatRepository::delete_message_feedback`] and
-/// [`ChatRepository::get_conversation_feedback`]. Invoked inside
+/// [`ChatRepository::delete_message_feedback`],
+/// [`ChatRepository::get_conversation_feedback`] and
+/// [`ChatRepository::get_message_feedback`]. Invoked inside
 /// `impl_chat_repository!`, whose row parsers and helpers it names
 /// unqualified, and whose shell must `use` this module's statements.
 ///
 /// [`ChatRepository::upsert_message_feedback`]: super::chat::ChatRepository::upsert_message_feedback
 /// [`ChatRepository::delete_message_feedback`]: super::chat::ChatRepository::delete_message_feedback
 /// [`ChatRepository::get_conversation_feedback`]: super::chat::ChatRepository::get_conversation_feedback
+/// [`ChatRepository::get_message_feedback`]: super::chat::ChatRepository::get_message_feedback
 macro_rules! impl_chat_feedback {
     ($ty:ty, $ids:ident) => {
         impl $ty {
@@ -143,6 +153,25 @@ macro_rules! impl_chat_feedback {
                         AppError::database(format!("Failed to get conversation feedback: {e}"))
                     })?;
                 rows.iter().map(feedback_from_row).collect()
+            }
+
+            /// One of the caller's feedback rows by its id.
+            async fn feedback_by_id(
+                &self,
+                feedback_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<MessageFeedbackRecord>> {
+                let row = sqlx::query(FEEDBACK_BY_ID_SQL)
+                    .bind(feedback_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read message feedback: {e}"))
+                    })?;
+                row.as_ref().map(feedback_from_row).transpose()
             }
         }
     };

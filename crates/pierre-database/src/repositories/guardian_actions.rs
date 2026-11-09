@@ -1,5 +1,5 @@
-// ABOUTME: Repository trait for guardian_pending_actions — parked destructive tool calls awaiting /confirm
-// ABOUTME: Single-use owner-checked claims with expiry at resolution; the Guardian Confirm HITL storage seam
+// ABOUTME: Repository trait for guardian_pending_actions — the agent drafts awaiting /agent create confirm
+// ABOUTME: Single-use owner-checked claims with expiry at resolution; the table keeps its Guardian-era name
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,27 +8,32 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
-/// A destructive tool call the Guardian parked pending user confirmation.
+/// `tool_name` a parked agent draft carries in the pending-action store.
 ///
-/// `arguments` is the tool-call JSON verbatim — stored to re-dispatch on
-/// `/confirm`, never echoed to the user (it can carry the very injected
-/// content the taint rule fired on). Ids are uuid-simple tokens (122-bit
-/// entropy); ownership is still enforced on claim.
+/// Deliberately not a registered tool: the claim path checks for it before
+/// anything is dispatched, so a confirmed draft becomes an agent rather than a
+/// tool call the executor would refuse.
+pub const AGENT_PROPOSAL_ACTION: &str = "coach.create_proposal";
+
+/// An action parked pending its owner's answer: the agent draft `/agent create`
+/// proposed.
+///
+/// `arguments` is the draft as JSON, never echoed to the user. Ids are uuid-simple
+/// tokens (122-bit entropy); ownership is still enforced on claim.
 #[derive(Debug, Clone)]
 pub struct PendingGuardianAction {
     /// Opaque uuid-simple claim token, surfaced to the user in the prompt.
     pub id: String,
-    /// Stringified tenant of the dispatch that was parked.
+    /// Stringified tenant the action was parked under.
     pub tenant_id: String,
     /// Stringified user the confirmation belongs to.
     pub user_id: String,
-    /// Originating conversation, when the dispatch had one (chat surfaces).
-    pub conversation_id: Option<String>,
-    /// Registry identifier of the parked tool.
+    /// What is parked: [`AGENT_PROPOSAL_ACTION`]. A row naming anything else was
+    /// parked by an older binary, and resolving it runs nothing.
     pub tool_name: String,
-    /// Tool-call arguments JSON, re-dispatched verbatim on confirm.
+    /// The parked payload as JSON.
     pub arguments: serde_json::Value,
-    /// The Guardian deny reason that triggered the park (`tainted_sink`).
+    /// Why the row is parked. The column is `NOT NULL`; nothing branches on it.
     pub deny_reason: String,
 }
 
@@ -38,19 +43,19 @@ pub enum ClaimOutcome {
     /// The caller won the single-use claim; the action payload follows.
     /// Boxed: the payload dwarfs the unit variants (`large_enum_variant`).
     Claimed(Box<PendingGuardianAction>),
-    /// The row exists and belongs to the caller but its TTL elapsed; it has
-    /// been marked `expired`.
-    Expired,
+    /// The row belongs to the caller but its TTL elapsed; it has been marked
+    /// `expired`. The payload names what lapsed. Boxed like [`Self::Claimed`].
+    Expired(Box<PendingGuardianAction>),
     /// No claimable row: unknown id, another user's row, or already resolved.
     /// Collapsed into one variant on purpose — distinguishing "someone
     /// else's id" from "unknown id" would let ids be probed for existence.
     NotFound,
 }
 
-/// Persistent store behind the Guardian's Confirm human-in-the-loop flow.
+/// Persistent store of parked actions awaiting their owner's answer.
 #[async_trait]
 pub trait GuardianPendingActionsRepository: Send + Sync {
-    /// Park a destructive tool call until `expires_at`.
+    /// Park an action until `expires_at`.
     async fn create_pending_action(
         &self,
         action: &PendingGuardianAction,
@@ -77,7 +82,7 @@ pub trait GuardianPendingActionsRepository: Send + Sync {
     async fn delete_expired_pending_actions(&self) -> AppResult<u64>;
 }
 
-/// Park a destructive call, pending confirmation.
+/// Park an action, pending confirmation.
 ///
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, so one statement serves both backends and cannot drift between
@@ -87,9 +92,8 @@ pub trait GuardianPendingActionsRepository: Send + Sync {
 /// native `TIMESTAMPTZ`.
 pub(crate) const INSERT_PENDING_ACTION_SQL: &str = r"
             INSERT INTO guardian_pending_actions
-                (id, tenant_id, user_id, conversation_id, tool_name, arguments,
-                 deny_reason, status, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
+                (id, tenant_id, user_id, tool_name, arguments, deny_reason, status, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
             ";
 
 /// The single-use claim: a guarded UPDATE that only one concurrent caller can
@@ -102,11 +106,11 @@ pub(crate) const CLAIM_PENDING_ACTION_SQL: &str = r"
               AND status = 'pending' AND expires_at > $6
             ";
 
-/// The claimed row's payload, read back after the guarded UPDATE won.
+/// The row's payload, read back after a guarded UPDATE named it the caller's.
 pub(crate) const READ_CLAIMED_ACTION_SQL: &str = r"
-                SELECT tenant_id, user_id, conversation_id, tool_name, arguments, deny_reason
+                SELECT tenant_id, user_id, tool_name, arguments, deny_reason
                 FROM guardian_pending_actions
-                WHERE id = $1
+                WHERE id = $1 AND user_id = $2 AND tenant_id = $3
                 ";
 
 /// Distinguish "owned but elapsed" (mark + report expired) from everything
@@ -135,7 +139,6 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let get = |col: &str| -> AppResult<String> {
         row.try_get::<String, _>(col)
@@ -148,11 +151,6 @@ where
         id: id.to_owned(),
         tenant_id: get("tenant_id")?,
         user_id: get("user_id")?,
-        conversation_id: row
-            .try_get::<Option<String>, _>("conversation_id")
-            .map_err(|e| {
-                AppError::database(format!("guardian_pending_actions conversation_id: {e}"))
-            })?,
         tool_name: get("tool_name")?,
         arguments,
         deny_reason: get("deny_reason")?,
@@ -172,9 +170,9 @@ macro_rules! impl_guardian_pending_actions_repository {
                 action: &PendingGuardianAction,
                 expires_at: DateTime<Utc>,
             ) -> AppResult<()> {
-                // Opportunistic hygiene: the parking path is rare (a tainted
-                // destructive call under Confirm), so sweeping here keeps the
-                // table bounded without a background job.
+                // Opportunistic hygiene: the parking path is rare (an athlete
+                // drafting an agent), so sweeping here keeps the table bounded
+                // without a background job.
                 self.delete_expired_pending_actions().await?;
 
                 let arguments = serde_json::to_string(&action.arguments).map_err(|e| {
@@ -184,7 +182,6 @@ macro_rules! impl_guardian_pending_actions_repository {
                     .bind(&action.id)
                     .bind(&action.tenant_id)
                     .bind(&action.user_id)
-                    .bind(&action.conversation_id)
                     .bind(&action.tool_name)
                     .bind(arguments)
                     .bind(&action.deny_reason)
@@ -225,16 +222,10 @@ macro_rules! impl_guardian_pending_actions_repository {
                     })?;
 
                 if claimed.rows_affected() == 1 {
-                    let row = sqlx::query(READ_CLAIMED_ACTION_SQL)
-                        .bind(id)
-                        .fetch_one(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!(
-                                "Failed to read claimed guardian_pending_action: {e}"
-                            ))
-                        })?;
-                    return Ok(ClaimOutcome::Claimed(Box::new(action_from_row(id, &row)?)));
+                    let action = self.read_owned_action(id, user_id, tenant_id).await?;
+                    return Ok(action.map_or(ClaimOutcome::NotFound, |action| {
+                        ClaimOutcome::Claimed(Box::new(action))
+                    }));
                 }
 
                 let expired = sqlx::query(EXPIRE_PENDING_ACTION_SQL)
@@ -250,7 +241,12 @@ macro_rules! impl_guardian_pending_actions_repository {
                     })?;
 
                 if expired.rows_affected() == 1 {
-                    Ok(ClaimOutcome::Expired)
+                    // Another athlete's park sweeps every elapsed row, so this one
+                    // can be gone by now, and that answers as any row no longer here.
+                    let action = self.read_owned_action(id, user_id, tenant_id).await?;
+                    Ok(action.map_or(ClaimOutcome::NotFound, |action| {
+                        ClaimOutcome::Expired(Box::new(action))
+                    }))
                 } else {
                     Ok(ClaimOutcome::NotFound)
                 }
@@ -265,6 +261,30 @@ macro_rules! impl_guardian_pending_actions_repository {
                         AppError::database(format!("Failed to sweep guardian_pending_actions: {e}"))
                     })?;
                 Ok(result.rows_affected())
+            }
+        }
+
+        impl $ty {
+            /// The payload of a row a guarded UPDATE just named the caller's, if the
+            /// row is still there.
+            async fn read_owned_action(
+                &self,
+                id: &str,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<Option<PendingGuardianAction>> {
+                let row = sqlx::query(READ_CLAIMED_ACTION_SQL)
+                    .bind(id)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read claimed guardian_pending_action: {e}"
+                        ))
+                    })?;
+                row.map(|row| action_from_row(id, &row)).transpose()
             }
         }
     };

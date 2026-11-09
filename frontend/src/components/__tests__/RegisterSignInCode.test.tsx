@@ -244,6 +244,23 @@ describe('Register — signed straight in', () => {
     expect(sessionStorage.getItem(SIGNUP_ATTRIBUTION_KEY)).toBeNull()
   })
 
+  it('sends the dravr.ai button the visitor clicked', async () => {
+    sessionStorage.setItem(
+      SIGNUP_ATTRIBUTION_KEY,
+      JSON.stringify({ ref: 'dravr.ai', placement: 'hero', lang: 'fr', utm_content: 'footer' }),
+    )
+    vi.mocked(authApi.register).mockResolvedValue(registered('review'))
+    const { container, onRegistrationSuccess } = await renderRegister()
+
+    fillForm(container)
+    await submit(container)
+
+    await waitFor(() => expect(onRegistrationSuccess).toHaveBeenCalled())
+    expect(authApi.register).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: 'dravr.ai', placement: 'hero', lang: 'fr', utm_content: 'footer' }),
+    )
+  })
+
   it('keeps the campaign for the retry when the registration fails', async () => {
     sessionStorage.setItem(SIGNUP_ATTRIBUTION_KEY, JSON.stringify({ utm_source: 'strava-club' }))
     vi.mocked(authApi.register)
@@ -274,6 +291,11 @@ describe('Register — signed straight in', () => {
     expect(body).not.toHaveProperty('utm_source')
     expect(body).not.toHaveProperty('utm_medium')
     expect(body).not.toHaveProperty('utm_campaign')
+    expect(body).not.toHaveProperty('utm_term')
+    expect(body).not.toHaveProperty('utm_content')
+    expect(body).not.toHaveProperty('ref')
+    expect(body).not.toHaveProperty('placement')
+    expect(body).not.toHaveProperty('lang')
   })
 
   it('still registers when the browser cannot prepare a sign-in', async () => {

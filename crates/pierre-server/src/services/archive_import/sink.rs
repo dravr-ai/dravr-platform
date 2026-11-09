@@ -18,7 +18,7 @@
 //!    version barrage decoded them to — before the row they belong to, so a
 //!    cached archive activity is never read without its samples;
 //! 2. the records' activities into the activity cache under the source key
-//!    (`strava_archive`, `garmin_archive`), which no provider sync prunes;
+//!    (`strava_archive`, `whoop_archive`, ...), which no provider sync prunes;
 //! 3. the best efforts each run with samples sets, recorded without an
 //!    announcement (an import is history, not news);
 //! 4. the gear the export named for each run, walk or hike, attributed in the
@@ -27,12 +27,14 @@
 //! 5. once per chunk, the agent's cached lists dropped and the training-load
 //!    rollup recomputed.
 //!
-//! The wellness an export holds (the Garmin archive's nights and days) is
+//! The wellness an export holds (the Garmin, Apple Health and WHOOP
+//! archives' nights and days) is
 //! written through the one wellness writer, [`WellnessStore`], under the
 //! source key and a data source named for it, as rows every merged read
 //! sees: a night whole, each day record as a partial summary, since each
 //! file of the export carries only some of a day's readings and none
-//! retracts another's. Retracting a source deletes every row the key
+//! retracts another's. Readings measured as SDNN go to their own series.
+//! Retracting a source deletes every row the key
 //! contributed, its samples and wellness included.
 
 use std::fmt;
@@ -47,7 +49,7 @@ use dravr_barrage::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, StreamOrigin};
-use pierre_services::wellness_store::{WellnessStore, WellnessWriteMode};
+use pierre_services::wellness_store::{IntradaySeries, WellnessStore, WellnessWriteMode};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
@@ -279,6 +281,19 @@ impl ProjectionSink for CachedActivitiesSink {
                 .await
                 .map_err(|e| projection(&e))?;
         }
+        // SDNN keeps its own series: a day's HRV is read as rMSSD.
+        store
+            .store_series(
+                &source_id,
+                IntradaySeries::hrv_sdnn(
+                    wellness
+                        .hrv_sdnn
+                        .iter()
+                        .map(|reading| (reading.at, reading.milliseconds)),
+                ),
+            )
+            .await
+            .map_err(|e| projection(&e))?;
         writes.report();
         info!(
             %user_id,

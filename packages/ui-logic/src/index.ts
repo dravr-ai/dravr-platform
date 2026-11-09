@@ -84,6 +84,8 @@ export {
   INVALID_SIGNUP_CODE_REASON,
   isInvalidSignupCode,
   refusalProvider,
+  providerAuthRefusalKey,
+  apiErrorStatus,
 } from './apiError';
 export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';
 
@@ -94,9 +96,21 @@ export {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
 } from './accountDeletion';
-// What both clients say about an import of the athlete's own data
-export type { CopyLine, ImportPhase, ImportSourceCopy } from './archiveImport';
+// What the end of a downloaded data export says about the file.
 export {
+  EXPORT_PARTIAL_KEYS,
+  EXPORT_CUT_SHORT,
+  EXPORT_TAIL_BYTES,
+  type ExportLimit,
+  type ExportPartialKey,
+  type ExportTail,
+  exportPartialKey,
+  readExportTail,
+} from './dataExport';
+// What both clients say about an import of the athlete's own data
+export type { CopyLine, ImportPhase, ImportSourceCopy, LinkSourceCopy, UploadSourceCopy } from './archiveImport';
+export {
+  APPLE_HEALTH_COPY,
   AWAITING_LINK_LATE_MS,
   IMPORT_POLL_INTERVAL_MS,
   IMPORT_RESULT_STORAGE_KEY,
@@ -109,10 +123,15 @@ export {
   importSize,
   importSourceCopy,
   importStateCopy,
+  importedHistoryCount,
   linkRefusalKey,
   offeredImportSources,
   startErrorKey,
+  uploadErrorKey,
+  uploadPercent,
 } from './archiveImport';
+
+export { cardAwaitingHistory, cardExportSource, shownHistoryChoices } from './cardHistory';
 
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';
@@ -167,6 +186,12 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
 export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+// The calendar Dravr's plan and workout pushes go to: Connections settings and the agent write it (carnet#1393).
+export {
+  type UsePreferredCalendarResult,
+  createPreferredCalendarHook,
+  hasCalendarChoice,
+} from './preferredCalendarHook';
 // How often the coach checks in on its own: the onboarding step and Settings write it (carnet#831).
 export { type UseCheckInResult, CHECK_IN_OPTIONS, createCheckInHook } from './checkInHook';
 // The athlete's units, metric unless Settings chose imperial, and the context every distance a surface prints reads (carnet#835).
@@ -244,12 +269,14 @@ export {
   ROW_DATE,
   activityNaming,
   activityRowFigures,
+  activityStartLine,
   calendarDayLabel,
   civilDayMonth,
   civilDayOfMonth,
   civilMonthTitle,
   civilShortDate,
   civilWeekdayNarrow,
+  formatActivityDay,
   formatCivilDate,
   formatInstant,
   formatSyncTime,

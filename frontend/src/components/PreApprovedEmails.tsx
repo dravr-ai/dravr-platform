@@ -11,7 +11,7 @@ import type { PreApprovedEmail } from '../services/api/admin';
 import { Button, Card, Badge, Checkbox, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDate } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /**
  * Pre-approving an address is how an operator adds someone who has not
@@ -20,7 +20,6 @@ import { useTranslation } from '@pierre/i18n';
  * approved on the spot by the same action.
  */
 export default function PreApprovedEmails() {
-  const { language } = useTranslation();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
@@ -180,10 +179,10 @@ export default function PreApprovedEmails() {
                     <p className="text-sm text-on-surface-variant mb-1">{entry.note}</p>
                   )}
                   <div className="flex items-center space-x-4 text-xs text-outline">
-                    <span>Allowed: {formatDate(entry.created_at, language)}</span>
+                    <span>Allowed: {formatDate(entry.created_at, ADMIN_LOCALE)}</span>
                     <span>By: {entry.allowed_by_email ?? 'unattributed'}</span>
                     {!entry.account_status && entry.invitation_expires_at && (
-                      <span>Invitation expires: {formatDate(entry.invitation_expires_at, language)}</span>
+                      <span>Invitation expires: {formatDate(entry.invitation_expires_at, ADMIN_LOCALE)}</span>
                     )}
                   </div>
                 </div>
@@ -193,8 +192,11 @@ export default function PreApprovedEmails() {
                   size="sm"
                   variant="outline"
                   className="border-error/50 text-error hover:bg-error/10 ml-4"
+                  // An operator read the old "Remove" as deleting the user: it only
+                  // withdraws the standing allow, never the account (carnet#1391).
+                  title="Removes this address from the pre-approved list. An account already registered with it is not deleted."
                 >
-                  Remove
+                  Remove pre-approval
                 </Button>
               </div>
             </Card>

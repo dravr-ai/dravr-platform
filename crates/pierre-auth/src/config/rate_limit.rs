@@ -19,6 +19,8 @@ pub struct RateLimitConfig {
     pub oauth_authorize_rpm: u32,
     /// OAuth token endpoint rate limit (requests per minute)
     pub oauth_token_rpm: u32,
+    /// Grants one user's tokens may redeem at the OAuth token endpoint per window
+    pub oauth_token_user_rpm: u32,
     /// OAuth register endpoint rate limit (requests per minute)
     pub oauth_register_rpm: u32,
     /// Password re-confirmations a signed-in account may attempt per window
@@ -45,6 +47,7 @@ impl Default for RateLimitConfig {
         Self {
             oauth_authorize_rpm: oauth_rate_limiting::AUTHORIZE_RPM,
             oauth_token_rpm: oauth_rate_limiting::TOKEN_RPM,
+            oauth_token_user_rpm: oauth_rate_limiting::TOKEN_USER_RPM,
             oauth_register_rpm: oauth_rate_limiting::REGISTER_RPM,
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
             password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
@@ -70,6 +73,10 @@ impl RateLimitConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(oauth_rate_limiting::TOKEN_RPM),
+            oauth_token_user_rpm: env::var("OAUTH_TOKEN_USER_RATE_LIMIT_RPM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(oauth_rate_limiting::TOKEN_USER_RPM),
             oauth_register_rpm: env::var("OAUTH_REGISTER_RATE_LIMIT_RPM")
                 .ok()
                 .and_then(|s| s.parse().ok())

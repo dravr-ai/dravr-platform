@@ -66,7 +66,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
 
-const RELAY: &str = "nolio";
+pub(crate) const RELAY: &str = "nolio";
 
 /// The key of the note a caller over an external transport reads. Pinned as a
 /// literal on purpose: it is a wire value MCP, A2A and API-key clients parse.
@@ -74,7 +74,7 @@ const UNAVAILABLE_HERE: &str = "_unavailable_over_this_interface";
 
 /// A coach-platform relay whose terms keep its data inside Dravr's own
 /// surfaces (Nolio §6.9).
-struct RelayDescriptor;
+pub(crate) struct RelayDescriptor;
 
 impl ProviderDescriptor for RelayDescriptor {
     fn name(&self) -> &'static str {
@@ -138,7 +138,7 @@ fn session(id: &str, name: &str, days_ago: i64) -> Activity {
     .build()
 }
 
-fn sessions() -> Vec<Activity> {
+pub(crate) fn sessions() -> Vec<Activity> {
     vec![
         session("g1", "Garmin Hills", 1),
         session("g2", "Garmin Tempo", 2),
@@ -212,7 +212,7 @@ impl FitnessProvider for Relay {
     }
 }
 
-fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
+pub(crate) fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
     Box::new(Relay { config })
 }
 
@@ -230,13 +230,13 @@ async fn server_with_relay() -> Arc<ServerContext> {
 }
 
 /// An athlete with the relay connected.
-struct Rider {
-    user: User,
-    user_id: Uuid,
-    tenant: TenantId,
+pub(crate) struct Rider {
+    pub(crate) user: User,
+    pub(crate) user_id: Uuid,
+    pub(crate) tenant: TenantId,
 }
 
-async fn athlete_with_relay(resources: &ServerContext) -> Rider {
+pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
     let email = format!("relay-{}@example.com", Uuid::new_v4());
     let (user_id, user, tenant) =
         create_test_user_with_plan(&resources.agent.database, &email, "starter")
@@ -697,6 +697,7 @@ fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSur
             budget: 64,
             seat: TurnSeat::Subject,
             switched_off: &SwitchedOff::default(),
+            grant: &OAuthScope::self_grant(),
         },
     )
 }
@@ -908,13 +909,14 @@ async fn write_row(
             transport_policy,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
 }
 
 /// A fact the athlete holds, stamped as given.
-async fn write_fact(
+pub(crate) async fn write_fact(
     resources: &Arc<ServerContext>,
     rider: &Rider,
     object: &str,
@@ -1190,61 +1192,75 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
 
     // The Copilot loop calls from another task: the turn's accumulator rides
     // the surface there. A first-party turn that read the relay stamps the
-    // fact it then writes; a turn over the key never read it, so its fact
-    // stays open.
-    for (transport, object, expected) in [
-        (
-            Transport::WebApp,
-            "long climbs after the relay rides",
-            TransportPolicy::FirstPartyOnly,
-        ),
-        (
-            Transport::ApiKey,
-            "short intervals",
-            TransportPolicy::AnyTransport,
-        ),
-    ] {
-        let provenance = ai_scope::Provenance::new();
-        let surface = ai_scope::serve_over(
-            transport,
-            ai_scope::tracking(provenance.clone(), async {
-                copilot_surface(&resources, &rider)
-            }),
-        )
-        .await;
-        let args = remember(object);
-        let reads = serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" });
-        tokio::spawn(async move {
-            surface.call("get_activities", &reads).await;
-            surface.call("remember_fact", &args).await
-        })
+    // fact it then writes. `remember_fact` is refused over the key, so a turn
+    // there writes nothing at all.
+    let object = "long climbs after the relay rides";
+    let provenance = ai_scope::Provenance::new();
+    let surface = ai_scope::serve_over(
+        Transport::WebApp,
+        ai_scope::tracking(provenance.clone(), async {
+            copilot_surface(&resources, &rider)
+        }),
+    )
+    .await;
+    let args = remember(object);
+    let reads = serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" });
+    tokio::spawn(async move {
+        surface.call("get_activities", &reads).await;
+        surface.call("remember_fact", &args).await
+    })
+    .await
+    .unwrap();
+    assert_eq!(provenance.policy(), TransportPolicy::FirstPartyOnly);
+
+    // Called outside a conversation, remember_fact writes a draft; the stamp is
+    // on it either way, and keeping it keeps the stamp.
+    let memory = &resources.common.repos.memory;
+    let user = rider.user_id.to_string();
+    let drafts = memory
+        .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
-        assert_eq!(provenance.policy(), expected, "{transport:?}");
+    let fact = drafts
+        .iter()
+        .find(|f| f.object == object)
+        .expect("the tool wrote the fact");
+    assert_eq!(fact.transport_policy, TransportPolicy::FirstPartyOnly);
+    memory
+        .approve_user_fact(&fact.id, rider.tenant, &user)
+        .await
+        .unwrap();
 
-        // Called outside a conversation, remember_fact writes a draft; the
-        // stamp is on it either way, and keeping it keeps the stamp.
-        let memory = &resources.common.repos.memory;
-        let drafts = memory
-            .list_draft_user_facts(
-                rider.tenant,
-                &rider.user_id.to_string(),
-                50,
-                TransportPolicy::FirstPartyOnly,
-            )
-            .await
-            .unwrap();
-        let fact = drafts
-            .iter()
-            .find(|f| f.object == object)
-            .expect("the tool wrote the fact");
-        assert_eq!(fact.transport_policy, expected, "{transport:?}");
-        memory
-            .approve_user_fact(&fact.id, rider.tenant, &rider.user_id.to_string())
-            .await
-            .unwrap();
-    }
+    let provenance = ai_scope::Provenance::new();
+    let surface = ai_scope::serve_over(
+        Transport::ApiKey,
+        ai_scope::tracking(provenance.clone(), async {
+            copilot_surface(&resources, &rider)
+        }),
+    )
+    .await;
+    let args = remember("written over the key");
+    tokio::spawn(async move { surface.call("remember_fact", &args).await })
+        .await
+        .unwrap();
+    assert_eq!(provenance.policy(), TransportPolicy::AnyTransport);
+    let drafts = memory
+        .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
+        .await
+        .unwrap();
+    assert!(
+        drafts.iter().all(|f| f.object != "written over the key"),
+        "bug: an external turn must not write the athlete's memory: {drafts:?}"
+    );
 
+    // An open fact the athlete's own surfaces wrote is what the key reads back.
+    write_fact(
+        &resources,
+        &rider,
+        "short intervals",
+        TransportPolicy::AnyTransport,
+    )
+    .await;
     let recall = call(
         &resources,
         &rider,
@@ -1881,50 +1897,6 @@ async fn an_external_callers_notification_writes_run_under_commeres_rules() {
         body.to_string().contains("Invalid category"),
         "over the session: {body}"
     );
-
-    // A schedule's type must be one the scheduler composes.
-    let unknown = serde_json::json!({
-        "notification_type": "anything at all",
-        "schedule_cron": "0 7 * * *",
-    });
-    let (status, body) =
-        send_json(&app, "POST", "/api/notifications/scheduled", &key, &unknown).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.to_string().contains("cannot be scheduled"), "{body}");
-    let (status, created) = send_json(
-        &app,
-        "POST",
-        "/api/notifications/scheduled",
-        &session,
-        &unknown,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{created}");
-
-    // A schedule moved to a cron that never fires is refused.
-    let reminder = serde_json::json!({
-        "notification_type": "workout_reminder",
-        "schedule_cron": "0 7 * * *",
-    });
-    let (status, scheduled) = send_json(
-        &app,
-        "POST",
-        "/api/notifications/scheduled",
-        &key,
-        &reminder,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{scheduled}");
-    let never = serde_json::json!({ "schedule_cron": "0 0 30 2 *" });
-    let uri = format!(
-        "/api/notifications/scheduled/{}",
-        scheduled["id"].as_str().expect("schedule id")
-    );
-    let (status, body) = send_json(&app, "PUT", &uri, &key, &never).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.to_string().contains("never fires"), "{body}");
-    let (status, body) = send_json(&app, "PUT", &uri, &session, &never).await;
-    assert_eq!(status, StatusCode::OK, "over the session: {body}");
 }
 
 /// An external caller's unread count leaves out first-party-only rows, as
@@ -1998,5 +1970,235 @@ async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access()
     for uri in ["/api/chat/conversations", "/api/memory/facts"] {
         let (status, body) = get(&app, uri, &key).await;
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+    }
+}
+
+/// D3: what the sciotte scraper reads stays on Dravr's own surfaces.
+#[cfg(feature = "provider-sciotte")]
+mod scraped {
+    use super::*;
+    use pierre_core::ai_policy::ProviderTerms;
+    use pierre_core::constants::oauth_providers::SCIOTTE;
+    use pierre_providers::core::ProviderFactory;
+
+    /// What the sciotte scraper read for the athlete: one strava.com session and
+    /// one Garmin Connect session, each stamped `sciotte` with the scraped
+    /// service as `source`, the way every sciotte backend stamps its items.
+    fn scraped_sessions() -> Vec<Activity> {
+        let scraped = |id: &str, name: &str, source: &str, days_ago: i64| {
+            ActivityBuilder::new(
+                id,
+                name,
+                SportType::Run,
+                Utc::now() - Duration::days(days_ago),
+                2_700,
+                SCIOTTE,
+            )
+            .average_heart_rate(152)
+            .source(source)
+            .build()
+        };
+        vec![
+            scraped("s1", "Scraped Strava Tempo", "strava", 1),
+            scraped("s2", "Scraped Garmin Hills", "garmin", 2),
+        ]
+    }
+
+    /// The scraper's reader in place of the live sciotte service: the factory is
+    /// swapped and the registered sciotte descriptors — the terms — are not.
+    struct Scraped {
+        config: ProviderConfig,
+    }
+
+    #[async_trait]
+    impl FitnessProvider for Scraped {
+        fn name(&self) -> &'static str {
+            SCIOTTE
+        }
+
+        fn config(&self) -> &ProviderConfig {
+            &self.config
+        }
+
+        async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn is_authenticated(&self) -> bool {
+            true
+        }
+
+        async fn refresh_token_if_needed(&self) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn get_athlete(&self) -> AppResult<Athlete> {
+            Ok(Athlete {
+                id: "scraped-athlete".to_owned(),
+                username: "scraped_runner".to_owned(),
+                firstname: Some("Scraped".to_owned()),
+                lastname: Some("Runner".to_owned()),
+                profile_picture: None,
+                provider: SCIOTTE.to_owned(),
+                sex: None,
+            })
+        }
+
+        async fn get_activities_with_params(
+            &self,
+            _params: &ActivityQueryParams,
+        ) -> AppResult<Vec<Activity>> {
+            Ok(scraped_sessions())
+        }
+
+        async fn get_activities_cursor(
+            &self,
+            _params: &PaginationParams,
+        ) -> AppResult<CursorPage<Activity>> {
+            Ok(CursorPage::new(scraped_sessions(), None, None, false))
+        }
+
+        async fn get_activity(&self, id: &str) -> AppResult<Activity> {
+            scraped_sessions()
+                .into_iter()
+                .find(|a| a.id() == id)
+                .ok_or_else(|| AppError::not_found(id.to_owned()))
+        }
+
+        async fn get_stats(&self) -> AppResult<Stats> {
+            Ok(Stats {
+                total_activities: 2,
+                total_distance: 20_000.0,
+                total_duration: 5_400,
+                total_elevation_gain: 300.0,
+                coverage: StatsCoverage::Lifetime,
+                year_to_date: None,
+            })
+        }
+    }
+
+    struct ScrapedFactory;
+
+    impl ProviderFactory for ScrapedFactory {
+        fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+            Ok(Box::new(Scraped { config }))
+        }
+
+        fn supported_providers(&self) -> &'static [&'static str] {
+            &[SCIOTTE]
+        }
+    }
+
+    /// D3: an item the sciotte scraper read — strava.com or Garmin Connect — is
+    /// governed by the backend that scraped it, so it never leaves over MCP or
+    /// A2A, while the athlete's own Dravr surfaces still see it. The note the
+    /// external caller reads names none of the withheld services and points it at
+    /// what this interface does serve.
+    #[tokio::test]
+    async fn a_scraped_item_stays_off_mcp_and_a2a_and_the_note_points_elsewhere() {
+        let base = create_test_server_resources().await.unwrap();
+        let mut registry = ProviderRegistry::new();
+        assert_eq!(
+            registry.transport_policy(SCIOTTE),
+            Some(TransportPolicy::FirstPartyOnly),
+            "the real sciotte descriptor governs, not the test's factory"
+        );
+        registry.register_factory(SCIOTTE, Box::new(ScrapedFactory));
+        let mut context = (*base).clone();
+        context.fitness.provider_registry = Arc::new(registry);
+        let resources = Arc::new(context);
+
+        let email = format!("scraped-{}@example.com", Uuid::new_v4());
+        let (user_id, _, tenant) =
+            create_test_user_with_plan(&resources.agent.database, &email, "starter")
+                .await
+                .unwrap();
+        let repos = resources.agent.database.repositories();
+        let token = UserOAuthToken::new(
+            user_id,
+            tenant.to_string(),
+            SCIOTTE.to_owned(),
+            "scraper-session".to_owned(),
+            None,
+            Some(Utc::now() + Duration::hours(6)),
+            None,
+        );
+        repos.oauth_tokens.upsert_token(&token).await.unwrap();
+
+        let call_scraped = |transport: Transport| {
+            let resources = Arc::clone(&resources);
+            async move {
+                let runtime: Arc<dyn ToolRuntime> = resources.clone();
+                UniversalExecutor::new(runtime)
+                    .with_scopes(OAuthScope::self_grant())
+                    .with_transport(transport)
+                    .execute_tool(UniversalRequest {
+                        tool_name: "get_activities".to_owned(),
+                        parameters: serde_json::json!({
+                            "provider": SCIOTTE, "limit": 10, "mode": "summary"
+                        }),
+                        user_id: user_id.to_string(),
+                        protocol: "mcp".to_owned(),
+                        tenant_id: Some(tenant.to_string()),
+                    })
+                    .await
+                    .expect("the tool answers")
+            }
+        };
+
+        let first_party_only = resources
+            .fitness
+            .provider_registry
+            .first_party_only_sources();
+        for transport in [Transport::McpHttp, Transport::A2a] {
+            let external = call_scraped(transport).await;
+            assert!(external.success, "{transport:?}: {:?}", external.error);
+            let text = payload_text(&external);
+            assert!(
+                !text.contains("Scraped Strava Tempo"),
+                "{transport:?}: {text}"
+            );
+            assert!(
+                !text.contains("Scraped Garmin Hills"),
+                "{transport:?}: {text}"
+            );
+            let note = &external.result.as_ref().expect("a payload")[UNAVAILABLE_HERE];
+            assert!(
+                note["items_unavailable"].as_u64().unwrap_or(0) >= 2,
+                "{transport:?}: the caller is told data exists it cannot see: {note}"
+            );
+            assert!(
+                !note.to_string().to_ascii_lowercase().contains("sciotte"),
+                "{transport:?}: the note never names the scraper: {note}"
+            );
+            let available: Vec<&str> = note["available_sources"]
+                .as_array()
+                .expect("the sources this interface serves")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            assert!(
+                available.contains(&"Uploaded file"),
+                "{transport:?}: the athlete's own uploads are served here: {note}"
+            );
+            assert!(
+                available
+                    .iter()
+                    .all(|name| !first_party_only.contains(name)),
+                "{transport:?}: no withheld service is offered as an alternative: {note}"
+            );
+            let sentence = note["note"].as_str().expect("a sentence");
+            assert!(
+                sentence.contains("Uploaded file"),
+                "{transport:?}: the sentence names what works: {sentence}"
+            );
+        }
+
+        let own = call_scraped(Transport::WebApp).await;
+        assert!(own.success, "{:?}", own.error);
+        let text = payload_text(&own);
+        assert!(text.contains("Scraped Strava Tempo"), "{text}");
+        assert!(text.contains("Scraped Garmin Hills"), "{text}");
+        assert!(!text.contains(UNAVAILABLE_HERE), "{text}");
     }
 }

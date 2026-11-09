@@ -188,12 +188,12 @@ function FeedbackReasonForm({
         }}
         placeholder={t('chat.feedbackReasonPlaceholder')}
         aria-label={t('chat.feedbackReasonLabel')}
-        className="flex-1 max-w-xs rounded border ghost-border bg-surface-container-high px-2 py-1 text-xs text-on-surface placeholder:text-outline focus:border-primary focus:outline-none"
+        className="touch-target flex-1 max-w-xs rounded border ghost-border bg-surface-container-high px-2 py-1 text-xs text-on-surface placeholder:text-outline focus:border-primary focus:outline-none"
       />
       <button
         type="button"
         onClick={submit}
-        className="rounded bg-primary/15 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/25"
+        className="touch-target rounded bg-primary/15 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/25"
       >
         {saved ? t('chat.feedbackReasonSaved') : t('chat.feedbackReasonSend')}
       </button>
@@ -201,8 +201,15 @@ function FeedbackReasonForm({
   );
 }
 
-/** The action-row icon buttons share one look; only the active feedback tones differ. */
-const ACTION_BUTTON = 'p-0.5 text-outline transition-colors hover:text-on-surface';
+/**
+ * The action-row icon buttons share one shape; only the active feedback tones
+ * differ. 18px on a fine pointer at desktop width; `touch-target` grows the
+ * button to 44px elsewhere, and the flex centring keeps the 14px icon in the
+ * middle of that growth (DESIGN.md §8).
+ */
+const ACTION_BUTTON_SHAPE = 'touch-target flex items-center justify-center p-0.5 transition-colors';
+const ACTION_TONE_IDLE = 'text-outline hover:text-on-surface';
+const ACTION_BUTTON = `${ACTION_BUTTON_SHAPE} ${ACTION_TONE_IDLE}`;
 
 const MessageItem = memo(function MessageItem({
   conversationId = null,
@@ -235,8 +242,9 @@ const MessageItem = memo(function MessageItem({
   const room = message.room;
   const fromPeer = room !== undefined && !room.own;
   const isUser = message.role === 'user' && !fromPeer;
-  // A command's answer or an agent's welcome: the platform wrote it, so it
-  // has no model to label, rate or regenerate, and no answer to share.
+  // A command's answer, an agent's welcome or a failed turn's notice: the
+  // platform wrote it, so it has no model to label, rate or regenerate, and no
+  // answer to share.
   const platformRow = !isModelReply(message.finish_reason);
   const agent = assistantLabel ?? t('shell.brandName');
   const peerName = room?.author_name ?? room?.author_user_id ?? '';
@@ -526,7 +534,7 @@ const MessageItem = memo(function MessageItem({
               type="button"
               onClick={onAdjustPlan}
               data-testid="adjust-plan-from-message"
-              className="inline-flex items-center gap-1.5 rounded py-1 text-sm font-medium text-primary transition-colors hover:underline focus-ring"
+              className="touch-target inline-flex items-center gap-1.5 rounded py-1 text-sm font-medium text-primary transition-colors hover:underline focus-ring"
             >
               <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               {t(PRIVATE_LANE_KEYS.adjustFromMessage)}
@@ -580,7 +588,7 @@ const MessageItem = memo(function MessageItem({
       </button>
     )
   ) : (
-    <div role="group" aria-label={t('chat.messageActions')} className="flex items-center gap-3">
+    <div role="group" aria-label={t('chat.messageActions')} className="flex flex-wrap items-center gap-3">
       {onCopy && (
         <button
           onClick={() => onCopy(readableCopy)}
@@ -602,7 +610,7 @@ const MessageItem = memo(function MessageItem({
       {onThumbsUp && !platformRow && (
         <button
           onClick={onThumbsUp}
-          className={`p-0.5 transition-colors ${feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'}`}
+          className={`${ACTION_BUTTON_SHAPE} ${feedback === 'up' ? 'text-primary' : ACTION_TONE_IDLE}`}
           title={t('chat.feedbackGood')}
         >
           <ThumbsUp className={`h-3.5 w-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
@@ -611,7 +619,7 @@ const MessageItem = memo(function MessageItem({
       {onThumbsDown && !platformRow && (
         <button
           onClick={onThumbsDown}
-          className={`p-0.5 transition-colors ${feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'}`}
+          className={`${ACTION_BUTTON_SHAPE} ${feedback === 'down' ? 'text-error' : ACTION_TONE_IDLE}`}
           title={t('chat.feedbackPoor')}
         >
           <ThumbsDown className={`h-3.5 w-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />

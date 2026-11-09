@@ -14,7 +14,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::UserStatus;
 use pierre_database::backends::UserRepository;
 use pierre_routes_auth::meter_sign_up;
-use pierre_services::signup_policy::SIGNUP_PAUSED;
+use pierre_services::signup_policy::{is_signup_paused, SIGNUP_PAUSED};
 use secrecy::SecretString;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -165,6 +165,8 @@ async fn register_user(
             email: form.email.clone(),
             password: form.password.clone(),
             display_name,
+            // The link page does not ask; the chat asks once linked.
+            analytics_consent: None,
         })
         .await
         .map_err(|e| registration_refusal(&e))?;
@@ -187,7 +189,7 @@ fn registration_refusal(error: &AppError) -> String {
         "Please enter a valid email address.".to_owned()
     } else if message.ends_with(error_messages::PASSWORD_TOO_WEAK) {
         format!("{}.", error_messages::PASSWORD_TOO_WEAK)
-    } else if message.ends_with(SIGNUP_PAUSED) {
+    } else if is_signup_paused(error) {
         SIGNUP_PAUSED.to_owned()
     } else if error.code == ErrorCode::RateLimitExceeded {
         // The sign-up window's own sentence, written for the person refused.

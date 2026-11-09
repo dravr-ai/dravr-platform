@@ -112,6 +112,7 @@ function detail(overrides: Partial<ActivityDetailResponse> = {}): ActivityDetail
     ],
     laps: [],
     conversation_id: null,
+    utc_offset_seconds: null,
     ...overrides,
   };
 }
@@ -213,6 +214,32 @@ describe('ActivityView', () => {
     renderView();
     expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('Garmin Forerunner 965');
     expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Garmin Forerunner 965$/);
+  });
+
+  it('shows the start on the recording\'s clock when the device reads another one at that instant', async () => {
+    const deviceClock = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    api.getActivityDetail.mockResolvedValue(
+      detail({ activity: { ...detail().activity, start_date: '2026-07-15T12:00:00Z' }, utc_offset_seconds: 19_800 }),
+    );
+    renderView();
+    const when = await screen.findByTestId('activity-when');
+    expect(when).toHaveTextContent(/Wed, Jul 15, 17:30 local time · /);
+    deviceClock.mockRestore();
+  });
+
+  it('shows the start as every row does when the recording read the device\'s clock, or says nothing', async () => {
+    const deviceClock = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    for (const offset of [-14_400, null]) {
+      api.getActivityDetail.mockResolvedValue(
+        detail({ activity: { ...detail().activity, start_date: '2026-07-15T12:00:00Z' }, utc_offset_seconds: offset }),
+      );
+      const { unmount } = renderView();
+      const when = await screen.findByTestId('activity-when');
+      expect(when).toHaveTextContent(/^\S+ \S+ \S+ · /);
+      expect(when.textContent).not.toMatch(/local time|\d\d:\d\d/);
+      unmount();
+    }
+    deviceClock.mockRestore();
   });
 
   it('shows no attribution for an activity that carries none', async () => {

@@ -8,6 +8,9 @@ import fs from 'fs';
 import path from 'path';
 import type { Page, Route } from '@playwright/test';
 
+/** The token screen's rail label. The admin rail is English in every session. */
+export const TOKENS_TAB_LABEL = 'API Tokens';
+
 interface UserOptions {
   role?: 'user' | 'admin' | 'super_admin';
   email?: string;
@@ -682,6 +685,84 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
+}
+
+/**
+ * One user for the admin console's list, and the endpoints their detail drawer
+ * reads. An unmocked or wrongly shaped one takes the drawer down with it.
+ */
+export async function mockAdminUserDrawer(page: Page, createdAt: string) {
+  const user = {
+    id: 'user-alice',
+    email: 'alice@acme.com',
+    display_name: 'Alice Athlete',
+    is_admin: false,
+    role: 'user',
+    user_status: 'active',
+    tier: 'starter',
+    tenant_id: 'tenant-acme',
+    created_at: createdAt,
+    last_active: createdAt,
+  };
+  const reply = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/admin/users**', async (route) => {
+    if (/\/api\/admin\/users(\?|$)/.test(route.request().url())) {
+      await route.fulfill(reply({ success: true, message: 'ok', data: { users: [user], total: 1, total_count: 1, has_more: false } }));
+    } else {
+      await route.fallback();
+    }
+  });
+  await page.route('**/admin/users/*/rate-limit', (route) =>
+    route.fulfill(reply({
+      data: {
+        user_id: user.id,
+        tier: 'starter',
+        rate_limits: { monthly: { limit: 10000, used: 500, remaining: 9500 } },
+        reset_times: { monthly_reset: createdAt },
+        override_active: false,
+        override_note: null,
+      },
+    })),
+  );
+  await page.route('**/admin/users/*/activity**', (route) =>
+    route.fulfill(reply({ data: { user_id: user.id, period_days: 30, total_requests: 0, top_tools: [] } })),
+  );
+  await page.route('**/api/admin/users/*/admin-profile**', (route) =>
+    route.fulfill(reply({
+      user_id: user.id,
+      coaching_persona: 'casual',
+      default_coach_id: null,
+      installed_agents: [],
+      joined_groups: [],
+    })),
+  );
+  await page.route('**/api/admin/users/*/features', (route) =>
+    route.fulfill(reply({ rows: [], known: [] })),
+  );
+  const row = (call_type: string, total_tokens: number, calls: number, cost_usd: number) => ({
+    provider: 'anthropic',
+    model: 'claude-sonnet-5-5',
+    call_type,
+    total_tokens,
+    prompt_tokens: total_tokens,
+    completion_tokens: 0,
+    calls,
+    cost_usd,
+  });
+  await page.route('**/api/admin/users/*/usage**', (route) =>
+    route.fulfill(reply({
+      user_id: user.id,
+      from: createdAt,
+      total_cost_usd: 0.2,
+      daily: [],
+      by_model: [
+        row('chat', 216461, 6, 0.19),
+        row('memory_extraction', 8269, 3, 0.0063),
+        row('claim_judge', 3248, 3, 0.0061),
+        row('compaction_summary', 1339, 3, 0.0048),
+      ],
+    })),
+  );
 }
 
 /**

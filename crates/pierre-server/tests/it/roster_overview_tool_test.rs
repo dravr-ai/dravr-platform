@@ -15,23 +15,40 @@
 
 #[cfg(feature = "tools-groups")]
 mod roster_overview_tests {
-    use crate::common::create_test_server_resources;
+    use crate::common::{
+        create_test_server_resources, create_test_server_resources_with_chat_provider,
+    };
+    use async_trait::async_trait;
     use chrono::{Duration, Utc};
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+    use embacle::types::ToolCallRequest;
+    use futures_util::stream;
+    use pierre_chat_pipeline::{
+        InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest,
+        TurnInput, TurnOrigin,
+    };
+    use pierre_core::errors::AppError;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
     use pierre_core::models::{
-        Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
+        Activity, ActivityBuilder, ConnectionType, ConversationTurnId, SportType, Tenant, TenantId,
+        User, UserStatus,
+    };
+    use pierre_core::permissions::scopes::OAuthScope;
+    use pierre_core::transport::Transport;
+    use pierre_llm::{
+        ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_tool_runtime::context::CONVERSATION_ID;
+    use pierre_providers::ai_scope::{self, Provenance};
+    use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use tokio::task::spawn_blocking;
     use uuid::Uuid;
 
@@ -249,13 +266,37 @@ mod roster_overview_tests {
             .expect("tool result carries structured content")
     }
 
+    /// The overview a web turn in `conversation_id` gets: the route calls a
+    /// turn a direct message when its conversation carries no group.
     async fn overview_in(
         resources: &Arc<ServerContext>,
         coach: &Coach,
         conversation_id: String,
     ) -> Value {
-        CONVERSATION_ID
-            .scope(Some(conversation_id), overview(resources, coach, json!({})))
+        let is_direct_message = resources
+            .common
+            .repos
+            .chat
+            .get_conversation(&conversation_id, &coach.user.to_string(), coach.tenant)
+            .await
+            .unwrap()
+            .is_none_or(|conversation| conversation.group_id.is_none());
+        overview_from_turn(resources, coach, conversation_id, is_direct_message).await
+    }
+
+    /// The overview a turn in `conversation_id` gets, as its turn says who
+    /// reads the reply.
+    async fn overview_from_turn(
+        resources: &Arc<ServerContext>,
+        coach: &Coach,
+        conversation_id: String,
+        is_direct_message: bool,
+    ) -> Value {
+        TURN_DIRECT_MESSAGE
+            .scope(
+                Some(is_direct_message),
+                CONVERSATION_ID.scope(Some(conversation_id), overview(resources, coach, json!({}))),
+            )
             .await
     }
 
@@ -277,6 +318,165 @@ mod roster_overview_tests {
             .collect();
         names.sort();
         names
+    }
+
+    const TURN_MODEL: &str = "roster-turn-model";
+    const ROSTER_ASK: &str = "How are my athletes doing?";
+    const ROSTER_RESULT: &str = "[Tool Result for get_roster_overview]";
+
+    /// The model of a coach's real turn: offered `get_roster_overview`, it
+    /// calls it once, then answers. It keeps every roster result it is handed,
+    /// so a test reads what the turn's own tool call returned rather than the
+    /// prompt around it.
+    struct RosterModel {
+        roster_results: Mutex<Vec<String>>,
+        models: Vec<String>,
+    }
+
+    impl RosterModel {
+        fn new() -> Self {
+            Self {
+                roster_results: Mutex::new(Vec::new()),
+                models: vec![TURN_MODEL.to_owned()],
+            }
+        }
+
+        fn roster_result_count(&self) -> usize {
+            self.roster_results.lock().unwrap().len()
+        }
+
+        /// The roster results handed to the model from the `from`th one on.
+        fn roster_results_since(&self, from: usize) -> Vec<String> {
+            self.roster_results.lock().unwrap()[from..].to_vec()
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for RosterModel {
+        fn name(&self) -> &'static str {
+            "roster_turn_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Roster turn mock (carnet#1421)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            TURN_MODEL
+        }
+        fn available_models(&self) -> &[String] {
+            &self.models
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let results: Vec<String> = request
+                .messages
+                .iter()
+                .filter(|message| message.content.contains(ROSTER_RESULT))
+                .map(|message| message.content.clone())
+                .collect();
+            let offered = request
+                .tools
+                .as_ref()
+                .is_some_and(|tools| tools.iter().any(|tool| tool.name == "get_roster_overview"));
+            let tool_calls = (offered && results.is_empty()).then(|| {
+                vec![ToolCallRequest {
+                    id: "call-roster".to_owned(),
+                    function_name: "get_roster_overview".to_owned(),
+                    arguments: json!({}),
+                }]
+            });
+            self.roster_results.lock().unwrap().extend(results);
+            let content = if tool_calls.is_some() {
+                String::new()
+            } else {
+                "Noted.".to_owned()
+            };
+            Ok(ChatResponse {
+                content,
+                model: TURN_MODEL.to_owned(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls,
+            })
+        }
+
+        async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let response = self.complete(request).await?;
+            let chunk = StreamChunk {
+                delta: response.content,
+                is_final: true,
+                finish_reason: response.finish_reason,
+            };
+            Ok(Box::pin(stream::once(async move { Ok(chunk) })))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// The roster results `model` was handed on one coach turn, driven
+    /// through `pierre_chat_pipeline::run` in a fresh conversation with no
+    /// group, the turn saying who reads the reply. The turn runs over the web
+    /// app: the coach tools run only on Dravr's own surfaces.
+    async fn roster_on_turn(
+        resources: &Arc<ServerContext>,
+        model: &RosterModel,
+        coach: &Coach,
+        is_direct_message: bool,
+    ) -> Vec<String> {
+        let conversation = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &coach.user.to_string(),
+                coach.tenant,
+                "chat",
+                TURN_MODEL,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let from = model.roster_result_count();
+        let profile = SurfaceProfile::resolve(&SurfaceRequest {
+            surface: SurfaceId::Web,
+            locale: "en".to_owned(),
+            transport: None,
+            prose_contract: None,
+        });
+        let input = TurnInput {
+            origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
+            conversation_id: conversation.id,
+            user_id: coach.user.to_string(),
+            conversation_tenant_id: coach.tenant,
+            tool_tenant_id: coach.tenant,
+            is_direct_message,
+            content: ROSTER_ASK.to_owned(),
+            turn_id: ConversationTurnId::new(),
+            ambient_context: None,
+            quote: None,
+            quota: QuotaState::Ok,
+            mentioned_agent: None,
+            steps_after: None,
+            grant: OAuthScope::self_grant(),
+        };
+        let ctx = resources.chat_pipeline_context();
+        ai_scope::serve_over(
+            Transport::WebApp,
+            ai_scope::tracking(
+                Provenance::new(),
+                pierre_chat_pipeline::run(&ctx, input, &profile, &PipelineHooks::none()),
+            ),
+        )
+        .await
+        .expect("the turn completes");
+        model.roster_results_since(from)
     }
 
     /// Two groups, three athletes: one shared across both groups, one who
@@ -645,6 +845,165 @@ mod roster_overview_tests {
             .unwrap();
         let payload = overview_in(&resources, &coach, room.id).await;
         assert_eq!(payload["reason"], "room_unresolved", "{payload:#}");
+    }
+
+    /// carnet#1421: a messaging group chat whose group binding failed keeps
+    /// no group on its conversation, so the row alone reads as the coach's
+    /// own chat. On a turn other people read, the roster of neither group
+    /// the coach holds is listed there; the same conversation on a
+    /// direct-message turn reviews both.
+    #[tokio::test]
+    async fn an_ungrouped_shared_chat_is_refused() {
+        let resources = create_test_server_resources().await.unwrap();
+        let coach = seed_coach(&resources, "Coach Lina").await;
+        let track = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Track",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let trail = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Trail",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let (alice, alice_tenant) = seed_athlete(&resources, "Alice").await;
+        add_member(&resources, track, alice, alice_tenant, true).await;
+        let (bruno, bruno_tenant) = seed_athlete(&resources, "Bruno").await;
+        add_member(&resources, trail, bruno, bruno_tenant, true).await;
+        let chat = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &coach.user.to_string(),
+                coach.tenant,
+                "chat",
+                "gemini-2.0-flash",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let shared = overview_from_turn(&resources, &coach, chat.id.clone(), false).await;
+        assert_eq!(
+            shared["reason"], "room_unresolved",
+            "a chat others read with no group bound to it gets no roster: {shared:#}"
+        );
+        assert!(
+            shared.get("athletes").is_none(),
+            "no athlete reaches a shared chat: {shared:#}"
+        );
+
+        // A call that names the conversation without saying who reads it is
+        // not taken for private.
+        let unsaid = CONVERSATION_ID
+            .scope(
+                Some(chat.id.clone()),
+                overview(&resources, &coach, json!({})),
+            )
+            .await;
+        assert_eq!(
+            unsaid["reason"], "room_unresolved",
+            "a conversation with no turn audience fails closed: {unsaid:#}"
+        );
+        assert!(
+            unsaid.get("athletes").is_none(),
+            "no athlete reaches a conversation with no turn audience: {unsaid:#}"
+        );
+
+        let direct = overview_from_turn(&resources, &coach, chat.id, true).await;
+        assert_eq!(
+            names(&direct),
+            ["Alice", "Bruno"],
+            "the same conversation on a direct-message turn is the coach's own: {direct:#}"
+        );
+    }
+
+    /// carnet#1421 through a real turn: the chat pipeline hands the turn's
+    /// audience to every tool it dispatches. In a conversation with no group,
+    /// a turn other people read gets no roster and a direct-message turn
+    /// reviews both of the coach's groups.
+    #[tokio::test]
+    async fn a_turn_tells_the_roster_who_reads_the_reply() {
+        let model = Arc::new(RosterModel::new());
+        let resources = create_test_server_resources_with_chat_provider(model.clone())
+            .await
+            .unwrap();
+        let coach = seed_coach(&resources, "Coach Lina").await;
+        let repos = &resources.common.repos;
+        // A verified address and a connected source, so no onboarding step
+        // answers the turn before the model does.
+        repos
+            .email_verification
+            .mark_verified(coach.user)
+            .await
+            .unwrap();
+        repos
+            .provider_connections
+            .register_connection(
+                coach.user,
+                coach.tenant,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
+        let track = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Track",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let trail = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Trail",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let (alice, alice_tenant) = seed_athlete(&resources, "Alice").await;
+        add_member(&resources, track, alice, alice_tenant, true).await;
+        let (bruno, bruno_tenant) = seed_athlete(&resources, "Bruno").await;
+        add_member(&resources, trail, bruno, bruno_tenant, true).await;
+
+        let shared = roster_on_turn(&resources, &model, &coach, false).await;
+        assert!(
+            !shared.is_empty(),
+            "the model of a turn others read was handed the roster call's result"
+        );
+        // The model reads a refusal as its message alone, so the room's
+        // refusal is told apart from any other error by what it says.
+        assert!(
+            shared.iter().all(
+                |result| result.contains("could not be confirmed as private to you")
+                    && !result.contains("Alice")
+                    && !result.contains("Bruno")
+            ),
+            "a turn other people read in a chat with no group gets no roster: {shared:#?}"
+        );
+
+        let direct = roster_on_turn(&resources, &model, &coach, true).await;
+        assert!(
+            direct
+                .iter()
+                .any(|result| result.contains("Alice") && result.contains("Bruno")),
+            "a direct-message turn in a chat with no group reviews both groups: {direct:#?}"
+        );
     }
 
     /// `group_id` narrows the review to one group, and a group the caller does

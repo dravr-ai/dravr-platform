@@ -10,20 +10,30 @@
 //! returns under `include_state`. It measures nothing of its own — both
 //! rails already do, on every save — so the only thing decided here is what
 //! an agent is shown.
+//!
+//! A human coach reading a coached athlete's plan reads their sleep, HRV and
+//! resting heart rate only under the athlete's wellness grant
+//! ([`PlanScope::wellness_withheld`], carnet#1423). Without it the readiness
+//! is read from training load alone, and the block says so, and where the
+//! athlete grants it.
 
 use std::sync::Arc;
 
 use chrono::NaiveDate;
-use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
-use uuid::Uuid;
 
+use super::plan_scope::PlanScope;
 use super::training_plan_compliance::assess_saved_weeks;
-use super::training_plan_readiness::read_ladder;
+use super::training_plan_readiness::{read_ladder, RecoveryRead};
 use super::training_plan_telemetry::coverage_gaps;
 use crate::implementations::training_plans_output::{PlanStateBlock, WeekComplianceBlock};
 use crate::runtime::ToolRuntime;
+
+/// What the block adds, after why the athlete's recovery was not read, when
+/// their human coach reads it without their wellness grant.
+const RECOVERY_FROM_LOAD: &str = "Readiness and alerts here come from training load alone, and \
+     no recovery alert can be raised.";
 
 /// What the two rails make of a plan, for a caller that asked for it.
 ///
@@ -34,13 +44,19 @@ use crate::runtime::ToolRuntime;
 pub(super) async fn plan_state_block(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: Uuid,
+    scope: &PlanScope,
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
     today: NaiveDate,
 ) -> PlanStateBlock {
-    let reading = read_ladder(state, repos, tenant, user_id, plan, weeks).await;
+    let (tenant, user_id) = (scope.tenant, scope.user_id);
+    let withheld = scope.wellness_withheld();
+    let recovery = if withheld.is_none() {
+        RecoveryRead::Read
+    } else {
+        RecoveryRead::Withheld
+    };
+    let reading = read_ladder(state, repos, tenant, user_id, plan, weeks, recovery).await;
     let compliance = assess_saved_weeks(state, repos, tenant, user_id, plan, weeks).await;
 
     PlanStateBlock {
@@ -66,5 +82,7 @@ pub(super) async fn plan_state_block(
             .into_iter()
             .map(|gap| gap.as_str().to_owned())
             .collect(),
+        recovery_unread: withheld
+            .map(|withheld| format!("{} {RECOVERY_FROM_LOAD}", withheld.note())),
     }
 }

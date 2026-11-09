@@ -238,6 +238,7 @@ async fn a_closed_switch_closes_the_stranger_doors_but_not_the_operator_door() {
     .await;
     let service = resources.account_service();
     let request = |email: &str| RegisterRequest {
+        analytics_consent: None,
         email: email.to_owned(),
         password: SecretString::from(PASSWORD.to_owned()),
         display_name: None,
@@ -612,6 +613,7 @@ async fn an_operator_made_account_stays_in_review_while_sign_up_self_activates()
     let response = resources
         .account_service()
         .register(RegisterRequest {
+            analytics_consent: None,
             email: "operator-pending@example.com".to_owned(),
             password: SecretString::from(PASSWORD.to_owned()),
             display_name: None,

@@ -125,6 +125,8 @@ describe('Register sign-up guards', () => {
         password: 'password123',
         display_name: undefined,
         turnstile_token: 'tok-1',
+        // The unticked opt-in is sent as a no (carnet#1366).
+        analytics_consent: false,
       }),
     )
     // What the account waits on is what the next screen shows, in the

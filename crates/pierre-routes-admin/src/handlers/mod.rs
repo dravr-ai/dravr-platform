@@ -12,14 +12,16 @@
 //! `ValidatedAdminToken`, `pub(crate)` otherwise. The handlers consume
 //! [`crate::AdminApiContext`] via `State<Arc<...>>` and delegate business
 //! logic to `pierre-services` (myth-busting, agent grading, tenant admin,
-//! eval harness, …).
+//! …).
 
 pub mod admin_rate_limit_override;
-pub mod agent_followups;
+/// Which tenants a console read covers, and the tenants a super admin can pick
+pub mod admin_scope;
 pub mod agent_grading;
-pub mod agent_notes;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
+/// The admin audit trail, read newest first (carnet#1391).
+pub mod audit_trail;
 pub mod claim_verdicts;
 pub mod coach_access;
 pub mod contremaitre_admin;
@@ -29,8 +31,8 @@ pub mod deletion_ledger;
 pub mod device_auth;
 /// Browser approval page for the device flow (gcloud-style super-admin login).
 pub mod device_web;
-#[cfg(feature = "tools-verification")]
-pub mod eval_harness;
+/// The admin Engagement screen: activity tiers, agent leaderboard and published count in one scope.
+pub mod engagement;
 pub mod feature_flags;
 /// Admin endpoints for the Guardian security-policy configuration.
 pub mod guardian_config;
@@ -48,6 +50,8 @@ pub mod new_users;
 pub mod provider_clone;
 /// Super-admin termination purge: every row one provider contributed, in every tenant.
 pub mod provider_data;
+/// The compare-and-set contract a document setting's save answers to.
+pub mod setting_revision;
 /// Admin endpoints for reading and writing tenant runtime settings.
 pub mod settings;
 /// Admin endpoints driving first-run / bootstrap setup of a tenant.

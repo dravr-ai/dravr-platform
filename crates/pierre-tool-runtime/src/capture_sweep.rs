@@ -41,6 +41,17 @@
 //! read path uses. A second writer to the activity cache would duplicate the
 //! upsert, dedup, prune and freshness-mark logic — and `fetched_at`, the mark
 //! that write-through advances, is the exact signal the staleness reader trusts.
+//!
+//! # Sessions beside a grant, and the grants themselves
+//!
+//! A usr/pwd session standing beside a grant that serves its provider
+//! ([`session_beside_grant`]) serves nothing, so the sweep neither refreshes
+//! nor retries it (carnet#1386). A push-only grant has no head to refresh, so
+//! the daily sweep walks it through the token path instead
+//! ([`grant_check`]): a refresh the provider refuses flags the grant even for
+//! an athlete who records nothing.
+
+mod grant_check;
 
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -51,6 +62,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
+use pierre_providers::backend_resolver::session_beside_grant;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
 use serde::Serialize;
@@ -244,6 +256,9 @@ pub enum RefreshOutcome {
     },
     /// The sweep ran out of its time budget before reaching this connection.
     SkippedBudgetExhausted,
+    /// A push-only grant the daily sweep walked through the token path
+    /// ([`grant_check`]) still holds a token its provider honours.
+    GrantValid,
 }
 
 /// One connection's line in the refresh report.
@@ -281,8 +296,13 @@ pub struct RefreshReport {
     /// Flagged scrape sessions the sweep retried, each also counted in
     /// `attempted` and in the outcome it reached.
     pub retried: usize,
+    /// Push-only grants the daily sweep walked through the token path
+    /// ([`grant_check`]), each also counted in `flagged`, `failed` or
+    /// `skipped` when it reached that outcome.
+    pub grants_checked: usize,
     /// Live connections the sweep left out: a push-only provider's, which
-    /// has nothing to fetch ([`capturable`]), and those its
+    /// has nothing to fetch ([`capturable`]), a usr/pwd session beside a
+    /// serving grant ([`session_beside_grant`]), and those its
     /// [`SweepSelection`] did not pick — not used recently enough, or
     /// fetched recently enough already.
     pub passed_over: usize,
@@ -293,7 +313,12 @@ pub struct RefreshReport {
 }
 
 /// Refresh the recent head of every live provider connection `selection`
-/// picks, push-only providers' passed over ([`capturable`]), then retry the flagged scrape sessions whose retry is due.
+/// picks, then retry the flagged scrape sessions whose retry is due.
+///
+/// Push-only providers' connections and sessions beside a serving grant are
+/// passed over ([`capturable`], [`session_beside_grant`]). The daily sweep
+/// (no `active_within`) then walks every live push-only grant through the
+/// token path ([`grant_check`]).
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
 /// connections needing re-auth, since a known-dead one has nothing to refresh.
@@ -323,12 +348,17 @@ pub async fn refresh_captures(
         .capture_freshness_snapshot(budget.connection_limit)
         .await?;
     let live_count = live.len();
+    let grants = grant_check::pushed_grants(runtime.provider_registry(), &live);
     let (fetchable, _) = capturable(runtime.provider_registry(), live);
     let active = selection.active_athletes(&fetchable, started_at);
-    let snapshot: Vec<CaptureFreshness> = fetchable
-        .into_iter()
-        .filter(|connection| selection.selects(connection, started_at, &active))
-        .collect();
+    let mut snapshot = Vec::with_capacity(fetchable.len());
+    for connection in fetchable {
+        if selection.selects(&connection, started_at, &active)
+            && !beside_grant(runtime, &connection).await
+        {
+            snapshot.push(connection);
+        }
+    }
     let passed_over = live_count - snapshot.len();
 
     let after_ts = (started_at - ChronoDuration::days(HEAD_WINDOW_DAYS)).timestamp();
@@ -356,6 +386,11 @@ pub async fn refresh_captures(
         .await;
     }
     let retried = retry_flagged_sessions(&mut walk, budget.connection_limit).await;
+    let grants_checked = if selection.active_within.is_none() {
+        grant_check::check_grants(&mut walk, grants).await
+    } else {
+        0
+    };
 
     let Walk {
         tally, connections, ..
@@ -369,6 +404,7 @@ pub async fn refresh_captures(
         failed = tally.failed,
         skipped = tally.skipped,
         retried,
+        grants_checked,
         passed_over,
         completed,
         "Capture sweep finished"
@@ -383,10 +419,24 @@ pub async fn refresh_captures(
         failed: tally.failed,
         skipped: tally.skipped,
         retried,
+        grants_checked,
         passed_over,
         completed,
         connections,
     })
+}
+
+/// Whether `connection` is a usr/pwd session beside a grant that serves its
+/// provider ([`session_beside_grant`]), which the sweep never refreshes. A row
+/// whose ids do not parse is not one: it is walked, and reported as it fails.
+async fn beside_grant(runtime: &Arc<dyn ToolRuntime>, connection: &CaptureFreshness) -> bool {
+    let (Ok(user_id), Ok(tenant)) = (
+        Uuid::from_str(&connection.user_id),
+        TenantId::parse_str(&connection.tenant_id),
+    ) else {
+        return false;
+    };
+    session_beside_grant(runtime.repos(), user_id, tenant, &connection.provider).await
 }
 
 /// The report's counters, as one sweep accumulates them.

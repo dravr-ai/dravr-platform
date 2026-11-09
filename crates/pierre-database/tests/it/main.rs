@@ -13,6 +13,7 @@
 //! one, because the environment is shared by every test in a binary.
 
 mod activity_cache_samples_test;
+mod admin_audit_test;
 mod agents_repository_test;
 mod athlete_gear_test;
 mod check_in_preferences_test;
@@ -37,6 +38,7 @@ mod test_db_survives_cancelled_query_test;
 mod tool_selection_repository_test;
 mod unit_preferences_test;
 mod usage_repositories_test;
+mod user_export_test;
 mod user_mcp_tokens_repository_test;
 mod user_oauth_tokens_repository_test;
 mod user_preferences_test;

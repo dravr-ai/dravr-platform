@@ -6,9 +6,11 @@
 
 use super::Database;
 use crate::repositories::system_settings::{
-    impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
+    impl_system_settings, next_setting_stamp, system_setting_from_row, GET_SYSTEM_SETTING_SQL,
+    INSERT_SYSTEM_SETTING_IF_ABSENT_SQL, SET_SYSTEM_SETTING_SQL,
+    UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +46,7 @@ pub struct SystemSetting {
     /// Human-readable description of what this setting controls
     pub description: Option<String>,
     /// When the setting was last modified
-    pub updated_at: chrono::DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl_system_settings!(Database);

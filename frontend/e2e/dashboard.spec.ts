@@ -5,7 +5,7 @@
 // ABOUTME: Tests tab navigation, sidebar, user profile, and content loading.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, navigateToTab, TOKENS_TAB_LABEL } from './test-helpers';
 
 // Helper to set up additional dashboard mocks
 async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean } = {}) {
@@ -93,7 +93,7 @@ test.describe('Dashboard Navigation', () => {
 
     // Check main navigation tabs are present (using span text within buttons)
     await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Engagement")') })).toBeVisible();
@@ -131,8 +131,8 @@ test.describe('Dashboard Navigation', () => {
     await expect(usersTab).toHaveClass(/bg-primary-container/);
 
     // Navigate to Connections - check tab becomes active
-    await navigateToTab(page, 'Service Tokens');
-    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') });
+    await navigateToTab(page, TOKENS_TAB_LABEL);
+    const connectionsTab = page.locator('aside nav button').filter({ has: page.locator(`span:has-text("${TOKENS_TAB_LABEL}")`) });
     await expect(connectionsTab).toHaveClass(/bg-primary-container/);
     await expect(usersTab).not.toHaveClass(/bg-primary-container/);
 
@@ -327,14 +327,14 @@ test.describe('Dashboard Content Loading', () => {
     await setupFullDashboardMocks(page, { isAdmin: true });
 
     // Mock recent activity endpoint
-    await page.route('**/api/admin/analytics/recent-activity', async (route) => {
+    await page.route('**/api/admin/analytics/recent-activity**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           recent_llm_calls: [],
           recent_conversations: [],
-          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, estimated_cost_today: 0 },
+          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, cost_today_usd: 0 },
         }),
       });
     });
@@ -353,12 +353,18 @@ test.describe('Dashboard Content Loading', () => {
   test('loads Engagement tab content correctly', async ({ page }) => {
     await setupFullDashboardMocks(page, { isAdmin: true });
 
-    // Mock system agents and users for engagement tab
-    await page.route('**/api/admin/agents', async (route) => {
+    // Mock the engagement figures the tab reads
+    await page.route('**/api/admin/engagement*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+        body: JSON.stringify({
+          scope: { kind: 'all_tenants' },
+          users: { total: 0, daily: 0, weekly: 0, monthly: 0, dormant: 0 },
+          total_agents: 0,
+          published_agents: 0,
+          leaderboard: [],
+        }),
       });
     });
 

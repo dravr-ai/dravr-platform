@@ -38,7 +38,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_test_support::delegation::create_group_agent;
-use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::group_member_plan::GetGroupMemberPlanStatusTool;
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -194,13 +194,29 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
         .with_user(who.id.to_string())
         .with_tenant(who.tenant.to_string())
         .with_auth_method("jwt_bearer");
-    CONVERSATION_ID
-        .scope(conversation.map(ToOwned::to_owned), async {
-            tool.execute(&runtime, &ctx, args)
-                .await
-                .structured_content
-                .expect("tool result carries structured content")
-        })
+    // A web turn: the route calls it a direct message when its conversation
+    // carries no group.
+    let is_direct_message = match conversation {
+        Some(id) => res
+            .common
+            .repos
+            .chat
+            .get_conversation(id, &who.id.to_string(), who.tenant)
+            .await
+            .unwrap()
+            .is_none_or(|row| row.group_id.is_none()),
+        None => true,
+    };
+    TURN_DIRECT_MESSAGE
+        .scope(
+            Some(is_direct_message),
+            CONVERSATION_ID.scope(conversation.map(ToOwned::to_owned), async {
+                tool.execute(&runtime, &ctx, args)
+                    .await
+                    .structured_content
+                    .expect("tool result carries structured content")
+            }),
+        )
         .await
 }
 

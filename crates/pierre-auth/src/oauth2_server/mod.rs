@@ -6,12 +6,18 @@
 
 /// Apple App Attest: verifying the iOS app's key attestation and assertions
 pub mod app_attest;
+/// Client ID Metadata Documents: a `client_id` that is an https URL
+pub mod cimd;
+/// Client authentication on the token endpoint: Basic, form body, or none
+pub mod client_auth;
 /// RFC 7591 dynamic client registration implementation
 pub mod client_registration;
 /// OAuth 2.0 authorization server endpoints
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
+/// Where a user's consent to a client stands, read through a short-lived cache
+pub mod grant_standing;
 /// The known-device cookie that lets a browser skip the account sign-in window
 pub mod known_device;
 /// The mobile app's attestation evidence on its code exchange

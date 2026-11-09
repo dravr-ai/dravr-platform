@@ -130,6 +130,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # Full history: the admin screen theory test (carnet#1441) resolves
+          # every commit an admin screen cites, and a shallow clone has none.
+          fetch-depth: 0
 
       - name: Setup Node
         # vitest, eslint, tsc and Playwright run under Node, not Bun: pin the

@@ -81,6 +81,11 @@ const OPTIMISTIC_USER_ID_PREFIX = 'user-';
  */
 interface FailedTurnNote {
   text: string;
+  /**
+   * The same failure worded for the line the Retry button sits under, which
+   * does not tell the athlete to try again on top of the button (carnet#1363).
+   */
+  retryText: string;
   question: Message;
   /**
    * What the turn sent, which a retry sends again: a tapped suggestion's
@@ -460,6 +465,10 @@ export function useChatThread({
     !lostReading.questionReceived
       ? lostReading.note.sent
       : null;
+  // The line under the transcript. With the Retry button drawn the button is
+  // the offer, so the note is the wording that does not repeat it.
+  const displayedError =
+    retryableTurn !== null && lostReading.kind === 'waiting' ? lostReading.note.retryText : shownError;
 
   const feedback = useMessageFeedback(selectedConversation, messagesData, setErrorMessage);
 
@@ -826,6 +835,7 @@ export function useChatThread({
             token_count: assistantMessage.token_count,
             created_at: assistantMessage.created_at ?? new Date().toISOString(),
             scene_blocks: replySceneBlocks(turn),
+            turn_attempted_write: assistantMessage.turn_attempted_write,
           };
           queryClient.setQueryData(
             QUERY_KEYS.chat.messages(selectedConversation),
@@ -938,6 +948,7 @@ export function useChatThread({
             heldIds,
             note: {
               text: note,
+              retryText: describeTurnFailure(error, { t, online: navigator.onLine, retryOffered: true }),
               question: tempUserMessage,
               sent: { content, options },
               retryable: isTurnFailureRetryable(error, { online: navigator.onLine }),
@@ -1260,7 +1271,7 @@ export function useChatThread({
     privateLane: lane,
     sendPrivateTurn,
     retryMessage,
-    shownError,
+    shownError: displayedError,
     dismissError,
     retryFailedTurn: retryableTurn !== null ? retryFailedTurn : undefined,
     oauthNotification: oauth.notification,

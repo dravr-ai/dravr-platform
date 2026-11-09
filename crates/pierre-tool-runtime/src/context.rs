@@ -25,6 +25,7 @@ use dravr_tronc::mcp::tool::ToolContext as TroncToolContext;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::read_subject::ReadSubject;
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
 use pierre_cache::Cache;
@@ -84,6 +85,19 @@ tokio::task_local! {
     /// stored locale.
     pub static TURN_LOCALE: Option<String>;
 
+    /// Whether the in-flight tool call's turn was posted where only the
+    /// caller reads the reply.
+    ///
+    /// `Some(false)` on a turn other people read: a group's room, or a
+    /// messaging group chat no group is bound to (carnet#1421). The
+    /// conversation row cannot tell that chat from a direct message — both
+    /// carry no group — so a tool that publishes another athlete's data only
+    /// where the caller alone reads it asks this. `pierre_chat_pipeline::run`
+    /// scopes it around the whole turn from the turn's input; the executor
+    /// reads it and re-scopes it around each tool body, as it does
+    /// [`TURN_LOCALE`]. Absent for MCP-direct / A2A / SSE calls.
+    pub static TURN_DIRECT_MESSAGE: Option<bool>;
+
     /// Guardian turn token for the in-flight tool call.
     ///
     /// Scoped by the executor
@@ -91,9 +105,8 @@ tokio::task_local! {
     /// (e.g. an analytics tool that internally reads `get_activities`) builds its
     /// child [`crate::protocol::executor::UniversalExecutor`] on the SAME turn
     /// key. Without this, a nested `UniversalExecutor::new` (which does not call
-    /// `with_turn_token`) would key on a throwaway per-call nonce and the child's
-    /// `UNTRUSTED_OUTPUT` sub-read would fail to taint the real turn — severing
-    /// the runtime taint backstop for transitively-pulled untrusted content.
+    /// `with_turn_token`) would key on a throwaway per-call nonce, and a write it
+    /// makes would escape the real turn's budget.
     /// Constant for the executor's per-turn lifetime; absent for a top-level
     /// executor built outside any tool body (which sets its token explicitly).
     pub static GUARDIAN_TURN_TOKEN: Option<String>;
@@ -110,6 +123,43 @@ tokio::task_local! {
     /// exactly what authorized the outer one, so a narrowly-granted third party
     /// cannot reach further by calling a tool that calls another tool.
     pub static GRANTED_SCOPES: Vec<OAuthScope>;
+
+    /// The coached athlete the in-flight tool call reads, when it reads one.
+    ///
+    /// Resolved once by the dispatch chokepoint for a training-class tool
+    /// ([`crate::read_subject`]), which then builds the call's context as the
+    /// athlete. Scoped around the tool body so a handler can tell a coach's
+    /// read of their athlete from the athlete's own call — and leave out what
+    /// only the athlete's own call does, such as notifying them — and so a
+    /// nested dispatch inherits the subject rather than resolving its own.
+    /// `None` on every call that reads its caller's own data.
+    pub(crate) static READ_SUBJECT: Option<ReadSubject>;
+
+    /// Who decided the in-flight tool call should run. Scoped by the chat
+    /// pipeline around a read it runs on the athlete's behalf before the model
+    /// has said anything; absent everywhere else, which means the model asked.
+    /// Inherited by a nested dispatch on the same task, so what a prefetched tool
+    /// reads through another counts as prefetched too.
+    pub static DISPATCH_ORIGIN: DispatchOrigin;
+}
+
+/// Who decided a tool call should run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DispatchOrigin {
+    /// The model asked for it (the default).
+    #[default]
+    Model,
+    /// The chat pipeline ran it before the model said anything.
+    Prefetch,
+}
+
+impl DispatchOrigin {
+    /// The origin of the dispatch running on this task.
+    pub(crate) fn current() -> Self {
+        DISPATCH_ORIGIN
+            .try_with(|origin| *origin)
+            .unwrap_or_default()
+    }
 }
 
 /// The conversation the in-flight tool call runs in, read from
@@ -121,6 +171,14 @@ tokio::task_local! {
 #[must_use]
 pub fn scoped_conversation_id() -> Option<String> {
     CONVERSATION_ID.try_with(Clone::clone).ok().flatten()
+}
+
+/// The coached athlete the in-flight tool call reads, read from the
+/// `READ_SUBJECT` task-local; `None` when it reads its caller's own data, and
+/// outside any tool body.
+#[must_use]
+pub fn scoped_read_subject() -> Option<ReadSubject> {
+    READ_SUBJECT.try_with(Clone::clone).ok().flatten()
 }
 
 /// How the user authenticated for this request.
@@ -217,6 +275,9 @@ pub struct ToolExecutionContext {
     /// The locale the originating chat turn is conducted in; see
     /// [`TURN_LOCALE`].
     pub turn_locale: Option<String>,
+    /// Whether the originating chat turn was a direct message; see
+    /// [`TURN_DIRECT_MESSAGE`]. `None` outside a chat turn.
+    pub(crate) turn_direct_message: Option<bool>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -247,6 +308,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: None,
             turn_agent_id: None,
             turn_locale: None,
+            turn_direct_message: None,
             is_admin: None,
         }
     }
@@ -289,6 +351,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
             turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
+            turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -457,6 +520,7 @@ impl ToolExecutionContext {
             conversation_tenant_id: self.conversation_tenant_id,
             turn_agent_id: self.turn_agent_id.clone(),
             turn_locale: self.turn_locale.clone(),
+            turn_direct_message: self.turn_direct_message,
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -473,6 +537,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
+            .field("turn_direct_message", &self.turn_direct_message)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

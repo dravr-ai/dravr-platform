@@ -31,7 +31,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::info;
 
-use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
+use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -620,6 +620,113 @@ impl RecommendPlanFlavourTool {
             },
         }
     }
+
+    /// The recommendation for the athlete `scope` resolved to.
+    ///
+    /// # Errors
+    ///
+    /// Returns a repository error from a read, or an internal error when the
+    /// training catalogue carries no selection table.
+    async fn recommend(
+        context: &ToolExecutionContext,
+        state: &Arc<dyn ToolRuntime>,
+        scope: &PlanScope,
+        payload: &Payload,
+    ) -> AppResult<ToolResult> {
+        let repos = context.resources.repos();
+        let tenant_id = scope.tenant;
+        let user_id = scope.user_id;
+
+        let profile = repos
+            .user_physiological_profile
+            .get_user_physiological_profile(tenant_id, user_id)
+            .await?
+            // A profile written from first-party-only data is withheld from an
+            // external caller (carnet#769).
+            .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+        // The athlete's one season, whichever agent laid it: a taper or
+        // heat agent recommending for a season agent's plan sees its goal.
+        let plan = repos
+            .training_plans
+            .get_active_plan(&tenant_id.to_string(), &user_id.to_string())
+            .await?
+            // A plan derived from first-party-only data is withheld from an
+            // external caller (carnet#769).
+            .filter(|plan| ai_scope::admit_derived(plan.transport_policy));
+        let goal = plan.as_ref().and_then(|p| {
+            let ec = event_class_from_discipline(&p.goal_race.discipline)?;
+            let date = parse_plan_date(&p.goal_race.date)?;
+            Some((ec, date))
+        });
+
+        let today = athlete_today(repos, user_id).await;
+        let mut resolved = Self::resolve(payload, profile.as_ref(), goal, today);
+
+        // The asking agent's package over the catalogue, resolved as the
+        // requester: its house flavour is pinned, its flavours and
+        // skeleton offered beside the catalogue's.
+        let writer = &scope.writer;
+        let package = load_agent_package(
+            repos,
+            writer.tenant,
+            writer.user_id,
+            writer.agent_id.as_deref(),
+        )
+        .await?;
+        let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
+        Self::pin_house_flavour(&mut resolved, catalogue.house_flavour());
+        let table = catalogue.selection().ok_or_else(|| {
+            AppError::internal("the training catalogue carries no selection table")
+        })?;
+        let flavours = catalogue.flavours();
+        let verdict = select_flavour(&resolved.inputs, &table, &flavours);
+
+        // The season: only when a goal is known, on the skeleton the
+        // catalogue offers this event at this volume.
+        let tier = resolved.inputs.hours_tier();
+        let skeleton = resolved
+            .inputs
+            .event_class
+            .and_then(|ec| Self::skeleton_for(&catalogue.skeletons(), ec, tier));
+        let layout = match (&skeleton, resolved.goal_date) {
+            (Some(sk), Some(goal_date)) => Some(build_skeleton(
+                sk,
+                &peak_dates(plan.as_ref(), goal_date, today),
+                today,
+                resolved.inputs.recovery_speed == RecoverySpeed::Limited,
+            )),
+            _ => None,
+        };
+
+        // The verdict speaks the athlete's language: the labels are what
+        // the agent says, resolved the way the memory tool resolves them.
+        let locale = context.render_locale(user_id).await;
+        let strings = context.resources.messaging_strings_registry();
+
+        info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            hours_tier = tier.as_str(),
+            event_class = resolved.inputs.event_class.map_or("none", EventClass::as_str),
+            top = verdict.top().map_or("none", |s| s.id.as_str()),
+            excluded = verdict.excluded.len(),
+            confidence = ?verdict.confidence,
+            "recommended a plan flavour"
+        );
+
+        ok_typed(
+            "recommend_plan_flavour",
+            PlanFlavourResult {
+                athlete: scope.acting_for().map(str::to_owned),
+                verdict: Self::verdict_json(&verdict, strings, &locale),
+                season: Self::season_json(
+                    layout.as_ref(),
+                    skeleton.as_ref().map(|s| s.id.as_str()),
+                ),
+                inputs: Self::inputs_json(&resolved, tier),
+            },
+        )
+    }
 }
 
 /// The fewest years of structured training a band means, for when the
@@ -766,98 +873,11 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let tenant_id = scope.tenant;
-            let user_id = scope.user_id;
-
-            let profile = repos
-                .user_physiological_profile
-                .get_user_physiological_profile(tenant_id, user_id)
-                .await?
-                // A profile written from first-party-only data is withheld from an
-                // external caller (carnet#769).
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
-            // The athlete's one season, whichever agent laid it: a taper or
-            // heat agent recommending for a season agent's plan sees its goal.
-            let plan = repos
-                .training_plans
-                .get_active_plan(&tenant_id.to_string(), &user_id.to_string())
-                .await?
-                // A plan derived from first-party-only data is withheld from an
-                // external caller (carnet#769).
-                .filter(|plan| ai_scope::admit_derived(plan.transport_policy));
-            let goal = plan.as_ref().and_then(|p| {
-                let ec = event_class_from_discipline(&p.goal_race.discipline)?;
-                let date = parse_plan_date(&p.goal_race.date)?;
-                Some((ec, date))
-            });
-
-            let today = athlete_today(repos, user_id).await;
-            let mut resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
-
-            // The asking agent's package over the catalogue, resolved as the
-            // requester: its house flavour is pinned, its flavours and
-            // skeleton offered beside the catalogue's.
-            let writer = &scope.writer;
-            let package = load_agent_package(
-                repos,
-                writer.tenant,
-                writer.user_id,
-                writer.agent_id.as_deref(),
-            )
-            .await?;
-            let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
-            Self::pin_house_flavour(&mut resolved, catalogue.house_flavour());
-            let table = catalogue.selection().ok_or_else(|| {
-                AppError::internal("the training catalogue carries no selection table")
-            })?;
-            let flavours = catalogue.flavours();
-            let verdict = select_flavour(&resolved.inputs, &table, &flavours);
-
-            // The season: only when a goal is known, on the skeleton the
-            // catalogue offers this event at this volume.
-            let tier = resolved.inputs.hours_tier();
-            let skeleton = resolved
-                .inputs
-                .event_class
-                .and_then(|ec| Self::skeleton_for(&catalogue.skeletons(), ec, tier));
-            let layout = match (&skeleton, resolved.goal_date) {
-                (Some(sk), Some(goal_date)) => Some(build_skeleton(
-                    sk,
-                    &peak_dates(plan.as_ref(), goal_date, today),
-                    today,
-                    resolved.inputs.recovery_speed == RecoverySpeed::Limited,
-                )),
-                _ => None,
-            };
-
-            // The verdict speaks the athlete's language: the labels are what
-            // the agent says, resolved the way the memory tool resolves them.
-            let locale = context.render_locale(user_id).await;
-            let strings = context.resources.messaging_strings_registry();
-
-            info!(
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                hours_tier = tier.as_str(),
-                event_class = resolved.inputs.event_class.map_or("none", EventClass::as_str),
-                top = verdict.top().map_or("none", |s| s.id.as_str()),
-                excluded = verdict.excluded.len(),
-                confidence = ?verdict.confidence,
-                "recommended a plan flavour"
-            );
-
-            ok_typed(
-                "recommend_plan_flavour",
-                PlanFlavourResult {
-                    athlete: scope.acting_for.clone(),
-                    verdict: Self::verdict_json(&verdict, strings, &locale),
-                    season: Self::season_json(
-                        layout.as_ref(),
-                        skeleton.as_ref().map(|s| s.id.as_str()),
-                    ),
-                    inputs: Self::inputs_json(&resolved, tier),
-                },
-            )
+            // Everything below reads the athlete's profile and plan under the
+            // athlete's own AI consents (carnet#1419).
+            scope
+                .read_as_athlete(repos, Self::recommend(&context, state, &scope, &payload))
+                .await
         }
         .await;
         tool_result_to_response(result)

@@ -52,10 +52,15 @@ pub(crate) const SUBJECT_CONVERSATION_SQL: &str = concat!(
 
 /// Reopen a coach's thread about one athlete: active again, and bound to the
 /// group the coach opened it from and that group's agent. `$1` is the group,
-/// `$2` the agent, `$3` the tenant, `$4` the coach, `$5` the athlete.
+/// `$2` the agent, `$3` the tenant, `$4` the coach, `$5` the athlete, `$6`
+/// the instant of the open.
+///
+/// The thread is touched at `$6`, live or archived, so the list — newest
+/// `updated_at` first — draws it at the top, where the coach looks for what
+/// they just opened, rather than where it sat when it went quiet.
 pub(crate) const REOPEN_SUBJECT_CONVERSATION_SQL: &str = r"
     UPDATE chat_conversations
-    SET archived_at = NULL, subject_group_id = $1, agent_id = $2
+    SET updated_at = $6, archived_at = NULL, subject_group_id = $1, agent_id = $2
     WHERE tenant_id = $3 AND user_id = $4 AND subject_user_id = $5";
 
 /// Insert a coach's thread about one athlete. It is bound to no room and is
@@ -95,6 +100,7 @@ macro_rules! impl_chat_subject_open {
                 let athlete = $ids::bind(new.subject.athlete_user_id);
                 let group = $ids::bind(new.subject.group_id);
                 let mut tx = self.pool().begin_with($begin).await.map_err(failed)?;
+                let now = Utc::now();
 
                 let reopened = sqlx::query(REOPEN_SUBJECT_CONVERSATION_SQL)
                     .bind(&group)
@@ -102,6 +108,7 @@ macro_rules! impl_chat_subject_open {
                     .bind(&tenant)
                     .bind(&user)
                     .bind(&athlete)
+                    .bind(now)
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?
@@ -109,7 +116,6 @@ macro_rules! impl_chat_subject_open {
                     > 0;
                 if !reopened {
                     let id = Uuid::new_v4().to_string();
-                    let now = Utc::now();
                     let inserted = sqlx::query(CREATE_SUBJECT_CONVERSATION_SQL)
                         .bind(&id)
                         .bind(&user)

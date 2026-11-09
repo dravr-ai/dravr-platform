@@ -366,7 +366,7 @@ async fn a_warning_agent_ships_the_reply_and_its_rows_record_the_claim_as_not_ch
         .common
         .repos
         .claim_verdicts
-        .list_verdicts_for_message(fx.tenant_id, "assistant-message-1")
+        .list_verdicts_for_message(fx.tenant_id.into(), "assistant-message-1")
         .await
         .unwrap();
     let row_for = |claim: &str| {

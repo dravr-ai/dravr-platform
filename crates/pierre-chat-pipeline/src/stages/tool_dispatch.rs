@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -14,6 +13,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
+use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff};
@@ -96,9 +96,10 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// group (carnet#741), and a human coach's thread bound to one athlete
     /// (carnet#1070). The tools the seat withholds are left out of the
     /// declarations and refused at execution: the coach's own data tools on
-    /// the coach's seat (carnet#742), every write on the coach's own account
-    /// in their athlete thread. There the coach's own reads stay declared, and
-    /// read the coach's own data when called.
+    /// the coach's seat (carnet#742), and in their athlete thread every write
+    /// on the coach's own account and every read of it (carnet#1387). There a
+    /// training read reads the thread's athlete, and a wellness read too under
+    /// their wellness grant.
     pub seat: TurnSeat,
     /// The tools an operator switched off for the sender, resolved once per
     /// turn. Left out of the declarations and the loopback listing, as
@@ -182,14 +183,13 @@ pub(crate) async fn dispatch_llm_with_tools(
     // can route a completion notice back to the channel that triggered it.
     let executor = Arc::new(
         UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-            // A chat turn is the athlete acting on their own data through their
-            // own session, not a third party acting for them, so it carries the
-            // self grant. Narrowing happens at the OAuth and A2A boundaries.
-            .with_scopes(OAuthScope::self_grant())
+            // The turn's own grant: the self grant in Dravr's own surfaces, the
+            // token's scopes when a third party acts for the athlete over A2A.
+            .with_scopes(input.grant.clone())
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
             .with_turn_agent(turn_agent_id.map(ToOwned::to_owned))
-            // Guardian turn key = the per-utterance turn_id, so taint/budget
+            // Guardian turn key = the per-utterance turn_id, so budgets
             // accumulate across THIS message's ReAct loop and reset next message
             // (not across the whole conversation). conversation_id stays above,
             // for routing detached work back to the thread.
@@ -343,6 +343,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                         budget: max_iterations,
                         seat,
                         switched_off,
+                        grant: &input.grant,
                     })
                     .await
             }
@@ -393,6 +394,9 @@ pub(crate) async fn dispatch_llm_with_tools(
         &ctx.tool_registry,
         seat,
         switched_off,
+        ai_scope::declared_transport(),
+        &input.grant,
+        &ctx.config,
     ));
     if defer_tools {
         chat_catalogue::defer_beyond_core(&mut tools);

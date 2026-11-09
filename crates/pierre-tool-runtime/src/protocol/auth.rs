@@ -4,8 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::context::scoped_read_subject;
 use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
@@ -322,6 +324,29 @@ impl AuthService {
             .map(|provider| AiGovernedProvider::wrap(provider, registry))
     }
 
+    /// The provider for exactly `backend`, authenticated with its own token
+    /// row: no resolution to the backend that serves the user's reads.
+    ///
+    /// For the one read that must reach a session routing never serves: the
+    /// one-time history import a usr/pwd sign-in beside a Garmin grant runs
+    /// (carnet#1386). [`Self::create_authenticated_provider`] would hand it
+    /// the grant's push window, which holds none of that history.
+    ///
+    /// # Errors
+    /// Returns a boxed `UniversalResponse` error if the backend is unsupported
+    /// or its token is missing or unusable.
+    pub async fn create_session_provider(
+        &self,
+        backend: &str,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let registry = Arc::clone(self.resources.provider_registry());
+        self.authenticate_backend(backend, backend, user_id, tenant_id)
+            .await
+            .map(|provider| AiGovernedProvider::wrap(provider, registry))
+    }
+
     /// The reader of `user_id`'s activities under the user-provided `key`
     /// (an uploaded file's, an imported archive's) in `tenant`
     /// ([`UserProvidedProvider`]). They belong to the tenant they were brought
@@ -366,7 +391,21 @@ impl AuthService {
             requested_provider,
         )
         .await;
-        let provider_name = effective_provider.as_str();
+        self.authenticate_backend(&effective_provider, requested_provider, user_id, tenant_id)
+            .await
+    }
+
+    /// Authenticate the provider for `provider_name`, the backend already
+    /// chosen; `requested_provider` is the name the caller asked for, which
+    /// an unsupported-provider refusal names.
+    async fn authenticate_backend(
+        &self,
+        provider_name: &str,
+        requested_provider: &str,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
 
         // What the athlete brought in (uploaded files, imported archives)
         // answers without a connection or token: the reader is their own rows
@@ -440,12 +479,31 @@ impl AuthService {
                     META_AUTH_REQUIRED_PROVIDER.to_owned(),
                     JsonValue::String(provider_name.to_owned()),
                 );
+                // On a coach's read of a coached athlete the reconnect is the
+                // athlete's to make, and "your account" would read as the
+                // coach's own: a tool that answers this text in band names
+                // whose connection it is (carnet#1387).
+                let error = match scoped_read_subject() {
+                    Some(subject) => {
+                        let athlete = &subject.access.display_name;
+                        let brand = backend_resolver::brand_name(
+                            self.resources.provider_registry(),
+                            provider_name,
+                        )
+                        .unwrap_or(user_facing);
+                        format!(
+                            "No valid {user_facing} token found for {athlete}: {}",
+                            read_subject::athlete_reconnect_note(athlete, brand)
+                        )
+                    }
+                    None => format!(
+                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
+                    ),
+                };
                 Err(Box::new(UniversalResponse {
                     success: false,
                     result: None,
-                    error: Some(format!(
-                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
-                    )),
+                    error: Some(error),
                     metadata: Some(map),
                 }))
             }

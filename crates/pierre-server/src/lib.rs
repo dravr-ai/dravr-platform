@@ -116,7 +116,7 @@ pub mod startup_banner;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
-pub use crate::routes::garmin_webhook::start_garmin_push_worker;
+pub use crate::routes::garmin_webhook::{start_garmin_grant_refresh, start_garmin_push_worker};
 #[cfg(feature = "tools-config")]
 pub use crate::services::anchor_promotion::start_anchor_promotion;
 pub use crate::services::archive_import::sweeps::start_archive_import_sweeps;
@@ -126,8 +126,10 @@ pub use crate::services::key_rotation::start_key_rotation;
 pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::precedence_recompute::start_precedence_recompute;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
+pub use crate::services::settings_poll::{
+    settings_poll_interval, start_settings_poll, SettingsPollTargets,
+};
 pub use crate::services::upload_streams_backfill::start_upload_streams_backfill;
-pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;
 pub use pierre_services::firebase_identity_outbox::start_firebase_identity_sweeper;
 pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;
 #[cfg(feature = "client-messaging")]

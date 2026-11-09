@@ -26,7 +26,9 @@
 //! A notice that is a consent to AI use (WHOOP's) can be withdrawn as simply
 //! as it was given ([`withdraw_ai_consent`], [`grant_ai_consent`]); while it is
 //! not given, [`under_ai_consent`] keeps every model read on the athlete's
-//! behalf away from that provider's data (carnet#726).
+//! behalf away from that provider's data (carnet#726), and
+//! [`under_subject_ai_consent`] keeps a read of the athlete made for their
+//! human coach under the athlete's choice, never the coach's (carnet#1419).
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -242,6 +244,27 @@ pub async fn under_ai_consent<F: Future>(
 ) -> F::Output {
     let withheld = ai_consent_withheld(repos, tenant_id, user_id).await;
     ai_scope::with_ai_consent(withheld, fut).await
+}
+
+/// Run `fut`, a read of `subject`'s data made for someone else, under
+/// `subject`'s own AI consents in `tenant_id`, the tenant their data lives
+/// under.
+///
+/// For a human coach's agent reading the athlete they coach (carnet#1419):
+/// the coach's consents say nothing about the athlete's providers, so a
+/// provider the athlete withheld from AI never reaches the coach's model, and
+/// one the athlete consented to is not hidden because the coach withheld it.
+/// The call's output boundary applies the same consents
+/// ([`with_subject_consent`](ai_scope::with_subject_consent)). An acceptance
+/// that cannot be read counts as withheld ([`ai_consent_withheld`]).
+pub async fn under_subject_ai_consent<F: Future>(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    subject: Uuid,
+    fut: F,
+) -> F::Output {
+    let withheld = ai_consent_withheld(repos, tenant_id, subject).await;
+    ai_scope::with_subject_consent(withheld, fut).await
 }
 
 /// Withdraw this account's consent to AI use of `backend`'s data.

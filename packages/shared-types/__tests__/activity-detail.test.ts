@@ -50,6 +50,7 @@ const body = {
     },
   ],
   conversation_id: 'conv-tempo',
+  utc_offset_seconds: -14_400,
 };
 
 describe('parseActivityDetailResponse', () => {
@@ -81,6 +82,10 @@ describe('parseActivityDetailResponse', () => {
     expect(parseActivityDetailResponse({ ...body, laps: [{ ...body.laps[0], distance_meters: 'far' }] })).toBeNull();
     expect(parseActivityDetailResponse({ ...body, splits: null })).toBeNull();
     expect(parseActivityDetailResponse({ ...body, conversation_id: 42 })).toBeNull();
+    expect(parseActivityDetailResponse({ ...body, utc_offset_seconds: undefined })?.utc_offset_seconds).toBeNull();
+    expect(parseActivityDetailResponse(body)?.utc_offset_seconds).toBe(-14_400);
+    expect(parseActivityDetailResponse({ ...body, utc_offset_seconds: '-04:00' })).toBeNull();
+    expect(parseActivityDetailResponse({ ...body, utc_offset_seconds: 1.5 })).toBeNull();
     expect(parseActivityDetailResponse(null)).toBeNull();
   });
 });

@@ -170,6 +170,32 @@ beforeEach(() => {
 });
 
 describe('ActivityScreen', () => {
+  it('shows the start on the recording\'s clock when the device reads another one at that instant', async () => {
+    const deviceClock = jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    mockGetActivityDetail.mockResolvedValue({
+      ...TEMPO_DETAIL_RESPONSE,
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, start_date: '2026-07-15T12:00:00Z' },
+      utc_offset_seconds: 19_800,
+    });
+    const screen = renderScreen();
+    await screen.findByTestId('activity-figures');
+    expect(screen.getByTestId('activity-when')).toHaveTextContent(/Wed, Jul 15, 17:30 local time · Run/);
+    deviceClock.mockRestore();
+  });
+
+  it('shows the start as every row does when the recording read the device\'s clock', async () => {
+    const deviceClock = jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    mockGetActivityDetail.mockResolvedValue({
+      ...TEMPO_DETAIL_RESPONSE,
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, start_date: '2026-07-15T12:00:00Z' },
+      utc_offset_seconds: -14_400,
+    });
+    const screen = renderScreen();
+    await screen.findByTestId('activity-figures');
+    expect(screen.getByTestId('activity-when')).toHaveTextContent(/Wed, Jul 15 · Run/);
+    deviceClock.mockRestore();
+  });
+
   it('shows the activity: its title, when, the map, the figures and the splits', async () => {
     const screen = renderScreen();
 

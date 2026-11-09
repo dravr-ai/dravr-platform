@@ -8,6 +8,7 @@ import activitySports from './activity-sports.json' with { type: 'json' };
 
 /** Identifiers for the onboarding steps, in canonical journey order. */
 export type OnboardingStepId =
+  | 'analytics_consent'
   | 'profile_type'
   | 'about_you'
   | 'parq'
@@ -95,6 +96,13 @@ export interface OnboardingContext {
   messagingChannelDone: boolean;
   /** The messaging-configure step is satisfied (channel linked or skipped). */
   messagingConfigureDone: boolean;
+  /**
+   * The user has answered the usage-analytics question, yes or no, on any
+   * surface (server truth: `analytics_consent_answered`). An unknown answer
+   * (an older server, a cached user) counts as answered, so the question
+   * never flashes at someone who already gave it (carnet#1366).
+   */
+  analyticsConsentAnswered: boolean;
 }
 
 /** A single step in the onboarding journey. */
@@ -115,6 +123,11 @@ export interface OnboardingStepDef {
    * it is defined phase-agnostically (see each step).
    */
   isComplete: (ctx: OnboardingContext) => boolean;
+  /**
+   * A one-time question rather than a stage of the journey: never counted on
+   * the progress indicator, which is not drawn while it is asked.
+   */
+  hiddenFromProgress?: boolean;
 }
 
 /**
@@ -166,6 +179,18 @@ export function beforeProviderGate(
  * none remain, onboarding is done and the dashboard/chat renders.
  */
 export const ONBOARDING_STEPS: OnboardingStepDef[] = [
+  {
+    // The usage-analytics question, for an account no form asked: a Google or
+    // Apple sign-in, a sign-up in chat, an account older than the question.
+    // The sign-up form asks with its own box, so its accounts arrive answered.
+    // First, so the events of everything after it follow the answer; read
+    // from server state, so an onboarded account meets it once too.
+    id: 'analytics_consent',
+    labelKey: 'onboarding.analyticsConsentTitle',
+    isApplicable: (c) => c.onboardingActive,
+    isComplete: (c) => c.analyticsConsentAnswered,
+    hiddenFromProgress: true,
+  },
   {
     id: 'profile_type',
     labelKey: 'onboarding.stepAboutYou',
@@ -307,7 +332,15 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
  * `null` when onboarding is finished (→ render the dashboard/chat).
  */
 export function currentOnboardingStep(ctx: OnboardingContext): OnboardingStepDef | null {
-  return ONBOARDING_STEPS.filter((s) => s.isApplicable(ctx)).find((s) => !s.isComplete(ctx)) ?? null;
+  return firstPendingStep(ONBOARDING_STEPS, ctx) ?? null;
+}
+
+/** The first of `steps` that applies to `ctx` and is not yet complete. */
+function firstPendingStep(
+  steps: readonly OnboardingStepDef[],
+  ctx: OnboardingContext,
+): OnboardingStepDef | undefined {
+  return steps.filter((s) => s.isApplicable(ctx)).find((s) => !s.isComplete(ctx));
 }
 
 /** A persisted onboarding step record as returned by the server (structural). */
@@ -398,11 +431,14 @@ export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressIt
   // grow mid-journey ("5 of 5", then "6 of 7").
   const pastGate: OnboardingContext | null =
     ctx.needsProviderConnection === true ? { ...ctx, needsProviderConnection: false } : null;
-  const journey = ONBOARDING_STEPS.filter(
+  // A one-time question is not a stage: the position is the first journey
+  // step still to come, so an onboarded account asked it reads all done.
+  const stages = ONBOARDING_STEPS.filter((s) => !s.hiddenFromProgress);
+  const journey = stages.filter(
     (s) =>
       s.isApplicable(ctx) || s.isComplete(ctx) || (pastGate !== null && s.isApplicable(pastGate)),
   );
-  const currentId = currentOnboardingStep(ctx)?.id;
+  const currentId = firstPendingStep(stages, ctx)?.id;
   const currentIndex = currentId
     ? journey.findIndex((s) => s.id === currentId)
     : journey.length; // onboarding finished — everything is behind us

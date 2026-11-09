@@ -213,13 +213,18 @@ export default function PersonalChat({
     [runComposerAction],
   );
 
-  /** The "+" menu, wired the same way in every header slot. */
-  const composeMenu = (withParticipants: boolean) => (
+  /**
+   * The "+" menu, wired the same way in every slot. The header's "+" sits at the
+   * pane's right edge; the empty state's at the left of its row, so it opens
+   * rightward (`align="start"`).
+   */
+  const composeMenu = (withParticipants: boolean, align: 'start' | 'end' = 'end') => (
     <ChatComposeMenu
       onNewChat={() => startThread()}
       onNewGroupChat={sendCommand}
       onAddParticipant={withParticipants ? () => info.show(true) : undefined}
       disabled={thread.startingThread}
+      align={align}
     />
   );
 
@@ -293,7 +298,7 @@ export default function PersonalChat({
       }
       emptyState={
         <ChatEmptyState
-          compose={composeMenu(false)}
+          compose={composeMenu(false, 'start')}
           starters={starters ?? []}
           onStarter={handleStarter}
           disabled={thread.startingThread}

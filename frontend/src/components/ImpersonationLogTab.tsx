@@ -5,63 +5,62 @@
 // ABOUTME: One row per session (who, as whom, when, how long); a row's details read the one session and show its reason
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useTranslation } from '@pierre/i18n';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { formatDateTime } from '@pierre/chat-utils';
-import { describeApiError } from '@pierre/ui-logic';
-import { adminApi, type ImpersonationSessionSummary } from '../services/api/admin';
+import {
+  adminApi,
+  type ImpersonationSessionsCursor,
+  type ImpersonationSessionsResponse,
+  type ImpersonationSessionSummary,
+} from '../services/api/admin';
 import { Button, Section } from './ui';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 const SESSIONS_KEY = ['admin', 'impersonation', 'sessions'] as const;
 
 function SessionDetails({ sessionId }: { sessionId: string }) {
-  const { t, i18n } = useTranslation();
   const session = useQuery({
     queryKey: [...SESSIONS_KEY, sessionId],
     queryFn: () => adminApi.getImpersonationSession(sessionId),
   });
   if (session.isPending) {
-    return <div className="pierre-spinner h-4 w-4 my-2" role="status" aria-label={t('common.loading')} />;
+    return <div className="pierre-spinner h-4 w-4 my-2" role="status" aria-label="Loading" />;
   }
   if (session.isError) {
     return (
       <p role="alert" className="text-xs text-error">
-        {describeApiError(session.error, { t, fallbackKey: 'impersonationLog.loadFailed' })}
+        {describeAdminError(session.error, "Couldn't load the impersonation log.")}
       </p>
     );
   }
   return (
     <dl className="mt-2 grid gap-1 text-xs text-on-surface-variant" data-testid={`impersonation-details-${sessionId}`}>
       <div>
-        <dt className="font-medium text-on-surface">{t('impersonationLog.reason')}</dt>
-        <dd className="whitespace-pre-wrap break-words">{session.data.reason || t('impersonationLog.noReason')}</dd>
+        <dt className="font-medium text-on-surface">Reason</dt>
+        <dd className="whitespace-pre-wrap break-words">{session.data.reason || 'No reason given'}</dd>
       </div>
       {session.data.ended_at && (
-        <dd>{t('impersonationLog.endedAt', { date: formatDateTime(session.data.ended_at, i18n.language) })}</dd>
+        <dd>Ended {formatDateTime(session.data.ended_at, ADMIN_LOCALE)}</dd>
       )}
     </dl>
   );
 }
 
 function SessionRow({ session }: { session: ImpersonationSessionSummary }) {
-  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
-  const unknown = t('impersonationLog.unknownUser');
+  const unknown = 'Unknown user';
   return (
     <li className="py-3" data-testid={`impersonation-session-${session.id}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-medium text-on-surface break-words">
-            {t('impersonationLog.pair', {
-              impersonator: session.impersonator_email ?? unknown,
-              target: session.target_user_email ?? unknown,
-            })}
+            {session.impersonator_email ?? unknown} as {session.target_user_email ?? unknown}
           </p>
           <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-on-surface-variant">
-            <span>{t('impersonationLog.started', { date: formatDateTime(session.started_at, i18n.language) })}</span>
-            <span>{t('impersonationLog.duration', { minutes: Math.max(1, Math.round(session.duration_seconds / 60)) })}</span>
-            <span className={session.is_active ? 'font-medium text-warning' : undefined}>
-              {session.is_active ? t('impersonationLog.active') : t('impersonationLog.ended')}
+            <span>Started {formatDateTime(session.started_at, ADMIN_LOCALE)}</span>
+            <span>{Math.max(1, Math.round(session.duration_seconds / 60))} min</span>
+            <span className={session.is_active ? 'font-medium text-on-warning-container' : undefined}>
+              {session.is_active ? 'Active' : 'Ended'}
             </span>
           </p>
         </div>
@@ -73,7 +72,7 @@ function SessionRow({ session }: { session: ImpersonationSessionSummary }) {
           onClick={() => setOpen(!open)}
           data-testid={`impersonation-details-toggle-${session.id}`}
         >
-          {open ? t('impersonationLog.hideDetails') : t('impersonationLog.details')}
+          {open ? 'Hide details' : 'Details'}
         </Button>
       </div>
       {open && <SessionDetails sessionId={session.id} />}
@@ -81,41 +80,67 @@ function SessionRow({ session }: { session: ImpersonationSessionSummary }) {
   );
 }
 
+function nextCursor(page: ImpersonationSessionsResponse): ImpersonationSessionsCursor | undefined {
+  return page.next_before && page.next_before_id
+    ? { before: page.next_before, before_id: page.next_before_id }
+    : undefined;
+}
+
 export default function ImpersonationLogTab() {
-  const { t } = useTranslation();
-  const sessions = useQuery({ queryKey: SESSIONS_KEY, queryFn: () => adminApi.listImpersonationSessions() });
+  const sessions = useInfiniteQuery({
+    queryKey: SESSIONS_KEY,
+    queryFn: ({ pageParam }) => adminApi.listImpersonationSessions(pageParam),
+    initialPageParam: undefined as ImpersonationSessionsCursor | undefined,
+    getNextPageParam: nextCursor,
+  });
 
   const renderBody = () => {
     if (sessions.isPending) {
-      return <div className="pierre-spinner h-5 w-5" role="status" aria-label={t('common.loading')} />;
+      return <div className="pierre-spinner h-5 w-5" role="status" aria-label="Loading" />;
     }
     if (sessions.isError) {
       return (
         <p role="alert" className="text-sm text-error">
-          {describeApiError(sessions.error, { t, fallbackKey: 'impersonationLog.loadFailed' })}
+          {describeAdminError(sessions.error, "Couldn't load the impersonation log.")}
         </p>
       );
     }
-    if (sessions.data.sessions.length === 0) {
+    const rows = sessions.data.pages.flatMap((page) => page.sessions);
+    if (rows.length === 0) {
       return (
         <p className="text-sm text-on-surface-variant" data-testid="impersonation-log-empty">
-          {t('impersonationLog.empty')}
+          No impersonation sessions yet.
         </p>
       );
     }
     return (
-      <ul className="divide-y divide-outline-variant" data-testid="impersonation-log-list">
-        {sessions.data.sessions.map((session) => (
-          <SessionRow key={session.id} session={session} />
-        ))}
-      </ul>
+      <>
+        <ul className="divide-y divide-outline-variant" data-testid="impersonation-log-list">
+          {rows.map((session) => (
+            <SessionRow key={session.id} session={session} />
+          ))}
+        </ul>
+        {sessions.hasNextPage && (
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void sessions.fetchNextPage()}
+              disabled={sessions.isFetchingNextPage}
+            >
+              {sessions.isFetchingNextPage ? 'Loading…' : 'Load older'}
+            </Button>
+          </div>
+        )}
+      </>
     );
   };
 
   return (
     <Section
-      title={t('shell.navImpersonationLog')}
-      description={t('impersonationLog.hint')}
+      title="Impersonation log"
+      description="Every session in which a super admin acted as another user, newest first."
       data-testid="impersonation-log"
     >
       {renderBody()}

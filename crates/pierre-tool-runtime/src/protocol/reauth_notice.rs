@@ -34,6 +34,11 @@
 //! athlete's own preferences, quiet hours, the daily cap) is suppressed in
 //! chat as well, as the fan-out would have been.
 //!
+//! The push is worded from the catalogue in the athlete's locale. A dead
+//! usr/pwd Garmin session that served the athlete alone, while a seat is free
+//! on Garmin's OAuth ([`reconnects_through_oauth`]), is told to move to
+//! Garmin's official connection instead of signing in again (carnet#1454).
+//!
 //! [`flag_needs_reauth`] is the flip plus the notice, for the paths that flag
 //! through [`ProviderConnectionRepository::mark_needs_reauth`]. The OAuth
 //! refresh path flips through a token-guarded write of its own and calls
@@ -44,6 +49,12 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use pierre_auth::garmin_seats::reconnects_through_garmin_oauth;
+#[cfg(feature = "client-notifications")]
+use pierre_contremaitre::reauth_strings::{
+    KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_BODY, KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_TITLE,
+    KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
+};
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-notifications")]
 use pierre_core::models::NotificationScreen;
@@ -52,9 +63,11 @@ use pierre_core::models::{ReauthMark, TenantId};
 use pierre_notifications::models::{NotificationCategory, TransportPolicy as PushTransportPolicy};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId};
-use pierre_providers::backend_resolver::backend_pair_for;
+use pierre_providers::backend_resolver::{backend_pair_for, session_beside_grant};
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::{brand_name, user_facing_name};
+#[cfg(feature = "client-notifications")]
+use pierre_services::locale::resolve_user_locale;
 #[cfg(feature = "client-notifications")]
 use serde_json::Value as JsonValue;
 use tracing::{info, warn};
@@ -85,12 +98,25 @@ pub struct ReauthNotice {
 /// (push and stored row) and to every linked messaging channel, as the module
 /// doc describes. Best-effort: every failure is logged and the flag stands
 /// either way.
+///
+/// A usr/pwd session beside a grant that serves its provider
+/// ([`session_beside_grant`]) is never surfaced: the grant is the ongoing
+/// source, so its session dying asks nothing of the athlete. Nothing is
+/// claimed or sent for it; its flag stands (carnet#1386).
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> ReauthNotice {
+    if session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            "Reconnect notice: the session stands beside a serving grant; nothing sent"
+        );
+        return ReauthNotice::default();
+    }
     if !claim_notice(runtime, user_id, tenant_id, provider).await {
         return ReauthNotice::default();
     }
@@ -116,6 +142,31 @@ pub async fn notify_needs_reauth(
         claimed: true,
         chat_channels,
     }
+}
+
+/// Whether the athlete reconnects `backend` through its provider's OAuth
+/// rather than its usr/pwd sign-in (carnet#1454).
+///
+/// True for a `sciotte_garmin` session the athlete made themselves (never a
+/// coach's delegated one) while they hold no Garmin grant in this tenant and
+/// a seat is free on the server's Garmin client — the one rule
+/// [`reconnects_through_garmin_oauth`] reads. With the pool full, or for any
+/// other backend, the reconnect is the ordinary one.
+pub async fn reconnects_through_oauth(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    reconnects_through_garmin_oauth(
+        runtime.repos().oauth_tokens.as_ref(),
+        runtime.repos().provider_connections.as_ref(),
+        &runtime.config().oauth,
+        user_id,
+        tenant_id,
+        backend,
+    )
+    .await
 }
 
 /// Claim the connection's one notice for its current `needs_reauth`
@@ -240,15 +291,27 @@ async fn suppressed_in_app(
     // slug (`sciotte_trainingpeaks`) is internal.
     let brand = brand_name(runtime.provider_registry(), provider)
         .unwrap_or_else(|| user_facing_name(provider));
+    let (title_key, body_key) =
+        if reconnects_through_oauth(runtime, user_id, tenant_id, provider).await {
+            (
+                KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_TITLE,
+                KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_BODY,
+            )
+        } else {
+            (
+                KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
+                KEY_NOTIFICATION_PROVIDER_REAUTH_BODY,
+            )
+        };
+    let locale = resolve_user_locale(runtime.repos().users.as_ref(), user_id).await;
+    let strings = runtime.messaging_strings_registry();
     let request = DispatchRequest {
         user_id,
         tenant_id: CommTenantId(tenant_id.as_uuid()),
         category: NotificationCategory::System,
         notification_type: "provider_needs_reauth".to_owned(),
-        title: "Reconnect needed".to_owned(),
-        body: format!(
-            "Your {brand} connection expired. Reconnect it so I can keep using your data."
-        ),
+        title: strings.render(title_key, &locale, &[brand]),
+        body: strings.render(body_key, &locale, &[brand]),
         data: Some(JsonValue::Object(data)),
         image_url: None,
         actions: None,

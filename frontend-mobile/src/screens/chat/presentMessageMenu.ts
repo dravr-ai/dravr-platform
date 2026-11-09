@@ -30,7 +30,7 @@ interface PresentMessageMenuOptions {
    * toggles it off. Offered on a model's reply only.
    */
   onRate?: (rating: MessageRating) => void;
-  /** Offered on the last model reply only (`canRetry`). */
+  /** Offered only on a reply whose turn changed nothing (`canRetry`, from `canRegenerateReply`). */
   onRetry?: () => void;
   /**
    * "Adjust plan from this" on the athlete's line in a coach's one-athlete

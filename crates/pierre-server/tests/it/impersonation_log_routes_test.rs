@@ -10,6 +10,7 @@
 use crate::common;
 use crate::helpers;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_email, generate_test_token};
@@ -90,4 +91,62 @@ async fn anyone_but_a_super_admin_is_refused_the_log() {
         .send(ImpersonationRoutes::routes(Arc::clone(&resources)))
         .await;
     assert_eq!(refused.status(), 403, "{}", refused.text());
+}
+
+/// The log is paged: past the first page, the cursor it returns reaches every
+/// other session, so a session older than the newest hundred is never lost.
+#[tokio::test]
+async fn the_log_reaches_every_session_past_the_first_page() {
+    let resources = create_test_server_resources().await.unwrap();
+    let operator = super_admin(&resources).await;
+    let (_, target) = create_test_user_with_email(&resources.agent.database, "paged@example.com")
+        .await
+        .unwrap();
+    let total = 101;
+    for _ in 0..total {
+        let session = ImpersonationSession::new(operator.id, target.id, None);
+        resources
+            .common
+            .repos
+            .impersonation
+            .create_session(&session)
+            .await
+            .unwrap();
+    }
+    let bearer = format!(
+        "Bearer {}",
+        generate_test_token(&resources, &operator).await
+    );
+
+    let mut seen = HashSet::new();
+    let mut path = "/api/admin/impersonate/sessions".to_owned();
+    for _ in 0..total {
+        let page = AxumTestRequest::get(&path)
+            .header("authorization", &bearer)
+            .send(ImpersonationRoutes::routes(Arc::clone(&resources)))
+            .await;
+        assert_eq!(page.status(), 200, "{}", page.text());
+        let body: Value = serde_json::from_str(&page.text()).unwrap();
+        for row in body["sessions"].as_array().unwrap() {
+            assert!(
+                seen.insert(row["id"].as_str().unwrap().to_owned()),
+                "no repeat"
+            );
+        }
+        let (Some(before), Some(before_id)) = (
+            body["next_before"].as_str(),
+            body["next_before_id"].as_str(),
+        ) else {
+            break;
+        };
+        path = format!(
+            "/api/admin/impersonate/sessions?before={}&before_id={before_id}",
+            urlencoding::encode(before)
+        );
+    }
+    assert_eq!(
+        seen.len(),
+        total,
+        "bug: every session must be reachable, not only the newest hundred"
+    );
 }

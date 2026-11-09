@@ -15,10 +15,22 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::MessagingStringsRegistry;
+use pierre_core::html::escape_html_attribute;
+use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_routes_identity::LoginPageLabels;
+use pierre_providers::registry::ProviderRegistry;
+use pierre_routes_auth::AuthRoutes;
+use pierre_routes_identity::{ConsentText, LoginPageLabels};
+use regex::Regex;
 use std::sync::LazyLock;
+
+/// The catalogue the consent pages read.
+static STRINGS: LazyLock<MessagingStringsRegistry> = LazyLock::new(MessagingStringsRegistry::new);
+
+/// A catalogue line's positional slot.
+static SLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\d+\}").unwrap());
 
 /// The login form's English text, from the catalogue the server renders it
 /// with.
@@ -218,9 +230,17 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         client_label: "<script>alert(1)</script>",
         account_email: "athlete@example.test",
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        first_party_only_sources: &["Strava"],
+        text: &ConsentText::new(&STRINGS, "en"),
     });
 
     assert!(!html.contains("<script>"), "{html}");
+    assert!(
+        html.contains(
+            "is not shared with <span class=\"client\">&lt;script&gt;alert(1)&lt;/script&gt;</span>."
+        ),
+        "the provider-terms line escapes the client name too: {html}"
+    );
     assert!(
         html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
         "{html}"
@@ -256,6 +276,8 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             client_label: "Claude",
             account_email: "athlete@example.test",
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+            first_party_only_sources: &[],
+            text: &ConsentText::new(&STRINGS, "en"),
         })
     };
 
@@ -282,6 +304,116 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             "{redirect_uri}: {html}"
         );
     }
+}
+
+/// The consent page tells the athlete which services' data stays inside
+/// Dravr and never reaches the client — the registry's first-party-only list,
+/// whatever it holds — and says nothing when that list is empty.
+#[test]
+fn test_consent_page_names_the_data_that_stays_inside_dravr() {
+    let consent = |sources: &[&str]| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id: "mcp_client_1",
+            redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: "Claude",
+            account_email: "athlete@example.test",
+            switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+            first_party_only_sources: sources,
+            text: &ConsentText::new(&STRINGS, "en"),
+        })
+    };
+
+    let registered = ProviderRegistry::new().first_party_only_sources();
+    assert!(
+        !registered.is_empty(),
+        "the shipped providers include first-party-only ones"
+    );
+    let html = consent(&registered);
+    let (last, rest) = registered.split_last().expect("a source");
+    let named = if rest.is_empty() {
+        (*last).to_owned()
+    } else {
+        format!("{} and {last}", rest.join(", "))
+    };
+    assert!(
+        html.contains(&format!(
+            "Data Dravr syncs from your {named} connection stays inside Dravr and is not shared with <span class=\"client\">Claude</span>. \
+             Export files you import yourself can be read by <span class=\"client\">Claude</span>."
+        )),
+        "{html}"
+    );
+
+    assert!(
+        consent(&["WHOOP"])
+            .contains("Data Dravr syncs from your WHOOP connection stays inside Dravr"),
+        "one service is named alone"
+    );
+    let none = consent(&[]);
+    assert!(!none.contains("stays inside Dravr"), "{none}");
+    assert!(!none.contains("{{"), "every placeholder is filled: {none}");
+}
+
+/// The consent page says who is asking (a known client's badge, or an
+/// unverified warning), that the data is wellness information, that it may
+/// leave Québec and that approving is express consent to share it.
+#[test]
+fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
+    let consent = |client_id: &str, redirect_uri: &str, label: &str| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id,
+            redirect_uri,
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: label,
+            account_email: "athlete@example.test",
+            switch_account_url: "/oauth2/login?client_id=x&state=s",
+            first_party_only_sources: &[],
+            text: &ConsentText::new(&STRINGS, "en"),
+        })
+    };
+
+    let verified = consent(
+        "https://chatgpt.com/oauth/client.json",
+        "https://chatgpt.com/connector_platform_oauth_redirect",
+        "ChatGPT",
+    );
+    assert!(
+        verified.contains("Verified: ChatGPT by OpenAI"),
+        "{verified}"
+    );
+    assert!(!verified.contains("Unverified app"), "{verified}");
+
+    // A name a client registers for itself earns no badge.
+    let unverified = consent("dyn-1f3a", "http://localhost:53124/callback", "Claude");
+    assert!(unverified.contains("Unverified app"), "{unverified}");
+    assert!(
+        unverified.contains("program on this device"),
+        "{unverified}"
+    );
+    assert!(!unverified.contains("Verified: "), "{unverified}");
+
+    for html in [&verified, &unverified] {
+        assert!(html.contains("not medical advice"), "{html}");
+        assert!(html.contains("communicated outside Québec"), "{html}");
+        assert!(html.contains("expressly consent"), "{html}");
+        assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+    }
+    assert!(
+        verified.contains("OpenAI") && verified.contains("the United States"),
+        "{verified}"
+    );
 }
 
 /// Test OAuth login HTML generation with template replacement
@@ -642,8 +774,6 @@ fn test_templates_security_features() {
 // HTML Escaping Tests
 // ============================================================================
 
-use pierre_core::html::escape_html_attribute;
-
 #[test]
 fn test_escape_html_attribute_no_special_chars() {
     assert_eq!(escape_html_attribute("hello world"), "hello world");
@@ -823,6 +953,7 @@ fn test_provider_callback_pages_use_boreal_design_system() {
             expires_at: Some("2026-09-23T00:00:00Z".to_owned()),
             scopes: "read".to_owned(),
             mobile_redirect_url: None,
+            tenant_id: "tenant-1".to_owned(),
         },
     );
     assert!(success.contains("<h1>Strava Connected</h1>"));
@@ -831,8 +962,13 @@ fn test_provider_callback_pages_use_boreal_design_system() {
         r#"<div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>"#
     ));
 
-    let failure = OAuthTemplateRenderer::render_error_template("strava", "access_denied", None);
+    let failure = OAuthTemplateRenderer::render_error_template(
+        "en",
+        "Connection Failed",
+        "Please try again.",
+    );
     assert!(failure.contains("<h1>Connection Failed</h1>"));
+    assert!(failure.contains("<html lang=\"en\">"));
 
     for page in [&success, &failure] {
         let dark_at = page
@@ -843,4 +979,265 @@ fn test_provider_callback_pages_use_boreal_design_system() {
         assert!(!page.contains("{{"), "no placeholder survives the render");
         assert!(!page.contains("#7C3AED"));
     }
+}
+
+/// A consent page for a client this test names, in `locale`.
+fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) -> String {
+    OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id,
+        redirect_uri,
+        response_type: "code",
+        state: "s",
+        scope,
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        csrf_token: "token",
+        client_label: "Agent",
+        account_email: "athlete@example.test",
+        switch_account_url: "/oauth2/login?client_id=x&state=s",
+        first_party_only_sources: &["Strava", "Garmin", "WHOOP"],
+        text: &ConsentText::new(&STRINGS, locale),
+    })
+}
+
+/// Everything the page shows, without the stylesheet or the form's values.
+fn page_body(html: &str) -> &str {
+    html.split("<body>")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{html}"))
+}
+
+/// Every catalogue key `consent_strings.rs` declares, as the module spells it,
+/// so a key added there is covered here without being listed twice.
+fn consent_flow_keys() -> Vec<&'static str> {
+    include_str!("../../../pierre-contremaitre/src/consent_strings.rs")
+        .lines()
+        .filter(|line| line.starts_with("pub const KEY_"))
+        .filter_map(|line| line.split('"').nth(1))
+        .collect()
+}
+
+/// The parts of a catalogue line between its slots, as the page escapes them.
+fn fixed_parts(line: &str) -> Vec<String> {
+    SLOT.split(line)
+        .map(str::trim)
+        .filter(|part| part.len() > 3)
+        .map(escape_html_attribute)
+        .collect()
+}
+
+/// The two consent pages that between them show every line: a verified client,
+/// and an unverified one with a metadata document returning to this device.
+fn every_consent_line_in(locale: &str) -> [String; 2] {
+    let scopes = "fitness:read fitness:write profile:read profile:write";
+    [
+        consent_in(
+            locale,
+            "https://chatgpt.com/oauth/client.json",
+            "https://chatgpt.com/cb",
+            scopes,
+        ),
+        consent_in(
+            locale,
+            "https://tool.example.test/client.json",
+            "http://localhost:53124/callback",
+            scopes,
+        ),
+    ]
+}
+
+#[test]
+fn every_consent_flow_key_has_text_and_the_slots_english_has_in_every_locale() {
+    let keys = consent_flow_keys();
+    assert!(keys.len() > 40, "the keys were read: {keys:?}");
+    let slots = |line: &str| {
+        let mut found: Vec<String> = SLOT
+            .find_iter(line)
+            .map(|slot| slot.as_str().to_owned())
+            .collect();
+        found.sort();
+        found
+    };
+    for key in keys {
+        let english = STRINGS
+            .get_exact(key, "en")
+            .unwrap_or_else(|| panic!("{key} in en"));
+        for locale in SUPPORTED_LOCALES {
+            let line = STRINGS
+                .get_exact(key, locale)
+                .unwrap_or_else(|| panic!("{key} in {locale}"));
+            assert_eq!(slots(&line), slots(&english), "{key} in {locale}");
+        }
+    }
+}
+
+/// Every line of the screen, the trust lines and the Law 25 lines included,
+/// reads in French on a French page, and no English line is left behind.
+#[test]
+fn a_french_consent_page_says_every_line_in_french() {
+    let keys: Vec<&str> = consent_flow_keys()
+        .into_iter()
+        .filter(|key| key.starts_with("oauth.consent."))
+        .collect();
+    let french = every_consent_line_in("fr");
+    let bodies = [page_body(&french[0]), page_body(&french[1])];
+    for html in &french {
+        assert!(html.contains("<html lang=\"fr\">"), "{html}");
+        assert!(
+            html.contains("<title>Autoriser l’accès - Dravr</title>"),
+            "{html}"
+        );
+        assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+        assert!(!SLOT.is_match(page_body(html)), "{html}");
+    }
+    for key in keys {
+        for part in fixed_parts(&STRINGS.get(key, "fr")) {
+            assert!(
+                bodies.iter().any(|body| body.contains(&part)),
+                "{key} shows {part:?}: {bodies:?}"
+            );
+        }
+        for part in fixed_parts(&STRINGS.get(key, "en")) {
+            assert!(
+                !bodies.iter().any(|body| body.contains(&part)),
+                "{key} left English {part:?}: {bodies:?}"
+            );
+        }
+    }
+}
+
+/// The lines with legal weight keep theirs in French: the Act's own terms, and
+/// a button name the athlete can actually find on the page.
+#[test]
+fn the_french_law_25_lines_say_what_the_english_says() {
+    let [verified, unverified] = every_consent_line_in("fr");
+    for html in [&verified, &unverified] {
+        assert!(
+            html.contains("peuvent être communiqués à l’extérieur du Québec"),
+            "{html}"
+        );
+        assert!(
+            html.contains("renseignements personnels sensibles"),
+            "{html}"
+        );
+        assert!(html.contains("vous consentez expressément"), "{html}");
+        assert!(html.contains("En choisissant Autoriser l’accès,"), "{html}");
+        assert!(html.contains(">Autoriser l’accès</button>"), "{html}");
+        assert!(html.contains("et non des conseils médicaux"), "{html}");
+    }
+    assert!(verified.contains("exploité par OpenAI"), "{verified}");
+    assert!(verified.contains("aux États-Unis"), "{verified}");
+    assert!(unverified.contains("Dravr ne sait pas où"), "{unverified}");
+}
+
+/// In every locale the express-consent line names the button as the button
+/// reads, and the screen is whole.
+#[test]
+fn every_locale_names_its_own_allow_button_and_fills_the_page() {
+    for locale in SUPPORTED_LOCALES {
+        let allow = escape_html_attribute(&STRINGS.get("oauth.consent.allow", locale));
+        for html in every_consent_line_in(locale) {
+            assert!(
+                html.contains(&format!("<html lang=\"{locale}\">")),
+                "{html}"
+            );
+            assert!(html.contains(&format!(">{allow}</button>")), "{html}");
+            let express = html
+                .split("<p class=\"fineprint\">")
+                .skip(1)
+                .filter_map(|line| line.split("</p>").next())
+                .filter(|line| line.contains(allow.as_str()))
+                .count();
+            assert_eq!(express, 1, "{locale}: {html}");
+            assert!(!html.contains("{{"), "{html}");
+            assert!(!SLOT.is_match(page_body(&html)), "{html}");
+            assert!(!html.contains("oauth.consent"), "no raw key: {html}");
+            assert!(!html.contains("<p class=\"fineprint\"></p>"), "{html}");
+        }
+    }
+}
+
+/// A locale the platform does not speak reads in English, whole: no raw key,
+/// no blank line, not the platform's French default.
+#[test]
+fn a_consent_page_in_a_locale_the_platform_lacks_reads_in_english() {
+    let [verified, unverified] = every_consent_line_in("ja");
+    assert_eq!(verified, every_consent_line_in("en")[0]);
+    assert_eq!(unverified, every_consent_line_in("en")[1]);
+    for html in [&verified, &unverified] {
+        assert!(html.contains("<html lang=\"en\">"), "{html}");
+        assert!(html.contains("expressly consent"), "{html}");
+        assert!(!html.contains("oauth.consent"), "no raw key: {html}");
+    }
+}
+
+/// A slot's value is the client's own text: it is escaped however the locale
+/// words the line around it, and it is not read as a slot or a placeholder.
+#[test]
+fn a_french_consent_page_escapes_what_the_client_supplies() {
+    let html = OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id: "dyn-1",
+        redirect_uri: "https://client.example.test/cb",
+        response_type: "code",
+        state: "s",
+        scope: "<b>scope</b>",
+        code_challenge: "c",
+        code_challenge_method: "S256",
+        resource: "",
+        csrf_token: "token",
+        client_label: "<script>alert(1)</script>{1}{{T_ALLOW}}",
+        account_email: "<i>a</i>@example.test",
+        switch_account_url: "/oauth2/login",
+        first_party_only_sources: &["<u>x</u>"],
+        text: &ConsentText::new(&STRINGS, "fr"),
+    });
+    for raw in ["<script>", "<b>scope", "<i>a", "<u>x"] {
+        assert!(!html.contains(raw), "{raw}: {html}");
+    }
+    assert!(html.contains("<li>&lt;b&gt;scope&lt;/b&gt;</li>"), "{html}");
+    assert!(
+        html.contains("{1}{{T_ALLOW}}"),
+        "the client's text stays its own: {html}"
+    );
+}
+
+/// Each scope says what it allows in the page's language, and still names the
+/// token the client asked for.
+#[test]
+fn a_scope_is_worded_in_the_page_language_with_its_token() {
+    let french = consent_in("fr", "dyn-1", "https://c.example.test/cb", "fitness:read");
+    assert!(
+        french.contains("lire vos données de conditionnement physique"),
+        "{french}"
+    );
+    assert!(french.contains("(fitness:read)</li>"), "{french}");
+    let english = consent_in("en", "dyn-1", "https://c.example.test/cb", "fitness:read");
+    assert!(english.contains("read your fitness data"), "{english}");
+    assert!(english.contains("(fitness:read)</li>"), "{english}");
+}
+
+/// The page a provider's failed callback lands on reads in the browser's
+/// language, from the one template every OAuth failure page shares.
+#[tokio::test]
+async fn a_failed_provider_callback_reads_in_the_browsers_language() {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources().await.unwrap();
+    for (accept, lang) in [("fr-CA", "fr"), ("de", "de"), ("en-US", "en")] {
+        let page = AxumTestRequest::get("/api/oauth/callback/strava?code=forged&state=forged")
+            .header("accept-language", accept)
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+        assert_eq!(page.status(), 400, "{}", page.body_text());
+        let text = page.body_text();
+        assert!(text.contains(&format!("<html lang=\"{lang}\">")), "{text}");
+        assert!(!text.contains("{{"), "no placeholder survives: {text}");
+    }
+    let french = AxumTestRequest::get("/api/oauth/callback/strava?code=forged&state=forged")
+        .header("accept-language", "fr-CA")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .body_text();
+    assert!(!french.contains("Connection Failed"), "{french}");
 }

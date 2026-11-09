@@ -19,11 +19,10 @@ import {
   activityFigures,
   activityFirstLine,
   activityNaming,
+  activityStartLine,
   describeApiError,
-  formatInstant,
   isDeletableActivity,
   lapsTable,
-  ROW_DATE,
   type SegmentTable,
   splitsTable,
   sportLabel,
@@ -161,7 +160,9 @@ function ActivityHeader({
     <View className="-mx-4 mb-6 gap-8" testID="activity-scroll">
       <View>
         <Text className="px-4 pb-2 text-sm text-text-secondary" testID="activity-when">
-          <Text className="font-mono tabular-nums">{formatInstant(detail.activity.start_date, language, ROW_DATE)}</Text>
+          <Text className="font-mono tabular-nums">
+            {activityStartLine(t, detail.activity, detail.utc_offset_seconds, language)}
+          </Text>
           {' · '}
           {sport}
           {/* The recording device, with the attribution Garmin-sourced data owes, as served (carnet#521, carnet#711). */}

@@ -337,14 +337,16 @@ fn test_every_tool_name_constant_is_registered() {
 #[cfg(all(feature = "tools-all", feature = "protocol-a2a"))]
 #[test]
 fn test_a2a_agent_card_skills_are_registered_tools() {
-    use pierre_a2a::agent_card::AgentCard;
+    use pierre_a2a::agent_card::{AgentCard, COACHING_SKILL_ID};
+    use pierre_auth::config::OAuth2ServerConfig;
     let registered = registered_names();
-    let card = AgentCard::new();
+    let card = AgentCard::new(&OAuth2ServerConfig::default());
+    // The coaching skill is a turn of the pipeline, reached by a text part.
     let unregistered: Vec<&str> = card
         .skills
         .iter()
         .map(|skill| skill.id.as_str())
-        .filter(|id| !registered.contains(*id))
+        .filter(|id| *id != COACHING_SKILL_ID && !registered.contains(*id))
         .collect();
     assert!(
         unregistered.is_empty(),

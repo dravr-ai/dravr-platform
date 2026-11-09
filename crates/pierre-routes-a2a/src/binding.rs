@@ -29,11 +29,12 @@ use std::sync::Arc;
 
 use axum::{
     body::Bytes,
-    extract::{Path, Query, RawQuery, State},
+    extract::{Path, Query, RawQuery, Request, State},
     http::{
-        header::{AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER},
+        header::{AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER, WWW_AUTHENTICATE},
         HeaderMap, HeaderValue, StatusCode,
     },
+    middleware::Next,
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
@@ -47,6 +48,7 @@ use pierre_a2a::{
     },
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
 };
+use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
 use pierre_core::auth_header::extract_bearer_token;
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use serde_json::{json, Value};
@@ -54,6 +56,7 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{once, StreamExt};
+use tracing::error;
 
 use crate::A2ARoutesState;
 
@@ -97,6 +100,45 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Attach the RFC 9728 challenge to every 401 the protocol routes answer, on
+/// either binding, so a client finds the authorization server from the refusal.
+///
+/// It names the A2A resource of the host the client dialed, which RFC 9728
+/// §3.3 has the client compare to the URL it called. `invalid_token` is said
+/// only of a credential that was sent (RFC 6750 §3.1); the JSON-RPC body's own
+/// `auth` field is not read here, so a refusal of that one carries no error
+/// code, which is still a valid challenge.
+pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
+    State(state): State<A2ARoutesState<C>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let host = DIALED_HOST_HEADERS.iter().find_map(|name| {
+        request
+            .headers()
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    });
+    let presented = request.headers().contains_key(AUTHORIZATION);
+
+    let mut response = next.run(request).await;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        let resource = state
+            .ctx
+            .oauth2_server_config()
+            .a2a_resource_for_host(host.as_deref());
+        let challenge = www_authenticate_challenge(&resource, presented.then_some("invalid_token"));
+        match HeaderValue::from_str(&challenge) {
+            Ok(value) => {
+                response.headers_mut().insert(WWW_AUTHENTICATE, value);
+            }
+            Err(e) => error!("The A2A WWW-Authenticate challenge is no header value: {e}"),
+        }
+    }
+    response
+}
+
 /// The protocol server for one request, over the routes' shared handles.
 fn protocol_server<C: MiddlewareCtx + A2ACtx>(state: &A2ARoutesState<C>) -> A2AServer {
     let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
@@ -104,6 +146,7 @@ fn protocol_server<C: MiddlewareCtx + A2ACtx>(state: &A2ARoutesState<C>) -> A2AS
         ctx,
         state.tool_runtime.clone(),    // Safe: Arc clone of trait object
         state.auth_middleware.clone(), // Safe: Arc clone for the shared auth pipeline
+        state.coaching.clone(),        // Safe: Arc clone of trait object
     )
 }
 
@@ -439,11 +482,14 @@ pub(crate) async fn rest_message_stream<C: MiddlewareCtx + A2ACtx>(
     }
 }
 
-/// `GET /a2a/tasks/{id}`.
+/// `GET /a2a/tasks/{id}` and `GET /a2a/tasks/{id}:subscribe`.
 ///
-/// Shares the path parameter with `POST /a2a/tasks/{id}:action`, whose
-/// handler splits the trailing `:cancel` / `:subscribe` custom verb
-/// (AIP-136 style, per the spec's REST mapping).
+/// The router matches a whole segment, so the path parameter holds any
+/// trailing custom verb (AIP-136 style) and this handler splits it, as
+/// [`rest_task_action`] does for `POST`. Unsplit, `{id}:subscribe` would read
+/// as `GetTask` on an id that never exists. 1.0.1's normative `a2a.proto` binds
+/// `SubscribeToTask` to this `GET`; its prose specification says `POST`, so both
+/// are served.
 pub(crate) async fn rest_get_task<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     Path(id): Path<String>,
@@ -452,6 +498,12 @@ pub(crate) async fn rest_get_task<C: MiddlewareCtx + A2ACtx>(
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query_string(&query_map).as_deref()) {
         return *response;
+    }
+    if let Some((task_id, verb)) = id.rsplit_once(':') {
+        return match verb {
+            "subscribe" => rest_subscribe(&state, &headers, task_id).await,
+            _ => unknown_task_action(),
+        };
     }
     let mut params = json!({ "id": id });
     if let Some(history_length) = query_map
@@ -520,35 +572,43 @@ pub(crate) async fn rest_task_action<C: MiddlewareCtx + A2ACtx>(
     }
 
     let Some((task_id, action)) = id_action.rsplit_once(':') else {
-        return rest_error_response(
-            StatusCode::NOT_FOUND,
-            "NOT_FOUND",
-            "Unknown task action",
-            &json!([]),
-        );
+        return unknown_task_action();
     };
 
     match action {
         "cancel" => rest_dispatch(&state, &headers, "CancelTask", json!({ "id": task_id })).await,
-        "subscribe" => {
-            let request = wire_request(
-                "SubscribeToTask",
-                json!({ "id": task_id }),
-                bearer_token(&headers),
-            );
-            let server = protocol_server(&state);
-            match server.start_task_subscription(request).await {
-                Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
-                Err(response) => rest_response(*response),
-            }
-        }
-        _ => rest_error_response(
-            StatusCode::NOT_FOUND,
-            "NOT_FOUND",
-            "Unknown task action",
-            &json!([]),
-        ),
+        "subscribe" => rest_subscribe(&state, &headers, task_id).await,
+        _ => unknown_task_action(),
     }
+}
+
+/// `SubscribeToTask` over the HTTP+JSON binding: SSE with bare `StreamResponse`
+/// frames.
+async fn rest_subscribe<C: MiddlewareCtx + A2ACtx>(
+    state: &A2ARoutesState<C>,
+    headers: &HeaderMap,
+    task_id: &str,
+) -> Response {
+    let request = wire_request(
+        "SubscribeToTask",
+        json!({ "id": task_id }),
+        bearer_token(headers),
+    );
+    let server = protocol_server(state);
+    match server.start_task_subscription(request).await {
+        Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
+        Err(response) => rest_response(*response),
+    }
+}
+
+/// The refusal of a custom verb this route does not serve.
+fn unknown_task_action() -> Response {
+    rest_error_response(
+        StatusCode::NOT_FOUND,
+        "NOT_FOUND",
+        "Unknown task action",
+        &json!([]),
+    )
 }
 
 /// `POST /a2a/tasks/{id}/pushNotificationConfigs`

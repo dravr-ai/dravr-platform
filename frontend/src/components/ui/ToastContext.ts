@@ -8,12 +8,25 @@ import { createContext } from 'react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+/** The one thing a toast offers to do about what it says, as a real button. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: string;
   type: ToastType;
   title: string;
   message?: string;
   duration?: number;
+  action?: ToastAction;
+  /**
+   * While a toast with this key is on screen, adding another with the same key
+   * shows nothing new — one failure reported by many parallel requests reads
+   * as one notice.
+   */
+  dedupeKey?: string;
 }
 
 export interface ToastContextType {

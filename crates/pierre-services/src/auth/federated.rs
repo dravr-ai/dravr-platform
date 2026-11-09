@@ -75,6 +75,10 @@ pub struct FederatedIdentity<'a> {
     pub provider: &'a str,
     /// What the signup event reports as the account's source
     pub signup_source: SignupSource,
+    /// The language a new account starts in, when the sign-up knows the
+    /// reader's; `None` starts it in the platform's default. An existing
+    /// account keeps its own.
+    pub locale: Option<&'a str>,
 }
 
 impl FederatedIdentity<'_> {
@@ -311,8 +315,8 @@ impl AuthService {
     /// federated-only marker, a Firebase link other than this sign-in's is
     /// dropped, and the device refresh tokens, `OAuth2` refresh tokens,
     /// connector grants, MCP tokens and API keys issued so far are revoked. The caller
-    /// writes the user row. Access JWTs already minted run to their expiry,
-    /// as after a password change.
+    /// writes the user row. A first-party access JWT already minted runs to its
+    /// expiry, as after a password change; a connector's stops with its grant.
     async fn retire_unproven_credentials(
         &self,
         user: &mut User,
@@ -330,6 +334,7 @@ impl AuthService {
 
         let mut connector_tokens = 0_u64;
         let mut grants = 0_usize;
+        let standings = self.grant_standings();
         for tenant in repos.tenants.list_for_user(user.id).await? {
             let tenant_id = tenant.id.to_string();
             connector_tokens += repos
@@ -348,6 +353,9 @@ impl AuthService {
                 {
                     grants += 1;
                 }
+                standings
+                    .forget(user.id, &tenant_id, &grant.client_id)
+                    .await;
             }
         }
 
@@ -433,7 +441,9 @@ impl AuthService {
             auth_provider: identity.provider.to_owned(),
             analytics_consent: false,
             analytics_consent_at: None,
-            locale: default_locale(),
+            locale: identity
+                .locale
+                .map_or_else(default_locale, ToOwned::to_owned),
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,

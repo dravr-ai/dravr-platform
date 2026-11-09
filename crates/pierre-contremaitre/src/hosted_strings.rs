@@ -84,6 +84,8 @@ pub const KEY_HOSTED_COMMON_SIGN_IN_REJECTED: &str = "hosted.common.signInReject
 pub const KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE: &str = "hosted.common.signInUnavailable";
 /// Key: "`{0}` asked for an extra security check we can't complete automatically right now. Please try again in a little while."
 pub const KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED: &str = "hosted.common.signInChallenged";
+/// Key: "`{0}` now connects through its official sign-in. Go back and choose `{0}`."
+pub const KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED: &str = "hosted.common.signInOauthRequired";
 /// Key: "This sign-in is no longer active. Please start the sign-in again." No format placeholders.
 pub const KEY_HOSTED_COMMON_SIGN_IN_EXPIRED: &str = "hosted.common.signInExpired";
 /// Key: "Try Again" No format placeholders.
@@ -120,6 +122,34 @@ pub const KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD: &str =
     "hosted.picker.tagEmailOrUsernamePassword";
 /// Key: "Import my history" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY: &str = "hosted.picker.tagImportHistory";
+/// Key: "Copying history…" No format placeholders.
+pub const KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING: &str = "hosted.picker.tagHistoryImporting";
+/// Key: "Try again" No format placeholders.
+pub const KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE: &str = "hosted.picker.tagHistoryIncomplete";
+/// Key: "Move to `{0}`'s official connection"
+pub const KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL: &str = "hosted.picker.tagMoveToOfficial";
+/// Key: "`{0}` didn't connect. Try again."
+pub const KEY_HOSTED_PICKER_OAUTH_RETRY: &str = "hosted.picker.oauthRetry";
+/// Key: "Have an export? Import it" No format placeholders.
+pub const KEY_HOSTED_PICKER_IMPORT_EXPORT_LINK: &str = "hosted.picker.importExportLink";
+
+// ── The picker's history step, after a grant whose history is not in ──
+
+/// Key: "Bring in your `{0}` history"
+pub const KEY_HOSTED_PICKER_HISTORY_TITLE: &str = "hosted.picker.historyTitle";
+/// Key: "`{0}` sends what you record from today. Choose how to add what came before."
+pub const KEY_HOSTED_PICKER_HISTORY_BODY: &str = "hosted.picker.historyBody";
+/// Key: "Sign in once to copy your past workouts" No format placeholders.
+pub const KEY_HOSTED_PICKER_HISTORY_SIGN_IN: &str = "hosted.picker.historySignIn";
+/// Key: "Sign in once to copy your history; `{0}` keeps your new workouts coming."
+pub const KEY_HOSTED_PICKER_HISTORY_SIGN_IN_NOTE: &str = "hosted.picker.historySignInNote";
+/// Key: "Import your `{0}` export"
+pub const KEY_HOSTED_PICKER_HISTORY_IMPORT_EXPORT: &str = "hosted.picker.historyImportExport";
+/// Key: "Not now" No format placeholders.
+pub const KEY_HOSTED_PICKER_HISTORY_NOT_NOW: &str = "hosted.picker.historyNotNow";
+/// Key: "Copying your history — this runs once." No format placeholders.
+pub const KEY_HOSTED_PICKER_HISTORY_COPYING: &str = "hosted.picker.historyCopying";
+
 /// Key: "Strava sign-in didn't complete — you can connect with your Strava email and password instead." No format placeholders.
 pub const KEY_HOSTED_PICKER_STRAVA_FALLBACK: &str = "hosted.picker.stravaFallback";
 /// Key: "That sign-in didn't complete. Please go back and try again." No format placeholders.
@@ -229,10 +259,6 @@ pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
 // placeholder-free `providers.import.*` key it shows is read here, and the
 // lines that carry a count are `hosted.import.*`, with positional slots.
 
-/// Key: "Import your own data" No format placeholders.
-pub const KEY_IMPORT_LINK: &str = "providers.import.link";
-/// Key: "Bring in history you've exported from another service." No format placeholders.
-pub const KEY_IMPORT_LINK_HINT: &str = "providers.import.linkHint";
 /// Key: "Import your own data" No format placeholders.
 pub const KEY_IMPORT_TITLE: &str = "providers.import.title";
 /// Key: "Importing your own data isn't available here yet." No format placeholders.
@@ -366,9 +392,80 @@ pub const IMPORT_STRAVA_FAILURES: [(&str, &str); 9] = [
     ("not_an_export", KEY_IMPORT_STRAVA_FAILURE_NOT_AN_EXPORT),
 ];
 
+// ── The hosted import page for Garmin's export (carnet#1337) ──
+//
+// Garmin's export is requested and its link pasted the way Strava's is: the
+// steps that name the service are Garmin's own, the rest are the Strava
+// page's generic wording.
+
+/// Key: "History you import from your own Garmin export is yours and stays, even if you disconnect Garmin." No format placeholders.
+pub const KEY_IMPORT_GARMIN_INTRO: &str = "providers.import.garmin.intro";
+/// Key: "Step 1 of 3 · Request your Garmin export" No format placeholders.
+pub const KEY_IMPORT_GARMIN_STEP1_TITLE: &str = "providers.import.garmin.step1Title";
+/// Key: "On Garmin's account site, sign in, open Account, … and choose Request Data Export." No format placeholders.
+pub const KEY_IMPORT_GARMIN_STEP1_BODY: &str = "providers.import.garmin.step1Body";
+/// Key: "Open Garmin's export page" No format placeholders.
+pub const KEY_IMPORT_GARMIN_STEP1_OPEN: &str = "providers.import.garmin.step1Open";
+/// Key: "Step 2 of 3 · Paste the link from Garmin's email" No format placeholders.
+pub const KEY_IMPORT_GARMIN_STEP2_TITLE: &str = "providers.import.garmin.step2Title";
+/// Key: "Link from Garmin's email" No format placeholders.
+pub const KEY_IMPORT_GARMIN_LINK_LABEL: &str = "providers.import.garmin.linkLabel";
+/// Key: "In Garmin's email, copy the link behind the download button and paste all of it. …" No format placeholders.
+pub const KEY_IMPORT_GARMIN_LINK_HINT: &str = "providers.import.garmin.linkHint";
+/// Key: "Getting your export from Garmin…" No format placeholders.
+pub const KEY_IMPORT_GARMIN_PROGRESS_STARTING: &str = "providers.import.garmin.progressStarting";
+/// Key: "An import from Garmin is already running." No format placeholders.
+pub const KEY_IMPORT_GARMIN_IN_PROGRESS: &str = "providers.import.garmin.inProgress";
+/// Key: the refusal of a link, `link_invalid`. No format placeholders.
+pub const KEY_IMPORT_GARMIN_REFUSAL_LINK_INVALID: &str =
+    "providers.import.garmin.refusal.link_invalid";
+/// Key: the refusal of a link, `link_host_not_allowed`. No format placeholders.
+pub const KEY_IMPORT_GARMIN_REFUSAL_LINK_HOST_NOT_ALLOWED: &str =
+    "providers.import.garmin.refusal.link_host_not_allowed";
+/// Key: the refusal of a link, `link_expired`. No format placeholders.
+pub const KEY_IMPORT_GARMIN_REFUSAL_LINK_EXPIRED: &str =
+    "providers.import.garmin.refusal.link_expired";
+/// Key: the failure of an import, `not_an_export`. No format placeholders.
+pub const KEY_IMPORT_GARMIN_FAILURE_NOT_AN_EXPORT: &str =
+    "providers.import.garmin.failure.not_an_export";
+
+/// The Garmin page's link refusals by code: Garmin's own wording where the
+/// refusal names the service, the Strava page's where it does not.
+pub const IMPORT_GARMIN_REFUSALS: [(&str, &str); 4] = [
+    ("link_invalid", KEY_IMPORT_GARMIN_REFUSAL_LINK_INVALID),
+    (
+        "link_host_not_allowed",
+        KEY_IMPORT_GARMIN_REFUSAL_LINK_HOST_NOT_ALLOWED,
+    ),
+    ("link_expired", KEY_IMPORT_GARMIN_REFUSAL_LINK_EXPIRED),
+    (
+        "link_unreachable",
+        KEY_IMPORT_STRAVA_REFUSAL_LINK_UNREACHABLE,
+    ),
+];
+
+/// The Garmin page's import failures by code. A Strava CSV's own failures
+/// (`missing_activities_csv`, `unknown_locale`) are never a Garmin export's
+/// and fall to the generic error.
+pub const IMPORT_GARMIN_FAILURES: [(&str, &str); 7] = [
+    ("download_failed", KEY_IMPORT_STRAVA_FAILURE_DOWNLOAD_FAILED),
+    ("link_expired", KEY_IMPORT_STRAVA_FAILURE_LINK_EXPIRED),
+    (
+        "archive_too_large",
+        KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_TOO_LARGE,
+    ),
+    (
+        "archive_unreadable",
+        KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_UNREADABLE,
+    ),
+    ("archive_limit", KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_LIMIT),
+    ("spool_missing", KEY_IMPORT_STRAVA_FAILURE_SPOOL_MISSING),
+    ("not_an_export", KEY_IMPORT_GARMIN_FAILURE_NOT_AN_EXPORT),
+];
+
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 94] = [
+pub const TEMPLATE_KEYS: [&str; 95] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -406,6 +503,9 @@ pub const TEMPLATE_KEYS: [&str; 94] = [
     KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD,
     KEY_HOSTED_PICKER_STRAVA_FALLBACK,
     KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE,
+    KEY_HOSTED_PICKER_HISTORY_SIGN_IN,
+    KEY_HOSTED_PICKER_HISTORY_NOT_NOW,
+    KEY_HOSTED_PICKER_HISTORY_COPYING,
     KEY_HOSTED_LOGIN_PAGE_TITLE,
     KEY_HOSTED_INTERVALS_PAGE_TITLE,
     KEY_HOSTED_INTERVALS_STORAGE_NOTE,
@@ -437,8 +537,6 @@ pub const TEMPLATE_KEYS: [&str; 94] = [
     KEY_INTERVALS_CREDENTIALS_HELP,
     KEY_INTERVALS_AUTHORIZE_ACTION,
     KEY_INTERVALS_COACH_KEY_ACTION,
-    KEY_IMPORT_LINK,
-    KEY_IMPORT_LINK_HINT,
     KEY_IMPORT_TITLE,
     KEY_IMPORT_UNAVAILABLE,
     KEY_IMPORT_STATE_AWAITING_LINK,

@@ -46,6 +46,7 @@ use tracing::{info, warn};
 
 use pierre_core::models::TenantId;
 use pierre_llm::ChatMessage;
+use pierre_tool_runtime::context::{DispatchOrigin, DISPATCH_ORIGIN};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalResponse};
 use pierre_tool_runtime::tool_results::served_without_notes;
 
@@ -341,7 +342,12 @@ pub async fn prefetch_activity_context(
         tenant_id: Some(tenant_id.to_string()),
     };
 
-    match executor.execute_tool(request).await {
+    // The platform decided this read, not the model, so a dead connection it finds
+    // offers no reconnect: most turns prefetch.
+    match DISPATCH_ORIGIN
+        .scope(DispatchOrigin::Prefetch, executor.execute_tool(request))
+        .await
+    {
         Ok(response) => Some(prefetched_window(&response)),
         Err(e) => {
             warn!("Failed to pre-fetch activity context: {e}");

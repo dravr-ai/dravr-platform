@@ -144,6 +144,32 @@ describe('VerdictTriagePanel', () => {
     expect(screen.getByText(/Disposed by support@example.com/)).toBeInTheDocument();
   });
 
+  it('shows no control without a writer, and only a disposition the row carries', () => {
+    const { rerender } = render(<VerdictTriagePanel verdict={verdict('v1')} knob={knob} />);
+    expect(screen.getByTestId('verdict-knob')).toBeInTheDocument();
+    expect(screen.queryByTestId('verdict-disposition')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('verdict-disposition-summary')).not.toBeInTheDocument();
+
+    rerender(
+      <VerdictTriagePanel
+        verdict={verdict('v1', {
+          disposition: 'true_catch',
+          disposition_reason: 'stale_evidence',
+          disposition_note: 'the corpus moved on',
+          disposed_by: 'super@example.com',
+          disposed_at: '2026-09-21T12:00:00Z',
+        })}
+        knob={knob}
+      />,
+    );
+    const summary = screen.getByTestId('verdict-disposition-summary');
+    expect(summary).toHaveTextContent('True catch');
+    expect(summary).toHaveTextContent('Stale evidence');
+    expect(summary).toHaveTextContent('the corpus moved on');
+    expect(summary).toHaveTextContent(/Disposed by super@example.com/);
+    expect(screen.queryByRole('button', { name: 'Save disposition' })).not.toBeInTheDocument();
+  });
+
   it('surfaces the write failure instead of swallowing it', async () => {
     const onSetDisposition = vi
       .fn()

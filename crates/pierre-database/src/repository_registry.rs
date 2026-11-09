@@ -14,33 +14,35 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
-    ActivityRouteTrackRepository, ActivityStreamRepository, AdminRepository, AgentsRepository,
-    ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository, AthleteGearRepository,
-    ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
-    CoachAccessRequestRepository, CoachAttentionDismissalRepository, CoachReplyReviewRepository,
-    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
+    ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
+    AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository,
+    AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
+    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
+    CoachAttentionDismissalRepository, CoachReplyReviewRepository, CoachingGroupRepository,
+    CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FederatedIdentityRepository, FeedbackMessageRepository,
-    FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
-    GarminPushInboxRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, HomePreferencesRepository, ImpersonationRepository,
-    ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
-    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
-    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
+    FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
+    FitnessConfigRepository, GarminPushInboxRepository, GuardianPendingActionsRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
+    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
+    LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
+    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
+    PersonalBestRepository, PlatformPostClaimRepository, PlaybookRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
+    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
-    UsageRepository, UseCaseExposureRepository, UserInvitationRepository, UserMcpTokenRepository,
-    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
+    UsageRepository, UseCaseExposureRepository, UserExportRepository, UserInvitationRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    UserToolOverrideRepository, WeatherCacheRepository, WebsiteSignInTokenRepository,
+    WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -105,6 +107,8 @@ pub struct RepositoryRegistry {
     pub signup_cohort: Arc<dyn SignupCohortRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
+    /// The calendar an athlete chose for Dravr's pushes (carnet#1393)
+    pub calendar_preferences: Arc<dyn CalendarPreferenceRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -173,7 +177,7 @@ pub struct RepositoryRegistry {
     pub daily_activity: Arc<dyn DailyActivityRepository>,
     /// Sync cursor tracking for CDC-based incremental sync
     pub sync_cursors: Arc<dyn SyncCursorRepository>,
-    /// Coaching harness memory (compaction, facts, notes, followups, sessions)
+    /// Coaching harness memory (compaction, facts, sessions)
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
@@ -226,6 +230,8 @@ pub struct RepositoryRegistry {
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
+    /// An athlete's own rows, a page at a time, for the portable data export
+    pub user_export: Arc<dyn UserExportRepository>,
     /// The unit system each athlete chose in Settings; metric when none (carnet#835, carnet#1044)
     pub unit_preferences: Arc<dyn UnitPreferencesRepository>,
     /// The athlete's gear ledger: declared shoes and per-activity attribution
@@ -257,9 +263,13 @@ pub struct RepositoryRegistry {
     /// Tombstones of deleted accounts' provider accounts and emails: written
     /// by the account deletion, read by every door that would import them.
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
-    /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
-    /// claimed single-use by the `/confirm` and `/deny` slash commands.
+    /// Parked actions awaiting their owner: the agent drafts of `/agent create`.
     pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
+    /// The admin audit trail: one row per operator write through the admin
+    /// API, or `pierre-cli` straight to the database (carnet#1391).
+    pub admin_audit: Arc<dyn AdminAuditRepository>,
+    /// The admin Engagement screen's reads, each in one admin scope.
+    pub engagement: Arc<dyn EngagementRepository>,
     /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
@@ -321,6 +331,7 @@ impl RepositoryRegistry {
             signup_codes: db.clone(),
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
+            calendar_preferences: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -377,6 +388,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            user_export: db.clone(),
             unit_preferences: db.clone(),
             athlete_gear: db.clone(),
             user_tool_overrides: db.clone(),
@@ -393,6 +405,8 @@ impl RepositoryRegistry {
             pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
+            admin_audit: db.clone(),
+            engagement: db.clone(),
             guardian_actions: db,
         }
     }
@@ -428,6 +442,7 @@ impl RepositoryRegistry {
             signup_codes: db.clone(),
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
+            calendar_preferences: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -484,6 +499,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            user_export: db.clone(),
             unit_preferences: db.clone(),
             athlete_gear: db.clone(),
             user_tool_overrides: db.clone(),
@@ -500,6 +516,8 @@ impl RepositoryRegistry {
             pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
+            admin_audit: db.clone(),
+            engagement: db.clone(),
             guardian_actions: db,
         }
     }

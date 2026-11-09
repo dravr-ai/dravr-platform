@@ -206,6 +206,27 @@ pub(crate) async fn holds_own_session(
         .any(|token| providers.contains(&token.provider.as_str())))
 }
 
+/// The platform account ids `member`'s own stored sessions for `provider`
+/// carry, in any tenant.
+///
+/// A session of the member's own whose id is a roster athlete's is proof the
+/// athlete is the member, stronger than an email match: the coach calendar
+/// path reaches such an athlete at that id through the coach's own account.
+pub(crate) async fn own_platform_ids(
+    tokens: &dyn OAuthTokenRepository,
+    member: Uuid,
+    provider: &str,
+) -> AppResult<Vec<String>> {
+    Ok(tokens
+        .get_tokens(member, None)
+        .await?
+        .into_iter()
+        .filter(|token| token.provider == provider)
+        .filter_map(|token| token.provider_user_id)
+        .filter(|id| !id.is_empty())
+        .collect())
+}
+
 /// Whether the member reads one of `providers` through a login of their own
 /// in `tenant`, or in any tenant when `tenant` is `None`: their own session,
 /// or a connection that is not a delegated one.

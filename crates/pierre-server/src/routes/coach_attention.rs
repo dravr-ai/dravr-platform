@@ -113,11 +113,7 @@ pub(crate) fn training_signals<'a>(
 ) -> TrainingSignals<'a> {
     TrainingSignals {
         computed_at: snapshot.computed_at,
-        form_as_of: reading
-            .form
-            .as_ref()
-            .map_or_else(|| snapshot.computed_at.date_naive(), |form| form.as_of),
-        form_band: reading.form.as_ref().map(|form| form.band),
+        form: reading.form.as_ref().map(|form| (form.band, form.as_of)),
         days_since_last_activity: reading.days_since_last_activity,
         last_activity_per_source: sources,
         needs_reconnect: &reading.needs_reconnect,

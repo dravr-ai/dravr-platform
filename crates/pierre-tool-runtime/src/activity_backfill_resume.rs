@@ -90,11 +90,24 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
         };
         let attempts = row.attempts;
         let job = job_from_row(&resources, row).await;
-        if resume_recorded_backfill(job, lease, attempts) {
+        if resume_recorded_backfill(job, lease.clone(), attempts) {
             resumed += 1;
+        } else {
+            // A run for the pair is in flight here — an ordinary backfill a
+            // history import adopted, say. Waiting on it must not spend the
+            // job's attempts, or the sweep reaps it before that run ends.
+            release_claim(ledger.as_ref(), &lease).await;
         }
     }
     Ok(resumed)
+}
+
+/// Hand back a claim this sweep could not run, with its attempt. A release
+/// that fails is logged: the claim's lease lapses as it would have.
+async fn release_claim(ledger: &dyn ActivityBackfillJobRepository, lease: &JobLease) {
+    if let Err(e) = ledger.release_backfill_job_claim(lease).await {
+        warn!(row_id = %lease, error = %e, "Activity backfill resume: a claim could not be handed back");
+    }
 }
 
 /// Drop the rows past the attempt cap whose last runner died too.
@@ -117,18 +130,25 @@ async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms:
 /// The row kept the backend the ask resolved to; resolving again from the
 /// user-facing name is what the ask itself did, so an athlete who
 /// reconnected through a different backend since is served by the one they
-/// hold now rather than a dead session.
+/// hold now rather than a dead session. A history import's row — one its
+/// ask recorded as such, never one inferred from the rows beside it — keeps
+/// the session it names: routing never serves that session, and resolving
+/// would hand the import the grant's window instead (carnet#1386).
 async fn job_from_row(
     resources: &Arc<dyn ToolRuntime>,
     row: ActivityBackfillJobRow,
 ) -> ActivityBackfillJob {
-    let provider_name = backend_resolver::resolve_backend(
-        resources.repos(),
-        row.user_id,
-        (!row.tenant_id.is_nil()).then_some(row.tenant_id),
-        backend_resolver::user_facing_name(&row.provider),
-    )
-    .await;
+    let provider_name = if row.history_import {
+        row.provider.clone()
+    } else {
+        backend_resolver::resolve_backend(
+            resources.repos(),
+            row.user_id,
+            (!row.tenant_id.is_nil()).then_some(row.tenant_id),
+            backend_resolver::user_facing_name(&row.provider),
+        )
+        .await
+    };
     info!(
         user_id = %row.user_id,
         provider = %provider_name,
@@ -152,6 +172,7 @@ async fn job_from_row(
             after: row.after_ts,
         },
         pierre_conversation_id: row.conversation_id,
+        history_import: row.history_import,
     }
 }
 

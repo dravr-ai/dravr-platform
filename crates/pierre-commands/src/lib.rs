@@ -49,8 +49,6 @@ pub mod group_consent;
 pub mod group_invite;
 /// Group membership commands (`/group create`, `/group join`)
 pub mod group_membership;
-/// Handlers for /confirm and /deny — Guardian pending-action resolution.
-pub mod guardian_confirm;
 /// Starting a fixed-list guided walk — the sequence `/calibrate` and `/season` share
 pub mod guided_walk;
 /// Help command listing available commands
@@ -61,6 +59,8 @@ pub mod language;
 pub mod onboarding;
 /// Markdown command definition loader for messaging slash commands
 pub mod parser;
+/// Handlers for /confirm and /deny — resolve a parked agent draft.
+pub mod pending_confirm;
 /// `/plan` — deterministic display of the athlete's stored training plan.
 pub mod plan;
 /// Privacy consent commands (view, enable, disable analytics)
@@ -171,8 +171,8 @@ pub struct PlatformCommandContext {
     /// than inside it, written once by the handler and read once by
     /// [`dispatch::try_dispatch`].
     pub rotation: ConversationRotation,
-    /// Tool-dispatch runtime for handlers that execute MCP tools (`/confirm`
-    /// re-dispatches a Guardian-parked call). Deliberately a separate handle
+    /// Tool-dispatch runtime for handlers that execute MCP tools.
+    /// Deliberately a separate handle
     /// from [`Self::ctx`]: widening [`CommandCtx`] would cycle
     /// `pierre-runtime-context` → `pierre-tool-runtime` →
     /// `pierre-runtime-context`. Concrete type is the same `ServerContext`.

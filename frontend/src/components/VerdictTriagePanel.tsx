@@ -1,4 +1,4 @@
-// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and the disposition control that writes support's call
+// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and support's call: a control to whoever can write it, text to the rest
 // ABOUTME: Operator chrome (English by decision); reached only from ClaimVerdictsTab, never from the chat surface's drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,10 +8,9 @@ import { useState } from 'react';
 import type { ClaimVerdict, DispositionReason, VerdictDisposition } from '@pierre/shared-types';
 import { DISPOSITION_REASONS, VERDICT_DISPOSITIONS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
 import type { VerdictKnob } from '../services/api/admin';
 import { Button, Select, Textarea } from './ui';
-import { describeApiError } from '@pierre/ui-logic';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 /** What an admin records about one verdict. */
 export interface DispositionInput {
@@ -48,6 +47,18 @@ const KNOB_KIND_LABEL: Record<VerdictKnob['kind'], string> = {
   consistency_check: 'Consistency check',
   judge_prompt: 'Judge prompt',
 };
+
+/** The line naming who wrote the disposition on the row, when someone has. */
+function DisposedBy({ verdict }: { verdict: ClaimVerdict }) {
+  // The panel's copy is English by decision (operator chrome), and so is its
+  // date, as on every admin-only screen.
+  if (!verdict.disposed_by || !verdict.disposed_at) return null;
+  return (
+    <p className="text-xs text-outline">
+      Disposed by {verdict.disposed_by} · {formatDateTime(verdict.disposed_at, ADMIN_LOCALE)}
+    </p>
+  );
+}
 
 /** Where to edit if the verdict was wrong — the pointer panel the detail read computed. */
 function KnobPanel({ knob }: { knob: VerdictKnob | undefined }) {
@@ -95,9 +106,6 @@ function DispositionControl({
   verdict: ClaimVerdict;
   onSetDisposition: SetDisposition;
 }) {
-  // The panel's copy is English by decision (operator chrome); the date still
-  // follows the viewer's locale, as every other timestamp in the shell does.
-  const { t, language } = useTranslation();
   const [disposition, setDisposition] = useState<VerdictDisposition | ''>(verdict.disposition ?? '');
   const [reason, setReason] = useState<DispositionReason | ''>(verdict.disposition_reason ?? '');
   const [note, setNote] = useState<string>(verdict.disposition_note ?? '');
@@ -115,7 +123,7 @@ function DispositionControl({
         note: note.trim() || undefined,
       });
     } catch (e) {
-      setError(describeApiError(e, { t, fallbackKey: 'errors.unknown' }));
+      setError(describeAdminError(e));
     } finally {
       setSaving(false);
     }
@@ -124,11 +132,7 @@ function DispositionControl({
   return (
     <section data-testid="verdict-disposition" className="space-y-3">
       <h4 className="text-xs font-semibold text-outline">Disposition</h4>
-      {verdict.disposed_by && verdict.disposed_at ? (
-        <p className="text-xs text-outline">
-          Disposed by {verdict.disposed_by} · {formatDateTime(verdict.disposed_at, language)}
-        </p>
-      ) : null}
+      <DisposedBy verdict={verdict} />
       <Select
         label="Call"
         aria-label="Disposition call"
@@ -171,9 +175,28 @@ function DispositionControl({
   );
 }
 
+/** The disposition on the row, for a viewer who may read it and not change it. */
+function DispositionSummary({ verdict }: { verdict: ClaimVerdict }) {
+  if (!verdict.disposition) return null;
+  return (
+    <section data-testid="verdict-disposition-summary" className="space-y-1">
+      <h4 className="text-xs font-semibold text-outline">Disposition</h4>
+      <DisposedBy verdict={verdict} />
+      <p className="text-xs text-on-surface">{DISPOSITION_LABEL[verdict.disposition]}</p>
+      {verdict.disposition_reason ? (
+        <p className="text-xs text-on-surface">{REASON_LABEL[verdict.disposition_reason]}</p>
+      ) : null}
+      {verdict.disposition_note ? (
+        <p className="text-xs text-on-surface">{verdict.disposition_note}</p>
+      ) : null}
+    </section>
+  );
+}
+
 /**
  * Everything the admin adds under one verdict card: the knob behind the
- * verdict and the control that records what support made of it.
+ * verdict and what support made of it, as a control for a viewer who can write
+ * it and as a summary for one who cannot.
  *
  * The chat drawer renders this through its `renderTriage` slot and never
  * imports it, so the drawer an athlete opens carries none of this English.
@@ -186,12 +209,17 @@ export default function VerdictTriagePanel({
   verdict: ClaimVerdict;
   /** The knob the detail read resolved; absent while it loads. */
   knob: VerdictKnob | undefined;
-  onSetDisposition: SetDisposition;
+  /** The writer; absent when the viewer may not record a disposition. */
+  onSetDisposition?: SetDisposition;
 }) {
   return (
     <>
       <KnobPanel knob={knob} />
-      <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
+      {onSetDisposition ? (
+        <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
+      ) : (
+        <DispositionSummary verdict={verdict} />
+      )}
     </>
   );
 }

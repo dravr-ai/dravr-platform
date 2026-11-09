@@ -46,6 +46,14 @@ fn paused() -> AppError {
     AppError::new(ErrorCode::QuotaExceeded, SIGNUP_PAUSED)
 }
 
+/// Whether `error` is the operator's bounds refusing a sign-up (a closed kill
+/// switch or a reached ceiling), so a door can say [`SIGNUP_PAUSED`] instead
+/// of a refusal that blames the person's account or input.
+#[must_use]
+pub fn is_signup_paused(error: &AppError) -> bool {
+    error.code == ErrorCode::QuotaExceeded && error.message.ends_with(SIGNUP_PAUSED)
+}
+
 /// The sign-up bounds in force right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SignupPolicy {
@@ -354,6 +362,25 @@ mod tests {
     #[test]
     fn a_zero_ceiling_sets_none() {
         assert!(admits(&policy(true, 0), i64::MAX));
+    }
+
+    #[test]
+    fn only_the_bounds_refusal_reads_as_a_paused_sign_up() {
+        assert!(
+            is_signup_paused(&paused()),
+            "bug: the bounds' own refusal must read as a paused sign-up"
+        );
+        assert!(
+            !is_signup_paused(&AppError::new(
+                ErrorCode::QuotaExceeded,
+                "Usage quota exceeded for your current plan"
+            )),
+            "bug: a plan quota is not the sign-up bounds"
+        );
+        assert!(
+            !is_signup_paused(&AppError::invalid_input(SIGNUP_PAUSED)),
+            "bug: only a quota refusal carrying the sentence is the bounds'"
+        );
     }
 
     #[test]

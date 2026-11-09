@@ -30,6 +30,7 @@ import {
   isDivider,
   messageChannelOrigin,
   isModelReply,
+  canRegenerateReply,
   isSameMessageGroup,
   localDayKey,
   opensPrivateStretch,
@@ -1110,20 +1111,22 @@ export function MessageList({
             ) : null}
           </View>
         ) : isError ? (
-          /* A failed turn — the message and its retry on one line. The clock
-             belongs to the row, not to what it offers: an error row still says
-             when it arrived. */
+          /* A failed turn — the message and, when a retry may get past it, its
+             retry on one line. The clock belongs to the row, not to what it
+             offers: an error row still says when it arrived. */
           <View className="w-full">
             <View className="flex-row flex-wrap items-center gap-2">
               <Text className="text-sm text-error flex-shrink">{item.content}</Text>
-              <Text
-                testID="message-retry"
-                accessibilityRole="button"
-                className="text-sm text-primary font-medium"
-                onPress={() => onRetryMessage(item.id)}
-              >
-                {t('common.retry')}
-              </Text>
+              {item.retryable === true ? (
+                <Text
+                  testID="message-retry"
+                  accessibilityRole="button"
+                  className="text-sm text-primary font-medium"
+                  onPress={() => onRetryMessage(item.id)}
+                >
+                  {t('common.retry')}
+                </Text>
+              ) : null}
             </View>
             {clock ? (
               <Text className="text-xs text-text-tertiary mt-1" testID="message-time">
@@ -1149,7 +1152,7 @@ export function MessageList({
             onLongPress={item.room ? undefined : () =>
               presentMessageMenu(
                 {
-                  canRetry: true,
+                  canRetry: canRegenerateReply(item),
                   fromModel: isModelReply(item.finish_reason),
                   rating: messageFeedback[item.id] ?? null,
                   onCopy: () => handleCopyMessage(readableCopy),

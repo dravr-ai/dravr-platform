@@ -24,17 +24,21 @@ fn rules() -> TextGuardrails {
         "en".to_owned(),
         LocaleGuardrails {
             disclaimer_triggers: vec!["injury".to_owned(), "pain".to_owned()],
-            disclaimer_text: "EN Disclaimer.".to_owned(),
         },
     );
     locales.insert(
         "fr".to_owned(),
         LocaleGuardrails {
             disclaimer_triggers: vec!["blessure".to_owned(), "douleur".to_owned()],
-            disclaimer_text: "FR Avis.".to_owned(),
         },
     );
-    TextGuardrails::compile(200, vec!["self-harm".to_owned()], locales)
+    TextGuardrails::compile(vec!["self-harm".to_owned()], locales)
+}
+
+fn needs_disclaimer_in(locale: &str) -> GuardrailOutcome {
+    GuardrailOutcome::NeedsDisclaimer {
+        locale: locale.to_owned(),
+    }
 }
 
 #[test]
@@ -48,39 +52,43 @@ fn allowed_when_no_trigger() {
 }
 
 #[test]
-fn disclaimer_prepended_on_injury_keyword() {
+fn disclaimer_needed_on_injury_keyword() {
     let r = rules();
-    let outcome = r.apply("Watch your achilles for any injury signs.", "en");
-    if let GuardrailOutcome::Allowed(text) = outcome {
-        assert!(text.starts_with("EN Disclaimer."));
-        assert!(text.contains("achilles"));
-    } else {
-        panic!("expected allowed with disclaimer");
-    }
+    assert_eq!(
+        r.apply("Watch your achilles for any injury signs.", "en"),
+        needs_disclaimer_in("en")
+    );
 }
 
 #[test]
-fn disclaimer_prepended_on_pain_keyword_case_insensitive() {
+fn disclaimer_needed_on_pain_keyword_case_insensitive() {
     let r = rules();
-    let outcome = r.apply("If you feel any PAIN, stop the workout.", "en");
-    if let GuardrailOutcome::Allowed(text) = outcome {
-        assert!(text.starts_with("EN Disclaimer."));
-    } else {
-        panic!("expected allowed with disclaimer");
-    }
+    assert_eq!(
+        r.apply("If you feel any PAIN, stop the workout.", "en"),
+        needs_disclaimer_in("en")
+    );
 }
 
 #[test]
-fn rejected_when_response_exceeds_cap() {
+fn length_alone_never_rejects_a_response() {
     let r = rules();
-    let long = "a".repeat(300);
-    match r.apply(&long, "en") {
-        GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
-            assert_eq!(length, 300);
-            assert_eq!(cap, 200);
-        }
-        other => panic!("expected TooLong rejection, got {other:?}"),
-    }
+    let long = "a".repeat(60_000);
+    assert_eq!(r.apply(&long, "en"), GuardrailOutcome::Allowed(long));
+}
+
+/// The two rules used to run only under the cap, so a long reply skipped both.
+#[test]
+fn a_long_response_is_still_held_to_every_rule() {
+    let r = rules();
+    let filler = "a".repeat(60_000);
+    assert!(matches!(
+        r.apply(&format!("{filler} self-harm"), "en"),
+        GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { .. })
+    ));
+    assert_eq!(
+        r.apply(&format!("{filler} injury"), "en"),
+        needs_disclaimer_in("en")
+    );
 }
 
 #[test]
@@ -103,23 +111,55 @@ fn empty_response_passes_through_unchanged() {
 #[test]
 fn safe_default_includes_medical_keywords() {
     let r = TextGuardrails::safe_default();
-    let outcome = r.apply("If your knee pain persists, please see a doctor.", "en");
-    if let GuardrailOutcome::Allowed(text) = outcome {
-        assert!(text.contains("Medical disclaimer"));
-        assert!(text.contains("knee pain"));
-    } else {
-        panic!("expected allowed with disclaimer prepended");
+    assert_eq!(
+        r.apply("If your knee pain persists, please see a doctor.", "en"),
+        needs_disclaimer_in("en")
+    );
+}
+
+/// A reply talking about `Schmerzen` got no disclaimer, though the German
+/// disclaimer copy itself uses that word: triggers match whole words, and the lists held
+/// singulars only.
+#[test]
+fn safe_default_fires_on_inflected_forms_in_every_locale() {
+    let r = TextGuardrails::safe_default();
+    for (reply, locale) in [
+        ("Those knee injuries need rest.", "en"),
+        ("That sounds painful after the run.", "en"),
+        ("Ces douleurs au genou méritent du repos.", "fr"),
+        ("Tus lesiones necesitan descanso.", "es"),
+        ("Deine Schmerzen brauchen Ruhe.", "de"),
+        ("Nimm keine Medikamente ohne Rat.", "de"),
+        ("As tuas lesões precisam de descanso.", "pt"),
+    ] {
+        assert_eq!(
+            r.apply(reply, locale),
+            needs_disclaimer_in(locale),
+            "{reply}"
+        );
     }
 }
 
+/// French `pain` was fixed in afe018126, but the same class of false positive lived
+/// on: these words mean a recipe or a training plan, not a doctor's prescription.
 #[test]
-fn safe_default_caps_long_responses() {
+fn safe_default_does_not_read_a_recipe_as_medical() {
     let r = TextGuardrails::safe_default();
-    let huge = "x".repeat(10_000);
-    matches!(
-        r.apply(&huge, "en"),
-        GuardrailOutcome::Rejected(GuardrailRejection::TooLong { .. })
-    );
+    for (reply, locale) in [
+        ("Aquí tienes una receta de pasta para esta noche.", "es"),
+        ("Hier ist ein Rezept für heute Abend.", "de"),
+        ("Aqui tens uma receita de massa para hoje.", "pt"),
+        (
+            "Your training prescription for this block is unchanged.",
+            "en",
+        ),
+    ] {
+        assert_eq!(
+            r.apply(reply, locale),
+            GuardrailOutcome::Allowed(reply.to_owned()),
+            "{reply}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,32 +181,26 @@ fn french_bread_does_not_trigger_english_medical_disclaimer() {
 }
 
 #[test]
-fn french_locale_uses_french_triggers_and_text() {
+fn french_locale_uses_french_triggers() {
     let r = rules();
-    let outcome = r.apply("Si tu sens une douleur, arrête.", "fr");
-    let GuardrailOutcome::Allowed(text) = outcome else {
-        panic!("expected allowed with French disclaimer");
-    };
-    assert!(text.starts_with("FR Avis."));
-    assert!(
-        !text.contains("EN Disclaimer."),
-        "French locale must not leak the English disclaimer"
+    assert_eq!(
+        r.apply("Si tu sens une douleur, arrête.", "fr"),
+        needs_disclaimer_in("fr")
     );
 }
 
 #[test]
 fn unconfigured_locale_falls_back_to_english() {
     // The Italian locale isn't present in `rules()`; with `en` available,
-    // resolve_locale returns the English entry. An Italian-text reply
-    // containing the English trigger word would then fire the EN
-    // disclaimer — that's the documented contract, surfaced here so
-    // operators don't ship partial locale coverage by accident.
+    // resolve_locale returns the English entry, and the outcome names `en` so the
+    // disclaimer copy reads in the language of the rule that matched. That's the
+    // documented contract, surfaced here so operators don't ship partial locale
+    // coverage by accident.
     let r = rules();
-    let outcome = r.apply("Persistent ankle pain after training.", "it");
-    let GuardrailOutcome::Allowed(text) = outcome else {
-        panic!("expected allowed with fallback disclaimer");
-    };
-    assert!(text.starts_with("EN Disclaimer."));
+    assert_eq!(
+        r.apply("Persistent ankle pain after training.", "it"),
+        needs_disclaimer_in("en")
+    );
 }
 
 #[test]
@@ -189,36 +223,19 @@ fn safe_default_french_meal_recommendation_is_clean() {
     // The exact regression from production: a French meal suggestion
     // mentioning bread must not prepend the English medical disclaimer.
     let r = TextGuardrails::safe_default();
-    let outcome = r.apply(
-        "Souper : Pâtes avec sauce à la viande, parmesan, pain, salade.",
-        "fr",
-    );
-    let GuardrailOutcome::Allowed(text) = outcome else {
-        panic!("expected allowed pass-through");
-    };
-    assert!(
-        !text.contains("Medical disclaimer"),
-        "French meal recommendation must not leak the English disclaimer"
-    );
-    assert!(
-        !text.contains("Avis médical"),
-        "No French trigger word present, so the French disclaimer should not fire either"
+    let reply = "Souper : Pâtes avec sauce à la viande, parmesan, pain, salade.";
+    assert_eq!(
+        r.apply(reply, "fr"),
+        GuardrailOutcome::Allowed(reply.to_owned()),
+        "No French trigger word present, so no disclaimer fires in any language"
     );
 }
 
 #[test]
-fn safe_default_french_medical_trigger_prepends_french_disclaimer() {
+fn safe_default_french_medical_trigger_needs_the_french_disclaimer() {
     let r = TextGuardrails::safe_default();
-    let outcome = r.apply("Si la douleur persiste, consulte un médecin.", "fr");
-    let GuardrailOutcome::Allowed(text) = outcome else {
-        panic!("expected allowed with French disclaimer prepended");
-    };
-    assert!(
-        text.contains("Avis médical"),
-        "French medical trigger must prepend the French disclaimer"
-    );
-    assert!(
-        !text.contains("Medical disclaimer:"),
-        "French response must not also carry the English disclaimer header"
+    assert_eq!(
+        r.apply("Si la douleur persiste, consulte un médecin.", "fr"),
+        needs_disclaimer_in("fr")
     );
 }

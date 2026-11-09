@@ -40,7 +40,7 @@ pub use data::DataContext;
 /// Re-exported so a host can name it in its [`BillingCtx`] impl whether or
 /// not it links the group coaching routes.
 pub use pierre_groups::AthleteBilling;
-pub use tenant::{resolve_tenant, TenantMode};
+pub use tenant::{analytics_read_scope, resolve_tenant, scope_caller, TenantMode};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -50,6 +50,7 @@ use async_trait::async_trait;
 use dravr_tronc::http_client::guard::FetchPolicy;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::billing::BillingProvider;
@@ -88,14 +89,14 @@ pub trait IdentityCtx: Send + Sync + 'static {
 /// Slice of runtime state the dashboard route layer needs.
 ///
 /// Covers `/api/dashboard/analytics`. Its handler reads from the
-/// repository registry only (`usage`, `llm_usage` repos) — no
+/// repository registry only (the `llm_usage` repo) — no
 /// auth manager, no providers, no cache. The composition root in
 /// `pierre-server` implements this trait on its `ServerContext`; the route
 /// handlers also require [`MiddlewareCtx`] to satisfy the
 /// `AuthenticatedUser` extractor.
 pub trait DashboardCtx: Send + Sync + 'static {
-    /// Repository registry — backs the top-tools and LLM-usage
-    /// daily-series lookups the dashboard endpoint performs.
+    /// Repository registry — backs the LLM-usage daily-series lookup the
+    /// dashboard endpoint performs.
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 }
 
@@ -192,9 +193,10 @@ pub trait A2ACtx: Send + Sync + 'static {
     /// (a2a clients, sessions, tasks, push-notification configs, usage).
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
-    /// Configured server base URL — used to construct the agent card's
-    /// `supportedInterfaces` URLs.
-    fn base_url(&self) -> &str;
+    /// The authorization server's configuration: the issuer and the protocol
+    /// door the agent card publishes, and the A2A resource identifiers a
+    /// token may be bound to.
+    fn oauth2_server_config(&self) -> &OAuth2ServerConfig;
 
     /// Run a task's execution after its request has answered.
     ///

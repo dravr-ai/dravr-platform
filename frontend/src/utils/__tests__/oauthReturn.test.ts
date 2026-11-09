@@ -7,7 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OAUTH_RESULT_KEY,
-  historyLoginAfterGrant,
+  historyChoiceAfterGrant,
+  refusalAnswer,
   returnToConnectStart,
   settleOAuthReturn,
   startOAuthInNewTab,
@@ -104,7 +105,7 @@ describe('settleOAuthReturn', () => {
     expect(typeof stored.timestamp).toBe('number');
   });
 
-  it('sends a refused Garmin grant straight back too, where the card offers the login', () => {
+  it('sends a refused Garmin grant straight back too, where the card answers it', () => {
     sessionStorage.setItem(RETURN_ROUTE_KEY, 'home');
     window.history.replaceState(null, '', '/?provider=garmin&success=false');
 
@@ -116,6 +117,18 @@ describe('settleOAuthReturn', () => {
     expect(stored.provider).toBe('garmin');
     expect(stored.success).toBe(false);
     expect(stored.hasError).toBe(true);
+    // A raw error is never kept: only an allow-listed reason is.
+    expect(stored.reason).toBeUndefined();
+    expect(JSON.stringify(stored)).not.toContain('access_denied');
+  });
+
+  it('keeps the seats having run out as the refusal\'s reason', () => {
+    sessionStorage.setItem(RETURN_ROUTE_KEY, 'home');
+    window.history.replaceState(null, '', '/?provider=garmin&success=false&error=no_seat');
+
+    expect(settleOAuthReturn({ provider: 'garmin', success: false, error: 'no_seat' })).toBeNull();
+
+    expect(storedResult().reason).toBe('no_seat');
   });
 
   it('keeps the callback page for any other refusal and leaves the address bar alone', () => {
@@ -198,24 +211,90 @@ describe('returnToConnectStart', () => {
   });
 });
 
-describe('historyLoginAfterGrant', () => {
+describe('historyChoiceAfterGrant', () => {
   // The Garmin card as the server serves it after a Garmin grant.
-  const garmin = (awaiting: boolean) =>
+  const garmin = (state: 'needed' | 'imported' | 'incomplete') =>
     ({
       provider: 'sciotte_garmin',
       connected: true,
       connected_backend: 'garmin',
-      oauth_awaiting_activities: awaiting,
+      history: { state, sign_in_target: 'sciotte_garmin', archive_source: 'garmin_archive' },
     }) as ExtendedProviderStatus;
 
-  it('leads a Garmin grant with nothing pushed yet to the Garmin card', () => {
-    const card = garmin(true);
-    expect(historyLoginAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
+  it('leads a Garmin grant whose history is still needed to the Garmin card', () => {
+    const card = garmin('needed');
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
   });
 
-  it('leads nowhere once the grant holds activities, on a refusal, or for another grant', () => {
-    expect(historyLoginAfterGrant({ provider: 'garmin', success: true }, [garmin(false)])).toBeNull();
-    expect(historyLoginAfterGrant({ provider: 'garmin', success: false }, [garmin(true)])).toBeNull();
-    expect(historyLoginAfterGrant({ provider: 'whoop', success: true }, [garmin(true)])).toBeNull();
+  it('matches a card by its own key too', () => {
+    const card = { ...garmin('needed'), provider: 'garmin' };
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
+  });
+
+  it('leads nowhere once the history is in or was tried, on a refusal, or for another grant', () => {
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [garmin('imported')])).toBeNull();
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [garmin('incomplete')])).toBeNull();
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: false }, [garmin('needed')])).toBeNull();
+    expect(historyChoiceAfterGrant({ provider: 'whoop', success: true }, [garmin('needed')])).toBeNull();
+  });
+
+  it('opens no sheet for a card with no history choice this build can show', () => {
+    const bare = {
+      ...garmin('needed'),
+      history: { state: 'needed', sign_in_target: null, archive_source: 'polar_archive' },
+    } as ExtendedProviderStatus;
+    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [bare])).toBeNull();
+  });
+});
+
+describe('refusalAnswer', () => {
+  const refused = (provider: string, tombstoned = false, reason?: 'no_seat') => ({
+    provider,
+    success: false,
+    tombstoned,
+    reason,
+  });
+  // A Garmin card not connected yet, as the server serves it: `oauth` while a
+  // seat is free, `mirror` once the seats are out.
+  const garminCard = (recommended: 'oauth' | 'mirror') =>
+    ({
+      provider: 'sciotte_garmin',
+      connected: false,
+      needs_reauth: false,
+      requires_oauth: false,
+      consent_required: false,
+      recommended_backend: recommended,
+    }) as ExtendedProviderStatus;
+  const stravaCard = { ...garminCard('oauth'), provider: 'sciotte' } as ExtendedProviderStatus;
+
+  it('shows the retry on a refused Garmin grant while a seat is free, never the sign-in', () => {
+    const card = garminCard('oauth');
+    expect(refusalAnswer(refused('garmin'), [card])).toEqual({ kind: 'retry', card });
+  });
+
+  it('falls back to the Garmin sign-in once the seats ran out under the athlete', () => {
+    const card = garminCard('mirror');
+    expect(refusalAnswer(refused('garmin', false, 'no_seat'), [card])).toEqual({ kind: 'sign_in', target: 'garmin', card });
+  });
+
+  it('shows the retry on a Garmin grant refused for any other reason, even when the plan now signs in', () => {
+    const card = garminCard('mirror');
+    expect(refusalAnswer(refused('garmin'), [card])).toEqual({ kind: 'retry', card });
+  });
+
+  it('shows the retry on a seatless refusal whose card still authorizes', () => {
+    const card = garminCard('oauth');
+    expect(refusalAnswer(refused('garmin', false, 'no_seat'), [card])).toEqual({ kind: 'retry', card });
+  });
+
+  it('keeps Strava\'s fallback to its sign-in on any refusal', () => {
+    expect(refusalAnswer(refused('strava'), [stravaCard])).toEqual({ kind: 'sign_in', target: 'strava', card: stravaCard });
+  });
+
+  it('answers nothing for a grant, a tombstone, another provider, or no Garmin card', () => {
+    expect(refusalAnswer({ provider: 'garmin', success: true, tombstoned: false }, [garminCard('oauth')])).toBeNull();
+    expect(refusalAnswer(refused('garmin', true), [garminCard('mirror')])).toBeNull();
+    expect(refusalAnswer(refused('whoop'), [garminCard('oauth')])).toBeNull();
+    expect(refusalAnswer(refused('garmin'), [])).toBeNull();
   });
 });

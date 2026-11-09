@@ -24,8 +24,11 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
 
-use super::calendar::{calendar_ledger_target, provider_arg, provider_property, LedgerCalendar};
-use super::coach_scope::{athlete_property, resolve_calendar_scope};
+use super::calendar::{
+    calendar_ledger_target, provider_arg, provider_property, CalendarConnections, LedgerCalendar,
+    PassedOver,
+};
+use super::coach_scope::{athlete_property, resolve_calendar_scope, under_athlete_consents};
 use super::plan_scope::PlanScope;
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview, CalendarPusher};
@@ -67,8 +70,10 @@ pub(super) async fn calendar_block(
 ) -> AppResult<CalendarBlock> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
-    let ledger = calendar_ledger_target(context, tenant, user_id).await?;
+    let ledger =
+        calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await?;
     let pushed_by = who_pushes(scope, &ledger);
+    let calendar_note = read_note(context, scope, &ledger).await?;
     let target = ledger.backend;
     let mut live = repos
         .prescribed_workouts
@@ -113,6 +118,7 @@ pub(super) async fn calendar_block(
         stale: pending.is_stale(),
         scope: None,
         pushed_by,
+        calendar_note,
     };
     if block.entries.is_empty() {
         // An empty ledger is not an empty calendar, and the difference is the
@@ -154,10 +160,14 @@ pub(super) async fn calendar_preview_after_save(
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
     let ledger = best_effort(
-        calendar_ledger_target(context, tenant, user_id).await,
+        calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await,
         "calendar target unresolved",
     )?;
     let pushed_by = who_pushes(scope, &ledger);
+    let calendar_note = best_effort(
+        read_note(context, scope, &ledger).await,
+        "calendar note unresolved",
+    )?;
     let target = ledger.backend;
     let mut live = best_effort(
         repos
@@ -190,7 +200,40 @@ pub(super) async fn calendar_preview_after_save(
         pending,
         stale: pending.is_stale(),
         pushed_by,
+        calendar_note,
     })
+}
+
+/// The note a read of `ledger` carries when it passed the athlete's chosen
+/// calendar over; `None` when it did not.
+///
+/// # Errors
+///
+/// Returns the repository error when the connections cannot be read.
+async fn read_note(
+    context: &ToolExecutionContext,
+    scope: &PlanScope,
+    ledger: &LedgerCalendar,
+) -> AppResult<Option<String>> {
+    let Some(chosen) = ledger.passed_over.as_deref() else {
+        return Ok(None);
+    };
+    let chooser = scope
+        .acting_for()
+        .map_or_else(|| "the athlete".to_owned(), str::to_owned);
+    let passed = PassedOver::read(context, scope.tenant, scope.user_id, chooser, chosen).await?;
+    Ok(Some(passed.read_note(context, &ledger.backend)))
+}
+
+/// The connections a read of `scope`'s ledger looks under: the calendars a
+/// coach writes when a group's human coach reads for the athlete, the
+/// athlete's own and their link's otherwise.
+fn ledger_connections(scope: &PlanScope) -> CalendarConnections {
+    if scope.acting_for().is_some() {
+        CalendarConnections::ForCoach
+    } else {
+        CalendarConnections::WithLink
+    }
 }
 
 /// Who pushes `ledger`'s calendar, when it is not the reader: an athlete
@@ -198,7 +241,7 @@ pub(super) async fn calendar_preview_after_save(
 /// human coach's link has it pushed by that coach. A coach reading for the
 /// athlete pushes it themselves.
 fn who_pushes(scope: &PlanScope, ledger: &LedgerCalendar) -> Option<CalendarPusher> {
-    (scope.acting_for.is_none() && ledger.through_link).then_some(CalendarPusher::HumanCoach)
+    (scope.acting_for().is_none() && ledger.through_link).then_some(CalendarPusher::HumanCoach)
 }
 
 /// The preview is best-effort: a step that fails is logged with what it was
@@ -238,22 +281,21 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
-            "Put the athlete's active training plan on their calendar provider (Intervals.icu \
-             today), or bring it up to date after the plan changed: creates missing days, \
-             updates changed ones, removes ones the plan no longer has, and leaves alone any \
-             the athlete edited on the provider. Never touches dates before today. Call it \
-             when the athlete or coach asks to put or update the plan on their calendar — not \
-             on your own initiative after a save. Needs a saved plan and a connected provider \
-             that writes a training calendar. A group's human coach pushes a consenting \
-             athlete's plan with `athlete`, through the athlete's Intervals.icu link: the \
-             athlete must allow calendar writes on it, and Intervals.icu must list the coach \
-             as their coach. Only the published plan is pushed, never a coach's unpublished \
-             draft (the reply's unpublished_draft says when one exists).",
+            "Put the athlete's active training plan on their calendar provider (Intervals.icu, \
+             Wahoo or Garmin), or update it after a change: creates missing days, updates \
+             changed ones, removes dropped ones, leaves alone any the athlete edited there \
+             (Garmin reports no edits). Never touches dates before today. Call it when the \
+             athlete or coach asks, not on your own after a save. Publishing does not push: \
+             after publish_training_plan, call it only if the coach asks. Needs a saved plan and a connected calendar-writing provider. A group's human \
+             coach pushes a consenting athlete's plan with `athlete`, through their \
+             Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must \
+             list the coach as their coach. Only the published plan is pushed, never a coach's \
+             unpublished draft (the reply's unpublished_draft flags one).",
             schema,
             annotations(
                 "Push training plan to calendar",
                 Effect::Destructive,
-                Reach::OpenWorld,
+                Reach::AthleteAccount,
             ),
         )))
     }
@@ -279,101 +321,113 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let (tenant, user_id) = (scope.tenant, scope.user_id);
-            let repos = context.resources.repos();
-            let today = athlete_today(repos, user_id).await;
-            let from = match args.get("from_date").and_then(Value::as_str) {
-                Some(raw) => parse_plan_date(raw)
-                    .ok_or_else(|| {
-                        AppError::invalid_input(format!(
-                            "from_date must be a canonical YYYY-MM-DD, got '{raw}'"
-                        ))
-                    })?
-                    .max(today),
-                None => today,
-            };
-            let target = scope.target(&context, provider_arg(&args)).await?;
-            let provider = match scope.calendar_writer(&context, &target).await? {
-                Ok(provider) => provider,
-                Err(refused) => return Ok(refused),
-            };
+            // What the call reads of a coached athlete's calendar runs under the
+            // athlete's AI consents, never the coach's (carnet#1387).
+            let athlete_consents = scope.athlete_consents(context.resources.repos()).await;
+            under_athlete_consents(athlete_consents, async {
+                let (tenant, user_id) = (scope.tenant, scope.user_id);
+                let repos = context.resources.repos();
+                let today = athlete_today(repos, user_id).await;
+                let from = match args.get("from_date").and_then(Value::as_str) {
+                    Some(raw) => parse_plan_date(raw)
+                        .ok_or_else(|| {
+                            AppError::invalid_input(format!(
+                                "from_date must be a canonical YYYY-MM-DD, got '{raw}'"
+                            ))
+                        })?
+                        .max(today),
+                    None => today,
+                };
+                let chosen = match scope.target(&context, provider_arg(&args)).await? {
+                    Ok(chosen) => chosen,
+                    Err(ask) => return Ok(ask),
+                };
+                let calendar_note = scope.passed_over_note(&context, &chosen).await?;
+                let target = chosen.backend;
+                let provider = match scope.calendar_writer(&context, &target).await? {
+                    Ok(provider) => provider,
+                    Err(refused) => return Ok(refused),
+                };
 
-            // When this call runs behind an MCP task handle the dispatcher
-            // scoped a cancel flag around it; handing it to the push loop is
-            // what lets tasks/cancel stop the calendar writes between
-            // entries. An inline call has no flag and pushes to completion.
-            let cancel_flag = current_task_cancel_flag();
-            let pushed = push_active_plan(
-                repos,
-                provider.as_ref(),
-                &PushPlanParams {
-                    tenant,
-                    user_id,
-                    provider: &target,
-                    from,
-                    week_notes: calendar_holds_week_notes(
-                        context.resources.provider_registry(),
-                        &target,
-                    ),
-                    cancel: cancel_flag.as_deref(),
-                },
-            )
-            .await;
-            let mut report = scope.reacting(&context, provider.as_ref(), pushed).await?;
-            if let Some(name) = scope.athlete_name() {
-                // The athlete did not push this: they are told their coach
-                // put workouts on their calendar, when the push wrote any.
-                #[cfg(feature = "client-notifications")]
-                let notifications = context.resources.notification_service();
-                #[cfg(not(feature = "client-notifications"))]
-                let notifications = None;
-                tell_plan_pushed(
+                // When this call runs behind an MCP task handle the dispatcher
+                // scoped a cancel flag around it; handing it to the push loop is
+                // what lets tasks/cancel stop the calendar writes between
+                // entries. An inline call has no flag and pushes to completion.
+                let cancel_flag = current_task_cancel_flag();
+                let pushed = push_active_plan(
                     repos,
-                    context.resources.provider_registry(),
-                    notifications,
-                    &CoachCalendarPush {
+                    provider.as_ref(),
+                    &PushPlanParams {
                         tenant,
-                        athlete: user_id,
-                        coach: scope.writer.user_id,
-                        backend: &target,
+                        user_id,
+                        provider: &target,
+                        from,
+                        week_notes: calendar_holds_week_notes(
+                            context.resources.provider_registry(),
+                            &target,
+                        ),
+                        cancel: cancel_flag.as_deref(),
                     },
-                    &report,
                 )
                 .await;
-                // A coach's draft is not the athlete's plan: the push carried
-                // the published plan, and the coach is told the draft is
-                // still theirs.
-                let target = CoachDraftTarget::new(tenant, user_id, scope.writer.user_id);
-                if draft_state(repos, &target).await?.is_some() {
-                    report.unpublished_draft = Some(format!(
-                        "You hold an unpublished draft of {name}'s plan — only the published \
-                         plan is pushed. Publish the draft with publish_training_plan, then push \
-                         again to put it on the calendar."
-                    ));
+                let mut report = scope.reacting(&context, provider.as_ref(), pushed).await?;
+                report.calendar_note = calendar_note;
+                if let Some(name) = scope.athlete_name() {
+                    // The athlete did not push this: they are told their coach
+                    // put workouts on their calendar, when the push wrote any.
+                    #[cfg(feature = "client-notifications")]
+                    let notifications = context.resources.notification_service();
+                    #[cfg(not(feature = "client-notifications"))]
+                    let notifications = None;
+                    tell_plan_pushed(
+                        repos,
+                        context.resources.provider_registry(),
+                        notifications,
+                        &CoachCalendarPush {
+                            tenant,
+                            athlete: user_id,
+                            coach: scope.writer.user_id,
+                            backend: &target,
+                        },
+                        &report,
+                    )
+                    .await;
+                    // A coach's draft is not the athlete's plan: the push carried
+                    // the published plan, and the coach is told the draft is
+                    // still theirs.
+                    let target = CoachDraftTarget::new(tenant, user_id, scope.writer.user_id);
+                    if draft_state(repos, &target).await?.is_some() {
+                        report.unpublished_draft = Some(format!(
+                            "You hold an unpublished draft of {name}'s plan — only the published \
+                             plan is pushed. Publish the draft with publish_training_plan, then push \
+                             again to put it on the calendar."
+                        ));
+                    }
                 }
-            }
 
-            let landed = report.created + report.updated + report.removed;
-            let attempted = landed + report.failed.len();
-            if let Some(first) = report.failed.first() {
-                emit_calendar_sync_failed(
-                    tenant,
-                    user_id,
-                    &target,
-                    PUSH_TOOL,
-                    &format!(
-                        "{} of {attempted} entries failed; first: {}",
-                        report.failed.len(),
-                        first.error
-                    ),
-                );
-            }
-            if report.failed.is_empty() || landed > 0 {
-                emit_calendar_sync_completed(tenant, user_id, &target, PUSH_TOOL, landed);
-            }
-            scope.record_coach_write(PUSH_TOOL, attempted);
+                let landed = report.created + report.updated + report.removed;
+                let attempted = landed + report.failed.len();
+                if let Some(first) = report.failed.first() {
+                    emit_calendar_sync_failed(
+                        tenant,
+                        user_id,
+                        &target,
+                        PUSH_TOOL,
+                        &format!(
+                            "{} of {attempted} entries failed; first: {}",
+                            report.failed.len(),
+                            first.error
+                        ),
+                    );
+                }
+                if report.failed.is_empty() || landed > 0 {
+                    emit_calendar_sync_completed(tenant, user_id, &target, PUSH_TOOL, landed);
+                }
+                scope.record_coach_write(PUSH_TOOL, attempted);
 
-            ok_typed("push_training_plan", &report)
+                ok_typed("push_training_plan", &report)
+            })
+            .await
         }
         .await;
         tool_result_to_response(result)
@@ -388,6 +442,5 @@ pub fn create_training_plan_push_tools() -> Vec<Box<dyn RuntimeTool>> {
 
 // A push deletes calendar entries the plan no longer wants, and a delete on
 // the provider cannot be undone from here — re-pushing recreates the entry,
-// but as a new one. Destructive, so at most one per turn under the Guardian's
-// default budget, and the confirm path applies to it when armed.
+// but as a new one. Destructive, so it spends the Guardian's per-turn destructive budget.
 crate::declare_security!(PushTrainingPlanTool => IRREVERSIBLE);

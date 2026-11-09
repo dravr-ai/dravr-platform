@@ -47,6 +47,7 @@ use axum::{
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use pierre_config::coach_home::CoachHomeConfig;
+use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::TenantId;
@@ -56,7 +57,7 @@ use pierre_memory::training_plans::{parse_plan_date, GoalRace, RacePriority, Tra
 use pierre_memory::{ClaimStatus, PlanPhase};
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
-use pierre_services::athlete_clock::athlete_today;
+use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::coach_attention::{
     apply_dismissals, attention_reasons, season_view, AttentionInputs, AttentionReason,
     DraftSignals, PlanSignals, ReplySignal, SeasonRace, SeasonView,
@@ -383,7 +384,8 @@ async fn row(
         season: None,
         attention: Vec::new(),
     };
-    let today = athlete_today(repos, athlete).await;
+    let zone = athlete_zone(repos, athlete).await;
+    let today = civil_time::clock_date(Utc::now(), zone);
     let snapshot = read.snapshots.get(&athlete);
     let replies = read.replies.signals_for(athlete);
     let plan = if member.member.status == RosterAthleteStatus::Shared {
@@ -402,6 +404,7 @@ async fn row(
         joined: &member.member.joined,
         now: Utc::now(),
         today,
+        zone,
         training: snapshot
             .zip(row.training.as_ref())
             .map(|(snapshot, reading)| training_signals(snapshot, reading, &sources, &refusals)),

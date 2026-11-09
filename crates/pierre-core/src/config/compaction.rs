@@ -14,13 +14,12 @@
 
 /// Tuning for the conversation compactor.
 ///
-/// Defaults mirror the coaching harness gist: 128K context window with a
-/// 70% warn and 95% emergency threshold. Callers override per-tenant via
-/// admin config in Tier 6.
+/// Defaults trigger at 89,600 tokens (warn) and 121,600 (emergency) on a 1M
+/// window. The one harness document overrides them for every tenant.
 #[derive(Debug, Clone, Copy)]
 pub struct CompactionConfig {
-    /// Target context window size in tokens. When unset we assume the
-    /// conservative floor across Gemini / Groq / local models.
+    /// The base the two thresholds are fractions of, in tokens. Nothing sends it
+    /// to a provider.
     pub window_tokens: u32,
     /// Fraction of the window that triggers a summarization pass.
     pub warn_threshold: f32,
@@ -51,8 +50,8 @@ pub struct CompactionConfig {
 impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
-            // Claude Opus 4.8's real context window. The inherited 128_000 was
-            // never this model's limit -- it predates the provider -- and the
+            // The chain head's real context window. The inherited 128_000 was
+            // never a model's limit -- it predates the provider -- and the
             // thresholds below were fractions of a number that was wrong by 8x.
             //
             // The fractions absorb that correction rather than the trigger

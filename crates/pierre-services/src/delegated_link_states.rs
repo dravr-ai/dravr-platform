@@ -1,5 +1,5 @@
 // ABOUTME: Where each athlete on a coach's coaching-platform roster stands with the coach's Dravr groups and links
-// ABOUTME: Linked, proposed, proposable to one coached member, or why not; members are found by id and bound by email
+// ABOUTME: Linked, proposed, proposable to one coached member, or why not; members bound by own platform id or by email
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,6 +21,12 @@
 //! member whose email a roster athlete names has their verification read, and
 //! an unverified email binds no one: the one email rule every binding applies.
 //!
+//! A platform does not always share an athlete's email, so one proof comes
+//! before it: a member who shares with the coach and connects the platform
+//! with a session of their own carrying the athlete's id is that athlete
+//! ([`LinkState::MemberOwnConnection`]), whatever the roster's email says.
+//! Those sessions are read by member id too, only for members who share.
+//!
 //! A state carries the roster athlete as the platform lists them, name and
 //! email included: text about third parties, for the coach and the athlete a
 //! link concerns, never for a notice or a model.
@@ -37,7 +43,7 @@ use uuid::Uuid;
 
 use crate::coach_platform::CoachPlatform;
 use crate::delegated_connections::{coach_roster, unbound_link_reason, DelegationServices};
-use crate::delegated_read::{holds_own_connection, OwnLogins};
+use crate::delegated_read::{holds_own_connection, own_platform_ids, OwnLogins};
 use crate::trainingpeaks_accounts::{
     bind_email, link_binding, provider_email_key, same_email, EmailBinding,
 };
@@ -98,10 +104,11 @@ pub enum LinkState {
         /// The member.
         member: CoachedMember,
     },
-    /// The member the athlete's email binds connects the platform with an
-    /// account of their own, in some tenant: no link is needed (one would be
-    /// refused), since the coach reaches their calendar through the coach's
-    /// own account.
+    /// The member connects the platform with an account of their own, in
+    /// some tenant: no link is needed (one would be refused), since the coach
+    /// reaches their calendar through the coach's own account. The member is
+    /// the one whose own session carries the athlete's id, a member who
+    /// shares with the coach, else the one the athlete's email binds.
     MemberOwnConnection {
         /// The member.
         member: CoachedMember,
@@ -120,8 +127,9 @@ pub enum LinkState {
         /// The member.
         member: CoachedMember,
     },
-    /// The platform shares no email for the athlete, so no member can be
-    /// bound to them.
+    /// The platform shares no email for the athlete, and no sharing member's
+    /// own session carries the athlete's id, so no member can be bound to
+    /// them.
     RosterEmailMissing,
     /// The athlete's roster email is no live member's of any group the coach
     /// coaches.
@@ -140,8 +148,9 @@ impl LinkState {
         }
     }
 
-    /// The coached member the athlete's roster email names, when one does
-    /// and no link of the coach's holds the athlete.
+    /// The coached member the athlete is, by their own session's platform id
+    /// or by the athlete's roster email, when no link of the coach's holds
+    /// the athlete.
     #[must_use]
     pub const fn member(&self) -> Option<&CoachedMember> {
         match self {
@@ -195,7 +204,8 @@ pub async fn roster_link_states(
 pub(crate) struct Assessed {
     /// The athlete and their state.
     pub(crate) view: RosterLinkState,
-    /// Whether the member the state names is bound by email.
+    /// Whether the member the state names is bound by email; never a member
+    /// found by their own session's platform id, who needs no link.
     pub(crate) bound: bool,
 }
 
@@ -223,6 +233,7 @@ pub(crate) async fn assess(
         .collect();
     let ids: Vec<Uuid> = members.keys().copied().collect();
     let users = repos.users.get_global_many(&ids).await?;
+    let own_accounts = own_accounts(repos, &members, platform.backend()).await?;
     let context = Assessment {
         repos,
         backend: platform.backend(),
@@ -230,6 +241,7 @@ pub(crate) async fn assess(
         links: &links,
         members: &members,
         users: &users,
+        own_accounts: &own_accounts,
     };
 
     let mut assessed = Vec::with_capacity(athletes.len());
@@ -294,6 +306,58 @@ fn rank_memberships(memberships: &mut [Membership], prefer_group: Option<Uuid>) 
     });
 }
 
+/// The coached member each platform account id belongs to, by the member's
+/// own stored session for `backend` in any tenant; the first member by id
+/// when two sessions carry one id.
+///
+/// Only members who share with the coach in some group have their sessions
+/// read: one who stopped sharing everywhere is found by roster email alone.
+async fn own_accounts(
+    repos: &RepositoryRegistry,
+    members: &BTreeMap<Uuid, Vec<Membership>>,
+    backend: &str,
+) -> AppResult<HashMap<String, Uuid>> {
+    let mut accounts = HashMap::new();
+    for (member, memberships) in members {
+        if !memberships.iter().any(|m| m.shares) {
+            continue;
+        }
+        for id in own_platform_ids(repos.oauth_tokens.as_ref(), *member, backend).await? {
+            accounts.entry(id).or_insert(*member);
+        }
+    }
+    Ok(accounts)
+}
+
+/// Whether `member` is a live member who shares with `coach_user_id` in some
+/// active group the coach coaches: one whose own sessions [`own_accounts`]
+/// reads.
+///
+/// # Errors
+///
+/// Returns the repository error from the group or membership lookups.
+pub(crate) async fn shares_with_coach(
+    repos: &RepositoryRegistry,
+    coach_user_id: Uuid,
+    member: Uuid,
+) -> AppResult<bool> {
+    for group in repos.groups.list_groups_coached_by(coach_user_id).await? {
+        if !group.is_active {
+            continue;
+        }
+        // `get_member` answers for a live member only.
+        let shares = repos
+            .groups
+            .get_member(&group.id.to_string(), member)
+            .await?
+            .is_some_and(|m| m.coach_sharing_consent);
+        if shares {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// The coached member whose primary email `email` reads as, with their
 /// account and their groups; the first by id when several do.
 fn member_named_by<'a>(
@@ -315,6 +379,9 @@ struct Assessment<'a> {
     links: &'a [DelegatedConnection],
     members: &'a BTreeMap<Uuid, Vec<Membership>>,
     users: &'a HashMap<Uuid, User>,
+    /// The sharing member each platform account id belongs to
+    /// ([`own_accounts`]).
+    own_accounts: &'a HashMap<String, Uuid>,
 }
 
 impl Assessment<'_> {
@@ -327,6 +394,11 @@ impl Assessment<'_> {
             .find(|l| l.provider_athlete_id == athlete.id)
         {
             return Ok((self.link_state(link).await?, false));
+        }
+        // A sharing member whose own session carries the athlete's id is the
+        // athlete, with or without a roster email: they need no link.
+        if let Some(member) = self.own_account(athlete) {
+            return Ok((LinkState::MemberOwnConnection { member }, false));
         }
         if provider_email_key(athlete.email.as_deref()).is_none() {
             return Ok((LinkState::RosterEmailMissing, false));
@@ -359,6 +431,17 @@ impl Assessment<'_> {
         }
         let state = self.bound_member_state(athlete, member).await?;
         Ok((state, bound))
+    }
+
+    /// The sharing member whose own session carries `athlete`'s id, in the
+    /// group a link to them would be made in.
+    fn own_account(&self, athlete: &RosterAthlete) -> Option<CoachedMember> {
+        let user_id = *self.own_accounts.get(&athlete.id)?;
+        let chosen = self.members.get(&user_id)?.first()?;
+        Some(CoachedMember {
+            user_id,
+            group: chosen.group.clone(),
+        })
     }
 
     /// The state of a coach's live `link` for the athlete.

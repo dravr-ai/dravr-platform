@@ -88,18 +88,20 @@ pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 /// Key: a tool action was blocked by the security guardian, user-facing denial.
 pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
 
-/// Key: the guardian parked a destructive action pending user confirmation.
-/// Args: `{0}` tool name, `{1}` claim token.
-pub const KEY_GUARDIAN_CONFIRM_PROMPT: &str = "messaging.guardian.confirm_prompt";
+/// Reply when a Guardian block stopped a turn that had already committed actions:
+/// `{0}` lists them by their localized titles.
+pub const KEY_GUARDIAN_DENIED_AFTER_ACTIONS: &str = "messaging.guardian.denied_after_actions";
 
-/// Key: a confirmed action executed successfully. Args: `{0}` tool name.
-pub const KEY_GUARDIAN_CONFIRM_DONE: &str = "messaging.guardian.confirm_done";
+/// Added to a Guardian block's reply when calls were abandoned while running:
+/// `{0}` lists them by their titles. They may have gone through.
+pub const KEY_GUARDIAN_UNCONFIRMED_ACTIONS: &str = "messaging.guardian.unconfirmed_actions";
 
-/// Key: a confirmed action failed to execute. Args: `{0}` tool name.
-pub const KEY_GUARDIAN_CONFIRM_FAILED: &str = "messaging.guardian.confirm_failed";
-
-/// Key: the user denied a parked action. No format placeholders.
-pub const KEY_GUARDIAN_CONFIRM_DENIED: &str = "messaging.guardian.confirm_denied";
+/// The key of a tool's localized title in a Guardian reply. Every tool that writes
+/// data or is irreversible has one in every locale, which a server test holds.
+#[must_use]
+pub fn guardian_action_title_key(tool_name: &str) -> String {
+    format!("messaging.guardian.action_title.{tool_name}")
+}
 
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";
@@ -132,8 +134,9 @@ pub const KEY_REPLY_STOP_FILTERED: &str = "messaging.reply_stop.filtered";
 /// device-sourced data, as Garmin's API brand guidelines require.
 /// No format placeholders.
 pub const KEY_REPLY_GARMIN_ATTRIBUTION: &str = "messaging.attribution.garmin";
-/// Key: text-guardrails rejected an over-long response.
-pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
+/// Key: the medical disclaimer prepended to a reply whose text trips a locale's
+/// triggers. No format placeholders.
+pub const KEY_GUARDRAIL_DISCLAIMER: &str = "messaging.guardrail.disclaimer";
 /// Key: text-guardrails rejected a blocked-topic response.
 pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic";
 /// Key: the scope rail's answer to acute red-flag symptoms — an emergency
@@ -634,6 +637,17 @@ pub const KEY_PRIVACY_STATUS_DISABLED: &str = "commands.privacy.status.disabled"
 pub const KEY_PRIVACY_ON_CONFIRMATION: &str = "commands.privacy.on_confirmation";
 /// Key: `/privacy off` confirmation message.
 pub const KEY_PRIVACY_OFF_CONFIRMATION: &str = "commands.privacy.off_confirmation";
+/// Key: title of the one-time usage-analytics question a chat account is
+/// asked when its link completes (carnet#1366).
+pub const KEY_PRIVACY_CONSENT_ASK_TITLE: &str = "commands.privacy.consent_ask_title";
+/// Key: body of that question. `{0}` = the privacy policy's usage-analytics
+/// section.
+pub const KEY_PRIVACY_CONSENT_ASK_BODY: &str = "commands.privacy.consent_ask_body";
+/// Key: its accept button, which runs `/privacy on`. Short: `WhatsApp` cuts a
+/// reply button at 20 characters.
+pub const KEY_PRIVACY_CONSENT_ASK_ACCEPT: &str = "commands.privacy.consent_ask_accept";
+/// Key: its decline button, which runs `/privacy off`.
+pub const KEY_PRIVACY_CONSENT_ASK_DECLINE: &str = "commands.privacy.consent_ask_decline";
 
 // ── /deleteaccount command keys ───────────────────────────────────────────
 
@@ -1755,6 +1769,17 @@ impl MessagingStringsRegistry {
             .get(DEFAULT_LOCALE)
             .map(|entry| entry.content.clone())
             .unwrap_or_default()
+    }
+
+    /// The text of `key` in `locale` only, with no fallback; a blank entry is
+    /// no text. For a page whose fallback language is not [`DEFAULT_LOCALE`].
+    #[must_use]
+    pub fn get_exact(&self, key: &str, locale: &str) -> Option<String> {
+        self.read()
+            .get(key)?
+            .get(locale)
+            .map(|entry| entry.content.clone())
+            .filter(|content| !content.trim().is_empty())
     }
 
     /// Render a template for `(key, locale)` with positional arguments.

@@ -10,9 +10,8 @@ import { adminApi } from '../services/api';
 import type { FeatureFlagRow, KnownFeatureFlag } from '../services/api/admin';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Card } from './ui';
-import { describeApiError } from '@pierre/ui-logic';
-import { useTranslation } from '@pierre/i18n';
 import { featureFlagsQuery, type FeatureFlagScope } from './featureFlagsQuery';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 interface FeatureFlagsPanelProps {
   scope: FeatureFlagScope;
@@ -36,7 +35,6 @@ function mergeRowsWithKnown(rows: FeatureFlagRow[], known: KnownFeatureFlag[]): 
 }
 
 export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
-  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const flagsQuery = featureFlagsQuery(scope);
@@ -93,7 +91,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
 
       {error != null && !isLoading && (
         <p className="text-sm text-error">
-          Failed to load flags: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
+          Failed to load flags: {describeAdminError(error)}
         </p>
       )}
 
@@ -109,9 +107,9 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
               key={flag.key}
               className="flex items-start justify-between gap-4 p-3 rounded-lg bg-surface-container-low"
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <code className="font-mono text-sm text-on-surface">{flag.key}</code>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <code className="min-w-0 break-all font-mono text-sm text-on-surface">{flag.key}</code>
                   <span
                     className={
                       'text-xs px-2 py-0.5 rounded-full ' +
@@ -129,7 +127,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                 <p className="text-sm text-on-surface-variant mt-1">{flag.description}</p>
                 {flag.storedRow != null && (
                   <p className="text-xs text-on-surface-variant mt-1">
-                    Set {new Date(flag.storedRow.updated_at).toLocaleString()}
+                    Set {new Date(flag.storedRow.updated_at).toLocaleString(ADMIN_LOCALE)}
                   </p>
                 )}
               </div>
@@ -180,7 +178,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
 
       {setMutation.error != null && (
         <p className="text-sm text-error mt-3">
-          Update failed: {describeApiError(setMutation.error, { t, fallbackKey: 'errors.unknown' })}
+          Update failed: {describeAdminError(setMutation.error)}
         </p>
       )}
     </Card>

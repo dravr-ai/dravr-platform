@@ -111,6 +111,59 @@ pub fn auth_required_provider(response: &UniversalResponse) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// The failed response for a dispatch that came back an error instead of one.
+///
+/// Keeps the `ProviderAuthRequired` signal across the `ProtocolError` →
+/// [`UniversalResponse`] boundary by stuffing the provider slug into `metadata`
+/// under [`META_AUTH_REQUIRED_PROVIDER`]: a tool loop scans for that key and
+/// exits early, and the chat pipeline mints a hosted-login URL and surfaces it
+/// deterministically. The error text travels to the model, which adapts to it.
+#[cfg(feature = "client-chat")]
+#[must_use]
+pub(crate) fn failed_dispatch(error: &ProtocolError) -> UniversalResponse {
+    let metadata = error.provider_auth_required_provider().map(|provider| {
+        HashMap::from([(
+            META_AUTH_REQUIRED_PROVIDER.to_owned(),
+            Value::String(provider.to_owned()),
+        )])
+    });
+    UniversalResponse {
+        success: false,
+        result: None,
+        error: Some(format!("Tool execution failed: {error}")),
+        metadata,
+    }
+}
+
+/// Why the Guardian stopped this call before it ran (`"guardian"`), or `None`
+/// when the call was dispatched.
+///
+/// Keys on the chokepoint-stamped `metadata.blocked_reason` (set ONLY by the
+/// chokepoint's refusals, never emittable by a tool body) AND requires
+/// `!success` — NOT the tool-controllable `result.error_code`, so
+/// attacker-influenced tool output carrying `{"error_code":"guardian_denied"}`
+/// cannot pass for a block (S12: data-plane must not drive the control-plane).
+#[must_use]
+pub fn guardian_block_reason(response: &UniversalResponse) -> Option<&str> {
+    if response.success {
+        return None;
+    }
+    metadata_str(response, "blocked_reason").filter(|reason| *reason == "guardian")
+}
+
+/// A string `key` of the response's chokepoint-stamped metadata, if one is there.
+#[must_use]
+pub(crate) fn metadata_str<'response>(
+    response: &'response UniversalResponse,
+    key: &str,
+) -> Option<&'response str> {
+    response
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get(key))
+        .and_then(Value::as_str)
+}
+
 /// Type a failed `create_authenticated_provider`, preserving the auth shape.
 ///
 /// That call tags a non-recoverably dead connection with

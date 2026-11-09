@@ -16,6 +16,7 @@ use tracing::info;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::implementations::physiology::{optional_number, optional_whole_number};
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_cageux::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
 use dravr_cageux::config::intelligence::VO2MaxCalculator;
@@ -204,9 +205,20 @@ impl EstimateVo2maxTool {
             defaults.push("weight_kg");
             return Ok(w);
         }
-        Err(AppError::invalid_input(format!(
-            "{method} needs 'weight_kg' — none was given and neither the profile nor a weigh-in holds a weight; ask the athlete or save it with set_physiology"
-        )))
+        // A coach's read without the athlete's wellness grant leaves their
+        // body weight out, so none stands in, and the coach is told why rather
+        // than that the athlete has none (carnet#1387).
+        Err(AppError::invalid_input(
+            read_subject::wellness_withheld().map_or_else(
+                || format!(
+                    "{method} needs 'weight_kg' — none was given and neither the profile nor a weigh-in holds a weight; ask the athlete or save it with set_physiology"
+                ),
+                |withheld| format!(
+                    "{method} needs 'weight_kg' — none was given, and the athlete's body weight is their wellness. {} Give weight_kg to estimate without it.",
+                    withheld.note()
+                ),
+            ),
+        ))
     }
 
     /// Age in years from the call, else from the profile, recording the source.
@@ -361,18 +373,23 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
             // The stored profile (withheld from an external caller when it was
             // written from first-party-only data, carnet#769) and the latest
             // measurement of each anchor it lacks.
-            let physiology = effective_physiology(
+            let mut physiology = effective_physiology(
                 context.resources.repos(),
                 context.resources.provider_registry().as_ref(),
                 tenant_id,
                 user_id,
-                // A weight the caller gives is never looked up.
-                Anchors {
+                // A weight the caller gives is never looked up, and a coach's
+                // read of an athlete looks up none of their weigh-ins.
+                read_subject::readable_anchors(Anchors {
                     weight: args.get("weight_kg").is_none_or(Value::is_null),
                     ..Anchors::default()
-                },
+                }),
             )
             .await?;
+            // The defaults and the echo come from the physiology this read
+            // may show: a coach reads the athlete's training physiology, with
+            // no body weight to default to (carnet#1387).
+            physiology.profile = read_subject::readable_physiology(physiology.profile);
             let profile = physiology.profile.as_ref();
 
             let mut defaults_from_profile: Vec<&'static str> = Vec::new();

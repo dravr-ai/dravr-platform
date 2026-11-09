@@ -34,10 +34,11 @@ use pierre_providers::sciotte_error::{
 };
 
 #[cfg(feature = "health-sync")]
-use crate::oauth::spawn_health_backfill;
+use crate::health_backfill::spawn_health_backfill;
 use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
+use crate::sciotte_grant_gate::require_garmin_grant;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
@@ -365,7 +366,8 @@ async fn store_sciotte_session(
         session,
         &stored,
         provider_name,
-    );
+    )
+    .await;
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
 }
@@ -375,7 +377,13 @@ async fn store_sciotte_session(
 /// backfill. A `TrainingPeaks` session is first probed for its account role,
 /// which decides whether there is a calendar to prefetch at all. A session
 /// the provider rotates on those reads is written back over `stored`'s row.
-fn warm_from_session(
+///
+/// A session signed in beside a grant whose reads serve what it copies
+/// (Garmin) is no ongoing source: the server infers history mode from the
+/// grant, with no flag from the client, and runs the session's one-time
+/// history import instead — its activities, then its wellness, then the
+/// session's retirement (carnet#1386).
+async fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -383,6 +391,27 @@ fn warm_from_session(
     stored: &StoredSession,
     provider_name: &str,
 ) {
+    if let Some(imports) = &resources.history_imports {
+        let tenant = TenantId::from_uuid(tenant_id);
+        if backend_resolver::session_imports_history(
+            &resources.repos,
+            user_id,
+            tenant,
+            provider_name,
+        )
+        .await
+        {
+            let started = imports.import_history(user_id, tenant, provider_name).await;
+            info!(
+                user_id = %user_id,
+                backend = %provider_name,
+                started,
+                "Sign-in beside a grant: importing the account's history once"
+            );
+            return;
+        }
+    }
+
     // Pre-fetch activities in background so the cache is warm when the user
     // chats. A TrainingPeaks coach account has no calendar of its own, so its
     // role is read first and decides whether there is anything to prefetch.
@@ -438,7 +467,8 @@ impl ScrapeSessionInstaller for AuthRoutesContext {
             session,
             &stored,
             backend,
-        );
+        )
+        .await;
         Ok(())
     }
 }
@@ -927,13 +957,17 @@ pub(crate) async fn handle_sciotte_login(
         request.tos_consent,
     )
     .await?;
+    // A new usr/pwd-only Garmin connection is refused while a seat is free
+    // on Garmin's OAuth, whatever client sent it (carnet#1454).
+    let backend = SciotteTarget::from_target_param(target).provider_name();
+    require_garmin_grant(&resources, user_id, TenantId::from_uuid(tenant_id), backend).await?;
 
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would
     // name a flow the service has already reaped.
     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
 
-    let provider = SciotteTarget::from_target_param(target).provider_name();
+    let provider = backend;
 
     // Session short-circuit: a stored Sciotte session written within the reuse
     // window answers a double tap or a refresh-after-connect without a second

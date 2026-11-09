@@ -34,9 +34,6 @@ pub mod auth;
 /// The client address behind trusted proxies, and the key it is metered by
 pub mod client_address;
 
-/// Cryptographic utilities and key management
-pub mod crypto;
-
 /// Data Transfer Objects (request/response shapes) for auth HTTP endpoints
 pub mod dto;
 

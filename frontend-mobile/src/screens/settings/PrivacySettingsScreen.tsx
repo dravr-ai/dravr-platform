@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { AccountDeletionSection } from './AccountDeletionSection';
+import { DataExportSection } from './DataExportSection';
 import { AiConsentSection } from './AiConsentSection';
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
@@ -31,9 +32,9 @@ const NEVER_COLLECTED_KEYS = [
 ] as const;
 
 /**
- * Four sections separated by space, not by cards: the consent switch as the
+ * Five sections separated by space, not by cards: the consent switch as the
  * first section's action, the two promise lists as glyph-led lines
- * (DESIGN.md §10), then account deletion last.
+ * (DESIGN.md §10), then the data export and account deletion last.
  */
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
@@ -59,7 +60,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   const consentMutation = useMutation({
     mutationFn: (value: boolean) => userApi.updateAnalyticsConsent(value),
     onSuccess: async (_data, value) => {
-      await updateUser({ analytics_consent: value });
+      await updateUser({ analytics_consent: value, analytics_consent_answered: true });
     },
     onError: (err: unknown, value) => {
       setAnalyticsConsent(!value);
@@ -119,6 +120,8 @@ export function PrivacySettingsScreen(): React.JSX.Element {
               ))}
             </View>
           </Section>
+
+          <DataExportSection />
 
           <AccountDeletionSection />
         </View>

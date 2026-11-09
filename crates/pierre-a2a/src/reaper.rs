@@ -21,7 +21,8 @@
 //! configs are notified exactly as a finished run notifies them. The
 //! threshold is far past any registered tool's runtime — a tool call is a
 //! database read or a provider fetch, and the deep-history backfill spawns
-//! its own job and returns — so a task that old is one whose runner is gone.
+//! its own job and returns — and past a coaching turn's budget, which the
+//! server keeps inside it, so a task that old is one whose runner is gone.
 
 use std::sync::Arc;
 use std::time::Duration;

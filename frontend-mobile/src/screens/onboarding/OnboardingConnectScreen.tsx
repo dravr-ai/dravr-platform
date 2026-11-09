@@ -1,5 +1,5 @@
 // ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches chat
-// ABOUTME: Mirrors the web OnboardingConnectProvider flow: Sciotte modal for sciotte providers, BYO modal for Whoop, awaiting-consent overlay
+// ABOUTME: Mirrors the web OnboardingConnectProvider flow: each card's connect plan, the history sheet after a grant, BYO for Whoop, awaiting-consent overlay
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,10 +19,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useThemeColors } from '../../constants/theme';
-import { Button } from '../../components/ui';
+import { Button, StatusDot } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
+import { BringHistorySheet } from '../../components/BringHistorySheet';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
@@ -36,17 +37,35 @@ import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useConnectProviderDone } from '../../hooks/useConnectProviderDone';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useOnboardingContext } from '../../hooks/useOnboardingContext';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
+import { useSignInModal } from '../../hooks/useSignInModal';
+import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
-  historyLoginTarget,
-  intervalsConnectPath,
+  HISTORY_ACTION_KEYS,
+  OAUTH_NO_SEAT,
+  SIGN_IN_OAUTH_REQUIRED,
+  cardForSlug,
+  cardStatus,
+  connectPlan,
+  credentialFallbackOnRefusal,
+  historyActionKey,
   noticeRequired,
+  refusalReloadsCards,
+  refusalReturnsToCard,
   sciotteTargetForBackend,
 } from '@pierre/shared-constants';
-import type { SciotteTarget } from '@pierre/shared-types';
-import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
+import { useFocusEffect, useRouter } from 'expo-router';
+import {
+  cardAwaitingHistory,
+  cardExportSource,
+  describeApiError,
+  importTombstoneFromReturn,
+  refusalReason,
+  shownHistoryChoices,
+} from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
 /**
@@ -78,14 +97,21 @@ export function OnboardingConnectScreen() {
   const { complete: continuePastConnect } = useConnectProviderDone(user?.id);
   const progress = useOnboardingProgress('connect_provider');
   const coachOnly = useOnboardingContext().context.athleteStepsWaived;
+  const router = useRouter();
+  const { data: onboardingStatus } = useOnboardingStatus(isAuthenticated);
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  // Sciotte (credential login) target for the modal — null when closed.
-  const [sciotteTarget, setSciotteTarget] = useState<SciotteTarget | null>(null);
-  // Whether the chosen row still needs its exposure notice accepted.
-  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
+  // The provider sign-in window: the account, the notice its row owes, and
+  // whether it copies the history of a row already connected.
+  const signIn = useSignInModal();
+  const { open: openSignIn, openFor: openSignInFor } = signIn;
+  // The connected row whose "Bring in your history" sheet is open.
+  const [historySheetFor, setHistorySheetFor] = useState<ExtendedProviderStatus | null>(null);
+  // The row whose connect came back refused, and why when the server named
+  // it: it says so, and a tap on that line starts its connect again.
+  const [refusedCard, setRefusedCard] = useState<RefusedConnect | null>(null);
   // The Intervals.icu sheet for the row that opened it, and whether it leads
   // with the authorization (`intervalsConnectPath` answered `'choose'`) or is
   // the key form alone.
@@ -134,6 +160,14 @@ export function OnboardingConnectScreen() {
     }
   }, [isAuthenticated, loadStatus]);
 
+  // Back from the import of an export, the step may be done without a
+  // connection (an import started): the onboarding status is read again.
+  useFocusEffect(
+    useCallback(() => {
+      void queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    }, [queryClient]),
+  );
+
   // A connection landed. The screen stays up with the row marked connected so
   // a second service is one tap away; Continue moves on. The onboarding-status
   // refetch is what lets RootLayoutNav see the first connection.
@@ -143,27 +177,45 @@ export function OnboardingConnectScreen() {
   }, [queryClient, loadStatus]);
 
   /**
-   * Open the usr/pwd login for `target` (Strava, Garmin): the way in a refused
-   * grant falls back to, and the one a Garmin grant with nothing pushed yet
-   * leads to for the history. The row's notice is asked for while owed.
+   * Tell the row `cardKey` its connect did not go through, and why when the
+   * server named it (`reason`). When the refusal says the row's plan changed
+   * under the athlete (a seat went or came back), the rows are read again
+   * first, and a row that now signs in opens its sign-in at once when
+   * `signInAllowed` — never after a sign-in the server just refused, which
+   * would only be refused again.
    */
-  const openCredentialLogin = useCallback(
-    (target: SciotteTarget, rows: readonly ExtendedProviderStatus[]) => {
-      const row = rows.find((p) => sciotteTargetForBackend(p.provider) === target);
-      setSciotteConsentRequired(row?.consent_required ?? false);
-      setSciotteTarget(target);
+  const showRefusal = useCallback(
+    async (
+      cardKey: string,
+      { reload, signInAllowed, reason }: { reload: boolean; signInAllowed: boolean; reason?: string },
+    ) => {
+      if (reload) {
+        const served = await loadStatus();
+        const card = served.find((p) => p.provider === cardKey);
+        const primary = card ? connectPlan(card).primary : null;
+        if (signInAllowed && card && primary?.kind === 'sign_in') {
+          openSignIn(primary.target, card);
+          return;
+        }
+      }
+      setRefusedCard({ card: cardKey, reason });
     },
-    [],
+    [loadStatus, openSignIn],
   );
-  const anyConnected = providers.some((p) => p.connected);
+  // Continue opens once a row is connected, or once the server counts the
+  // step done without one (an import of the athlete's own export started).
+  const anyConnected = providers.some((p) => p.connected) || onboardingStatus?.needs_provider_connection === false;
 
   // Standard OAuth flow used by providers with a built-in client_id/secret on
   // the platform (currently only WHOOP once the user has registered a BYO
   // app). Sciotte providers handle their own credential flow via the modal.
   const launchOAuth = useCallback(
     async (providerId: string, providerName: string, tosConsent = false) => {
+      // The row the authorization belongs to: `garmin` and `strava` land on
+      // the card of their sign-in backend, whose row shows the spinner.
+      const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
       try {
-        setConnectingProvider(providerId);
+        setConnectingProvider(cardKey);
         setConnectError(null);
         setAwaitingOAuthFor(providerName);
         const returnUrl = getOAuthCallbackUrl();
@@ -197,19 +249,22 @@ export function OnboardingConnectScreen() {
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
-            // A Garmin grant with nothing pushed yet goes on to the Garmin
-            // usr/pwd login, which reaches the history (carnet#1302).
+            // A grant whose history is still needed opens the sheet that
+            // brings it in (carnet#1386).
             const served = await finalizeConnection();
-            const history = served.find((p) => historyLoginTarget(p) === providerId);
-            const historyTarget = history ? historyLoginTarget(history) : null;
-            if (historyTarget) openCredentialLogin(historyTarget, served);
+            const owed = cardAwaitingHistory(served, providerId);
+            if (owed) setHistorySheetFor(owed);
           } else if (error) {
-            // Strava or Garmin OAuth came back with an error (e.g. the
-            // shared-app athlete cap was actually exceeded in a seat-count
-            // race, or the provider rejected the grant). Don't strand the user
-            // — fall back to the credential login, which serves the same data.
-            if (providerId === 'strava' || providerId === 'garmin') {
-              openCredentialLogin(providerId, providers);
+            // A refused Strava grant falls back to the Strava sign-in, which
+            // serves the same data. A Garmin grant refused because the seats
+            // ran out reads the rows again and follows the plan they now give
+            // (the sign-in while the seats are out); any other refused Garmin
+            // grant says so on its row, whose tap tries the authorization again.
+            const fallback = credentialFallbackOnRefusal(providerId);
+            if (fallback) {
+              openSignInFor(fallback, providers);
+            } else if (refusalReturnsToCard(providerId)) {
+              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, signInAllowed: true });
             } else {
               setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
@@ -224,11 +279,19 @@ export function OnboardingConnectScreen() {
         setAwaitingOAuthFor(null);
         const message = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
         console.error('Onboarding OAuth flow failed:', err);
-        // Couldn't even start the Strava or Garmin OAuth flow (init/network
-        // error). Fall back to the credential login rather than leaving the
-        // user stuck on an error toast.
-        if (providerId === 'strava' || providerId === 'garmin') {
-          openCredentialLogin(providerId, providers);
+        // Couldn't even start the Strava OAuth flow (init/network error):
+        // fall back to the Strava sign-in rather than leaving the user stuck
+        // on an error toast. Garmin says so on its row; a start refused
+        // because its seats changed reads the rows again, and a row that now
+        // signs in opens it.
+        const fallback = credentialFallbackOnRefusal(providerId);
+        if (fallback) {
+          openSignInFor(fallback, providers);
+          return;
+        }
+        if (refusalReturnsToCard(providerId)) {
+          const reason = refusalReason(err);
+          await showRefusal(cardKey, { reload: refusalReloadsCards(reason), signInAllowed: true, reason });
           return;
         }
         setConnectError(message);
@@ -236,7 +299,7 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection, language, openCredentialLogin, providers, t],
+    [finalizeConnection, language, openSignInFor, providers, showRefusal, t],
   );
   // The start-fresh action runs the connect again from inside the callback
   // that defined it, so it reads the current one through a ref.
@@ -247,6 +310,7 @@ export function OnboardingConnectScreen() {
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
     setConnectError(null);
+    setRefusedCard(null);
     // An OAuth provider whose notice the account has not accepted (WHOOP's
     // owner authorization) states it first; its Continue resumes below.
     if (noticeRequired(provider.provider, provider.consent_required) && !sciotteTargetForBackend(provider.provider)) {
@@ -258,44 +322,33 @@ export function OnboardingConnectScreen() {
 
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
-    // The Strava and Garmin cards are named for their mirror backends. While
-    // the provider's OAuth seats remain the server recommends `oauth`, so
-    // connect through the provider's official OAuth flow, named by the card's
-    // target (`strava`, `garmin`). Once the cap is reached the server
-    // recommends `mirror`, and we silently fall back to the credential login.
-    const target = sciotteTargetForBackend(provider.provider);
-    if (target && provider.recommended_backend === 'oauth') {
-      void launchOAuth(target, provider.display_name);
-      return;
+    // The card's `connectPlan` decides: the Strava and Garmin cards (named for
+    // their sign-in backends) go through the provider's authorization while
+    // the server recommends it and sign in otherwise; COROS and TrainingPeaks
+    // sign in, after their notice when they have one.
+    const primary = connectPlan(provider).primary;
+    switch (primary.kind) {
+      case 'sign_in':
+        openSignIn(primary.target, provider);
+        return;
+      case 'intervals':
+        // Intervals.icu leads with the athlete's authorization while the
+        // server offers it, and keeps the coach's API-key form beside it; with
+        // no client to authorize under, the key form is the only way in.
+        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: primary.path === 'choose' });
+        return;
+      case 'oauth': {
+        const devPortalUrl = ownAppDevPortal(provider.provider);
+        if (provider.own_app_required && devPortalUrl) {
+          setOwnAppSetup({ provider, devPortalUrl, tosConsent });
+          return;
+        }
+        void launchOAuth(primary.provider, provider.display_name, tosConsent);
+        return;
+      }
+      case 'none':
+        return;
     }
-    if (provider.provider === 'sciotte') {
-      setSciotteTarget('strava');
-      return;
-    }
-    // Every other scrape-mirror row (Garmin past its seats, TrainingPeaks)
-    // signs in with the provider's own credentials, after its notice when it
-    // has one.
-    if (target) {
-      setSciotteConsentRequired(provider.consent_required);
-      setSciotteTarget(target);
-      return;
-    }
-    // Intervals.icu leads with the athlete's authorization while the server
-    // offers it, and keeps the coach's API-key form beside it; with no client
-    // to authorize under, the key form is the only way in.
-    if (provider.provider === 'intervals_icu') {
-      setIntervalsSheet({
-        displayName: provider.display_name,
-        offersAuthorize: intervalsConnectPath(provider) === 'choose',
-      });
-      return;
-    }
-    const devPortalUrl = ownAppDevPortal(provider.provider);
-    if (provider.own_app_required && devPortalUrl) {
-      setOwnAppSetup({ provider, devPortalUrl, tosConsent });
-      return;
-    }
-    void launchOAuth(provider.provider, provider.display_name, tosConsent);
   };
 
   // The server withholds the raw `strava` / `garmin` rows a mirror card
@@ -312,7 +365,13 @@ export function OnboardingConnectScreen() {
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
-    const historyTarget = historyLoginTarget(provider);
+    const status = cardStatus(provider);
+    // A connected grant whose history is still needed, or whose copy did not
+    // finish, opens the sheet that brings it in (carnet#1386); a row served by
+    // a sign-in alone asks to move to the official connection.
+    const offersHistory =
+      (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(provider).length > 0;
+    const exportSource = cardExportSource(provider);
 
     return (
       <View key={provider.provider} className="flex-row items-center px-4">
@@ -326,32 +385,69 @@ export function OnboardingConnectScreen() {
         >
           <View className="flex-1 min-w-0 py-2 mr-3">
             <Text className="text-base text-text-primary">{provider.display_name}</Text>
-            <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
-              {provider.description}
+            <Text
+              className="text-sm text-text-secondary mt-0.5"
+              numberOfLines={status === 'migrate' ? 2 : 1}
+              testID={`provider-subtitle-${provider.provider}`}
+            >
+              {status === 'migrate'
+                ? t('providers.migration.oauthRequired', { provider: provider.display_name })
+                : provider.description}
             </Text>
+            {refusedCard?.card === provider.provider && (
+              <Text
+                className="text-sm text-error"
+                onPress={() => handleConnect(provider)}
+                accessibilityRole="button"
+                accessibilityLiveRegion="polite"
+                testID={`provider-error-${provider.provider}`}
+              >
+                {refusedConnectLine(t, refusedCard, provider.display_name)}
+              </Text>
+            )}
+            {exportSource && !coachOnly && (
+              <Text
+                className="text-sm font-medium text-primary self-start"
+                onPress={() => router.push(importRouteFor(exportSource, true))}
+                accessibilityRole="link"
+                testID={`provider-export-${provider.provider}`}
+              >
+                {t('providers.import.cardLink')}
+              </Text>
+            )}
           </View>
-          {isConnected ? (
+          {isConnecting ? (
+            <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />
+          ) : status === 'migrate' ? (
+            <View className="flex-row items-center gap-2">
+              <StatusDot tone="warning" />
+              <Text
+                className="text-md font-medium text-primary"
+                onPress={() => handleConnect(provider)}
+                accessibilityRole="button"
+                testID={`provider-action-${provider.provider}`}
+              >
+                {t('app.connectProvider', { provider: provider.display_name })}
+              </Text>
+            </View>
+          ) : isConnected ? (
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
               <Text className="text-sm font-medium text-text-secondary">
-                {historyTarget ? t('providers.awaitingActivities') : t('app.connected')}
+                {t('app.connected')}
               </Text>
-              {/* A Garmin grant with nothing pushed yet offers the usr/pwd
-                  login for the history (carnet#1302). */}
-              {historyTarget && (
+              {offersHistory && (
                 <Text
                   className="text-md font-medium text-primary"
-                  onPress={() => openCredentialLogin(historyTarget, [provider])}
+                  onPress={() => setHistorySheetFor(provider)}
                   accessibilityRole="button"
-                  accessibilityLabel={t('providers.importHistoryAria', { provider: provider.display_name })}
+                  accessibilityHint={t(HISTORY_ACTION_KEYS.addAria, { provider: provider.display_name })}
                   testID={`provider-action-${provider.provider}`}
                 >
-                  {t('providers.importHistory')}
+                  {t(historyActionKey(provider))}
                 </Text>
               )}
             </View>
-          ) : isConnecting ? (
-            <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />
           ) : (
             <Text
               className="text-md font-medium text-primary"
@@ -466,15 +562,30 @@ export function OnboardingConnectScreen() {
         </View>
       </ScrollView>
 
+      <BringHistorySheet
+        card={historySheetFor}
+        onboarding
+        onClose={() => setHistorySheetFor(null)}
+        onSignIn={(target, card) => openSignIn(target, card, true)}
+      />
+
       <SciotteLoginModal
-        visible={sciotteTarget !== null}
-        onClose={() => setSciotteTarget(null)}
+        visible={signIn.target !== null}
+        onClose={signIn.close}
         onConnected={() => {
-          setSciotteTarget(null);
+          signIn.close();
           void finalizeConnection();
         }}
-        target={sciotteTarget ?? 'strava'}
-        consentRequired={sciotteConsentRequired}
+        target={signIn.target ?? 'strava'}
+        consentRequired={signIn.consentRequired}
+        historyMode={signIn.historyMode}
+        onOAuthRequired={() => {
+          const target = signIn.target;
+          const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;
+          if (card) {
+            void showRefusal(card.provider, { reload: true, signInAllowed: false, reason: SIGN_IN_OAUTH_REQUIRED });
+          }
+        }}
       />
 
       <IntervalsIcuLinkModal

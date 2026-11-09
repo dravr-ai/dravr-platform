@@ -1,5 +1,6 @@
 // ABOUTME: A failed chat turn on mobile reads in the athlete's language and keeps their question with a retry
 // ABOUTME: Covers the fail-fast 503 and the mid-stream failed frame, both keyed on the server's error code (carnet#680)
+// ABOUTME: The row's Retry button is the one offer, so its sentence carries no "try again" of its own (carnet#1363)
 
 import { act } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
@@ -15,6 +16,12 @@ const MESSAGES_URL = `/api/chat/conversations/${CONVERSATION_ID}/messages`;
 const QUESTION = 'Comment se presente ma semaine ?';
 /** A sentence from the French catalogue, read through the app's own i18n instance. */
 const fr = (key: string): string => i18n.getFixedT('fr')(key);
+
+/**
+ * The row's sentence for an outage: `errors.generic` without its "try again",
+ * because the row draws the Retry button under it (carnet#1363).
+ */
+const ROW_KEY = 'chat.turn.failed.unavailable';
 
 /** What the server says, in English, for the fail-fast refusal. */
 const SERVER_TEXT = 'The resource is temporarily unavailable';
@@ -49,7 +56,11 @@ describe('a failed turn, in French', () => {
     expect(fr('errors.generic')).not.toBe(i18n.getFixedT('en')('errors.generic'));
     expect(result.current.error).toBe(fr('errors.generic'));
     const failed = result.current.messages.find((message) => message.isError);
-    expect(failed?.content).toContain(fr('errors.generic'));
+    expect(fr(ROW_KEY)).not.toBe(i18n.getFixedT('en')(ROW_KEY));
+    expect(failed?.content).toContain(fr(ROW_KEY));
+    expect(failed?.content).not.toContain(fr('errors.generic'));
+    expect(failed?.content).not.toContain(fr('chat.turnTryAgain'));
+    expect(failed?.retryable).toBe(true);
     expect(failed?.content).not.toContain(SERVER_TEXT);
     expect(
       result.current.messages.filter((message) => message.role === 'user').map((m) => m.content),
@@ -79,8 +90,10 @@ describe('a failed turn, in French', () => {
     });
 
     const failed = result.current.messages.find((message) => message.isError) as Message;
-    expect(failed.content).toContain(fr('errors.generic'));
-    expect(failed.content).toContain(fr('chat.turnTryAgain'));
+    expect(failed.content).toContain(fr(ROW_KEY));
+    expect(failed.content).not.toContain(fr('errors.generic'));
+    expect(failed.content).not.toContain(fr('chat.turnTryAgain'));
+    expect(failed.retryable).toBe(true);
     expect(failed.content).not.toContain(SERVER_TEXT);
     expect(result.current.messages.some((m) => m.role === 'user' && m.content === QUESTION)).toBe(true);
 

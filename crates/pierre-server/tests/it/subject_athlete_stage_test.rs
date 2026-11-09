@@ -10,16 +10,16 @@
 //! `pierre_chat_pipeline::run` against a model that records the prompt it was
 //! sent, and reads that prompt — never the source that builds it.
 //!
-//! The coach's own season, their agent note and their connected providers are
-//! seeded beside the athlete's in every fixture, as are another member's season
-//! and the athlete's own agent note, so a block that read the wrong person
-//! fails on content rather than on absence.
+//! The coach's own season and their connected providers are seeded beside the
+//! athlete's in every fixture, as is another member's season, so a block that
+//! read the wrong person fails on content rather than on absence.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::{Arc, Mutex};
 
@@ -44,20 +44,19 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    AddMessageParams, ConnectionType, ConversationTurnId, DataSource, DelegatedConnection,
-    DeviceType, RosterAthlete, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
-    Tenant, TenantId,
+    ActivityBuilder, AddMessageParams, ConnectionType, ConversationTurnId, DataSource,
+    DelegatedConnection, DeviceType, RosterAthlete, SportType, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_database::repositories::WellnessWriteMode;
-use pierre_database::repositories::{InsertAgentNoteParams, InsertCompactionBlockParams};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ReplyBlockResponse, TurnResponse};
-use pierre_memory::MemoryScope;
 use pierre_services::plan_card::PlanCardDraft;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::CONVERSATION_ID;
@@ -70,6 +69,10 @@ const MODEL: &str = "subject-stage-model";
 const ANSWER: &str = "Voici où en est son plan.";
 /// The message on which the model reads the plan, so the turn ends with a card.
 const READ_ASK: &str = "Montre-moi son plan.";
+/// On this ask the model lists the athlete's activities, then answers.
+const ACTIVITIES_ASK: &str = "Montre-moi ses dernières séances.";
+/// A run the subject uploaded, which the thread's activity read lists.
+const SUBJECT_RUN: &str = "subject-upload-run";
 const PLAIN_ASK: &str = "Comment s'est passée sa semaine ?";
 
 const SUBJECT_NAME: &str = "Mira Subject";
@@ -79,8 +82,6 @@ const SUBJECT_RACE: &str = "Subject Season Race";
 const DRAFT_RACE: &str = "Coach Drafted Race";
 const COACH_RACE: &str = "Coach Own Race";
 const OTHER_RACE: &str = "Other Member Race";
-const COACH_NOTE: &str = "coach-own-note: prefers threshold on Tuesdays";
-const SUBJECT_NOTE: &str = "subject-own-note: knee niggle after hills";
 const COACH_WORKOUT: &str = "coach-drafted tempo 3x10min";
 
 /// Heads the stage's block, granted or refused.
@@ -180,17 +181,25 @@ impl LlmProvider for ThreadModel {
             .messages
             .iter()
             .any(|m| matches!(m.role, MessageRole::Tool));
-        let asked_to_read = request
+        let last_ask = request
             .messages
             .iter()
             .rev()
             .find(|m| matches!(m.role, MessageRole::User))
-            .is_some_and(|m| m.content.contains(READ_ASK));
-        let tool_calls = (asked_to_read && !already_ran).then(|| {
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let read = if last_ask.contains(READ_ASK) {
+            Some(("get_training_plan", json!({})))
+        } else if last_ask.contains(ACTIVITIES_ASK) {
+            Some(("get_activities", json!({ "limit": 10 })))
+        } else {
+            None
+        };
+        let tool_calls = read.filter(|_| !already_ran).map(|(tool, arguments)| {
             vec![ToolCallRequest {
                 id: "call-read".to_owned(),
-                function_name: "get_training_plan".to_owned(),
-                arguments: json!({}),
+                function_name: tool.to_owned(),
+                arguments,
             }]
         });
         let content = if tool_calls.is_some() {
@@ -379,9 +388,8 @@ impl Fixture {
         &self.res.common.repos
     }
 
-    /// What must never reach the athlete's workspace: the coach's own season,
-    /// provider and agent note, the athlete's own agent note, and another
-    /// member's season.
+    /// What must never reach the athlete's workspace: the coach's own season
+    /// and provider, and another member's season.
     async fn seed_everyone_elses_context(&self) {
         let repos = self.repos();
         repos
@@ -399,21 +407,6 @@ impl Fixture {
             .await;
         self.saves(&self.other, None, json!({ "outline": outline(OTHER_RACE) }))
             .await;
-        for (who, content) in [(&self.coach, COACH_NOTE), (&self.subject, SUBJECT_NOTE)] {
-            repos
-                .memory
-                .insert_agent_note(&InsertAgentNoteParams {
-                    tenant_id: who.tenant,
-                    user_id: &who.id.to_string(),
-                    agent_id: &self.group.agent_id,
-                    conversation_id: None,
-                    scope: MemoryScope::User,
-                    content,
-                    transport_policy: TransportPolicy::AnyTransport,
-                })
-                .await
-                .unwrap();
-        }
     }
 
     /// `who` saves through the plan tool, inside `conversation` when there is
@@ -484,6 +477,7 @@ impl Fixture {
                 quota: QuotaState::Ok,
                 mentioned_agent: None,
                 steps_after: None,
+                grant: OAuthScope::self_grant(),
             },
             &web_profile(),
             &PipelineHooks::none(),
@@ -501,6 +495,16 @@ impl Fixture {
     }
 }
 
+/// The block about the thread's athlete, up to the prompt's next section: the
+/// prompt also lists every callable tool, wellness reads included, elsewhere.
+fn subject_block(prompt: &str) -> &str {
+    let block = &prompt[prompt.find(SUBJECT_HEADING).expect("the subject block")..];
+    let end = block[SUBJECT_HEADING.len()..]
+        .find("\n## ")
+        .map_or(block.len(), |at| at + SUBJECT_HEADING.len());
+    &block[..end]
+}
+
 /// Nothing of the athlete, of the coach's own context or of another member is
 /// in `prompt` — only the refusal line under the heading.
 fn assert_refused_with(prompt: &str, why: &str) {
@@ -515,9 +519,7 @@ fn assert_refused_with(prompt: &str, why: &str) {
         GRANTED_MARKER,
         PLAN_BLOCK,
         SUBJECT_RACE,
-        SUBJECT_NOTE,
         COACH_RACE,
-        COACH_NOTE,
         OWN_PROVIDERS_MARKER,
         OTHER_NAME,
         OTHER_RACE,
@@ -606,7 +608,38 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
     assert!(prompt.contains(GRANTED_MARKER));
     assert!(prompt.contains("opened from the group 'Tempo Squad'"));
     assert!(prompt.contains("`publish_training_plan`"));
-    assert!(prompt.contains("read the coach's own account, never Mira Subject's"));
+    assert!(
+        prompt.contains("Data tools act on Mira Subject by default: leave `athlete` out."),
+        "bug: the granted block says the data tools read the thread's athlete: {prompt}"
+    );
+    // The tools that read the athlete are named from what each declares.
+    for readable in [
+        "get_training_history",
+        "get_activities",
+        "analyze_training_load",
+        "track_progress",
+        "estimate_vo2max",
+        "analyze_performance_trends",
+    ] {
+        assert!(prompt.contains(readable), "{readable} is named: {prompt}");
+    }
+    assert!(
+        prompt.contains(
+            "Mira Subject has not shared their wellness with the coach (sleep, HRV, resting heart \
+             rate, weight, readiness and daily notes), so no tool here reads it"
+        ) && prompt.contains("Group info → What your human coach can do"),
+        "bug: the granted block says the wellness is unshared, and where it is shared: {prompt}"
+    );
+    for unread in ["get_sleep_sessions", "get_recovery_metrics"] {
+        assert!(
+            !subject_block(&prompt).contains(unread),
+            "bug: without the grant no wellness read is named readable: {prompt}"
+        );
+    }
+    assert!(
+        !prompt.contains("read the coach's own account"),
+        "no tool in the thread reads the coach's own data any more"
+    );
     assert!(prompt.contains("Nothing said here is saved to the coach's own account"));
     // The athlete's plan, as their live season with no draft open.
     assert!(prompt.contains(&format!(
@@ -629,8 +662,6 @@ async fn with_access_the_athletes_view_replaces_the_coachs_own_context() {
     for absent in [
         OWN_PROVIDERS_MARKER,
         COACH_RACE,
-        COACH_NOTE,
-        SUBJECT_NOTE,
         OTHER_NAME,
         OTHER_RACE,
         WELLNESS_HEADING,
@@ -1056,6 +1087,7 @@ async fn an_old_stored_card_reads_back_unchanged() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1126,8 +1158,15 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
 
     let (without, _) = fx.thread_turn(PLAIN_ASK).await;
     assert!(
-        !without.contains(WELLNESS_HEADING) && !without.contains("HRV"),
+        !without.contains(WELLNESS_HEADING)
+            && !without.contains("HRV 68 ms")
+            && !without.contains("resting heart rate 48 bpm"),
         "no wellness without the athlete's wellness_read"
+    );
+    assert!(
+        without.contains("Mira Subject has not shared their wellness with the coach")
+            && !subject_block(&without).contains("get_sleep_sessions"),
+        "bug: without the grant no wellness read is named, and the block says so: {without}"
     );
 
     repos
@@ -1143,6 +1182,13 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
         .unwrap()
         .expect("the member grants their coach wellness_read");
     let (with, _) = fx.thread_turn(PLAIN_ASK).await;
+    let block = subject_block(&with);
+    assert!(
+        block.contains("Mira Subject shares their wellness with the coach")
+            && block.contains("get_sleep_sessions")
+            && block.contains("get_recovery_metrics"),
+        "bug: under the grant the block names the wellness reads, beside the link's: {with}"
+    );
 
     let at = with.find(WELLNESS_HEADING).expect("the wellness section");
     let section = &with[at..];
@@ -1155,7 +1201,6 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
     ] {
         assert!(section.contains(&reading), "{reading}: {section}");
     }
-    assert!(!with.contains(COACH_NOTE) && !with.contains(SUBJECT_NOTE));
 }
 
 /// The wellness a link files: under the member's tenant, as the platform's.
@@ -1273,7 +1318,7 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
 // ════════════════════════════════════════════════════════════════════════
 
 /// The same coach in a plain thread on the same agent is the turn's subject
-/// as before: their own providers, note and season reach the prompt, nothing
+/// as before: their own providers and season reach the prompt, nothing
 /// of the athlete does, and their card carries no coach fields.
 #[tokio::test]
 async fn a_plain_thread_is_the_coachs_own_as_before() {
@@ -1297,13 +1342,13 @@ async fn a_plain_thread_is_the_coachs_own_as_before() {
     let (prompt, envelope) = fx.coach_turn(&plain, READ_ASK).await;
 
     assert!(!prompt.contains(SUBJECT_HEADING), "{prompt}");
-    for present in [OWN_PROVIDERS_MARKER, COACH_NOTE, COACH_RACE] {
+    for present in [OWN_PROVIDERS_MARKER, COACH_RACE] {
         assert!(
             prompt.contains(present),
             "{present:?} is the coach's own context"
         );
     }
-    for absent in [SUBJECT_NAME, SUBJECT_RACE, SUBJECT_NOTE, OTHER_RACE] {
+    for absent in [SUBJECT_NAME, SUBJECT_RACE, OTHER_RACE] {
         assert!(
             !prompt.contains(absent),
             "{absent:?} reached the coach's own thread"
@@ -1336,4 +1381,45 @@ async fn a_plain_thread_is_the_coachs_own_as_before() {
             ..
         }
     )));
+}
+
+// carnet#1387: the thread's activity read lists the athlete's sessions, and
+// the reply never carries them under a card labelled as the coach's own.
+
+#[tokio::test]
+async fn the_threads_activity_read_lists_the_athlete_and_the_reply_carries_no_own_activity_card() {
+    let fx = Fixture::new().await;
+    let run = ActivityBuilder::new(
+        SUBJECT_RUN.to_owned(),
+        "Subject easy run".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(1),
+        2_400,
+        "upload".to_owned(),
+    )
+    .distance_meters(8_000.0)
+    .build();
+    fx.repos()
+        .activity_cache
+        .upsert_activities(fx.subject.id, &fx.subject.tenant, "upload", &[run])
+        .await
+        .unwrap();
+
+    let before = fx.model.calls();
+    let (_, envelope) = fx.thread_turn(ACTIVITIES_ASK).await;
+
+    let read = fx.model.conversation_since(before);
+    assert!(
+        read.contains(SUBJECT_RUN),
+        "the model read the athlete's sessions, not the coach's: {read}"
+    );
+    assert!(
+        !envelope
+            .assistant
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ReplyBlock::ActivityList { .. })),
+        "the athlete's sessions never ride under the sender's own activity card: {:?}",
+        envelope.assistant.blocks
+    );
 }

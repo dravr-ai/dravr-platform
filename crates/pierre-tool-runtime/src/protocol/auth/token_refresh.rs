@@ -37,7 +37,9 @@ use super::{AuthService, OAuthError, SigningClient, TokenData};
 use crate::protocol::reauth_notice::notify_needs_reauth;
 use crate::protocol::refresh_failure::classify_refresh_failure;
 use pierre_core::http_client::api_client;
-use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_core::models::{
+    connection_needs_reauth, TenantId, UserOAuthToken, PERMISSION_WITHDRAWN,
+};
 use pierre_providers::owner_id::owner_id_for_access_token;
 use pierre_providers::spi::{OAuthRefresh, ProviderDescriptor};
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
@@ -282,6 +284,7 @@ impl AuthService {
                 // connection that a refresh on another server instance, which
                 // lost the race for this refresh token and outwaited
                 // `WINNER_WINDOW`, flipped to needs_reauth. No-op when active.
+                // A withdrawn permission is not the grant: its flag stands.
                 self.mark_connection_active(user_id, tenant, provider).await;
                 refreshed_token.provider_user_id =
                     self.owner_id_after_refresh(current, &refreshed_token).await;
@@ -698,14 +701,17 @@ impl AuthService {
     /// Re-arm a provider connection to `active` after a refresh that landed
     /// (best-effort).
     ///
-    /// No-op when the connection is already active or the row does not exist. A write
-    /// failure must not abort the user's request — log and continue.
+    /// No-op when the connection is already active or the row does not exist,
+    /// and when its flag records a withdrawn permission ([`PERMISSION_WITHDRAWN`]):
+    /// only a reconnect, or the provider reporting the permission granted
+    /// again, clears that one (carnet#1386). A write failure must not abort
+    /// the user's request — log and continue.
     async fn mark_connection_active(&self, user_id: Uuid, tenant: TenantId, provider: &str) {
         if let Err(e) = self
             .resources
             .repos()
             .provider_connections
-            .mark_active(user_id, tenant, provider)
+            .mark_active_unless_flagged_for(user_id, tenant, provider, PERMISSION_WITHDRAWN)
             .await
         {
             warn!("Failed to re-arm connection for user {user_id} provider {provider}: {e}");

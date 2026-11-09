@@ -7,8 +7,10 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use serde::Serialize;
 
 /// One extraction owed: the request the turn produced, as JSON, plus who
 /// it is for and how many times it has been attempted.
@@ -100,7 +102,73 @@ pub struct ExtractionJobClaim {
     pub limit: i64,
 }
 
-/// The ledger of extractions owed.
+/// How one extraction run ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtractionRunOutcome {
+    /// The run wrote at least one fact.
+    Persisted,
+    /// The run finished and had nothing to write.
+    Empty,
+    /// The run could not finish; its job row waits for a retry.
+    Failed,
+}
+
+impl ExtractionRunOutcome {
+    /// The value stored in `memory_extraction_runs.outcome`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Persisted => "persisted",
+            Self::Empty => "empty",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// One extraction run, for the run ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtractionRunRecord {
+    /// Tenant the run stamps its facts under.
+    pub tenant_id: TenantId,
+    /// How it ended.
+    pub outcome: ExtractionRunOutcome,
+    /// Facts it wrote.
+    pub facts_persisted: i64,
+    /// Unix milliseconds when it ended.
+    pub finished_at_ms: i64,
+}
+
+/// Runs over one window, by how they ended.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ExtractionRunCounts {
+    /// Runs that wrote at least one fact.
+    pub persisted: i64,
+    /// Runs that had nothing to write.
+    pub empty: i64,
+    /// Runs that could not finish.
+    pub failed: i64,
+    /// Facts written across those runs.
+    pub facts_persisted: i64,
+}
+
+/// What the worker measurably did: its runs, and the extractions still owed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ExtractionRunStats {
+    /// Runs in the last 24 hours.
+    pub last_24h: ExtractionRunCounts,
+    /// Runs in the last 7 days.
+    pub last_7d: ExtractionRunCounts,
+    /// Unix milliseconds of the newest run still in the ledger.
+    pub last_run_at_ms: Option<i64>,
+    /// Unix milliseconds of the newest failed run still in the ledger.
+    pub last_failure_at_ms: Option<i64>,
+    /// Extractions owed for longer than a run's lease.
+    pub backlog: i64,
+    /// Unix milliseconds when the oldest of those was recorded.
+    pub oldest_backlog_at_ms: Option<i64>,
+}
+
+/// The ledger of extractions owed, and of the runs that served them.
 #[async_trait]
 pub trait MemoryExtractionJobRepository: Send + Sync {
     /// Record an extraction before its spawn, unleased.
@@ -135,6 +203,98 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
         now_ms: i64,
         max_attempts: i64,
     ) -> AppResult<u64>;
+
+    /// Record how one extraction run ended.
+    async fn record_extraction_run(&self, run: &ExtractionRunRecord) -> AppResult<()>;
+
+    /// Delete the run rows that ended before `before_ms`. Returns how many
+    /// were removed.
+    async fn prune_extraction_runs(&self, before_ms: i64) -> AppResult<u64>;
+
+    /// The runs and backlog of `scope`: one tenant, or every tenant on the
+    /// super-admin path of the memory worker screen. A job counts as backlog
+    /// once it was recorded at or before `owed_since_ms`.
+    async fn extraction_run_stats(
+        &self,
+        scope: AdminScope,
+        now_ms: i64,
+        owed_since_ms: i64,
+    ) -> AppResult<ExtractionRunStats>;
+}
+
+const DAY_MS: i64 = 86_400_000;
+
+pub(crate) const RECORD_EXTRACTION_RUN_SQL: &str = "INSERT INTO memory_extraction_runs \
+     (id, tenant_id, outcome, facts_persisted, finished_at_ms) VALUES ($1, $2, $3, $4, $5)";
+
+pub(crate) const PRUNE_EXTRACTION_RUNS_SQL: &str =
+    "DELETE FROM memory_extraction_runs WHERE finished_at_ms < $1";
+
+/// One row of run counters: `$1` opens the 24-hour window, `$2` the 7-day one,
+/// and `$3` is the tenant, every tenant when it binds `NULL`.
+pub(crate) const EXTRACTION_RUN_STATS_SQL: &str = "SELECT \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $1 AND outcome = 'persisted' THEN 1 ELSE 0 END), 0) AS BIGINT) AS persisted_24h, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $1 AND outcome = 'empty' THEN 1 ELSE 0 END), 0) AS BIGINT) AS empty_24h, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $1 AND outcome = 'failed' THEN 1 ELSE 0 END), 0) AS BIGINT) AS failed_24h, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $1 THEN facts_persisted ELSE 0 END), 0) AS BIGINT) AS facts_24h, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $2 AND outcome = 'persisted' THEN 1 ELSE 0 END), 0) AS BIGINT) AS persisted_7d, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $2 AND outcome = 'empty' THEN 1 ELSE 0 END), 0) AS BIGINT) AS empty_7d, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $2 AND outcome = 'failed' THEN 1 ELSE 0 END), 0) AS BIGINT) AS failed_7d, \
+     CAST(COALESCE(SUM(CASE WHEN finished_at_ms >= $2 THEN facts_persisted ELSE 0 END), 0) AS BIGINT) AS facts_7d, \
+     MAX(finished_at_ms) AS last_run_at_ms, \
+     MAX(CASE WHEN outcome = 'failed' THEN finished_at_ms END) AS last_failure_at_ms \
+     FROM memory_extraction_runs \
+     WHERE ($3 IS NULL OR tenant_id = $3)";
+
+/// The jobs owed since `$1` of tenant `$2`, every tenant when it binds `NULL`.
+pub(crate) const EXTRACTION_BACKLOG_SQL: &str =
+    "SELECT CAST(COUNT(*) AS BIGINT) AS backlog, MIN(created_at_ms) AS oldest \
+     FROM memory_extraction_jobs WHERE created_at_ms <= $1 AND ($2 IS NULL OR tenant_id = $2)";
+
+/// The bounds of the two windows [`EXTRACTION_RUN_STATS_SQL`] counts over.
+pub(crate) const fn run_windows(now_ms: i64) -> (i64, i64) {
+    (
+        now_ms.saturating_sub(DAY_MS),
+        now_ms.saturating_sub(7 * DAY_MS),
+    )
+}
+
+/// Decode the run counters and the backlog into one stats value.
+pub(crate) fn extraction_run_stats_from_rows<R>(
+    runs: &R,
+    backlog: &R,
+) -> AppResult<ExtractionRunStats>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let count = |row: &R, column: &str| -> AppResult<i64> {
+        row.try_get(column)
+            .map_err(|e| AppError::database(format!("extraction run stats {column}: {e}")))
+    };
+    let newest = |row: &R, column: &str| -> AppResult<Option<i64>> {
+        row.try_get(column)
+            .map_err(|e| AppError::database(format!("extraction run stats {column}: {e}")))
+    };
+    Ok(ExtractionRunStats {
+        last_24h: ExtractionRunCounts {
+            persisted: count(runs, "persisted_24h")?,
+            empty: count(runs, "empty_24h")?,
+            failed: count(runs, "failed_24h")?,
+            facts_persisted: count(runs, "facts_24h")?,
+        },
+        last_7d: ExtractionRunCounts {
+            persisted: count(runs, "persisted_7d")?,
+            empty: count(runs, "empty_7d")?,
+            failed: count(runs, "failed_7d")?,
+            facts_persisted: count(runs, "facts_7d")?,
+        },
+        last_run_at_ms: newest(runs, "last_run_at_ms")?,
+        last_failure_at_ms: newest(runs, "last_failure_at_ms")?,
+        backlog: count(backlog, "backlog")?,
+        oldest_backlog_at_ms: newest(backlog, "oldest")?,
+    })
 }
 
 pub(crate) const RECORD_EXTRACTION_JOB_SQL: &str = "INSERT INTO memory_extraction_jobs \
@@ -302,6 +462,58 @@ macro_rules! impl_memory_extraction_job_repository {
                         AppError::database(format!("Failed to reap exhausted extraction jobs: {e}"))
                     })?;
                 Ok(outcome.rows_affected())
+            }
+
+            async fn record_extraction_run(&self, run: &ExtractionRunRecord) -> AppResult<()> {
+                sqlx::query(RECORD_EXTRACTION_RUN_SQL)
+                    .bind(uuid::Uuid::new_v4().to_string())
+                    .bind(run.tenant_id)
+                    .bind(run.outcome.as_str())
+                    .bind(run.facts_persisted)
+                    .bind(run.finished_at_ms)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record extraction run: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn prune_extraction_runs(&self, before_ms: i64) -> AppResult<u64> {
+                let outcome = sqlx::query(PRUNE_EXTRACTION_RUNS_SQL)
+                    .bind(before_ms)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to prune extraction runs: {e}"))
+                    })?;
+                Ok(outcome.rows_affected())
+            }
+
+            async fn extraction_run_stats(
+                &self,
+                scope: AdminScope,
+                now_ms: i64,
+                owed_since_ms: i64,
+            ) -> AppResult<ExtractionRunStats> {
+                let tenant_id = scope.tenant_filter();
+                let (since_24h, since_7d) = run_windows(now_ms);
+                let read_failed =
+                    |e| AppError::database(format!("Failed to read extraction runs: {e}"));
+                let runs = sqlx::query(EXTRACTION_RUN_STATS_SQL)
+                    .bind(since_24h)
+                    .bind(since_7d)
+                    .bind(tenant_id)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(read_failed)?;
+                let backlog = sqlx::query(EXTRACTION_BACKLOG_SQL)
+                    .bind(owed_since_ms)
+                    .bind(tenant_id)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(read_failed)?;
+                extraction_run_stats_from_rows(&runs, &backlog)
             }
         }
     };

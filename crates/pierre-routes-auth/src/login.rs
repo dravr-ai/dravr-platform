@@ -218,7 +218,12 @@ async fn send_registration_email(
         success = Empty,
         utm_source = Empty,
         utm_medium = Empty,
-        utm_campaign = Empty
+        utm_campaign = Empty,
+        utm_term = Empty,
+        utm_content = Empty,
+        ref = Empty,
+        placement = Empty,
+        lang = Empty
     )
 )]
 pub(crate) async fn handle_public_register(
@@ -343,7 +348,12 @@ pub(crate) async fn handle_public_register(
         success = Empty,
         utm_source = Empty,
         utm_medium = Empty,
-        utm_campaign = Empty
+        utm_campaign = Empty,
+        utm_term = Empty,
+        utm_content = Empty,
+        ref = Empty,
+        placement = Empty,
+        lang = Empty
     )
 )]
 pub(crate) async fn handle_firebase_login(
@@ -550,6 +560,7 @@ pub(crate) async fn handle_session(
             coaching_persona: user.coaching_persona.as_str().to_owned(),
             manages_roster: user.manages_roster,
             analytics_consent: user.analytics_consent,
+            analytics_consent_answered: user.analytics_consent_at.is_some(),
         },
         access_token: SecretString::from(jwt_token),
         csrf_token: SecretString::from(csrf_token),
@@ -619,6 +630,7 @@ pub(crate) async fn handle_update_profile(
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),
             manages_roster: updated_user.manages_roster,
             analytics_consent: updated_user.analytics_consent,
+            analytics_consent_answered: updated_user.analytics_consent_at.is_some(),
         },
     };
 

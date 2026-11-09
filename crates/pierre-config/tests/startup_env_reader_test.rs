@@ -21,21 +21,19 @@ use pierre_config::environment::{
 };
 use secrecy::ExposeSecret;
 
-const GUARDIAN_VARS: [&str; 6] = [
+const GUARDIAN_VARS: [&str; 3] = [
     "GUARDIAN_MODE",
     "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
     "GUARDIAN_MAX_WRITES_PER_TURN",
-    "GUARDIAN_EXTERNAL_SEND_TENANTS",
-    "GUARDIAN_TAINTED_DESTRUCTIVE",
-    "GUARDIAN_PLAN_MODE",
 ];
 
-const TIMEOUT_VARS: [&str; 5] = [
+const TIMEOUT_VARS: [&str; 6] = [
     "PIERRE_MCP_TASK_FAST_PATH_MS",
     "MESSAGING_TURN_WATCHDOG_SECS",
     "PIERRE_HOME_ROUTE_ANSWER_SECS",
     "PIERRE_HOME_ROUTE_PROVIDER_READ_SECS",
     "PIERRE_REVALIDATION_TIMEOUT_SECS",
+    "PIERRE_SETTINGS_POLL_INTERVAL_SECS",
 ];
 
 #[test]
@@ -54,14 +52,13 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     // Guardian values are kept as written; the tool runtime parses them.
     env::set_var("GUARDIAN_MODE", " observe ");
     env::set_var("GUARDIAN_MAX_WRITES_PER_TURN", "7");
-    env::set_var("GUARDIAN_PLAN_MODE", "enforce");
+    env::set_var("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN", "4");
     assert_eq!(
         GuardianSettings::from_env(),
         GuardianSettings {
             mode: Some(" observe ".to_owned()),
+            max_destructive_per_turn: Some("4".to_owned()),
             max_writes_per_turn: Some("7".to_owned()),
-            plan_mode: Some("enforce".to_owned()),
-            ..GuardianSettings::default()
         }
     );
 
@@ -99,6 +96,7 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     env::set_var("PIERRE_HOME_ROUTE_ANSWER_SECS", "soon");
     env::set_var("PIERRE_HOME_ROUTE_PROVIDER_READ_SECS", " 12 ");
     env::set_var("PIERRE_REVALIDATION_TIMEOUT_SECS", "90");
+    env::set_var("PIERRE_SETTINGS_POLL_INTERVAL_SECS", "0");
     assert_eq!(
         ServerTimeouts::from_env(),
         ServerTimeouts {
@@ -107,7 +105,13 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
             home_route_answer_secs: None,
             home_route_provider_read_secs: Some(12),
             revalidation_timeout_secs: Some(90),
+            settings_poll_interval_secs: None,
         }
+    );
+    env::set_var("PIERRE_SETTINGS_POLL_INTERVAL_SECS", "45");
+    assert_eq!(
+        ServerTimeouts::from_env().settings_poll_interval_secs,
+        Some(45)
     );
 
     // Deferred tool loading is on unless the operator writes an off value,

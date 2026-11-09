@@ -78,7 +78,15 @@ export async function freshOnboardingCoach(server: CoachServer): Promise<Onboard
   const registered = await expectOk(
     await call(server, '/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password: COACH_PASSWORD, display_name: 'Coach e2e' }),
+      // The form's usage-analytics answer, as the app's sign-up sends it: an
+      // account registered without one meets that question before the group
+      // step (carnet#1366).
+      body: JSON.stringify({
+        email,
+        password: COACH_PASSWORD,
+        display_name: 'Coach e2e',
+        analytics_consent: false,
+      }),
     }),
     'register',
   );

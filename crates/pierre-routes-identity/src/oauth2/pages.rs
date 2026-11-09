@@ -15,9 +15,20 @@ use pierre_auth::oauth2_server::{
     endpoints::OAuth2AuthorizationServer,
     models::{AuthorizeRequest, OAuth2Error},
 };
-use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use pierre_contremaitre::consent_strings::{
+    KEY_CONSENT_ALLOW, KEY_CONSENT_DENY, KEY_CONSENT_FIRST_PARTY_ONLY, KEY_CONSENT_LEAD,
+    KEY_CONSENT_LIST_PAIR, KEY_CONSENT_PRIVACY_POLICY, KEY_CONSENT_RETURNS_TO,
+    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_SCOPES_TITLE, KEY_CONSENT_SIGNED_IN_AS,
+    KEY_CONSENT_TERMS, KEY_CONSENT_TITLE, KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE,
+    KEY_ERROR_TRY_AGAIN,
+};
+use pierre_core::html::{escape_html_attribute, oauth_error_page, with_hosted_page_css};
 use url::Url;
 
+use super::consent_copy::{
+    client_span, express_consent_line, health_line, outside_quebec_line, trust_line, ClientTrust,
+};
+use super::consent_text::ConsentText;
 use super::login_text::{LoginPageLabels, LoginText};
 use super::OAuth2Routes;
 
@@ -101,6 +112,12 @@ pub struct ConsentHtmlParams<'a> {
     pub account_email: &'a str,
     /// The login page for this request, to sign in as another account
     pub switch_account_url: &'a str,
+    /// The services whose terms keep their data inside Dravr, which the
+    /// screen tells the athlete the client will not receive; none hides
+    /// the line
+    pub first_party_only_sources: &'a [&'a str],
+    /// The page's text in the reader's language
+    pub text: &'a ConsentText<'a>,
 }
 
 impl fmt::Debug for ConsentHtmlParams<'_> {
@@ -118,23 +135,22 @@ impl fmt::Debug for ConsentHtmlParams<'_> {
             .field("client_label", &self.client_label)
             .field("account_email", &self.account_email)
             .field("switch_account_url", &"[REDACTED]")
+            .field("first_party_only_sources", &self.first_party_only_sources)
+            .field("text", &self.text)
             .finish()
     }
 }
 
 impl OAuth2Routes {
-    /// OAuth error template embedded at compile-time
-    const OAUTH_ERROR_TEMPLATE: &'static str = include_str!("../../templates/oauth_error.html");
-
-    /// What the error page says when the error carries no description
-    const DEFAULT_ERROR_DESCRIPTION: &'static str = "Please try again.";
+    /// The error page in `text`'s language, saying `description`, which is
+    /// already markup.
+    fn error_page_html(description: &str, text: &ConsentText<'_>) -> String {
+        oauth_error_page(text.lang(), &text.html(KEY_ERROR_TITLE, &[]), description)
+    }
 
     /// The error page with no particular error to name.
-    pub(super) fn generic_error_html() -> String {
-        with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE).replace(
-            "{{DESCRIPTION}}",
-            &format!("<p>{}</p>", Self::DEFAULT_ERROR_DESCRIPTION),
-        )
+    pub(super) fn generic_error_html(text: &ConsentText<'_>) -> String {
+        Self::error_page_html(&text.html(KEY_ERROR_TRY_AGAIN, &[]), text)
     }
 
     /// OAuth login page template embedded at compile-time
@@ -156,18 +172,13 @@ impl OAuth2Routes {
 
     /// Render HTML error page for OAuth errors shown in browser: 429 for
     /// `too_many_requests`, 503 for `temporarily_unavailable`, else 400
-    pub(crate) fn render_oauth_error_response(error: &OAuth2Error) -> Response {
+    pub(crate) fn render_oauth_error_response(
+        error: &OAuth2Error,
+        text: &ConsentText<'_>,
+    ) -> Response {
         // The description an OAuth error carries is written for the person
         // reading it (RFC 6749 §5.2), never a server's internal detail.
-        let error_description = error
-            .error_description
-            .as_deref()
-            .unwrap_or(Self::DEFAULT_ERROR_DESCRIPTION);
-
-        let html = with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE).replace(
-            "{{DESCRIPTION}}",
-            &format!("<p>{}</p>", escape_html_attribute(error_description)),
-        );
+        let html = Self::error_page_html(&text.refusal(error), text);
 
         (error.http_status(), Html(html)).into_response()
     }
@@ -180,6 +191,8 @@ impl OAuth2Routes {
         csrf_token: &str,
         client_name: Option<&str>,
         account_email: &str,
+        first_party_only_sources: &[&str],
+        text: &ConsentText<'_>,
     ) -> Response {
         let client_label = client_name
             .map(str::trim)
@@ -199,6 +212,8 @@ impl OAuth2Routes {
             client_label,
             account_email,
             switch_account_url: &switch_account_url,
+            first_party_only_sources,
+            text,
         });
         Html(html).into_response()
     }
@@ -262,24 +277,72 @@ impl OAuth2Routes {
     /// Render the OAuth consent page for a client requesting access.
     #[must_use]
     pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
-        use std::fmt::Write;
-
+        let text = params.text;
         let displayed_scope = if params.scope.is_empty() {
             OAuth2AuthorizationServer::default_scope_display()
         } else {
             params.scope.to_owned()
         };
-        // Each scope token becomes a list item; the token text is HTML-escaped
-        // before the (literal) <li> markup is substituted into the template.
-        let scope_items =
-            displayed_scope
-                .split_whitespace()
-                .fold(String::new(), |mut acc, scope| {
-                    write!(acc, "<li>{}</li>", escape_html_attribute(scope)).ok();
-                    acc
-                });
+        // Each scope becomes a list item; its text is HTML-escaped before the
+        // (literal) <li> markup is substituted into the template.
+        let scope_items: String = displayed_scope
+            .split_whitespace()
+            .map(|scope| text.scope_item(scope))
+            .collect();
 
+        let trust = ClientTrust::of(params.client_id, params.redirect_uri);
+
+        let client = client_span(params.client_label);
+
+        // The catalogue's lines go in first, so a request value that spells a
+        // placeholder is never expanded into one of them.
         with_hosted_page_css(Self::OAUTH_CONSENT_TEMPLATE)
+            .replace("{{LANG}}", text.lang())
+            .replace("{{T_TITLE}}", &text.html(KEY_CONSENT_TITLE, &[]))
+            .replace(
+                "{{T_SCOPES_TITLE}}",
+                &text.html(KEY_CONSENT_SCOPES_TITLE, &[]),
+            )
+            .replace("{{T_ALLOW}}", &text.html(KEY_CONSENT_ALLOW, &[]))
+            .replace("{{T_DENY}}", &text.html(KEY_CONSENT_DENY, &[]))
+            .replace(
+                "{{T_USE_ANOTHER_ACCOUNT}}",
+                &text.html(KEY_CONSENT_USE_ANOTHER_ACCOUNT, &[]),
+            )
+            .replace(
+                "{{T_REVOKE_ANYTIME}}",
+                &text.html(KEY_CONSENT_REVOKE_ANYTIME, &[]),
+            )
+            .replace(
+                "{{T_PRIVACY_POLICY}}",
+                &text.html(KEY_CONSENT_PRIVACY_POLICY, &[]),
+            )
+            .replace("{{T_TERMS}}", &text.html(KEY_CONSENT_TERMS, &[]))
+            .replace("{{T_LEAD}}", &text.html(KEY_CONSENT_LEAD, &[&client]))
+            .replace(
+                "{{T_RETURNS_TO}}",
+                &text.html(
+                    KEY_CONSENT_RETURNS_TO,
+                    &[&escape_html_attribute(&redirect_host(params.redirect_uri))],
+                ),
+            )
+            .replace(
+                "{{T_SIGNED_IN_AS}}",
+                &text.html(
+                    KEY_CONSENT_SIGNED_IN_AS,
+                    &[&escape_html_attribute(params.account_email)],
+                ),
+            )
+            .replace("{{TRUST_LINE}}", &trust_line(&trust, text))
+            .replace("{{HEALTH_LINE}}", &health_line(params.client_label, text))
+            .replace(
+                "{{OUTSIDE_QUEBEC_LINE}}",
+                &outside_quebec_line(&trust, params.client_label, text),
+            )
+            .replace(
+                "{{EXPRESS_CONSENT_LINE}}",
+                &express_consent_line(params.client_label, text),
+            )
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",
@@ -302,22 +365,14 @@ impl OAuth2Routes {
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
             .replace("{{CSRF_TOKEN}}", &escape_html_attribute(params.csrf_token))
             .replace(
-                "{{CLIENT_LABEL}}",
-                &escape_html_attribute(params.client_label),
-            )
-            .replace(
-                "{{REDIRECT_HOST}}",
-                &escape_html_attribute(&redirect_host(params.redirect_uri)),
-            )
-            .replace(
-                "{{ACCOUNT_EMAIL}}",
-                &escape_html_attribute(params.account_email),
-            )
-            .replace(
                 "{{SWITCH_ACCOUNT_URL}}",
                 &escape_html_attribute(params.switch_account_url),
             )
             .replace("{{SCOPE_ITEMS}}", &scope_items)
+            .replace(
+                "{{FIRST_PARTY_ONLY_LINE}}",
+                &first_party_only_line(params.first_party_only_sources, &client, text),
+            )
     }
 
     /// Render the page a refused hosted sign-in answers with, in the
@@ -390,6 +445,28 @@ impl OAuth2Routes {
 
         (status, Html(error_html)).into_response()
     }
+}
+
+/// The consent screen's line naming the services whose data stays inside
+/// Dravr and so never reaches the `client`, which is already markup; empty
+/// when `sources` names none.
+fn first_party_only_line(sources: &[&str], client: &str, text: &ConsentText<'_>) -> String {
+    let Some((last, rest)) = sources.split_last() else {
+        return String::new();
+    };
+    let last = escape_html_attribute(last);
+    let named = if rest.is_empty() {
+        last
+    } else {
+        text.html(
+            KEY_CONSENT_LIST_PAIR,
+            &[&escape_html_attribute(&rest.join(", ")), &last],
+        )
+    };
+    format!(
+        r#"<p class="fineprint">{}</p>"#,
+        text.html(KEY_CONSENT_FIRST_PARTY_ONLY, &[&named, client]),
+    )
 }
 
 /// The host `redirect_uri` returns to, as the consent screen names it: the

@@ -5,6 +5,7 @@
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
+import type { AdminScope } from '../../hooks/useAdminScope';
 import type {
   AdminTokensResponse,
   Agent,
@@ -292,13 +293,102 @@ export interface ImpersonationSessionSummary {
   duration_seconds: number;
 }
 
-/** GET /api/admin/impersonate/sessions. */
+/** GET /api/admin/impersonate/sessions: one page of the log, newest first. */
 export interface ImpersonationSessionsResponse {
   sessions: ImpersonationSessionSummary[];
+  /** Sessions on this page. */
   total_count: number;
+  /** The cursor for the next older page; both null on the last page. */
+  next_before: string | null;
+  next_before_id: string | null;
+}
+
+/** Where a page of the impersonation log resumes: the previous page's last session. */
+export interface ImpersonationSessionsCursor {
+  before: string;
+  before_id: string;
+}
+
+/** How an audited operator action ended: done, refused by a check, or errored. */
+export type AuditOutcome = 'success' | 'refused' | 'failed';
+
+/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, or a service token. */
+export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service';
+
+/** The request details the server recorded beside an audit event; every field is optional. */
+export interface AuditEventMetadata {
+  method?: string;
+  route?: string;
+  status?: number;
+  params?: Record<string, unknown>;
+  target?: unknown;
+  before?: unknown;
+  after?: unknown;
+  token_id?: string;
+  [key: string]: unknown;
+}
+
+/** One operator action as GET /api/admin/audit-events lists it. */
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  action: string;
+  summary: string;
+  outcome: AuditOutcome;
+  source: AuditSource;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  tenant_id: string | null;
+  metadata: AuditEventMetadata | null;
+}
+
+/** One page of the audit trail, newest first; `next_before` and `next_before_id` are the cursor for the next older page, null on the last. */
+export interface AuditEventsPage {
+  events: AuditEvent[];
+  next_before: string | null;
+  next_before_id: string | null;
+}
+
+/** Filters GET /api/admin/audit-events accepts; `before` and `before_id` are the cursor a previous page returned. */
+export interface AuditEventsQuery {
+  limit?: number;
+  before?: string;
+  before_id?: string;
+  action?: string;
+  outcome?: AuditOutcome;
+  actor_user_id?: string;
+}
+
+/** Query key of the audit trail; the filters are part of it so a filter change restarts the pages. */
+export const auditEventsQueryKey = (filters: Omit<AuditEventsQuery, 'before' | 'before_id'>) =>
+  ['admin-audit-events', filters] as const;
+
+/** The query of a scoped read. No `tenant_id` lets the server apply the caller's default. */
+function scopeQuery(tenantId?: string): URLSearchParams {
+  return new URLSearchParams(tenantId ? { tenant_id: tenantId } : {});
 }
 
 export const adminApi = {
+  // ==================== AUDIT TRAIL ====================
+  /** One page of what operators did, newest first. */
+  async getAuditEvents(query: AuditEventsQuery = {}): Promise<AuditEventsPage> {
+    const params = new URLSearchParams();
+    if (query.limit !== undefined) params.append('limit', String(query.limit));
+    if (query.before) params.append('before', query.before);
+    if (query.before_id) params.append('before_id', query.before_id);
+    if (query.action) params.append('action', query.action);
+    if (query.outcome) params.append('outcome', query.outcome);
+    if (query.actor_user_id) params.append('actor_user_id', query.actor_user_id);
+    const queryString = params.toString();
+    const url = queryString ? `/api/admin/audit-events?${queryString}` : '/api/admin/audit-events';
+    const response = await axios.get(url);
+    return {
+      events: response.data.data?.events ?? [],
+      next_before: response.data.data?.next_before ?? null,
+      next_before_id: response.data.data?.next_before_id ?? null,
+    };
+  },
+
   // ==================== ADMIN TOKEN MANAGEMENT ====================
   // The admin-token handlers `pierre-cli` reaches too; every answer is the
   // `{ success, message, data }` envelope and these return its `data`.
@@ -727,9 +817,11 @@ export const adminApi = {
     return response.data;
   },
 
-  /** The impersonation log: the latest sessions, newest first (super admin only). */
-  async listImpersonationSessions(): Promise<ImpersonationSessionsResponse> {
-    const response = await axios.get<ImpersonationSessionsResponse>('/api/admin/impersonate/sessions');
+  /** One page of the impersonation log, newest first (super admin only); `cursor` resumes after a previous page. */
+  async listImpersonationSessions(cursor?: ImpersonationSessionsCursor): Promise<ImpersonationSessionsResponse> {
+    const response = await axios.get<ImpersonationSessionsResponse>('/api/admin/impersonate/sessions', {
+      params: cursor ? { before: cursor.before, before_id: cursor.before_id } : undefined,
+    });
     return response.data;
   },
 
@@ -758,12 +850,6 @@ export const adminApi = {
     category?: string;
     tags?: string[];
     visibility?: string;
-    purpose?: string;
-    when_to_use?: string;
-    instructions?: string;
-    example_inputs?: string;
-    example_outputs?: string;
-    success_criteria?: string;
   }): Promise<Agent> {
     const response = await axios.post('/api/admin/agents', data);
     return response.data;
@@ -780,12 +866,6 @@ export const adminApi = {
     system_prompt?: string;
     category?: string;
     tags?: string[];
-    purpose?: string;
-    when_to_use?: string;
-    instructions?: string;
-    example_inputs?: string;
-    example_outputs?: string;
-    success_criteria?: string;
   }): Promise<Agent> {
     const response = await axios.put(`/api/admin/agents/${agentId}`, data);
     return response.data;
@@ -1044,6 +1124,7 @@ export const adminApi = {
     published_count: number;
     rejected_count: number;
     total_installs: number;
+    /** Rejected / (published + rejected) as a percentage, 0 to 100. */
     rejection_rate: number;
   }> {
     const response = await axios.get('/api/admin/store/stats');
@@ -1085,6 +1166,7 @@ export const adminApi = {
     branch: string | null;
     system_prompt_count: number;
     agent_prompt_count: number;
+    persona_count: number;
     compiled_in_count: number;
     contremaitre_count: number;
   }> {
@@ -1117,6 +1199,30 @@ export const adminApi = {
     return response.data;
   },
 
+  async listAgentPrompts(): Promise<{
+    total: number;
+    prompts: Array<{ key: string; locales: string[] }>;
+  }> {
+    const response = await axios.get('/api/admin/contremaitre/agent-prompts');
+    return response.data;
+  },
+
+  async getAgentPrompt(slug: string, locale: string): Promise<{
+    key: string;
+    requested_locale: string;
+    locale: string;
+    content: string;
+    sha256: string;
+    source: 'compiled_in' | 'contremaitre';
+    loaded_at: string;
+  }> {
+    const response = await axios.get(
+      `/api/admin/contremaitre/agent-prompts/${encodeURIComponent(slug)}`,
+      { params: { locale } },
+    );
+    return response.data;
+  },
+
   async updateSystemPrompt(
     key: string,
     data: { content: string; commit_message?: string },
@@ -1145,25 +1251,25 @@ export const adminApi = {
     return response.data;
   },
 
-  async putHarnessConfig(config: HarnessConfigDocument): Promise<HarnessConfigResponse> {
-    const response = await axios.put('/api/admin/settings/harness', config);
-    return response.data;
-  },
-
-  // ==================== GUARDIAN CONFIG ====================
-  async getGuardianConfig(): Promise<GuardianConfigResponse> {
-    const response = await axios.get('/api/admin/settings/guardian');
-    return response.data;
-  },
-
-  async putGuardianConfig(config: GuardianConfigDocument): Promise<GuardianConfigResponse> {
-    const response = await axios.put('/api/admin/settings/guardian', config);
+  /**
+   * `expectedUpdatedAt` is the `updated_at` of the response the edit started from,
+   * verbatim, or `null` when no row existed. The server refuses a stale one.
+   */
+  async putHarnessConfig(
+    config: HarnessConfigDocument,
+    expectedUpdatedAt: string | null,
+  ): Promise<HarnessConfigResponse> {
+    const response = await axios.put('/api/admin/settings/harness', {
+      ...config,
+      expected_updated_at: expectedUpdatedAt,
+    });
     return response.data;
   },
 
   // ==================== TIER 5.5 CLAIM VERDICTS ====================
   async listClaimVerdicts(params: {
-    tenant_id: string;
+    /** What the viewer asks to read; absent lets the server apply the caller's default. */
+    tenant_id?: string;
     status?: string;
     category?: string;
     agent_id?: string;
@@ -1173,11 +1279,13 @@ export const adminApi = {
     user_id?: string;
     limit?: number;
   }): Promise<{
+    scope: AdminScope;
     verdicts: ClaimVerdict[];
     total: number;
+    /** Every verdict the filters select, per status: the whole set, not this page. */
+    status_counts: VerdictStatusBreakdown;
   }> {
-    const query = new URLSearchParams();
-    query.append('tenant_id', params.tenant_id);
+    const query = scopeQuery(params.tenant_id);
     if (params.status) query.append('status', params.status);
     if (params.category) query.append('category', params.category);
     if (params.agent_id) query.append('agent_id', params.agent_id);
@@ -1192,12 +1300,14 @@ export const adminApi = {
   /** Every verdict extracted from one message — support's entry point. */
   async listVerdictsForMessage(
     messageId: string,
-    tenantId: string,
+    tenantId?: string,
   ): Promise<{
+    scope: AdminScope;
     verdicts: ClaimVerdict[];
     total: number;
+    status_counts: VerdictStatusBreakdown;
   }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
+    const query = scopeQuery(tenantId);
     const response = await axios.get(
       `/api/admin/claim-verdicts/messages/${encodeURIComponent(messageId)}?${query.toString()}`,
     );
@@ -1226,65 +1336,32 @@ export const adminApi = {
   },
 
   /** Flagged verdicts and their dispositions over the window, by layer, category, agent, reason and day. */
-  async getClaimVerdictHealth(tenantId: string, windowDays = 30): Promise<VerdictHealthStats> {
-    const query = new URLSearchParams({
-      tenant_id: tenantId,
-      window_days: String(windowDays),
-    });
+  async getClaimVerdictHealth(tenantId?: string, windowDays = 30): Promise<VerdictHealthStats> {
+    const query = scopeQuery(tenantId);
+    query.append('window_days', String(windowDays));
     const response = await axios.get(`/api/admin/claim-verdicts/health?${query.toString()}`);
     return response.data;
   },
 
   // ==================== MEMORY EXTRACTION WORKER (Phase B C6) ====================
-  async getMemoryWorkerMetrics(tenantId: string): Promise<MemoryWorkerMetricsResponse> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
+  /** Every tenant a super admin can pick on a scoped screen; refused for anyone else. */
+  async listScopeTenants(): Promise<ScopeTenant[]> {
+    const response = await axios.get('/api/admin/tenants');
+    return response.data.tenants;
+  },
+
+  async getMemoryWorkerMetrics(tenantId?: string): Promise<MemoryWorkerMetricsResponse> {
+    const query = scopeQuery(tenantId);
     const response = await axios.get(`/api/admin/memory/worker-metrics?${query.toString()}`);
-    return response.data;
-  },
-
-  // ==================== COACH FOLLOWUP TRIAGE (Phase B C7) ====================
-  async listPendingFollowups(
-    tenantId: string,
-    limit?: number,
-  ): Promise<{ followups: FollowupRow[]; total: number }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    if (limit !== undefined) {
-      query.append('limit', String(limit));
-    }
-    const response = await axios.get(`/api/admin/agent-followups/pending?${query.toString()}`);
-    return response.data;
-  },
-
-  async cancelFollowup(
-    followupId: string,
-    tenantId: string,
-  ): Promise<{ cancelled: boolean }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    const response = await axios.post(
-      `/api/admin/agent-followups/${followupId}/cancel?${query.toString()}`,
-    );
-    return response.data;
-  },
-
-  // ==================== COACH NOTES AUDIT (Phase B C8) ====================
-  async listCoachNoteAudit(
-    tenantId: string,
-    limit?: number,
-  ): Promise<{ notes: AgentNoteAuditRow[]; total: number }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    if (limit !== undefined) {
-      query.append('limit', String(limit));
-    }
-    const response = await axios.get(`/api/admin/agent-notes/audit?${query.toString()}`);
     return response.data;
   },
 
   // ==================== MYTH-BUSTING SUMMARY (Phase D C13) ====================
   async getMythBustingSummary(
-    tenantId: string,
+    tenantId?: string,
     limit?: number,
   ): Promise<MythBustingSummary> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
+    const query = scopeQuery(tenantId);
     if (limit !== undefined) {
       query.append('limit', String(limit));
     }
@@ -1292,58 +1369,12 @@ export const adminApi = {
     return response.data;
   },
 
-  /**
-   * Promote a recurring unsupported claim phrase into Harness Config's
-   * `blocked_topics` so the chat pipeline rejects future replies that
-   * include it. Idempotent: re-promoting an existing topic returns
-   * `added: false` and skips the registry write.
-   */
-  async promoteMythBustingTopic(topic: string): Promise<{
-    topic: string;
-    added: boolean;
-    total_blocked_topics: number;
-  }> {
-    const response = await axios.post(
-      `/api/admin/myth-busting/promote-topic`,
-      { topic },
-    );
-    return response.data;
-  },
-
-  /**
-   * Suppress an audited agent note so memory recall stops surfacing it
-   * to the agent. The audit panel still shows the row (suppressed=true)
-   * for review; admins can call `unsuppressCoachNote` to restore it.
-   */
-  async suppressCoachNote(
-    tenantId: string,
-    noteId: string,
-  ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    const response = await axios.post(
-      `/api/admin/agent-notes/${encodeURIComponent(noteId)}/suppress?${query.toString()}`,
-    );
-    return response.data;
-  },
-
-  /** Inverse of [[suppressCoachNote]]. */
-  async unsuppressCoachNote(
-    tenantId: string,
-    noteId: string,
-  ): Promise<{ note_id: string; suppressed: boolean; changed: boolean }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    const response = await axios.post(
-      `/api/admin/agent-notes/${encodeURIComponent(noteId)}/unsuppress?${query.toString()}`,
-    );
-    return response.data;
-  },
-
   // ==================== COACH GRADING SUMMARY (Phase D C14) ====================
   async getCoachGradingSummary(
-    tenantId: string,
+    tenantId?: string,
     limit?: number,
   ): Promise<AgentGradingSummary> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
+    const query = scopeQuery(tenantId);
     if (limit !== undefined) {
       query.append('limit', String(limit));
     }
@@ -1351,80 +1382,24 @@ export const adminApi = {
     return response.data;
   },
 
-  // ==================== EVAL HARNESS FIXTURE BROWSER (Phase B C16) ====================
-  async getEvalFixtureBrowser(): Promise<EvalFixtureBrowserResponse> {
-    const response = await axios.get('/api/admin/evals/fixtures');
+  /** The Engagement screen's figures, every one in the scope the server grants. */
+  async getEngagement(tenantId?: string): Promise<EngagementSummary> {
+    const query = scopeQuery(tenantId);
+    const response = await axios.get(`/api/admin/engagement?${query.toString()}`);
     return response.data;
   },
 
   /** Fetch verdict calibration stats for the calibration panel (Sprint C20). */
   async getVerdictCalibrationStats(
-    tenantId: string,
+    tenantId?: string,
     windowDays = 30,
   ): Promise<VerdictCalibrationStats> {
-    const query = new URLSearchParams({
-      tenant_id: tenantId,
-      window_days: String(windowDays),
-    });
+    const query = scopeQuery(tenantId);
+    query.append('window_days', String(windowDays));
     const response = await axios.get(`/api/admin/evals/verdict-stats?${query.toString()}`);
     return response.data;
   },
-
-  /** Fetch the raw JSONL body of a single fixture for inline editing. */
-  async getEvalFixtureContent(name: string): Promise<EvalFixtureContentResponse> {
-    const response = await axios.get(
-      `/api/admin/evals/fixtures/${encodeURIComponent(name)}`,
-    );
-    return response.data;
-  },
-
-  /** Write the raw JSONL body of a fixture (creating it if missing). */
-  async putEvalFixture(name: string, body: string): Promise<EvalFixtureSummary> {
-    const response = await axios.put(
-      `/api/admin/evals/fixtures/${encodeURIComponent(name)}`,
-      { body },
-    );
-    return response.data;
-  },
-
-  /** Delete a fixture by name. */
-  async deleteEvalFixture(name: string): Promise<void> {
-    await axios.delete(`/api/admin/evals/fixtures/${encodeURIComponent(name)}`);
-  },
 };
-
-/** Per-case summary row from the eval fixture browser. */
-export interface EvalFixtureCaseSummary {
-  id: string;
-  label: string;
-  persona: string;
-  turn_count: number;
-  must_contain_total: number;
-  must_not_contain_total: number;
-}
-
-/** Per-fixture summary from the eval fixture browser. */
-export interface EvalFixtureSummary {
-  name: string;
-  path: string;
-  case_count: number;
-  personas: string[];
-  cases: EvalFixtureCaseSummary[];
-}
-
-/** Top-level response for `GET /admin/evals/fixtures`. */
-export interface EvalFixtureBrowserResponse {
-  scanned_dir: string;
-  fixture_count: number;
-  case_total: number;
-  fixtures: EvalFixtureSummary[];
-}
-
-/** Response from `GET /admin/evals/fixtures/{name}`. */
-export interface EvalFixtureContentResponse {
-  name: string;
-  body: string;
-}
 
 /** Status-level counters emitted by `GET /admin/evals/verdict-stats`. */
 export interface VerdictStatusBreakdown {
@@ -1443,6 +1418,7 @@ export interface VerdictDailyBucket {
 
 /** Verdict calibration rollup for a tenant over the last `window_days`. */
 export interface VerdictCalibrationStats {
+  scope: AdminScope;
   window_start: string;
   window_days: number;
   totals: VerdictStatusBreakdown;
@@ -1550,6 +1526,7 @@ export interface VerdictHealthDay {
 
 /** Aggregate health of the claim-verification pipeline over a window. */
 export interface VerdictHealthStats {
+  scope: AdminScope;
   window_start: string;
   window_days: number;
   totals: VerdictHealthTotals;
@@ -1569,24 +1546,28 @@ export interface HarnessCompactionConfig {
   emergency_threshold: number;
   summarize_oldest_n: number;
   sliding_drop_n: number;
+  max_messages: number;
+}
+
+/** Memory de-duplication tunables persisted with the harness config document. */
+export interface HarnessMemoryConfig {
+  dedup_candidate_limit: number;
 }
 
 /**
  * Per-locale disclaimer rules. Triggers are matched against the assistant
- * reply with Unicode word boundaries; the disclaimer is authored in the
- * target locale.
+ * reply with Unicode word boundaries; the disclaimer copy itself is catalogue
+ * content, not part of this document.
  */
 export interface LocaleGuardrails {
   disclaimer_triggers: string[];
-  disclaimer_text: string;
 }
 
 /** Tier 6 text guardrail tunables (locale-aware as of schema_version 2). */
 export interface HarnessGuardrailsConfig {
-  max_response_chars: number;
   blocked_topics: string[];
   /**
-   * BCP-47 short locale → per-locale trigger list + disclaimer text.
+   * BCP-47 short locale → per-locale trigger list.
    * At apply time the active turn locale is looked up here first, then
    * `en` as a fallback, then disclaimer generation skips.
    */
@@ -1610,6 +1591,17 @@ export interface HarnessConfigDocument {
   guardrails: HarnessGuardrailsConfig;
   /** Serde-defaulted server-side; absent on documents persisted before it existed. */
   verification?: HarnessVerificationConfig;
+  /** Serde-defaulted server-side, so the server always answers with it. */
+  memory: HarnessMemoryConfig;
+}
+
+/** What the instance that answered is running, which the stored row does not say. */
+export interface HarnessInForce {
+  instance_id: string;
+  loaded_at: string;
+  /** False until this instance's poll catches up with a save, or while the row is unusable. */
+  in_sync: boolean;
+  load_failure?: string;
 }
 
 /** Wire response wrapper for harness config GET / PUT. */
@@ -1617,70 +1609,38 @@ export interface HarnessConfigResponse {
   config: HarnessConfigDocument;
   source: 'persisted' | 'default';
   updated_at: string | null;
+  /** Why `config` is not the stored row: it does not parse, and a save replaces it. */
+  degraded_reason?: string;
+  in_force: HarnessInForce;
 }
 
-/** Guardian enforcement mode wire form. */
-export type GuardianMode = 'off' | 'observe' | 'enforce';
-
-/** Severity for a destructive tool call in a tainted turn. */
-export type GuardianTaintedDestructive = 'log' | 'confirm' | 'deny';
-
-/** Plan-then-verify posture. */
-export type GuardianPlanMode = 'off' | 'enforce';
-
-/**
- * External-send tenant allowlist wire form: the keyword `none` / `all`, or
- * an explicit array of tenant UUIDs.
- */
-export type GuardianExternalSend = 'none' | 'all' | string[];
-
-/**
- * Guardian config document persisted under `system_settings.guardian_config`.
- * Every policy field is optional — an unset field follows the compiled-in
- * default (the server omits unset fields entirely on the wire).
- */
-export interface GuardianConfigDocument {
-  schema_version: number;
-  mode?: GuardianMode | null;
-  max_destructive_per_turn?: number | null;
-  max_writes_per_turn?: number | null;
-  external_send?: GuardianExternalSend | null;
-  tainted_destructive?: GuardianTaintedDestructive | null;
-  plan_mode?: GuardianPlanMode | null;
+/** One high-impact edit a save must acknowledge. */
+export interface SettingImpact {
+  field: string;
+  from: string;
+  to: string;
+  effect: string;
 }
 
-/** Which resolution layer supplied a field: compiled default, DB doc, or env pin. */
-export type GuardianFieldSource = 'default' | 'database' | 'env';
-
-/** Per-field source map for the effective Guardian policy. */
-export interface GuardianFieldSources {
-  mode: GuardianFieldSource;
-  max_destructive_per_turn: GuardianFieldSource;
-  max_writes_per_turn: GuardianFieldSource;
-  external_send: GuardianFieldSource;
-  tainted_destructive: GuardianFieldSource;
-  plan_mode: GuardianFieldSource;
+/** The body of a refused setting save. Branch on `code`, never on the message. */
+export interface SettingRefusal {
+  code: string;
+  message: string;
+  impacted_fields?: SettingImpact[];
 }
 
-/** The policy actually enforcing right now (defaults ← config ← env). */
-export interface GuardianEffectivePolicy {
-  mode: GuardianMode;
-  max_destructive_per_turn: number;
-  max_writes_per_turn: number;
-  external_send: GuardianExternalSend;
-  tainted_destructive: GuardianTaintedDestructive;
-  plan_mode: GuardianPlanMode;
-}
+export const HARNESS_CONFIG_STALE = 'harness_config_stale';
 
-/** Wire response wrapper for guardian config GET / PUT. */
-export interface GuardianConfigResponse {
-  config: GuardianConfigDocument;
-  effective: GuardianEffectivePolicy;
-  sources: GuardianFieldSources;
-  /** Fields pinned by GUARDIAN_* env vars — edits persist but stay shadowed. */
-  env_pinned: string[];
-  source: 'persisted' | 'default';
-  updated_at: string | null;
+/** The refusal a failed harness save carries, or null for any other failure. */
+export function harnessRefusalOf(err: unknown): SettingRefusal | null {
+  const data = (err as { response?: { data?: Partial<SettingRefusal> } } | null)?.response
+    ?.data;
+  if (typeof data?.code !== 'string' || !data.code.startsWith('harness_config_')) return null;
+  return {
+    code: data.code,
+    message: typeof data.message === 'string' ? data.message : '',
+    impacted_fields: data.impacted_fields,
+  };
 }
 
 /**
@@ -1698,23 +1658,54 @@ export interface UserFactMetrics {
   newest_updated_at: string | null;
 }
 
+/** Runs over one window, by how they ended. */
+export interface ExtractionRunCounts {
+  persisted: number;
+  empty: number;
+  failed: number;
+  facts_persisted: number;
+}
+
+/** What the extraction worker measurably did. */
+export interface ExtractionRunStats {
+  last_24h: ExtractionRunCounts;
+  last_7d: ExtractionRunCounts;
+  last_run_at_ms: number | null;
+  last_failure_at_ms: number | null;
+  backlog: number;
+  oldest_backlog_at_ms: number | null;
+}
+
 /** Envelope returned by `GET /admin/memory/worker-metrics`. */
 export interface MemoryWorkerMetricsResponse {
-  tenant_id: string;
+  scope: AdminScope;
+  runs: ExtractionRunStats;
   metrics: UserFactMetrics;
 }
 
-/** Aggregated stat for a recurring offending claim. */
-export interface ClaimPattern {
+/** One tenant a super admin can pick. */
+export interface ScopeTenant {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/** One flagged claim in the scanned window. */
+export interface FlaggedClaim {
   claim_excerpt: string;
+  status: string;
+  layer_fired: string;
+  category: string;
   occurrences: number;
   agent_count: number;
-  last_seen_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
 }
 
 /** Aggregated stat for an agent with recurring unsupported claims. */
 export interface AgentPattern {
   agent_id: string;
+  agent_name: string | null;
   unsupported_total: number;
   categories: string[];
 }
@@ -1728,10 +1719,13 @@ export interface CategoryPattern {
 
 /** Top-level wire response for `GET /admin/myth-busting/summary`. */
 export interface MythBustingSummary {
-  tenant_id: string;
+  scope: AdminScope;
   verdicts_scanned: number;
+  window_start: string | null;
+  window_end: string | null;
   flagged_total: number;
-  top_claims: ClaimPattern[];
+  distinct_claims: number;
+  recent_claims: FlaggedClaim[];
   top_agents: AgentPattern[];
   top_categories: CategoryPattern[];
 }
@@ -1739,67 +1733,48 @@ export interface MythBustingSummary {
 /** Letter grade for an agent based on claim verdict history. */
 export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
 
+/** One agent on the Engagement leaderboard. */
+export interface EngagementAgent {
+  id: string;
+  title: string;
+  category: string;
+  /** Uses by the scope's users, all time. */
+  use_count: number;
+}
+
+/** `GET /api/admin/engagement`: every figure read in the one scope it states. */
+export interface EngagementSummary {
+  scope: AdminScope;
+  /** Users by last activity; the tiers are cumulative (a daily user is weekly too). */
+  users: { total: number; daily: number; weekly: number; monthly: number; dormant: number };
+  total_agents: number;
+  published_agents: number;
+  /** The 20 most used system agents, most used first, ties by title. */
+  leaderboard: EngagementAgent[];
+}
+
 /** Per-agent grade row from `GET /admin/agent-grading/summary`. */
 export interface AgentGrade {
   agent_id: string;
+  agent_name: string | null;
   total_verdicts: number;
   supported: number;
   unsupported: number;
+  unsupported_prescription: number;
   contradicted: number;
   rhetorical: number;
   unverifiable: number;
+  false_positives: number;
   score: number;
   grade: LetterGrade;
 }
 
 /** Top-level wire response for `GET /admin/agent-grading/summary`. */
 export interface AgentGradingSummary {
-  tenant_id: string;
+  scope: AdminScope;
   verdicts_scanned: number;
+  judge_era_after: string;
+  verdicts_before_judge_era: number;
+  unattributed_verdicts: number;
   grades: AgentGrade[];
 }
-
-/**
- * Wire representation of an agent note row for the admin compliance audit log.
- *
- * Notes are personal context the agent derived about a user from
- * conversations, so the audit surface gates behind `ViewAuditLogs`.
- */
-export interface AgentNoteAuditRow {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  agent_id: string;
-  conversation_id: string | null;
-  scope: 'conversation' | 'user' | 'tenant';
-  content: string;
-  created_at: string;
-  updated_at: string;
-  /**
-   * `true` when an admin has flagged this note as off-policy. Memory
-   * recall queries skip suppressed rows; the audit panel still renders
-   * them so admins can un-suppress later.
-   */
-  suppressed: boolean;
-}
-
-/**
- * Wire representation of an agent followup row for the admin triage tab.
- *
- * The server flattens the domain `FollowupStatus` enum to its stable
- * snake_case string so the client does not need to map enum variants.
- */
-export interface FollowupRow {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  agent_id: string;
-  conversation_id: string | null;
-  content: string;
-  due_at: string | null;
-  status: 'pending' | 'delivered' | 'cancelled';
-  created_at: string;
-  updated_at: string;
-  delivered_at: string | null;
-}
-

@@ -372,6 +372,21 @@ describe('actions', () => {
 });
 
 describe('Tout voir', () => {
+  it('keeps a source cell that fits in its one order, a source to reconnect included', async () => {
+    const roster = buildRoster(TODAY);
+    const lea = roster.athletes.find((athlete) => athlete.user_id === 'u-lea');
+    if (lea?.training === undefined) throw new Error('the fixture lost u-lea');
+    lea.training.last_activity_per_source = { garmin: TODAY, strava: TODAY };
+    lea.training.needs_reconnect = ['strava'];
+    getRoster.mockResolvedValue(roster);
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-see-all'));
+    const row = await screen.findByTestId('coach-row-u-lea');
+    const chips = within(within(row).getAllByRole('cell')[3]).getAllByRole('img');
+    expect(chips.map((chip) => chip.getAttribute('title'))).toEqual(['Garmin', 'Strava']);
+  });
+
   it('sorts the table by days without activity and never by form, with the non-sharers apart', async () => {
     const user = userEvent.setup();
     renderHome();

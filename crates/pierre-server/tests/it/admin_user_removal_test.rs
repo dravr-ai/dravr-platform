@@ -2240,18 +2240,19 @@ async fn a_provider_disconnect_that_fails_is_reported_as_interrupted() {
     assert!(repos.users.get_global(user_id).await.unwrap().is_some());
 }
 
-/// An A2A client's API key belongs to the client's system user, so the
-/// cascade from the owner never reached it: the delete removes it with the
-/// client, and the key stops authenticating.
+/// An A2A client's one credential is its `OAuth2` registration, keyed by the
+/// client's id and naming no user, so the cascade from the owner never
+/// reaches it: the delete removes it with the client, and its secret no
+/// longer obtains a token. A first-party registration the user never owned
+/// stays.
 #[tokio::test]
-async fn delete_removes_the_api_key_of_an_a2a_client_the_user_registered() {
+async fn delete_removes_the_oauth_registration_of_an_a2a_client_the_user_registered() {
     let resources = resources().await;
     let repos = &resources.common.repos;
     let (user_id, _, _) = seed_user(repos, "a2a-owner").await;
-    let credentials = resources
-        .a2a
-        .a2a_client_manager
-        .register_client(
+    let (bystander_id, _, _) = seed_user(repos, "a2a-bystander").await;
+    let register = |owner| {
+        resources.a2a.a2a_client_manager.register_client(
             ClientRegistrationRequest {
                 name: "Removal test agent".to_owned(),
                 description: "Registered by a user about to be removed".to_owned(),
@@ -2259,39 +2260,43 @@ async fn delete_removes_the_api_key_of_an_a2a_client_the_user_registered() {
                 redirect_uris: vec!["https://example.com/callback".to_owned()],
                 contact_email: "owner@example.com".to_owned(),
             },
-            user_id,
+            owner,
         )
-        .await
-        .unwrap();
-    let system_user = repos
-        .users
-        .get_by_email(&format!("a2a-system-{}@pierre.ai", credentials.client_id))
-        .await
-        .unwrap()
-        .expect("the client's system user exists");
-    assert_eq!(
+    };
+    let credentials = register(user_id).await.unwrap();
+    let kept = register(bystander_id).await.unwrap();
+    assert!(
         repos
-            .api_keys
-            .get_for_user(system_user.id)
+            .oauth2_server
+            .get_client(&credentials.client_id)
             .await
             .unwrap()
-            .len(),
-        1,
-        "the client carries one key"
+            .is_some(),
+        "registration stores the client's OAuth2 registration"
     );
 
     let response = delete_user(&resources, user_id).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
-    assert_eq!(body["data"]["rows_removed"]["api_keys"], 1, "{body}");
+    assert_eq!(body["data"]["rows_removed"]["oauth2_clients"], 1, "{body}");
+    assert_eq!(body["data"]["rows_removed"]["a2a_clients"], 1, "{body}");
     assert!(
         repos
-            .api_keys
-            .get_for_user(system_user.id)
+            .oauth2_server
+            .get_client(&credentials.client_id)
             .await
             .unwrap()
-            .is_empty(),
-        "the deleted user's A2A key no longer exists to authenticate"
+            .is_none(),
+        "the deleted user's A2A client no longer has a secret to authenticate"
+    );
+    assert!(
+        repos
+            .oauth2_server
+            .get_client(&kept.client_id)
+            .await
+            .unwrap()
+            .is_some(),
+        "another user's A2A client keeps its registration"
     );
 }
 

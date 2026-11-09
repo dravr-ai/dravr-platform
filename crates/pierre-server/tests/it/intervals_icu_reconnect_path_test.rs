@@ -21,6 +21,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
@@ -188,10 +189,10 @@ fn dead_intervals_turn() -> ToolLoopResult {
         activity_list: None,
         tool_calls_count: 1,
         tools_called: vec!["get_activities".to_owned()],
+        write_attempted: false,
         pending_provider_auth_required: Some(INTERVALS_ICU.to_owned()),
         served_without_provider: None,
         guardian_denied: None,
-        guardian_confirm: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),
     }
@@ -223,6 +224,7 @@ async fn recover(
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,

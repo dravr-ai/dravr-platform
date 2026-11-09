@@ -12,6 +12,7 @@ import {
   type AsyncStorageLike,
 } from '@pierre/api-client';
 import Toast from 'react-native-toast-message';
+import { i18n } from '@pierre/i18n';
 
 // Must mock AuthContext before importing QueryProvider
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -182,6 +183,40 @@ describe('QueryProvider MutationCache', () => {
         })
       );
     });
+  });
+
+  it('names an expired provider session in the athlete\'s language, never the server\'s English or backend id', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    const english = 'A connected fitness provider needs to be (re)authenticated';
+    const error = createAxiosError(403, {
+      code: 'ProviderAuthRequired',
+      message: english,
+      details: { provider: 'sciotte_garmin' },
+    });
+
+    try {
+      render(
+        <QueryProvider>
+          <MutationTrigger error={error} />
+        </QueryProvider>
+      );
+
+      await waitFor(() => {
+        expect(Toast.show).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'error',
+            text1: 'Erreur',
+            text2: 'Garmin doit être reconnecté.',
+          })
+        );
+      });
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('should not show toast on 401 (handled by axios interceptor)', async () => {

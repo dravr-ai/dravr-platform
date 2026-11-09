@@ -9,8 +9,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
-#[cfg(feature = "protocol-a2a")]
-use crate::a2a::system_user::A2ASystemUserService;
 use crate::config::admin::AdminConfigService;
 use pierre_config::environment::ServerConfig;
 
@@ -29,8 +27,6 @@ pub struct ConfigContext {
     config: Arc<ServerConfig>,
     #[cfg(feature = "protocol-a2a")]
     a2a_client_manager: Arc<A2AClientManager>,
-    #[cfg(feature = "protocol-a2a")]
-    a2a_system_user_service: Arc<A2ASystemUserService>,
     admin_config: Option<Arc<AdminConfigService>>,
 }
 
@@ -49,15 +45,12 @@ impl ConfigContext {
     pub const fn new(
         config: Arc<ServerConfig>,
         #[cfg(feature = "protocol-a2a")] a2a_client_manager: Arc<A2AClientManager>,
-        #[cfg(feature = "protocol-a2a")] a2a_system_user_service: Arc<A2ASystemUserService>,
         admin_config: Option<Arc<AdminConfigService>>,
     ) -> Self {
         Self {
             config,
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
-            #[cfg(feature = "protocol-a2a")]
-            a2a_system_user_service,
             admin_config,
         }
     }
@@ -73,13 +66,6 @@ impl ConfigContext {
     #[must_use]
     pub const fn a2a_client_manager(&self) -> &Arc<A2AClientManager> {
         &self.a2a_client_manager
-    }
-
-    /// Get A2A system user service
-    #[cfg(feature = "protocol-a2a")]
-    #[must_use]
-    pub const fn a2a_system_user_service(&self) -> &Arc<A2ASystemUserService> {
-        &self.a2a_system_user_service
     }
 
     /// Get admin configuration service for runtime parameter management

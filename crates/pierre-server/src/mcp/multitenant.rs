@@ -44,8 +44,9 @@ use crate::routes::{
     athlete_gear, athlete_home, imports, user_profile::routes as user_profile_routes,
 };
 use crate::routes::{
-    check_in::CheckInRoutes, coach_access::CoachAccessRoutes, coach_replies::CoachReplyRoutes,
-    onboarding::OnboardingRoutes, viz::VizRoutes,
+    calendar_preference::CalendarPreferenceRoutes, check_in::CheckInRoutes,
+    coach_access::CoachAccessRoutes, coach_replies::CoachReplyRoutes, onboarding::OnboardingRoutes,
+    viz::VizRoutes,
 };
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -62,6 +63,13 @@ use pierre_middleware::{
     redacted_path, redaction_middleware, request_budget_middleware, request_id_middleware,
     response_failure_log_middleware, setup_cors, RedactedRequestLine, RequestId, UsageLedgers,
 };
+#[cfg(any(
+    feature = "client-admin-api",
+    feature = "client-agents",
+    feature = "client-admin-ui",
+    feature = "client-impersonation"
+))]
+use pierre_routes_admin::{record_admin_writes, AuditRecorder};
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 #[cfg(feature = "oauth")]
@@ -491,6 +499,7 @@ impl ProviderToolRouter {
             // The config routes take the same validator: `pierre-cli config`
             // arrives with the admin token its device login minted.
             let admin_auth_for_config = admin_context.auth_service.clone();
+            let audit_admin_auth = admin_context.auth_service.clone();
             let tool_selection_context = ToolSelectionContext {
                 tool_selection: resources.mcp.tool_selection.clone(),
                 repos: resources.common.repos.clone(),
@@ -531,12 +540,21 @@ impl ProviderToolRouter {
                 },
             );
 
-            app.merge(admin_routes)
+            // Every admin write, whichever router serves it, is one row of the
+            // admin audit trail (carnet#1391). The layer goes on the merged
+            // set so it sees the route each request matched.
+            let audited_admin = Router::new()
+                .merge(admin_routes)
                 .merge(tool_selection_routes)
                 .merge(console_tool_selection_routes)
                 .merge(diagnostics_router)
                 .merge(cookie_admin_routes)
                 .nest("/api/admin/config", admin_config_routes)
+                .layer(from_fn_with_state(
+                    AuditRecorder::new(Arc::clone(resources)).with_admin_auth(audit_admin_auth),
+                    record_admin_writes::<ServerContext>,
+                ));
+            app.merge(audited_admin)
         };
 
         // ═══════════════════════════════════════════════════════════════
@@ -565,6 +583,11 @@ impl ProviderToolRouter {
                 accounts: resources.account_service(),
                 google_sign_in: resources.oauth2_google_sign_in(),
                 strings: resources.mcp.messaging_strings_registry.clone(),
+                first_party_only_sources: resources
+                    .fitness
+                    .provider_registry
+                    .first_party_only_sources()
+                    .into(),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };
@@ -581,6 +604,7 @@ impl ProviderToolRouter {
             // sidesteps the pierre-runtime-context ↔ pierre-a2a cycle that
             // would arise from adding `a2a_client_manager()` /
             // `tool_runtime()` accessors to A2ACtx directly.
+            use crate::services::a2a_coaching::coaching_turns;
             use pierre_tool_runtime::runtime::ToolRuntime;
             let tool_runtime: Arc<dyn ToolRuntime> = resources.clone(); // Safe: Arc clone coerced into trait object
             let a2a_state = A2ARoutesState {
@@ -588,6 +612,7 @@ impl ProviderToolRouter {
                 client_manager: resources.a2a.a2a_client_manager.clone(), // Safe: Arc clone for shared client manager
                 auth_middleware: resources.auth.auth_middleware.clone(), // Safe: Arc clone for shared middleware
                 tool_runtime,
+                coaching: coaching_turns(resources),
             };
             app.merge(A2ARoutes::routes(a2a_state))
         };
@@ -681,6 +706,8 @@ impl ProviderToolRouter {
         let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
         // The check-in cadence: asked during onboarding, changed in Settings.
         let app = app.merge(CheckInRoutes::routes(Arc::clone(resources)));
+        // The calendar Dravr's pushes go to: chosen in Connections settings.
+        let app = app.merge(CalendarPreferenceRoutes::routes(Arc::clone(resources)));
         // A coach's own coach-access request, decided in the admin console.
         let app = app.merge(CoachAccessRoutes::routes(Arc::clone(resources)));
         // A coach's review of the agent's group replies: flag, correct, count.
@@ -699,10 +726,19 @@ impl ProviderToolRouter {
                 pierre_routes_agents::build_agents_router::<ServerContext>()
                     .with_state(Arc::clone(resources)),
             )
-            .nest(
-                "/api/admin",
-                pierre_routes_agents::build_agents_admin_router::<ServerContext>()
-                    .with_state(Arc::clone(resources)),
+            // The agent and store admin writes (delete an agent, unpublish,
+            // unassign) are rows of the admin audit trail too (carnet#1391).
+            .merge(
+                Router::new()
+                    .nest(
+                        "/api/admin",
+                        pierre_routes_agents::build_agents_admin_router::<ServerContext>()
+                            .with_state(Arc::clone(resources)),
+                    )
+                    .layer(from_fn_with_state(
+                        AuditRecorder::new(Arc::clone(resources)),
+                        record_admin_writes::<ServerContext>,
+                    )),
             );
 
         #[cfg(feature = "client-store")]
@@ -729,7 +765,12 @@ impl ProviderToolRouter {
         // ═══════════════════════════════════════════════════════════════
 
         #[cfg(feature = "client-admin-ui")]
-        let app = app.merge(WebAdminRoutes::routes(resources.web_admin_context()));
+        let app = app.merge(WebAdminRoutes::routes(resources.web_admin_context()).layer(
+            from_fn_with_state(
+                AuditRecorder::new(Arc::clone(resources)),
+                record_admin_writes::<ServerContext>,
+            ),
+        ));
 
         #[cfg(feature = "client-api-keys")]
         let app = app.merge(ApiKeyRoutes::routes(Arc::clone(resources)));
@@ -738,7 +779,12 @@ impl ProviderToolRouter {
         let app = app.merge(TenantRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-impersonation")]
-        let app = app.merge(ImpersonationRoutes::routes(Arc::clone(resources)));
+        let app = app.merge(ImpersonationRoutes::routes(Arc::clone(resources)).layer(
+            from_fn_with_state(
+                AuditRecorder::new(Arc::clone(resources)),
+                record_admin_writes::<ServerContext>,
+            ),
+        ));
 
         #[cfg(feature = "client-llm-settings")]
         let app = app.merge(LlmSettingsRoutes::routes::<ServerContext>(Arc::clone(

@@ -5,6 +5,7 @@
 // ABOUTME: Shared by the Coach Home spec, the design sweep and the accessibility scan, so all three read the same roster
 
 import type { Page } from '@playwright/test';
+import type { CoachRosterResponse } from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 import { buildRoster } from '../src/test/coachRosterFixtures';
 
@@ -34,10 +35,14 @@ export interface Posted {
 }
 
 /** Mocks the coach's roster, "Traité" and its undo, the replies, and the one group room. */
-export async function mockCoach(page: Page, options: { fillers?: number } = {}): Promise<Posted> {
+export async function mockCoach(
+  page: Page,
+  options: { fillers?: number; language?: string; roster?: (roster: CoachRosterResponse) => CoachRosterResponse } = {},
+): Promise<Posted> {
   const posted: Posted = { dismiss: [], restore: [] };
-  await setupDashboardMocks(page, { role: 'user', displayName: 'Phil', managesRoster: true });
-  const roster = buildRoster(localToday(), options.fillers ?? 0);
+  await setupDashboardMocks(page, { role: 'user', displayName: 'Phil', managesRoster: true, language: options.language });
+  const built = buildRoster(localToday(), options.fillers ?? 0);
+  const roster = options.roster ? options.roster(built) : built;
   await page.route('**/api/coach/roster**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(roster) }),
   );

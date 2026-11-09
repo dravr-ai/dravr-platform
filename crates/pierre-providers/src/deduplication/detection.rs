@@ -94,9 +94,16 @@ pub struct FragmentGroup {
     pub window_end: DateTime<Utc>,
     /// Fields the canonical row took from another recording: those it
     /// lacked, and the title and sport the athlete gave the workout on
-    /// Strava's copy (`name`, `sport_type`, `sport_type_detail`).
+    /// Strava's copy (`name`, `sport_type`, `sport_type_detail`). The model
+    /// reads this list, so [`UNREPORTED_FILL`] is left out of it.
     pub filled_fields: Vec<FilledField>,
 }
+
+/// A field a session can take from a recording without the report naming it.
+/// The offset is the activity view's display: the agent's rows stay on one
+/// calendar, the athlete's stored zone, and a merge note naming the recording's
+/// clock would be a second one (the 2026-08-28 "two calendars in one prompt").
+const UNREPORTED_FILL: &str = "utc_offset_seconds";
 
 /// One field a canonical row took from a peer recording of its session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -155,11 +162,24 @@ impl FragmentReport {
 ///   [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
 ///
 /// Rows with no real start time never match on overlap: every midnight row
-/// "overlaps" every other, which would fold distinct sessions together. A
-/// date-only row pairs with one recording of its day, never with all of them:
-/// a pairing is refused when it would put two distinct activities of one
-/// provider in one group, so two same-day runs captured date-only stay two
-/// workouts beside the two timed rows of another connection.
+/// "overlaps" every other, which would fold distinct sessions together.
+///
+/// The start window and the day stand for a second provider's clock, or a
+/// date-only row's lack of one, and neither says two recordings are one when
+/// the rows say they are two (carnet#1381). Such a pairing joins its two
+/// groups only after every touching pair has formed its own, start-window
+/// pairings before date-only ones, closest distance first, and is refused
+/// when it would put in one group two rows that are two workouts
+/// ([`are_two_workouts`]): two distinct activities of one provider, its API,
+/// its export and a timed capture counting as one, whose windows do not touch,
+/// or two timed rows naming one device, whose one clock leaves no skew to
+/// explain a gap past the tolerance. So a date-only row pairs with one
+/// recording of its day, never with all of them: two same-day runs captured
+/// date-only stay two workouts beside the two timed rows of another
+/// connection. And two 8-minute rides six minutes apart stay two, whether both
+/// sit in the Garmin and the Strava export or one sits in each and only the
+/// watch they name ties them. Rows naming two devices or none still pair:
+/// nothing says their clocks agree.
 ///
 /// Whatever their times and sports, rows that carry one service's own
 /// activity id are one workout ([`native_activity_id`]): the Garmin API's row
@@ -208,8 +228,12 @@ impl FragmentReport {
 /// canonical row's sport, it is not one service's activity id with any
 /// better-ranked member (a piece or a recording), both have real start times,
 /// and they share at most [`PIECE_MAX_OVERLAP_PERCENT`] of the shorter one's
-/// duration. A row of another sport tied in by the cross-sport rule is never a
-/// piece: a brick's run is not kilometres of its ride. Members are tried
+/// duration, on any clock a twin of either carries. A row of another sport tied
+/// in by the cross-sport rule is never a piece: a brick's run is not kilometres
+/// of its ride. Nor is a row that only the start window ties to a counted one,
+/// directly or through another copy: that match says one recording whose second
+/// clock sits off, so the second row is a copy, unless touching rows run between
+/// the two and make them legs of one ride. Members are tried
 /// best-ranked first against the canonical row and the pieces already
 /// counted, and the session sums the volume of every piece — distance, moving
 /// time, elevation gain, and the calories, steps, provider training stress and
@@ -256,7 +280,7 @@ pub fn merge_duplicates(
     let mut groups: Vec<FragmentGroup> = member_sets
         .iter()
         .zip(strava_copies)
-        .filter_map(|(members, strava)| fold_group(&mut slots, members, strava))
+        .filter_map(|(members, strava)| fold_group(&mut slots, members, strava, config))
         .collect();
     groups.sort_by_key(|g| g.window_start);
 
@@ -288,6 +312,7 @@ fn fold_group(
     slots: &mut [Option<Activity>],
     members: &[usize],
     strava: Option<usize>,
+    config: &DedupConfig,
 ) -> Option<FragmentGroup> {
     let (&canonical_index, peer_indices) = members.split_first()?;
     let mut canonical = slots[canonical_index].take()?;
@@ -310,19 +335,23 @@ fn fold_group(
         window_end = window_end.max(activity_end(peer));
     }
 
-    let pieces = classify_pieces(&canonical, &peers);
+    let pieces = classify_pieces(&canonical, &peers, config);
     for (peer, _) in peers.iter().zip(&pieces).filter(|(_, &piece)| piece) {
         canonical.extend_with_piece(peer);
     }
     let mut filled_fields = Vec::new();
     for (peer, _) in peers.iter().zip(&pieces).filter(|(_, &piece)| !piece) {
         if covers_session(peer, &canonical) {
-            filled_fields.extend(canonical.fill_missing_from(peer).into_iter().map(|field| {
-                FilledField {
-                    field,
-                    provider: origin_name(peer),
-                }
-            }));
+            filled_fields.extend(
+                canonical
+                    .fill_missing_from(peer)
+                    .into_iter()
+                    .filter(|&field| field != UNREPORTED_FILL)
+                    .map(|field| FilledField {
+                        field,
+                        provider: origin_name(peer),
+                    }),
+            );
         }
     }
     if let Some(copy) = peer_indices
@@ -373,28 +402,98 @@ pub fn is_canonical_copy(recording: &Activity, session: &Activity) -> bool {
 ///
 /// A peer must also share the canonical row's sport, and must not be a native
 /// twin of any better-ranked member, piece or recording: the twin of a
-/// recording is that recording again, whatever clock it carries.
+/// recording is that recording again, whatever clock it carries. So a peer
+/// sharing a counted row's time through a twin of either is a recording of it
+/// ([`on_other_time`]), and a peer only the start window ties to a counted row
+/// is a copy of it, not a piece ([`off_clock_copies`]).
 ///
 /// Read off the rows as recorded, before any piece's volume reaches the
 /// canonical row, whose window then spans the whole session.
-fn classify_pieces(canonical: &Activity, peers: &[Activity]) -> Vec<bool> {
+fn classify_pieces(canonical: &Activity, peers: &[Activity], config: &DedupConfig) -> Vec<bool> {
     let canonical_sport = sport_key(canonical.sport_type());
-    let mut counted: Vec<&Activity> = vec![canonical];
+    let rows: Vec<&Activity> = iter::once(canonical).chain(peers).collect();
+    let mut runs = touching_runs(&rows, config);
+    let mut copies = off_clock_copies(&rows, &mut runs, config);
+    let mut counted = vec![0];
     peers
         .iter()
         .enumerate()
         .map(|(position, peer)| {
+            let index = position + 1;
             let piece = sport_key(peer.sport_type()) == canonical_sport
-                && !iter::once(canonical)
-                    .chain(&peers[..position])
+                && !rows[..index]
+                    .iter()
                     .any(|better| are_native_twins(peer, better))
-                && counted.iter().all(|row| is_other_piece(peer, row));
+                && counted.iter().all(|&row| {
+                    on_other_time(&rows, index, row)
+                        && (copies.find(index) != copies.find(row)
+                            || runs.find(index) == runs.find(row))
+                });
             if piece {
-                counted.push(peer);
+                counted.push(index);
             }
             piece
         })
         .collect()
+}
+
+/// The rows of one group joined by real windows alone ([`Match::Timed`]): each
+/// set is one stretch of riding, however many legs it holds.
+fn touching_runs(rows: &[&Activity], config: &DedupConfig) -> DisjointSets {
+    let mut runs = DisjointSets::new(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        for (offset, other) in rows[index + 1..].iter().enumerate() {
+            if workout_match(row, other, config) == Match::Timed {
+                runs.union(index, index + 1 + offset);
+            }
+        }
+    }
+    runs
+}
+
+/// The rows of one group that hold one recording on several clocks: rows only
+/// the start window ties ([`Match::StartWindow`], their starts and distances
+/// agreeing, their windows not touching, no touching rows running between
+/// them), and twins, each with the rows those tie in turn. Two rows in one run
+/// stay legs of it, whatever set they land in.
+fn off_clock_copies(
+    rows: &[&Activity],
+    runs: &mut DisjointSets,
+    config: &DedupConfig,
+) -> DisjointSets {
+    let mut copies = DisjointSets::new(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        for (offset, other) in rows[index + 1..].iter().enumerate() {
+            let later = index + 1 + offset;
+            if are_native_twins(row, other)
+                || (runs.find(index) != runs.find(later)
+                    && workout_match(row, other, config) == Match::StartWindow)
+            {
+                copies.union(index, later);
+            }
+        }
+    }
+    copies
+}
+
+/// True when rows `a` and `b` recorded two different stretches of time on every
+/// clock their twins carry ([`is_other_piece`]). A date-only twin has no clock,
+/// so it says nothing.
+fn on_other_time(rows: &[&Activity], a: usize, b: usize) -> bool {
+    clocks_of(rows, a).all(|row_a| clocks_of(rows, b).all(|row_b| is_other_piece(row_a, row_b)))
+}
+
+/// Row `index` and its twins on a real clock.
+fn clocks_of<'rows>(
+    rows: &'rows [&'rows Activity],
+    index: usize,
+) -> impl Iterator<Item = &'rows Activity> {
+    let row = rows[index];
+    iter::once(row).chain(
+        rows.iter()
+            .copied()
+            .filter(move |other| has_known_time(other) && are_native_twins(row, other)),
+    )
 }
 
 /// True when `a` and `b` carry one service's own activity id
@@ -546,6 +645,9 @@ fn path_rank(activity: &Activity) -> u8 {
 ///
 /// Each step is a total order over its rows, so this is one too: the pick is
 /// deterministic whatever order the copies arrived in.
+///
+/// LIMITATION(registre#1388): `rank_activity_copy` takes no per-athlete source order, so
+/// an athlete cannot stand intervals.icu's copy over Strava's when both relay one recording.
 fn rank_activity_copy(
     (a, a_source): (&Activity, &Source),
     (b, b_source): (&Activity, &Source),
@@ -678,9 +780,10 @@ fn device_named_activities(activities: &[Activity]) -> HashSet<(&str, &str)> {
         .collect()
 }
 
-/// Whether a group holds pieces of one session (two members of one sport
-/// recording different stretches of time): its canonical row will carry
-/// their sum, which no single copy holds.
+/// Whether a group holds members of one sport recording different stretches of
+/// time, which forbids reading Strava's copy as an edit of the canonical row:
+/// they are pieces, whose sum no single copy holds, or a copy on a clock minutes
+/// off ([`off_clock_copies`]), whose start says nothing of a crop.
 fn holds_pieces(activities: &[Activity], members: &[usize]) -> bool {
     members.iter().enumerate().any(|(position, &a)| {
         members[position + 1..].iter().any(|&b| {
@@ -759,9 +862,10 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             }
         }
     }
-    // Date-only pairings wait until every timed pairing has formed its
-    // groups, then join closest distance first, so each lands on the
-    // recording it describes rather than on whichever came first.
+    // Start-window and date-only pairings wait until every touching pair has
+    // formed its groups, then join closest distance first, so each lands on
+    // the recording it describes rather than on whichever came first.
+    let mut start_window: Vec<(f64, usize, usize)> = Vec::new();
     let mut date_only: Vec<(f64, usize, usize)> = Vec::new();
     for (pos, &i) in order.iter().enumerate() {
         let a = &activities[i];
@@ -777,16 +881,35 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             }
             match workout_match(a, b, config) {
                 Match::Timed => sets.union(i, j),
+                Match::StartWindow => start_window.push((distance_gap(a, b), i, j)),
                 Match::DateOnly => date_only.push((distance_gap(a, b), i, j)),
                 Match::None => {}
             }
         }
     }
-    date_only.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal));
-    for (_, i, j) in date_only {
+    join_unless_two_workouts(activities, &mut sets, start_window, config);
+    join_unless_two_workouts(activities, &mut sets, date_only, config);
+
+    let mut by_root: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for index in 0..activities.len() {
+        by_root.entry(sets.find(index)).or_default().push(index);
+    }
+    by_root.into_values().filter(|m| m.len() > 1).collect()
+}
+
+/// Join each pair's groups, closest distance first, unless that would put two
+/// workouts in one group.
+fn join_unless_two_workouts(
+    activities: &[Activity],
+    sets: &mut DisjointSets,
+    mut pairs: Vec<(f64, usize, usize)>,
+    config: &DedupConfig,
+) {
+    pairs.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal));
+    for (_, i, j) in pairs {
         let (root_i, root_j) = (sets.find(i), sets.find(j));
         if root_i != root_j
-            && !holds_two_activities_of_one_provider(
+            && !holds_two_workouts(
                 activities,
                 &sets.members[root_i],
                 &sets.members[root_j],
@@ -796,12 +919,6 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             sets.union(i, j);
         }
     }
-
-    let mut by_root: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for index in 0..activities.len() {
-        by_root.entry(sets.find(index)).or_default().push(index);
-    }
-    by_root.into_values().filter(|m| m.len() > 1).collect()
 }
 
 /// How two rows matched under the rules documented on [`merge_duplicates`].
@@ -809,8 +926,12 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
 enum Match {
     /// Not one workout.
     None,
-    /// One workout by their real start times.
+    /// One workout by their real windows: touching, or for two sports
+    /// overlapping.
     Timed,
+    /// One workout by close starts and distance, on two providers' real
+    /// clocks whose windows do not touch.
+    StartWindow,
     /// One workout by day and distance, one side carrying only the day.
     DateOnly,
 }
@@ -819,21 +940,26 @@ enum Match {
 fn workout_match(a: &Activity, b: &Activity, config: &DedupConfig) -> Match {
     let two_providers = a.provider() != b.provider();
     let both_timed = has_known_time(a) && has_known_time(b);
-    let matched = if sport_key(a.sport_type()) == sport_key(b.sport_type()) {
-        (both_timed && windows_touch(a, b, config.overlap_tolerance_secs))
-            || (two_providers && starts_and_distances_agree(a, b, config))
+    if sport_key(a.sport_type()) != sport_key(b.sport_type()) {
+        return if two_providers && both_timed && overlaps_substantially(a, b) {
+            Match::Timed
+        } else {
+            Match::None
+        };
+    }
+    if both_timed && windows_touch(a, b, config.overlap_tolerance_secs) {
+        Match::Timed
+    } else if !(two_providers && starts_and_distances_agree(a, b, config)) {
+        Match::None
+    } else if both_timed {
+        Match::StartWindow
     } else {
-        two_providers && both_timed && overlaps_substantially(a, b)
-    };
-    match (matched, both_timed) {
-        (false, _) => Match::None,
-        (true, true) => Match::Timed,
-        (true, false) => Match::DateOnly,
+        Match::DateOnly
     }
 }
 
 /// How far apart two rows' distances sit, `0` when either lacks one: the
-/// order date-only pairings are tried in.
+/// order start-window and date-only pairings are tried in.
 fn distance_gap(a: &Activity, b: &Activity) -> f64 {
     match (a.distance_meters(), b.distance_meters()) {
         (Some(da), Some(db)) => (da - db).abs(),
@@ -841,27 +967,52 @@ fn distance_gap(a: &Activity, b: &Activity) -> f64 {
     }
 }
 
-/// Whether joining groups `left` and `right` would put two distinct
-/// activities of one provider in one group: two of its rows with different
-/// ids that are not pieces of one recording (both timed, windows touching).
-/// A provider lists each of its workouts once, so two such rows are two
-/// workouts, and a date-only row that matches both cannot make them one.
-fn holds_two_activities_of_one_provider(
+/// Whether joining groups `left` and `right` would put two workouts in one
+/// group ([`are_two_workouts`]).
+fn holds_two_workouts(
     activities: &[Activity],
     left: &[usize],
     right: &[usize],
     config: &DedupConfig,
 ) -> bool {
     left.iter().any(|&x| {
-        right.iter().any(|&y| {
-            let (a, b) = (&activities[x], &activities[y]);
-            a.provider() == b.provider()
-                && a.id() != b.id()
-                && !(has_known_time(a)
-                    && has_known_time(b)
-                    && windows_touch(a, b, config.overlap_tolerance_secs))
-        })
+        right
+            .iter()
+            .any(|&y| are_two_workouts(&activities[x], &activities[y], config))
     })
+}
+
+/// Whether two rows of two groups are two workouts, which no row matching
+/// both can make one. Rows whose real windows touch never are: they may be
+/// pieces of one recording.
+///
+/// - One provider, two ids: a provider lists each of its workouts once, and
+///   its export and a timed capture key them by its own id ([`one_provider`]).
+///   Rows of one id are twins of one workout, never two.
+/// - One device named by two timed rows: one device has one clock, so a gap
+///   past the tolerance is time between two recordings, not skew. A date-only
+///   row has no clock to compare, and two rows naming no device name no clock.
+fn are_two_workouts(a: &Activity, b: &Activity, config: &DedupConfig) -> bool {
+    let both_timed = has_known_time(a) && has_known_time(b);
+    if both_timed && windows_touch(a, b, config.overlap_tolerance_secs) {
+        return false;
+    }
+    let two_ids = one_provider(a, b) && a.id() != b.id();
+    let one_device = both_timed && a.device_name().is_some() && a.device_name() == b.device_name();
+    two_ids || one_device
+}
+
+/// Whether two rows are one provider's activities: the same key, or two timed
+/// rows one service keys by its own id ([`native_activity_id`]). A date-only
+/// capture has no clock to say a second ride from a copy of the first.
+fn one_provider(a: &Activity, b: &Activity) -> bool {
+    a.provider() == b.provider()
+        || (has_known_time(a)
+            && has_known_time(b)
+            && matches!(
+                (native_activity_id(a), native_activity_id(b)),
+                (Some((service_a, _, _)), Some((service_b, _, _))) if service_a == service_b
+            ))
 }
 
 /// Same-sport windows intersect within `tolerance_secs` of each other.
@@ -937,8 +1088,8 @@ fn activity_end(activity: &Activity) -> DateTime<Utc> {
 }
 
 /// Minimal union-find over activity indices, path-halving on `find`, that
-/// also keeps each root's members (what a date-only pairing is checked
-/// against).
+/// also keeps each root's members (what a start-window or date-only pairing
+/// is checked against).
 struct DisjointSets {
     parent: Vec<usize>,
     members: Vec<Vec<usize>>,

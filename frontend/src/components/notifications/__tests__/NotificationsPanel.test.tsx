@@ -93,6 +93,19 @@ describe('NotificationsPanel in French', () => {
     expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull();
   });
 
+  // carnet#1436: the category left the metadata map but a stored row still names
+  // it, and an unguarded lookup throws while rendering the whole list.
+  it('still renders a stored row whose category was removed', async () => {
+    const reminder = { ...READ_ROW, id: 'n-reminder', category: 'reminders', title: 'Rappel de séance' };
+    api.listNotifications.mockResolvedValue({ data: [reminder, PLAN_PUBLISHED], total: 2, unread_count: 1 });
+    renderPanel();
+
+    const row = await screen.findByTestId('notification-row-n-reminder');
+    expect(within(row).getByText('Rappel de séance')).toBeInTheDocument();
+    expect(within(row).getByText(i18n.t('notifPrefs.catSystem'))).toBeInTheDocument();
+    expect(screen.getByTestId('notification-row-n-plan')).toBeInTheDocument();
+  });
+
   it('counts the notifications a row collapsed in French', async () => {
     api.listNotifications.mockResolvedValue({ data: [PLAN_PUBLISHED], total: 1, unread_count: 1 });
     renderPanel();

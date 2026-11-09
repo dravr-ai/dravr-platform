@@ -271,7 +271,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -344,6 +343,7 @@ async fn test_user_registration_success() -> Result<()> {
     let auth_routes = create_test_auth_routes().await?;
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".to_owned(),
         password: SecretString::from("securepassword123"),
         display_name: Some("Test User".to_owned()),
@@ -363,6 +363,7 @@ async fn test_user_registration_invalid_email() -> Result<()> {
     let auth_routes = create_test_auth_routes().await?;
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "invalid-email".to_owned(),
         password: SecretString::from("securepassword123"),
         display_name: Some("Test User".to_owned()),
@@ -385,6 +386,7 @@ async fn test_user_registration_weak_password() -> Result<()> {
     let auth_routes = create_test_auth_routes().await?;
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "test@example.com".to_owned(),
         password: SecretString::from("weak"), // Too short
         display_name: Some("Test User".to_owned()),
@@ -404,6 +406,7 @@ async fn test_user_registration_duplicate_email() -> Result<()> {
     let auth_routes = create_test_auth_routes().await?;
 
     let request = RegisterRequest {
+        analytics_consent: None,
         email: "duplicate@example.com".to_owned(),
         password: SecretString::from("securepassword123"),
         display_name: Some("Test User".to_owned()),
@@ -428,6 +431,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
 
     // Test with minimal valid input
     let minimal_request = RegisterRequest {
+        analytics_consent: None,
         email: "minimal@example.com".to_owned(),
         password: SecretString::from("12345678"), // Exactly 8 characters
         display_name: None,
@@ -438,6 +442,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
 
     // Test with very long valid email
     let long_email_request = RegisterRequest {
+        analytics_consent: None,
         email: "very.long.email.address.for.testing@example.com".to_owned(),
         password: SecretString::from("securepassword123"),
         display_name: Some("Very Long Display Name For Testing Purposes".to_owned()),
@@ -560,7 +565,6 @@ async fn test_user_login_success() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -624,6 +628,7 @@ async fn test_user_login_success() -> Result<()> {
 
     // First register a user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "login@example.com".to_owned(),
         password: SecretString::from("loginpassword123"),
         display_name: Some("Login User".to_owned()),
@@ -688,6 +693,7 @@ async fn test_user_login_invalid_password() -> Result<()> {
 
     // Register a user first
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "password_test@example.com".to_owned(),
         password: SecretString::from("correctpassword123"),
         display_name: Some("Password User".to_owned()),
@@ -720,6 +726,7 @@ async fn test_user_login_ignores_email_case() -> Result<()> {
 
     // Register with lowercase email
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "case@example.com".to_owned(),
         password: SecretString::from("casepassword123"),
         display_name: Some("Case User".to_owned()),
@@ -853,7 +860,6 @@ async fn test_token_refresh_success() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -917,6 +923,7 @@ async fn test_token_refresh_success() -> Result<()> {
 
     // Register and login to get initial token
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "refresh@example.com".to_owned(),
         password: SecretString::from("refreshpassword123"),
         display_name: Some("Refresh User".to_owned()),
@@ -1114,7 +1121,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1178,6 +1184,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
 
     // Register and login to get a valid token
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "mismatch@example.com".to_owned(),
         password: SecretString::from("mismatchpassword123"),
         display_name: Some("Mismatch User".to_owned()),
@@ -1439,6 +1446,7 @@ async fn test_email_validation_comprehensive() -> Result<()> {
 
     for email in invalid_emails {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: email.to_owned(),
             password: SecretString::from("validpassword123"),
             display_name: Some("Test User".to_owned()),
@@ -1459,6 +1467,7 @@ async fn test_email_validation_comprehensive() -> Result<()> {
 
     for (i, email) in valid_emails.iter().enumerate() {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: (*email).to_owned(),
             password: SecretString::from("validpassword123"),
             display_name: Some(format!("Test User {i}")),
@@ -1484,6 +1493,7 @@ async fn test_password_validation_comprehensive() -> Result<()> {
 
     for (i, password) in invalid_passwords.iter().enumerate() {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: format!("test{i}@example.com"),
             password: SecretString::from((*password).to_owned()),
             display_name: Some("Test User".to_owned()),
@@ -1505,6 +1515,7 @@ async fn test_password_validation_comprehensive() -> Result<()> {
 
     for (i, password) in valid_passwords.iter().enumerate() {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: format!("valid{i}@example.com"),
             password: SecretString::from((*password).to_owned()),
             display_name: Some("Test User".to_owned()),
@@ -1629,7 +1640,6 @@ async fn test_complete_auth_flow() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1697,6 +1707,7 @@ async fn test_complete_auth_flow() -> Result<()> {
 
     // 1. Register user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "integration@example.com".to_owned(),
         password: SecretString::from("integrationpass123"),
         display_name: Some("Integration User".to_owned()),
@@ -1821,6 +1832,7 @@ async fn test_concurrent_registrations() -> Result<()> {
         let routes = auth_routes.clone();
         handles.push(tokio::spawn(async move {
             let request = RegisterRequest {
+                analytics_consent: None,
                 email: format!("concurrent{i}@example.com"),
                 password: SecretString::from("concurrentpass123"),
                 display_name: Some(format!("Concurrent User {i}")),
@@ -1949,7 +1961,6 @@ async fn test_concurrent_logins() -> Result<()> {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -2014,6 +2025,7 @@ async fn test_concurrent_logins() -> Result<()> {
     // First register and approve users
     for i in 0..3 {
         let request = RegisterRequest {
+            analytics_consent: None,
             email: format!("login_concurrent{i}@example.com"),
             password: SecretString::from("loginpass123"),
             display_name: Some(format!("Login User {i}")),

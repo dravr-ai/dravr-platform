@@ -1,5 +1,5 @@
 // ABOUTME: Prompt assembly stage (stages 7a-8) — agent prompt → provider/group/memory → canary → messages
-// ABOUTME: Composes the lower-level stages (prompt_builder, refresh, memory, followups) into one flow
+// ABOUTME: Composes the lower-level stages (prompt_builder, refresh, memory) into one flow
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -407,7 +407,7 @@ pub fn resolve_agent_base_prompt(
 }
 
 /// Output of [`assemble_prompt_and_messages`]: the hardened prompt guard,
-/// pending-followup ids, the flattened LLM message list, the parallel
+/// the flattened LLM message list, the parallel
 /// `source_ids` vector (`None` for the system prompt, `Some(history-row id)`
 /// per surviving message) that Tier 1 compaction uses to anchor block ids,
 /// the group roster snapshots (empty outside a group conversation) that
@@ -415,7 +415,6 @@ pub fn resolve_agent_base_prompt(
 /// introduction the reply was asked to open with, recorded once it has.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
-    Vec<String>,
     Vec<ChatMessage>,
     Vec<Option<String>>,
     Vec<MemberFitnessSnapshot>,
@@ -458,12 +457,12 @@ pub(crate) struct PromptTurn<'a> {
 ///
 /// Owns pipeline stages 7a through 8: agent/default prompt,
 /// connected-provider context, group context, freshness hint, memory
-/// recall, pending followups, channel-specific response constraints,
+/// recall, channel-specific response constraints,
 /// and canary hardening — followed by
 /// [`build_llm_messages`](super::prompt_builder::build_llm_messages)
 /// flattening.
 ///
-/// Returns the prompt guard, pending-followup ids, the flattened message
+/// Returns the prompt guard, the flattened message
 /// list, and the parallel `source_ids` vector mapping each message to its
 /// history-row id (`None` for the system prompt) for Tier 1 compaction.
 ///
@@ -572,7 +571,7 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // The sender is the turn's subject outside both of those alone. Neither
     // the coach's seat nor a coach's athlete thread reads the sender's own
-    // providers (7b), dossier, playbooks, notes, followups and commitments
+    // providers (7b), dossier, playbooks and commitments
     // (7d–7f.1) or plan (7f.2): the coach's own training does not belong in a
     // group's turn or in an athlete's workspace.
     let sender_is_subject = seat.sender_is_subject();
@@ -607,11 +606,17 @@ pub(crate) async fn assemble_prompt_and_messages(
     // name rather than guess its parameters (carnet#406). It names what
     // `offered_schemas` offers, as the declarations and loopback do: nothing
     // the seat withholds (carnet#742, carnet#1070) or an operator switched off.
-    let tool_names: Vec<String> =
-        chat_catalogue::offered_schemas(&ctx.tool_registry, seat, switched_off)
-            .into_iter()
-            .map(|s| s.name)
-            .collect();
+    let tool_names: Vec<String> = chat_catalogue::offered_schemas(
+        &ctx.tool_registry,
+        seat,
+        switched_off,
+        ai_scope::declared_transport(),
+        &input.grant,
+        &ctx.config,
+    )
+    .into_iter()
+    .map(|s| s.name)
+    .collect();
     let base_prompt = format!(
         "{base_prompt}\n\n{TOOL_BOUNDARY}{}",
         render_tool_index(&tool_names, defer_tools)
@@ -620,7 +625,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // The cache boundary (carnet#1190). Everything above is the same from one
     // turn of the conversation to the next — contract, persona, the closed
     // tool set — and the first stage below that is not is the athlete's
-    // context: providers, group, followups, facts, plan, transcript. Nothing
+    // context: providers, group, facts, plan, transcript. Nothing
     // is moved: the prompt keeps its order, and this records only where its
     // unchanging head ends, so a provider that caches per block (Anthropic)
     // can keep that head cached while the rest is rewritten. Every other
@@ -682,7 +687,7 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // Every per-agent block below follows the agent answering this turn — the
     // mentioned agent on a `@handle` turn — so a routed turn carries that
-    // agent's playbooks, followups and plan, not another agent's under its
+    // agent's playbooks and plan, not another agent's under its
     // persona.
     let turn_agent_id = input.turn_agent_id(conv);
 
@@ -690,31 +695,26 @@ pub(crate) async fn assemble_prompt_and_messages(
     // it whole — the coach's own training is not the group's. A coach's
     // athlete thread carries the athlete's coach view in its place: the gates'
     // answer, and on access the roster line, plan, draft and linked wellness.
-    let (base_prompt, pending_followup_ids, freshness_hint) =
-        if let Some(turn) = subject_turn.as_ref() {
-            let block = subject_athlete::block(ctx, turn).await;
-            (format!("{base_prompt}{block}"), Vec::new(), None)
-        } else if sender_is_subject {
-            let subject = inject_subject_context(
-                SubjectContextInputs {
-                    ctx,
-                    input,
-                    profile,
-                    user_uuid,
-                    turn_agent_id,
-                    user_timezone: user_timezone.as_deref(),
-                },
-                base_prompt,
-            )
-            .await;
-            (
-                subject.prompt,
-                subject.pending_followup_ids,
-                subject.freshness_hint,
-            )
-        } else {
-            (base_prompt, Vec::new(), None)
-        };
+    let (base_prompt, freshness_hint) = if let Some(turn) = subject_turn.as_ref() {
+        let block = subject_athlete::block(ctx, turn).await;
+        (format!("{base_prompt}{block}"), None)
+    } else if sender_is_subject {
+        let subject = inject_subject_context(
+            SubjectContextInputs {
+                ctx,
+                input,
+                profile,
+                user_uuid,
+                turn_agent_id,
+                user_timezone: user_timezone.as_deref(),
+            },
+            base_prompt,
+        )
+        .await;
+        (subject.prompt, subject.freshness_hint)
+    } else {
+        (base_prompt, None)
+    };
 
     // Stage 7f.2: Render the athlete's persisted training plan (outline +
     // current/next week). Scoped to the TOOL tenant — the tenant
@@ -1066,7 +1066,6 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     Ok((
         prompt_guard,
-        pending_followup_ids,
         llm_messages,
         source_ids,
         group_roster,

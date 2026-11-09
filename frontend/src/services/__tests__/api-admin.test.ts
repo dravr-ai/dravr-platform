@@ -418,6 +418,55 @@ describe('API Service - Admin Functionality', () => {
     });
   });
 
+  describe('Audit trail', () => {
+    it('sends every filter and the cursor, and unwraps the page from the envelope', async () => {
+      const event = {
+        id: 'ev-1',
+        occurred_at: '2026-11-04T20:31:45.123Z',
+        action: 'user.delete',
+        summary: 'Deleted user x@y.z',
+        outcome: 'success',
+        source: 'console',
+        actor_user_id: 'op-1',
+        actor_email: 'admin@dravr.ai',
+        tenant_id: null,
+        metadata: null,
+      };
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: '1 audit events',
+          data: { events: [event], next_before: '2026-11-04T20:31:45.123Z', next_before_id: 'ev-1' },
+        },
+      });
+
+      const result = await adminApi.getAuditEvents({
+        limit: 50,
+        before: '2026-11-05T00:00:00Z',
+        before_id: 'ev-9',
+        action: 'user.',
+        outcome: 'refused',
+        actor_user_id: 'op-1',
+      });
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/api/admin/audit-events?limit=50&before=2026-11-05T00%3A00%3A00Z&before_id=ev-9&action=user.&outcome=refused&actor_user_id=op-1',
+      );
+      expect(result).toEqual({ events: [event], next_before: '2026-11-04T20:31:45.123Z', next_before_id: 'ev-1' });
+    });
+
+    it('asks for the first page with no query string and reads a missing cursor as the last page', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { success: true, message: '0 audit events', data: { events: [] } },
+      });
+
+      const result = await adminApi.getAuditEvents();
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/audit-events');
+      expect(result).toEqual({ events: [], next_before: null, next_before_id: null });
+    });
+  });
+
   describe('Error Handling', () => {
     it('should handle 404 errors appropriately', async () => {
       const error = new AxiosError('Not Found', '404', undefined, undefined, {

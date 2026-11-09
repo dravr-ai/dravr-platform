@@ -85,6 +85,7 @@ pub async fn stored_sleep_nights(
         &tenant,
         (start, end),
         filter,
+        stored_health::as_stored,
     )
     .await
     .map(|read| read.records)
@@ -189,6 +190,7 @@ async fn recovery_by_date(
         &tenant,
         (start, end),
         source.map_or(SourceFilter::All, SourceFilter::Service),
+        stored_health::as_stored,
     )
     .await
     {

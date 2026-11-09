@@ -143,7 +143,6 @@ async fn test_oauth_authorization_url_generation() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -279,6 +278,7 @@ async fn test_oauth_authorization_url_generation() {
 
     // Register and login user
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "oauth_test@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: Some("OAuth Test User".to_owned()),
@@ -451,7 +451,6 @@ async fn test_oauth_state_validation() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -628,7 +627,6 @@ async fn test_connection_status_no_providers() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -844,7 +842,6 @@ async fn test_invalid_provider_error() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1022,7 +1019,6 @@ async fn test_disconnect_provider() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1335,7 +1331,6 @@ async fn test_oauth_urls_contain_required_parameters() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {

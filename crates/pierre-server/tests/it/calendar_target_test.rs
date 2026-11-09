@@ -37,7 +37,9 @@ use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
 };
-use pierre_services::plan_calendar_push::resolve_calendar_target;
+use pierre_services::plan_calendar_push::{
+    resolve_calendar_target, CalendarCandidates, CalendarResolution,
+};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -102,6 +104,11 @@ impl ProviderDescriptor for MockDescriptor {
     }
     fn default_scopes(&self) -> &'static [&'static str] {
         &[]
+    }
+    /// The mock calendars serve every transport; an undeclared descriptor
+    /// would stay first-party.
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
     }
 }
 
@@ -312,6 +319,17 @@ impl Fixture {
         Ok(resp.result.expect("result payload"))
     }
 
+    /// The structured body of a call refused in-band (`reason`, `error` and
+    /// whatever the refusal carries).
+    async fn refusal_body(&self, tool_name: &str, params: Value) -> Value {
+        let resp = self
+            .execute(tool_name, params)
+            .await
+            .expect("the call reaches the tool");
+        assert!(!resp.success, "{tool_name} must be refused");
+        resp.result.expect("an in-band refusal carries its body")
+    }
+
     /// The refusal text of a call that must fail.
     async fn refused(&self, tool_name: &str, params: Value) -> String {
         match self.execute(tool_name, params).await {
@@ -472,26 +490,185 @@ async fn a_second_calendar_provider_is_pushed_to_and_reconciled_without_touching
     Ok(())
 }
 
+/// The `provider` values a `choose_calendar` refusal offers.
+fn offered(body: &Value) -> Vec<String> {
+    assert_eq!(body["reason"], "choose_calendar", "{body}");
+    body["calendars"]
+        .as_array()
+        .expect("calendars offered")
+        .iter()
+        .map(|calendar| calendar["provider"].as_str().expect("provider").to_owned())
+        .collect()
+}
+
+/// carnet#1393: with several calendars and none chosen, a push asks which
+/// instead of guessing; a named push writes and keeps later unnamed ones
+/// where its entries are; a recorded choice then wins over that ledger and
+/// is read back by `get_connection_status`.
 #[tokio::test]
-async fn several_calendars_default_alphabetically_and_a_named_provider_overrides() -> Result<()> {
+async fn several_calendars_ask_which_and_the_athletes_choice_is_kept() -> Result<()> {
     let fx = fixture(&[MOCK_B, MOCK_A]).await?;
     fx.save_plan().await;
 
-    let default = fx.ok("push_training_plan", json!({})).await?;
-    assert_eq!(default["provider"], MOCK_A, "{default}");
-    assert_eq!(fx.live(MOCK_A).await.len(), 2);
-    assert!(fx.live(MOCK_B).await.is_empty());
+    let asked = fx.refusal_body("push_training_plan", json!({})).await;
+    assert_eq!(offered(&asked), [MOCK_A, MOCK_B], "{asked}");
+    let ask = asked["error"].as_str().expect("message");
+    assert!(ask.contains("set_preferred_calendar"), "{ask}");
+    assert!(
+        fx.live(MOCK_A).await.is_empty() && fx.live(MOCK_B).await.is_empty(),
+        "an ask writes nothing"
+    );
+    let prescribe_asked = fx
+        .refusal_body(
+            "prescribe_workout",
+            json!({ "date": prescription_date(), "session": session() }),
+        )
+        .await;
+    assert_eq!(offered(&prescribe_asked), [MOCK_A, MOCK_B]);
 
     let named = fx
         .ok("push_training_plan", json!({ "provider": MOCK_B }))
         .await?;
     assert_eq!(named["provider"], MOCK_B, "{named}");
     assert_eq!(named["created"].as_u64(), Some(2), "{named}");
-    assert_eq!(fx.live(MOCK_B).await.len(), 2);
+    let kept = fx.ok("push_training_plan", json!({})).await?;
     assert_eq!(
-        fx.live(MOCK_A).await.len(),
+        kept["provider"], MOCK_B,
+        "the calendar holding Dravr's entries keeps the unnamed push: {kept}"
+    );
+
+    let recorded = fx
+        .ok("set_preferred_calendar", json!({ "provider": MOCK_A }))
+        .await?;
+    assert_eq!(recorded["provider"], MOCK_A, "{recorded}");
+    assert!(recorded.get("previous").is_none(), "{recorded}");
+    let status = fx.ok("get_connection_status", json!({})).await?;
+    assert_eq!(status["calendar"]["chosen"], MOCK_A, "{status}");
+    assert_eq!(
+        status["calendar"]["connected"],
+        json!([MOCK_A, MOCK_B]),
+        "{status}"
+    );
+
+    let chosen = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(
+        chosen["provider"], MOCK_A,
+        "the athlete's choice wins over the ledger: {chosen}"
+    );
+    let plan = fx.ok("get_training_plan", json!({})).await?;
+    assert_eq!(
+        plan["calendar"]["provider"], MOCK_A,
+        "the read follows the choice"
+    );
+    assert!(plan["calendar"].get("calendar_note").is_none(), "{plan}");
+    assert!(chosen.get("calendar_note").is_none(), "{chosen}");
+    assert_eq!(fx.live(MOCK_A).await.len(), 2);
+    assert_eq!(
+        fx.live(MOCK_B).await.len(),
         2,
-        "the other ledger is untouched"
+        "the other calendar's entries stay"
+    );
+
+    let switched = fx
+        .ok("set_preferred_calendar", json!({ "provider": MOCK_B }))
+        .await?;
+    assert_eq!(switched["previous"], MOCK_A, "{switched}");
+    let note = switched["note"].as_str().expect("note");
+    assert!(note.contains("stays"), "{note}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_a_connected_calendar_can_be_recorded() -> Result<()> {
+    let fx = fixture(&[MOCK_A, READ_ONLY]).await?;
+    let not_a_calendar = fx
+        .refused("set_preferred_calendar", json!({ "provider": READ_ONLY }))
+        .await;
+    assert!(
+        not_a_calendar.contains("calendar_write"),
+        "{not_a_calendar}"
+    );
+    let unconnected = fx
+        .refusal_body("set_preferred_calendar", json!({ "provider": MOCK_B }))
+        .await;
+    assert_eq!(
+        unconnected["reason"], "calendar_not_connected",
+        "{unconnected}"
+    );
+    assert_eq!(
+        unconnected["calendars"][0]["provider"], MOCK_A,
+        "names the calendar that can be recorded: {unconnected}"
+    );
+    let missing = fx.refused("set_preferred_calendar", json!({})).await;
+    assert!(missing.contains("provider is required"), "{missing}");
+    let none_recorded = fx
+        .executor
+        .resources
+        .repos()
+        .calendar_preferences
+        .get_calendar_preference(fx.tenant, fx.user_id)
+        .await?;
+    assert_eq!(none_recorded, None, "a refused call records nothing");
+    let status = fx.ok("get_connection_status", json!({})).await?;
+    assert!(
+        status.get("calendar").is_none(),
+        "one calendar and no choice: nothing to report: {status}"
+    );
+    Ok(())
+}
+
+/// A chosen calendar the athlete disconnects is passed over, never followed,
+/// and the reply says where the write went instead.
+#[tokio::test]
+async fn a_disconnected_choice_is_passed_over_with_a_note() -> Result<()> {
+    let fx = fixture(&[MOCK_A, MOCK_B]).await?;
+    fx.save_plan().await;
+    fx.ok("set_preferred_calendar", json!({ "provider": MOCK_A }))
+        .await?;
+    fx.ok("push_training_plan", json!({ "provider": MOCK_B }))
+        .await?;
+    fx.executor
+        .resources
+        .repos()
+        .provider_connections
+        .remove_connection(fx.user_id, fx.tenant, MOCK_A)
+        .await?;
+
+    let pushed = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(pushed["provider"], MOCK_B, "{pushed}");
+    let note = pushed["calendar_note"].as_str().expect("a note");
+    assert!(
+        note.contains(MOCK_A) && note.contains("not connected"),
+        "{note}"
+    );
+    assert!(note.contains(MOCK_B), "says where it went: {note}");
+
+    let prescribed = fx
+        .ok(
+            "prescribe_workout",
+            json!({ "date": prescription_date(), "session": session() }),
+        )
+        .await?;
+    assert_eq!(prescribed["provider"], MOCK_B, "{prescribed}");
+    assert!(
+        prescribed["calendar_note"]
+            .as_str()
+            .is_some_and(|note| note.contains("not connected")),
+        "{prescribed}"
+    );
+    let status = fx.ok("get_connection_status", json!({})).await?;
+    assert_eq!(status["calendar"]["chosen"], MOCK_A, "{status}");
+    assert_eq!(status["calendar"]["connected"], json!([MOCK_B]), "{status}");
+
+    // The read says it too: the calendar block reads the calendar it went to.
+    let plan = fx.ok("get_training_plan", json!({})).await?;
+    assert_eq!(plan["calendar"]["provider"], MOCK_B, "{plan}");
+    let read_note = plan["calendar"]["calendar_note"]
+        .as_str()
+        .expect("the block notes the passed-over choice");
+    assert!(
+        read_note.contains(MOCK_A) && read_note.contains("not connected"),
+        "{read_note}"
     );
     Ok(())
 }
@@ -578,7 +755,8 @@ async fn an_athlete_with_no_calendar_capable_connection_is_told_which_capability
     let plan = fx.ok("get_training_plan", json!({})).await?;
     assert_eq!(
         plan["calendar"]["entries"].as_array().map(Vec::len),
-        Some(0)
+        Some(0),
+        "{plan}"
     );
     Ok(())
 }
@@ -665,6 +843,92 @@ fn intervals_icu_declares_the_capability_and_stays_the_target_of_an_athlete_conn
     assert!(registry
         .calendar_write_providers()
         .contains(&"intervals_icu"));
-    let target = resolve_calendar_target(&registry, &["strava", "intervals_icu"], None);
-    assert_eq!(target.unwrap(), "intervals_icu");
+    assert_eq!(
+        write_target(&registry, &["strava", "intervals_icu"], &[], None),
+        "intervals_icu"
+    );
+}
+
+/// Resolve a write with no recorded choice, panicking on an ask.
+fn write_target(
+    registry: &ProviderRegistry,
+    connected: &[&str],
+    live: &[&str],
+    requested: Option<&str>,
+) -> String {
+    match write(registry, connected, live, requested).expect("resolved") {
+        CalendarResolution::Target(target) => target.backend,
+        CalendarResolution::Choose { calendars, .. } => {
+            panic!("asked among {calendars:?} instead of choosing")
+        }
+    }
+}
+
+fn write(
+    registry: &ProviderRegistry,
+    connected: &[&str],
+    live: &[&str],
+    requested: Option<&str>,
+) -> AppResult<CalendarResolution> {
+    resolve_calendar_target(
+        registry,
+        &CalendarCandidates {
+            connected,
+            live,
+            preferred: None,
+        },
+        requested,
+    )
+}
+
+/// Garmin's API connection writes its calendar (carnet#1385); connecting it
+/// beside a calendar the athlete already pushes to moves nothing, and naming
+/// Garmin while its usr/pwd connection serves the reads still writes through
+/// the API connection.
+#[test]
+fn garmin_writes_its_calendar_without_taking_an_athletes_existing_one() {
+    let registry = ProviderRegistry::new();
+    assert!(registry.calendar_write_providers().contains(&"garmin"));
+    assert!(!registry
+        .calendar_write_providers()
+        .contains(&"sciotte_garmin"));
+
+    assert_eq!(write_target(&registry, &["garmin"], &[], None), "garmin");
+    for beside in ["intervals_icu", "wahoo"] {
+        let fresh = write(&registry, &["garmin", beside], &[], None).expect("resolved");
+        assert_eq!(
+            fresh,
+            CalendarResolution::Choose {
+                calendars: vec![beside.to_owned(), "garmin".to_owned()],
+                passed_over: None,
+            },
+            "an athlete who never pushed is asked, the calendar provider offered before Garmin"
+        );
+    }
+    assert_eq!(
+        write_target(
+            &registry,
+            &["garmin", "intervals_icu"],
+            &["intervals_icu"],
+            None
+        ),
+        "intervals_icu",
+        "the calendar holding Dravr's entries stays the target"
+    );
+    assert_eq!(
+        write_target(
+            &registry,
+            &["sciotte_garmin", "garmin", "intervals_icu"],
+            &["intervals_icu"],
+            Some("sciotte_garmin"),
+        ),
+        "garmin"
+    );
+    let mirror_only =
+        write(&registry, &["sciotte_garmin"], &[], Some("sciotte_garmin")).unwrap_err();
+    assert!(
+        mirror_only.message.contains("(garmin)"),
+        "{}",
+        mirror_only.message
+    );
 }

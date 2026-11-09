@@ -10,7 +10,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { currentOnboardingStep } from '@pierre/shared-constants';
 
-const mockAuth: { isAuthenticated: boolean; user: { id: string; role: string; user_status: string } | null } = {
+const mockAuth: {
+  isAuthenticated: boolean;
+  user: { id: string; role: string; user_status: string; analytics_consent_answered?: boolean } | null;
+} = {
   isAuthenticated: true,
   user: { id: 'u1', role: 'user', user_status: 'active' },
 };
@@ -97,10 +100,24 @@ describe('useOnboardingContext', () => {
       messagingChannelChosen: false,
       messagingChannelDone: false,
       messagingConfigureDone: false,
+      // The session user does not say, which counts as answered.
+      analyticsConsentAnswered: true,
     });
     expect(currentOnboardingStep(result.current.context)?.id).toBe('about_you');
     // Messaging is post-connect; nothing asks for the channel list before it.
     expect(mockGetAvailableChannels).not.toHaveBeenCalled();
+  });
+
+  it('asks the usage-analytics question first of a user the server says was never asked (carnet#1366)', async () => {
+    mockGetOnboardingStatus.mockResolvedValue(status(true));
+    mockAuth.user = { id: 'u1', role: 'user', user_status: 'active', analytics_consent_answered: false };
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.context.analyticsConsentAnswered).toBe(false);
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('analytics_consent');
   });
 
   it('holds while a pre-connect flag is in flight, failing open meanwhile', async () => {

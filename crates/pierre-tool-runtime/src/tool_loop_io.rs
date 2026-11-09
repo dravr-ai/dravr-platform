@@ -13,8 +13,8 @@
 //! `ToolLoopTally` is the running half of that contract: the activity list,
 //! reconnect offer, tool count and tool names a loop accumulates as it runs.
 //! Each of its constructors stamps one exit shape — an auth trip, a Guardian
-//! block, a Guardian confirmation, an answer, or an exhausted iteration budget
-//! — onto that accounting, so the five shapes are written once instead of once
+//! block, an answer, or an exhausted iteration budget
+//! — onto that accounting, so the four shapes are written once instead of once
 //! per loop.
 
 use std::collections::BTreeSet;
@@ -27,10 +27,11 @@ use pierre_services::chat_stream::TurnEventSink;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::is_llm_provider_fault;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use uuid::Uuid;
 
 use crate::protocol::UniversalExecutor;
+use crate::registry::ToolRegistry;
 use crate::tool_loop_telemetry::accumulate_optional;
 
 /// One round of tool dispatch as the in-memory loop sees it.
@@ -168,16 +169,22 @@ impl fmt::Debug for ToolLoopParams<'_> {
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// Only ever set in `enforce` mode (the default) — `off` and `observe` log and
-/// fall through to execution, so this stays `None` there.
+/// The chokepoint raises one in `enforce` mode (the default); `observe` logs and
+/// falls through to execution.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
     pub tool_name: String,
     /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
-    /// `budget_exceeded`, `tainted_sink`, `egress_forbidden`. Used for
-    /// structured logging — never shown verbatim to the user.
+    /// `budget_exceeded`, `egress_forbidden`. Used for structured logging — never
+    /// shown verbatim to the user.
     pub reason: String,
+    /// Registry names of the consequential calls that succeeded before the
+    /// block, in order, repeats kept. The reply has to say these went through.
+    pub committed: Vec<String>,
+    /// Registry names of the consequential calls abandoned while running, in
+    /// order, repeats kept. The reply has to say these may have gone through.
+    pub unconfirmed: Vec<String>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -197,6 +204,14 @@ pub struct ToolLoopResult {
     /// Persisted alongside the LLM usage row so per-turn observability
     /// can answer "which tools ran for this turn".
     pub tools_called: Vec<String>,
+    /// Whether a call of a tool that writes or is irreversible reached the
+    /// Guardian's gate under this turn's key, whatever became of it.
+    ///
+    /// [`Self::tools_called`] cannot say this: the API and text loops list only
+    /// the calls that succeeded, and a headless leg re-run on the chain's tail
+    /// loses its list altogether. The dispatch chokepoint sees them all, on every
+    /// transport.
+    pub write_attempted: bool,
     /// Provider slug that triggered an `AppError::ProviderAuthRequired`
     /// during a tool dispatch in this loop. The chat pipeline detects this
     /// and short-circuits the turn with a deterministic re-auth reply
@@ -214,16 +229,10 @@ pub struct ToolLoopResult {
     /// carrying both blanks: it did not answer what the athlete asked, and the
     /// provider that blanked it is the one to offer.
     pub served_without_provider: Option<String>,
-    /// The first tool the runtime Guardian blocked this turn (`enforce` mode
-    /// only). The chat pipeline detects this and short-circuits with a
-    /// localized "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None`
-    /// when no tool was denied (always, in `observe`).
+    /// The first tool the runtime Guardian blocked this turn (`enforce` mode).
+    /// The chat pipeline detects this and short-circuits with a localized reply
+    /// saying what went through before the block. `None` when nothing was denied.
     pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation this turn
-    /// (`TaintedDestructive::Confirm`, `enforce` mode only). The chat pipeline
-    /// short-circuits with the localized confirmation prompt
-    /// (`KEY_GUARDIAN_CONFIRM_PROMPT`) carrying the claim token.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
     /// Set by the capability-recovery stage when the delivered reply carries a
     /// data-access claim the platform could not stand behind — either an
     /// unrefuted "I can't reach your data" or the reconnect message that
@@ -238,20 +247,6 @@ pub struct ToolLoopResult {
     /// an image it could not see. Deduplicated, in first-seen order: a loop
     /// re-sends the same request shape every iteration.
     pub provider_warnings: Vec<String>,
-}
-
-/// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
-///
-/// Surfaced out of the tool loop as an out-of-band signal (parallel to
-/// [`GuardianDenial`]) so the chat pipeline renders a deterministic,
-/// localized confirmation ask instead of letting the LLM paraphrase it.
-#[derive(Debug, Clone)]
-pub struct GuardianConfirmRequest {
-    /// Name of the parked tool (a static registry identifier — shown to the
-    /// user so consent is meaningful; arguments are never echoed).
-    pub tool_name: String,
-    /// Opaque claim token resolving the parked row.
-    pub pending_id: String,
 }
 
 /// The accounting a tool loop carries from iteration to iteration.
@@ -298,10 +293,10 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: Some(provider),
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -316,36 +311,14 @@ impl ToolLoopTally {
         ToolLoopResult {
             content: String::new(),
             usage,
-            finish_reason: Some("guardian_denied".to_owned()),
+            finish_reason: Some(GUARDIAN_DENIED_FINISH_REASON.to_owned()),
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: Some(denial),
-            guardian_confirm: None,
-            capability_claim_unverified: false,
-            provider_warnings: self.provider_warnings,
-        }
-    }
-
-    /// Exit carrying the tool call the Guardian parked pending confirmation.
-    pub(crate) fn guardian_confirm(
-        self,
-        usage: Option<TokenUsage>,
-        confirm: GuardianConfirmRequest,
-    ) -> ToolLoopResult {
-        ToolLoopResult {
-            content: String::new(),
-            usage,
-            finish_reason: Some("guardian_confirm".to_owned()),
-            activity_list: self.activity_list,
-            tool_calls_count: self.tool_calls_count,
-            tools_called: self.tools_called,
-            pending_provider_auth_required: None,
-            served_without_provider: self.served_without_provider,
-            guardian_denied: None,
-            guardian_confirm: Some(confirm),
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -365,10 +338,10 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -383,10 +356,10 @@ impl ToolLoopTally {
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
         }
@@ -406,6 +379,20 @@ impl ToolLoopTally {
 pub(crate) const MAX_ITERATIONS_FINISH_REASON: &str = "max_iterations";
 
 impl ToolLoopResult {
+    /// Whether this turn tried to change anything, so sending its question again
+    /// could repeat it: the Guardian blocked it, a consequential call reached the
+    /// gate, or a tool it lists may change data ([`ToolRegistry::may_change_data`]),
+    /// which is how a headless call the transport named only by title counts.
+    #[must_use]
+    pub fn attempted_write(&self, registry: &ToolRegistry) -> bool {
+        self.guardian_denied.is_some()
+            || self.write_attempted
+            || self
+                .tools_called
+                .iter()
+                .any(|tool| registry.may_change_data(tool))
+    }
+
     /// `true` when the loop stopped because its iteration budget ran out.
     ///
     /// Such a turn is empty but not lost to a provider: the model kept calling
@@ -440,37 +427,12 @@ impl ToolLoopResult {
             activity_list: self.activity_list.or(prior.activity_list),
             tool_calls_count: prior.tool_calls_count.saturating_add(self.tool_calls_count),
             tools_called,
+            write_attempted: prior.write_attempted || self.write_attempted,
             served_without_provider: self
                 .served_without_provider
                 .or(prior.served_without_provider),
             provider_warnings,
             ..self
-        }
-    }
-
-    /// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
-    ///
-    /// Covers both the over-step-cap and the failed-static-verification cases.
-    /// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
-    /// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
-    /// post-processing as if it were model output.
-    pub(crate) fn guardian_plan_denied(reason: &str) -> Self {
-        Self {
-            content: String::new(),
-            usage: None,
-            finish_reason: Some("guardian_plan_rejected".to_owned()),
-            activity_list: None,
-            tool_calls_count: 0,
-            tools_called: Vec::new(),
-            pending_provider_auth_required: None,
-            served_without_provider: None,
-            guardian_denied: Some(GuardianDenial {
-                tool_name: "(plan)".to_owned(),
-                reason: reason.to_owned(),
-            }),
-            guardian_confirm: None,
-            capability_claim_unverified: false,
-            provider_warnings: Vec::new(),
         }
     }
 
@@ -482,8 +444,8 @@ impl ToolLoopResult {
     ///
     /// The short-circuit signals are excluded deliberately. Empty `content`
     /// alongside any of them is not a lost turn but a *deliberate* one: the chat
-    /// pipeline is about to replace the reply with a hosted re-auth URL, a
-    /// Guardian refusal, or a confirmation prompt. Falling those back to a second
+    /// pipeline is about to replace the reply with a hosted re-auth URL or a
+    /// Guardian refusal. Falling those back to a second
     /// provider would spend money to overwrite an answer the platform has already
     /// decided to give, and would read to the athlete as the refusal not sticking.
     #[must_use]
@@ -492,7 +454,6 @@ impl ToolLoopResult {
             && self.activity_list.is_none()
             && self.pending_provider_auth_required.is_none()
             && self.guardian_denied.is_none()
-            && self.guardian_confirm.is_none()
     }
 
     /// The error describing a lost turn, for the fallback's log line.
@@ -577,7 +538,10 @@ pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String 
 pub const PLATFORM_MCP_SERVER_NAME: &str = "dravr";
 
 /// Two optional usages summed, counting the optional counts too.
-fn sum_usage(first: Option<TokenUsage>, second: Option<TokenUsage>) -> Option<TokenUsage> {
+pub(crate) fn sum_usage(
+    first: Option<TokenUsage>,
+    second: Option<TokenUsage>,
+) -> Option<TokenUsage> {
     match (first, second) {
         (None, None) => None,
         (Some(only), None) | (None, Some(only)) => Some(only),
@@ -613,7 +577,8 @@ mod tests {
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_llm::TokenUsage;
 
-    use super::{HeadlessRoute, ToolLoopResult, ToolLoopTally};
+    use super::{GuardianDenial, HeadlessRoute, ToolLoopResult, ToolLoopTally};
+    use crate::registry::ToolRegistry;
 
     fn tally(tools: &[&str], activity_list: Option<&str>, warning: &str) -> ToolLoopTally {
         ToolLoopTally {
@@ -636,10 +601,10 @@ mod tests {
             activity_list: None,
             tool_calls_count: 1,
             tools_called: vec!["get_activities".to_owned()],
+            write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: None,
             guardian_denied: None,
-            guardian_confirm: None,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),
         }
@@ -769,6 +734,35 @@ mod tests {
             HeadlessRoute::of(Ok(empty), "copilot_sdk"),
             HeadlessRoute::Reroute(_)
         ));
+    }
+
+    /// A block counts on its own: the Guardian can refuse a call that is no
+    /// write, and that turn must not read as safe to send again.
+    #[test]
+    fn a_blocked_turn_attempted_a_write_though_no_write_reached_the_gate() {
+        let registry = ToolRegistry::new();
+        let quiet = ToolLoopResult {
+            tools_called: Vec::new(),
+            ..answered()
+        };
+        assert!(
+            !quiet.attempted_write(&registry),
+            "a turn with no call and no block changed nothing"
+        );
+
+        let blocked = ToolLoopResult {
+            guardian_denied: Some(GuardianDenial {
+                tool_name: "get_activities".to_owned(),
+                reason: "egress_forbidden".to_owned(),
+                committed: Vec::new(),
+                unconfirmed: Vec::new(),
+            }),
+            ..quiet
+        };
+        assert!(
+            blocked.attempted_write(&registry),
+            "a blocked turn must never read as safe to send again"
+        );
     }
 
     #[test]

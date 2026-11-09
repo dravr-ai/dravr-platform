@@ -179,7 +179,12 @@ WORKDIR /app
 # .73 layer (CVE-2026-119260..119271, CVE-2026-76024..76030 among them: use
 # after free and memory corruption in Frames, V8, Skia, Blink, Dawn). The
 # sciotte image gate refused sciotte v1.3.0 on them; mirrored there too.
-ARG APT_SECURITY_EPOCH=2026-11-03
+# 2026-11-04: apt 3.0.3 -> 3.0.4 (CVE-2026-109518, HIGH, fixed in trixie):
+# the dev deploys of 892a6c569 and 9c335e371 were gated on it.
+# 2026-11-08: zlib 1:1.3.dfsg+really1.3.1-1+b1 -> +deb13u1 (CVE-2026-85091, HIGH,
+# heap overflow in gz_vacate()): the dev deploy of 363450ee7 was gated on it
+# with "apt security epoch: 2026-11-04" built.
+ARG APT_SECURITY_EPOCH=2026-11-08
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
@@ -288,14 +293,9 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
 # appuser ownership through the merge.
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
-# commands/ and the eval fixtures are source files, so they come from the build
-# context, which the builder stage copied them from under the same .dockerignore.
+# commands/ is source files, so it comes from the build context, which the
+# builder stage copied it from under the same .dockerignore.
 COPY --link --chown=1001:1001 commands /app/commands
-# Eval harness golden fixtures — admin /admin/evals/fixtures browser walks
-# this directory at runtime. PIERRE_EVALS_FIXTURES_DIR (set below) points
-# the runtime at this baked-in path so the route returns real data instead
-# of the empty fallback when the workspace tree isn't present.
-COPY --link --chown=1001:1001 crates/pierre-evals/fixtures /app/fixtures
 COPY --link --chown=1001:1001 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY --link --chown=1001:1001 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
 
@@ -313,10 +313,6 @@ ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
-# Eval harness fixtures location (see COPY above). The route resolves
-# this env var first; absent or pointing at a missing dir falls back to
-# the workspace-relative default and logs a single warn (no Slack page).
-ENV PIERRE_EVALS_FIXTURES_DIR=/app/fixtures
 
 # Expose ports
 EXPOSE 8080 8081

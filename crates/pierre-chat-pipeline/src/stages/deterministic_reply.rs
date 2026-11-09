@@ -36,7 +36,7 @@ use crate::team_offer;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
-use super::followups::finalize_session_state;
+use super::agent_session::finalize_session_state;
 use super::persistence::persist_assistant_response;
 
 /// Stand-in for the agent reply when extraction runs over a turn the platform
@@ -181,6 +181,9 @@ pub async fn deliver(
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
         about_user_id: None,
+        // No model ran, but this turn does record the athlete's last interview
+        // answer: it is not a reply to offer again.
+        turn_attempted_write: None,
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),
@@ -191,7 +194,7 @@ pub async fn deliver(
     )
     .await?;
 
-    finalize_session_state(&ctx.data, conv.session_id.as_deref(), &[], input).await;
+    finalize_session_state(&ctx.data, conv.session_id.as_deref(), input).await;
 
     // Same rule as the model path: the slot is taken only once a reply exists
     // (registre#260).

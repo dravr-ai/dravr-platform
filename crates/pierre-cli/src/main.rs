@@ -162,6 +162,12 @@ enum Command {
         action: commands::zones::ZonesCommand,
     },
 
+    /// Garmin operator commands (retire the usr/pwd sessions beside a grant)
+    Garmin {
+        #[command(subcommand)]
+        action: commands::garmin::GarminCommand,
+    },
+
     /// Coaching harness operator commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
@@ -228,6 +234,12 @@ enum Command {
     Deletion {
         #[command(subcommand)]
         action: commands::deletion::DeletionCommand,
+    },
+
+    /// The admin audit trail on a remote server: what operators did, newest first
+    Audit {
+        #[command(subcommand)]
+        action: commands::audit::AuditCommand,
     },
 }
 
@@ -883,6 +895,9 @@ async fn main() -> Result<()> {
     if let Command::Deletion { action } = cli.command {
         return commands::deletion::dispatch(action).await;
     }
+    if let Command::Audit { action } = cli.command {
+        return commands::audit::dispatch(action).await;
+    }
 
     // `harness grading-score` reads a key and graded sheets from disk: it
     // needs neither a database nor the encryption key, and is usually run
@@ -972,201 +987,213 @@ async fn main() -> Result<()> {
     // Initialize JWKS manager - loads RSA keys from database for server compatibility
     let jwks_manager = initialize_jwks_manager(&repos).await?;
 
-    // Execute command
-    match cli.command {
-        Command::Seed { .. } => unreachable!("Seed is handled in the early return above"),
-        Command::CheckDrift { .. } => {
-            unreachable!("CheckDrift is handled in the early return above")
-        }
-        Command::Canary { .. } => unreachable!("Canary is handled in the early return above"),
-        Command::Key { .. } => unreachable!("Key is handled in the early return above"),
-        Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
-        Command::StravaPool { .. } => {
-            unreachable!("StravaPool is handled in the early return above")
-        }
-        Command::StravaWebhook { .. } => {
-            unreachable!("StravaWebhook is handled in the early return above")
-        }
-        Command::Settings { .. } => {
-            unreachable!("Settings is handled in the early return above")
-        }
-        Command::Config { .. } => {
-            unreachable!("Config is handled in the early return above")
-        }
-        Command::Provider { .. } => {
-            unreachable!("Provider is handled in the early return above")
-        }
-        Command::Deletion { .. } => {
-            unreachable!("Deletion is handled in the early return above")
-        }
-        Command::User { action } => match action {
-            UserCommand::Create {
-                email,
-                password,
-                name,
-                force,
-                super_admin,
-                locale,
-            } => {
-                commands::user::create(
-                    &repos,
+    // Execute command. A command that writes the database is a row of the
+    // admin audit trail (carnet#1391), whether it succeeded or not.
+    let audit = commands::local_audit::describe(&cli.command);
+    let outcome: Result<()> = async {
+        match cli.command {
+            Command::Seed { .. } => unreachable!("Seed is handled in the early return above"),
+            Command::CheckDrift { .. } => {
+                unreachable!("CheckDrift is handled in the early return above")
+            }
+            Command::Canary { .. } => unreachable!("Canary is handled in the early return above"),
+            Command::Key { .. } => unreachable!("Key is handled in the early return above"),
+            Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
+            Command::StravaPool { .. } => {
+                unreachable!("StravaPool is handled in the early return above")
+            }
+            Command::StravaWebhook { .. } => {
+                unreachable!("StravaWebhook is handled in the early return above")
+            }
+            Command::Settings { .. } => {
+                unreachable!("Settings is handled in the early return above")
+            }
+            Command::Config { .. } => {
+                unreachable!("Config is handled in the early return above")
+            }
+            Command::Provider { .. } => {
+                unreachable!("Provider is handled in the early return above")
+            }
+            Command::Deletion { .. } => {
+                unreachable!("Deletion is handled in the early return above")
+            }
+            Command::Audit { .. } => unreachable!("Audit is handled in the early return above"),
+            Command::User { action } => match action {
+                UserCommand::Create {
                     email,
                     password,
                     name,
-                    commands::user::AdminUserOptions {
-                        force,
-                        super_admin,
-                        locale,
-                    },
-                )
-                .await?;
-            }
-            UserCommand::Promote { email } => {
-                commands::user::promote(&repos, email).await?;
-            }
-            UserCommand::Demote { email } => {
-                commands::user::demote(&repos, email).await?;
-            }
-            UserCommand::ListAdmins => {
-                commands::user::list_admins(&repos).await?;
-            }
-            // Handled before the KeyManager/DB bootstrap; see dispatch_remote_user.
-            UserCommand::Get { .. }
-            | UserCommand::Set { .. }
-            | UserCommand::Allow { .. }
-            | UserCommand::Disallow { .. }
-            | UserCommand::ListAllowed { .. }
-            | UserCommand::Code { .. }
-            | UserCommand::Disconnect(_)
-            | UserCommand::CloneProvider(_)
-            | UserCommand::Delete(_)
-            | UserCommand::ResetOnboarding(_) => {
-                unreachable!("remote user commands dispatch before the database bootstrap")
-            }
-            UserCommand::SetTier { email, tier, note } => {
-                commands::user::set_tier(&repos, email, tier, note).await?;
-            }
-            UserCommand::ClearTier { email } => {
-                commands::user::clear_tier(&repos, email).await?;
-            }
-            UserCommand::Approve { email, reason } => {
-                commands::user::approve(&repos, email, reason).await?;
-            }
-            UserCommand::Suspend { email, reason } => {
-                commands::user::suspend(&repos, email, reason).await?;
-            }
-            UserCommand::ResetPassword { email } => {
-                commands::user::reset_password(&repos, email).await?;
-            }
-            #[cfg(feature = "e2e-seeded-sessions")]
-            UserCommand::MintSession { email } => {
-                commands::session::mint_session(database, jwks_manager, &email).await?;
-            }
-            UserCommand::SetRateLimit {
-                email,
-                monthly,
-                note,
-            } => {
-                commands::user::set_rate_limit(&repos, email, monthly, note).await?;
-            }
-            UserCommand::ClearRateLimit { email } => {
-                commands::user::clear_rate_limit(&repos, email).await?;
-            }
-            UserCommand::SetFeature {
-                email,
-                key,
-                enabled,
-            } => {
-                commands::user::set_feature(&repos, email, key, enabled).await?;
-            }
-            UserCommand::ClearFeature { email, key } => {
-                commands::user::clear_feature(&repos, email, key).await?;
-            }
-            UserCommand::ListFeatures { email } => {
-                commands::user::list_features(&repos, email).await?;
-            }
-        },
-        Command::Tenant { action } => commands::tenant::dispatch(&repos, action).await?,
-        Command::ApiKey { action } => match action {
-            ApiKeyCommand::List { email } => commands::api_key::list(&repos, email).await?,
-            ApiKeyCommand::Usage {
-                email,
-                key_id,
-                days,
-            } => commands::api_key::usage(&repos, email, key_id, days).await?,
-        },
-        Command::Tool { action } => match action {
-            ToolCommand::Enable {
-                email,
-                tool,
-                reason,
-            } => {
-                commands::tool::enable(&repos, email, tool, reason).await?;
-            }
-            ToolCommand::Disable {
-                email,
-                tool,
-                reason,
-            } => {
-                commands::tool::disable(&repos, email, tool, reason).await?;
-            }
-            ToolCommand::Reset { email, tool } => {
-                commands::tool::reset(&repos, email, tool).await?;
-            }
-            ToolCommand::List { email } => {
-                commands::tool::list(&repos, email).await?;
-            }
-        },
-        Command::Token { action } => match action {
-            TokenCommand::Generate {
-                service,
-                description,
-                expires_days,
-                super_admin,
-                permissions,
-                tenant_id,
-            } => {
-                commands::token::generate(
-                    &repos,
-                    &jwks_manager,
+                    force,
+                    super_admin,
+                    locale,
+                } => {
+                    commands::user::create(
+                        &repos,
+                        email,
+                        password,
+                        name,
+                        commands::user::AdminUserOptions {
+                            force,
+                            super_admin,
+                            locale,
+                        },
+                    )
+                    .await?;
+                }
+                UserCommand::Promote { email } => {
+                    commands::user::promote(&repos, email).await?;
+                }
+                UserCommand::Demote { email } => {
+                    commands::user::demote(&repos, email).await?;
+                }
+                UserCommand::ListAdmins => {
+                    commands::user::list_admins(&repos).await?;
+                }
+                // Handled before the KeyManager/DB bootstrap; see dispatch_remote_user.
+                UserCommand::Get { .. }
+                | UserCommand::Set { .. }
+                | UserCommand::Allow { .. }
+                | UserCommand::Disallow { .. }
+                | UserCommand::ListAllowed { .. }
+                | UserCommand::Code { .. }
+                | UserCommand::Disconnect(_)
+                | UserCommand::CloneProvider(_)
+                | UserCommand::Delete(_)
+                | UserCommand::ResetOnboarding(_) => {
+                    unreachable!("remote user commands dispatch before the database bootstrap")
+                }
+                UserCommand::SetTier { email, tier, note } => {
+                    commands::user::set_tier(&repos, email, tier, note).await?;
+                }
+                UserCommand::ClearTier { email } => {
+                    commands::user::clear_tier(&repos, email).await?;
+                }
+                UserCommand::Approve { email, reason } => {
+                    commands::user::approve(&repos, email, reason).await?;
+                }
+                UserCommand::Suspend { email, reason } => {
+                    commands::user::suspend(&repos, email, reason).await?;
+                }
+                UserCommand::ResetPassword { email } => {
+                    commands::user::reset_password(&repos, email).await?;
+                }
+                #[cfg(feature = "e2e-seeded-sessions")]
+                UserCommand::MintSession { email } => {
+                    commands::session::mint_session(database, jwks_manager, &email).await?;
+                }
+                UserCommand::SetRateLimit {
+                    email,
+                    monthly,
+                    note,
+                } => {
+                    commands::user::set_rate_limit(&repos, email, monthly, note).await?;
+                }
+                UserCommand::ClearRateLimit { email } => {
+                    commands::user::clear_rate_limit(&repos, email).await?;
+                }
+                UserCommand::SetFeature {
+                    email,
+                    key,
+                    enabled,
+                } => {
+                    commands::user::set_feature(&repos, email, key, enabled).await?;
+                }
+                UserCommand::ClearFeature { email, key } => {
+                    commands::user::clear_feature(&repos, email, key).await?;
+                }
+                UserCommand::ListFeatures { email } => {
+                    commands::user::list_features(&repos, email).await?;
+                }
+            },
+            Command::Tenant { action } => commands::tenant::dispatch(&repos, action).await?,
+            Command::ApiKey { action } => match action {
+                ApiKeyCommand::List { email } => commands::api_key::list(&repos, email).await?,
+                ApiKeyCommand::Usage {
+                    email,
+                    key_id,
+                    days,
+                } => commands::api_key::usage(&repos, email, key_id, days).await?,
+            },
+            Command::Tool { action } => match action {
+                ToolCommand::Enable {
+                    email,
+                    tool,
+                    reason,
+                } => {
+                    commands::tool::enable(&repos, email, tool, reason).await?;
+                }
+                ToolCommand::Disable {
+                    email,
+                    tool,
+                    reason,
+                } => {
+                    commands::tool::disable(&repos, email, tool, reason).await?;
+                }
+                ToolCommand::Reset { email, tool } => {
+                    commands::tool::reset(&repos, email, tool).await?;
+                }
+                ToolCommand::List { email } => {
+                    commands::tool::list(&repos, email).await?;
+                }
+            },
+            Command::Token { action } => match action {
+                TokenCommand::Generate {
                     service,
                     description,
                     expires_days,
                     super_admin,
-                    commands::token::GenerateTokenOpts {
-                        permissions,
-                        tenant_id,
-                    },
-                )
-                .await?;
+                    permissions,
+                    tenant_id,
+                } => {
+                    commands::token::generate(
+                        &repos,
+                        &jwks_manager,
+                        service,
+                        description,
+                        expires_days,
+                        super_admin,
+                        commands::token::GenerateTokenOpts {
+                            permissions,
+                            tenant_id,
+                        },
+                    )
+                    .await?;
+                }
+                TokenCommand::List {
+                    include_inactive,
+                    detailed,
+                } => {
+                    commands::token::list(&repos, include_inactive, detailed).await?;
+                }
+                TokenCommand::Revoke { token_id } => {
+                    commands::token::revoke(&repos, token_id).await?;
+                }
+                TokenCommand::Rotate {
+                    token_id,
+                    expires_days,
+                } => {
+                    commands::token::rotate(&repos, &jwks_manager, token_id, expires_days).await?;
+                }
+                TokenCommand::Stats { token_id, days } => {
+                    commands::token::stats(&repos, token_id, days).await?;
+                }
+            },
+            Command::Zones { action } => {
+                commands::zones::dispatch(action, &repos).await?;
             }
-            TokenCommand::List {
-                include_inactive,
-                detailed,
-            } => {
-                commands::token::list(&repos, include_inactive, detailed).await?;
+            Command::Garmin { action } => {
+                commands::garmin::dispatch(action, &repos).await?;
             }
-            TokenCommand::Revoke { token_id } => {
-                commands::token::revoke(&repos, token_id).await?;
+            #[cfg(feature = "tools-verification")]
+            Command::Harness { action } => {
+                commands::harness::dispatch(action, &repos, &database).await?;
             }
-            TokenCommand::Rotate {
-                token_id,
-                expires_days,
-            } => {
-                commands::token::rotate(&repos, &jwks_manager, token_id, expires_days).await?;
-            }
-            TokenCommand::Stats { token_id, days } => {
-                commands::token::stats(&repos, token_id, days).await?;
-            }
-        },
-        Command::Zones { action } => {
-            commands::zones::dispatch(action, &repos).await?;
         }
-        #[cfg(feature = "tools-verification")]
-        Command::Harness { action } => {
-            commands::harness::dispatch(action, &repos, &database).await?;
-        }
+        Ok(())
     }
-
-    Ok(())
+    .await;
+    if let Some(audit) = audit {
+        commands::local_audit::record(&repos, audit, outcome.is_ok()).await;
+    }
+    outcome
 }

@@ -5,10 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 use axum::http::{header, HeaderMap, StatusCode};
+use pierre_auth::oauth2_server::first_party::is_first_party;
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_contremaitre::hosted_strings::KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE;
 use pierre_contremaitre::MessagingStringsRegistry;
-use pierre_core::models::page_locale;
+use pierre_core::models::{page_locale, supported_ui_locale};
+
+use super::consent_text::reader_locale;
 
 /// "Sign in": the page title, its heading and the submit button
 const KEY_SIGN_IN: &str = "auth.signInButton";
@@ -93,6 +96,31 @@ impl<'a> LoginText<'a> {
         }
     }
 
+    /// The text of the login form on the way to `client_id`.
+    ///
+    /// A third party's consent screen follows this page, so the two fall back
+    /// alike: the first language the browser lists that the platform speaks,
+    /// else English. Dravr's own apps show no consent and say which language
+    /// they are in, so theirs stays [`Self::for_request`]'s.
+    pub(super) fn for_client(
+        strings: &'a MessagingStringsRegistry,
+        headers: &HeaderMap,
+        ui_locales: Option<&str>,
+        client_id: Option<&str>,
+    ) -> Self {
+        if client_id.is_none_or(|client_id| client_id.is_empty() || is_first_party(client_id)) {
+            return Self::for_request(strings, headers, ui_locales);
+        }
+        let accept_language = headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|value| value.to_str().ok());
+        Self {
+            strings,
+            locale: supported_ui_locale(ui_locales)
+                .unwrap_or_else(|| reader_locale(None, accept_language)),
+        }
+    }
+
     /// The login form's labels.
     pub(super) fn labels(&self) -> LoginPageLabels {
         LoginPageLabels::new(self.strings, self.locale)
@@ -140,6 +168,7 @@ impl<'a> LoginText<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_auth::oauth2_server::first_party::MOBILE_CLIENT_ID;
     use pierre_core::models::SUPPORTED_LOCALES;
 
     fn text_for(registry: &MessagingStringsRegistry, accept_language: &str) -> String {
@@ -180,6 +209,30 @@ mod tests {
         assert_eq!(text_for(&registry, "de"), "Anmelden");
         // French, the default, for a language the product does not speak
         assert_eq!(text_for(&registry, "ja-JP"), "Se connecter");
+    }
+
+    #[test]
+    fn a_third_partys_login_falls_back_as_its_consent_does() {
+        let registry = MessagingStringsRegistry::new();
+        let lang = |accept: &str, client: Option<&str>| {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT_LANGUAGE, accept.parse().unwrap());
+            LoginText::for_client(&registry, &headers, None, client)
+                .labels()
+                .lang
+        };
+        for accept in ["ja-JP", "ja-JP,de;q=0.5", "en-US", "fr-CA"] {
+            assert_eq!(
+                lang(accept, Some("mcp_client_abc")),
+                reader_locale(None, Some(accept)),
+                "{accept}"
+            );
+        }
+        assert_eq!(lang("ja-JP", Some("mcp_client_abc")), "en");
+        assert_eq!(lang("ja-JP,de;q=0.5", Some("mcp_client_abc")), "de");
+        // Dravr's own apps and a page naming no client keep the app fallback.
+        assert_eq!(lang("ja-JP", Some(MOBILE_CLIENT_ID)), "fr");
+        assert_eq!(lang("ja-JP", None), "fr");
     }
 
     #[test]

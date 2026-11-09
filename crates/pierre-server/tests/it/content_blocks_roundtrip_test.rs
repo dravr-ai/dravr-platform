@@ -47,6 +47,7 @@ async fn content_blocks_survive_a_round_trip() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -112,6 +113,7 @@ async fn an_ordinary_reply_stores_null_blocks() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -168,6 +170,7 @@ async fn blocks_are_readable_only_under_the_conversations_own_tenant() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();

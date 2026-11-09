@@ -20,7 +20,7 @@ async function setupActivityMocks(
   await setupDashboardMocks(page, { role: 'admin' });
 
   // Mock recent activity endpoint
-  await page.route('**/api/admin/analytics/recent-activity', async (route) => {
+  await page.route('**/api/admin/analytics/recent-activity**', async (route) => {
     if (!hasData) {
       await route.fulfill({
         status: 200,
@@ -32,7 +32,7 @@ async function setupActivityMocks(
             active_conversations: 0,
             llm_calls_today: 0,
             total_tokens_today: 0,
-            estimated_cost_today: 0,
+            cost_today_usd: 0,
           },
         }),
       });
@@ -60,7 +60,7 @@ async function setupActivityMocks(
           active_conversations: 3,
           llm_calls_today: 42,
           total_tokens_today: 58000,
-          estimated_cost_today: 0.045,
+          cost_today_usd: 0.045,
         },
       }),
     });
@@ -90,12 +90,12 @@ test.describe('Activity Tab - Summary Stats', () => {
     await expect(page.locator('.stat-card-dark').filter({ hasText: 'Active Conversations' }).getByText('3')).toBeVisible();
   });
 
-  test('displays LLM Calls Today stat card', async ({ page }) => {
+  test('displays LLM Calls Today (UTC) stat card', async ({ page }) => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('LLM Calls Today')).toBeVisible();
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'LLM Calls Today' }).getByText('42')).toBeVisible();
+    await expect(page.getByText('LLM Calls Today (UTC)')).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'LLM Calls Today (UTC)' }).getByText('42')).toBeVisible();
   });
 
   test('displays Tokens Today stat card', async ({ page }) => {
@@ -105,11 +105,11 @@ test.describe('Activity Tab - Summary Stats', () => {
     await expect(page.getByText('Tokens Today')).toBeVisible();
   });
 
-  test('displays Est. Cost Today stat card', async ({ page }) => {
+  test('displays Cost Today (UTC, at current prices) stat card', async ({ page }) => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Est. Cost Today')).toBeVisible();
+    await expect(page.getByText('Cost Today (UTC, at current prices)')).toBeVisible();
   });
 });
 
@@ -167,7 +167,7 @@ test.describe('Activity Tab - Unified Activity Table', () => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
 
-    await expect(page.getByPlaceholder('Search by provider, user, model...')).toBeVisible();
+    await expect(page.getByPlaceholder('Search the latest rows by provider, user, model...')).toBeVisible();
   });
 });
 
@@ -186,7 +186,7 @@ test.describe('Activity Tab - Empty State', () => {
 
     // All stat cards should show 0
     const statCards = page.locator('.stat-card-dark');
-    await expect(statCards.filter({ hasText: 'LLM Calls Today' }).getByText('0')).toBeVisible();
+    await expect(statCards.filter({ hasText: 'LLM Calls Today (UTC)' }).getByText('0')).toBeVisible();
   });
 });
 
@@ -194,7 +194,7 @@ test.describe('Activity Tab - Loading State', () => {
   test('shows loading spinner while data loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/admin/analytics/recent-activity', async (route) => {
+    await page.route('**/api/admin/analytics/recent-activity**', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,
@@ -202,7 +202,7 @@ test.describe('Activity Tab - Loading State', () => {
         body: JSON.stringify({
           recent_llm_calls: [],
           recent_conversations: [],
-          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, estimated_cost_today: 0 },
+          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, cost_today_usd: 0 },
         }),
       });
     });

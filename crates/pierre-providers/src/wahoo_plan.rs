@@ -39,6 +39,9 @@ use serde_json::{json, Value};
 
 use crate::models::periodization::ThresholdBasis;
 use crate::models::{PlannedSession, RelativeIntensity, SportType, WorkoutStep};
+use crate::neutral_session::{
+    is_power_sport, neutral_title, session_seconds, StepClass, SWEET_SPOT,
+};
 
 /// Prefix of every id Dravr writes into Wahoo, so a listing tells Dravr's
 /// scheduled workouts from the athlete's own.
@@ -65,9 +68,6 @@ const SCHEDULED_HOUR_UTC: &str = "12:00:00.000Z";
 /// zone-7 step is capped at the step grammar's own highest percentage, the
 /// 300 % that `RelativeIntensity` accepts as the top of a percent band.
 const POWER_ZONE7_CEILING: f64 = 3.00;
-
-/// Sweet spot, as the step grammar defines it: 88–94 % FTP.
-const SWEET_SPOT: (f64, f64) = (0.88, 0.94);
 
 /// The opaque id Dravr writes into Wahoo for a calendar entry.
 ///
@@ -181,223 +181,37 @@ const fn plan_family(sport: &SportType) -> Option<(u8, u8)> {
     }
 }
 
-/// Whether a sport's targets are power, so a zone is a fraction of FTP.
-const fn is_power_sport(sport: &SportType) -> bool {
-    matches!(
-        sport,
-        SportType::Ride
-            | SportType::VirtualRide
-            | SportType::EbikeRide
-            | SportType::MountainBike
-            | SportType::GravelRide
-    )
-}
-
-/// The sport as a title starts with it.
-fn sport_label(sport: &SportType) -> &'static str {
-    match sport {
-        SportType::Ride => "Ride",
-        SportType::VirtualRide => "Indoor ride",
-        SportType::MountainBike => "MTB ride",
-        SportType::GravelRide => "Gravel ride",
-        SportType::EbikeRide => "E-bike ride",
-        SportType::Run => "Run",
-        SportType::VirtualRun => "Treadmill run",
-        SportType::TrailRunning => "Trail run",
-        SportType::Swim => "Swim",
-        SportType::Walk => "Walk",
-        SportType::Hike => "Hike",
-        SportType::Rowing => "Row",
-        SportType::StrengthTraining | SportType::Crossfit => "Strength",
-        SportType::Yoga => "Yoga",
-        SportType::CrossCountrySkiing | SportType::BackcountrySkiing => "Ski",
-        _ => "Workout",
+/// `plan.json`'s intensity label for a step's class: the closed
+/// `INTENSITY_TYPE` enum, so nothing of the step's own words reaches the file.
+const fn intensity_wire(class: StepClass) -> &'static str {
+    match class {
+        StepClass::Warmup => "wu",
+        StepClass::Cooldown => "cd",
+        StepClass::Recover => "recover",
+        StepClass::Rest => "rest",
+        StepClass::Active => "active",
+        StepClass::Tempo => "tempo",
+        StepClass::Threshold => "lt",
+        StepClass::Vo2Max => "map",
+        StepClass::Anaerobic => "ac",
+        StepClass::Neuromuscular => "nm",
     }
 }
 
-/// A duration as a title shows it: `45 min`, `2 h`, `1 h 30`.
-fn format_duration(seconds: u64) -> String {
-    let minutes = seconds.div_ceil(60);
-    match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02}"),
-    }
-}
-
-/// A step's extent as a title shows it: `8 min`, `30 s`, `400 m`, `2 km`.
-fn format_extent(step: &WorkoutStep) -> String {
-    if let Some(distance) = step.distance_meters {
-        if distance >= 1000.0 {
-            let km = format!("{:.1}", distance / 1000.0);
-            return format!("{} km", km.trim_end_matches('0').trim_end_matches('.'));
-        }
-        return format!("{} m", distance.round());
-    }
-    if step.duration_seconds < 60 {
-        return format!("{} s", step.duration_seconds);
-    }
-    let minutes = step.duration_seconds / 60;
-    match step.duration_seconds % 60 {
-        0 => format!("{minutes} min"),
-        s => format!("{minutes} min {s:02}"),
-    }
-}
-
-/// The session's planned length: its steps when it has them, else its
-/// stated duration.
-fn session_seconds(session: &PlannedSession) -> Option<u64> {
-    let steps = WorkoutStep::total_seconds(&session.steps);
-    if steps > 0 {
-        return Some(steps);
-    }
-    session
-        .duration_seconds
-        .filter(|seconds| *seconds > 0)
-        .map(u64::from)
-}
-
-/// The session's main set as a title shows it (`4×8 min`): the first
-/// repeated step's count and extent.
-fn main_set(session: &PlannedSession) -> Option<String> {
-    session
-        .steps
-        .iter()
-        .find(|step| step.repeat > 1)
-        .map(|step| format!("{}×{}", step.repeat, format_extent(step)))
-}
-
-/// The title Wahoo shows for a session, generated from structure alone.
-///
-/// Sport, duration and main set (`Ride 1 h 30 · 4×8 min`). The session's own
-/// title is never used: it is the first clause of the agent's prescription
-/// and can carry a reason.
-#[must_use]
-pub fn neutral_title(session: &PlannedSession) -> String {
-    let mut title = sport_label(&session.sport).to_owned();
-    if let Some(seconds) = session_seconds(session) {
-        title.push(' ');
-        title.push_str(&format_duration(seconds));
-    }
-    if let Some(set) = main_set(session) {
-        title.push_str(" · ");
-        title.push_str(&set);
-    }
-    title
-}
-
-/// `plan.json`'s intensity label for a step: the closed `INTENSITY_TYPE`
-/// enum, so nothing of the step's own words reaches the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IntensityType {
-    Warmup,
-    Cooldown,
-    Recover,
-    Rest,
-    Active,
-    Tempo,
-    Threshold,
-    Vo2Max,
-    Anaerobic,
-    Neuromuscular,
-}
-
-impl IntensityType {
-    /// The enum value `plan.json` takes.
-    const fn wire(self) -> &'static str {
-        match self {
-            Self::Warmup => "wu",
-            Self::Cooldown => "cd",
-            Self::Recover => "recover",
-            Self::Rest => "rest",
-            Self::Active => "active",
-            Self::Tempo => "tempo",
-            Self::Threshold => "lt",
-            Self::Vo2Max => "map",
-            Self::Anaerobic => "ac",
-            Self::Neuromuscular => "nm",
-        }
-    }
-
-    /// The interval name the device shows: the label of the class itself.
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Warmup => "Warm up",
-            Self::Cooldown => "Cool down",
-            Self::Recover => "Recovery",
-            Self::Rest => "Rest",
-            Self::Active => "Steady",
-            Self::Tempo => "Tempo",
-            Self::Threshold => "Threshold",
-            Self::Vo2Max => "VO2max",
-            Self::Anaerobic => "Anaerobic",
-            Self::Neuromuscular => "Sprint",
-        }
-    }
-
-    /// The class of a training zone 1–7.
-    const fn of_zone(zone: u8) -> Self {
-        match zone {
-            0 | 1 => Self::Recover,
-            2 => Self::Active,
-            3 => Self::Tempo,
-            4 => Self::Threshold,
-            5 => Self::Vo2Max,
-            6 => Self::Anaerobic,
-            _ => Self::Neuromuscular,
-        }
-    }
-
-    /// The class of a percent-of-threshold band, by its midpoint against the
-    /// power zones (the zone bounds are the same fractions on any threshold
-    /// as a label, never as a target).
-    fn of_percent(low: u16, high: u16) -> Self {
-        let mid = f64::from(low + high) / 200.0;
-        let zone = COGGAN_POWER_ZONE_UPPER_FRACTIONS
-            .iter()
-            .position(|upper| mid < *upper)
-            .map_or(7, |index| index + 1);
-        Self::of_zone(u8::try_from(zone).unwrap_or(7))
-    }
-
-    /// The class of a perceived-exertion band, by its upper bound.
-    const fn of_rpe(max: u8) -> Self {
-        match max {
-            0..=3 => Self::Recover,
-            4 | 5 => Self::Active,
-            6 => Self::Tempo,
-            7 | 8 => Self::Threshold,
-            9 => Self::Vo2Max,
-            _ => Self::Anaerobic,
-        }
-    }
-
-    /// A step's class. A warm-up, cool-down, recovery or rest step is read
-    /// off its label against a closed vocabulary — only the class leaves,
-    /// never the label — and any other step off its target.
-    fn of_step(step: &WorkoutStep, intensity: Option<&RelativeIntensity>) -> Self {
-        let label = step.label.to_lowercase();
-        if label.contains("warm") || label.contains("échauff") {
-            return Self::Warmup;
-        }
-        if label.contains("cool") || label.contains("retour au calme") {
-            return Self::Cooldown;
-        }
-        if label.contains("rest") || label.contains("repos") {
-            return Self::Rest;
-        }
-        if label.contains("recover") || label.contains("récup") {
-            return Self::Recover;
-        }
-        match intensity {
-            Some(RelativeIntensity::Zone(zone) | RelativeIntensity::HeartRateZone(zone)) => {
-                Self::of_zone(*zone)
-            }
-            Some(RelativeIntensity::SweetSpot) => Self::Tempo,
-            Some(RelativeIntensity::Percent { low, high, .. }) => Self::of_percent(*low, *high),
-            Some(RelativeIntensity::Rpe(range)) => Self::of_rpe(range.max),
-            None => Self::Active,
-        }
+/// The interval name the device shows for a step's class: the label of the
+/// class itself.
+const fn interval_name(class: StepClass) -> &'static str {
+    match class {
+        StepClass::Warmup => "Warm up",
+        StepClass::Cooldown => "Cool down",
+        StepClass::Recover => "Recovery",
+        StepClass::Rest => "Rest",
+        StepClass::Active => "Steady",
+        StepClass::Tempo => "Tempo",
+        StepClass::Threshold => "Threshold",
+        StepClass::Vo2Max => "VO2max",
+        StepClass::Anaerobic => "Anaerobic",
+        StepClass::Neuromuscular => "Sprint",
     }
 }
 
@@ -470,12 +284,12 @@ fn step_interval(step: &WorkoutStep, sport: &SportType, ftp_known: bool) -> Opti
         _ => return None,
     };
     let intensity = RelativeIntensity::parse(&step.target_zone);
-    let class = IntensityType::of_step(step, intensity.as_ref());
+    let class = StepClass::of_step(step, intensity.as_ref());
     let mut interval = json!({
-        "name": class.name(),
+        "name": interval_name(class),
         "exit_trigger_type": trigger,
         "exit_trigger_value": value,
-        "intensity_type": class.wire(),
+        "intensity_type": intensity_wire(class),
     });
     if let Some(target) = step_target(intensity.as_ref(), sport, ftp_known) {
         interval["targets"] = json!([target]);
@@ -501,7 +315,7 @@ fn step_intervals(steps: &[WorkoutStep], sport: &SportType, ftp_known: bool) -> 
                     "name": format!("{repeat}× set"),
                     "exit_trigger_type": "repeat",
                     "exit_trigger_value": repeat - 1,
-                    "intensity_type": IntensityType::Active.wire(),
+                    "intensity_type": intensity_wire(StepClass::Active),
                     "intervals": children,
                 }));
             }
@@ -558,10 +372,10 @@ pub fn plan_file(session: &PlannedSession, ftp: Option<u32>) -> Option<Value> {
         // device still runs the clock.
         let seconds = session.duration_seconds.filter(|seconds| *seconds > 0)?;
         intervals.push(json!({
-            "name": IntensityType::Active.name(),
+            "name": interval_name(StepClass::Active),
             "exit_trigger_type": "time",
             "exit_trigger_value": seconds,
-            "intensity_type": IntensityType::Active.wire(),
+            "intensity_type": intensity_wire(StepClass::Active),
         }));
     }
     let mut header = json!({

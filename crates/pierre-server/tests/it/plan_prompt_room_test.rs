@@ -21,6 +21,7 @@
 //! prompt it was sent, or calls one tool and then answers in prose.
 
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
@@ -303,6 +304,7 @@ fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: 
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,
+        grant: OAuthScope::self_grant(),
     }
 }
 
@@ -479,6 +481,7 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
         budget: 16,
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
+        grant: &OAuthScope::self_grant(),
     });
     let outcome = surface
         .call("save_training_plan", &taper_week_payload())

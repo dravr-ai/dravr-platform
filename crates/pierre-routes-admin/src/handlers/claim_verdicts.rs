@@ -19,26 +19,30 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Extension, Json,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    DispositionFilter, SetVerdictDispositionParams, VerdictListFilter, UNDISPOSED_FILTER,
+    DispositionFilter, SetVerdictDispositionParams, VerdictCalibrationStats, VerdictHealthStats,
+    VerdictListFilter, VerdictStatusBreakdown, UNDISPOSED_FILTER,
 };
 use pierre_memory::claims::{
     ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, VerdictDisposition, VerdictLayer,
 };
 
+use super::admin_scope::{audit_cross_tenant_sentences, console_read_scope};
 use crate::context::AdminApiContext;
 
 /// Longest disposition note accepted, in characters. A triage note is a
@@ -50,11 +54,16 @@ pub const MAX_DISPOSITION_NOTE_CHARS: usize = 2000;
 /// one more keyword.
 const KNOB_PROPOSITION_LIMIT: usize = 5;
 
+/// The route templates a cross-tenant read of verdicts is recorded under.
+const VERDICT_LIST_ROUTE: &str = "/api/admin/claim-verdicts";
+const VERDICTS_BY_MESSAGE_ROUTE: &str = "/api/admin/claim-verdicts/messages/{message_id}";
+const VERDICT_DETAIL_ROUTE: &str = "/api/admin/claim-verdicts/{verdict_id}";
+
 /// Query parameters for listing claim verdicts.
 #[derive(Debug, Deserialize)]
 pub struct ListVerdictsQuery {
-    /// Tenant to list verdicts for (required — admin tokens can span tenants).
-    pub tenant_id: String,
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
     /// Optional filter by verdict status.
     pub status: Option<String>,
     /// Optional filter by claim category.
@@ -79,11 +88,18 @@ pub struct TenantScopedQuery {
     pub tenant_id: String,
 }
 
+/// Query parameters for the support lookup by message.
+#[derive(Debug, Deserialize)]
+pub struct MessageVerdictsQuery {
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
+}
+
 /// Query parameters for the aggregate health read.
 #[derive(Debug, Deserialize)]
 pub struct VerdictHealthQuery {
-    /// Tenant to aggregate.
-    pub tenant_id: String,
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
     /// Window in days, clamped to `1..=365`. Defaults to 30.
     pub window_days: Option<i64>,
 }
@@ -180,10 +196,15 @@ impl From<ClaimVerdict> for VerdictRow {
 /// List response envelope used by the admin UI.
 #[derive(Debug, Serialize)]
 pub struct VerdictListResponse {
+    /// The tenants the rows come from.
+    pub scope: AdminScope,
     /// Verdict rows for this page.
     pub verdicts: Vec<VerdictRow>,
     /// Number of rows returned in `verdicts`.
     pub total: usize,
+    /// Every verdict the filter selects in the scope, per status: the whole
+    /// set, not this page.
+    pub status_counts: VerdictStatusBreakdown,
 }
 
 /// One corpus proposition the evidence knob names.
@@ -301,12 +322,11 @@ fn parse_filter<T>(
 pub async fn handle_list_claim_verdicts(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    headers: HeaderMap,
     Query(params): Query<ListVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
-
-    let tenant = parse_tenant(&params.tenant_id)?;
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
 
     // The `agent_id` filter is purely client-supplied — validate the format
     // before scanning so the admin sees a 400 on a typo instead of a
@@ -349,31 +369,61 @@ pub async fn handle_list_claim_verdicts(
         limit: params.limit.unwrap_or(50).clamp(1, 200),
     };
 
-    let verdicts = context
-        .repos
-        .claim_verdicts
-        .list_verdicts_filtered(tenant, &filter)
+    let claim_verdicts = &context.repos.claim_verdicts;
+    let verdicts = claim_verdicts
+        .list_verdicts_filtered(scope, &filter)
         .await
         .map_err(|e| {
             error!(error = %e, "failed to list claim verdicts");
             AppError::internal(format!("Failed to list claim verdicts: {e}"))
         })?;
+    let status_counts = claim_verdicts
+        .count_verdicts_by_status(scope, &filter)
+        .await?;
 
     let rows: Vec<VerdictRow> = verdicts.into_iter().map(Into::into).collect();
     let total = rows.len();
     info!(
         token_id = %admin_token.token_id,
         total,
+        ?scope,
         "admin listed claim verdicts"
     );
+    audit_cross_tenant_sentences(
+        &context,
+        &admin_token,
+        &headers,
+        VERDICT_LIST_ROUTE,
+        scope,
+        json!({ "scope": scope, "total": total }),
+    )
+    .await;
 
     Ok((
         StatusCode::OK,
         Json(VerdictListResponse {
+            scope,
             verdicts: rows,
             total,
+            status_counts,
         }),
     ))
+}
+
+/// The per-status counts of a set read whole, such as one message's verdicts.
+fn statuses_of(verdicts: &[ClaimVerdict]) -> VerdictStatusBreakdown {
+    let mut counts = VerdictStatusBreakdown::default();
+    for verdict in verdicts {
+        let slot = match verdict.status {
+            ClaimStatus::Supported => &mut counts.supported,
+            ClaimStatus::Unsupported => &mut counts.unsupported,
+            ClaimStatus::Contradicted => &mut counts.contradicted,
+            ClaimStatus::Rhetorical => &mut counts.rhetorical,
+            ClaimStatus::Unverifiable => &mut counts.unverifiable,
+        };
+        *slot += 1;
+    }
+    counts
 }
 
 /// Handle `GET /api/admin/claim-verdicts/messages/{message_id}`.
@@ -388,32 +438,42 @@ pub async fn handle_list_claim_verdicts(
 pub async fn handle_list_verdicts_by_message(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    headers: HeaderMap,
     Path(message_id): Path<String>,
-    Query(params): Query<TenantScopedQuery>,
+    Query(params): Query<MessageVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
 
-    let tenant = parse_tenant(&params.tenant_id)?;
-
-    let verdicts = context
-        .repos
-        .claim_verdicts
-        .list_verdicts_for_message(tenant, &message_id)
+    let claim_verdicts = &context.repos.claim_verdicts;
+    let verdicts = claim_verdicts
+        .list_verdicts_for_message(scope, &message_id)
         .await
         .map_err(|e| {
             error!(error = %e, "failed to list verdicts for message");
             AppError::internal(format!("Failed to list verdicts for message: {e}"))
         })?;
 
+    let status_counts = statuses_of(&verdicts);
     let rows: Vec<VerdictRow> = verdicts.into_iter().map(Into::into).collect();
     let total = rows.len();
+    audit_cross_tenant_sentences(
+        &context,
+        &admin_token,
+        &headers,
+        VERDICTS_BY_MESSAGE_ROUTE,
+        scope,
+        json!({ "scope": scope, "message_id": message_id, "total": total }),
+    )
+    .await;
 
     Ok((
         StatusCode::OK,
         Json(VerdictListResponse {
+            scope,
             verdicts: rows,
             total,
+            status_counts,
         }),
     ))
 }
@@ -429,12 +489,11 @@ pub async fn handle_list_verdicts_by_message(
 pub async fn handle_get_claim_verdict(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    headers: HeaderMap,
     Path(verdict_id): Path<String>,
     Query(params): Query<TenantScopedQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
-
+    let scope = console_read_scope(&context.repos, &admin_token, Some(&params.tenant_id)).await?;
     let tenant = parse_tenant(&params.tenant_id)?;
 
     let verdict = context
@@ -447,6 +506,16 @@ pub async fn handle_get_claim_verdict(
             AppError::internal(format!("Failed to read claim verdict: {e}"))
         })?
         .ok_or_else(|| AppError::not_found(format!("Claim verdict {verdict_id}")))?;
+
+    audit_cross_tenant_sentences(
+        &context,
+        &admin_token,
+        &headers,
+        VERDICT_DETAIL_ROUTE,
+        scope,
+        json!({ "scope": scope, "verdict_id": verdict_id }),
+    )
+    .await;
 
     let knob = knob_for(&verdict, &context.evidence_registry);
     Ok((
@@ -556,23 +625,30 @@ pub async fn handle_verdict_health(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<VerdictHealthQuery>,
 ) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
-
-    let tenant = parse_tenant(&params.tenant_id)?;
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
     let window_days = params.window_days.unwrap_or(30).clamp(1, 365);
 
-    let stats = context
-        .repos
-        .claim_verdicts
-        .aggregate_verdict_health(tenant, window_days)
+    let claim_verdicts = &context.repos.claim_verdicts;
+    let stats = claim_verdicts
+        .aggregate_verdict_health(scope, window_days)
         .await
         .map_err(|e| {
             error!(error = %e, "failed to aggregate verdict health");
             AppError::internal(format!("Failed to aggregate verdict health: {e}"))
         })?;
 
-    Ok((StatusCode::OK, Json(stats)))
+    Ok((StatusCode::OK, Json(VerdictHealthResponse { scope, stats })))
+}
+
+/// Response envelope for `GET /api/admin/claim-verdicts/health`.
+#[derive(Debug, Serialize)]
+pub struct VerdictHealthResponse {
+    /// The tenants the counts cover.
+    pub scope: AdminScope,
+    /// The counts.
+    #[serde(flatten)]
+    pub stats: VerdictHealthStats,
 }
 
 /// The knob behind a verdict: where the input its layer read lives.
@@ -590,7 +666,8 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
             kind: "rhetoric_filter".to_owned(),
             location: "crates/pierre-evals/src/rhetoric_detector.rs".to_owned(),
             detail: "`classify` marks a claim rhetorical when it opens with one of \
-                     RHETORICAL_PREFIXES or carries one of QUESTION_MARKERS. A factual claim \
+                     RHETORICAL_PREFIXES, is a bare ask opening with one of \
+                     ASKS_OF_THE_ATHLETE, or carries one of QUESTION_MARKERS. A factual claim \
                      filed as rhetorical needs its opening removed from the prefix list; a \
                      flourish that reached the later layers needs it added."
                 .to_owned(),
@@ -807,4 +884,62 @@ fn cited_list(cited: &[&str]) -> String {
     } else {
         cited.join(", ")
     }
+}
+
+/// Query parameters for `GET /api/admin/evals/verdict-stats`.
+#[derive(Debug, Deserialize)]
+pub struct VerdictStatsQuery {
+    /// What the caller asks to read; see [`pierre_core::admin::scope`].
+    pub tenant_id: Option<String>,
+    /// Number of days to scan back from now, clamped to `1..=365` by
+    /// the repository layer. Defaults to 30 when omitted.
+    pub window_days: Option<i64>,
+}
+
+/// Handle `GET /api/admin/evals/verdict-stats`.
+///
+/// Returns per-day and total verdict counts for the claim verification
+/// pipeline, which the calibration panel shows as a pass rate and daily counts.
+///
+/// # Errors
+///
+/// Returns an error when the scope rule refuses the caller, the tenant id does
+/// not parse, or the read fails.
+pub(crate) async fn handle_verdict_stats(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Query(params): Query<VerdictStatsQuery>,
+) -> AppResult<impl IntoResponse> {
+    let scope =
+        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let window_days = params.window_days.unwrap_or(30);
+
+    let claim_verdicts = &context.repos.claim_verdicts;
+    let stats = claim_verdicts
+        .aggregate_verdict_stats(scope, window_days)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "failed to aggregate verdict stats");
+            AppError::internal(format!("Failed to aggregate verdict stats: {e}"))
+        })?;
+
+    info!(
+        token_id = %admin_token.token_id,
+        ?scope,
+        window_days = stats.window_days,
+        days_with_data = stats.daily.len(),
+        "admin fetched verdict calibration stats"
+    );
+
+    Ok((StatusCode::OK, Json(VerdictStatsResponse { scope, stats })))
+}
+
+/// Response envelope for `GET /api/admin/evals/verdict-stats`.
+#[derive(Debug, Serialize)]
+pub struct VerdictStatsResponse {
+    /// The tenants the counts cover.
+    pub scope: AdminScope,
+    /// The counts.
+    #[serde(flatten)]
+    pub stats: VerdictCalibrationStats,
 }

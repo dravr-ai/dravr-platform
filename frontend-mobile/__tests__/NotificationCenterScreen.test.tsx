@@ -174,7 +174,7 @@ describe('NotificationCenterScreen', () => {
 
   // The category word is text, so it owes 4.5:1 against the surface it sits
   // on. One flat hex per category could not pay that in both schemes: the
-  // near-black forest greens landed at 1.13:1 (coach) and 1.50:1 (ai) on the
+  // near-black forest greens landed at 1.13:1 (coach) on the
   // dark canvas, where the label was the canvas.
   it.each(['light', 'dark'] as const)(
     'paints every category word at 4.5:1 or better on the %s surface',
@@ -183,9 +183,31 @@ describe('NotificationCenterScreen', () => {
         (category) => contrast(NOTIFICATION_CATEGORY_COLORS[scheme][category], SURFACE[scheme]) < 4.5,
       );
       expect(failures).toEqual([]);
-      expect(NOTIFICATION_CATEGORIES.length).toBe(7);
+      expect(NOTIFICATION_CATEGORIES.length).toBe(5);
     },
   );
+
+  // carnet#1436: the category left the metadata map but a stored row still names
+  // it, and an unguarded lookup throws while rendering the whole list.
+  it('still renders a stored row whose category was removed, and opens its detail', async () => {
+    mockUseNotificationFeed.mockReturnValue(
+      loadedFeed([
+        createNotification({
+          id: 'n-retired',
+          category: 'reminders' as NotificationItem['category'],
+          title: 'Workout reminder',
+        }),
+      ]),
+    );
+    const screen = renderScreen();
+
+    const row = await screen.findByTestId('notification-row-n-retired');
+    expect(within(row).getByTestId('notification-category')).toHaveTextContent(
+      i18n.t('notifPrefs.catSystem'),
+    );
+    fireEvent.press(row);
+    expect(await screen.findAllByText('Workout reminder')).toHaveLength(2);
+  });
 
   it('prints the row time in mono, tabular figures', async () => {
     mockUseNotificationFeed.mockReturnValue(loadedFeed([createNotification()]));

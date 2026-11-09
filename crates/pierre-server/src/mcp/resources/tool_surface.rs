@@ -42,7 +42,6 @@ use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, Tool
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
-use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -96,7 +95,7 @@ const LOOPBACK_TOOL_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct TurnToolSurface {
     tool_registry: Arc<ToolRegistry>,
     /// Carries this turn's conversation and Guardian turn token, so a tool that
-    /// starts detached work can route its result back and taint accumulates
+    /// starts detached work can route its result back and budgets accumulate
     /// against the right turn.
     executor: Arc<UniversalToolExecutor>,
     user_id: String,
@@ -181,17 +180,26 @@ impl ToolSurface for TurnToolSurface {
     /// starting and ending (carnet#1256). `save_training_plan` refuses the
     /// mid-walk save itself.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        chat_catalogue::offered_schemas(&self.tool_registry, self.seat, &self.switched_off)
-            .into_iter()
-            .map(|s| McpToolDefinition {
-                name: s.name,
-                description: s.description,
-                // Key order is part of the prompt prefix the ACP agent caches;
-                // the properties are a `HashMap`, so sort them like every
-                // other surface does.
-                input_schema: to_canonical_value(&s.input_schema),
-            })
-            .collect()
+        chat_catalogue::offered_schemas(
+            &self.tool_registry,
+            self.seat,
+            &self.switched_off,
+            // The executor's transport, not the task-local: this listing runs
+            // on embacle's host task, where the turn's declaration is gone.
+            self.executor.served_transport(),
+            self.executor.granted_scopes(),
+            self.executor.resources.config(),
+        )
+        .into_iter()
+        .map(|s| McpToolDefinition {
+            name: s.name,
+            description: s.description,
+            // Key order is part of the prompt prefix the ACP agent caches;
+            // the properties are a `HashMap`, so sort them like every
+            // other surface does.
+            input_schema: to_canonical_value(&s.input_schema),
+        })
+        .collect()
     }
 
     /// Run one tool for the agent, or refuse and say why.
@@ -416,8 +424,8 @@ impl HostedToolBridge {
     /// Separate from [`McpBridgeProvider::open_tool_session`] because that one
     /// hands the surface to embacle's host and returns only a session guard,
     /// which puts the binding out of reach of anything that does not speak
-    /// MCP. The binding is what per-turn taint and the blast-radius budgets
-    /// are keyed on, so it is reachable on its own.
+    /// MCP. The binding is what the blast-radius budgets are keyed on,
+    /// so it is reachable on its own.
     #[must_use]
     pub fn turn_surface(&self, turn: ToolSessionTurn<'_>) -> TurnToolSurface {
         // The turn's own executor, carrying its conversation and Guardian turn
@@ -428,12 +436,10 @@ impl HostedToolBridge {
         // here: `UniversalToolExecutor::new` reads it from the task-local that
         // is only scoped around a tool body, and this runs in the pipeline
         // task. Without it every loopback call would mint its own turn key and
-        // start from a virgin budget with no taint carried over.
-        // A chat turn is the athlete acting on their own data through their own
-        // session, not a third party acting for them, so it carries the self
-        // grant. Scopes exist to narrow a THIRD PARTY's reach, and that
-        // narrowing happens at the OAuth and A2A boundaries, where one actually
-        // enters. Bound here for the same reason as the turn token above: this
+        // start from a virgin budget.
+        // The turn's own grant: the self grant for the athlete in Dravr's own
+        // surfaces, the token's scopes when a third party acts for them over
+        // A2A. Bound here for the same reason as the turn token above: this
         // runs in the pipeline task, where there is no tool-body task-local to
         // inherit from.
         //
@@ -442,7 +448,7 @@ impl HostedToolBridge {
         // and the executor carries it onto the loopback task its calls run on.
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
-                .with_scopes(OAuthScope::self_grant())
+                .with_scopes(turn.grant.to_vec())
                 .with_conversation_id(turn.conversation_id.to_owned())
                 .with_turn_token(turn.turn_id.0.to_string())
                 // The agent the turn answers as, bound for the reason the

@@ -77,7 +77,7 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, PERMISSION_WITHDRAWN};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -161,7 +161,7 @@ impl PurgeReason {
             Self::ProviderRevoked => "provider_revoked",
             Self::LinkEnded => "link_ended",
             Self::WellnessConsentWithdrawn => "wellness_consent_withdrawn",
-            Self::PermissionWithdrawn => "permission_withdrawn",
+            Self::PermissionWithdrawn => PERMISSION_WITHDRAWN,
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
             Self::AthleteDeletedImport => "athlete_deleted_import",

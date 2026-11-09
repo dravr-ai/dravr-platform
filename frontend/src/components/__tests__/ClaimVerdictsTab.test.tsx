@@ -20,9 +20,13 @@ vi.mock('../../services/api/admin', async () => {
       setClaimVerdictDisposition: vi.fn(),
       listVerdictsForMessage: vi.fn(),
       getClaimVerdictHealth: vi.fn(),
+      getVerdictCalibrationStats: vi.fn(),
+      listScopeTenants: vi.fn().mockResolvedValue([]),
     },
   };
 });
+
+const role = vi.hoisted(() => ({ current: 'admin' }));
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
@@ -31,7 +35,7 @@ vi.mock('../../hooks/useAuth', () => ({
       email: 'admin@example.com',
       tenant_id: 'tenant-a',
       is_admin: true,
-      role: 'admin',
+      role: role.current,
       tier: 'professional',
       created_at: '2026-01-01T00:00:00Z',
     },
@@ -124,10 +128,61 @@ function renderTab() {
 describe('ClaimVerdictsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    role.current = 'admin';
     vi.mocked(adminApi.getClaimVerdictHealth).mockResolvedValue(sampleHealth());
+    vi.mocked(adminApi.getVerdictCalibrationStats).mockResolvedValue({
+      window_start: '2026-10-01T00:00:00Z',
+      window_days: 30,
+      totals: { supported: 3, unsupported: 1, contradicted: 0, rhetorical: 0, unverifiable: 0 },
+      daily: [],
+    });
     vi.mocked(adminApi.getClaimVerdict).mockImplementation(async (id) =>
       sampleDetail(sampleVerdict({ id })),
     );
+  });
+
+  it('asks every read of the tab for the one scope and states it', async () => {
+    role.current = 'super_admin';
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      scope: { kind: 'all_tenants' },
+      verdicts: [],
+      total: 0,
+    } as never);
+    renderTab();
+
+    expect(await screen.findByTestId('admin-scope-statement')).toHaveTextContent(
+      'Showing every tenant on the platform.',
+    );
+    expect(vi.mocked(adminApi.listClaimVerdicts).mock.calls[0]?.[0].tenant_id).toBe('all');
+    expect(adminApi.getClaimVerdictHealth).toHaveBeenCalledWith('all', 30);
+    expect(adminApi.getVerdictCalibrationStats).toHaveBeenCalledWith('all', 30);
+  });
+
+  it('opens a row of another tenant with that tenant, not the session one', async () => {
+    role.current = 'super_admin';
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      scope: { kind: 'all_tenants' },
+      verdicts: [sampleVerdict({ tenant_id: 'tenant-b' })],
+      total: 1,
+    } as never);
+    renderTab();
+
+    fireEvent.click(await screen.findByText(/Take 5 g of creatine/));
+    await waitFor(() => {
+      expect(adminApi.getClaimVerdict).toHaveBeenCalledWith('v1', 'tenant-b');
+    });
+  });
+
+  it('carries the verdict calibration panel', async () => {
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      verdicts: [],
+      total: 0,
+    } as never);
+    renderTab();
+
+    expect(await screen.findByTestId('verdict-calibration-panel')).toBeInTheDocument();
+    expect(adminApi.getVerdictCalibrationStats).toHaveBeenCalledWith(undefined, 30);
   });
 
   it('renders the empty state when no verdicts are returned', async () => {
@@ -153,6 +208,21 @@ describe('ClaimVerdictsTab', () => {
     expect(intro).toHaveTextContent(/a Dravr agent writes in the app and in\s+messaging/);
     expect(intro).toHaveTextContent(/A reply an MCP or A2A client writes itself is not checked/);
     expect(intro).not.toHaveTextContent(/Every claim an agent makes/);
+  });
+
+  it('shows the status counts the server computed over every matching verdict', async () => {
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      scope: { kind: 'all_tenants' },
+      verdicts: [sampleVerdict()],
+      total: 1,
+      status_counts: { supported: 41, unsupported: 17, contradicted: 3, rhetorical: 0, unverifiable: 0 },
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByText(/Take 5 g of creatine/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText('41')).toBeInTheDocument();
+    expect(screen.getByText('17')).toBeInTheDocument();
   });
 
   it('lists verdicts returned from the API', async () => {
@@ -265,14 +335,17 @@ describe('ClaimVerdictsTab', () => {
       resolveHealth(sampleHealth());
     });
     expect(await screen.findByLabelText('Status')).toBeInTheDocument();
-    expect(screen.getByTestId('verdict-health')).toBeInTheDocument();
+    const health = screen.getByTestId('verdict-health');
+    expect(health).toBeInTheDocument();
+    expect(within(health).getByText('unsupported or contradicted')).toBeInTheDocument();
+    expect(health.textContent).not.toMatch(/flagged/i);
   });
 
   it('renders the health card from the aggregate read', async () => {
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({ verdicts: [], total: 0 });
     renderTab();
     await waitFor(() => {
-      expect(adminApi.getClaimVerdictHealth).toHaveBeenCalledWith('tenant-a', 30);
+      expect(adminApi.getClaimVerdictHealth).toHaveBeenCalledWith(undefined, 30);
       expect(screen.getByTestId('verdict-health-rate')).toHaveTextContent('75%');
     });
     const byLayer = within(screen.getByTestId('verdict-health-by-layer'));
@@ -285,7 +358,7 @@ describe('ClaimVerdictsTab', () => {
     // The window select re-reads with the chosen span.
     fireEvent.change(screen.getByLabelText('Window'), { target: { value: '90' } });
     await waitFor(() => {
-      expect(adminApi.getClaimVerdictHealth).toHaveBeenLastCalledWith('tenant-a', 90);
+      expect(adminApi.getClaimVerdictHealth).toHaveBeenLastCalledWith(undefined, 90);
     });
   });
 
@@ -310,7 +383,7 @@ describe('ClaimVerdictsTab', () => {
     fireEvent.change(screen.getByLabelText('Message id'), { target: { value: ' msg-42 ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
     await waitFor(() => {
-      expect(adminApi.listVerdictsForMessage).toHaveBeenCalledWith('msg-42', 'tenant-a');
+      expect(adminApi.listVerdictsForMessage).toHaveBeenCalledWith('msg-42', undefined);
       expect(screen.getByText('Your max heart rate is 250 bpm.')).toBeInTheDocument();
     });
     expect(screen.getByTestId('verdict-drawer')).toBeInTheDocument();
@@ -329,7 +402,38 @@ describe('ClaimVerdictsTab', () => {
     expect(screen.queryByTestId('verdict-drawer')).not.toBeInTheDocument();
   });
 
+  it('gives a plain admin the disposition to read and no action the server would refuse', async () => {
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({
+      verdicts: [
+        sampleVerdict({
+          status: 'unsupported',
+          disposition: 'false_positive',
+          disposition_reason: 'missing_keyword',
+          disposition_note: 'corpus has it under a different word',
+          disposed_by: 'super@example.com',
+          disposed_at: '2026-09-21T12:00:00Z',
+        }),
+      ],
+      total: 1,
+    });
+    renderTab();
+    fireEvent.click(await screen.findByText(/Take 5 g of creatine/i));
+
+    const summary = await screen.findByTestId('verdict-disposition-summary');
+    expect(summary).toHaveTextContent('False positive');
+    expect(summary).toHaveTextContent('Missing keyword');
+    expect(summary).toHaveTextContent('corpus has it under a different word');
+    expect(summary).toHaveTextContent(/Disposed by super@example.com/);
+    expect(await screen.findByText('evidence/sports_science/supplement/')).toBeInTheDocument();
+    expect(screen.queryByTestId('verdict-disposition')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save disposition' })).not.toBeInTheDocument();
+    expect(screen.getByText(/evaluated by the claim verifier/i)).not.toHaveTextContent(
+      /record whether the flag was right/,
+    );
+  });
+
   it('saves a disposition through the API with the body the route expects', async () => {
+    role.current = 'super_admin';
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({
       verdicts: [sampleVerdict({ id: 'v1', status: 'unsupported' })],
       total: 1,

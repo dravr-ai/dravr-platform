@@ -28,6 +28,7 @@ use dravr_riviere::DataPoint;
 use dravr_sciotte::models::SportType as GarminSportKey;
 use pierre_core::constants::oauth_providers::{garmin_service_attribution, GARMIN};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::activity::utc_offset_seconds_if_civil;
 use pierre_core::models::{
     Activity, ActivityBuilder, Lap, SportType, StoredDailyActivity, StoredHealthMetrics,
     StoredRecoveryMetrics, StoredSleepSession, StoredSleepStage, StoredSleepStageType,
@@ -157,6 +158,11 @@ pub(crate) fn activity_from_summary(
             .steps_opt(whole(summary.steps))
             .start_latitude_opt(summary.starting_latitude_in_degree)
             .start_longitude_opt(summary.starting_longitude_in_degree)
+            .utc_offset_seconds_opt(
+                summary
+                    .start_time_offset_in_seconds
+                    .and_then(utc_offset_seconds_if_civil),
+            )
             .build(),
     )
 }
@@ -717,6 +723,26 @@ mod tests {
             latitude_in_degree: Some(45.5),
             longitude_in_degree: Some(-73.6),
             ..ActivitySample::default()
+        }
+    }
+
+    #[test]
+    fn a_summary_s_stated_offset_is_the_activity_s_and_a_wild_one_is_none() {
+        for (stated, carried) in [
+            (Some(-14_400), Some(-14_400)),
+            (Some(19_800), Some(19_800)),
+            (Some(50_400), Some(50_400)),
+            (Some(-43_200), Some(-43_200)),
+            (Some(50_401), None),
+            (Some(-43_201), None),
+            (None, None),
+        ] {
+            let activity = activity_from_summary(
+                None,
+                &summary(|summary| summary.start_time_offset_in_seconds = stated),
+            )
+            .unwrap();
+            assert_eq!(activity.utc_offset_seconds(), carried, "{stated:?}");
         }
     }
 

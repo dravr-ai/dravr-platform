@@ -8,6 +8,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use chrono::{Duration, Utc};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
@@ -159,6 +160,7 @@ async fn add_row(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap()
@@ -870,6 +872,7 @@ async fn test_add_message() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -914,6 +917,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -958,6 +962,7 @@ async fn test_get_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -976,6 +981,7 @@ async fn test_get_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -994,6 +1000,7 @@ async fn test_get_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1045,6 +1052,7 @@ async fn test_get_recent_messages() {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();
@@ -1105,6 +1113,7 @@ async fn test_message_updates_conversation_tokens() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1123,6 +1132,7 @@ async fn test_message_updates_conversation_tokens() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1171,6 +1181,7 @@ async fn test_cascade_delete_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1189,6 +1200,7 @@ async fn test_cascade_delete_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1253,6 +1265,7 @@ async fn test_persist_tool_round_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1275,6 +1288,7 @@ async fn test_persist_tool_round_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1294,6 +1308,7 @@ async fn test_persist_tool_round_messages() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1345,6 +1360,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1364,6 +1380,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1384,6 +1401,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1435,6 +1453,7 @@ async fn seed_conversation_with_message(
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -1692,6 +1711,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await;
     assert!(refused.is_err());
@@ -1744,6 +1764,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         })
         .await
         .unwrap();
@@ -2118,6 +2139,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
     let manager = fx.chat();
     let tenant_id = test_tenant_id();
     let new = |title: &'static str| NewConversation {
+        id: None,
         user_id: fx.athlete(),
         tenant_id,
         title,
@@ -2227,7 +2249,11 @@ async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
         .unwrap()
         .unwrap();
 
-    let listed = fx.chat().get_recent_conversations_admin(5).await.unwrap();
+    let listed = fx
+        .chat()
+        .get_recent_conversations_admin(AdminScope::AllTenants, 5)
+        .await
+        .unwrap();
     let row = listed.iter().find(|c| c.id == created.id).unwrap();
 
     assert_eq!(row.user_id, own_read.user_id);
@@ -2341,6 +2367,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
                 about_user_id: None,
+                turn_attempted_write: None,
             })
             .await
             .unwrap();

@@ -9,8 +9,11 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/api';
 import type { RecentActivityResponse, RecentLlmCall, RecentConversation } from '../services/api/dashboard';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useAdminScope } from '../hooks/useAdminScope';
+import AdminScopeBar from './AdminScopeBar';
 import { Input } from './ui';
 import { formatCost } from '../utils/formatCost';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /** Polling interval for real-time activity data (10 seconds) */
 const POLLING_INTERVAL_MS = 10_000;
@@ -41,10 +44,10 @@ function formatDuration(ms: number | null): string {
 function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
-  return count.toLocaleString();
+  return count.toLocaleString(ADMIN_LOCALE);
 }
 
-/** Format a relative time (e.g., "2 min ago") */
+/** Format a relative time (e.g., "2 min ago"), or the date and time once it is a day old */
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();
   const then = new Date(isoDate).getTime();
@@ -53,7 +56,7 @@ function formatRelativeTime(isoDate: string): string {
   if (diffSec < 60) return `${diffSec}s ago`;
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return new Date(isoDate).toLocaleDateString();
+  return new Date(isoDate).toLocaleString(ADMIN_LOCALE, { dateStyle: 'short', timeStyle: 'short' });
 }
 
 /** Convert API data into unified activity entries */
@@ -67,7 +70,7 @@ function buildEntries(
     title: `${call.provider}/${call.model}`,
     subtitle: `${formatTokens(call.total_tokens)} tokens  ${formatCost(call.cost_usd)}  ${formatDuration(call.execution_time_ms)}`,
     category: call.call_type,
-    detail: `Provider: ${call.provider} | Model: ${call.model} | Tokens: ${call.total_tokens.toLocaleString()} | Cost: ${formatCost(call.cost_usd)} | Duration: ${formatDuration(call.execution_time_ms)}`,
+    detail: `Provider: ${call.provider} | Model: ${call.model} | Tokens: ${call.total_tokens.toLocaleString(ADMIN_LOCALE)} | Cost: ${formatCost(call.cost_usd)} | Duration: ${formatDuration(call.execution_time_ms)}`,
     timestamp: call.created_at,
     rawData: call,
   }));
@@ -76,7 +79,7 @@ function buildEntries(
     id: `convo-${convo.id}`,
     type: 'conversation' as const,
     title: convo.title || 'Untitled Conversation',
-    subtitle: convo.user_email || '',
+    subtitle: '',
     category: 'conversation',
     detail: `User: ${convo.user_email || 'Unknown'} | Title: ${convo.title || 'Untitled'}`,
     timestamp: convo.updated_at,
@@ -93,9 +96,11 @@ export default function ActivityTab() {
   const [typeFilter, setTypeFilter] = useState<ActivityType>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const { data: activity, isLoading } = useQuery<RecentActivityResponse>({
-    queryKey: QUERY_KEYS.dashboard.recentActivity(),
-    queryFn: () => dashboardApi.getRecentActivity(),
+  const { requested } = useAdminScope();
+
+  const { data: activity, isLoading, isError } = useQuery<RecentActivityResponse>({
+    queryKey: QUERY_KEYS.dashboard.recentActivity(requested),
+    queryFn: () => dashboardApi.getRecentActivity(requested),
     refetchInterval: POLLING_INTERVAL_MS,
   });
 
@@ -125,7 +130,8 @@ export default function ActivityTab() {
         (e) =>
           e.title.toLowerCase().includes(q) ||
           e.subtitle.toLowerCase().includes(q) ||
-          e.category.toLowerCase().includes(q),
+          e.category.toLowerCase().includes(q) ||
+          (e.type === 'conversation' && (e.rawData as RecentConversation).user_email.toLowerCase().includes(q)),
       );
     }
 
@@ -140,10 +146,32 @@ export default function ActivityTab() {
     );
   }
 
+  // A failed read is never drawn as a quiet platform: zeros here would read as
+  // nothing happening.
+  if (isError && !activity) {
+    return (
+      <div className="space-y-6">
+        <AdminScopeBar scope={undefined} />
+        <p role="alert" className="text-sm text-error">
+          Activity could not be loaded. These numbers will return once the server answers.
+        </p>
+      </div>
+    );
+  }
+
   const hasData = recentLlm.length > 0 || recentConversations.length > 0;
+  const recentLimit = activity?.recent_limit ?? 0;
 
   return (
     <div className="space-y-6">
+      <AdminScopeBar scope={activity?.scope} />
+
+      {isError ? (
+        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
+          The last refresh failed. These numbers are from the previous successful read.
+        </p>
+      ) : null}
+
       {/* Summary Stats */}
       <SummaryStats summary={summary} />
 
@@ -153,9 +181,9 @@ export default function ActivityTab() {
         <div className="flex items-center gap-2">
           {(['all', 'llm', 'conversation'] as const).map((type) => {
             const labels: Record<ActivityType, string> = {
-              all: `All (${allEntries.length})`,
-              llm: `LLM Calls (${allEntries.filter((e) => e.type === 'llm').length})`,
-              conversation: `Conversations (${allEntries.filter((e) => e.type === 'conversation').length})`,
+              all: 'All recent',
+              llm: `LLM Calls (latest ${recentLlm.length})`,
+              conversation: `Conversations (latest ${recentConversations.length})`,
             };
             return (
               <button
@@ -177,7 +205,7 @@ export default function ActivityTab() {
         <div className="flex-1 max-w-sm ml-auto">
           <Input
             type="search"
-            placeholder="Search by provider, user, model..."
+            placeholder="Search the latest rows by provider, user, model..."
             aria-label="Search activity"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -243,12 +271,14 @@ export default function ActivityTab() {
                     {/* Title + subtitle */}
                     <div className="col-span-3 min-w-0">
                       <p className="text-sm font-medium text-on-surface truncate">{entry.title}</p>
-                      <p className="text-xs text-outline truncate mt-0.5">{entry.subtitle}</p>
+                      {entry.subtitle ? (
+                        <p className="text-xs text-outline truncate mt-0.5">{entry.subtitle}</p>
+                      ) : null}
                     </div>
 
                     {/* Category badge */}
-                    <div className="col-span-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
+                    <div className="col-span-2 min-w-0">
+                      <span title={entry.category} className={`inline-block max-w-full truncate align-middle text-xs px-2 py-1 rounded-full ${
                         entry.type === 'llm'
                           ? 'bg-primary/20 text-primary'
                           : 'bg-primary-container text-on-primary-container'
@@ -297,20 +327,20 @@ export default function ActivityTab() {
                           <>
                             <DetailItem label="Provider" value={(entry.rawData as RecentLlmCall).provider} />
                             <DetailItem label="Model" value={(entry.rawData as RecentLlmCall).model} />
-                            <DetailItem label="Tokens" value={(entry.rawData as RecentLlmCall).total_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Read" value={(entry.rawData as RecentLlmCall).cached_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Write" value={(entry.rawData as RecentLlmCall).cached_write_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Write (1h)" value={(entry.rawData as RecentLlmCall).cached_write_1h_tokens.toLocaleString()} />
+                            <DetailItem label="Tokens" value={(entry.rawData as RecentLlmCall).total_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Read" value={(entry.rawData as RecentLlmCall).cached_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Write" value={(entry.rawData as RecentLlmCall).cached_write_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Write (1h)" value={(entry.rawData as RecentLlmCall).cached_write_1h_tokens.toLocaleString(ADMIN_LOCALE)} />
                             <DetailItem label="Cost" value={formatCost((entry.rawData as RecentLlmCall).cost_usd)} />
                             <DetailItem label="Duration" value={formatDuration((entry.rawData as RecentLlmCall).execution_time_ms)} />
                             <DetailItem label="Type" value={(entry.rawData as RecentLlmCall).call_type} />
-                            <DetailItem label="Time" value={new Date(entry.timestamp).toLocaleString()} />
+                            <DetailItem label="Time" value={new Date(entry.timestamp).toLocaleString(ADMIN_LOCALE)} />
                           </>
                         ) : (
                           <>
                             <DetailItem label="Title" value={(entry.rawData as RecentConversation).title || 'Untitled'} />
                             <DetailItem label="User" value={(entry.rawData as RecentConversation).user_email || 'Unknown'} />
-                            <DetailItem label="Last Updated" value={new Date(entry.timestamp).toLocaleString()} />
+                            <DetailItem label="Last Updated" value={new Date(entry.timestamp).toLocaleString(ADMIN_LOCALE)} />
                           </>
                         )}
                       </div>
@@ -322,8 +352,10 @@ export default function ActivityTab() {
           </div>
 
           {/* Footer with count */}
-          <div className="px-4 py-2 border-t ghost-border text-xs text-outline">
-            Showing {filteredEntries.length} of {allEntries.length} entries
+          <div className="px-4 py-2 border-t ghost-border text-xs text-outline" data-testid="activity-cap">
+            Showing {filteredEntries.length} of the latest {recentLlm.length} LLM calls and{' '}
+            {recentConversations.length} conversations. Each list stops at {recentLimit} rows, so the
+            two can span different periods, and search only reads these rows.
           </div>
         </div>
       )}
@@ -374,19 +406,19 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
         <div className="font-mono text-2xl font-medium text-on-surface">
           {summary?.llm_calls_today ?? 0}
         </div>
-        <div className="text-sm text-on-surface-variant">LLM Calls Today</div>
+        <div className="text-sm text-on-surface-variant">LLM Calls Today (UTC)</div>
       </div>
       <div className="stat-card-dark">
         <div className="font-mono text-2xl font-medium text-on-surface">
           {formatTokens(summary?.total_tokens_today ?? 0)}
         </div>
-        <div className="text-sm text-on-surface-variant">Tokens Today</div>
+        <div className="text-sm text-on-surface-variant">Tokens Today (UTC)</div>
       </div>
       <div className="stat-card-dark">
         <div className="text-2xl font-bold text-nutrition">
-          {formatCost(summary?.estimated_cost_today ?? 0)}
+          {formatCost(summary?.cost_today_usd ?? 0)}
         </div>
-        <div className="text-sm text-on-surface-variant">Est. Cost Today</div>
+        <div className="text-sm text-on-surface-variant">Cost Today (UTC, at current prices)</div>
       </div>
     </div>
   );

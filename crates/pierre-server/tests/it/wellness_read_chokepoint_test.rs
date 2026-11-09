@@ -518,6 +518,7 @@ async fn an_exported_garmin_day_survives_a_model_read_under_its_own_terms() -> R
         &tenant,
         (now - Duration::days(7), now),
         stored_health::SourceFilter::All,
+        stored_health::as_stored,
     ))
     .await;
     let days = read?.records;
@@ -560,6 +561,7 @@ async fn an_exported_garmin_day_survives_a_model_read_under_its_own_terms() -> R
         &tenant,
         (now - Duration::days(7), now),
         stored_health::SourceFilter::All,
+        stored_health::as_stored,
     ))
     .await;
     let totals = read?.records;

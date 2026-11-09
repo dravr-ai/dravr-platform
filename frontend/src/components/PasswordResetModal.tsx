@@ -8,6 +8,7 @@ import type { PasswordResetResult } from '../services/api/admin';
 import type { User } from '../types/api';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface PasswordResetModalProps {
   user: User | null;
@@ -110,8 +111,8 @@ export default function PasswordResetModal({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
                   <div>
-                    <p className="text-sm font-medium text-warning">Warning</p>
-                    <p className="text-sm text-warning/80">
+                    <p className="text-sm font-medium text-on-warning-container">Warning</p>
+                    <p className="text-sm text-on-warning-container">
                       This issues a one-time reset token for the user. They redeem it with a new password of their choosing.
                     </p>
                   </div>
@@ -134,7 +135,7 @@ export default function PasswordResetModal({
                 >
                   {resetMutation.isPending ? (
                     <div className="flex items-center justify-center">
-                      <div className="pierre-spinner w-4 h-4 mr-2 border-white border-t-transparent" />
+                      <div className="pierre-spinner w-4 h-4 mr-2 border-current border-t-transparent" />
                       Resetting...
                     </div>
                   ) : (
@@ -182,7 +183,7 @@ export default function PasswordResetModal({
                   </Button>
                 </div>
                 <p className="mt-2 text-xs text-outline">
-                  Expires: {resetResult.expires_at.toLocaleString()}
+                  Expires: {resetResult.expires_at.toLocaleString(ADMIN_LOCALE)}
                 </p>
               </div>
 
@@ -194,7 +195,7 @@ export default function PasswordResetModal({
 
               <Button
                 onClick={handleClose}
-                className="w-full bg-surface-container-high hover:bg-white/15 text-on-surface"
+                className="w-full bg-surface-container-high hover:bg-surface-container-highest text-on-surface"
               >
                 Done
               </Button>

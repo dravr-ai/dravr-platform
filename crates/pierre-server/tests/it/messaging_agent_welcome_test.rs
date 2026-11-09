@@ -38,13 +38,14 @@ mod messaging_welcome {
 
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
-    use pierre_commands::agent_create::AGENT_PROPOSAL_ACTION;
     use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_USE_CASES_NEXT_TIME};
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::groups::GroupRespondMode;
     use pierre_core::models::onboarding::GuidedFlow;
     use pierre_core::models::{PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
-    use pierre_database::repositories::{MessagingRepository, PendingGuardianAction};
+    use pierre_database::repositories::{
+        MessagingRepository, PendingGuardianAction, AGENT_PROPOSAL_ACTION,
+    };
 
     use crate::helpers::notify_capture::{capture_notify, only};
 
@@ -436,7 +437,6 @@ mod messaging_welcome {
                     id: token.clone(),
                     tenant_id: owner.home_tenant.to_string(),
                     user_id: owner.user_id.to_string(),
-                    conversation_id: None,
                     tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
                     arguments: json!({
                         "title": "Hill Agent",

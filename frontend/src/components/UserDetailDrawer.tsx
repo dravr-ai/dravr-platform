@@ -16,7 +16,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -31,7 +31,6 @@ export default function UserDetailDrawer({
   onClose,
   onAction
 }: UserDetailDrawerProps) {
-  const { language } = useTranslation();
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [overrideEditing, setOverrideEditing] = useState(false);
@@ -163,7 +162,7 @@ export default function UserDetailDrawer({
 
   const formatLimit = (limit: number | null) => {
     if (limit === null) return 'Unlimited';
-    return limit.toLocaleString();
+    return limit.toLocaleString(ADMIN_LOCALE);
   };
 
   const getUsagePercentage = (used: number, limit: number | null) => {
@@ -296,16 +295,16 @@ export default function UserDetailDrawer({
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-on-surface-variant">Registered</span>
-                <p className="font-medium text-on-surface">{formatDateTime(user.created_at, language)}</p>
+                <p className="font-medium text-on-surface">{formatDateTime(user.created_at, ADMIN_LOCALE)}</p>
               </div>
               <div>
                 <span className="text-on-surface-variant">Last Active</span>
-                <p className="font-medium text-on-surface">{user.last_active ? formatDateTime(user.last_active, language) : 'Never'}</p>
+                <p className="font-medium text-on-surface">{user.last_active ? formatDateTime(user.last_active, ADMIN_LOCALE) : 'Never'}</p>
               </div>
               {user.approved_at && (
                 <div>
                   <span className="text-on-surface-variant">Approved</span>
-                  <p className="font-medium text-on-surface">{formatDateTime(user.approved_at, language)}</p>
+                  <p className="font-medium text-on-surface">{formatDateTime(user.approved_at, ADMIN_LOCALE)}</p>
                 </div>
               )}
               {user.approved_by && (
@@ -343,7 +342,7 @@ export default function UserDetailDrawer({
                         : adminProfile.manages_roster_operator_grant
                           ? `Can coach a group (granted by an operator ${formatDateTime(
                               adminProfile.manages_roster_operator_grant.granted_at,
-                              language,
+                              ADMIN_LOCALE,
                             )})`
                           : 'Can coach a group (TrainingPeaks coach account)'}
                     </p>
@@ -401,7 +400,7 @@ export default function UserDetailDrawer({
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-on-surface-variant">Monthly Usage</span>
                     <span className="font-medium text-on-surface">
-                      {rateLimit.rate_limits.monthly.used.toLocaleString()} / {formatLimit(rateLimit.rate_limits.monthly.limit)}
+                      {rateLimit.rate_limits.monthly.used.toLocaleString(ADMIN_LOCALE)} / {formatLimit(rateLimit.rate_limits.monthly.limit)}
                     </span>
                   </div>
                   <div className="w-full bg-surface-container-high rounded-full h-2">
@@ -411,7 +410,7 @@ export default function UserDetailDrawer({
                     />
                   </div>
                   <p className="text-xs text-outline mt-1">
-                    Resets: {formatDateTime(rateLimit.reset_times.monthly_reset, language)}
+                    Resets: {formatDateTime(rateLimit.reset_times.monthly_reset, ADMIN_LOCALE)}
                   </p>
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">
@@ -535,9 +534,9 @@ export default function UserDetailDrawer({
             ) : activity ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-on-surface-variant">Total Requests</span>
+                  <span className="text-on-surface-variant">API-key requests</span>
                   <span className="text-2xl font-bold text-on-surface">
-                    {activity.total_requests.toLocaleString()}
+                    {activity.total_requests.toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
 
@@ -549,7 +548,7 @@ export default function UserDetailDrawer({
                         <div key={tool.tool_name} className="flex items-center justify-between">
                           <span className="text-sm font-medium text-on-surface">{tool.tool_name}</span>
                           <div className="flex items-center space-x-2">
-                            <span className="text-sm text-on-surface-variant">{tool.call_count.toLocaleString()}</span>
+                            <span className="text-sm text-on-surface-variant">{tool.call_count.toLocaleString(ADMIN_LOCALE)}</span>
                             <span className="text-xs text-outline">({tool.percentage.toFixed(1)}%)</span>
                           </div>
                         </div>
@@ -586,7 +585,7 @@ export default function UserDetailDrawer({
                   <span className="text-2xl font-bold text-on-surface">
                     {usage.by_model
                       .reduce((acc, m) => acc + m.total_tokens, 0)
-                      .toLocaleString()}
+                      .toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -598,27 +597,28 @@ export default function UserDetailDrawer({
                 <div className="flex items-center justify-between">
                   <span className="text-on-surface-variant">Total Calls</span>
                   <span className="font-medium text-on-surface">
-                    {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString()}
+                    {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
                 <div>
                   <span className="text-sm text-on-surface-variant">By Model</span>
                   <div className="mt-2 space-y-2">
-                    {usage.by_model.slice(0, 5).map((row) => (
+                    {usage.by_model.map((row) => (
                       <div
                         key={`${row.provider}/${row.model}/${row.call_type}`}
-                        className="flex items-center justify-between"
                       >
-                        <span className="text-sm font-medium text-on-surface">
+                        <div
+                          className="truncate text-sm font-medium text-on-surface"
+                          title={`${row.provider}/${row.model}`}
+                        >
                           {row.provider}/{row.model}
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-on-surface-variant">
-                            {row.total_tokens.toLocaleString()} tok
-                          </span>
-                          <span className="text-xs text-outline">
-                            ({row.calls} calls · {formatCost(row.cost_usd ?? 0)})
-                          </span>
+                        </div>
+                        {/* One model appears once per call type, so a row without it reads as a duplicate. */}
+                        <div className="flex flex-wrap gap-x-2 text-xs text-on-surface-variant">
+                          <span className="whitespace-nowrap">{row.call_type}</span>
+                          <span className="whitespace-nowrap">{row.total_tokens.toLocaleString(ADMIN_LOCALE)} tok</span>
+                          <span className="whitespace-nowrap">{row.calls} calls</span>
+                          <span className="whitespace-nowrap">{formatCost(row.cost_usd ?? 0)}</span>
                         </div>
                       </div>
                     ))}

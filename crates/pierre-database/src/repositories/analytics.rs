@@ -134,6 +134,12 @@ pub(crate) const TOP_TOOLS_SQL: &str = "SELECT aku.endpoint, COUNT(*) AS usage_c
      ORDER BY usage_count DESC, aku.endpoint \
      LIMIT 10";
 
+/// How many requests a user's API keys made over `[$2, $3]`, on every endpoint.
+pub(crate) const API_KEY_REQUEST_COUNT_SQL: &str = "SELECT COUNT(*) AS request_count \
+     FROM api_key_usage aku \
+     JOIN api_keys ak ON aku.api_key_id = ak.id \
+     WHERE ak.user_id = $1 AND aku.timestamp BETWEEN $2 AND $3";
+
 /// The projection every request-log read starts from. `api_key_usage` is
 /// the table the request path writes; `api_keys` is joined unconditionally
 /// so the log carries the key's real name, and the join is total —
@@ -553,6 +559,27 @@ macro_rules! impl_usage_repository {
                     .iter()
                     .map(request_log_from_row)
                     .collect()
+            }
+
+            async fn count_api_key_requests(
+                &self,
+                user_id: Uuid,
+                start_time: DateTime<Utc>,
+                end_time: DateTime<Utc>,
+            ) -> AppResult<u64> {
+                let row = sqlx::query(API_KEY_REQUEST_COUNT_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(start_time)
+                    .bind(end_time)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count API key requests: {e}"))
+                    })?;
+                let count: i64 = row
+                    .try_get("request_count")
+                    .map_err(|e| usage_column_error("request_count", e))?;
+                Ok(u64::try_from(count).unwrap_or(0))
             }
 
             async fn get_top_tools_analysis(

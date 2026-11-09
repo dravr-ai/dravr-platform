@@ -477,7 +477,7 @@ pub mod provider_seats {
 /// ask re-runs the backfill through the corrected capture and its upserts
 /// replace the old rows. Providers absent from this table sit at the baseline.
 pub mod provider_capture {
-    use super::oauth_providers::SCIOTTE;
+    use super::oauth_providers::{INTERVALS_ICU, SCIOTTE};
 
     /// The version every provider starts at.
     ///
@@ -491,13 +491,21 @@ pub mod provider_capture {
     /// service captured before that carry no elevation.
     pub const SCIOTTE_STRAVA_CAPTURE_VERSION: u32 = 1;
 
+    /// Intervals.icu.
+    ///
+    /// 1: an activity starts at the API's `start_date` instant rather than at
+    /// its offset-less `start_date_local` read as UTC. Rows captured before
+    /// sit the athlete's UTC offset away from their Strava or Garmin twin, so
+    /// the merge never ties them and the ride counts twice in training load.
+    pub const INTERVALS_ICU_CAPTURE_VERSION: u32 = 1;
+
     /// The capture version a backfill of `provider` writes today.
     #[must_use]
     pub fn current_capture_version(provider: &str) -> u32 {
-        if provider == SCIOTTE {
-            SCIOTTE_STRAVA_CAPTURE_VERSION
-        } else {
-            BASELINE_CAPTURE_VERSION
+        match provider {
+            SCIOTTE => SCIOTTE_STRAVA_CAPTURE_VERSION,
+            INTERVALS_ICU => INTERVALS_ICU_CAPTURE_VERSION,
+            _ => BASELINE_CAPTURE_VERSION,
         }
     }
 }
@@ -646,8 +654,24 @@ pub mod system_monitoring {
 pub mod oauth_rate_limiting {
     /// Authorization endpoint rate limit (requests per minute)
     pub const AUTHORIZE_RPM: u32 = 60;
-    /// Token endpoint rate limit (requests per minute)
-    pub const TOKEN_RPM: u32 = 30;
+    /// Token and revocation endpoint rate limit (requests per minute per address).
+    ///
+    /// Wide because a connector host refreshes all its athletes from a few
+    /// egress addresses; a window keyed on `client_id` instead would let anyone
+    /// exhaust a public client's window, since that identifier is public.
+    pub const TOKEN_RPM: u32 = 600;
+    /// Grants one athlete's tokens may redeem at the token endpoint per
+    /// window, from any address and through any client.
+    ///
+    /// An access token lives 3,600 s, so one connection refreshes at most once
+    /// an hour; the one connector refreshing on production when this was set
+    /// did so every ~8 h (`Refresh token rotated`, 7 days of logs to
+    /// 2026-11-06). Thirty a minute covers an athlete whose every connector
+    /// reconnects in the same minute and retries, while a stolen grant looping
+    /// on rotation stops here. A stranger cannot spend it the way they could a
+    /// `client_id` window: only a request naming a live grant of the athlete
+    /// counts, and only after its client authenticated.
+    pub const TOKEN_USER_RPM: u32 = 30;
     /// Registration endpoint rate limit (requests per minute)
     pub const REGISTER_RPM: u32 = 10;
     /// Password re-confirmations a signed-in account may attempt per window
@@ -693,7 +717,7 @@ pub mod oauth_rate_limiting {
 pub mod oauth2_client_retention {
     /// How long an expired registration is kept before the sweep deletes it: 30 days.
     ///
-    /// `validate_client` already refuses it the moment it expires; the grace
+    /// `authenticate_client` already refuses it the moment it expires; the grace
     /// keeps the row readable to an operator asking why a client stopped
     /// working, without holding it for another year.
     pub const EXPIRED_GRACE_SECS: u64 = 30 * 24 * 60 * 60;

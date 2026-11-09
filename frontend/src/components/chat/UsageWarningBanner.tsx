@@ -25,13 +25,13 @@ const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, { bg: string; border:
   warning: {
     bg: 'bg-warning/10',
     border: 'border-warning/30',
-    text: 'text-warning',
+    text: 'text-on-warning-container',
     icon: 'text-warning',
   },
   burst: {
     bg: 'bg-warning/25',
     border: 'border-warning/60',
-    text: 'text-warning',
+    text: 'text-on-warning-container',
     icon: 'text-warning',
   },
   blocked: {

@@ -38,6 +38,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -107,18 +108,11 @@ const PLAIN_ASK: &str = "Comment s'est passée la semaine ?";
 /// The coach asking their room about one athlete, by her roster name.
 const ROOM_ASK_ABOUT_ATHLETE: &str = "Comment va Mira Subject cette semaine ?";
 const REMEMBERED: &str = "seuil à 250 W";
-const NOTE: &str = "genou sensible après les côtes";
-const FOLLOWUP: &str = "demander comment va le genou";
 const COMMITMENT: &str = "trois sorties faciles cette semaine";
 
 /// The writes that land on the caller's own account, in the order the model
 /// calls them.
-const OWN_ACCOUNT_WRITES: [&str; 4] = [
-    "remember_fact",
-    "agent_note_add",
-    "agent_followup_schedule",
-    "commitment_create",
-];
+const OWN_ACCOUNT_WRITES: [&str; 2] = ["remember_fact", "commitment_create"];
 
 /// The ride the stand-in scraper serves as the coach's own.
 const COACH_RIDE: &str = "Sortie vélo matinale";
@@ -323,8 +317,6 @@ impl ScriptedModel {
                 "object": REMEMBERED,
                 "confidence": 0.9,
             }),
-            json!({ "content": NOTE, "agent_id": agent_id }),
-            json!({ "content": FOLLOWUP, "agent_id": agent_id }),
             json!({ "statement": COMMITMENT, "sessions": 3, "due_date": due, "agent_id": agent_id }),
         ];
         OWN_ACCOUNT_WRITES
@@ -563,6 +555,7 @@ impl Fixture {
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
                 hooks: PipelineHooks::none(),
+                grant: OAuthScope::self_grant(),
             },
             &web_profile(),
         )
@@ -837,31 +830,11 @@ impl Fixture {
             .collect()
     }
 
-    /// Everything `who` has on file through the memory tools: their notes,
-    /// pending follow-ups and open commitments with the group's agent.
+    /// Everything `who` has on file through the memory tools: their open
+    /// commitments with the group's agent.
     async fn tool_written(&self, who: &Person) -> Vec<String> {
         let repos = self.repos();
         let user = who.id.to_string();
-        let notes = repos
-            .memory
-            .list_agent_notes(
-                who.tenant,
-                &user,
-                &self.agent_id,
-                50,
-                TransportPolicy::FirstPartyOnly,
-            )
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|note| note.content);
-        let followups = repos
-            .memory
-            .list_pending_followups(who.tenant, &user, &self.agent_id)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|followup| followup.content);
         let commitments = repos
             .commitments
             .list_open_commitments(
@@ -874,7 +847,7 @@ impl Fixture {
             .unwrap()
             .into_iter()
             .map(|commitment| commitment.statement);
-        notes.chain(followups).chain(commitments).collect()
+        commitments.collect()
     }
 
     /// Wait for `object` to land among `who`'s facts.
@@ -1061,7 +1034,7 @@ async fn what_the_coach_says_of_the_athlete_in_her_thread_is_learned_by_nobody()
 // ════════════════════════════════════════════════════════════════════════
 
 /// In the athlete thread no memory write is declared to the model, and one it
-/// calls anyway is refused: no fact, note, follow-up or commitment lands on
+/// calls anyway is refused: no fact or commitment lands on
 /// the coach or the athlete. In the coach's own conversation the same calls
 /// are offered and written.
 #[tokio::test]
@@ -1098,7 +1071,7 @@ async fn a_write_on_the_coachs_own_account_is_neither_offered_nor_run_in_her_thr
         assert!(fx.facts(who).await.is_empty(), "a fact was filed");
         assert!(
             fx.tool_written(who).await.is_empty(),
-            "a note, follow-up or commitment was filed"
+            "a commitment was filed"
         );
     }
 
@@ -1117,7 +1090,7 @@ async fn a_write_on_the_coachs_own_account_is_neither_offered_nor_run_in_her_thr
     assert_eq!(fx.facts(&fx.coach).await, vec![REMEMBERED.to_owned()]);
     let mut written = fx.tool_written(&fx.coach).await;
     written.sort();
-    let mut expected = vec![NOTE.to_owned(), FOLLOWUP.to_owned(), COMMITMENT.to_owned()];
+    let mut expected = vec![COMMITMENT.to_owned()];
     expected.sort();
     assert_eq!(written, expected);
 }

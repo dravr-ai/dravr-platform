@@ -215,7 +215,7 @@ pub use oauth::{
     ConnectionType, DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification,
     ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder,
     StravaSeatReclaimWarning, StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession,
-    API_KEY_TOKEN_TYPE,
+    API_KEY_TOKEN_TYPE, PERMISSION_WITHDRAWN,
 };
 
 // OAuth client state for provider authorization flows
@@ -224,8 +224,8 @@ pub use oauth_client::OAuthClientState;
 
 // Tenant domain
 pub use tenant::{
-    LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant, TenantId,
-    TenantOAuthCredentials,
+    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant,
+    TenantId, TenantOAuthCredentials,
 };
 
 // Tool selection domain
@@ -283,9 +283,10 @@ pub use conversation::{
     MessageFeedbackRecord, MessagePage, MessageRecord, ParticipantRole, PersistedAction,
     PersistedReplyBlock, ThreadTopic, TurnOrigin, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
     AGENT_WELCOME_FINISH_REASON, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
-    DIVIDER_FINISH_REASON, FILTERED_REPLY_FINISH_REASON, STOPPED_TURN_FINISH_REASON,
-    STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE,
-    TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
+    DIVIDER_FINISH_REASON, FILTERED_REPLY_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON,
+    STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
+    TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
+    WITHHELD_REPLY_FINISH_REASON,
 };
 pub use room_quote::{RoomQuote, ROOM_QUOTE_BLOCK_TYPE};
 
@@ -314,7 +315,7 @@ pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
     ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtMonthlyUsage, JwtUsage,
     LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, RequestLog,
-    ToolUsage, UsageCounterRecord, WindowUsage, TURN_SUMMARY_CALL_TYPE,
+    ToolUsage, UsageCounterRecord, WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt

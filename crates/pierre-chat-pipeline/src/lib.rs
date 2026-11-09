@@ -79,7 +79,7 @@ pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChat
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
     BlockSupport, MessagingTransportCaps, ProgressiveSupport, ProseFormat, RenderCapabilities,
-    SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+    SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget, A2A_TRANSPORT,
 };
 pub use turn_service::{
     dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
@@ -117,11 +117,12 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::context::TURN_DIRECT_MESSAGE;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
 
+use stages::agent_session::{ensure_agent_session_attached, finalize_session_state};
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
-use stages::followups::{ensure_agent_session_attached, finalize_session_state};
 use stages::persistence::{
     append_platform_prompt, get_conversation_history, persist_assistant_response,
     resolve_turn_prompt,
@@ -330,8 +331,6 @@ pub async fn run(
         "user asked a question"
     );
 
-    refuse_when_llm_unhealthy(ctx).await?;
-
     // A turn exists to feed a model, so every read its stages make is a read
     // for one: each provider's AI policy governs what the prompt builders see
     // (carnet#723). Tools scope themselves the same way in the executor; a
@@ -351,9 +350,17 @@ pub async fn run(
         // withheld, as an undeclared read would withhold it.
         Err(_) => ai_scope::ai_consent_withheld().as_ref().clone(),
     };
+    // Every tool the turn dispatches knows whether other people read the
+    // reply, which the conversation row cannot say: a messaging group chat
+    // with no group bound to it carries no group, as a direct message does
+    // (carnet#1421). Executors built inside the turn carry it to their tool
+    // bodies.
     let outcome = ai_scope::for_model(ai_scope::with_ai_consent(
         consent_withheld,
-        Box::pin(run_turn(ctx, input, profile, hooks)),
+        Box::pin(TURN_DIRECT_MESSAGE.scope(
+            Some(input.is_direct_message),
+            run_turn(ctx, input, profile, hooks),
+        )),
     ))
     .await;
 
@@ -532,6 +539,39 @@ async fn turn_tool_offer(
     (switched_off, defer_tools)
 }
 
+/// Stage 2: resolve the prompt the turn answers, record it on the turn's stop
+/// handle, then refuse the turn while the LLM probe reads the provider down.
+///
+/// Refused only once the question is on file: a turn the provider outage stops
+/// still leaves the sender's words on the thread, for the surface to close with
+/// its notice rather than to lose (carnet#1362).
+///
+/// # Errors
+///
+/// Returns the prompt resolution's error, or
+/// [`ErrorCode::ResourceUnavailable`] from [`refuse_when_llm_unhealthy`].
+async fn store_turn_prompt(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    hooks: &PipelineHooks<'_>,
+) -> AppResult<UserMessageResult> {
+    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
+    let msg_result = resolve_turn_prompt(ctx.repos.chat.as_ref(), groups, input, channel).await?;
+    turn_stop::question_stored(hooks, &msg_result.message);
+    refuse_when_llm_unhealthy(ctx).await?;
+    Ok(msg_result)
+}
+
+/// The activity list a reply may carry: the one the turn's tools read, on the
+/// subject's seat only. The card is labelled as the sender's own activities,
+/// and off that seat the list a tool read is someone else's — the athlete of
+/// a coach's thread (carnet#1387) — so it reaches the reply only through the
+/// agent's prose.
+fn sender_activity_list(seat: TurnSeat, list: Option<String>) -> Option<String> {
+    list.filter(|_| seat.sender_is_subject())
+}
+
 /// Run the body of a single turn.
 async fn run_turn(
     ctx: &ChatPipelineContext,
@@ -544,10 +584,8 @@ async fn run_turn(
     // Stage 2: Resolve the prompt this turn answers. Persisted as the
     // athlete's message when they sent it, and deliberately not when the
     // platform composed it — see `resolve_turn_prompt`.
-    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
-    let msg_result = resolve_turn_prompt(database, groups, &input, channel).await?;
+    let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
     let user_message = msg_result.message;
-    turn_stop::question_stored(hooks, &user_message);
     let conv = msg_result.conversation;
 
     // Stage 3: Resolve the model this turn runs on.
@@ -684,32 +722,25 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (
-        prompt_guard,
-        pending_followup_ids,
-        mut llm_messages,
-        source_ids,
-        group_roster,
-        intro,
-        turn_clock,
-    ) = assemble_prompt_stage(
-        hooks,
-        stages::prompt_assembly::PromptTurn {
-            ctx,
-            input: &input,
-            profile,
-            conv: &conv,
-            standing,
-            switched_off: &switched_off,
-            defer_tools,
-            agent_ctx: agent_ctx.as_ref(),
-            history: &history,
-            onboarding: onboarding_turn.as_ref(),
-            subject_turn,
-            readable_about: &readable_about,
-        },
-    )
-    .await?;
+    let (prompt_guard, mut llm_messages, source_ids, group_roster, intro, turn_clock) =
+        assemble_prompt_stage(
+            hooks,
+            stages::prompt_assembly::PromptTurn {
+                ctx,
+                input: &input,
+                profile,
+                conv: &conv,
+                standing,
+                switched_off: &switched_off,
+                defer_tools,
+                agent_ctx: agent_ctx.as_ref(),
+                history: &history,
+                onboarding: onboarding_turn.as_ref(),
+                subject_turn,
+                readable_about: &readable_about,
+            },
+        )
+        .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
     let stages::tool_dispatch::DispatchedTurn {
@@ -800,6 +831,8 @@ async fn run_turn(
         stages::source_attribution::model_answered(&result),
         &profile.locale,
     );
+    let answered_by =
+        stages::introduction::answering_title(ctx, &input, &conv, agent_ctx.as_ref()).await;
     // A reply the platform composed on its own initiative is posted only when
     // it grounded in the athlete's data and did not refuse (carnet#831).
     if let Some(withheld) = stages::platform_grounding::withheld_platform_reply(
@@ -815,19 +848,15 @@ async fn run_turn(
             provider_name: &provider_name,
             activities_prefetched,
             identity_leak,
-            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
+            answered_by: answered_by.clone(),
         },
     ) {
         return Ok(withheld);
     }
     // The steps this reply hands over ride its stored row and its live
-    // actions alike. A reply withheld for a leak is an apology, not the
-    // answer the steps would have followed.
-    let next_steps = if leak_replaced {
-        NextSteps::default()
-    } else {
-        next_steps::for_reply(ctx, &input, profile, &conv, plan_was_saved).await
-    };
+    // actions alike.
+    let next_steps =
+        steps_handed_over(ctx, &input, profile, &conv, plan_was_saved, leak_replaced).await;
     let content_blocks = next_steps
         .stored_blocks(post_processed.content_blocks.as_deref())
         .unwrap_or_else(|e| {
@@ -857,6 +886,7 @@ async fn run_turn(
         // them as their tool rows do (carnet#1174). A turn that read several
         // members writes a reply about nobody.
         about_user_id: ai_scope::derived_member(),
+        turn_attempted_write: Some(result.attempted_write(ctx.tool_runtime.tool_registry())),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);
@@ -885,13 +915,7 @@ async fn run_turn(
     .await;
 
     // Stage 20: Tier 4 session finalize.
-    finalize_session_state(
-        &ctx.data,
-        conv.session_id.as_deref(),
-        &pending_followup_ids,
-        &input,
-    )
-    .await;
+    finalize_session_state(&ctx.data, conv.session_id.as_deref(), &input).await;
 
     // Stages 21/21b/21c/21d: end-of-turn follow-through — Tier 2 memory
     // extraction, playbook advice capture, the guided-flow probe record and the
@@ -926,6 +950,7 @@ async fn run_turn(
     // asked for activities and got them" signal, which `tools_called` cannot be
     // because the platform injects the tool name when it prefetches.
     let activity_list_captured = result.activity_list.is_some();
+    result.activity_list = sender_activity_list(seat, result.activity_list.take());
     let activity_list = if profile.render.blocks.activity_list_card {
         stages::activity_fold::athlete_list(result.activity_list.as_deref())
     } else {
@@ -973,9 +998,25 @@ async fn run_turn(
             scene_images,
             actions: next_steps.into_actions(),
             actions_title: None,
-            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
+            answered_by,
         },
     ))
+}
+
+/// The steps a reply hands over. A reply withheld for a leak is an apology, not
+/// the answer the steps would have followed, so it hands over none.
+async fn steps_handed_over(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    conv: &ConversationRecord,
+    plan_was_saved: bool,
+    leak_replaced: bool,
+) -> NextSteps {
+    if leak_replaced {
+        return NextSteps::default();
+    }
+    next_steps::for_reply(ctx, input, profile, conv, plan_was_saved).await
 }
 
 /// Ask the wired [`ScenePublisher`] to mint an image per stored chart spec.

@@ -78,25 +78,14 @@ pub(crate) const UPSERT_DATA_SOURCE_SQL: &str = r"
             RETURNING id
             ";
 
-/// The columns every data-source read decodes, in the order
-/// [`data_source_from_row`] reads them.
-macro_rules! data_source_columns {
-    () => {
-        "id, user_id, provider, device_model, software_version, source, device_type, original_source_name"
-    };
-}
-
-/// Every data source a user has under a tenant, newest first.
-pub(crate) const LIST_DATA_SOURCES_SQL: &str = concat!(
-    "
-            SELECT ",
-    data_source_columns!(),
-    "
-            FROM data_sources
-            WHERE user_id = $1 AND tenant_id = $2
-            ORDER BY created_at DESC
-            "
-);
+/// The read-only lookups: data sources, origins, owning tenants, and the
+/// earliest day a marked source holds.
+mod lookups;
+pub(crate) use lookups::{
+    EARLIEST_SOURCE_DATED_SQL, EARLIEST_SOURCE_SLEEP_SQL, FIND_HEALTH_SNAPSHOT_TENANT_SQL,
+    FIND_RECOVERY_METRIC_TENANT_SQL, FIND_SLEEP_SESSION_TENANT_SQL, GET_RECOVERY_ORIGINS_SQL,
+    GET_SLEEP_ORIGINS_SQL, LIST_DATA_SOURCES_SQL,
+};
 
 // ============================================================================
 // sleep_sessions
@@ -168,14 +157,6 @@ pub(crate) const GET_SLEEP_SESSIONS_SQL: &str = concat!(
             "
 );
 
-/// The distinct origins of the live sessions starting inside a window.
-pub(crate) const GET_SLEEP_ORIGINS_SQL: &str = "
-            SELECT DISTINCT provider, COALESCE(data_source_id, '') AS data_source_id
-            FROM sleep_sessions
-            WHERE user_id = $1 AND tenant_id = $2 AND start_time >= $3 AND start_time <= $4
-              AND deleted_at IS NULL
-            ";
-
 /// Soft-delete one session: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_SLEEP_SESSION_SQL: &str = "UPDATE sleep_sessions SET deleted_at = $1 \
                  WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL";
@@ -183,11 +164,6 @@ pub(crate) const SOFT_DELETE_SLEEP_SESSION_SQL: &str = "UPDATE sleep_sessions SE
 /// Hard-delete one session under its tenant.
 pub(crate) const DELETE_SLEEP_SESSION_SQL: &str =
     "DELETE FROM sleep_sessions WHERE id = $1 AND tenant_id = $2";
-
-/// The tenant a session was stored under, for the enforme adapter that only
-/// holds the provider id.
-pub(crate) const FIND_SLEEP_SESSION_TENANT_SQL: &str =
-    "SELECT tenant_id FROM sleep_sessions WHERE id = $1";
 
 // ============================================================================
 // recovery_metrics
@@ -373,14 +349,6 @@ pub(crate) const GET_LATEST_RECOVERY_METRICS_SQL: &str = concat!(
             "
 );
 
-/// The distinct origins of the live recovery readings dated inside a window.
-pub(crate) const GET_RECOVERY_ORIGINS_SQL: &str = "
-            SELECT DISTINCT provider, COALESCE(data_source_id, '') AS data_source_id
-            FROM recovery_metrics
-            WHERE user_id = $1 AND tenant_id = $2 AND date >= $3 AND date <= $4
-              AND deleted_at IS NULL
-            ";
-
 /// Soft-delete one recovery row: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
     "UPDATE recovery_metrics SET deleted_at = $1 \
@@ -389,10 +357,6 @@ pub(crate) const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
 /// Hard-delete one recovery row under its tenant.
 pub(crate) const DELETE_RECOVERY_METRIC_SQL: &str =
     "DELETE FROM recovery_metrics WHERE id = $1 AND tenant_id = $2";
-
-/// The tenant a recovery row was stored under.
-pub(crate) const FIND_RECOVERY_METRIC_TENANT_SQL: &str =
-    "SELECT tenant_id FROM recovery_metrics WHERE id = $1";
 
 // ============================================================================
 // health_snapshots
@@ -513,10 +477,6 @@ pub(crate) const SOFT_DELETE_HEALTH_SNAPSHOT_SQL: &str =
 /// Hard-delete one snapshot under its tenant.
 pub(crate) const DELETE_HEALTH_SNAPSHOT_SQL: &str =
     "DELETE FROM health_snapshots WHERE id = $1 AND tenant_id = $2";
-
-/// The tenant a snapshot was stored under.
-pub(crate) const FIND_HEALTH_SNAPSHOT_TENANT_SQL: &str =
-    "SELECT tenant_id FROM health_snapshots WHERE id = $1";
 
 // ============================================================================
 // daily_activity
@@ -647,6 +607,42 @@ macro_rules! impl_health_persistence_repositories {
                     .map_err(|e| AppError::database(format!("Failed to list data sources: {e}")))?;
 
                 rows.iter().map(data_source_from_row).collect()
+            }
+
+            async fn earliest_source_day(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                source: &str,
+            ) -> AppResult<Option<NaiveDate>> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read a source's earliest day: {e}"))
+                };
+                let night: Option<DateTime<Utc>> = sqlx::query_scalar(EARLIEST_SOURCE_SLEEP_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(source)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(failed)?;
+                let mut earliest = night.map(|end| end.date_naive());
+                for statement in EARLIEST_SOURCE_DATED_SQL {
+                    let day: Option<NaiveDate> = sqlx::query_scalar(statement)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id.to_string())
+                        .bind(provider)
+                        .bind(source)
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                    earliest = match (earliest, day) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    };
+                }
+                Ok(earliest)
             }
         }
 

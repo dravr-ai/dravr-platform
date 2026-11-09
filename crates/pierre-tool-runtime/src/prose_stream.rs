@@ -24,9 +24,10 @@ use std::mem;
 use pierre_core::prompt_fingerprint::{detect_canary_in_response, extract_canary_marker};
 use pierre_llm::ChatRequest;
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
-use tracing::{trace, warn};
+use tracing::warn;
 
 use crate::tool_execution::{TOOL_CALL_CLOSE, TOOL_CALL_OPEN};
+use crate::tool_progress;
 
 /// The turn's canary token, recovered from the prompt the request carries.
 ///
@@ -94,7 +95,7 @@ impl<'a> StreamedProse<'a> {
         self.canary.discard();
         self.blocks = ToolCallBlocksWithheld::default();
         if mem::take(&mut self.sent) {
-            deliver(self.sink, TurnEvent::ProseRetract);
+            tool_progress::deliver(self.sink, TurnEvent::ProseRetract);
         }
     }
 
@@ -106,18 +107,7 @@ impl<'a> StreamedProse<'a> {
 
     fn send(&mut self, text: String) {
         self.sent = true;
-        deliver(self.sink, TurnEvent::ProseDelta(text));
-    }
-}
-
-/// Send one event, tracing a receiver that has gone away.
-///
-/// A send fails when the receiver was dropped — the client disconnected or the
-/// pipeline aborted — and the drain carries on regardless so the run still
-/// completes; the event's content stays out of the log.
-pub fn deliver(sink: &TurnEventSink, event: TurnEvent) {
-    if sink.send(event).is_err() {
-        trace!("turn stream receiver dropped; event not delivered");
+        tool_progress::deliver(self.sink, TurnEvent::ProseDelta(text));
     }
 }
 

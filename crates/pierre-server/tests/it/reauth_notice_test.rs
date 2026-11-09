@@ -20,7 +20,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::Utc;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
+use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
@@ -60,8 +60,14 @@ struct Fixture {
 
 /// A fresh athlete, with the server context's chat notifier swapped for one
 /// whose adapter captures every send, and a notification service over the
-/// same database.
+/// same database. The chat notifier weighs no Garmin seat.
 async fn fixture() -> Fixture {
+    fixture_over(false).await
+}
+
+/// [`fixture`], whose chat notifier weighs Garmin's seats under the server's
+/// own OAuth clients when `weighs_garmin_seats` (carnet#1454).
+async fn fixture_over(weighs_garmin_seats: bool) -> Fixture {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
@@ -77,13 +83,19 @@ async fn fixture() -> Fixture {
 
     let channel = Arc::new(CapturingChannel::default());
     let mut context: ServerContext = (*resources).clone();
-    context.mcp.backfill_notifier = Some(Arc::new(ServerBackfillNotifier::with_resolver(
+    let notifier = ServerBackfillNotifier::with_resolver(
         Arc::clone(&context.common.repos),
         strings(),
         Arc::new(FakeResolver::new(channel.clone())),
         Arc::from(LINK_SECRET),
         BASE_URL.to_owned(),
-    )));
+    );
+    let notifier = if weighs_garmin_seats {
+        notifier.with_oauth(context.common.config.oauth.clone())
+    } else {
+        notifier
+    };
+    context.mcp.backfill_notifier = Some(Arc::new(notifier));
     let service = Arc::new(match context.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
@@ -107,6 +119,25 @@ async fn fixture() -> Fixture {
 }
 
 impl Fixture {
+    /// Store a token row for `provider`, as a connect writes it.
+    async fn hold_token(&self, provider: &str) {
+        let token = UserOAuthToken::new(
+            self.user_id,
+            self.tenant.to_string(),
+            provider.to_owned(),
+            format!("{provider}-access"),
+            Some(format!("{provider}-refresh")),
+            Some(Utc::now() + chrono::Duration::hours(6)),
+            None,
+        );
+        self.runtime
+            .repos()
+            .oauth_tokens
+            .upsert_token(&token)
+            .await
+            .unwrap();
+    }
+
     async fn connect(&self, provider: &str) {
         self.runtime
             .repos()
@@ -468,4 +499,167 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
     assert_eq!(chat.len(), 1, "answered in the conversation that asked");
     assert_eq!(chat[0].0, "15145550105");
     assert_eq!(f.app_notices().await.len(), 1);
+}
+
+/// A usr/pwd session beside a grant that serves its provider is flagged when
+/// it dies, but the athlete is never told (carnet#1386): no notice in the app
+/// or on a chat, and a backfill that found it dead answers nothing. The grant
+/// is the ongoing source, so nothing asks them to sign in again. A COROS or
+/// TrainingPeaks session, the provider's only source, is still told.
+#[tokio::test]
+async fn a_session_beside_a_serving_grant_is_flagged_but_never_told() {
+    let f = fixture().await;
+    f.connect("sciotte_garmin").await;
+    f.connect("garmin").await;
+    f.hold_token("garmin").await;
+    f.link_chat("whatsapp", "15145550120").await;
+    let user = f.user_id.to_string();
+    let conversation = seed_conversation(&f.database, &user, f.tenant).await;
+
+    let (mark, notice) = flag_needs_reauth(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        "session_expired",
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(mark, ReauthMark::Flagged, "the flag itself still lands");
+    assert_eq!(
+        f.status("sciotte_garmin").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the session's own flag stands"
+    );
+    assert!(!notice.claimed, "bug: no notice is claimed for it");
+    backfill_session_expired(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        Some(&conversation),
+        Utc::now(),
+    )
+    .await;
+    let direct = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
+    assert!(!direct.claimed, "bug: a direct notice is refused too");
+    assert!(
+        f.chat().is_empty(),
+        "bug: no chat hears of it: {:?}",
+        f.chat()
+    );
+    assert!(
+        f.app_notices().await.is_empty(),
+        "bug: no notification row for it"
+    );
+
+    for only_source in ["sciotte_coros", "sciotte_trainingpeaks"] {
+        f.connect(only_source).await;
+        let (_, notice) = flag_needs_reauth(
+            &f.runtime,
+            f.user_id,
+            f.tenant,
+            only_source,
+            "session_expired",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            notice.claimed,
+            "bug: {only_source} is its provider's only source, so its athlete is told"
+        );
+    }
+    assert_eq!(
+        f.app_notices().await.len(),
+        2,
+        "one notice each for COROS and TrainingPeaks"
+    );
+}
+
+/// A dead usr/pwd session that served a Garmin athlete alone, while a seat is
+/// free on Garmin's OAuth, is told to move to Garmin's official connection:
+/// on the chat with no sign-in link, in the app with its own title
+/// (carnet#1454).
+#[tokio::test]
+async fn a_usr_pwd_only_garmin_notice_points_to_the_official_connection() {
+    let f = fixture_over(true).await;
+    f.connect("sciotte_garmin").await;
+    f.link_chat("whatsapp", "15145550103").await;
+    f.runtime
+        .repos()
+        .provider_connections
+        .mark_needs_reauth(
+            f.user_id,
+            f.tenant,
+            "sciotte_garmin",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let notice = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
+    assert!(
+        notice.claimed,
+        "bug: the first notice of the transition is claimed"
+    );
+
+    let chat = f.chat();
+    assert_eq!(chat.len(), 1, "{chat:?}");
+    let (_, body) = &chat[0];
+    let expected = strings().render(
+        "messaging.provider.reauth_oauth_required_no_link",
+        "fr",
+        &["Garmin"],
+    );
+    let english = strings().render(
+        "messaging.provider.reauth_oauth_required_no_link",
+        "en",
+        &["Garmin"],
+    );
+    assert!(
+        *body == expected || *body == english,
+        "bug: the notice names the move to Garmin's official connection: {body}"
+    );
+    assert!(
+        !body.contains("/r/") && !body.contains(HOSTED_SIGNIN_PATH),
+        "bug: no usr/pwd sign-in link: {body}"
+    );
+    assert!(!body.contains("sciotte"), "never the backend slug: {body}");
+
+    let (rows, _, _) = f
+        .service
+        .list_notifications(
+            f.user_id,
+            CommereTenantId(f.tenant.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    let pushed = rows
+        .iter()
+        .find(|row| row.notification_type == "provider_needs_reauth")
+        .expect("the app notice is stored");
+    assert!(
+        [
+            strings().render(
+                "notifications.provider_oauth_required.title",
+                "fr",
+                &["Garmin"]
+            ),
+            strings().render(
+                "notifications.provider_oauth_required.title",
+                "en",
+                &["Garmin"]
+            ),
+        ]
+        .contains(&pushed.title),
+        "bug: the push names the move, in the athlete's language: {}",
+        pushed.title
+    );
 }

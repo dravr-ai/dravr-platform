@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the member's "what your human coach can do" block — the calendar and wellness consents on the coach relationship
-// ABOUTME: One change at a time, a wellness revoke asks first, refusals worded from their reason, the Intervals.icu Coach step
+// ABOUTME: One change at a time, a wellness revoke asks first, the widening notice's two answers, refusals worded from their reason
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -33,9 +33,14 @@ function consents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsents
     wellness_read_at: null,
     wellness_read_supported: true,
     wellness_read_skipped: null,
+    wellness_notice_due: false,
     ...overrides,
   };
 }
+
+/** What the wellness revoke confirm says: the coach's reads end, only what the link synced goes. */
+const REVOKE_BODY =
+  "Casey Coach stops seeing your sleep, HRV, resting heart rate, weight, readiness and daily notes. Dravr removes what it synced through Casey Coach's Intervals.icu account; what your own apps sync stays in your account.";
 
 /** The block as Group info renders it: fed by the member's coach-consents read. */
 function Harness() {
@@ -78,7 +83,7 @@ describe('CoachConsentsSection', () => {
     expect(within(block).getByTestId('coach-consent-calendar-step')).toHaveTextContent(
       'On Intervals.icu, Casey Coach must also be your human coach there: open intervals.icu/athletes, click Casey Coach and pick the Coach role, not Follower.',
     );
-    // Wellness syncs only through a link: not offered, not shown.
+    // A relationship that does not offer wellness shows no wellness switch.
     expect(within(block).queryByTestId('coach-consent-wellness_read')).toBeNull();
   });
 
@@ -132,9 +137,7 @@ describe('CoachConsentsSection', () => {
     await user.click(wellness);
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Stop sharing wellness?');
-    expect(dialog).toHaveTextContent(
-      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
-    );
+    expect(dialog).toHaveTextContent(REVOKE_BODY);
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(groupsApi.updateCoachConsents).not.toHaveBeenCalled();
@@ -144,6 +147,59 @@ describe('CoachConsentsSection', () => {
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop sharing' }));
     await waitFor(() => expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { wellness_read: false }));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('tells a grant from before the widening, and keeping it grants it again', async () => {
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(consents({ wellness_read: true, wellness_notice_due: true }));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(consents({ wellness_read: true }));
+    const user = userEvent.setup();
+    renderBlock();
+
+    const notice = await screen.findByTestId('coach-consent-wellness-notice');
+    expect(notice).toHaveAccessibleName('Wellness sharing now covers all your apps');
+    expect(notice).toHaveTextContent(
+      'Sharing your wellness with Casey Coach now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only Intervals.icu.',
+    );
+    // The grant stands while the member decides.
+    expect(screen.getByTestId('coach-consent-wellness_read')).toBeChecked();
+
+    await user.click(within(notice).getByTestId('coach-consent-wellness-keep'));
+
+    await waitFor(() => expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { wellness_read: true }));
+    expect(await screen.findByText('Sharing updated')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('coach-consent-wellness-notice')).toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByTestId('coach-consent-wellness_read')).toBeChecked();
+  });
+
+  it('stops sharing from the widening notice through the ordinary revoke confirm', async () => {
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(consents({ wellness_read: true, wellness_notice_due: true }));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(consents({ wellness_read: false }));
+    const user = userEvent.setup();
+    renderBlock();
+
+    const notice = await screen.findByTestId('coach-consent-wellness-notice');
+    const stop = within(notice).getByTestId('coach-consent-wellness-stop');
+    expect(stop).toHaveTextContent('Stop sharing');
+    await user.click(stop);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Stop sharing wellness?');
+    expect(dialog).toHaveTextContent(REVOKE_BODY);
+    expect(groupsApi.updateCoachConsents).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Stop sharing' }));
+
+    await waitFor(() => expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { wellness_read: false }));
+    await waitFor(() => expect(screen.queryByTestId('coach-consent-wellness-notice')).toBeNull());
+    expect(screen.getByTestId('coach-consent-wellness_read')).not.toBeChecked();
+  });
+
+  it('tells nothing of the widening to a grant given since it', async () => {
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(consents({ wellness_read: true }));
+    renderBlock();
+
+    expect(await screen.findByTestId('coach-consent-wellness_read')).toBeChecked();
+    expect(screen.queryByTestId('coach-consent-wellness-notice')).toBeNull();
   });
 
   it('turns calendar writes on without asking', async () => {

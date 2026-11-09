@@ -39,9 +39,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use common::{
-    create_test_server_resources_with_sciotte, create_test_user_with_email, generate_test_token,
-};
+use common::{create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
@@ -301,9 +299,11 @@ impl Athlete {
 
     /// An athlete on a server whose scraper lives at `url`.
     async fn on(url: &str) -> Self {
-        let resources = create_test_server_resources_with_sciotte(url)
-            .await
-            .unwrap();
+        let resources = common::create_test_server_resources_with_config(
+            common::test_server_config_with_sciotte_usr_pwd_garmin(url),
+        )
+        .await
+        .unwrap();
         Self::in_resources(resources).await
     }
 

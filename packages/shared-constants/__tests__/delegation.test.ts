@@ -9,16 +9,20 @@ import en from '../../i18n/src/locales/en/translation.json';
 import {
   COACH_CALENDAR_PLATFORM,
   COACH_CONSENTS_KEYS,
+  DELEGATION_COACH_REFUSAL_KEY,
   DELEGATION_CONSENT_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   DELEGATION_REFUSAL_KEY,
   DELEGATION_CONNECTION_REFUSALS,
   DELEGATION_REVOKE_CONFIRM_KEYS,
   WELLNESS_READ_SKIP_KEYS,
+  WELLNESS_WIDENED_NOTICE_KEYS,
+  coachDelegationRefusalKey,
   coachPlatformName,
   confirmConsents,
   consentChangeConfirm,
   consentNoteKey,
+  consentPlatformName,
   consentStateKeys,
   delegationRefusalKey,
   isDelegationRefusal,
@@ -49,6 +53,25 @@ describe('delegation refusal vocabulary', () => {
     expect(lookup(delegationRefusalKey('already_linked'))).toBe(
       'Your {{platform}} is already linked through another group.',
     );
+  });
+
+  it('words for the coach the way forward the shared copy leaves out', () => {
+    expect(lookup(coachDelegationRefusalKey('athlete_email_missing'))).toBe(
+      '{{platform}} shares no email for this athlete, so Dravr cannot match them to a member. ' +
+        'Once they connect {{platform}} themselves in Dravr, you reach their calendar through ' +
+        'your own account, with no link needed.',
+    );
+    expect(lookup(coachDelegationRefusalKey('own_connection'))).toBe(
+      'This athlete connects {{platform}} themselves in Dravr, so there is nothing to link: ' +
+        'you reach their calendar through your own account.',
+    );
+    for (const reason of Object.keys(DELEGATION_REFUSAL_KEY)) {
+      if (Object.prototype.hasOwnProperty.call(DELEGATION_COACH_REFUSAL_KEY, reason)) continue;
+      expect(coachDelegationRefusalKey(reason), reason).toBe(delegationRefusalKey(reason));
+    }
+    for (const unknown of ['session_expired', undefined, 'toString', '__proto__']) {
+      expect(coachDelegationRefusalKey(unknown), String(unknown)).toBe('delegation.actionFailed');
+    }
   });
 
   it('reads an unknown or missing reason as the generic failure', () => {
@@ -129,14 +152,34 @@ describe('link consents', () => {
   };
   const INTERVALS = { ...TRAININGPEAKS, calendar_write_supported: true, wellness_read_supported: true };
 
-  it('words every consent with keys the catalogue carries, naming the human coach and the platform', () => {
+  it('words every consent with keys the catalogue carries, naming the human coach', () => {
     for (const [consent, keys] of Object.entries(DELEGATION_CONSENT_KEYS)) {
-      expect(typeof lookup(keys.label), `${consent} label`).toBe('string');
-      expect(lookup(keys.label), `${consent} label`).toContain('{{platform}}');
+      expect(lookup(keys.label), `${consent} label`).toContain('{{coach}}');
       expect(lookup(keys.hint), `${consent} hint`).toContain('{{coach}}');
       expect(typeof lookup(keys.granted), `${consent} granted`).toBe('string');
     }
     expect(lookup(DELEGATION_CONSENTS_NONE_KEY)).toBe('Workouts only');
+  });
+
+  it('names the platform a calendar grant writes, and the connected apps a wellness grant reads', () => {
+    expect(lookup(DELEGATION_CONSENT_KEYS.calendar_write.label)).toContain('{{platform}}');
+    // Wellness reads every app the member connects, so its control names no one platform.
+    expect(lookup(DELEGATION_CONSENT_KEYS.wellness_read.label)).not.toContain('{{platform}}');
+    expect(lookup(DELEGATION_CONSENT_KEYS.wellness_read.label)).toContain('connected apps');
+    // What a revoke removes is what synced through the coach's account on its platform.
+    expect(lookup(DELEGATION_CONSENT_KEYS.wellness_read.hint)).toContain('{{platform}}');
+    // Each names its platform by brand, never the every-platform fallback.
+    expect(consentPlatformName('calendar_write')).toBe('Intervals.icu');
+    expect(consentPlatformName('wellness_read')).toBe('Intervals.icu');
+  });
+
+  it('words the widening notice with keys the catalogue carries, its stop the revoke confirm', () => {
+    expect(typeof lookup(WELLNESS_WIDENED_NOTICE_KEYS.title)).toBe('string');
+    expect(lookup(WELLNESS_WIDENED_NOTICE_KEYS.body)).toContain('{{coach}}');
+    expect(lookup(WELLNESS_WIDENED_NOTICE_KEYS.body)).toContain('{{platform}}');
+    expect(lookup(WELLNESS_WIDENED_NOTICE_KEYS.keep)).toBe('Keep sharing');
+    // The same verb on the notice's stop and on the confirm it opens.
+    expect(WELLNESS_WIDENED_NOTICE_KEYS.stop).toBe(DELEGATION_REVOKE_CONFIRM_KEYS.wellness_read?.confirm);
   });
 
   it('offers only what the platform takes, calendar first', () => {
@@ -151,7 +194,7 @@ describe('link consents', () => {
     expect(consentStateKeys({ ...INTERVALS, calendar_write: true })).toEqual(['delegation.calendarWriteGranted']);
     expect(consentStateKeys({ ...INTERVALS, calendar_write: true, wellness_read: true })).toEqual([
       'delegation.calendarWriteGranted',
-      'delegation.wellnessReadGranted',
+      'delegation.wellnessAppsGranted',
     ]);
   });
 
@@ -185,7 +228,7 @@ describe('link consents', () => {
   it('asks first only before turning wellness off', () => {
     expect(consentChangeConfirm('wellness_read', false)).toEqual({
       title: 'delegation.wellnessRevokeTitle',
-      body: 'delegation.wellnessRevokeBody',
+      body: 'delegation.wellnessAppsRevokeBody',
       confirm: 'delegation.wellnessRevokeConfirm',
     });
     expect(consentChangeConfirm('wellness_read', true)).toBeUndefined();
@@ -233,6 +276,7 @@ describe('what a member lets their coach do', () => {
       wellness_read_at: null,
       wellness_read_supported: false,
       wellness_read_skipped: null,
+      wellness_notice_due: false,
     };
     expect(offeredConsents(consents)).toEqual(['calendar_write']);
     expect(consentNoteKey({ ...consents, wellness_read_supported: true, wellness_read_skipped: 'own_wellness_source' }, 'wellness_read')).toBe(

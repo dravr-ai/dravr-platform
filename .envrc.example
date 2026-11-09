@@ -410,7 +410,7 @@ export OPENWEATHER_API_KEY="your-openweathermap-api-key"
 
 # OAuth Rate Limiting
 export OAUTH_AUTHORIZE_RATE_LIMIT_RPM="60"
-export OAUTH_TOKEN_RATE_LIMIT_RPM="30"
+export OAUTH_TOKEN_RATE_LIMIT_RPM="600"
 export OAUTH_REGISTER_RATE_LIMIT_RPM="10"
 export OAUTH2_RATE_LIMIT_WINDOW_SECS="60"
 # Public proxies whose X-Forwarded-For entries the OAuth limiter reads past to
@@ -504,9 +504,8 @@ export SESSION_COOKIE_SECURE="false"          # Set to true in production with H
 # MCP SERVER CONFIGURATION
 # ============================================================================
 
-export MCP_PROTOCOL_VERSION="2025-06-18"
-export SERVER_NAME="pierre-mcp-server"
-export MCP_SESSION_CACHE_SIZE="100"
+export MCP_PROTOCOL_VERSION="2025-11-25"
+export SERVER_NAME="dravr"
 export MCP_MAX_REQUEST_SIZE="1048576"         # 1MB
 export MCP_MAX_RESPONSE_SIZE="10485760"       # 10MB
 export MCP_NOTIFICATION_CHANNEL_SIZE="100"

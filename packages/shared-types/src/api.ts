@@ -179,6 +179,22 @@ export interface Message {
   /** Error flag for failed message responses */
   isError?: boolean;
   /**
+   * On an error row: sending the same question again may get past the
+   * failure, so the row offers a Retry. False or absent on a failure a retry
+   * would only repeat — a quota, a refusal, a lapsed session, the idle stop —
+   * and on a question the server already stored.
+   */
+  retryable?: boolean;
+  /**
+   * On an assistant row: whether its turn was blocked by the Guardian, or
+   * called a tool that writes, is irreversible or cannot be classified, whether
+   * or not the call succeeded. Sending the question again is a new turn on a
+   * fresh budget, so read this through `canRegenerateReply` in
+   * `@pierre/chat-utils`. Absent or null when nobody knows: a row from before
+   * the field, or one no model turn wrote.
+   */
+  turn_attempted_write?: boolean | null;
+  /**
    * Set on a row a group thread shows from the room rather than from the
    * caller's own conversation — another member's words, the agent's reply to
    * them, or an entry the author's sharing consent withholds. Absent on every

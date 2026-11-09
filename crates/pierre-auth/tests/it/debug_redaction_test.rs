@@ -78,6 +78,7 @@ fn an_invitation_acceptance_never_prints_its_token_or_password() {
         token: "sentinel-selector.sentinel-verifier-7f3a".to_owned(),
         password: "sentinel-password-7f3a".to_owned(),
         display_name: Some("Invited Athlete".to_owned()),
+        analytics_consent: Some(true),
     };
     let printed = printed_without(
         &request,

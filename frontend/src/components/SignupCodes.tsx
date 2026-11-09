@@ -15,7 +15,7 @@ import {
 import { Button, Badge, Input, Section } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDate } from '@pierre/chat-utils';
-import { useTranslation } from '@pierre/i18n';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /** The server's bounds, checked here so a typo is caught before the round trip. */
 const PREFIX_PATTERN = /^[A-Za-z0-9]{1,12}$/;
@@ -39,7 +39,6 @@ function parseBounded(raw: string, max: number): number | undefined | null {
  * accounts it already approved stay approved.
  */
 export default function SignupCodes() {
-  const { language } = useTranslation();
   const queryClient = useQueryClient();
   const [note, setNote] = useState('');
   const [prefix, setPrefix] = useState('');
@@ -261,9 +260,9 @@ export default function SignupCodes() {
                       Uses: {code.use_count} / {code.max_uses ?? '∞'}
                     </span>
                     <span>
-                      Expires: {code.expires_at ? formatDate(code.expires_at, language) : 'never'}
+                      Expires: {code.expires_at ? formatDate(code.expires_at, ADMIN_LOCALE) : 'never'}
                     </span>
-                    <span>Minted: {formatDate(code.created_at, language)}</span>
+                    <span>Minted: {formatDate(code.created_at, ADMIN_LOCALE)}</span>
                     <span>By: {code.created_by_email ?? 'unattributed'}</span>
                   </div>
                   {code.redeemed_by.length > 0 && (
@@ -277,7 +276,7 @@ export default function SignupCodes() {
                           <Badge variant={statusVariant(redeemer.status)} className="text-xs">
                             {redeemer.status}
                           </Badge>
-                          <span>redeemed {formatDate(redeemer.redeemed_at, language)}</span>
+                          <span>redeemed {formatDate(redeemer.redeemed_at, ADMIN_LOCALE)}</span>
                         </li>
                       ))}
                     </ul>

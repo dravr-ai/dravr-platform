@@ -52,10 +52,14 @@ fn the_reading_carries_the_share_of_ctl_not_only_the_raw_number() {
 }
 
 #[test]
-fn the_inline_form_names_the_band_beside_the_number() {
+fn the_inline_form_names_the_band_beside_the_share_and_never_the_raw_number() {
     let text = raph().inline();
 
-    assert!(text.contains("-77"), "the raw number still travels: {text}");
+    assert!(
+        !text.contains("TSB") && !text.contains("-77"),
+        "the raw TSB never travels in the line a coach's model reads: an absolute \
+         number is the one it compares across athletes (carnet#1387): {text}"
+    );
     assert!(
         text.contains("-64% of CTL"),
         "so does the share of the athlete's own fitness: {text}"

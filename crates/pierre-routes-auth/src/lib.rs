@@ -67,12 +67,15 @@ use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
+use pierre_services::history_import::HistoryImports;
 use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
 mod card_backend;
+/// Where a provider card's history stands, and a new grant's session settlement.
+mod card_history;
 mod card_seats;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
@@ -82,8 +85,12 @@ mod connect_hosted_import;
 mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
+mod data_export;
 mod email_verification;
 mod first_sync;
+/// The health backfill a provider connect starts.
+#[cfg(feature = "health-sync")]
+mod health_backfill;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
 mod import_tombstones;
@@ -101,6 +108,8 @@ mod registration_sign_in;
 mod sciotte;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_cancel;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_grant_gate;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
@@ -235,10 +244,16 @@ pub struct AuthRoutesContext {
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
-    /// Whether this server imports an athlete's own history (carnet#1218):
-    /// the connect picker then offers the hosted import page, and the page
-    /// opens on it rather than saying imports are not available here.
-    pub archive_imports_offered: bool,
+    /// The import sources this server offers an athlete (carnet#1218): the
+    /// keys `GET /api/imports` lists, empty when imports do not run here.
+    /// Non-empty, the connect picker offers the hosted import page and the
+    /// page opens on it; each provider card names its own offered source.
+    pub offered_archive_sources: Vec<&'static str>,
+    /// Runs the one-time history import of a usr/pwd session signed in
+    /// beside a grant, and retires the session a new grant leaves serving
+    /// nothing (carnet#1386). `None` in a build with no backfill rail, where
+    /// a sign-in only warms the session as any other does.
+    pub history_imports: Option<Arc<dyn HistoryImports>>,
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
@@ -266,7 +281,8 @@ impl fmt::Debug for AuthRoutesContext {
         debug.field("rate_limiter", &self.rate_limiter);
         debug.field("group_service", &self.group_service);
         debug.field("admin_jwt_secret", &"[REDACTED]");
-        debug.field("archive_imports_offered", &self.archive_imports_offered);
+        debug.field("offered_archive_sources", &self.offered_archive_sources);
+        debug.field("history_imports", &self.history_imports.is_some());
         #[cfg(feature = "provider-sciotte")]
         debug.field("nonce_store", &self.nonce_store);
         debug.finish_non_exhaustive()
@@ -274,6 +290,12 @@ impl fmt::Debug for AuthRoutesContext {
 }
 
 impl AuthRoutesContext {
+    /// Whether this server imports an athlete's own history at all.
+    #[must_use]
+    pub fn archive_imports_offered(&self) -> bool {
+        !self.offered_archive_sources.is_empty()
+    }
+
     /// The account service for a route that may create an account: an
     /// account it leaves waiting for approval is also emailed to the
     /// super-admins when outbound email is configured (carnet#1056).
@@ -370,6 +392,8 @@ impl AuthRoutes {
                 "/api/user/signup-code/redeem",
                 post(signup_code::handle_redeem_signup_code),
             )
+            // The athlete's own data as one downloadable JSON file (Law 25 s.27).
+            .route("/api/user/export", get(data_export::handle_user_export))
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))
             .route(

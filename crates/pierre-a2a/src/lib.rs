@@ -8,24 +8,25 @@
 //!
 //! Standalone implementation of the A2A (Agent-to-Agent) protocol for the
 //! Pierre platform. Exposes the message types, agent card, JSON-RPC server,
-//! client-management facade and system-user provisioning used by `pierre-server`'s `/api/a2a/*` routes.
+//! and client-management facade used by `pierre-server`'s `/a2a/*` routes.
 //!
-//! Server-side modules (`client`, `protocol`, `system_user`) accept
+//! Server-side modules (`client`, `protocol`) accept
 //! the narrow `A2ACtx` trait from `pierre-runtime-context` instead of the
 //! full `ServerContext` — that's how this crate stays leaf-shaped while still
-//! reaching the auth manager, JWKS, repositories, and configured base URL.
+//! reaching the auth manager, JWKS, repositories, and the authorization
+//! server's configuration.
 //!
 //! ## Modules
 //!
 //! * [`agent_card`] — A2A 1.0 agent card (interfaces, capabilities, skills, security)
 //! * [`client`] — A2A client manager (registration, sessions, usage, rate limits)
+//! * [`coaching`] — The seam a text message reaches the coaching pipeline through
 //! * [`client_types`] — Client registration, credentials, usage types
 //! * [`events`] — Per-task event bus backing streaming (SSE) subscriptions
 //! * [`jsonrpc`] — Minimal JSON-RPC 2.0 types for A2A type aliases
 //! * [`protocol`] — A2A 1.0 JSON-RPC server (`PascalCase` spec methods)
 //! * [`protocol_types`] — A2A 1.0 wire data model and error types
 //! * [`push`] — Push notification (webhook) delivery with SSRF validation
-//! * [`system_user`] — System-user provisioning for A2A clients
 
 #![deny(unsafe_code)]
 
@@ -40,6 +41,8 @@ pub mod agent_card;
 pub mod client;
 /// Client registration and credential types
 pub mod client_types;
+/// The seam a text message reaches the coaching pipeline through
+pub mod coaching;
 /// Per-task event bus for streaming subscriptions
 pub mod events;
 /// Minimal JSON-RPC 2.0 types for A2A protocol
@@ -52,8 +55,6 @@ pub mod protocol_types;
 pub mod push;
 /// Reaper for tasks an instance died holding
 pub mod reaper;
-/// System user management for A2A agents
-pub mod system_user;
 /// How a task's state leaves the process: stream events and push webhooks
 pub(crate) mod task_events;
 

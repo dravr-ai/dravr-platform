@@ -44,6 +44,7 @@ use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{
     ConversationTurnId, InputSource, OnboardingState, RoomQuote, TenantId, TurnOrigin,
 };
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::stage::LlmStage;
@@ -150,6 +151,11 @@ pub struct TurnRequest<'a> {
     /// inside Dravr's own surfaces is withheld from a turn served over an API
     /// key. Required, with no default: a surface cannot forget to declare.
     pub transport: Transport,
+    /// The grant the turn runs under: [`OAuthScope::self_grant`] for the
+    /// athlete in Dravr's own surfaces, the token's own scopes for a third
+    /// party acting for them. Every tool the turn offers and calls answers to
+    /// it. Required, like the transport: a surface cannot forget to narrow.
+    pub grant: Vec<OAuthScope>,
     /// Progress, streaming and chart-publishing wiring for this turn.
     pub hooks: PipelineHooks<'a>,
 }
@@ -175,6 +181,7 @@ impl fmt::Debug for TurnRequest<'_> {
             .field("command_persistence", &self.command_persistence)
             .field("sender_id", &self.sender_id.map(|_| "[REDACTED]"))
             .field("transport", &self.transport)
+            .field("grant", &self.grant)
             .field("hooks", &self.hooks)
             .finish()
     }
@@ -571,6 +578,7 @@ async fn execute_turn(
         quota,
         mentioned_agent: mentioned_agent.map(Box::new),
         steps_after,
+        grant: request.grant.clone(),
     };
 
     // Every tool the turn dispatches renders in the language the turn
@@ -580,7 +588,7 @@ async fn execute_turn(
         Some(profile.locale.clone()),
         crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks),
     );
-    let envelope = match &request.hooks.stop {
+    let envelope = match request.hooks.stop.as_ref().filter(|stop| stop.watches()) {
         None => run.await?,
         Some(stop) => {
             let scope = StopScope {

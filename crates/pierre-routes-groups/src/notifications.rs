@@ -18,7 +18,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -31,20 +31,14 @@ use pierre_core::errors::AppError;
 use pierre_core::models::default_locale;
 use pierre_core::transport::Transport;
 use pierre_middleware::AuthenticatedUser;
-use pierre_notifications::constants as notif_constants;
 use pierre_notifications::events::event_params;
 use pierre_notifications::models::{
-    collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
-    DeviceRegistrar, ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
-    NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
-    NotificationPreferencesResponse, RegisterDeviceTokenRequest, ScheduledNotificationItem,
-    TenantId, UpdateNotificationPreferenceRequest, UpdateScheduledNotificationParams,
-    UpdateScheduledNotificationRequest, UpsertNotificationPreferenceParams,
+    collapse_notifications, DeviceRegistrar, ListNotificationsQuery, NotificationAnalyticsQuery,
+    NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
+    NotificationPreferencesResponse, RegisterDeviceTokenRequest, TenantId,
+    UpdateNotificationPreferenceRequest, UpsertNotificationPreferenceParams,
 };
-use pierre_notifications::{
-    compute_next_fire_time, to_app_error, validate_cron_expression, NotificationEvent,
-    NotificationService,
-};
+use pierre_notifications::{to_app_error, NotificationEvent, NotificationService};
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
 use pierre_services::units::resolve_user_units;
@@ -143,10 +137,6 @@ impl NotificationRoutes {
     /// - `POST /api/notifications/read-all` - Mark all as read
     /// - `DELETE /api/notifications/:id` - Delete notification
     /// - `GET /api/notifications/analytics` - Get notification analytics
-    /// - `GET /api/notifications/scheduled` - List scheduled notifications
-    /// - `POST /api/notifications/scheduled` - Create scheduled notification
-    /// - `PUT /api/notifications/scheduled/{id}` - Update scheduled notification
-    /// - `DELETE /api/notifications/scheduled/{id}` - Delete scheduled notification
     pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
         Router::new()
             // Device token management
@@ -196,15 +186,6 @@ impl NotificationRoutes {
             .route(
                 "/api/notifications/analytics",
                 get(Self::handle_get_analytics::<C>),
-            )
-            // Scheduled notifications
-            .route(
-                "/api/notifications/scheduled",
-                get(Self::handle_list_scheduled::<C>).post(Self::handle_create_scheduled::<C>),
-            )
-            .route(
-                "/api/notifications/scheduled/{id}",
-                put(Self::handle_update_scheduled::<C>).delete(Self::handle_delete_scheduled::<C>),
             )
             .with_state(resources)
     }
@@ -735,240 +716,6 @@ impl NotificationRoutes {
         )?;
 
         Ok((StatusCode::OK, Json(analytics)).into_response())
-    }
-
-    /// Handle GET /api/notifications/scheduled - List user's scheduled notifications
-    async fn handle_list_scheduled<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let service = Self::get_service(&resources)?;
-        let schedules = notif(
-            service
-                .list_scheduled_notifications(auth.user_id, tenant_id)
-                .await,
-        )?;
-
-        let items: Vec<ScheduledNotificationItem> = schedules
-            .into_iter()
-            .map(ScheduledNotificationItem::from)
-            .collect();
-
-        Ok((StatusCode::OK, Json(items)).into_response())
-    }
-
-    /// Handle POST /api/notifications/scheduled - Create a scheduled notification
-    async fn handle_create_scheduled<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Json(request): Json<CreateScheduledNotificationRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        // The per-user schedule cap, for every caller
-        let max_schedules = notif_constants::MAX_SCHEDULES_PER_USER;
-        if ai_scope::serving_external() {
-            return Self::create_external_schedule(
-                &resources,
-                &auth,
-                tenant_id,
-                &request,
-                max_schedules,
-            )
-            .await;
-        }
-        let service = Self::get_service(&resources)?;
-        let schedule_count = notif(
-            service
-                .count_scheduled_notifications(auth.user_id, tenant_id)
-                .await,
-        )?;
-        if schedule_count >= max_schedules {
-            return Err(AppError::invalid_input(format!(
-                "Maximum of {max_schedules} scheduled notifications per user reached",
-            )));
-        }
-
-        // Validate cron expression
-        validate_cron_expression(&request.schedule_cron).map_err(AppError::invalid_input)?;
-
-        let timezone = request.timezone.as_deref().unwrap_or("UTC");
-
-        // Validate timezone
-        timezone
-            .parse::<chrono_tz::Tz>()
-            .map_err(|_| AppError::invalid_input(format!("Invalid timezone: {timezone}")))?;
-
-        // Compute initial next fire time
-        let next_fire_at = compute_next_fire_time(&request.schedule_cron, timezone, Utc::now())
-            .ok_or_else(|| {
-                AppError::invalid_input("Could not compute next fire time from cron expression")
-            })?;
-
-        let params = CreateScheduledNotificationParams {
-            user_id: auth.user_id,
-            tenant_id,
-            notification_type: request.notification_type,
-            schedule_cron: request.schedule_cron,
-            timezone: timezone.to_owned(),
-            next_fire_at,
-        };
-
-        let scheduled = notif(service.create_scheduled_notification(&params).await)?;
-
-        info!(
-            user_id = %auth.user_id,
-            notification_type = %scheduled.notification_type,
-            schedule_cron = %scheduled.schedule_cron,
-            "Scheduled notification created"
-        );
-
-        let item = ScheduledNotificationItem::from(scheduled);
-        Ok((StatusCode::CREATED, Json(item)).into_response())
-    }
-
-    /// Create an external caller's schedule under commere's rules: the type,
-    /// the cron, the timezone and then the per-user cap of `max_schedules`,
-    /// with commere's refusals.
-    async fn create_external_schedule<C: GroupsCtx>(
-        resources: &Arc<C>,
-        auth: &AuthResult,
-        tenant_id: TenantId,
-        request: &CreateScheduledNotificationRequest,
-        max_schedules: i64,
-    ) -> Result<Response, AppError> {
-        let service = Self::get_service(resources)?;
-        let scheduled = notif(
-            service
-                .schedule_notification(
-                    auth.user_id,
-                    tenant_id,
-                    &request.notification_type,
-                    &request.schedule_cron,
-                    request.timezone.as_deref().unwrap_or("UTC"),
-                    max_schedules,
-                )
-                .await,
-        )?;
-        info!(
-            user_id = %auth.user_id,
-            notification_type = %scheduled.notification_type,
-            schedule_cron = %scheduled.schedule_cron,
-            "Scheduled notification created"
-        );
-        let item = ScheduledNotificationItem::from(scheduled);
-        Ok((StatusCode::CREATED, Json(item)).into_response())
-    }
-
-    /// Handle PUT /api/notifications/scheduled/:id - Update a scheduled notification
-    async fn handle_update_scheduled<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Path(id): Path<Uuid>,
-        Json(request): Json<UpdateScheduledNotificationRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-        if ai_scope::serving_external() {
-            // Commere checks the cron and timezone, recomputes the next fire
-            // and refuses a schedule that would never fire.
-            let service = Self::get_service(&resources)?;
-            let updated = notif(
-                service
-                    .reschedule_notification(
-                        id,
-                        auth.user_id,
-                        tenant_id,
-                        request.enabled,
-                        request.schedule_cron.as_deref(),
-                        request.timezone.as_deref(),
-                    )
-                    .await,
-            )?;
-            if !updated {
-                return Err(AppError::not_found("Scheduled notification"));
-            }
-            return Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response());
-        }
-
-        // Validate cron expression if provided
-        if let Some(ref cron) = request.schedule_cron {
-            validate_cron_expression(cron).map_err(AppError::invalid_input)?;
-        }
-
-        // Validate timezone if provided
-        if let Some(ref tz) = request.timezone {
-            tz.parse::<chrono_tz::Tz>()
-                .map_err(|_| AppError::invalid_input(format!("Invalid timezone: {tz}")))?;
-        }
-
-        let service = Self::get_service(&resources)?;
-
-        // Recompute next fire time if cron or timezone changed
-        let next_fire_at = if request.schedule_cron.is_some() || request.timezone.is_some() {
-            // Fetch the specific schedule by ID to get current values for unchanged fields
-            let current = notif(
-                service
-                    .get_scheduled_notification_by_id(id, auth.user_id, tenant_id)
-                    .await,
-            )?
-            .ok_or_else(|| AppError::not_found("Scheduled notification"))?;
-
-            let cron = request
-                .schedule_cron
-                .as_deref()
-                .unwrap_or(&current.schedule_cron);
-            let tz = request.timezone.as_deref().unwrap_or(&current.timezone);
-
-            compute_next_fire_time(cron, tz, Utc::now())
-        } else {
-            None
-        };
-
-        let update_params = UpdateScheduledNotificationParams {
-            id,
-            user_id: auth.user_id,
-            tenant_id,
-            enabled: request.enabled,
-            schedule_cron: request.schedule_cron,
-            timezone: request.timezone,
-            next_fire_at,
-        };
-
-        let updated = notif(service.update_scheduled_notification(&update_params).await)?;
-
-        if !updated {
-            return Err(AppError::not_found("Scheduled notification"));
-        }
-
-        Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
-    }
-
-    /// Handle DELETE /api/notifications/scheduled/:id - Delete a scheduled notification
-    async fn handle_delete_scheduled<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Path(id): Path<Uuid>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let service = Self::get_service(&resources)?;
-        let deleted = notif(
-            service
-                .delete_scheduled_notification(id, auth.user_id, tenant_id)
-                .await,
-        )?;
-
-        if !deleted {
-            return Err(AppError::not_found("Scheduled notification"));
-        }
-
-        Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
     }
 }
 

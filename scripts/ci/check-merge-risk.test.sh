@@ -308,7 +308,7 @@ printf 'CREATE TABLE h (id TEXT);\n' >"$d/migrations/20261012000007_h.sql"
 commit "$d" "feat(db): add table h
 
 Merge-Risk: ONE-WAY · migration 20261012000007 adds table h"
-printf 'pub fn tick() {}\n' >>"$d/crates/pierre-services/src/agent_followup_scheduler.rs"
+printf 'pub fn tick() {}\n' >>"$d/crates/pierre-services/src/notification_digest_scheduler.rs"
 commit "$d" "feat(notify): follow up on table h"
 expect "the burst passes against the push's own base" "$(run_gate "$d" "$before")" 0
 expect "the same tip with HEAD as its base judges nothing" "$(run_gate "$d" HEAD)" 0

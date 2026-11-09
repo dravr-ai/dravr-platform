@@ -10,10 +10,10 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep,
-    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole,
-    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp,
-    UserOAuthToken,
+    ClientGrantStanding, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
+    OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState,
+    ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder,
+    StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -240,6 +240,21 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// applies. A row stored with no `expires_at` is never touched by
     /// [`delete_stale_clients`](Self::delete_stale_clients).
     async fn store_client(&self, client: &OAuth2Client) -> AppResult<()>;
+    /// Rewrite the metadata of the public client `client.client_id` names —
+    /// redirect URIs, grant and response types, name, URI, scope ceiling and
+    /// expiry — from a client metadata document fetched again. Only a row
+    /// holding no client secret (a public client) is touched, so a
+    /// confidential registration is never rewritten by a URL's content.
+    /// Returns `false` when no such public client is stored.
+    async fn update_public_client_metadata(&self, client: &OAuth2Client) -> AppResult<bool>;
+    /// Move the expiry of `client_id` forward to `expires_at`, never back and
+    /// never onto a row that has none: a registration that expires on
+    /// inactivity stays alive while its users keep authorizing through it.
+    async fn extend_client_expiry(
+        &self,
+        client_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> AppResult<()>;
     /// Delete the client registration `client_id` names, with the codes,
     /// refresh tokens and states issued through it and the consent grants that
     /// name it. Returns `true` when a registration was deleted, `false` when
@@ -351,11 +366,52 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// the caller and still active. Returns `Ok(true)` when a row changed,
     /// `Ok(false)` when nothing matched (unknown id, wrong owner, or already
     /// revoked).
+    ///
+    /// In the same transaction, revokes every live refresh token the user
+    /// holds in that tenant through the grant's client, so the client's next
+    /// refresh is `invalid_grant` rather than a silent extension of a consent
+    /// the user withdrew. Unredeemed authorization codes go with them.
     async fn revoke_client_grant(
         &self,
         id: &str,
         user_id: &str,
         tenant_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Where the user's consent to `client_id` stands in `tenant_id`, across
+    /// every scope set they granted it. The resource servers' question about a
+    /// self-contained access token; read through
+    /// `pierre_auth::oauth2_server::grant_standing`, which bounds how often.
+    async fn client_grant_standing(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+    ) -> AppResult<ClientGrantStanding>;
+    /// End a client's access at the client's own request: every active grant
+    /// the user gave it in the tenant, its live refresh tokens and its
+    /// unredeemed codes, in one transaction.
+    ///
+    /// A client that has no grant row at all gets a revoked one carrying
+    /// `scope`, so a token it holds reads as withdrawn rather than as a consent
+    /// that was never recorded, which runs to its expiry.
+    async fn withdraw_client_access(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> AppResult<()>;
+
+    /// Revoke the live refresh tokens a user holds in a tenant through a client
+    /// whose consent they withdrew, and say whether any was. A rotation calls
+    /// this after writing the successor, which a revocation running at that
+    /// moment cannot see.
+    async fn revoke_refresh_tokens_of_withdrawn_grant(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+        client_id: &str,
     ) -> AppResult<bool>;
 
     /// Store a new pending device authorization (RFC 8628).
@@ -585,6 +641,34 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<bool>;
+    /// Re-arm a connection flagged `needs_reauth` only while `reason` is the
+    /// one its flag recorded (`last_error`), as [`Self::mark_active_if_needs_reauth`]
+    /// re-arms it otherwise: a remedy for that reason (the athlete restoring a
+    /// withdrawn permission) never clears a flag raised for another, such as a
+    /// refused refresh.
+    ///
+    /// Returns whether the connection flipped.
+    async fn mark_active_if_flagged_for(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        reason: &str,
+    ) -> AppResult<bool>;
+    /// Re-arm a connection as [`Self::mark_active`] does, unless its flag
+    /// recorded `reason` (`last_error`): a credential that answers proves the
+    /// grant alive, which says nothing about a permission the athlete
+    /// withdrew at the provider. Such a flag stands until a reconnect, or
+    /// the remedy for that reason ([`Self::mark_active_if_flagged_for`]).
+    ///
+    /// Returns whether the connection flipped.
+    async fn mark_active_unless_flagged_for(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        reason: &str,
+    ) -> AppResult<bool>;
     /// Atomically claim the one-time disconnect notification for a `needs_reauth`
     /// connection.
     ///
@@ -671,4 +755,39 @@ pub trait ProviderConnectionRepository: Send + Sync {
     /// server-level app is one client at the provider, whose limit is one
     /// pool across every tenant that signs with it.
     async fn count_server_level_grants(&self, provider: &str) -> AppResult<u32>;
+
+    /// Every user in `tenant_id` whose own `mirror` session (a connection or
+    /// token row) stands beside a token row for `grant` in that tenant: the
+    /// usr/pwd sessions a grant left serving nothing (carnet#1386). A
+    /// delegated connection is someone else's account and is not listed.
+    async fn list_sessions_beside_grant(
+        &self,
+        tenant_id: TenantId,
+        mirror: &str,
+        grant: &str,
+    ) -> AppResult<Vec<Uuid>>;
+
+    /// Every user in `tenant_id` whose own `provider` connection is `active`:
+    /// the grants a periodic refresh keeps alive (Garmin's daily token
+    /// refresh, carnet#1454). A delegated connection is someone else's
+    /// account, and a connection flagged for reconnect has been found dead
+    /// already; neither is listed.
+    async fn list_active_connection_users(
+        &self,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<Uuid>>;
+
+    /// Every user in `tenant_id` whose own `mirror` session (a connection or
+    /// token row) stands with no token row for `grant` beside it in that
+    /// tenant: the athletes served by usr/pwd alone, who have yet to move to
+    /// the provider's OAuth (carnet#1454). A delegated connection is someone
+    /// else's account and is not listed; a user holding the grant is not
+    /// listed, whatever session stands beside it.
+    async fn list_mirror_only_users(
+        &self,
+        tenant_id: TenantId,
+        mirror: &str,
+        grant: &str,
+    ) -> AppResult<Vec<Uuid>>;
 }

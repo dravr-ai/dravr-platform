@@ -17,18 +17,21 @@
 //! 2. Renders the provider cards, computed from the SAME
 //!    [`crate::oauth::compute_providers_status`] the web/mobile onboarding uses,
 //!    so Strava and Garmin are OAuth-first while their seats remain and fall
-//!    back to the credential flow once the cap is reached.
+//!    back to the credential flow once the cap is reached. A refused grant
+//!    goes back to the picker with a retry, Strava's with its credential
+//!    fallback.
 //! 3. Routes the user's choice to the Sciotte credential state machine
 //!    (`/api/providers/sciotte/*`), the link-token-authed OAuth init
 //!    (`/api/providers/connect/oauth-init/{provider}`), or — for Intervals.icu,
 //!    which an athlete authorizes and a coach links with an API key — the
 //!    hosted Intervals.icu page (`/providers/connect/intervals_icu`,
 //!    [`crate::connect_hosted_intervals`]), which offers both.
-//! 4. Below the cards, where this server imports an athlete's own history,
-//!    offers "Import your own data": the hosted import page
-//!    (`/providers/connect/import`, [`crate::connect_hosted_import`]),
-//!    opened with the same link-token. The credential and OAuth cards stay
-//!    offered beside it.
+//! 4. Under a card whose provider's own export this server imports through
+//!    the hosted import page, offers "Have an export? Import it": that page
+//!    (`/providers/connect/import?source=…`, [`crate::connect_hosted_import`]),
+//!    opened with the same link-token. After a grant whose history is not in
+//!    (Garmin), the page asks how to bring it in: sign in once, import the
+//!    export, or not now.
 //!
 //! Every page is written in the locale of the athlete the link-token names
 //! ([`crate::hosted_page`]), from the dravr-contremaitre catalogue. A page
@@ -54,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use urlencoding::encode;
 
+use pierre_auth::dto::auth::{HistoryState, ProviderMigration, ProviderStatus};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -66,6 +70,7 @@ use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use uuid::Uuid;
 
 use crate::card_seats::require_garmin_seat;
+use crate::connect_hosted_import::hosted_import_source;
 use crate::connect_hosted_templates;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
 use crate::oauth::{compute_providers_status, require_oauth_start_notice};
@@ -126,14 +131,26 @@ struct ConnectProviderCard {
     /// The line under the label, in the user's locale, as `/api/providers`
     /// serves it.
     description: String,
-    /// Already connected — the card is shown disabled, unless it
-    /// `awaits_activities`.
+    /// Already connected — the card is shown disabled, unless its history
+    /// is still to bring in or it is asked to move to its provider's OAuth.
     connected: bool,
-    /// Connected through the provider's OAuth grant, whose store has received
-    /// no activity yet, with no live usr/pwd session beside it (carnet#1302):
-    /// the card stays pickable and opens the credential form, and a grant the
-    /// page just came back from chains straight into it.
-    awaits_activities: bool,
+    /// Where the card's past workouts stand, as `/api/providers` serves its
+    /// `history.state`: `needed` and `incomplete` keep a connected card
+    /// pickable, which opens the history step, and a grant the page just came
+    /// back from opens it when `needed`; `importing` shows the card disabled
+    /// while the copy runs (carnet#1386).
+    history_state: HistoryState,
+    /// The history step offers the one-time sign-in that copies the history
+    /// (the card's usr/pwd login), for a card whose history it can bring in.
+    history_sign_in: bool,
+    /// The hosted import page for the provider's own export, carrying the
+    /// connect link-token and the source, where this server imports it there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_url: Option<String>,
+    /// The card is served by a usr/pwd session alone and a seat is free on
+    /// the provider's OAuth (carnet#1454): connected, it stays pickable and
+    /// starts the OAuth.
+    migrate: bool,
     /// "oauth" (full-page redirect to consent), [`CREDENTIALS_KIND`] (the
     /// credential form: the athlete's own username and password) or
     /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
@@ -187,6 +204,19 @@ async fn build_connect_providers(
     link_token: &str,
 ) -> Result<Vec<ConnectProviderCard>, AppError> {
     let status = compute_providers_status(resources, user_id, tenant_id, strings.locale()).await?;
+    let history = |p: &ProviderStatus| CardHistory {
+        state: p.history.state,
+        sign_in: p.history.sign_in_target.is_some()
+            && matches!(
+                p.history.state,
+                HistoryState::Needed | HistoryState::Incomplete
+            ),
+        archive_url: p
+            .history
+            .archive_source
+            .as_deref()
+            .and_then(|source| hosted_import_url(resources, link_token, source)),
+    };
 
     // The `sciotte` card already counts a native Strava OAuth grant as
     // connected (`card_is_connected`), so a user connected either way never
@@ -203,6 +233,7 @@ async fn build_connect_providers(
             // Sciotte scraper. Mirrors ProviderConnectionCards / OnboardingConnectScreen.
             "sciotte" => {
                 let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
+                let history = history(&p);
                 cards.push(ConnectProviderCard {
                     provider: if oauth_first {
                         "strava".to_owned()
@@ -212,7 +243,10 @@ async fn build_connect_providers(
                     display_name: p.display_name,
                     description: p.description,
                     connected: p.connected,
-                    awaits_activities: p.oauth_awaiting_activities,
+                    history_state: history.state,
+                    history_sign_in: history.sign_in,
+                    archive_url: history.archive_url,
+                    migrate: false,
                     kind: if oauth_first {
                         "oauth"
                     } else {
@@ -234,6 +268,7 @@ async fn build_connect_providers(
             "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
                     let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
+                    let history = history(&p);
                     cards.push(ConnectProviderCard {
                         provider: if oauth_first {
                             target.to_owned()
@@ -243,7 +278,10 @@ async fn build_connect_providers(
                         display_name: p.display_name,
                         description: p.description,
                         connected: p.connected,
-                        awaits_activities: p.oauth_awaiting_activities,
+                        history_state: history.state,
+                        history_sign_in: history.sign_in,
+                        archive_url: history.archive_url,
+                        migrate: p.migration == Some(ProviderMigration::OauthRequired),
                         kind: if oauth_first {
                             "oauth"
                         } else {
@@ -273,7 +311,10 @@ async fn build_connect_providers(
                 display_name: p.display_name,
                 description: p.description,
                 connected: p.connected,
-                awaits_activities: false,
+                history_state: p.history.state,
+                history_sign_in: false,
+                archive_url: None,
+                migrate: false,
                 target: INTERVALS_ICU.to_owned(),
                 consent_required: false,
                 notice: None,
@@ -285,11 +326,14 @@ async fn build_connect_providers(
             }),
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
+                history_state: p.history.state,
+                history_sign_in: false,
+                archive_url: history(&p).archive_url,
+                migrate: false,
                 provider: p.provider,
                 display_name: p.display_name,
                 description: p.description,
                 connected: p.connected,
-                awaits_activities: false,
                 kind: "oauth",
                 target: String::new(),
                 consent_required: p.consent_required,
@@ -302,6 +346,28 @@ async fn build_connect_providers(
         }
     }
     Ok(cards)
+}
+
+/// What a picker card carries of its provider card's `history`.
+struct CardHistory {
+    state: HistoryState,
+    sign_in: bool,
+    archive_url: Option<String>,
+}
+
+/// The hosted import page for `source`, opened with `link_token`, when this
+/// server imports that source there ([`hosted_import_source`]); else `None`.
+fn hosted_import_url(
+    resources: &AuthRoutesContext,
+    link_token: &str,
+    source: &str,
+) -> Option<String> {
+    let source = hosted_import_source(resources, source)?;
+    Some(format!(
+        "/providers/connect/import?token={}&source={}",
+        encode(link_token),
+        encode(source)
+    ))
 }
 
 /// The link-error page in `locale`, worded by the catalogue's `message_key`.
@@ -375,7 +441,6 @@ pub(crate) async fn handle_connect_hosted_page(
         token,
         &claims.channel,
         &providers,
-        resources.archive_imports_offered,
     ))
     .into_response()
 }
@@ -423,9 +488,9 @@ pub(crate) async fn handle_connect_oauth_init(
 
     // On return from the provider's consent screen, bounce back to THIS hosted
     // picker (carrying the same connect token) rather than the SPA: on success
-    // the picker shows its success page, and on failure it opens the Sciotte
-    // credential fallback for the same provider — so a channel user is never
-    // stranded on the SPA's "Connection Failed" page. The callback validates
+    // the picker shows its success page or the history step, and on failure
+    // it offers the retry (Strava, its credential fallback) — so a channel
+    // user is never stranded on the SPA's "Connection Failed" page. The callback validates
     // this URL against the redirect allowlist (same origin as base_url) before
     // honoring it.
     let return_url = format!(

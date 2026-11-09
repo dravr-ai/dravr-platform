@@ -167,6 +167,8 @@ use pierre_config::environment::{
     SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
+use pierre_core::admin::scope::AdminScope;
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
@@ -292,7 +294,6 @@ impl DashboardTestSetup {
             mcp: McpConfig {
                 protocol_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
-                session_cache_size: 1000,
                 ..Default::default()
             },
             cors: CorsConfig {
@@ -509,6 +510,14 @@ impl DashboardTestSetup {
 // Usage Analytics Tests
 // ============================================================================
 
+/// A tenant with no usage rows: these tests read the per-day shape, which the
+/// scope does not change.
+fn empty_scope() -> AdminScope {
+    AdminScope::Tenant {
+        tenant_id: TenantId::generate(),
+    }
+}
+
 #[tokio::test]
 async fn test_get_usage_analytics_success() -> Result<()> {
     common::init_server_config();
@@ -516,7 +525,7 @@ async fn test_get_usage_analytics_success() -> Result<()> {
 
     let analytics = setup
         .dashboard_routes
-        .get_usage_analytics(setup.auth_result(), 7)
+        .get_usage_analytics(setup.auth_result(), 7, empty_scope())
         .await?;
 
     // Verify time series data
@@ -537,16 +546,6 @@ async fn test_get_usage_analytics_success() -> Result<()> {
         assert!(data_point.average_response_time >= 0.0);
     }
 
-    // Note: Top tools might be empty in test environment due to data setup limitations
-    // This is acceptable as we're testing the API interface and authentication
-    for tool in &analytics.top_tools {
-        assert_ne!(tool.tool_name, "");
-        // Verify tool structure (removing redundant >= 0 check for unsigned type)
-        assert_ne!(tool.tool_name, "");
-        assert!(tool.success_rate >= 0.0 && tool.success_rate <= 100.0);
-        assert!(tool.average_response_time >= 0.0);
-    }
-
     // Verify overall metrics
     assert!(analytics.average_response_time >= 0.0);
 
@@ -564,7 +563,7 @@ async fn test_get_usage_analytics_different_timeframes() -> Result<()> {
     for days in timeframes {
         let analytics = setup
             .dashboard_routes
-            .get_usage_analytics(setup.auth_result(), days)
+            .get_usage_analytics(setup.auth_result(), days, empty_scope())
             .await?;
 
         assert_eq!(analytics.time_series.len(), days as usize);
@@ -597,6 +596,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 active_tenant_id: None,
             },
             7,
+            empty_scope(),
         )
         .await;
     assert!(result.is_err());
@@ -615,6 +615,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 active_tenant_id: None,
             },
             7,
+            empty_scope(),
         )
         .await;
     assert!(result.is_err());
@@ -651,7 +652,7 @@ async fn test_dashboard_boundary_conditions() -> Result<()> {
     for days in [0, 366, 1000] {
         let refused = setup
             .dashboard_routes
-            .get_usage_analytics(setup.auth_result(), days)
+            .get_usage_analytics(setup.auth_result(), days, empty_scope())
             .await;
         assert!(refused.is_err(), "days={days} must be refused");
     }
@@ -660,7 +661,7 @@ async fn test_dashboard_boundary_conditions() -> Result<()> {
     for (days, points) in [(1, 1), (365, 365)] {
         let analytics = setup
             .dashboard_routes
-            .get_usage_analytics(setup.auth_result(), days)
+            .get_usage_analytics(setup.auth_result(), days, empty_scope())
             .await?;
         assert_eq!(analytics.time_series.len(), points, "days={days}");
     }

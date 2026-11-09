@@ -120,6 +120,11 @@ export function useOnboardingContext(): OnboardingContextState {
     prevNeedsProvider.current = needsProviderConnection;
   }, [needsProviderConnection]);
 
+  // Server truth on the session's user (carnet#1366). Only an explicit "never
+  // answered" asks; an older server or cached user that does not say counts as
+  // answered, so the question never lands on someone who already gave it.
+  const analyticsConsentAnswered = user?.analytics_consent_answered !== false;
+
   const preConnectPending =
     beforeProviderGate({ needsProviderConnection, connectProviderRecorded }) &&
     (profileTypeChosen === undefined ||
@@ -151,6 +156,7 @@ export function useOnboardingContext(): OnboardingContextState {
       messagingChannelChosen: messaging.channelChosen,
       messagingChannelDone: messaging.channelDone,
       messagingConfigureDone: messaging.configureDone,
+      analyticsConsentAnswered,
     }),
     [
       onboardingActive,
@@ -171,6 +177,7 @@ export function useOnboardingContext(): OnboardingContextState {
       messaging.channelChosen,
       messaging.channelDone,
       messaging.configureDone,
+      analyticsConsentAnswered,
     ],
   );
 

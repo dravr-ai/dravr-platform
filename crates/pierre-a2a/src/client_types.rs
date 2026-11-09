@@ -18,7 +18,8 @@ pub struct ClientRegistrationRequest {
     pub name: String,
     /// Description of the client's purpose
     pub description: String,
-    /// List of agent capabilities this client provides
+    /// Labels describing the client; descriptive only, never an authorization
+    #[serde(default)]
     pub capabilities: Vec<String>,
     /// `OAuth2` redirect URIs for authorization flows
     pub redirect_uris: Vec<String>,
@@ -36,16 +37,6 @@ pub struct ClientCredentials {
     /// once, stored only as an Argon2 hash
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
     pub client_secret: SecretString,
-    /// API key for direct API access
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
-    pub api_key: SecretString,
-    /// Ed25519 public key for signature verification
-    pub public_key: String,
-    /// Ed25519 private key for signing (client-side only, never stored)
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
-    pub private_key: SecretString,
-    /// Key type identifier ("ed25519")
-    pub key_type: String,
 }
 
 /// A2A client usage statistics, counted over the client's `a2a_usage` rows

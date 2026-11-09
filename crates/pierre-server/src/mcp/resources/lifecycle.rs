@@ -9,8 +9,6 @@ use super::ServerContext;
 use super::ServerContextOptions;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
-#[cfg(feature = "protocol-a2a")]
-use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::archive_import::ArchiveImports;
@@ -31,6 +29,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::human_check::{HumanCheck, TurnstileCheck};
 use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
+use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::oauth2_server::play_integrity_decoder::GooglePlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::oauth2_server::KnownDeviceKey;
@@ -57,10 +56,10 @@ use pierre_commands::{
     group_consent::GroupConsentHandler,
     group_invite::GroupInviteHandler,
     group_membership::{GroupCreateHandler, GroupJoinHandler},
-    guardian_confirm::{ConfirmHandler, DenyHandler},
     help::HelpHandler,
     language::LanguageHandler,
     onboarding::PillarsHandler,
+    pending_confirm::{ConfirmHandler, DenyHandler},
     plan::{PlanShareHandler, PlanShowHandler},
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     reset::ResetHandler,
@@ -274,8 +273,9 @@ impl ServerContext {
         // Load the harness config snapshot from `system_settings.harness_config`.
         // Falls back to compile-time defaults if the row is absent or invalid;
         // the chat pipeline reads compaction + Tier 6 guardrails through this
-        // registry, and `PUT /admin/settings/harness` calls `install` on it
-        // after persisting a new document.
+        // registry, `PUT /admin/settings/harness` calls `install` on it after
+        // persisting a new document, and `start_settings_poll` keeps every other
+        // instance converged on the row.
         let harness_config_registry =
             Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
 
@@ -283,8 +283,9 @@ impl ServerContext {
         // (defaults ← persisted document ← the GUARDIAN_* overrides startup read
         // into the config, which win per field).
         // Every dispatch point reads the effective Arc<Guardian> through the
-        // ServerContext ToolRuntime override, and `PUT /admin/settings/guardian`
-        // calls `install` on it after persisting a new document.
+        // ServerContext ToolRuntime override, `PUT /admin/settings/guardian` calls
+        // `install` on it after persisting a new document, and
+        // `start_settings_poll` keeps every other instance converged on the row.
         let guardian_config_registry = Arc::new(
             GuardianConfigRegistry::from_database(
                 &database_arc,
@@ -295,14 +296,9 @@ impl ServerContext {
 
         // Create A2A services for agent-to-agent communication
         #[cfg(feature = "protocol-a2a")]
-        let a2a_system_user_service = Arc::new(A2ASystemUserService::new(repos.users.clone()));
-        #[cfg(feature = "protocol-a2a")]
         let a2a_auth_repos = repos.auth_repos();
         #[cfg(feature = "protocol-a2a")]
-        let a2a_client_manager = Arc::new(A2AClientManager::new(
-            &a2a_auth_repos,
-            a2a_system_user_service.clone(),
-        ));
+        let a2a_client_manager = Arc::new(A2AClientManager::new(&a2a_auth_repos));
 
         // Wrap cache in Arc for shared access across handlers
         let cache_arc = Arc::new(cache);
@@ -327,11 +323,17 @@ impl ServerContext {
         let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
 
         // Create auth middleware after jwks_manager is initialized
-        let auth_middleware = Arc::new(McpAuthMiddleware::new(
-            (*auth_manager_arc).clone(),
-            repos.clone(),
-            jwks_manager_arc.clone(),
-        ));
+        let auth_middleware = Arc::new(
+            McpAuthMiddleware::new(
+                (*auth_manager_arc).clone(),
+                repos.clone(),
+                jwks_manager_arc.clone(),
+            )
+            .with_grant_standings(GrantStandings::new(
+                repos.oauth2_server.clone(),
+                cache_arc.clone(),
+            )),
+        );
 
         // On Redis every replica counts into the same OAuth2 window; an
         // in-process cache is not shared, so the limiter keeps its own store
@@ -539,7 +541,9 @@ impl ServerContext {
             &turns,
         ));
 
-        // Start the background notification scheduler if service is available
+        // Start the background notification scheduler if service is available.
+        // Its tick also sweeps the pending push receipts, so it runs with no
+        // route creating schedules.
         #[cfg(feature = "client-notifications")]
         let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 
@@ -670,8 +674,6 @@ impl ServerContext {
         let a2a = super::slices::A2ASlice {
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
-            #[cfg(feature = "protocol-a2a")]
-            a2a_system_user_service,
         };
 
         let billing = super::slices::BillingSlice {
@@ -697,6 +699,7 @@ impl ServerContext {
             platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
+            common.config.oauth.clone(),
             // The in-app arm's ping. Cloned from the already-assembled common
             // slice, the same handle the commitment sweep is given.
             #[cfg(feature = "client-notifications")]

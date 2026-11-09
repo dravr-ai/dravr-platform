@@ -31,6 +31,66 @@ fn detail(description: Option<&str>) -> DetailedActivityResponse {
     detail_with(description, None)
 }
 
+fn offset_read_from(stated: &Value) -> Option<i32> {
+    let body = json!({
+        "id": 4242,
+        "name": "Tempo run",
+        "type": "Run",
+        "sport_type": "Run",
+        "start_date": "2026-09-20T10:00:00Z",
+        "elapsed_time": 2400,
+        "utc_offset": stated,
+    });
+    StravaProvider::convert_detailed_strava_activity(serde_json::from_value(body).unwrap(), None)
+        .unwrap()
+        .utc_offset_seconds()
+}
+
+#[test]
+fn detail_read_carries_strava_s_stated_offset_and_rejects_a_wild_one() {
+    assert_eq!(
+        offset_read_from(&json!(-14_400.0)),
+        Some(-14_400),
+        "bug: west of UTC, as Strava's float"
+    );
+    assert_eq!(
+        offset_read_from(&json!(-28_800)),
+        Some(-28_800),
+        "bug: a JSON integer"
+    );
+    assert_eq!(
+        offset_read_from(&json!(19_800.0)),
+        Some(19_800),
+        "bug: a half-hour zone"
+    );
+    assert_eq!(
+        offset_read_from(&json!(50_400.0)),
+        Some(50_400),
+        "bug: the last civil offset"
+    );
+    assert_eq!(
+        offset_read_from(&json!(-43_200.0)),
+        Some(-43_200),
+        "bug: the first civil offset"
+    );
+    assert_eq!(offset_read_from(&json!(50_401.0)), None, "bug: past +14:00");
+    assert_eq!(
+        offset_read_from(&json!(-43_201.0)),
+        None,
+        "bug: past -12:00"
+    );
+    assert_eq!(
+        offset_read_from(&json!(100.5)),
+        None,
+        "bug: not a whole second count"
+    );
+    assert_eq!(
+        offset_read_from(&Value::Null),
+        None,
+        "bug: Strava did not say"
+    );
+}
+
 #[test]
 fn detail_read_carries_the_athletes_description() {
     let activity = StravaProvider::convert_detailed_strava_activity(

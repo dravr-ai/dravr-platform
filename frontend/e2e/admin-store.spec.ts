@@ -13,7 +13,8 @@ const mockStoreStats = {
   published_count: 12,
   rejected_count: 3,
   total_installs: 150,
-  rejection_rate: 0.2,
+  // A percentage, as the server sends it: 3 rejected of 15 decided.
+  rejection_rate: 20,
 };
 
 // Mock data for pending coaches

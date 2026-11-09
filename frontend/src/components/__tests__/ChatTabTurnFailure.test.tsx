@@ -142,15 +142,20 @@ describe('ChatTab — a failed turn, in French', () => {
     renderChat();
     const user = await send(QUESTION);
 
+    // The Réessayer button under the note is the one offer of a retry: the
+    // sentence does not say "réessaie" on top of it (carnet#1363).
     const note = await screen.findByTestId('turn-error');
-    expect(note).toHaveTextContent(i18n.t('errors.generic'));
-    expect(i18n.t('errors.generic')).toContain('temporairement indisponible');
+    expect(note).toHaveTextContent(i18n.t('chat.turn.failed.unavailable'));
+    expect(i18n.t('chat.turn.failed.unavailable')).toContain('temporairement indisponible');
+    expect(note.textContent ?? '').not.toMatch(/r[ée]essai/i);
+    expect(screen.getAllByRole('button', { name: i18n.t('chat.retry') })).toHaveLength(1);
     expect(screen.queryByText(SERVER_TEXT)).toBeNull();
 
     // The re-read after the failure holds no copy of the question; the thread
     // still shows it, once.
     await waitFor(() => expect(getConversationMessages.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(screen.getAllByText(QUESTION)).toHaveLength(1);
+    expect(screen.getByTestId('turn-error').textContent ?? '').not.toMatch(/r[ée]essai/i);
 
     sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
       options.onDone?.(answeredTurn(REPLY));

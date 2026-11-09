@@ -6,13 +6,18 @@
 
 //! # `get_heart_rate_series`
 //!
-//! The continuous series the sync stores, read back (carnet#999): every
+//! The continuous series a sync or an import stores, read back (carnet#999): every
 //! heart-rate or HRV sample a source recorded in a time range, or one value
 //! per window when `window_minutes` is given. The daily readings —
 //! resting heart rate, overnight HRV — stay with `get_recovery_metrics`;
 //! this tool is the intraday series under them. An imported Garmin export's
 //! overnight HRV is one of those daily readings: it is a day's
-//! `hrv_rmssd`, never a point here.
+//! `hrv_rmssd`, never a point here. An imported Apple export's HRV is SDNN,
+//! so it is on no day's row: its readings are points of `hrv_sdnn` here.
+//!
+//! On a coach's read of a coached athlete only the HRV series read: their
+//! wellness grant names their HRV, not their intraday heart rate
+//! (`read_subject::unnamed_refusal`).
 //!
 //! A sample read is bounded twice: by span (`MAX_POINTS_RANGE_HOURS`) and
 //! by count (`MAX_POINTS`), since a source can sample once a second. A
@@ -40,6 +45,7 @@ use crate::conversions::{
 };
 use crate::implementations::data_helpers::parse_output_format;
 use crate::implementations::stored_data::DateRange;
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -123,6 +129,22 @@ fn parse_metric(args: &Value) -> AppResult<SeriesType> {
             metric_names().join(", ")
         ))
     })
+}
+
+/// Whether a coach's read serves `series` of the athlete: only the HRV
+/// series, which their wellness grant names. Every other series — their
+/// intraday heart rate, and any the store takes later — is refused until it
+/// is added here, against the grant entry that names it.
+const fn coach_readable(series: SeriesType) -> bool {
+    matches!(series, SeriesType::HrvRmssd | SeriesType::HrvSdnn)
+}
+
+/// What a coach's refusal of `series` says it would have read.
+fn unnamed_series(series: SeriesType) -> String {
+    match series {
+        SeriesType::HeartRate => "intraday heart rate".to_owned(),
+        other => format!("intraday `{}` series", other.as_str()),
+    }
 }
 
 fn metric_names() -> Vec<&'static str> {
@@ -320,6 +342,20 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
             let format = parse_output_format(&args);
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let series = parse_metric(&args)?;
+            // The athlete's wellness grant names their HRV and resting heart
+            // rate, not their intraday heart rate, so a coach's read refuses
+            // every other series before anything is read (Phil, 2026-11-06).
+            if !coach_readable(series) {
+                if let Some(refused) = read_subject::unnamed_refusal(
+                    "get_heart_rate_series",
+                    &format!("`metric` '{}'", series.as_str()),
+                    &unnamed_series(series),
+                    "Ask for `metric` 'hrv_rmssd' or 'hrv_sdnn' for their HRV series, or \
+                     get_recovery_metrics for their daily resting heart rate.",
+                ) {
+                    return Ok(refused);
+                }
+            }
             let window = parse_window(&args)?;
             let max_span = if window.is_some() {
                 Duration::days(MAX_WINDOWED_RANGE_DAYS)
@@ -385,6 +421,48 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
     }
 }
 
-// Provider-synced samples, with the provenance of the other stored health
-// reads: a taint SOURCE, so a later consequential sink in the turn is gated.
-crate::declare_security!(GetHeartRateSeriesTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(GetHeartRateSeriesTool => empty);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_coachs_read_serves_the_hrv_series_alone() {
+        for hrv in [SeriesType::HrvRmssd, SeriesType::HrvSdnn] {
+            assert!(
+                coach_readable(hrv),
+                "bug: the grant names their HRV: {hrv:?}"
+            );
+        }
+        assert!(
+            !coach_readable(SeriesType::HeartRate),
+            "bug: the grant does not name their intraday heart rate"
+        );
+        for later in [
+            SeriesType::RestingHeartRate,
+            SeriesType::Spo2,
+            SeriesType::BloodGlucose,
+            SeriesType::RespiratoryRate,
+        ] {
+            assert!(
+                !coach_readable(later),
+                "bug: a series the store may take later fails closed: {later:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refusal_names_the_series_it_would_have_read() {
+        assert_eq!(
+            unnamed_series(SeriesType::HeartRate),
+            "intraday heart rate",
+            "bug: the heart-rate refusal keeps its words"
+        );
+        assert_eq!(
+            unnamed_series(SeriesType::Spo2),
+            "intraday `spo2` series",
+            "bug: any other series is named by riviere's name for it"
+        );
+    }
+}

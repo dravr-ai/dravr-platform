@@ -27,7 +27,8 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
     ApiKey, ApiKeyTier, ApiKeyUsage, ConversationTurnId, JwtMonthlyUsage, JwtUsage,
-    MonthlyLimitOverride, TenantId, User, WindowUsage,
+    MonthlyLimitOverride, TenantId, User, WindowUsage, DIRECT_TOOL_CALL_TYPE,
+    TURN_SUMMARY_CALL_TYPE,
 };
 use pierre_database::repositories::UserRateLimitOverride;
 use pierre_database::RepositoryRegistry;
@@ -325,6 +326,42 @@ async fn a_redirect_is_no_success_in_a_keys_tools_nor_in_the_users_top_tools() {
     );
 }
 
+/// The top-tools read stops at ten endpoints. Summing it undercounted a user who
+/// called more than that, so the count has its own query.
+#[tokio::test]
+async fn the_api_key_request_count_covers_every_endpoint() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let api_key = fresh_api_key(repos, user_id).await;
+    let repo = &repos.usage;
+
+    let now = Utc::now();
+    for endpoint in 0..12 {
+        repo.record_api_key(&api_call(
+            &api_key.id,
+            &format!("tool_{endpoint}"),
+            200,
+            now,
+        ))
+        .await
+        .unwrap();
+    }
+    let (start, end) = (now - Duration::hours(1), now + Duration::hours(1));
+
+    let top = repo
+        .get_top_tools_analysis(user_id, start, end)
+        .await
+        .unwrap();
+    assert_eq!(top.len(), 10, "the list is capped");
+    assert_eq!(
+        repo.count_api_key_requests(user_id, start, end)
+            .await
+            .unwrap(),
+        12
+    );
+}
+
 #[tokio::test]
 async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
     let db = create_test_db().await.unwrap();
@@ -571,12 +608,12 @@ async fn an_llm_usage_row_reads_back_as_its_insert_returned_it() {
     );
     assert_eq!(by_turn[1].created_at, second.created_at);
 
-    let recent = repo.get_recent_llm_calls_admin(1).await.unwrap();
+    let recent = repo.get_recent_llm_calls_admin(None, 1).await.unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].id, first.id, "newest first");
 
     let tool_calls = repo
-        .get_tenant_tool_calls_since(tenant, "2020-01-01T00:00:00+00:00")
+        .get_tool_calls_since(Some(tenant), "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
     assert_eq!(tool_calls.len(), 2);
@@ -592,7 +629,7 @@ async fn an_llm_usage_row_reads_back_as_its_insert_returned_it() {
     };
     repo.insert_llm_usage(&silent).await.unwrap();
     assert_eq!(
-        repo.get_tenant_tool_calls_since(tenant, "2020-01-01T00:00:00+00:00")
+        repo.get_tool_calls_since(Some(tenant), "2020-01-01T00:00:00+00:00")
             .await
             .unwrap()
             .len(),
@@ -600,17 +637,106 @@ async fn an_llm_usage_row_reads_back_as_its_insert_returned_it() {
         "a call that invoked no tool stays out of the tool view"
     );
 
-    let (calls, tokens) = repo
-        .sum_llm_usage_since("2020-01-01T00:00:00+00:00")
+    let totals = repo
+        .get_llm_usage_aggregates(None, "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
+    let calls: i64 = totals.iter().map(|row| row.calls).sum();
+    let tokens: i64 = totals.iter().map(|row| row.total_tokens).sum();
     assert!(calls >= 3, "cross-tenant, at least this test's rows");
     assert!(tokens >= 420);
+}
+
+/// A direct MCP tool execution and a turn summary land in `llm_usage`, and neither
+/// is an LLM call: no reader that counts calls may see them, on either engine.
+#[tokio::test]
+async fn rows_that_are_no_llm_call_stay_out_of_every_call_count() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let repo = &repos.llm_usage;
+    let tenant = TenantId::generate();
+    let tenant_str = tenant.to_string();
+    let user = Uuid::new_v4().to_string();
+
+    repo.insert_llm_usage(&llm_call(
+        &tenant_str,
+        &user,
+        ConversationTurnId::from_uuid(Uuid::new_v4()),
+        1,
+    ))
+    .await
+    .unwrap();
+    let tool_row = repo
+        .insert_llm_usage(&InsertLlmUsage::for_direct_tool_call(
+            &tenant_str,
+            &user,
+            ConversationTurnId::from_uuid(Uuid::new_v4()),
+            "get_activities",
+            "[\"get_activities\"]",
+            40,
+        ))
+        .await
+        .unwrap();
+    let summary_row = repo
+        .insert_llm_usage(&InsertLlmUsage {
+            call_type: TURN_SUMMARY_CALL_TYPE,
+            ..llm_call(
+                &tenant_str,
+                &user,
+                ConversationTurnId::from_uuid(Uuid::new_v4()),
+                1,
+            )
+        })
+        .await
+        .unwrap();
+    let since = "2020-01-01T00:00:00+00:00";
+
+    let recent = repo.get_recent_llm_calls_admin(None, 1000).await.unwrap();
     assert!(
-        repo.count_llm_calls_since("2020-01-01T00:00:00+00:00")
+        recent.iter().any(|row| row.user_id == user),
+        "the LLM call itself stays"
+    );
+    assert!(
+        !recent
+            .iter()
+            .any(|row| row.id == tool_row.id || row.id == summary_row.id),
+        "the recent list carries LLM calls only"
+    );
+
+    let by_user = repo
+        .get_llm_usage_aggregates_by_user(&user, since)
+        .await
+        .unwrap();
+    assert_eq!(by_user.len(), 1, "one LLM group, no `direct` model row");
+    assert_eq!(by_user[0].calls, 1);
+
+    let by_tenant = repo
+        .get_llm_usage_aggregates(Some(&tenant_str), since)
+        .await
+        .unwrap();
+    assert_eq!(by_tenant.iter().map(|r| r.calls).sum::<i64>(), 1);
+
+    let daily = repo
+        .get_llm_usage_daily_series_by_user(&user, since)
+        .await
+        .unwrap();
+    assert_eq!(daily.iter().map(|r| r.calls).sum::<i64>(), 1);
+
+    let all_tenants = repo.get_llm_usage_aggregates(None, since).await.unwrap();
+    assert!(
+        all_tenants.iter().all(|row| row.provider != "direct"),
+        "no tool row in the platform totals"
+    );
+
+    assert_eq!(
+        repo.get_tool_calls_since(Some(tenant), since)
             .await
             .unwrap()
-            >= 3
+            .iter()
+            .filter(|row| row.call_type == DIRECT_TOOL_CALL_TYPE)
+            .count(),
+        1,
+        "the per-tool view is where the row counts"
     );
 }
 
@@ -628,7 +754,7 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
 
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let daily = repo
-        .get_llm_usage_daily_series(&tenant, &today)
+        .get_llm_usage_daily_series(Some(&tenant), &today)
         .await
         .unwrap();
     assert_eq!(daily.len(), 1, "a bare day is midnight UTC of that day");
@@ -645,7 +771,10 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
     assert_eq!(by_user[0].cached_write_tokens, 5);
 
     let aggregates = repo
-        .get_llm_usage_aggregates(&tenant, &(Utc::now() - Duration::minutes(1)).to_rfc3339())
+        .get_llm_usage_aggregates(
+            Some(&tenant),
+            &(Utc::now() - Duration::minutes(1)).to_rfc3339(),
+        )
         .await
         .unwrap();
     assert_eq!(aggregates.len(), 1);
@@ -664,7 +793,7 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
     );
 
     for garbage in ["yesterday", "2026-09-14 00:00:00", ""] {
-        let refused = repo.get_llm_usage_aggregates(&tenant, garbage).await;
+        let refused = repo.get_llm_usage_aggregates(Some(&tenant), garbage).await;
         assert_eq!(
             refused.as_ref().err().map(|e| e.code),
             Some(ErrorCode::InvalidInput),

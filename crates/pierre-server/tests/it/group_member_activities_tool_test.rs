@@ -1,5 +1,5 @@
 // ABOUTME: Tests for get_group_member_activities — consent-gated peer activity fetch (Fix B).
-// ABOUTME: Covers consent grant, consent denial, kill-switch, unknown member, and tenant isolation.
+// ABOUTME: Covers consent grant, consent denial, kill-switch, unknown member, tenant isolation, and the room pin.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,8 +28,12 @@ mod peer_fetch_tests {
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
     };
+    use pierre_core::permissions::scopes::OAuthScope;
+    use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
     use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
+    use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -254,6 +258,95 @@ mod peer_fetch_tests {
             .structured_content
             .clone()
             .expect("tool result carries structured content")
+    }
+
+    /// A conversation `user_id` owns in `tenant_id`, bound to `group_id`'s
+    /// room when one is given and private to them otherwise.
+    async fn conversation(
+        resources: &ServerContext,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        group_id: Option<Uuid>,
+    ) -> String {
+        let group = group_id.map(|g| g.to_string());
+        resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                tenant_id,
+                "thread",
+                "gemini-2.0-flash",
+                None,
+                group.as_deref(),
+            )
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// The tool's answer to a web turn in `conversation_id`: the route calls
+    /// a turn a direct message when its conversation carries no group.
+    async fn read_in(
+        runtime: &Arc<dyn ToolRuntime>,
+        caller: (Uuid, TenantId),
+        conversation_id: &str,
+        args: Value,
+    ) -> Value {
+        let (user, tenant) = caller;
+        let is_direct_message = runtime
+            .repos()
+            .chat
+            .get_conversation(conversation_id, &user.to_string(), tenant)
+            .await
+            .unwrap()
+            .is_none_or(|conversation| conversation.group_id.is_none());
+        let ctx = tool_context(user, tenant);
+        let response = TURN_DIRECT_MESSAGE
+            .scope(
+                Some(is_direct_message),
+                CONVERSATION_ID.scope(
+                    Some(conversation_id.to_owned()),
+                    GetGroupMemberActivitiesTool.execute(runtime, &ctx, args),
+                ),
+            )
+            .await;
+        structured(&response)
+    }
+
+    /// The tool's answer when a messaging turn in `conversation_id` dispatches
+    /// it. The executor is built inside the turn's direct-message scope, as
+    /// the chat pipeline builds it, and runs outside it, as a loopback call
+    /// does: what reaches the tool is what the executor carried.
+    async fn dispatch_from_turn(
+        runtime: &Arc<dyn ToolRuntime>,
+        caller: (Uuid, TenantId),
+        conversation_id: &str,
+        is_direct_message: bool,
+        member: &str,
+    ) -> Value {
+        let (user, tenant) = caller;
+        let executor = TURN_DIRECT_MESSAGE.sync_scope(Some(is_direct_message), || {
+            UniversalToolExecutor::new(Arc::clone(runtime))
+                .with_scopes(OAuthScope::self_grant())
+                .with_transport(Transport::Messaging)
+                .with_conversation_id(conversation_id.to_owned())
+                .with_conversation_tenant(tenant.as_uuid())
+        });
+        let response = executor
+            .execute_tool(UniversalRequest {
+                tool_name: "get_group_member_activities".to_owned(),
+                parameters: json!({ "member": member }),
+                user_id: user.to_string(),
+                protocol: "chat".to_owned(),
+                tenant_id: Some(tenant.to_string()),
+            })
+            .await
+            .expect("the executor dispatches the tool");
+        response
+            .result
+            .expect("the tool answers with structured content")
     }
 
     /// A consenting peer in a shared group whose Strava connection + activities
@@ -849,5 +942,270 @@ mod peer_fetch_tests {
             "a fellow member still needs the athlete's peer consent: {peer_read}"
         );
         assert!(peer_read.get("activities").is_none());
+    }
+
+    /// carnet#1420: a coach of two groups, asking in a one-athlete room about
+    /// the other group's athlete. Every member of the room reads the reply,
+    /// and that athlete shared with their own group's coach, not with this
+    /// room — so the room pins the scan to its own group, whatever `group_id`
+    /// the model passes, and the athlete resolves as no match there. The
+    /// coach's own conversation still reads them across groups.
+    #[tokio::test]
+    async fn a_room_never_reads_another_groups_athlete() {
+        let resources = create_test_server_resources().await.unwrap();
+        let coach = seed_user(&resources, "coachpin").await;
+        let coach_tenant = create_tenant_owned_by(&resources, coach).await;
+        let agent_persona = seed_agent(&resources, coach, coach_tenant).await;
+
+        let ana = seed_user(&resources, "anapin").await;
+        let ana_tenant = create_tenant_owned_by(&resources, ana).await;
+        seed_ride(&resources, ana, ana_tenant).await;
+        let bea = seed_user(&resources, "beapin").await;
+        let bea_tenant = create_tenant_owned_by(&resources, bea).await;
+        seed_ride(&resources, bea, bea_tenant).await;
+
+        let mut groups = Vec::new();
+        for (athlete, tenant) in [(ana, ana_tenant), (bea, bea_tenant)] {
+            let gid = create_group(&resources, coach_tenant, agent_persona, coach, true).await;
+            add_member(&resources, gid, athlete, tenant, GroupRole::Member, true).await;
+            assert!(
+                resources
+                    .common
+                    .repos
+                    .groups
+                    .set_group_coach_user(&gid.to_string(), Some(coach), coach_tenant)
+                    .await
+                    .unwrap(),
+                "test setup bug: the coach was not attached to the group just created"
+            );
+            groups.push(gid);
+        }
+        let (anas_group, beas_group) = (groups[0], groups[1]);
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (coach, coach_tenant);
+        let anas_room = conversation(&resources, coach, coach_tenant, Some(anas_group)).await;
+
+        for args in [
+            json!({ "member": "beapin" }),
+            json!({ "member": "beapin", "group_id": beas_group.to_string() }),
+        ] {
+            let refused = read_in(&runtime, caller, &anas_room, args.clone()).await;
+            assert_eq!(
+                refused.get("reason").and_then(Value::as_str),
+                Some("no_match"),
+                "another group's athlete is no match in this room, for {args}: {refused}"
+            );
+            assert!(
+                refused.get("activities").is_none(),
+                "no rows reach the room for {args}: {refused}"
+            );
+            let said = refused["error"].as_str().unwrap();
+            assert!(
+                said.contains("that group's room") && said.contains("thread about that athlete"),
+                "the refusal says where that athlete is read: {said}"
+            );
+        }
+
+        // Both athletes' seeded rides share one id, so the member the answer
+        // names is what says whose sessions came back.
+        let own_athlete =
+            read_in(&runtime, caller, &anas_room, json!({ "member": "anapin" })).await;
+        assert_eq!(
+            own_athlete.get("member").and_then(Value::as_str),
+            Some("anapin Athlete"),
+            "the room's own athlete is the one read in it: {own_athlete}"
+        );
+        assert_eq!(
+            first_activity_id(&own_athlete),
+            Some("peer-ride-1"),
+            "the room's own athlete is still read in it: {own_athlete}"
+        );
+
+        let direct_chat = conversation(&resources, coach, coach_tenant, None).await;
+        let across = read_in(
+            &runtime,
+            caller,
+            &direct_chat,
+            json!({ "member": "beapin" }),
+        )
+        .await;
+        assert_eq!(
+            across.get("member").and_then(Value::as_str),
+            Some("beapin Athlete"),
+            "the coach's own conversation reads the other group's athlete: {across}"
+        );
+        assert_eq!(
+            first_activity_id(&across),
+            Some("peer-ride-1"),
+            "the coach's own conversation reads every athlete they coach: {across}"
+        );
+    }
+
+    /// The same pin holds for a member who is not a coach: in their own
+    /// group's room they never read a peer who shared only with another group
+    /// they belong to, though their own conversation does.
+    #[tokio::test]
+    async fn a_member_of_two_groups_never_reads_one_groups_peer_in_the_others_room() {
+        let resources = create_test_server_resources().await.unwrap();
+        let ana = seed_user(&resources, "anaroom").await;
+        let ana_tenant = create_tenant_owned_by(&resources, ana).await;
+        let agent_persona = seed_agent(&resources, ana, ana_tenant).await;
+        let bea = seed_user(&resources, "bearoom").await;
+        let bea_tenant = create_tenant_owned_by(&resources, bea).await;
+        seed_ride(&resources, bea, bea_tenant).await;
+
+        let anas_room_group = create_group(&resources, ana_tenant, agent_persona, ana, true).await;
+        add_member(
+            &resources,
+            anas_room_group,
+            ana,
+            ana_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        let shared = create_group(&resources, ana_tenant, agent_persona, ana, true).await;
+        add_member(&resources, shared, ana, ana_tenant, GroupRole::Owner, false).await;
+        add_member(&resources, shared, bea, bea_tenant, GroupRole::Member, true).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (ana, ana_tenant);
+
+        let room = conversation(&resources, ana, ana_tenant, Some(anas_room_group)).await;
+        let refused = read_in(&runtime, caller, &room, json!({ "member": "bearoom" })).await;
+        assert_eq!(
+            refused.get("reason").and_then(Value::as_str),
+            Some("no_match"),
+            "a peer of another group is no match in this room: {refused}"
+        );
+        assert!(
+            refused.get("activities").is_none(),
+            "no rows of another group's peer reach this room: {refused}"
+        );
+
+        let own = conversation(&resources, ana, ana_tenant, None).await;
+        let read = read_in(&runtime, caller, &own, json!({ "member": "bearoom" })).await;
+        assert_eq!(
+            first_activity_id(&read),
+            Some("peer-ride-1"),
+            "the member's own conversation reads the peer who shared with them: {read}"
+        );
+    }
+
+    /// A conversation the caller is no participant of may be any room, so
+    /// nothing is scanned and no peer's sessions are published into it.
+    #[tokio::test]
+    async fn an_unresolvable_conversation_reads_no_one() {
+        let resources = create_test_server_resources().await.unwrap();
+        let requester = seed_user(&resources, "philunres").await;
+        let host_tenant = create_tenant_owned_by(&resources, requester).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
+        let peer = seed_user(&resources, "raphunres").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+        seed_ride(&resources, peer, peer_tenant).await;
+
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, true).await;
+
+        let stranger = seed_user(&resources, "strangerunres").await;
+        let stranger_tenant = create_tenant_owned_by(&resources, stranger).await;
+        let theirs = conversation(&resources, stranger, stranger_tenant, None).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (requester, host_tenant);
+        let refused = read_in(&runtime, caller, &theirs, json!({ "member": "raphunres" })).await;
+        assert_eq!(
+            refused.get("reason").and_then(Value::as_str),
+            Some("room_unresolved"),
+            "a conversation the caller is no participant of is refused, not scanned: {refused}"
+        );
+        assert!(
+            refused.get("activities").is_none(),
+            "no rows reach a conversation that did not resolve: {refused}"
+        );
+    }
+
+    /// carnet#1421: a messaging group chat whose group binding failed keeps
+    /// no group on its conversation, so the row alone reads as the coach's
+    /// private chat. The turn knows other people read the reply, and the
+    /// executor carries that to the tool: the coach reads no athlete of
+    /// either group they coach there, while the same conversation on a
+    /// direct-message turn reads both.
+    #[tokio::test]
+    async fn an_ungrouped_shared_chat_reads_no_one() {
+        let resources = create_test_server_resources().await.unwrap();
+        let coach = seed_user(&resources, "coachshared").await;
+        let coach_tenant = create_tenant_owned_by(&resources, coach).await;
+        let agent_persona = seed_agent(&resources, coach, coach_tenant).await;
+        let athletes = ["anashared", "brunoshared"];
+
+        // Each athlete in a group of their own, every one coached by `coach`.
+        for label in athletes {
+            let athlete = seed_user(&resources, label).await;
+            let athlete_tenant = create_tenant_owned_by(&resources, athlete).await;
+            seed_ride(&resources, athlete, athlete_tenant).await;
+            let gid = create_group(&resources, coach_tenant, agent_persona, coach, true).await;
+            add_member(
+                &resources,
+                gid,
+                athlete,
+                athlete_tenant,
+                GroupRole::Member,
+                true,
+            )
+            .await;
+            assert!(
+                resources
+                    .common
+                    .repos
+                    .groups
+                    .set_group_coach_user(&gid.to_string(), Some(coach), coach_tenant)
+                    .await
+                    .unwrap(),
+                "test setup bug: the coach was not attached to the group just created"
+            );
+        }
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let chat = conversation(&resources, coach, coach_tenant, None).await;
+
+        for label in athletes {
+            let shared =
+                dispatch_from_turn(&runtime, (coach, coach_tenant), &chat, false, label).await;
+            assert_eq!(
+                shared.get("reason").and_then(Value::as_str),
+                Some("room_unresolved"),
+                "a chat others read with no group bound to it is never treated as private, \
+                 so {label} is not read there: {shared}"
+            );
+            assert!(
+                shared.get("activities").is_none(),
+                "none of {label}'s rows reach a shared chat: {shared}"
+            );
+
+            let direct =
+                dispatch_from_turn(&runtime, (coach, coach_tenant), &chat, true, label).await;
+            let display_name = format!("{label} Athlete");
+            assert_eq!(
+                direct.get("member").and_then(Value::as_str),
+                Some(display_name.as_str()),
+                "the same conversation on a direct-message turn reads coached {label}: {direct}"
+            );
+            assert_eq!(
+                first_activity_id(&direct),
+                Some("peer-ride-1"),
+                "{label}'s ride comes back on the direct-message turn: {direct}"
+            );
+        }
     }
 }

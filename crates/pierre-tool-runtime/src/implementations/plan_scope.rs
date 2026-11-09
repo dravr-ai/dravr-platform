@@ -43,7 +43,14 @@
 //!
 //! Gates 2 to 4 are [`coached_athlete_access`], the by-id check the route
 //! that opens a coach's athlete thread runs too: a name is resolved to one
-//! member here, and the check decides by their id.
+//! member ([`match_coached_member`], shared with the read scope in
+//! [`crate::read_subject`]), and the check decides by their id.
+//!
+//! What a tool then reads of the athlete runs under the athlete's own
+//! provider AI consents, never the coach's ([`PlanScope::read_as_athlete`],
+//! carnet#1419). Their wellness — sleep, HRV, resting heart rate — takes the
+//! athlete's `coach_wellness_read` grant on top of the gates
+//! ([`PlanScope::wellness_withheld`], carnet#1423).
 //!
 //! ## A thread bound to one athlete
 //!
@@ -69,17 +76,18 @@
 //! surface's own: the view and the private reply reach the coach alone, and
 //! the room's status carries no week of the plan.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::groups::CoachingGroup;
+use pierre_core::models::groups::CoachConsents;
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
-use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
+use pierre_services::provider_notice;
 use pierre_tools_core::ToolResult;
 use serde_json::json;
 use tracing::info;
@@ -90,6 +98,10 @@ use crate::context::ToolExecutionContext;
 use crate::guardian::{
     tenant_disabled_message, tenant_tool_enabled, TENANT_DISABLED_ERROR_CODE,
     TENANT_DISABLED_REASON,
+};
+use crate::read_subject::{
+    gate_message, match_coached_member, names_subject, other_name, thread_unreached, GateObject,
+    MemberMiss, OtherName, WellnessWithheld,
 };
 use crate::runtime::ToolRuntime;
 
@@ -102,13 +114,82 @@ pub struct PlanScope {
     pub user_id: Uuid,
     /// The requester and the agent their turn answers as.
     pub writer: PlanWriter,
-    /// Roster display name of the athlete when the caller acts for someone
-    /// else; `None` in self scope.
-    pub acting_for: Option<String>,
-    /// The group whose coaching gates let the caller act for that athlete —
-    /// the room a publish of their plan is said in (carnet#1249); `None` in
-    /// self scope.
-    pub group_id: Option<Uuid>,
+    /// Whether the plan is the requester's own or a coached athlete's.
+    pub(crate) subject: PlanSubject,
+}
+
+/// Whose plan a [`PlanScope`] acts on.
+///
+/// One enum rather than three options that are always set or empty
+/// together: a coached athlete's scope carries their name, the group and
+/// their consents, and the caller's own carries none of them.
+#[derive(Debug)]
+pub(crate) enum PlanSubject {
+    /// The requester's own plan.
+    Own,
+    /// A coached athlete's plan, which the requester acts on as their coach.
+    Coached {
+        /// The athlete's roster display name.
+        athlete: String,
+        /// The group whose coaching gates let the requester act for the
+        /// athlete — the room a publish of their plan is said in
+        /// (carnet#1249).
+        group_id: Uuid,
+        /// What the athlete lets the requester do beyond reading their
+        /// training ([`CoachedAthleteAccess::consents`]).
+        consents: CoachConsents,
+    },
+}
+
+impl PlanScope {
+    /// The athlete's roster display name when the caller acts for a coached
+    /// athlete; `None` in self scope.
+    #[must_use]
+    pub(crate) fn acting_for(&self) -> Option<&str> {
+        match &self.subject {
+            PlanSubject::Own => None,
+            PlanSubject::Coached { athlete, .. } => Some(athlete),
+        }
+    }
+
+    /// Why this call leaves the athlete's wellness — their sleep, HRV and
+    /// resting heart rate — out, or `None` when it reads it.
+    ///
+    /// The athlete reads their own. A human coach acting for them reads it
+    /// only under the athlete's `coach_wellness_read` grant, never under
+    /// their coach sharing alone (carnet#1423), and is told so in the one
+    /// wording every coach's read gives ([`WellnessWithheld::note`]).
+    #[must_use]
+    pub(crate) fn wellness_withheld(&self) -> Option<WellnessWithheld> {
+        match &self.subject {
+            PlanSubject::Own => None,
+            PlanSubject::Coached {
+                athlete, consents, ..
+            } => (!consents.wellness_read).then(|| WellnessWithheld {
+                athlete: athlete.clone(),
+            }),
+        }
+    }
+
+    /// Run `read`, a read of this scope's athlete's data, under the athlete's
+    /// own AI consents.
+    ///
+    /// A coach acting for a coached athlete reads the athlete's providers as
+    /// the athlete allowed AI to read them, never as the coach did, and the
+    /// call's result is filtered the same way (carnet#1419). In self scope the
+    /// athlete is the caller, whose consents the dispatch chokepoint already
+    /// declared.
+    pub(crate) async fn read_as_athlete<F: Future>(
+        &self,
+        repos: &RepositoryRegistry,
+        read: F,
+    ) -> F::Output {
+        if matches!(self.subject, PlanSubject::Own) {
+            return read.await;
+        }
+        provider_notice::under_subject_ai_consent(repos, self.tenant.as_uuid(), self.user_id, read)
+            .await
+    }
 }
 
 /// Who writes to the plan: the requester and the agent their turn answers as.
@@ -144,120 +225,6 @@ pub struct PlanScopeRequest<'a> {
     pub athlete: Option<&'a str>,
     /// The tool asking, for the cross-tenant tool-disable check and the log line.
     pub tool_name: &'a str,
-}
-
-/// The one coached member a name query matched, with the group row that
-/// authorizes acting for them.
-#[derive(Debug)]
-pub struct CoachedMatch {
-    /// A group the requester coaches the member in: one where the member
-    /// shares with them when any does, so a refusal names the most permissive
-    /// row; else the first.
-    pub group: CoachingGroup,
-    /// The member.
-    pub user_id: Uuid,
-    /// Their display name ([`fetch_user_display_name`]).
-    pub(crate) display_name: String,
-    /// Whether the member shares with the requester in `group`.
-    pub(crate) consented: bool,
-}
-
-/// Why a name query matched no one coached member.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MemberMiss {
-    /// The query matched only the requester.
-    Requester,
-    /// No live member of a group the requester coaches matched.
-    NoMatch,
-    /// Several distinct members matched: their display names, sorted.
-    Ambiguous(Vec<String>),
-}
-
-impl MemberMiss {
-    /// What the model relays for a query `query` that resolved to no one
-    /// member; `yourself` says what to do when it named the requester.
-    pub(crate) fn message(&self, query: &str, yourself: &str) -> String {
-        match self {
-            Self::Requester => format!("'{query}' is you — {yourself}"),
-            Self::NoMatch => format!(
-                "No athlete matching '{query}' in a group you coach — the athlete must be a \
-                 member of a group you are attached to as its coach (a coach invite), not merely \
-                 a group you belong to."
-            ),
-            Self::Ambiguous(names) => format!(
-                "'{query}' is ambiguous — several athletes you coach match: {}. Use a more \
-                 specific name.",
-                names.join(", ")
-            ),
-        }
-    }
-}
-
-/// The one live member of a group `requester` is the human coach of whose
-/// display name contains `query`, case aside.
-///
-/// Walked from the groups the requester is attached to as their coach, never
-/// from the groups they merely belong to; `within` narrows the walk to one of
-/// them — the room a reply would be read in. The same athlete in two coached
-/// groups is one person; the requester is never their own athlete.
-///
-/// The outer `Err` is a repository failure; the inner `Err` says why no one
-/// member matched.
-///
-/// # Errors
-///
-/// Returns the repository error from the group or member lookups.
-pub async fn match_coached_member(
-    repos: &RepositoryRegistry,
-    requester: Uuid,
-    query: &str,
-    within: Option<Uuid>,
-) -> AppResult<Result<CoachedMatch, MemberMiss>> {
-    let query_lower = query.to_lowercase();
-    let mut matches: Vec<CoachedMatch> = Vec::new();
-    let mut requester_matched = false;
-    for group in repos.groups.list_groups_coached_by(requester).await? {
-        if !group.is_active || within.is_some_and(|pin| pin != group.id) {
-            continue;
-        }
-        for member in repos.groups.list_members(&group.id.to_string()).await? {
-            if member.left_at.is_some() {
-                continue;
-            }
-            let display_name = fetch_user_display_name(repos, member.user_id).await;
-            if !display_name.to_lowercase().contains(&query_lower) {
-                continue;
-            }
-            if member.user_id == requester {
-                requester_matched = true;
-                continue;
-            }
-            matches.push(CoachedMatch {
-                group: group.clone(),
-                user_id: member.user_id,
-                display_name,
-                consented: member.coach_sharing_consent,
-            });
-        }
-    }
-
-    let Some(first) = matches.first() else {
-        return Ok(Err(if requester_matched {
-            MemberMiss::Requester
-        } else {
-            MemberMiss::NoMatch
-        }));
-    };
-    // Ambiguous only when DISTINCT athletes match — the same athlete in two
-    // coached groups is one person.
-    if matches.iter().any(|m| m.user_id != first.user_id) {
-        let mut names: Vec<String> = matches.iter().map(|m| m.display_name.clone()).collect();
-        names.sort_unstable();
-        names.dedup();
-        return Ok(Err(MemberMiss::Ambiguous(names)));
-    }
-    let at = matches.iter().position(|m| m.consented).unwrap_or(0);
-    Ok(Ok(matches.swap_remove(at)))
 }
 
 /// The tool whose tenant configuration governs a coach's read of an
@@ -346,8 +313,7 @@ pub async fn resolve_plan_scope(
             tenant: request.requester_tenant,
             user_id: request.context.user_id,
             writer,
-            acting_for: None,
-            group_id: None,
+            subject: PlanSubject::Own,
         }));
     };
 
@@ -419,89 +385,38 @@ async fn resolve_subject_scope(
         Ok(access) => access,
         Err(refused) => {
             return Ok(Err(gate_refusal(&refused, || {
-                match refused {
-                    CoachedAthleteRefusal::NotGroupCoach => {
-                        "This thread works on an athlete of a group you no longer coach, so \
-                         their plan is out of reach here."
-                    }
-                    _ => {
-                        "This thread's athlete is no longer a member of the group you coach \
-                         them in, so their plan is out of reach here."
-                    }
-                }
-                .to_owned()
+                thread_unreached(&refused, GateObject::Plan)
             })));
         }
     };
 
-    if let Some(query) = query {
-        if !access
-            .display_name
-            .to_lowercase()
-            .contains(&query.to_lowercase())
-        {
-            let name = &access.display_name;
-            let own = match match_coached_member(data.repos(), requester, query, None).await? {
-                Ok(other) => {
-                    return Ok(Err(refusal(&format!(
-                        "This thread works on {name}'s plan — open {}'s own thread from Group \
-                         info to work on theirs.",
-                        other.display_name
-                    ))));
-                }
-                Err(MemberMiss::Requester) => true,
-                // A coach attached to a group holds no membership in it, so
-                // their own name is asked of their own row.
-                Err(MemberMiss::NoMatch | MemberMiss::Ambiguous(_)) => {
-                    fetch_user_display_name(data.repos(), requester)
-                        .await
-                        .to_lowercase()
-                        .contains(&query.to_lowercase())
-                }
-            };
-            let message = if own {
-                format!(
-                    "This thread works on {name}'s plan — act on your own plan from your own \
-                     conversation with me."
-                )
-            } else {
-                format!(
-                    "This thread works on {name}'s plan, and '{query}' does not name them — \
-                     omit `athlete` to act on {name}'s plan."
-                )
-            };
-            return Ok(Err(refusal(&message)));
-        }
+    if let Some(query) = query.filter(|query| !names_subject(&access.display_name, query)) {
+        let name = &access.display_name;
+        let message = match other_name(data.repos(), requester, query).await? {
+            OtherName::Athlete(other) => format!(
+                "This thread works on {name}'s plan — open {other}'s own thread from Group info \
+                 to work on theirs."
+            ),
+            OtherName::Requester => format!(
+                "This thread works on {name}'s plan — act on your own plan from your own \
+                 conversation with me."
+            ),
+            OtherName::Nobody => format!(
+                "This thread works on {name}'s plan, and '{query}' does not name them — omit \
+                 `athlete` to act on {name}'s plan."
+            ),
+        };
+        return Ok(Err(refusal(&message)));
     }
 
     acting_for(request, writer, access).await
 }
 
-/// What the model relays for a gate refusal. `unreached` words the two that
-/// fail before the athlete is shown to be the requester's — those name nobody.
+/// What the model relays for a gate refusal about the athlete's plan.
+/// `unreached` words the two that fail before the athlete is shown to be the
+/// requester's — those name nobody.
 fn gate_refusal(refused: &CoachedAthleteRefusal, unreached: impl FnOnce() -> String) -> ToolResult {
-    refusal(&gate_message(refused, unreached))
-}
-
-/// The words of [`gate_refusal`], for a tool that answers in its own shape.
-pub(super) fn gate_message(
-    refused: &CoachedAthleteRefusal,
-    unreached: impl FnOnce() -> String,
-) -> String {
-    match refused {
-        CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember => unreached(),
-        CoachedAthleteRefusal::CoachSharingRevoked { athlete, group } => format!(
-            "{athlete} has stopped sharing their data with you, the coach of '{group}'. They can \
-             share it again with `/group consent coach yes`."
-        ),
-        CoachedAthleteRefusal::NoTenant { athlete } => {
-            format!("{athlete} belongs to no tenant, so there is nowhere to keep their plan.")
-        }
-        CoachedAthleteRefusal::SeveralTenants { athlete } => format!(
-            "{athlete} belongs to several tenants — acting on their plan is not supported, \
-             because the plan would be visible on one of their surfaces and missing on another."
-        ),
-    }
+    refusal(&gate_message(refused, GateObject::Plan, unreached))
 }
 
 /// The scope of a call the gates let act for `access`'s athlete, once the
@@ -539,7 +454,10 @@ async fn acting_for(
         tenant: access.tenant,
         user_id: access.athlete_user_id,
         writer,
-        acting_for: Some(access.display_name),
-        group_id: Some(access.group.id),
+        subject: PlanSubject::Coached {
+            athlete: access.display_name,
+            group_id: access.group.id,
+            consents: access.consents,
+        },
     }))
 }

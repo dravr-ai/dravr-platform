@@ -668,6 +668,7 @@ async fn a_deleted_email_is_not_auto_approved_until_its_holder_clears_it() {
     let auth = resources.auth_routes_context().account_service();
     let registered = auth
         .register(RegisterRequest {
+            analytics_consent: None,
             email: email.clone(),
             password: SecretString::from("CorrectHorse-482"),
             display_name: None,

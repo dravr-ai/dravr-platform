@@ -22,9 +22,8 @@ use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
 use tracing::info;
 
-use crate::guardian::StepOutput;
 use crate::prompt_projection;
-use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY};
+use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 use crate::reply_budget::REPLY_BUDGET_KEY;
 
 /// Serialize one tool response for injection into the prompt.
@@ -100,7 +99,7 @@ const ACTIVITIES_ENVELOPE_KEPT: [&str; 12] = [
 /// one of the athlete's connections, each with a `note` addressed to the
 /// model: `reconnect_required` for a dead connection, `provider_unavailable`
 /// for one that could not answer just now.
-const SERVED_WITHOUT_SIDECARS: [&str; 2] = ["reconnect_required", "provider_unavailable"];
+const SERVED_WITHOUT_SIDECARS: [&str; 2] = [RECONNECT_REQUIRED_KEY, "provider_unavailable"];
 
 /// The notes of the served-without-a-provider sidecars a `get_activities`
 /// payload carries: a dead connection's (`reconnect_required`), then an
@@ -260,14 +259,6 @@ pub fn reconnect_offer_in_responses(responses: &[FunctionResponse]) -> Option<St
     responses
         .iter()
         .find_map(|resp| offer_in_payload(&resp.name, &resp.response))
-}
-
-/// The same signal read off a verified plan's executed steps, so a planned turn
-/// carries the reconnect offer the `ReAct` loops carry.
-pub(crate) fn reconnect_offer_in_steps(outputs: &[StepOutput]) -> Option<String> {
-    outputs
-        .iter()
-        .find_map(|output| offer_in_payload(&output.tool_name, &output.result))
 }
 
 // ============================================================================

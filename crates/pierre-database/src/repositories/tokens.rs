@@ -39,16 +39,12 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-use secrecy::SecretString;
-use std::fmt::Display;
+mod rows;
 
-use chrono::{DateTime, Utc};
-use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{
-    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
-    OAuthClientGrant,
+pub(crate) use rows::{
+    client_grant_from_row, device_authorization_from_row, oauth2_auth_code_from_row,
+    oauth2_client_from_row, oauth2_refresh_token_from_row, oauth2_state_from_row,
 };
-use uuid::Uuid;
 
 /// Register an RFC 7591 client unless `$12` registrations are already
 /// pending — carrying an expiry and never issued a refresh token. The count
@@ -69,6 +65,21 @@ pub(crate) const STORE_OAUTH2_CLIENT_WITHIN_CEILING_SQL: &str = r"
 pub(crate) const STORE_OAUTH2_CLIENT_SQL: &str = r"
             INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ";
+
+/// Rewrite a public client's metadata (`client_secret_hash` empty) from a
+/// freshly fetched client metadata document.
+pub(crate) const UPDATE_PUBLIC_OAUTH2_CLIENT_METADATA_SQL: &str = r"
+            UPDATE oauth2_clients
+            SET redirect_uris = $2, grant_types = $3, response_types = $4,
+                client_name = $5, client_uri = $6, scope = $7, expires_at = $8
+            WHERE client_id = $1 AND client_secret_hash = ''
+            ";
+
+/// Slide the expiry of a registration that has one forward, never back.
+pub(crate) const EXTEND_OAUTH2_CLIENT_EXPIRY_SQL: &str = r"
+            UPDATE oauth2_clients SET expires_at = $2
+            WHERE client_id = $1 AND expires_at IS NOT NULL AND expires_at < $2
             ";
 
 /// One client by its public `client_id`; codes, refresh tokens and states go
@@ -156,13 +167,13 @@ pub(crate) const PEEK_OAUTH2_AUTH_CODE_SQL: &str = r"
 /// Store a refresh token under its HMAC, with the RFC 8707 resource its grant
 /// is bound to.
 pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ";
 
 /// A refresh token by its HMAC, whatever its state.
 pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource
+            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at
             FROM oauth2_refresh_tokens
             WHERE token IN ($1, $2)
             ";
@@ -176,7 +187,7 @@ pub(crate) const CONSUME_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
               AND client_id = $2
               AND revoked = FALSE
               AND expires_at > $3
-            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource
+            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at
             ";
 
 /// Revoke every live member of the rotation chain the token (by HMAC)
@@ -243,11 +254,79 @@ pub(crate) const LIST_CLIENT_GRANTS_SQL: &str = r"
             ";
 
 /// Soft-delete a grant; `user_id` + `tenant_id` in the filter is the
-/// ownership check.
+/// ownership check. Returns the client the grant belonged to, so the same
+/// transaction can retire that client's refresh tokens.
 pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+            RETURNING client_id
+            ";
+
+/// Every grant, live or revoked, a user gave one client in one tenant.
+pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            FROM oauth_client_grants
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
+            ";
+
+/// Soft-delete every active grant a user gave one client in one tenant.
+pub(crate) const WITHDRAW_CLIENT_GRANTS_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND revoked_at IS NULL
+            ";
+
+/// Record a client's access as withdrawn when it has no grant row to revoke.
+pub(crate) const STORE_WITHDRAWN_CLIENT_GRANT_SQL: &str = r"
+            INSERT INTO oauth_client_grants
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ";
+
+/// Revoke every live refresh token one user holds in one tenant through one
+/// client: every family the revoked grant started.
+pub(crate) const REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
+            UPDATE oauth2_refresh_tokens
+            SET revoked = TRUE
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND client_id = $3
+              AND revoked = FALSE
+            ";
+
+/// Burn every unredeemed authorization code one user holds in one tenant
+/// through one client, so a code issued just before a grant is revoked cannot
+/// start a new refresh family after it.
+pub(crate) const REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL: &str = r"
+            UPDATE oauth2_auth_codes
+            SET used = TRUE
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND client_id = $3
+              AND used = FALSE
+            ";
+
+/// Revoke the refresh tokens of a consent the user withdrew: the client has a
+/// revoked grant and no active one. A client that never had a grant row is not
+/// a withdrawn one.
+pub(crate) const REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
+            UPDATE oauth2_refresh_tokens
+            SET revoked = TRUE
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND client_id = $3
+              AND revoked = FALSE
+              AND EXISTS (
+                  SELECT 1 FROM oauth_client_grants g
+                  WHERE g.tenant_id = $1 AND g.user_id = $2 AND g.client_id = $3
+                    AND g.revoked_at IS NOT NULL
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM oauth_client_grants g
+                  WHERE g.tenant_id = $1 AND g.user_id = $2 AND g.client_id = $3
+                    AND g.revoked_at IS NULL
+              )
             ";
 
 /// Open an RFC 8628 device authorization, pending until an operator acts.
@@ -289,279 +368,6 @@ pub(crate) const DENY_DEVICE_AUTHORIZATION_SQL: &str = r"
 /// went, so a duplicate poll can never mint twice.
 pub(crate) const DELETE_DEVICE_AUTHORIZATION_SQL: &str =
     "DELETE FROM device_authorization WHERE device_code_hash = $1";
-
-fn column_error(col: &str, e: impl Display) -> AppError {
-    AppError::database(format!("Failed to get {col}: {e}"))
-}
-
-/// Read a uuid the table stores as hyphenated text.
-fn text_uuid<R>(row: &R, col: &str) -> AppResult<Uuid>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let raw: String = row.try_get(col).map_err(|e| column_error(col, e))?;
-    Uuid::parse_str(&raw).map_err(|e| AppError::database(format!("Failed to parse {col}: {e}")))
-}
-
-/// Read a JSON-array-of-strings column.
-fn json_list<R>(row: &R, col: &str) -> AppResult<Vec<String>>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let raw: String = row.try_get(col).map_err(|e| column_error(col, e))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| AppError::database(format!("Failed to parse {col}: {e}")))
-}
-
-/// Decode one `oauth2_clients` row. `try_get` throughout, never `Row::get`,
-/// so a corrupt row surfaces as a recoverable error rather than a panic.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn oauth2_client_from_row<R>(row: &R) -> AppResult<OAuth2Client>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(OAuth2Client {
-        id: row.try_get("id").map_err(|e| column_error("id", e))?,
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column_error("client_id", e))?,
-        client_secret_hash: row
-            .try_get("client_secret_hash")
-            .map_err(|e| column_error("client_secret_hash", e))?,
-        redirect_uris: json_list(row, "redirect_uris")?,
-        grant_types: json_list(row, "grant_types")?,
-        response_types: json_list(row, "response_types")?,
-        client_name: row
-            .try_get("client_name")
-            .map_err(|e| column_error("client_name", e))?,
-        client_uri: row
-            .try_get("client_uri")
-            .map_err(|e| column_error("client_uri", e))?,
-        scope: row.try_get("scope").map_err(|e| column_error("scope", e))?,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column_error("created_at", e))?,
-        expires_at: row
-            .try_get("expires_at")
-            .map_err(|e| column_error("expires_at", e))?,
-    })
-}
-
-/// Decode one `oauth2_auth_codes` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn oauth2_auth_code_from_row<R>(row: &R) -> AppResult<OAuth2AuthCode>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(OAuth2AuthCode {
-        code: row.try_get("code").map_err(|e| column_error("code", e))?,
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column_error("client_id", e))?,
-        user_id: text_uuid(row, "user_id")?,
-        tenant_id: row
-            .try_get("tenant_id")
-            .map_err(|e| column_error("tenant_id", e))?,
-        redirect_uri: row
-            .try_get("redirect_uri")
-            .map_err(|e| column_error("redirect_uri", e))?,
-        scope: row.try_get("scope").map_err(|e| column_error("scope", e))?,
-        expires_at: row
-            .try_get("expires_at")
-            .map_err(|e| column_error("expires_at", e))?,
-        used: row.try_get("used").map_err(|e| column_error("used", e))?,
-        state: row.try_get("state").map_err(|e| column_error("state", e))?,
-        code_challenge: row
-            .try_get("code_challenge")
-            .map_err(|e| column_error("code_challenge", e))?,
-        code_challenge_method: row
-            .try_get("code_challenge_method")
-            .map_err(|e| column_error("code_challenge_method", e))?,
-        resource: row
-            .try_get("resource")
-            .map_err(|e| column_error("resource", e))?,
-    })
-}
-
-/// Decode one `oauth2_refresh_tokens` row. `token` is the stored HMAC, not
-/// the credential.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn oauth2_refresh_token_from_row<R>(row: &R) -> AppResult<OAuth2RefreshToken>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(OAuth2RefreshToken {
-        token: SecretString::from(
-            row.try_get::<String, _>("token")
-                .map_err(|e| column_error("token", e))?,
-        ),
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column_error("client_id", e))?,
-        user_id: text_uuid(row, "user_id")?,
-        tenant_id: row
-            .try_get("tenant_id")
-            .map_err(|e| column_error("tenant_id", e))?,
-        scope: row.try_get("scope").map_err(|e| column_error("scope", e))?,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column_error("created_at", e))?,
-        expires_at: row
-            .try_get("expires_at")
-            .map_err(|e| column_error("expires_at", e))?,
-        revoked: row
-            .try_get("revoked")
-            .map_err(|e| column_error("revoked", e))?,
-        family_id: row
-            .try_get("family_id")
-            .map_err(|e| column_error("family_id", e))?,
-        resource: row
-            .try_get("resource")
-            .map_err(|e| column_error("resource", e))?,
-    })
-}
-
-/// Decode one `oauth2_states` row. `user_id` is nullable: a state minted
-/// before the user is known carries none.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn oauth2_state_from_row<R>(row: &R) -> AppResult<OAuth2State>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let user_id: Option<String> = row
-        .try_get("user_id")
-        .map_err(|e| column_error("user_id", e))?;
-    let user_id = user_id
-        .map(|raw| Uuid::parse_str(&raw))
-        .transpose()
-        .map_err(|e| AppError::database(format!("Failed to parse user_id: {e}")))?;
-    Ok(OAuth2State {
-        state: row.try_get("state").map_err(|e| column_error("state", e))?,
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column_error("client_id", e))?,
-        user_id,
-        tenant_id: row
-            .try_get("tenant_id")
-            .map_err(|e| column_error("tenant_id", e))?,
-        redirect_uri: row
-            .try_get("redirect_uri")
-            .map_err(|e| column_error("redirect_uri", e))?,
-        scope: row.try_get("scope").map_err(|e| column_error("scope", e))?,
-        code_challenge: row
-            .try_get("code_challenge")
-            .map_err(|e| column_error("code_challenge", e))?,
-        code_challenge_method: row
-            .try_get("code_challenge_method")
-            .map_err(|e| column_error("code_challenge_method", e))?,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column_error("created_at", e))?,
-        expires_at: row
-            .try_get("expires_at")
-            .map_err(|e| column_error("expires_at", e))?,
-        used: row.try_get("used").map_err(|e| column_error("used", e))?,
-    })
-}
-
-/// Decode one `oauth_client_grants` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn client_grant_from_row<R>(row: &R) -> AppResult<OAuthClientGrant>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(OAuthClientGrant {
-        id: row.try_get("id").map_err(|e| column_error("id", e))?,
-        user_id: row
-            .try_get("user_id")
-            .map_err(|e| column_error("user_id", e))?,
-        tenant_id: row
-            .try_get("tenant_id")
-            .map_err(|e| column_error("tenant_id", e))?,
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column_error("client_id", e))?,
-        scope: row.try_get("scope").map_err(|e| column_error("scope", e))?,
-        granted_at: row
-            .try_get("granted_at")
-            .map_err(|e| column_error("granted_at", e))?,
-        revoked_at: row
-            .try_get("revoked_at")
-            .map_err(|e| column_error("revoked_at", e))?,
-    })
-}
-
-/// Decode one `device_authorization` row; the timestamps are epoch seconds.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn device_authorization_from_row<R>(row: &R) -> AppResult<DeviceAuthorization>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(DeviceAuthorization {
-        device_code_hash: row
-            .try_get("device_code_hash")
-            .map_err(|e| column_error("device_code_hash", e))?,
-        user_code: row
-            .try_get("user_code")
-            .map_err(|e| column_error("user_code", e))?,
-        status: row
-            .try_get("status")
-            .map_err(|e| column_error("status", e))?,
-        approved_by: row
-            .try_get("approved_by")
-            .map_err(|e| column_error("approved_by", e))?,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column_error("created_at", e))?,
-        expires_at: row
-            .try_get("expires_at")
-            .map_err(|e| column_error("expires_at", e))?,
-    })
-}
 
 /// Emit the whole [`OAuth2ServerRepository`](super::OAuth2ServerRepository)
 /// implementation for one backend type.
@@ -622,6 +428,43 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to store OAuth2 client: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn update_public_client_metadata(
+                &self,
+                client: &OAuth2Client,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(UPDATE_PUBLIC_OAUTH2_CLIENT_METADATA_SQL)
+                    .bind(&client.client_id)
+                    .bind(serde_json::to_string(&client.redirect_uris)?)
+                    .bind(serde_json::to_string(&client.grant_types)?)
+                    .bind(serde_json::to_string(&client.response_types)?)
+                    .bind(&client.client_name)
+                    .bind(&client.client_uri)
+                    .bind(&client.scope)
+                    .bind(client.expires_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to update OAuth2 client metadata: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn extend_client_expiry(
+                &self,
+                client_id: &str,
+                expires_at: DateTime<Utc>,
+            ) -> AppResult<()> {
+                sqlx::query(EXTEND_OAUTH2_CLIENT_EXPIRY_SQL)
+                    .bind(client_id)
+                    .bind(expires_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to extend OAuth2 client expiry: {e}"))
                     })?;
                 Ok(())
             }
@@ -744,6 +587,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(refresh_token.revoked)
                     .bind(&refresh_token.family_id)
                     .bind(&refresh_token.resource)
+                    .bind(refresh_token.family_created_at)
                     .execute(&mut *tx)
                     .await
                     .map_err(store_error)?;
@@ -986,16 +830,157 @@ macro_rules! impl_oauth2_server_repository {
                 user_id: &str,
                 tenant_id: &str,
             ) -> AppResult<bool> {
-                let result = sqlx::query(REVOKE_CLIENT_GRANT_SQL)
+                let revoke_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to revoke OAuth client grant: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
+
+                let revoked = sqlx::query_scalar::<_, String>(REVOKE_CLIENT_GRANT_SQL)
                     .bind(id)
                     .bind(user_id)
                     .bind(tenant_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(revoke_error)?;
+                let Some(client_id) = revoked else {
+                    return Ok(false);
+                };
+
+                // The grant is the consent the client's refresh tokens ride
+                // on: revoking it without them would leave the client
+                // refreshing indefinitely.
+                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(&client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(revoke_error)?;
+                sqlx::query(REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(&client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(revoke_error)?;
+
+                tx.commit().await.map_err(revoke_error)?;
+
+                // A refresh already past its consume may have written its
+                // successor after the statement above took its snapshot. It
+                // checks the grant after writing, and this runs after the
+                // revocation is visible, so one of the two always sees the other.
+                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(&client_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(revoke_error)?;
+                Ok(true)
+            }
+
+            async fn client_grant_standing(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                client_id: &str,
+            ) -> AppResult<ClientGrantStanding> {
+                let rows = sqlx::query(LIST_CLIENT_GRANT_HISTORY_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(client_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read OAuth client grants: {e}"))
+                    })?;
+                let grants = rows
+                    .iter()
+                    .map(client_grant_from_row)
+                    .collect::<AppResult<Vec<_>>>()?;
+                Ok(ClientGrantStanding {
+                    active: grants.iter().any(|grant| grant.revoked_at.is_none()),
+                    last_revoked_at: grants.iter().filter_map(|grant| grant.revoked_at).max(),
+                })
+            }
+
+            async fn withdraw_client_access(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                client_id: &str,
+                scope: &str,
+            ) -> AppResult<()> {
+                let withdraw_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to withdraw OAuth client access: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(withdraw_error)?;
+
+                let withdrawn = sqlx::query(WITHDRAW_CLIENT_GRANTS_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?
+                    .rows_affected();
+                if withdrawn == 0 {
+                    let history = sqlx::query(LIST_CLIENT_GRANT_HISTORY_SQL)
+                        .bind(user_id)
+                        .bind(tenant_id)
+                        .bind(client_id)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(withdraw_error)?;
+                    if history.is_none() {
+                        sqlx::query(STORE_WITHDRAWN_CLIENT_GRANT_SQL)
+                            .bind(Uuid::new_v4().to_string())
+                            .bind(user_id)
+                            .bind(tenant_id)
+                            .bind(client_id)
+                            .bind(scope)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(withdraw_error)?;
+                    }
+                }
+
+                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?;
+                sqlx::query(REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(withdraw_error)?;
+
+                tx.commit().await.map_err(withdraw_error)
+            }
+
+            async fn revoke_refresh_tokens_of_withdrawn_grant(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+                client_id: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(client_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to revoke OAuth client grant: {e}"))
+                        AppError::database(format!(
+                            "Failed to revoke the refresh tokens of a withdrawn grant: {e}"
+                        ))
                     })?;
-
                 Ok(result.rows_affected() > 0)
             }
 

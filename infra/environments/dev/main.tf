@@ -839,11 +839,15 @@ module "backend" {
     GOOGLE_OAUTH_CLIENT_SECRET = module.firebase.google_oauth_secret_ids["client_secret"]
   }
 
-  health_check_path           = "/health"
-  startup_probe_initial_delay = 10
-  # 10 s + 46 × 5 s = 240 s: room for POSTGRES_BOOT_WAIT_SECS (150 s) plus
+  health_check_path = "/health"
+  # The server listens ~4.4 s after the instance starts (measured from the
+  # 2026-11-03 cold-start logs), so probing from 2 s, every 2 s, finds it
+  # within 2 s of listening and a scale-from-zero request waits no longer.
+  # 2 s + 119 × 2 s = 240 s: room for POSTGRES_BOOT_WAIT_SECS (150 s) plus
   # one last acquire timeout (30 s) and the rest of the boot.
-  startup_probe_failure_threshold = 46
+  startup_probe_initial_delay     = 2
+  startup_probe_period            = 2
+  startup_probe_failure_threshold = 119
 
   # Cloud Trace (off until cloud_trace_enabled): an OpenTelemetry Collector
   # sidecar forwards a sample of the API's traces. Runbook: dravr-vault
@@ -1331,8 +1335,13 @@ module "frontend" {
     FIREBASE_PROJECT_ID = var.firebase_project_id
   }
 
-  health_check_path           = "/health"
-  startup_probe_initial_delay = 3
+  # nginx listens within a second, so probing every second from 1 s finds a
+  # cold frontend start within a second of listening.
+  # 1 s + 52 × 1 s = 53 s of boot budget.
+  health_check_path               = "/health"
+  startup_probe_initial_delay     = 1
+  startup_probe_period            = 1
+  startup_probe_failure_threshold = 52
 
   labels = merge(var.labels, { component = "frontend" })
 
@@ -1355,9 +1364,14 @@ module "frontend_domain" {
   domains                = var.public_domains
   labels                 = merge(var.labels, { component = "frontend" })
 
+  armor_enabled            = var.armor_enabled
+  marketplace_egress_cidrs = var.marketplace_egress_cidrs
+  armor_waf_preview        = var.armor_waf_preview
+  armor_rate_rules_preview = var.armor_rate_rules_preview
+
   # The project module enables certificatemanager.googleapis.com and the
-  # service_accounts module grants the runner its Certificate Manager role;
-  # both must land before the first certificate is created.
+  # service_accounts module grants the runner its Certificate Manager and Cloud
+  # Armor roles; both must land before the first certificate or policy is created.
   depends_on = [module.project, module.service_accounts, module.frontend]
 }
 

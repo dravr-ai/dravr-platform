@@ -153,8 +153,12 @@ impl AdminAuthService {
         // device grant; the signed claims carry no identity of their own.
         validated_token.operator_user_id = stored_token.operator_user_id;
 
-        // Step 5: Log usage (no permission check)
+        // Step 5: Log usage (no permission check), and count the use on the
+        // token's own row, which the token list reads.
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
+            .await?;
+        self.admin
+            .record_token_use(&stored_token.id, chrono::Utc::now(), ip_address)
             .await?;
 
         info!(
@@ -298,9 +302,13 @@ pub mod middleware {
         };
 
         // Insert validated token as extension
-        request.extensions_mut().insert(validated_token);
+        request.extensions_mut().insert(validated_token.clone());
 
-        // Continue to next middleware/handler
-        next.run(request).await
+        // Continue to next middleware/handler, then hand the token to the
+        // audit recorder wrapping the admin routes (carnet#1391): it runs
+        // outside this layer, so the response is where it reads who acted.
+        let mut response = next.run(request).await;
+        response.extensions_mut().insert(validated_token);
+        response
     }
 }

@@ -1,4 +1,4 @@
-// ABOUTME: Pins that mode=detailed never hands the model a provider's encoded route overview (summary_polyline)
+// ABOUTME: Pins that mode=detailed never hands the model a provider's encoded route overview (summary_polyline) or raw GPS track
 // ABOUTME: The untrimmed line starts at the athlete's door; geometry leaves the server only as a trimmed route track
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::{TimeZone, Utc};
-use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SportType, TimeSeriesData};
 use pierre_tool_runtime::implementations::activity_summary::detail_json;
 use serde_json::Value;
 
@@ -97,5 +97,82 @@ fn detail_mode_names_the_service_a_scraped_row_was_read_from() {
     assert!(
         !value.to_string().to_lowercase().contains("sciotte"),
         "the backend reached the model: {value}"
+    );
+}
+
+/// A run whose detail read carried its track, the way a sciotte (Garmin,
+/// TrainingPeaks) detail page does: every sampled point, door to door.
+fn run_with_track() -> Activity {
+    ActivityBuilder::new(
+        "g42",
+        "Hill loop",
+        SportType::Run,
+        Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+        3_000,
+        "strava",
+    )
+    .start_latitude(38.5)
+    .start_longitude(-120.2)
+    .city("Placerville".to_owned())
+    .time_series_data_opt(Some(TimeSeriesData {
+        timestamps: vec![0, 1, 2],
+        heart_rate: Some(vec![Some(120), Some(131), Some(140)]),
+        power: None,
+        cadence: None,
+        speed: None,
+        altitude: Some(vec![Some(610.0), Some(611.5), Some(613.0)]),
+        temperature: None,
+        gps_coordinates: Some(vec![
+            Some((38.512_345, -120.212_345)),
+            Some((38.512_399, -120.212_401)),
+            None,
+        ]),
+        distance: None,
+    }))
+    .build()
+}
+
+#[test]
+fn detail_mode_leaves_the_raw_gps_track_out() {
+    // The premise: the activity carries the track, so its absence below is
+    // detail_json's doing.
+    let raw = serde_json::to_value(run_with_track()).unwrap();
+    assert!(
+        raw["time_series_data"]["gps_coordinates"].is_array(),
+        "bug in the fixture: the activity must carry its track for this test to mean anything"
+    );
+
+    let value = detail_json(&[run_with_track()]).unwrap();
+    let text = value.to_string();
+    assert!(
+        !text.contains("gps_coordinates"),
+        "bug: the raw track reached the model: {text}"
+    );
+    assert!(
+        !text.contains("38.512345"),
+        "bug: a track point leaked: {text}"
+    );
+
+    let row = only_row(&value);
+    assert_eq!(
+        row["start_latitude"], 38.5,
+        "bug: where the activity started must stay: {row:?}"
+    );
+    assert_eq!(
+        row["start_longitude"], -120.2,
+        "bug: where the activity started must stay: {row:?}"
+    );
+    assert_eq!(
+        row["city"], "Placerville",
+        "bug: the activity's city must stay: {row:?}"
+    );
+    let streams = &row["time_series_data"];
+    assert_eq!(
+        streams["heart_rate"][2], 140,
+        "bug: the non-GPS streams must stay: {streams}"
+    );
+    assert_eq!(
+        streams["altitude"][0], 610.0,
+        "bug: the non-GPS streams must stay: {streams}"
     );
 }

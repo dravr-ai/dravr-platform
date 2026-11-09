@@ -9,6 +9,7 @@
 use std::fmt;
 
 use pierre_core::models::{ConversationTurnId, InputSource, RoomQuote, TenantId, TurnOrigin};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
@@ -120,7 +121,7 @@ pub struct TurnInput {
     /// The agent the athlete addressed by `@handle` in this message, when one
     /// resolved against their installed agents.
     ///
-    /// Governs this turn alone: the persona, tools, playbooks, followups,
+    /// Governs this turn alone: the persona, tools, playbooks,
     /// canary and attribution all follow it, while the conversation's stored
     /// `agent_id` is never written — the next plain message reverts to the
     /// conversation's own agent. Resolved once by
@@ -135,6 +136,11 @@ pub struct TurnInput {
     /// Set by [`crate::turn_service::execute`] when it resolves the tap;
     /// `None` for a turn that ends nothing, which offers no step.
     pub steps_after: Option<StepsAfter>,
+    /// The grant the turn runs under ([`crate::turn_service::TurnRequest::grant`]):
+    /// what every executor the turn builds is bound to, what its tool offer is
+    /// narrowed to, and what decides whether it may write to the athlete's
+    /// memory.
+    pub grant: Vec<OAuthScope>,
 }
 
 // The athlete's message and the room transcript are athlete text: only the
@@ -156,6 +162,7 @@ impl fmt::Debug for TurnInput {
             .field("quota", &self.quota)
             .field("mentioned_agent", &self.mentioned_agent)
             .field("steps_after", &self.steps_after)
+            .field("grant", &self.grant)
             .finish()
     }
 }
@@ -169,6 +176,15 @@ impl TurnInput {
             TurnOrigin::Athlete => self.input_source.as_str(),
             TurnOrigin::Platform => "platform",
         }
+    }
+
+    /// Whether the turn may write what it learns to the athlete's memory.
+    ///
+    /// A third party's read-only grant reads the athlete's data; it never
+    /// teaches the coach something the athlete's own turns would then trust.
+    #[must_use]
+    pub(crate) fn may_learn(&self) -> bool {
+        self.grant.contains(&OAuthScope::FitnessWrite)
     }
 
     /// The agent this turn answers as: the mentioned agent when the athlete

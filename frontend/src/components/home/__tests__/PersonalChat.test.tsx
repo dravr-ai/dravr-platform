@@ -300,6 +300,28 @@ describe('Home — the personal surface', () => {
     expect(screen.queryByText('uc:1:about_me_more')).toBeNull();
   });
 
+  // The empty state's "+" sits at the left of its row, so a menu anchored to
+  // the trigger's right edge opened leftward past the chat pane and was clipped.
+  // It opens rightward from the "+" there; the header's "+" sits at the right
+  // edge and keeps opening leftward.
+  it('opens the empty state menu rightward from the "+", and the header menu leftward', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderHome(null);
+    const empty = await screen.findByTestId('chat-empty-state');
+    await user.click(within(empty).getByRole('button', { name: 'New' }));
+    const emptyMenu = within(empty).getByTestId('chat-compose-menu');
+    expect(emptyMenu).toHaveClass('sm:left-0');
+    expect(emptyMenu).not.toHaveClass('sm:right-0');
+    unmount();
+
+    renderHome('conv-1');
+    const header = await screen.findByTestId('thread-header');
+    await user.click(within(header).getByRole('button', { name: 'New' }));
+    const headerMenu = within(header).getByTestId('chat-compose-menu');
+    expect(headerMenu).toHaveClass('sm:right-0');
+    expect(headerMenu).not.toHaveClass('sm:left-0');
+  });
+
   it('asks for no starters while a thread is open', async () => {
     renderHome('conv-1');
     await screen.findByTestId('peek');

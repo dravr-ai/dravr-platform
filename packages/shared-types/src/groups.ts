@@ -435,11 +435,12 @@ export interface DelegatedConnection {
   /** Whether the link's platform takes a coach's calendar writes, so `calendar_write` applies to it. */
   calendar_write_supported: boolean;
   /**
-   * Whether the member lets their wellness (sleep, HRV, weight…) sync through
-   * the coach's account, read from their coach relationship.
+   * Whether the member lets their coach read their wellness (sleep, HRV,
+   * weight…), this link's sync through the coach's account included, read
+   * from their coach relationship.
    */
   wellness_read: boolean;
-  /** Whether the coach's account reads wellness on the link's platform, so `wellness_read` applies to it. */
+  /** Whether the coach's account reads wellness on the link's platform, so the link syncs it under `wellness_read`. */
   wellness_read_supported: boolean;
   /**
    * Why the link syncs none of the member's wellness: a wellness source of
@@ -523,21 +524,32 @@ export interface CoachConsentsResponse {
   calendar_write_at: string | null;
   /** The group has a coach and a coaching platform takes a coach's calendar writes. */
   calendar_write_supported: boolean;
-  /** The member's wellness syncs through the coach's account. */
+  /**
+   * The coach, through Dravr, reads the member's sleep, HRV, resting heart
+   * rate, weight, readiness and daily notes from every app they connect, a
+   * link's sync through the coach's account included.
+   */
   wellness_read: boolean;
-  /** When the member last granted or revoked `wellness_read` (RFC 3339). */
+  /** When the member last granted or revoked `wellness_read` (RFC 3339); every grant is stamped, a standing one included. */
   wellness_read_at: string | null;
-  /** The member reads a platform through a confirmed link whose coach credential reads wellness. */
+  /** The group has a human coach, so the member can be asked for `wellness_read`. */
   wellness_read_supported: boolean;
   /** Why the member's links sync none of their wellness whatever they grant; `null` when nothing does. */
   wellness_read_skipped: WellnessReadSkip | null;
+  /**
+   * The member's standing wellness grant predates the consent's widening to
+   * every app they connect: both apps say so and ask whether to keep it.
+   * Keeping it is a fresh grant (`wellness_read: true`), which clears this.
+   */
+  wellness_notice_due: boolean;
 }
 
 /**
  * The member grants (`true`) or revokes (`false`) what their group's coach
- * may do. A consent left out stays as it stands. Revoking `wellness_read`
- * deletes the wellness their links synced. A grant is taken only from
- * Dravr's own app; a revoke from anywhere.
+ * may do. A consent left out stays as it stands. Granting `wellness_read`
+ * over a standing grant stamps it again; revoking it deletes the wellness
+ * their links synced. A grant is taken only from Dravr's own app; a revoke
+ * from anywhere.
  */
 export interface UpdateCoachConsentsRequest {
   calendar_write?: boolean;

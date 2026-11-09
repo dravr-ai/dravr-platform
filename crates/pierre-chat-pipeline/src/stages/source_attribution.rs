@@ -43,12 +43,10 @@ pub(crate) fn owed_attributions() -> BTreeSet<&'static str> {
 }
 
 /// Whether the reply is the model's answer, which the turn's reads informed:
-/// not the platform's own reconnect, blocked-for-safety or confirmation text,
-/// which no insight is derived into.
+/// not the platform's own reconnect or blocked-for-safety text, which no insight
+/// is derived into.
 pub(crate) fn model_answered(result: &ToolLoopResult) -> bool {
-    result.pending_provider_auth_required.is_none()
-        && result.guardian_denied.is_none()
-        && result.guardian_confirm.is_none()
+    result.pending_provider_auth_required.is_none() && result.guardian_denied.is_none()
 }
 
 /// `reply` with the Garmin attribution line appended when `owed` carries

@@ -86,33 +86,27 @@ impl FormReading {
 
     /// The one-line prose form, for a surface with no room for an object.
     ///
-    /// Renders `TSB -77 (-64% of CTL, deep fatigue - form far below this
-    /// athlete's own fitness)`. The band's own [`FormBand::label`] carries the
+    /// Renders `form -64% of CTL, deep fatigue - form far below this athlete's
+    /// own fitness`: the share of the athlete's own fitness and its band,
+    /// never the raw TSB. The surfaces that read it are a coach's view of
+    /// their athletes, where an absolute TSB is the number a model compares
+    /// across athletes or reads as a verdict (carnet#1387). The leading word
+    /// names what the share is of, so a positive one, which carries no sign,
+    /// still reads as form. The band's own [`FormBand::label`] carries the
     /// reading, so a prose surface cannot invent a shorter, harsher one.
     ///
-    /// With no chronic base the percentage is replaced by the reason rather
-    /// than by silence — a bare `TSB -77` is exactly the shape that got read as
-    /// a verdict.
+    /// With no chronic base there is no share to quote, and the line says why
+    /// rather than falling silent.
     #[must_use]
     pub fn inline(&self) -> String {
         self.form_pct.map_or_else(
-            || {
-                format!(
-                    "TSB {:+.0} (no chronic base - form not interpretable)",
-                    self.tsb
-                )
-            },
+            || "no chronic base - form not interpretable".to_owned(),
             |pct| {
                 // `pct.round()` rather than `{:.0}`: the two disagree on exact
                 // halves (-192.5 formats as -192, rounds to -193), and the
                 // prose must not quote a different percentage than the tool
                 // outputs put on the wire (`form_pct.map(f64::round)`).
-                format!(
-                    "TSB {:+.0} ({:.0}% of CTL, {})",
-                    self.tsb,
-                    pct.round(),
-                    self.band.label()
-                )
+                format!("form {:.0}% of CTL, {}", pct.round(), self.band.label())
             },
         )
     }

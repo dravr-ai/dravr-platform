@@ -9,6 +9,7 @@ import {
   parseActivityUploadResponse,
   parseHomePreferences,
   parseUnitPreferences,
+  parsePreferredCalendar,
   parseCheckInPreference,
   parseActivityDetailResponse,
   parseCalendarResponse,
@@ -28,6 +29,7 @@ import {
   type HomePreferences,
   type HomePreferencesUpdate,
   type UnitPreferences,
+  type PreferredCalendar,
   type UnitSystem,
   type CheckInCadence,
   type CheckInPreference,
@@ -291,6 +293,33 @@ export function createAthleteApi(axios: AxiosInstance) {
     async updateUnitPreferences(units: UnitSystem): Promise<UnitPreferences> {
       const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.UNITS, { units });
       return requireShape(parseUnitPreferences(response.data), ENDPOINTS.ATHLETE.UNITS);
+    },
+
+    /** The calendar Dravr's pushes go to, and the athlete's connected calendars to choose from. */
+    async getPreferredCalendar(): Promise<PreferredCalendar> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.PREFERRED_CALENDAR);
+      return requireShape(
+        parsePreferredCalendar(response.data),
+        ENDPOINTS.ATHLETE.PREFERRED_CALENDAR
+      );
+    },
+
+    /** Record one of the athlete's connected calendars as the one Dravr writes to; answers as the read does. */
+    async setPreferredCalendar(provider: string): Promise<PreferredCalendar> {
+      const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.PREFERRED_CALENDAR, { provider });
+      return requireShape(
+        parsePreferredCalendar(response.data),
+        ENDPOINTS.ATHLETE.PREFERRED_CALENDAR
+      );
+    },
+
+    /** Forget the choice, so a push with several calendars connected asks again. */
+    async clearPreferredCalendar(): Promise<PreferredCalendar> {
+      const response = await axios.delete<unknown>(ENDPOINTS.ATHLETE.PREFERRED_CALENDAR);
+      return requireShape(
+        parsePreferredCalendar(response.data),
+        ENDPOINTS.ATHLETE.PREFERRED_CALENDAR
+      );
     },
 
     /** How often the coach checks in on its own; `cadence` is null for an athlete who never chose. */

@@ -191,6 +191,7 @@ pub async fn persist_user_message(
         transport_policy,
         channel_type: Some(channel),
         about_user_id,
+        turn_attempted_write: None,
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -214,7 +215,9 @@ pub async fn persist_user_message(
 /// Resolve the prompt a turn answers, persisting it only when the athlete sent it.
 ///
 /// An athlete's message is written before dispatch, so a crash mid-turn still
-/// leaves their question on the thread. A platform-composed prompt is not
+/// leaves their question on the thread. The LLM health gate runs after this
+/// write for the same reason: a turn refused while the provider is down keeps
+/// the sender's words on file (carnet#1362). A platform-composed prompt is not
 /// theirs to write: the row would be attributed to them in their own thread,
 /// advance their read marker past a message they never saw, and fan out to a
 /// group room they never posted in. It reaches the model through the history
@@ -307,6 +310,7 @@ pub async fn resolve_platform_turn(
         created_at: Utc::now().to_rfc3339(),
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
 
     Ok(UserMessageResult {
@@ -461,6 +465,7 @@ mod tests {
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
             about_user_id: None,
+            turn_attempted_write: None,
         }
     }
 

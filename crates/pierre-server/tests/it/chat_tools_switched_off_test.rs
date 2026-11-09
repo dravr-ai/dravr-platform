@@ -13,14 +13,17 @@
 //! from the same `ToolSelectionService` decision `tools/list` uses.
 
 use crate::common;
+use pierre_core::permissions::scopes::OAuthScope;
 
 use std::sync::Arc;
 
 use embacle_tool_host::ToolSurface;
 use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::ai_scope;
 use pierre_services::admin_ops;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
@@ -40,7 +43,9 @@ async fn switched_off_for(
     SwitchedOff::resolve(resources.tool_selection(), tenant, user_id).await
 }
 
-fn loopback_surface(
+/// The loopback an in-app turn opens: built inside the web app's transport
+/// declaration, as the turn service scopes every turn.
+async fn loopback_surface(
     resources: &Arc<ServerContext>,
     tenant: TenantId,
     user_id: Uuid,
@@ -48,16 +53,20 @@ fn loopback_surface(
 ) -> TurnToolSurface {
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
     let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
-    bridge.turn_surface(ToolSessionTurn {
-        user_id: &user_id.to_string(),
-        tenant_id: tenant,
-        conversation_id: "conv-under-test",
-        turn_id: ConversationTurnId(Uuid::new_v4()),
-        turn_agent_id: None,
-        budget: 64,
-        seat: TurnSeat::Subject,
-        switched_off,
+    ai_scope::serve_over(Transport::WebApp, async {
+        bridge.turn_surface(ToolSessionTurn {
+            user_id: &user_id.to_string(),
+            tenant_id: tenant,
+            conversation_id: "conv-under-test",
+            turn_id: ConversationTurnId(Uuid::new_v4()),
+            turn_agent_id: None,
+            budget: 64,
+            seat: TurnSeat::Subject,
+            switched_off,
+            grant: &OAuthScope::self_grant(),
+        })
     })
+    .await
 }
 
 async fn loopback_names(
@@ -67,6 +76,7 @@ async fn loopback_names(
     switched_off: &SwitchedOff,
 ) -> Vec<String> {
     loopback_surface(resources, tenant, user_id, switched_off)
+        .await
         .list_tools()
         .await
         .into_iter()
@@ -124,6 +134,9 @@ async fn a_tool_switched_off_for_the_user_is_on_no_chat_surface_and_another_user
         registry,
         TurnSeat::Subject,
         &switched_off,
+        Some(Transport::WebApp),
+        &OAuthScope::self_grant(),
+        &resources.common.config,
     ))
     .function_declarations
     .into_iter()
@@ -164,6 +177,7 @@ async fn a_tool_switched_off_for_the_user_is_refused_when_called_by_name() {
     let nothing_hidden = SwitchedOff::default();
 
     let refused = loopback_surface(&resources, tenant, owner, &nothing_hidden)
+        .await
         .call(TARGET_TOOL, &json!({}))
         .await;
     assert!(refused.is_error, "the switched-off tool must not run");
@@ -174,6 +188,7 @@ async fn a_tool_switched_off_for_the_user_is_refused_when_called_by_name() {
     );
 
     let allowed = loopback_surface(&resources, tenant, other, &nothing_hidden)
+        .await
         .call(TARGET_TOOL, &json!({}))
         .await;
     assert!(

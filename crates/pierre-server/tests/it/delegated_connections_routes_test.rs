@@ -1164,7 +1164,12 @@ async fn unoffered_grants_are_ignored_and_only_the_member_changes_them(w: &World
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["wellness_read_supported"], false, "{body}");
+    assert_eq!(
+        body["wellness_read_supported"], true,
+        "a coached member is asked for their wellness whatever their link reads: {body}"
+    );
+    assert_eq!(body["wellness_read"], false, "{body}");
+    assert_eq!(body["wellness_notice_due"], false, "{body}");
     let (status, _) = w.end(&link, &w.coach).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }

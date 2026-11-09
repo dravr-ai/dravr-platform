@@ -1,4 +1,4 @@
-// ABOUTME: Guardian security classification — the egress/trust axis every tool declares for the dispatch-time guard.
+// ABOUTME: Guardian security classification — the egress and blast-radius axis every tool declares for the dispatch-time guard.
 // ABOUTME: SecurityLabels bitflags + the RuntimeTool supertrait that forces every registered tool to classify itself.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,10 +9,8 @@
 //! The [`Guardian`](crate::guardian::Guardian) gates tool dispatch on a
 //! security axis that is **orthogonal** to [`ToolCapabilities`](crate::ToolCapabilities)
 //! (auth/tenant/admin/read/write) and to the registry's string categories
-//! (domain taxonomy). `READS_DATA` is not "produces untrusted content"
-//! (reading your own goal is a trusted read) and `WRITES_DATA` is not
-//! "irreversible" (`set_goal` is a reversible internal write), so the taint
-//! axis needs its own flags.
+//! (domain taxonomy). `WRITES_DATA` is not "irreversible" (`set_goal` is a
+//! reversible internal write), so this axis needs its own flags.
 //!
 //! Labels are declared per tool via the [`RuntimeTool`] supertrait, which has
 //! **no default** `security_class` — a tool will not compile into the registry
@@ -28,37 +26,28 @@ use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::tool::McpTool;
+/// Re-exported so [`declare_security!`] can name it through `$crate` in the
+/// crates that expand it.
+pub use pierre_core::transport::TransportPolicy;
 
 bitflags! {
-    /// The Guardian's egress/trust classification for a tool.
+    /// The Guardian's egress and blast-radius classification for a tool.
     ///
-    /// Empty (the common case) = a trusted, internal, reversible tool that the
-    /// Guardian never gates on taint grounds. Flags are additive.
+    /// Empty (the common case) = an internal, reversible tool that costs no
+    /// destructive budget. Flags are additive.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct SecurityLabels: u8 {
-        /// The tool echoes third-party / external text back into the LLM
-        /// context (provider scrapes, peer data, external API bodies,
-        /// agent-authored notes). This is the prompt-injection *source*: its
-        /// output is untrusted data that re-enters the instruction channel.
-        const UNTRUSTED_OUTPUT = 0b0000_0001;
         /// The tool sends data outbound to a third party (messaging / email /
-        /// push). The exfiltration *sink*. None exist today; the label is armed
-        /// for the messaging epic so the guard is in place before the tools are.
+        /// push). Refused in every turn. None exist today; the label is armed so
+        /// the guard is in place before the tools are.
         const EXTERNAL_SEND = 0b0000_0010;
         /// The tool performs an irreversible / destructive effect (deletes,
-        /// disconnects). The Guardian caps these per turn and can require
-        /// confirmation when the turn is tainted.
+        /// disconnects). The Guardian caps these per turn.
         const IRREVERSIBLE = 0b0000_0100;
     }
 }
 
 impl SecurityLabels {
-    /// The tool's output is untrusted third-party content (a taint source).
-    #[must_use]
-    pub const fn is_untrusted_output(self) -> bool {
-        self.contains(Self::UNTRUSTED_OUTPUT)
-    }
-
     /// The tool sends data outbound to a third party (an egress sink).
     #[must_use]
     pub const fn is_external_send(self) -> bool {
@@ -69,25 +58,6 @@ impl SecurityLabels {
     #[must_use]
     pub const fn is_irreversible(self) -> bool {
         self.contains(Self::IRREVERSIBLE)
-    }
-
-    /// Human-readable label list for structured logging (never secrets/PII).
-    #[must_use]
-    pub fn describe(self) -> &'static str {
-        match (
-            self.is_untrusted_output(),
-            self.is_external_send(),
-            self.is_irreversible(),
-        ) {
-            (false, false, false) => "none",
-            (true, false, false) => "untrusted_output",
-            (false, true, false) => "external_send",
-            (false, false, true) => "irreversible",
-            (true, true, false) => "untrusted_output|external_send",
-            (true, false, true) => "untrusted_output|irreversible",
-            (false, true, true) => "external_send|irreversible",
-            (true, true, true) => "untrusted_output|external_send|irreversible",
-        }
     }
 }
 
@@ -106,16 +76,50 @@ impl SecurityLabels {
 pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
+
+    /// Where the tool may be listed and run: on every transport, or only on
+    /// Dravr's own surfaces ([`Transport::is_first_party`]).
+    ///
+    /// The same [`TransportPolicy`] a provider declares for its data, read the
+    /// same way: a [`TransportPolicy::FirstPartyOnly`] tool is left out of an
+    /// external caller's listing and refused if it calls it anyway
+    /// ([`crate::first_party_tools`]). An MCP client, an A2A agent and an API
+    /// key are external; the web and mobile apps, linked messaging channels
+    /// and platform jobs are not.
+    ///
+    /// Defaults to [`TransportPolicy::AnyTransport`]: a tool is listed and run
+    /// on every transport unless it says otherwise. A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `first_party_only`
+    /// arm, beside its security labels.
+    ///
+    /// [`Transport::is_first_party`]: pierre_core::transport::Transport::is_first_party
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
+    }
+
+    /// Whether the tool can only fail on a deployment holding no USDA key
+    /// ([`crate::deployment_tools`]). A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `food_database` arm.
+    fn requires_food_database(&self) -> bool {
+        false
+    }
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
 /// `McpTool` impl (and therefore under the same `#[cfg(feature = ...)]`).
 ///
 /// ```ignore
-/// declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
+/// declare_security!(GetActivitiesTool => empty);
 /// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
 /// declare_security!(SetGoalTool       => empty);
+/// declare_security!(GetRosterOverviewTool => empty; first_party_only);
 /// ```
+///
+/// The trailing `; first_party_only` also declares the tool
+/// [`TransportPolicy::FirstPartyOnly`] ([`RuntimeTool::transport_policy`]):
+/// listed and run on Dravr's own surfaces only. `; food_database` declares
+/// that the tool needs the deployment's USDA key
+/// ([`RuntimeTool::requires_food_database`]).
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -126,6 +130,39 @@ macro_rules! declare_security {
         impl $crate::security::RuntimeTool for $t {
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
+            }
+        }
+    };
+    ($t:ty => empty ; food_database $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn requires_food_database(&self) -> bool {
+                true
+            }
+        }
+    };
+    ($t:ty => empty ; first_party_only $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn transport_policy(&self) -> $crate::security::TransportPolicy {
+                $crate::security::TransportPolicy::FirstPartyOnly
+            }
+        }
+    };
+    ($t:ty => $($flag:ident)|+ ; first_party_only $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $( $crate::security::SecurityLabels::$flag )|+
+            }
+
+            fn transport_policy(&self) -> $crate::security::TransportPolicy {
+                $crate::security::TransportPolicy::FirstPartyOnly
             }
         }
     };

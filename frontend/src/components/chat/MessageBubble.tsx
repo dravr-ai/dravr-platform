@@ -41,7 +41,7 @@ interface MessageBubbleProps {
 }
 
 const ACTIONS_CLASS =
-  'mt-1 flex items-center gap-3 px-1 transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100';
+  'mt-1 flex flex-wrap items-center gap-3 px-1 transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100';
 
 /**
  * Every visible row draws through here, whatever produced it: a persisted

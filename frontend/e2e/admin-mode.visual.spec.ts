@@ -5,7 +5,7 @@
 // ABOUTME: Tests all admin dashboard screens against real backend.
 
 import { test, expect } from '@playwright/test';
-import { SIGN_IN_BUTTON, waitForLoginScreen } from './test-helpers';
+import { SIGN_IN_BUTTON, waitForLoginScreen, TOKENS_TAB_LABEL } from './test-helpers';
 import {
   loginAsUser,
   navigateToTab,
@@ -82,7 +82,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('connections - displays OAuth providers', async ({ page }) => {
-      await navigateToTab(page, 'Service Tokens');
+      await navigateToTab(page, TOKENS_TAB_LABEL);
       await waitForNetworkIdle(page);
 
       // Should show provider cards or empty state
@@ -93,7 +93,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('connections - shows connection status', async ({ page }) => {
-      await navigateToTab(page, 'Service Tokens');
+      await navigateToTab(page, TOKENS_TAB_LABEL);
       await waitForNetworkIdle(page);
 
       await takeVisualScreenshot(page, 'admin-connections', 'status');

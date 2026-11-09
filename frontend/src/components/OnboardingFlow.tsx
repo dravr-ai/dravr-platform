@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import type { ReactNode } from 'react';
+import OnboardingAnalyticsConsent from './OnboardingAnalyticsConsent';
 import OnboardingProfileType from './OnboardingProfileType';
 import OnboardingAboutYou from './OnboardingAboutYou';
 import OnboardingParq from './OnboardingParq';
@@ -42,7 +43,7 @@ export default function OnboardingFlow({
   // the flow does, so a strip App mounts above it stacks instead of overlapping.
   return (
     <div className="relative" data-testid="onboarding-flow">
-      <OnboardingProgress steps={onboardingProgress(state.ctx)} />
+      {step.hiddenFromProgress ? null : <OnboardingProgress steps={onboardingProgress(state.ctx)} />}
       {renderStep(step.id, state, userDisplayName)}
     </div>
   );
@@ -55,6 +56,8 @@ function renderStep(
   userDisplayName?: string | null,
 ): ReactNode {
   switch (id) {
+    case 'analytics_consent':
+      return <OnboardingAnalyticsConsent onAnswer={state.answerAnalyticsConsent} />;
     case 'profile_type':
       return (
         <OnboardingProfileType

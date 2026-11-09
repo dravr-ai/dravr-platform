@@ -41,3 +41,42 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "armor_enabled" {
+  description = "Attach a Cloud Armor security policy to the frontend backend service. It covers the hostnames in `domains` only: a request to the frontend's run.app URLs does not cross the load balancer."
+  type        = bool
+  default     = false
+}
+
+variable "marketplace_egress_cidrs" {
+  description = "Published egress ranges of the marketplace hosts (e.g. Claude's). They pass the per-address limits, because one range carries many athletes; the per-token throttle and the WAF still apply. IPv4 or IPv6 CIDRs."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.marketplace_egress_cidrs : can(cidrnetmask(c)) || can(cidrhost(c, 0))])
+    error_message = "marketplace_egress_cidrs must hold CIDR ranges such as 160.79.104.0/21."
+  }
+
+  validation {
+    condition     = length(var.marketplace_egress_cidrs) <= 10
+    error_message = "Cloud Armor allows 10 ranges per rule; a longer list needs a second allow rule."
+  }
+
+  validation {
+    condition     = !contains(var.marketplace_egress_cidrs, "0.0.0.0/0") && !contains(var.marketplace_egress_cidrs, "::/0") && !contains(var.marketplace_egress_cidrs, "*")
+    error_message = "marketplace_egress_cidrs must not cover the whole internet; that lifts every per-address limit."
+  }
+}
+
+variable "armor_waf_preview" {
+  description = "Keep the preconfigured SQL injection and XSS rules in preview: they log what they would refuse. Set false to enforce them, once the procedure in environments/dev/public_mcp_monitoring.tf shows no false positive."
+  type        = bool
+  default     = true
+}
+
+variable "armor_rate_rules_preview" {
+  description = "Keep the per-token throttle, the anonymous throttle and the per-address ban in preview: they log what they would refuse. Set false to enforce them, once the procedure in environments/dev/public_mcp_monitoring.tf shows no false positive."
+  type        = bool
+  default     = true
+}

@@ -6,6 +6,8 @@
 
 /// Authentication service used by universal protocol handlers
 pub mod auth;
+/// The Guardian budget one dispatch reserved, until the outcome of the call is known
+mod budget_reservation;
 /// Whether a human coach writes a coached athlete's coaching-platform calendar, and the writer they write it with
 pub(crate) mod coach_calendar;
 /// Whether an athlete has any data behind them: a connection, a token or an uploaded file
@@ -20,10 +22,16 @@ pub mod executor;
 pub mod format;
 /// Shared provider helper functions (tenant-aware credential resolution, provider creation)
 pub mod provider_helpers;
+/// The no-provider answer an external caller (MCP, A2A) reads: the providers on offer and which are readable there
+pub mod provider_offer;
+/// Every provider a deployment offers with the athlete's state on each, shared by the status tool and the no-provider answer
+pub(crate) mod provider_states;
 /// The one reconnect notice a flagged connection owes its athlete, whichever path flagged it
 pub mod reauth_notice;
 /// Classification of a failed token refresh: a refusal of the grant or client, or transient
 mod refresh_failure;
+/// The in-band responses the executor answers a refused call with
+mod refusal_response;
 /// A read repeated within one turn, answered with a pointer to its result
 mod repeated_read;
 /// Synced sleep and recovery reads, merged across sources (sleep + analytics tools)
@@ -39,6 +47,7 @@ pub use auth::AuthService;
 pub use coach_calendar::delegation_services;
 pub use executor::UniversalExecutor;
 pub use types::{
-    auth_required_provider, is_no_provider_refusal, UniversalRequest, UniversalResponse,
-    UniversalTool, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER, META_NO_PROVIDER_CONNECTED,
+    auth_required_provider, guardian_block_reason, is_no_provider_refusal, UniversalRequest,
+    UniversalResponse, UniversalTool, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+    META_NO_PROVIDER_CONNECTED,
 };

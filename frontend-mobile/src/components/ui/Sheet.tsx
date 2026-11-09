@@ -21,6 +21,12 @@ export interface SheetProps {
    * `Section` with its rows — sits 16 from the edge, not 32.
    */
   flush?: boolean;
+  /**
+   * Called once the panel has gone (iOS only, as `Modal` reports it): what a
+   * choice in the sheet opens next waits for it, because iOS presents no
+   * second modal while one is still on screen.
+   */
+  onDismiss?: () => void;
 }
 
 /**
@@ -37,11 +43,12 @@ export function Sheet({
   backdropTestID,
   maxHeight = 'max-h-[85%]',
   flush = false,
+  onDismiss,
 }: SheetProps) {
   const colors = useThemeColors();
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} onDismiss={onDismiss}>
       <TouchableOpacity
         activeOpacity={1}
         className="flex-1 justify-end bg-scrim/60"

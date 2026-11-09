@@ -1,5 +1,5 @@
 // ABOUTME: Verifies agent grading excludes Unsupported training-prescription verdicts
-// ABOUTME: from the score so advice-heavy agents aren't penalized in store rank.
+// ABOUTME: from the score so advice-heavy agents aren't penalized.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

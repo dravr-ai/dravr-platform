@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for importing your own data (carnet#1218, #1337): the link opens /import, its Strava and Garmin rows, Strava's states
+// ABOUTME: E2E for importing your own data (carnet#1218, #1337): the link under the providers and a card's export link open /import, its rows, Strava's states
 // ABOUTME: Runs against a mocked /api/imports shaped like the server's, holding the athlete's import between requests
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -99,7 +99,7 @@ test.describe('Import your own data', () => {
     );
   });
 
-  test('the link under the providers opens the import window in a window of its own', async ({ page, context }) => {
+  test('the link under the providers opens the source list in a window of its own', async ({ page, context }) => {
     await mockImports(page, null);
     await loginToDashboard(page);
     await page.goto('/#settings/connections');
@@ -108,7 +108,50 @@ test.describe('Import your own data', () => {
     await page.getByTestId('import-own-data-link').click();
     const window = await opened;
 
+    // No hash: the source list, where a source no card carries (Apple Health) is listed.
     await expect(window).toHaveURL(/\/import$/);
+  });
+
+  test('the source list offers Apple Health, which no provider card carries', async ({ page }) => {
+    await mockImports(page, null);
+    await page.route('**/api/imports', (route) =>
+      json(route, { enabled: true, sources: ['strava_archive', 'garmin_archive', 'apple_health_archive'], imports: [] }),
+    );
+    await loginToDashboard(page);
+    await page.goto('/import');
+
+    await expect(page.getByTestId('import-source-apple_health_archive')).toBeVisible();
+  });
+
+  test('a card\'s export link opens its import in a window of its own', async ({ page, context }) => {
+    await mockImports(page, null);
+    // The server names the Strava card's export source while it offers it.
+    await page.route('**/api/providers', (route) =>
+      json(route, {
+        providers: [
+          {
+            provider: 'sciotte',
+            display_name: 'Strava',
+            description: 'Running, cycling, and swimming activities',
+            requires_oauth: false,
+            connected: false,
+            needs_reauth: false,
+            capabilities: ['activities'],
+            consent_required: false,
+            recommended_backend: 'oauth',
+            history: { state: 'not_applicable', sign_in_target: null, archive_source: 'strava_archive' },
+          },
+        ],
+      }),
+    );
+    await loginToDashboard(page);
+    await page.goto('/#settings/connections');
+
+    const opened = context.waitForEvent('page');
+    await page.getByTestId('provider-export-sciotte').click();
+    const window = await opened;
+
+    await expect(window).toHaveURL(/\/import#strava$/);
   });
 
   test('lists the Strava and Garmin exports, and Garmin\'s import says where to request it', async ({ page }) => {

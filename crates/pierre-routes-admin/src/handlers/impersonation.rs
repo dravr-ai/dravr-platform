@@ -10,16 +10,18 @@
 //! All impersonation actions are logged for audit purposes.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_database::repositories::SessionCursor;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::MiddlewareCtx;
 use serde::{Deserialize, Serialize};
@@ -27,11 +29,32 @@ use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
+/// The sessions one page of the log returns when the request names no limit.
+const DEFAULT_SESSIONS_PAGE: u32 = 100;
+
+/// The most sessions one page of the log returns.
+const MAX_SESSIONS_PAGE: u32 = 200;
+
+/// Which page of the impersonation log a read asks for.
+#[derive(Debug, Deserialize)]
+struct ListSessionsQuery {
+    /// At most this many sessions, capped at [`MAX_SESSIONS_PAGE`].
+    limit: Option<u32>,
+    /// Resume after this start: the previous page's `next_before`.
+    before: Option<DateTime<Utc>>,
+    /// The id of the session the previous page ended on: its `next_before_id`.
+    before_id: Option<String>,
+}
+
 /// Response for listing impersonation sessions
 #[derive(Serialize)]
 struct ImpersonationSessionsResponse {
     sessions: Vec<ImpersonationSessionSummary>,
+    /// Sessions on this page.
     total_count: usize,
+    /// The cursor for the next older page, both halves `None` on the last.
+    next_before: Option<String>,
+    next_before_id: Option<String>,
 }
 
 /// Summary of an impersonation session
@@ -313,6 +336,7 @@ impl ImpersonationRoutes {
     async fn handle_list_sessions<C: MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         headers: HeaderMap,
+        Query(query): Query<ListSessionsQuery>,
     ) -> Result<Response, AppError> {
         // Authenticate and verify super admin status
         let (auth, _user) = Self::authenticate_super_admin(&headers, &resources).await?;
@@ -322,13 +346,33 @@ impl ImpersonationRoutes {
             "Super admin listing impersonation sessions"
         );
 
-        // Fetch all sessions (not just active)
+        // Every session, active and ended, one keyset page at a time.
+        let cursor = match (query.before, query.before_id) {
+            (Some(started_at), Some(id)) => Some(SessionCursor { started_at, id }),
+            (None, None) => None,
+            _ => {
+                return Err(AppError::invalid_input(
+                    "before and before_id name one cursor: send both or neither",
+                ))
+            }
+        };
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_SESSIONS_PAGE)
+            .clamp(1, MAX_SESSIONS_PAGE);
         let sessions = resources
             .repos()
             .impersonation
-            .list_sessions(None, None, false, 100)
+            .list_sessions_page(cursor.as_ref(), limit)
             .await
             .map_err(|e| AppError::internal(format!("Failed to list sessions: {e}")))?;
+        let next = if sessions.len() == limit as usize {
+            sessions.last()
+        } else {
+            None
+        };
+        let next_before = next.map(|session| session.started_at.to_rfc3339());
+        let next_before_id = next.map(|session| session.id.clone());
 
         // Build summaries with user emails
         let mut summaries = Vec::with_capacity(sessions.len());
@@ -371,6 +415,8 @@ impl ImpersonationRoutes {
             Json(ImpersonationSessionsResponse {
                 sessions: summaries,
                 total_count,
+                next_before,
+                next_before_id,
             }),
         )
             .into_response())

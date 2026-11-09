@@ -10,8 +10,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::VerdictDisposition;
 
 use super::{
-    VerdictAgentHealth, VerdictCategoryHealth, VerdictHealthDay, VerdictHealthTotals,
-    VerdictLayerHealth, VerdictReasonCount, VerdictStatusBreakdown,
+    VerdictAgentHealth, VerdictCategoryHealth, VerdictHealthDay, VerdictHealthStats,
+    VerdictHealthTotals, VerdictLayerHealth, VerdictReasonCount, VerdictStatusBreakdown,
 };
 
 /// Fold one `(status, count)` pair into a breakdown.
@@ -200,4 +200,32 @@ pub(crate) fn health_totals(rows: &[HealthBreakdownRow]) -> VerdictHealthTotals 
         totals.add(row.disposition, row.count);
     }
     totals
+}
+
+/// The health read from its fetched breakdowns: by layer, category, agent and
+/// day, in that order.
+pub(crate) fn verdict_health_stats(
+    window_start: String,
+    window_days: i64,
+    (layer_rows, category_rows, agent_rows, daily_rows): (
+        Vec<HealthBreakdownRow>,
+        Vec<HealthBreakdownRow>,
+        Vec<HealthBreakdownRow>,
+        Vec<HealthBreakdownRow>,
+    ),
+    by_reason: Vec<VerdictReasonCount>,
+) -> VerdictHealthStats {
+    let totals = health_totals(&layer_rows);
+    let false_positive_rate = totals.false_positive_rate();
+    VerdictHealthStats {
+        window_start,
+        window_days,
+        totals,
+        false_positive_rate,
+        by_layer: layer_health(fold_health_breakdown(&layer_rows)),
+        by_category: category_health(fold_health_breakdown(&category_rows)),
+        by_agent: agent_health(fold_health_breakdown(&agent_rows)),
+        by_reason,
+        daily: daily_health(fold_health_breakdown(&daily_rows)),
+    }
 }

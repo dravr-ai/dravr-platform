@@ -674,6 +674,43 @@ describe('ChatTab conversation rotation', () => {
     );
   }
 
+  /** Answer the next send with a turn whose row says `attempted`. */
+  function answerWithAttempt(attempted: boolean) {
+    sendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: { onDone?: (turn: TurnEnvelope) => void },
+      ) => {
+        const turn = turnEnvelope();
+        turn.assistant.finish_reason = 'stop';
+        turn.assistant.message.turn_attempted_write = attempted;
+        options.onDone?.(turn);
+      },
+    );
+  }
+
+  // The reply a turn just delivered is written from its envelope, ahead of any
+  // re-read, so the field has to survive that copy for the row to be offered.
+  it('offers Regenerate on a delivered reply whose turn attempted no write', async () => {
+    answerWithAttempt(false);
+
+    renderChatTab();
+    await send('What is my VO2max?');
+
+    expect(await screen.findByTitle('Regenerate response')).toBeInTheDocument();
+  });
+
+  it('offers no Regenerate on a delivered reply whose turn attempted a write', async () => {
+    answerWithAttempt(true);
+
+    renderChatTab();
+    await send('Delete my tempo plan');
+
+    expect(await screen.findByTitle('Good response')).toBeInTheDocument();
+    expect(screen.queryByTitle('Regenerate response')).toBeNull();
+  });
+
   // `/reset` archives the thread server-side; the client's only job is to open
   // the one the turn names. Asserted on the selection callback rather than on
   // rendered text: what matters is that the surface MOVED, not what it drew.

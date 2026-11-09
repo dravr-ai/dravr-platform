@@ -190,7 +190,29 @@ jest.mock('expo-file-system', () => {
     delete() {
       delete mockFileContents[this.uri];
     }
+    get exists() {
+      return this.uri in mockFileContents;
+    }
+    open() {
+      const bytes = new TextEncoder().encode(mockFileContents[this.uri] ?? '');
+      return {
+        offset: 0,
+        size: bytes.length,
+        readBytes(length) {
+          const read = bytes.slice(this.offset, this.offset + length);
+          this.offset += read.length;
+          return read;
+        },
+        close() {},
+      };
+    }
   }
+  // Writes a document to the destination, as a completed download does.
+  MockFile.downloadFileAsync = jest.fn(async (_url, destination) => {
+    mockFileContents[destination.uri] =
+      '{"format":"dravr-user-export","tables":{},"complete":true,"limit_reached":null,"failed_tables":[],"skipped_tables":[]}';
+    return destination;
+  });
   return {
     File: MockFile,
     Paths: { cache: { uri: 'file:///cache' }, document: { uri: 'file:///documents' } },

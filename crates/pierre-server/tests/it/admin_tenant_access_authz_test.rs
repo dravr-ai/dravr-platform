@@ -172,6 +172,51 @@ async fn test_billing_export_allowed_for_super_admin() -> Result<()> {
     Ok(())
 }
 
+/// The export holds the calls of the month it names and no other: a month with
+/// no call is empty, and the current month holds the calls just made.
+#[tokio::test]
+#[serial]
+async fn test_billing_export_holds_only_the_requested_month() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (s_id, s_tenant, s_token) = create_user_with_role(
+        &resources,
+        "authz_export_month@test.com",
+        UserRole::SuperAdmin,
+    )
+    .await;
+    seed_usage(&resources, &s_tenant.to_string(), &s_id.to_string(), 3).await;
+
+    let export = |period: String| {
+        let token = s_token.clone();
+        let resources = Arc::clone(&resources);
+        async move {
+            let response = AxumTestRequest::get(&format!(
+                "/api/admin/billing/export?period={period}&format=json"
+            ))
+            .header("authorization", &token)
+            .send(router(&resources))
+            .await;
+            assert_eq!(response.status(), 200);
+            let rows: Vec<serde_json::Value> = response.json();
+            rows.into_iter()
+                .filter(|row| row["user_id"] == s_id.to_string())
+                .count()
+        }
+    };
+
+    assert_eq!(
+        export("2020-01".to_owned()).await,
+        0,
+        "bug: a month with no call must export no row"
+    );
+    assert_eq!(
+        export(chrono::Utc::now().format("%Y-%m").to_string()).await,
+        3,
+        "the current month must export the calls made in it"
+    );
+    Ok(())
+}
+
 // ============================================================================
 // handle_get_user_usage — /api/admin/users/{user_id}/usage (per-user)
 // ============================================================================

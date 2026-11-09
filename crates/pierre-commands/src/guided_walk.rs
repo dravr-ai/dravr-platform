@@ -233,6 +233,7 @@ async fn persist_opener(
         transport_policy: ai_scope::derived_policy(),
         channel_type: None,
         about_user_id: None,
+        turn_attempted_write: None,
     };
     if let Err(e) = ctx.ctx.repos().chat.add_message(&opener).await {
         warn!(error = %e, "failed to persist {command} opener as assistant message");

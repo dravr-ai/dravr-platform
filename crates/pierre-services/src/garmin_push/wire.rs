@@ -48,6 +48,9 @@ pub(crate) struct ActivitySummary {
     /// Start, unix seconds UTC.
     #[serde(default)]
     pub(crate) start_time_in_seconds: Option<i64>,
+    /// Seconds east of UTC on the clock the activity was recorded on.
+    #[serde(default)]
+    pub(crate) start_time_offset_in_seconds: Option<i64>,
     /// Length of the activity, seconds.
     #[serde(default)]
     pub(crate) duration_in_seconds: Option<i64>,

@@ -23,10 +23,10 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "6.5.0"
+dravr-tronc = "6.7.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.44.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.46.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9.2" }
@@ -34,18 +34,18 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.14.0", default-features = false }
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.15.1", default-features = false }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.7.0" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.8.0" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "19b692ff25922ca1f42ac0daa39b403444585bfe" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "d0c512f8a4d70aac1419081cd18b954421df6933" }
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.16.5", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.16.5", default-features = false }
+dravr-enforme = { version = "0.17.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.17.1", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.9.0" }
@@ -62,7 +62,7 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v1.3.1", default-features = false }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v1.4.0", default-features = false }
 
 # Billing capability, gated behind the billing-stripe feature.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.10.0" }

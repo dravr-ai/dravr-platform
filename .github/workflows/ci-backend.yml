@@ -44,6 +44,7 @@ on:
       - 'clippy.toml'
       - 'sdk/**'
       - 'commands/**'
+      - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
@@ -133,6 +134,7 @@ on:
       - 'clippy.toml'
       - 'sdk/**'
       - 'commands/**'
+      - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
@@ -983,6 +985,10 @@ jobs:
           # The dev-profile test cache backend-test-binaries saves; restored only.
           shared-key: test-dev
           cache-save: 'false'
+          # Runs 41745934237 and 41749978824 died at the coupling step with
+          # "No space left on device" (runner annotation); the other jobs that
+          # build the workspace reclaim runner disk first, and so does this one.
+          free-disk-space: 'true'
 
       # Runs the doctests AND checks none are ignored, from one invocation.
       #
@@ -1609,7 +1615,7 @@ jobs:
           # fails on it instead.
           #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (139), so a branch push that skips this job
+          # scaled to that build (141), so a branch push that skips this job
           # is still sized against it. Move both together.
           MAX_SIZE_MB=115
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no

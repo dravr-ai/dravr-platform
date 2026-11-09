@@ -281,7 +281,6 @@ async fn test_oauth_flow_through_mcp() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -598,7 +597,6 @@ async fn test_oauth_callback_error_handling() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -910,7 +908,6 @@ async fn test_oauth_state_csrf_protection() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1078,7 +1075,6 @@ async fn test_connection_status_tracking() {
         mcp: McpConfig {
             protocol_version: "2025-06-18".to_owned(),
             server_name: "pierre-mcp-server-test".to_owned(),
-            session_cache_size: 1000,
             ..Default::default()
         },
         cors: CorsConfig {
@@ -1139,6 +1135,7 @@ async fn test_connection_status_tracking() {
         server_resources.data(),
     );
     let register_request = RegisterRequest {
+        analytics_consent: None,
         email: "status_test@example.com".to_owned(),
         password: SecretString::from("password123"),
         display_name: None,

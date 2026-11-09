@@ -448,6 +448,15 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
     ) -> AppResult<Vec<String>>;
 
+    /// How many cached activities the user holds in `tenant_id` under each
+    /// key, by key. An operator reads it before and after retiring a session,
+    /// to see that no row went with it.
+    async fn count_by_provider(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Vec<(String, i64)>>;
+
     /// Record that a provider activity fetch completed successfully at
     /// `fetched_at`, whether or not it returned any activities.
     ///
@@ -828,6 +837,21 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!("Failed to read user-provided sources: {e}"))
                     })?;
                 rows.iter().map(provider_column).collect()
+            }
+
+            async fn count_by_provider(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+            ) -> AppResult<Vec<(String, i64)>> {
+                sqlx::query_as::<_, (String, i64)>(COUNT_BY_PROVIDER_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count cached activities: {e}"))
+                    })
             }
 
             async fn record_activity_fetch(

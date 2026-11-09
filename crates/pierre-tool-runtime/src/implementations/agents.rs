@@ -855,16 +855,16 @@ pub fn create_agent_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DeleteAgentTool => IRREVERSIBLE);
-crate::declare_security!(ActivateAgentTool => empty);
-crate::declare_security!(CreateAgentTool => empty);
-crate::declare_security!(DeactivateAgentTool => empty);
-crate::declare_security!(GetActiveAgentTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetAgentTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(HideAgentTool => empty);
-crate::declare_security!(ListAgentsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(ListHiddenAgentsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(SearchAgentsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(ShowAgentTool => empty);
-crate::declare_security!(ToggleAgentFavoriteTool => empty);
-crate::declare_security!(UpdateAgentTool => empty);
+crate::declare_security!(DeleteAgentTool => IRREVERSIBLE; first_party_only);
+crate::declare_security!(ActivateAgentTool => empty; first_party_only);
+crate::declare_security!(CreateAgentTool => empty; first_party_only);
+crate::declare_security!(DeactivateAgentTool => empty; first_party_only);
+crate::declare_security!(GetActiveAgentTool => empty);
+crate::declare_security!(GetAgentTool => empty);
+crate::declare_security!(HideAgentTool => empty; first_party_only);
+crate::declare_security!(ListAgentsTool => empty);
+crate::declare_security!(ListHiddenAgentsTool => empty);
+crate::declare_security!(SearchAgentsTool => empty);
+crate::declare_security!(ShowAgentTool => empty; first_party_only);
+crate::declare_security!(ToggleAgentFavoriteTool => empty; first_party_only);
+crate::declare_security!(UpdateAgentTool => empty; first_party_only);

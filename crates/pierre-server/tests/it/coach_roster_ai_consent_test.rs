@@ -35,6 +35,7 @@ use pierre_core::models::{
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_roster::CoachRosterRoutes;
 use pierre_providers::core::{
@@ -381,11 +382,13 @@ async fn rest_row(res: &Arc<ServerContext>, coach: &Person, athlete: &Person) ->
 }
 
 /// The athlete's row in `get_roster_overview`, run by the real executor as
-/// the coach's agent runs it.
+/// the coach's agent runs it: in Dravr's own app, the only surface the coach
+/// tools run on.
 async fn tool_row(res: &Arc<ServerContext>, coach: &Person) -> Value {
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(res);
     let response = UniversalExecutor::new(runtime)
         .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
         .execute_tool(UniversalRequest {
             tool_name: "get_roster_overview".to_owned(),
             parameters: serde_json::json!({}),

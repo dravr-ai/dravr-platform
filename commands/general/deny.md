@@ -2,7 +2,7 @@
 name: deny
 command: /deny
 aliases: []
-description: Cancel an action the security guardian put on hold
+description: Discard an agent draft waiting for your answer
 domain: general
 personal: true
 arguments: "action-id"

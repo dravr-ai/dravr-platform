@@ -124,10 +124,6 @@ pub mod tenant_chat_provider;
 /// progressive streaming.
 pub mod chat_stream;
 
-/// Agent followup scheduler — periodically dispatches notifications when
-/// pending followups become overdue and marks them delivered.
-pub mod agent_followup_scheduler;
-
 /// Per-agent content grading derived from claim verdict history
 pub mod agent_grading;
 
@@ -174,16 +170,15 @@ pub mod default_agent;
 /// (carnet#1097).
 pub mod team_rules;
 
-/// Admin browser over pierre-evals golden fixtures
-#[cfg(feature = "tools-verification")]
-pub mod eval_harness;
-
 /// Garmin push ingest: each stored batch's records written to Dravr's stores (carnet#1155)
 pub mod garmin_push;
 
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
+
+/// The seam that runs and retires a usr/pwd session's one-time history import
+pub mod history_import;
 
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;

@@ -186,7 +186,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Tool-selection scoring service.
     fn tool_selection(&self) -> &Arc<ToolSelectionService>;
 
-    /// The effective [`Guardian`] (taint/budget/egress policy) for this
+    /// The effective [`Guardian`] (budget/egress policy) for this
     /// dispatch: the hot-reloadable
     /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot, built
     /// over the `GUARDIAN_*` settings the server's configuration captured at
@@ -195,10 +195,10 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// ONE returned `Arc` locally rather than re-fetching mid-flow.
     fn guardian(&self) -> Arc<Guardian>;
 
-    /// The process-wide, tenant-scoped per-turn taint/budget store. Shared
-    /// across every dispatch path — including the per-`/mcp`-request executors
-    /// the Copilot-headless loopback builds — so a turn's taint accumulates no
-    /// matter which path serves each tool call.
+    /// The process-wide, tenant-scoped per-turn budget store. Shared
+    /// across every dispatch path — including the executor an ACP agent's
+    /// tool-host surface holds — so a turn's budget accumulates no matter which
+    /// path serves each tool call.
     fn guardian_turns(&self) -> &Arc<GuardianTurns> {
         static TURNS: LazyLock<Arc<GuardianTurns>> =
             LazyLock::new(|| Arc::new(GuardianTurns::new()));
@@ -208,7 +208,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// The process-wide store of the served-without-a-provider offer one turn
     /// raised. Shared across every dispatch path for the same reason
     /// [`Self::guardian_turns`] is: the Copilot-headless loop's tools run in an
-    /// ACP subprocess whose `/mcp` loopback calls land on per-request executors,
+    /// ACP subprocess whose calls land on the tool-host surface's own executor,
     /// so the offer stamped there reaches the loop only through a shared store.
     fn reconnect_offers(&self) -> &Arc<ReconnectOffers> {
         static OFFERS: LazyLock<Arc<ReconnectOffers>> =
@@ -218,10 +218,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Coaches repository (kept as a method because it returns `&dyn`).
     fn agents_manager(&self) -> &dyn AgentsRepository;
-
-    /// The plan-then-verify planner's workflow grammar, resolved from the
-    /// contremaitre prompt registry so an edit hot-reloads with its siblings.
-    fn guardian_planner_prompt(&self) -> String;
 
     /// Optional LLM provider (when configured).
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;

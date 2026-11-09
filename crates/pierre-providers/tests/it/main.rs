@@ -18,6 +18,8 @@ mod api_request_body_decode_test;
 mod coach_roster_capability_test;
 mod debug_redaction_test;
 mod deduplication_test;
+#[cfg(feature = "provider-garmin")]
+mod garmin_calendar_test;
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_delegated_read_test;
 #[cfg(feature = "provider-intervals-icu")]

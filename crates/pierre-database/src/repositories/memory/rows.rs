@@ -1,5 +1,5 @@
 // ABOUTME: Row decoders for the harness memory tables, generic over sqlx::Row so one parser serves both backends
-// ABOUTME: Compaction blocks, user facts, agent notes, followups, sessions and the user-fact metrics aggregate
+// ABOUTME: Compaction blocks, user facts, sessions and the user-fact metrics aggregate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,9 +17,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Pillar;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{
-    AgentFollowup, AgentNote, AgentSession, CompactionBlock, EvidenceSource, FactEvidence,
-    FactKind, FactSource, FactStatus, FollowupStatus, MemoryScope, PredicateCode, SessionStatus,
-    UserFact, UserFactMetrics,
+    AgentSession, CompactionBlock, EvidenceSource, FactEvidence, FactKind, FactSource, FactStatus,
+    MemoryScope, PredicateCode, SessionStatus, UserFact, UserFactMetrics,
 };
 use uuid::Uuid;
 
@@ -148,75 +147,6 @@ where
         transport_policy: transport_policy_column(row)?,
         status: FactStatus::parse_lenient(&status),
         evidence: evidence.map(|(quote, source)| FactEvidence { quote, source }),
-    })
-}
-
-/// Decode one `agent_notes` row. `suppressed` reads as unsuppressed when the
-/// column cannot be decoded, matching the migration's default.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown scope.
-pub(crate) fn agent_note_from_row<R>(row: &R) -> AppResult<AgentNote>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let scope_str: String = column(row, "scope")?;
-    let scope = MemoryScope::parse(&scope_str)
-        .ok_or_else(|| AppError::internal(format!("Invalid scope in coach_notes: {scope_str}")))?;
-    let suppressed: bool = row.try_get("suppressed").unwrap_or(false);
-    Ok(AgentNote {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        conversation_id: column(row, "conversation_id")?,
-        scope,
-        content: column(row, "content")?,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-        suppressed,
-        transport_policy: transport_policy_column(row)?,
-    })
-}
-
-/// Decode one `agent_followups` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown status.
-pub(crate) fn agent_followup_from_row<R>(row: &R) -> AppResult<AgentFollowup>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let status_str: String = column(row, "status")?;
-    let status = FollowupStatus::parse(&status_str).ok_or_else(|| {
-        AppError::internal(format!("Invalid status in coach_followups: {status_str}"))
-    })?;
-    Ok(AgentFollowup {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        conversation_id: column(row, "conversation_id")?,
-        content: column(row, "content")?,
-        due_at: column(row, "due_at")?,
-        status,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-        delivered_at: column(row, "delivered_at")?,
-        transport_policy: transport_policy_column(row)?,
     })
 }
 

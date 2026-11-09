@@ -255,10 +255,9 @@ async fn a_contract_provider_completes_a_tool_round_trip_through_the_generic_loo
         "the advertised tools must reach the provider on the wire"
     );
 
-    // 5. Nothing vendor-specific was consulted: no Guardian block, no parked
-    //    confirmation, no provider-auth handoff.
+    // 5. Nothing vendor-specific was consulted: no Guardian block, no
+    //    provider-auth handoff.
     assert!(result.guardian_denied.is_none());
-    assert!(result.guardian_confirm.is_none());
     assert!(result.pending_provider_auth_required.is_none());
 }
 
@@ -332,6 +331,8 @@ async fn a_contract_provider_that_calls_nothing_answers_directly() {
 #[cfg(feature = "tools-groups")]
 #[tokio::test]
 async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
+    use pierre_core::transport::Transport;
+
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
@@ -350,6 +351,8 @@ async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
     let executor = Arc::new(
         UniversalToolExecutor::new(resources)
             .with_scopes(OAuthScope::self_grant())
+            // The coach tools run on Dravr's own surfaces only.
+            .with_transport(Transport::WebApp)
             .with_turn_token("contract-env".to_owned()),
     );
     let tools = advertised_tools();

@@ -54,22 +54,33 @@ pub(crate) struct CliLoopCall {
     pub(crate) latency_ms: i64,
 }
 
-/// Ask the provider for one text-loop iteration.
-///
-/// A failed call is recorded here, charged for the prompt it sent; a served one
-/// is returned for the loop to record once it has parsed the reply's tool calls.
+/// Ask the provider for one text-loop iteration, as [`completion_call`] does.
 pub(crate) async fn cli_loop_call(
     params: &ToolLoopParams<'_>,
     llm_messages: &[ChatMessage],
     call_seq: Option<i64>,
 ) -> Result<(ChatResponse, CliLoopCall), AppError> {
-    log_wire_shape("cli_tool_loop", llm_messages);
     let llm_request = cli_loop_request(
         llm_messages.to_vec(),
         params.model,
         params.temperature,
         params.mcp_servers.clone(),
     );
+    completion_call(params, &llm_request, "cli_tool_loop", call_seq).await
+}
+
+/// Send one built completion request to the provider and say who served it.
+///
+/// A failed call is recorded here, charged for the prompt it sent; a served one
+/// is returned for the loop to record once it knows what the reply asked for.
+pub(crate) async fn completion_call(
+    params: &ToolLoopParams<'_>,
+    llm_request: &ChatRequest,
+    dispatch_path: &'static str,
+    call_seq: Option<i64>,
+) -> Result<(ChatResponse, CliLoopCall), AppError> {
+    let llm_messages = &llm_request.messages;
+    log_wire_shape(dispatch_path, llm_messages);
 
     // notify: CLI/embacle provider call about to start. Same event as
     // the API loop so routing can hide both behind one rule.
@@ -82,7 +93,7 @@ pub(crate) async fn cli_loop_call(
 
     let call_start = Instant::now();
     let (response_result, served) =
-        observe_served_tier(params.provider.complete(&llm_request)).await;
+        observe_served_tier(params.provider.complete(llm_request)).await;
     let latency_ms = millis_elapsed(call_start);
     // After a fallback the chain's own name is still its head, so the call
     // is attributed to the tier that answered: those tokens are that

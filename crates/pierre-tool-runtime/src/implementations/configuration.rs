@@ -29,13 +29,16 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
-use crate::implementations::configuration_document::{configuration_payload, updated_document};
+use crate::implementations::configuration_document::{
+    configuration_payload, readable_configuration, updated_document,
+};
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
     HeartRateZone, HeartRateZones, PaceZone, PaceZones, PersonalizedZones, PersonalizedZonesResult,
     PowerZoneBand, PowerZones as PowerZonesPayload, UpdateUserConfigurationResult,
     UserConfigurationResult, ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
 };
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_cageux::config::intelligence::VO2MaxCalculator;
@@ -646,7 +649,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
                 });
             ok_typed(
                 "get_user_configuration",
-                configuration_payload(&user_uuid, stored.as_ref()),
+                readable_configuration(configuration_payload(&user_uuid, stored.as_ref())),
             )
         }
         .await;
@@ -878,7 +881,6 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                 }
                 None => None,
             };
-
             let tenant = ctx.tenant_id.map(|tenant| tenant.to_string());
             let max_hr_algorithm =
                 configured_max_hr_algorithm(&ctx.resources, ctx.user_id, tenant.as_deref())
@@ -894,7 +896,17 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                 }
             }
             let mut params = extract_zone_parameters(&args, stored.as_ref(), max_hr_algorithm);
-            let user_profile = create_user_profile(&params);
+            // The heart-rate zones are the athlete's training: their saved
+            // resting heart rate cuts them on a coach's read too, grant or
+            // not, as on their own read (carnet#1387, Phil 2026-11-06). The
+            // resting heart rate itself is their wellness, so the inputs
+            // echoed back carry it only where a wellness read could; that
+            // the zone bounds give it back was accepted with the decision.
+            let mut user_profile = create_user_profile(&params);
+            if params.sources.get("resting_hr") == Some(&json!("profile")) {
+                user_profile.resting_hr =
+                    read_subject::readable_physiology(stored).and_then(|profile| profile.resting_hr);
+            }
             let zones_config = &ctx.resources.config().training_zones;
 
             // Each zone family is emitted only when its own inputs are known.

@@ -645,14 +645,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_background_workers(Arc::clone(&resources));
     }
 
-    // Start agent followup scheduler (polls agent_followups every 60 seconds)
+    // Keep this instance's Guardian and harness policy converged on the rows an
+    // admin save writes. The save installs on one instance; the deployment runs
+    // several with no session affinity. Per-instance by design, so not a leased
+    // periodic worker.
     {
-        use pierre_mcp_server::start_followup_scheduler;
-        start_followup_scheduler(
-            Arc::clone(&resources.common.repos.memory),
-            #[cfg(feature = "client-notifications")]
-            resources.common.notification_service.clone(),
-            Arc::clone(&resources.common.repos.worker_runs),
+        use pierre_mcp_server::{settings_poll_interval, start_settings_poll, SettingsPollTargets};
+        start_settings_poll(
+            SettingsPollTargets {
+                database: Arc::clone(&resources.agent.database),
+                guardian: Arc::clone(&resources.fitness.guardian_config_registry),
+                harness: Arc::clone(&resources.fitness.harness_config_registry),
+            },
+            settings_poll_interval(resources.common.config.timeouts.settings_poll_interval_secs),
         );
     }
 
@@ -737,6 +742,15 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     {
         use pierre_mcp_server::start_garmin_push_worker;
         start_garmin_push_worker(&resources);
+    }
+
+    // Start the daily Garmin grant check (carnet#1454): renews each live
+    // Garmin grant's token and flags one Garmin refused to renew, so a dead
+    // grant reads "Reconnect" even for an athlete who records nothing.
+    #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
+    {
+        use pierre_mcp_server::start_garmin_grant_refresh;
+        start_garmin_grant_refresh(&resources);
     }
 
     // Start the personal-best seed (carnet#582): walks each Strava athlete's

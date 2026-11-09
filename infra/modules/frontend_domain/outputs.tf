@@ -26,3 +26,8 @@ output "certificate_map_id" {
   description = "Certificate map attached to the HTTPS proxy"
   value       = google_certificate_manager_certificate_map.frontend.id
 }
+
+output "security_policy_name" {
+  description = "Name of the Cloud Armor security policy on the frontend backend service, null when armor_enabled is false"
+  value       = var.armor_enabled ? google_compute_security_policy.frontend[0].name : null
+}
