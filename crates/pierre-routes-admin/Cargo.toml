@@ -6,7 +6,7 @@ name = "pierre-routes-admin"
 version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Admin REST routes (users, tokens, API keys, settings, claim verdicts, coach grading, harness config) for the Pierre platform"
+description = "Admin REST routes (users, tokens, API keys, settings, claim verdicts, harness config) for the Pierre platform"
 repository = "https://github.com/dravr-ai/cdn-platform"
 publish = false
 

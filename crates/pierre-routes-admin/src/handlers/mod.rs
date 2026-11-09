@@ -11,13 +11,11 @@
 //! integration test drives the handler directly with a hand-built
 //! `ValidatedAdminToken`, `pub(crate)` otherwise. The handlers consume
 //! [`crate::AdminApiContext`] via `State<Arc<...>>` and delegate business
-//! logic to `pierre-services` (myth-busting, agent grading, tenant admin,
-//! …).
+//! logic to `pierre-services` (tenant admin, memory facts, …).
 
 pub mod admin_rate_limit_override;
 /// Which tenants a console read covers, and the tenants a super admin can pick
 pub mod admin_scope;
-pub mod agent_grading;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
 /// The admin audit trail, read newest first (carnet#1391).
@@ -43,7 +41,6 @@ pub mod impersonation;
 mod invitations;
 pub mod llm_consumption;
 pub mod memory_worker;
-pub mod myth_busting;
 /// The new-user cohort: accounts created in a window and how far each got.
 pub mod new_users;
 /// Super-admin clone of one account's scrape-session provider connection onto another.

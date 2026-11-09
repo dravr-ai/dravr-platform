@@ -126,9 +126,6 @@ pub mod tenant_chat_provider;
 /// progressive streaming.
 pub mod chat_stream;
 
-/// Per-agent content grading derived from claim verdict history
-pub mod agent_grading;
-
 /// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's agent
 pub mod agent_package;
 
@@ -291,9 +288,6 @@ pub mod messaging_status_bridge;
 /// Extension trait for turning `AppError` into a channel-safe reply
 #[cfg(feature = "client-messaging")]
 pub mod channel_error_reply;
-
-/// Myth-busting summary over claim verdicts (top recurring claims, agents, categories)
-pub mod myth_busting;
 
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;

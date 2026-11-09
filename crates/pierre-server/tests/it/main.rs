@@ -79,7 +79,6 @@ mod admin_user_usage_test;
 mod agent_admin_notification_test;
 mod agent_command_alias_test;
 mod agent_drift_classification_test;
-mod agent_grading_carveout_test;
 mod agent_handle_postgresql_test;
 mod agent_handle_test;
 mod agent_max_tool_iterations_test;

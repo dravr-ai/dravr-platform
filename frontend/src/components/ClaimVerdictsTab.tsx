@@ -113,7 +113,7 @@ function HealthCard({
   return (
     <Section
       title="Detector health"
-      description="Every unsupported or contradicted verdict over the window, before any exclusion, and what triage made of them: unsupported training advice and dismissed false positives count here. Myth Busting reads a narrower set. The rate is false positives over dispositions, so it says nothing until someone has triaged these."
+      description="Every unsupported or contradicted verdict over the window, before any exclusion, and what triage made of them: unsupported training advice and dismissed false positives count here. The rate is false positives over dispositions, so it says nothing until someone has triaged these."
       actions={
         <div className="w-32">
           <Select

@@ -1,11 +1,11 @@
-// ABOUTME: Tenant-access tests for the cookie-admin observability handlers ( grading, memory, myths)
+// ABOUTME: Tenant-access tests for the cookie-admin observability handlers (claim verdicts, memory)
 // ABOUTME: A tenant-bound token is refused for another tenant at every site; its own tenant and a super-admin pass
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! These handlers under the cookie-admin mount take a client-supplied
-//! `tenant_id` query. Grading, memory and myth busting gate on the scope rule
+//! `tenant_id` query. Claim verdicts and memory gate on the scope rule
 //! (`pierre_core::admin::scope`). A token bound to one tenant must not cross to
 //! another.
 //!
@@ -35,7 +35,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::handlers::{agent_grading, memory_worker, myth_busting};
+use pierre_routes_admin::handlers::{claim_verdicts, memory_worker};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use uuid::Uuid;
@@ -192,53 +192,8 @@ fn assert_ok(resp: impl IntoResponse, site: &str) {
 }
 
 // ============================================================================
-// agent_grading, memory_worker, myth_busting
+// claim_verdicts, memory_worker
 // ============================================================================
-
-#[tokio::test]
-async fn grading_summary_reconciles_the_token_with_the_tenant_named() {
-    let (context, repos) = build_context().await;
-    let own = seed_tenant(&repos).await;
-    let foreign = seed_tenant(&repos).await;
-
-    let err = refusal(
-        agent_grading::handle_get_summary(
-            State(context.clone()),
-            Extension(tenant_bound_token(own)),
-            Query(agent_grading::AgentGradingQuery {
-                tenant_id: Some(foreign.to_string()),
-                limit: None,
-            }),
-        )
-        .await,
-        "grading summary",
-    );
-    assert_cross_tenant_refusal(&err, own, foreign, "grading summary");
-
-    let ok = agent_grading::handle_get_summary(
-        State(context.clone()),
-        Extension(tenant_bound_token(own)),
-        Query(agent_grading::AgentGradingQuery {
-            tenant_id: Some(own.to_string()),
-            limit: None,
-        }),
-    )
-    .await
-    .expect("own tenant summary reads");
-    assert_ok(ok, "grading summary");
-
-    let ok = agent_grading::handle_get_summary(
-        State(context),
-        Extension(super_admin_token()),
-        Query(agent_grading::AgentGradingQuery {
-            tenant_id: Some(foreign.to_string()),
-            limit: None,
-        }),
-    )
-    .await
-    .expect("a super admin reads any tenant");
-    assert_ok(ok, "grading summary (super-admin)");
-}
 
 #[tokio::test]
 async fn memory_metrics_reconcile_the_token_with_the_tenant_named() {
@@ -272,36 +227,52 @@ async fn memory_metrics_reconcile_the_token_with_the_tenant_named() {
 }
 
 #[tokio::test]
-async fn myth_busting_summary_reconciles_the_token_with_the_tenant_named() {
+async fn verdict_list_reconciles_the_token_with_the_tenant_named() {
     let (context, repos) = build_context().await;
     let own = seed_tenant(&repos).await;
     let foreign = seed_tenant(&repos).await;
+    let query = |tenant: TenantId| {
+        Query(claim_verdicts::ListVerdictsQuery {
+            tenant_id: Some(tenant.to_string()),
+            status: None,
+            category: None,
+            agent_id: None,
+            layer_fired: None,
+            disposition: None,
+            user_id: None,
+            limit: None,
+        })
+    };
 
     let err = refusal(
-        myth_busting::handle_get_summary(
+        claim_verdicts::handle_list_claim_verdicts(
             State(context.clone()),
             Extension(tenant_bound_token(own)),
             HeaderMap::new(),
-            Query(myth_busting::MythBustingQuery {
-                tenant_id: Some(foreign.to_string()),
-                limit: None,
-            }),
+            query(foreign),
         )
         .await,
-        "myth-busting summary",
+        "verdict list",
     );
-    assert_cross_tenant_refusal(&err, own, foreign, "myth-busting summary");
+    assert_cross_tenant_refusal(&err, own, foreign, "verdict list");
 
-    let ok = myth_busting::handle_get_summary(
-        State(context),
+    let ok = claim_verdicts::handle_list_claim_verdicts(
+        State(context.clone()),
         Extension(tenant_bound_token(own)),
         HeaderMap::new(),
-        Query(myth_busting::MythBustingQuery {
-            tenant_id: Some(own.to_string()),
-            limit: None,
-        }),
+        query(own),
     )
     .await
-    .expect("own tenant summary reads");
-    assert_ok(ok, "myth-busting summary");
+    .expect("own tenant verdicts read");
+    assert_ok(ok, "verdict list");
+
+    let ok = claim_verdicts::handle_list_claim_verdicts(
+        State(context),
+        Extension(super_admin_token()),
+        HeaderMap::new(),
+        query(foreign),
+    )
+    .await
+    .expect("a super admin reads any tenant");
+    assert_ok(ok, "verdict list (super-admin)");
 }

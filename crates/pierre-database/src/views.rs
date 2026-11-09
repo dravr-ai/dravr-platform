@@ -125,7 +125,7 @@ impl AuthRepos {
 /// claim-verdict bookkeeping.
 ///
 /// Consumers: chat pipeline (`chat`, `memory`, `users` — the last via
-/// `AuthRepos`), claim-verdict / agent-grading / myth-busting services
+/// `AuthRepos`), claim-verdict services and the admin verdict screens
 /// (`claim_verdicts`), memory-facts service (`memory`), MCP resources layer
 /// (`agents`, `groups`, `store_listings`), messaging group-bind service
 /// (`groups`).
