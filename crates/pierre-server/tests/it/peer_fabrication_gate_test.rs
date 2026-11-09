@@ -181,6 +181,17 @@ fn repair_prompt_is_chat_shaped() {
         prompt.contains("keep a claim the data confirms"),
         "the repair must check each flagged claim against the payload, not drop it"
     );
+    // The payload may be the activity cache a failed live fetch fell back to:
+    // told it was "fetched just now", a repaired reply retracted a true
+    // "his Strava needs reconnecting" and claimed a live read (run 42510466793).
+    assert!(
+        !prompt.contains("fetched just now") && !prompt.contains("verified"),
+        "the repair must not assert where or when the payload was read: {prompt}"
+    );
+    assert!(
+        prompt.contains("Do not say how or when this data was fetched"),
+        "the repair forbids narrating the payload's provenance: {prompt}"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════

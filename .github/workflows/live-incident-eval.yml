@@ -48,6 +48,15 @@
 # (a finding reds only when it reproduces in a majority of passes) is one of one, so
 # every gating finding reds. A dispatch with attempts=3 is the way to tell a defect from a draw.
 #
+# GRADING A CHANGE BEFORE IT LANDS
+#
+# A dispatch can hold the chain to one tier (`chain`, e.g. copilot_sdk=<model>) and
+# point the server's contremaitre sync at a ref (`contremaitre_ref`), so a prompt or
+# tool-description change is graded as dev would serve it, against a baseline run
+# on contremaitre main with the same chain. The nightly sets neither: it runs dev's
+# chain, and its server syncs the overlays from the repo and branch dev syncs from
+# (infra/environments/dev/main.tf), so it grades the descriptions athletes get.
+#
 # WHY THERE IS NO `push:` TRIGGER
 #
 # The lane is non-gating by construction rather than by `continue-on-error`, which is
@@ -87,6 +96,14 @@ on:
         description: "Comma-separated episode names; empty runs the corpus. Not behaviour-neutral — see episode_filter()"
         required: false
         default: ""
+      chain:
+        description: "PIERRE_LLM_CHAIN for this run (provider=model,...), its providers a subset of the lane's; empty runs dev's chain from infra/environments/dev/main.tf"
+        required: false
+        default: ""
+      contremaitre_ref:
+        description: "dravr-contremaitre branch or commit whose prompt and tool-description overlays the server syncs; empty syncs the branch dev syncs (main), as the nightly does"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -105,8 +122,12 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
+# The nightly serializes on one group. A dispatch takes a group of its own: two
+# dispatches compared against each other (a baseline and a candidate) would
+# otherwise wait on one another, and the next nightly would cancel whichever
+# of them was still pending — GitHub keeps one pending run per group.
 concurrency:
-  group: live-incident-eval
+  group: ${{ github.event_name == 'workflow_dispatch' && format('live-incident-eval-{0}', github.run_id) || 'live-incident-eval' }}
   cancel-in-progress: false
 
 jobs:
@@ -197,7 +218,14 @@ jobs:
       # it. The providers are checked rather than taken, because each tier
       # needs its own runtime and token provisioned below: a chain dev has
       # moved off would otherwise be graded as if it were production's.
+      #
+      # A dispatch may name its own chain (the `chain` input) to grade one tier
+      # alone. Its providers are then held to a subset of the lane's rather than
+      # to equality, which is the same guarantee: every tier it names has its
+      # runtime and token provisioned below.
       - name: Read dev's coaching chain
+        env:
+          CHAIN_INPUT: ${{ inputs.chain || '' }}
         run: |
           set -euo pipefail
           TF=infra/environments/dev/main.tf
@@ -209,7 +237,13 @@ jobs:
             grep -m1 -E "^[[:space:]]*$1[[:space:]]*=" "$TF" \
               | sed -E 's/.*"([^"]+)".*/\1/' || true
           }
-          CHAIN=$(tf_value PIERRE_LLM_CHAIN)
+          if [ -n "${CHAIN_INPUT}" ]; then
+            CHAIN="${CHAIN_INPUT}"
+            SOURCE="the dispatch's chain input"
+          else
+            CHAIN=$(tf_value PIERRE_LLM_CHAIN)
+            SOURCE="${TF}"
+          fi
           if [ -z "${CHAIN}" ]; then
             echo "::error::could not read PIERRE_LLM_CHAIN from ${TF}" >&2
             exit 1
@@ -220,15 +254,25 @@ jobs:
             # Each entry is `provider=model`: an entry with no model would run
             # on whatever its runner defaults to, not on dev's model.
             if [ "${ENTRY#*=}" = "${ENTRY}" ] || [ -z "${ENTRY#*=}" ]; then
-              echo "::error::dev's PIERRE_LLM_CHAIN entry '${ENTRY}' (${TF}) names no model" >&2
+              echo "::error::PIERRE_LLM_CHAIN entry '${ENTRY}' (${SOURCE}) names no model" >&2
               exit 1
             fi
             # `provider#N=model` sets a pooled account's model, not a tier:
             # the account comes with its provider's numbered credential.
             case "${ENTRY%%=*}" in *'#'*) continue ;; esac
-            PROVIDERS="${PROVIDERS:+${PROVIDERS},}${ENTRY%%=*}"
+            PROVIDER="${ENTRY%%=*}"
+            if [ -n "${CHAIN_INPUT}" ]; then
+              case ",${LANE_LLM_PROVIDERS}," in
+                *",${PROVIDER},"*) ;;
+                *)
+                  echo "::error::the chain input names ${PROVIDER}, which this lane does not provision (${LANE_LLM_PROVIDERS})" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+            PROVIDERS="${PROVIDERS:+${PROVIDERS},}${PROVIDER}"
           done
-          if [ "${PROVIDERS}" != "${LANE_LLM_PROVIDERS}" ]; then
+          if [ -z "${CHAIN_INPUT}" ] && [ "${PROVIDERS}" != "${LANE_LLM_PROVIDERS}" ]; then
             echo "::error::dev runs ${PROVIDERS} (${TF}) but this lane provisions ${LANE_LLM_PROVIDERS} — move the lane to dev's chain" >&2
             exit 1
           fi
@@ -318,7 +362,8 @@ jobs:
                       copilot:dravr-mcp-server-copilot-github-token \
                       claude:dravr-mcp-server-claude-code-oauth-token \
                       claude2:dravr-mcp-server-claude-code-oauth-token-2 \
-                      gemini:dravr-mcp-server-gemini-api-key; do
+                      gemini:dravr-mcp-server-gemini-api-key \
+                      usda:dravr-mcp-server-usda-api-key; do
             KEY="${PAIR%%:*}"
             SECRET="${PAIR#*:}"
             TOKEN=$(gcloud secrets versions access latest --secret="$SECRET" --project="$PROJECT")
@@ -329,6 +374,54 @@ jobs:
             echo "::add-mask::$TOKEN"
             echo "${KEY}=${TOKEN}" >> "$GITHUB_OUTPUT"
           done
+
+      # Dev syncs its prompt and tool-description overlays from
+      # dravr-contremaitre at runtime (CONTREMAITRE_REPO, CONTREMAITRE_BRANCH in
+      # infra/environments/dev/main.tf). The tool descriptions reach a server
+      # ONLY that way — the pinned crate compiles in the prompts, never
+      # tools/*.yaml — so every run syncs too, or it grades descriptions no
+      # athlete is served. The repo and branch are read from dev's config, as
+      # the chain is; a dispatch that grades a contremaitre change names its
+      # ref instead (`contremaitre_ref`). The schedule has no inputs, so an
+      # empty ref is the nightly's case, never an error. Dev's PAT is read
+      # where dev reads it.
+      - name: Resolve the contremaitre overlay source
+        id: contremaitre
+        env:
+          CONTREMAITRE_REF_INPUT: ${{ inputs.contremaitre_ref || '' }}
+        run: |
+          set -euo pipefail
+          TF=infra/environments/dev/main.tf
+          tf_value() {
+            grep -m1 -E "^[[:space:]]*$1[[:space:]]*=" "$TF" \
+              | sed -E 's/.*"([^"]+)".*/\1/' || true
+          }
+          REPO=$(tf_value CONTREMAITRE_REPO)
+          if [ -n "${CONTREMAITRE_REF_INPUT}" ]; then
+            # A branch name or a commit, nothing else: the ref is written to
+            # $GITHUB_OUTPUT, where a newline would forge another output.
+            if ! [[ "${CONTREMAITRE_REF_INPUT}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+              echo "::error::contremaitre_ref is not a branch name or commit ([A-Za-z0-9._/-] only)" >&2
+              exit 1
+            fi
+            REF="${CONTREMAITRE_REF_INPUT}"
+          else
+            REF=$(tf_value CONTREMAITRE_BRANCH)
+          fi
+          if [ -z "${REPO}" ] || [ -z "${REF}" ]; then
+            echo "::error::could not read CONTREMAITRE_REPO/CONTREMAITRE_BRANCH from ${TF} (repo '${REPO}', ref '${REF}')" >&2
+            exit 1
+          fi
+          echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          PROJECT="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}"
+          TOKEN=$(gcloud secrets versions access latest --secret=dravr-mcp-server-contremaitre-github-pat --project="$PROJECT")
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Secret Manager returned an empty dravr-mcp-server-contremaitre-github-pat" >&2
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "pat=${TOKEN}" >> "$GITHUB_OUTPUT"
 
       # The gate is the exit status, then two markers. The corpus is the
       # live-e2e target live_incident_corpus_test, which a default build never
@@ -353,7 +446,15 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.tokens.outputs.claude }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ steps.tokens.outputs.claude2 }}
           GEMINI_API_KEY: ${{ steps.tokens.outputs.gemini }}
+          # The key dev's food tools call USDA with. Without it the corpus ran
+          # the harness placeholder, so every search_food answered 403 and the
+          # meal turn could not be answered from data (run 42510466793).
+          USDA_API_KEY: ${{ steps.tokens.outputs.usda }}
+          CONTREMAITRE_REPO: ${{ steps.contremaitre.outputs.repo }}
+          CONTREMAITRE_BRANCH: ${{ steps.contremaitre.outputs.ref }}
+          CONTREMAITRE_GITHUB_PAT: ${{ steps.contremaitre.outputs.pat }}
         run: |
+          echo "contremaitre overlays: ${CONTREMAITRE_REPO}@${CONTREMAITRE_BRANCH}"
           log="$RUNNER_TEMP/incident-corpus.log"
           status=0
           # tee, not a redirect: a run killed by the job's wall clock must still

@@ -7,14 +7,18 @@
 use std::fmt::Write;
 
 use pierre_core::models::groups::{
-    CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, GROUP_CONTEXT_FOOTER,
-    GROUP_CONTEXT_HEADER,
+    CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, GROUP_CONTEXT_HEADER,
 };
 
 /// Strategy for building group context text injected into the agent's system prompt.
 ///
 /// Different implementations produce different prompt styles depending on
 /// who is asking (admin overview vs individual member focus).
+///
+/// A block opens the group section and leaves it open: the group service
+/// appends the member-state alerts and closes it with `GROUP_CONTEXT_FOOTER`,
+/// so the alerts sit inside the platform-authored section the reply checks
+/// read as evidence.
 pub trait GroupContextStrategy: Send + Sync {
     /// Build context for group-level interactions (admin viewing full roster)
     fn build_group_context(&self, group: &GroupContext, members: &[MemberSummaryCard]) -> String;
@@ -58,7 +62,6 @@ impl GroupContextStrategy for IndividualFocusContext {
         }
 
         write_absent_member_instructions(&mut text, group);
-        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 
@@ -116,7 +119,6 @@ impl GroupContextStrategy for IndividualFocusContext {
             }
         }
 
-        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 
@@ -179,7 +181,6 @@ impl GroupContextStrategy for GroupOverviewContext {
         }
 
         write_absent_member_instructions(&mut text, group);
-        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 

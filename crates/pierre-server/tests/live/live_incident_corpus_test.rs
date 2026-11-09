@@ -70,11 +70,12 @@
 //! `copilot-runtime`) with `COPILOT_GITHUB_TOKEN`, the pinned `claude` CLI
 //! (`CLAUDE_CODE_CLI_VERSION`, same file) on `PATH` with
 //! `CLAUDE_CODE_OAUTH_TOKEN` (and `CLAUDE_CODE_OAUTH_TOKEN_2`) for the
-//! fallback tier, `GEMINI_API_KEY` for the tertiary, and the provider
-//! selection env the server itself reads. The three models are dev's, from
-//! `infra/environments/dev/main.tf`, and the lane refuses the harness's
-//! placeholder model, so each `…` below is dev's value for that key. On the
-//! dev tokens a local run spends the accounts athletes are served from.
+//! fallback tier, `GEMINI_API_KEY` for the tertiary, `USDA_API_KEY` for the
+//! food tools, and the provider selection env the server itself reads. The
+//! three models are dev's, from `infra/environments/dev/main.tf`, and the lane
+//! refuses the harness's placeholder model, so each `…` below is dev's value
+//! for that key. On the dev tokens a local run spends the accounts athletes
+//! are served from.
 //!
 //! ```bash
 //! PIERRE_LLM_CHAIN=copilot_sdk=…,claude_code=…,gemini=… \
@@ -123,8 +124,8 @@ use crate::common::{
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::live_incident_corpus::{
     athlete_runs, classify_findings, ground_truth, lane_timeouts, seed_fixture, sunday_ride_start,
-    turn_timeout, Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
-    SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
+    turn_timeout, Classified, Episode, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME,
+    SIGNING_SECRET, SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -140,6 +141,7 @@ use pierre_llm::judge::{ask_for_json, judge_request};
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::json;
 use serial_test::serial;
@@ -147,9 +149,12 @@ use sha2::Sha256;
 use std::collections::HashSet;
 use std::env;
 use std::fmt::Write as _;
+use std::panic::resume_unwind;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
+use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::time::sleep;
 
 /// Poll interval while waiting for the delivered message to land.
@@ -229,6 +234,50 @@ fn turn_delay() -> Duration {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0),
     )
+}
+
+/// How long a pass waits for its server's first contremaitre sync.
+///
+/// A full sync from the GitHub store takes ~50 s (`tool_sync.rs`); the bound
+/// leaves room for a slow API without letting a dead sync stall the job.
+const CONTREMAITRE_SYNC_DEADLINE: Duration = Duration::from_secs(240);
+
+/// Hold the pass until the server has applied its contremaitre overlays,
+/// when the lane was pointed at a contremaitre ref (`CONTREMAITRE_REPO`).
+///
+/// The server's first sync runs in the background, off the boot path, and the
+/// first turn goes out about a second after boot — so without this wait a run
+/// meant to grade a ref's tool descriptions grades the compiled-in ones. The
+/// tool overlays land in one swap (`update_all`) after the system prompts, so
+/// a non-empty tool-description registry means both are live. A sync that
+/// never lands is a lane fault, not a draw: the pass stops rather than grade
+/// a surface it was not asked to.
+async fn await_contremaitre_overlay(resources: &Arc<ServerContext>) {
+    if !env::var("CONTREMAITRE_REPO").is_ok_and(|v| !v.is_empty()) {
+        return;
+    }
+    let started = Instant::now();
+    let registry = &resources.mcp.tool_description_registry;
+    while registry.count() == 0 {
+        assert!(
+            started.elapsed() < CONTREMAITRE_SYNC_DEADLINE,
+            "CONTREMAITRE_REPO is set but no tool-description overlay landed within {}s — \
+             the pass would grade the compiled-in descriptions, not the ref it names",
+            CONTREMAITRE_SYNC_DEADLINE.as_secs()
+        );
+        sleep(POLL_INTERVAL).await;
+    }
+    println!(
+        "contremaitre overlay live after {:.1}s: {} tool descriptions, tool_discipline_shared {} B (ref {})",
+        started.elapsed().as_secs_f64(),
+        registry.count(),
+        resources
+            .mcp
+            .prompt_registry
+            .tool_discipline_shared_prompt()
+            .len(),
+        env::var("CONTREMAITRE_BRANCH").unwrap_or_default(),
+    );
 }
 
 /// The absence of any observation. Never a quality signal.
@@ -825,9 +874,45 @@ async fn judge(
         .map_err(|e| e.to_string())
 }
 
-#[tokio::test]
+/// The stack the corpus runs on.
+///
+/// The lane drives production's whole messaging path — webhook, turn
+/// dispatch, chat pipeline, tool loop, a tool that dispatches another
+/// through the registry, a sciotte read — on ONE thread: `#[tokio::test]`
+/// is a current-thread runtime, so the turns it spawns run on the test
+/// thread too. Production runs that path in a release build on a 2 MiB tokio
+/// worker; this lane runs it in a debug build, whose poll frames are several
+/// times larger (no stack-slot reuse, no inlining). Measured on the corpus
+/// fixture with no model: `analyze_activity` alone needs ~780 KiB of debug
+/// stack against ~550 KiB for the `get_activity_intelligence` it dispatches
+/// into, and the messaging path above it is ~1.3 MiB more — so the first
+/// `analyze_activity` a turn called overflowed the 2 MiB test thread
+/// (runs 42435329178 and 42435331218), a debug-only depth, not a recursion.
+/// The bound is generous because the full path cannot be measured without a
+/// live model; it is virtual memory, committed only as touched.
+const CORPUS_STACK_BYTES: usize = 32 * 1024 * 1024;
+
+#[test]
 #[serial]
-async fn live_incident_corpus_holds() {
+fn live_incident_corpus_holds() {
+    let corpus = thread::Builder::new()
+        .name("live_incident_corpus_holds".to_owned())
+        .stack_size(CORPUS_STACK_BYTES)
+        .spawn(|| {
+            RuntimeBuilder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("the corpus runtime")
+                .block_on(Box::pin(run_corpus()));
+        })
+        .expect("the corpus thread");
+    if let Err(panic) = corpus.join() {
+        resume_unwind(panic);
+    }
+}
+
+/// [`live_incident_corpus_holds`]' body, on its sized thread.
+async fn run_corpus() {
     // Refuse the harness placeholder, the same way this lane refuses a
     // `Custom` provider below and for the same reason: both leave it
     // grading something other than what it claims to.
@@ -885,10 +970,7 @@ async fn live_incident_corpus_holds() {
     );
 
     let attempts = attempts();
-    let mut findings: Vec<Finding> = Vec::new();
-    let mut infra: Vec<InfraError> = Vec::new();
-    let mut platform: Vec<PlatformAnswer> = Vec::new();
-    let mut turns_run = 0_usize;
+    let mut tally = Tally::default();
 
     // Each pass gets its own server and fixture. Reusing one would let a
     // pass inherit the previous pass's conversation history, and the
@@ -897,130 +979,14 @@ async fn live_incident_corpus_holds() {
     // turn the incident recorded.
     for pass in 1..=attempts {
         println!("\n########## corpus pass {pass}/{attempts}");
-        let resources = create_test_server_resources_with_real_chat_provider_and_config(
-            Arc::clone(&provider),
-            ServerConfig {
-                llm_chain: chain.clone(),
-                timeouts: lane_timeouts(),
-                // `PIERRE_CHAT_DEFER_TOOLS=off` runs the lane with every tool
-                // loaded, the baseline a deferral run is compared against.
-                chat_tools: ChatToolSettings::from_env(),
-                ..test_server_config_with_sciotte(&scraper_url)
-            },
-        )
-        .await
-        .unwrap();
-        let fixture = seed_fixture(&resources).await;
-
-        let only = episode_filter();
-        for episode in CORPUS {
-            if !only.is_empty() && !only.iter().any(|n| n == episode.name) {
-                continue;
-            }
-            println!("\n=== {} ({})", episode.name, episode.incident);
-            let channel = if episode.group {
-                &fixture.group_channel
-            } else {
-                &fixture.dm_channel
-            };
-
-            for (turn_index, turn) in episode.turns.iter().enumerate() {
-                println!("  turn {turn_index}: {}", turn.user);
-                let baseline = outbound_count(&resources, fixture.athlete_tenant).await;
-                let assistant_baseline =
-                    assistant_row_count(&resources, fixture.athlete_tenant).await;
-                let usage_before = usage_ids(&resources, fixture.athlete_tenant).await;
-                let mut delivered = match drive_turn(
-                    &resources,
-                    &fixture,
-                    channel,
-                    turn.user,
-                    baseline,
-                    assistant_baseline,
-                )
-                .await
-                {
-                    Ok(Answered::Model(d)) => d,
-                    Ok(Answered::Platform {
-                        finish_reason,
-                        body,
-                    }) => {
-                        println!("    PLATFORM [{finish_reason}]: {:?}", excerpt(&body));
-                        platform.push(PlatformAnswer {
-                            episode: episode.name,
-                            turn_index,
-                            finish_reason,
-                            body,
-                        });
-                        continue;
-                    }
-                    Err(detail) => {
-                        println!("    INFRA: {detail}");
-                        infra.push(InfraError {
-                            episode: episode.name,
-                            turn_index,
-                            detail,
-                        });
-                        continue;
-                    }
-                };
-                turns_run += 1;
-                let usage = turn_usage(&resources, fixture.athlete_tenant, &usage_before).await;
-                println!(
-                    "    tools {:?} over {} call(s), {} prompt tokens",
-                    usage.tools, usage.calls, usage.prompt_tokens
-                );
-                delivered.tools = usage.tools;
-                println!(
-                    "    delivered {} chars{}",
-                    delivered.body.chars().count(),
-                    if delivered.blocks.is_some() {
-                        " (+ content blocks)"
-                    } else {
-                        ""
-                    }
-                );
-
-                sleep(turn_delay()).await;
-
-                for expect in UNIVERSAL.iter().chain(turn.expect) {
-                    let outcome = check(
-                        *expect,
-                        &delivered,
-                        turn.user,
-                        provider.as_ref(),
-                        &resources,
-                        &fixture,
-                    )
-                    .await;
-                    let detail = match outcome {
-                        Ok(None) => continue,
-                        Ok(Some(detail)) => detail,
-                        Err(detail) => {
-                            println!("    INFRA: {detail}");
-                            infra.push(InfraError {
-                                episode: episode.name,
-                                turn_index,
-                                detail,
-                            });
-                            continue;
-                        }
-                    };
-                    println!("    FINDING: {detail}");
-                    findings.push(Finding {
-                        episode: episode.name,
-                        incident: episode.incident,
-                        turn_index,
-                        user: turn.user,
-                        kind: expect.kind(),
-                        gates: expect.gates(),
-                        detail,
-                        delivered: delivered.body.clone(),
-                    });
-                }
-            }
-        }
+        run_pass(&provider, &chain, &scraper_url, &mut tally).await;
     }
+    let Tally {
+        findings,
+        infra,
+        platform,
+        turns_run,
+    } = tally;
 
     // Denominator follows the filter, or the coverage guard below reads a
     // deliberately-scoped run as a broken provider: filtering to one
@@ -1124,4 +1090,183 @@ async fn live_incident_corpus_holds() {
          conclude anything; this is an infrastructure failure, not a passing run. \
          Check the provider, its model id, and its rate limit."
     );
+}
+
+/// What the passes observed, summed over every pass.
+#[derive(Default)]
+struct Tally {
+    findings: Vec<Finding>,
+    infra: Vec<InfraError>,
+    platform: Vec<PlatformAnswer>,
+    /// Turns the model answered, the observations the floor counts.
+    turns_run: usize,
+}
+
+/// The USDA key the lane's food tools call with: dev's, from the environment.
+///
+/// The test config's placeholder only keeps the food tools listed; every call
+/// made with it answers 403. The corpus kept it, so a meal turn's
+/// `search_food` failed in every pass and the model had nothing to answer
+/// from (run 42510466793) — a fixture that could not afford its own question.
+/// Absent, the lane fails rather than grade the placeholder (carnet#805).
+fn usda_api_key() -> SecretString {
+    let key = env::var("USDA_API_KEY").unwrap_or_default();
+    assert!(
+        !key.is_empty(),
+        "USDA_API_KEY must be set for the incident corpus: the food tools answer 403 \
+         with the test placeholder"
+    );
+    SecretString::from(key)
+}
+
+/// One pass over the corpus, on a server and fixture of its own.
+async fn run_pass(
+    provider: &Arc<ChatProvider>,
+    chain: &LlmChain,
+    scraper_url: &str,
+    tally: &mut Tally,
+) {
+    let resources = create_test_server_resources_with_real_chat_provider_and_config(
+        Arc::clone(provider),
+        ServerConfig {
+            llm_chain: chain.clone(),
+            timeouts: lane_timeouts(),
+            // `PIERRE_CHAT_DEFER_TOOLS=off` runs the lane with every tool
+            // loaded, the baseline a deferral run is compared against.
+            chat_tools: ChatToolSettings::from_env(),
+            usda_api_key: Some(usda_api_key()),
+            ..test_server_config_with_sciotte(scraper_url)
+        },
+    )
+    .await
+    .unwrap();
+    await_contremaitre_overlay(&resources).await;
+    let fixture = seed_fixture(&resources).await;
+
+    let only = episode_filter();
+    for episode in CORPUS {
+        if !only.is_empty() && !only.iter().any(|n| n == episode.name) {
+            continue;
+        }
+        println!("\n=== {} ({})", episode.name, episode.incident);
+        for turn_index in 0..episode.turns.len() {
+            let at = TurnAt {
+                episode,
+                turn_index,
+            };
+            run_turn(provider.as_ref(), &resources, &fixture, at, tally).await;
+        }
+    }
+}
+
+/// One turn of an episode: which episode, and where in it.
+#[derive(Clone, Copy)]
+struct TurnAt {
+    episode: &'static Episode,
+    turn_index: usize,
+}
+
+impl TurnAt {
+    fn infra(self, detail: String) -> InfraError {
+        println!("    INFRA: {detail}");
+        InfraError {
+            episode: self.episode.name,
+            turn_index: self.turn_index,
+            detail,
+        }
+    }
+}
+
+/// Drive one turn and grade what reached the athlete.
+async fn run_turn(
+    provider: &ChatProvider,
+    resources: &Arc<ServerContext>,
+    fixture: &Fixture,
+    at: TurnAt,
+    tally: &mut Tally,
+) {
+    let TurnAt {
+        episode,
+        turn_index,
+    } = at;
+    let turn = &episode.turns[turn_index];
+    let channel = if episode.group {
+        &fixture.group_channel
+    } else {
+        &fixture.dm_channel
+    };
+    println!("  turn {turn_index}: {}", turn.user);
+    let baseline = outbound_count(resources, fixture.athlete_tenant).await;
+    let assistant_baseline = assistant_row_count(resources, fixture.athlete_tenant).await;
+    let usage_before = usage_ids(resources, fixture.athlete_tenant).await;
+    let mut delivered = match drive_turn(
+        resources,
+        fixture,
+        channel,
+        turn.user,
+        baseline,
+        assistant_baseline,
+    )
+    .await
+    {
+        Ok(Answered::Model(d)) => d,
+        Ok(Answered::Platform {
+            finish_reason,
+            body,
+        }) => {
+            println!("    PLATFORM [{finish_reason}]: {:?}", excerpt(&body));
+            tally.platform.push(PlatformAnswer {
+                episode: episode.name,
+                turn_index,
+                finish_reason,
+                body,
+            });
+            return;
+        }
+        Err(detail) => {
+            tally.infra.push(at.infra(detail));
+            return;
+        }
+    };
+    tally.turns_run += 1;
+    let usage = turn_usage(resources, fixture.athlete_tenant, &usage_before).await;
+    println!(
+        "    tools {:?} over {} call(s), {} prompt tokens",
+        usage.tools, usage.calls, usage.prompt_tokens
+    );
+    delivered.tools = usage.tools;
+    println!(
+        "    delivered {} chars{}",
+        delivered.body.chars().count(),
+        if delivered.blocks.is_some() {
+            " (+ content blocks)"
+        } else {
+            ""
+        }
+    );
+
+    sleep(turn_delay()).await;
+
+    for expect in UNIVERSAL.iter().chain(turn.expect) {
+        let detail = match check(*expect, &delivered, turn.user, provider, resources, fixture).await
+        {
+            Ok(None) => continue,
+            Ok(Some(detail)) => detail,
+            Err(detail) => {
+                tally.infra.push(at.infra(detail));
+                continue;
+            }
+        };
+        println!("    FINDING: {detail}");
+        tally.findings.push(Finding {
+            episode: episode.name,
+            incident: episode.incident,
+            turn_index,
+            user: turn.user,
+            kind: expect.kind(),
+            gates: expect.gates(),
+            detail,
+            delivered: delivered.body.clone(),
+        });
+    }
 }

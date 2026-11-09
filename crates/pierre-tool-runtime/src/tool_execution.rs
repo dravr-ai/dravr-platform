@@ -50,7 +50,9 @@ use crate::tool_results::{
 };
 use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse};
+use pierre_llm::{
+    ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse, HeadlessToolResponse,
+};
 
 // ============================================================================
 // API Tool Loop (native function calling)
@@ -499,6 +501,27 @@ pub(crate) const TOOL_CALL_OPEN: &str = "<tool_call>";
 /// The tag that closes one.
 pub(crate) const TOOL_CALL_CLOSE: &str = "</tool_call>";
 
+/// The tools a headless reply asked for, as its usage row records them.
+///
+/// The runtime's own calls when it made any; otherwise the `<tool_call>`
+/// blocks of its text, which [`finalize_headless_turn`] hands to the text
+/// tool loop with the same parser. That loop treats the handed-in reply as
+/// already recorded, so a row built from the native calls alone named no
+/// tool for a turn whose tools all ran from text: the incident corpus graded
+/// a `get_activities` call made five times as "called nothing", and the
+/// admin tool-usage view never counted it. Names asked for, run or refused,
+/// as on the API loop's rows.
+fn headless_tools_asked(response: &HeadlessToolResponse) -> Vec<String> {
+    if response.tool_calls.is_empty() {
+        parse_lenient_tool_call_blocks(&response.content)
+            .into_iter()
+            .map(|call| call.name)
+            .collect()
+    } else {
+        response.tool_calls.iter().map(observed_tool_name).collect()
+    }
+}
+
 /// Parse `<tool_call>` blocks tolerantly into pierre-llm function calls.
 ///
 /// Accepts both the canonical `{"name": X, "arguments": {...}}` shape and the
@@ -790,8 +813,7 @@ pub(crate) async fn run_headless_tool_loop(
     let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
     let (headless_response, streamed_to) = match converse_result {
         Ok((r, streamed_to)) => {
-            let tools_in_response: Vec<String> =
-                r.tool_calls.iter().map(observed_tool_name).collect();
+            let tools_in_response = headless_tools_asked(&r);
             emit_call_record_with_text(
                 CallRecordInputs {
                     recorder: params.call_recorder.as_ref(),
@@ -866,4 +888,65 @@ pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> Option<TurnKey> 
         .executor
         .turn_token()
         .map(|token| TurnKey::new(Some(params.tenant_id.as_uuid()), token))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_llm::ObservedToolCall;
+
+    fn reply(content: &str, tool_calls: Vec<ObservedToolCall>) -> HeadlessToolResponse {
+        HeadlessToolResponse {
+            content: content.to_owned(),
+            model: "claude-sonnet-5.5".to_owned(),
+            tool_calls,
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+        }
+    }
+
+    /// A headless reply that asked for its tools as text blocks records
+    /// their names on its usage row: the text loop it is handed to records
+    /// only the calls it makes itself.
+    #[test]
+    fn a_reply_of_text_blocks_records_the_tools_it_asked_for() {
+        let content = "<tool_call>\n{\"name\": \"get_activities\", \"arguments\": \
+                       {\"after\": 1735689600}}\n</tool_call>\n<tool_call>\n\
+                       {\"name\": \"search_food\", \"query\": \"rice\"}\n</tool_call>";
+
+        assert_eq!(
+            headless_tools_asked(&reply(content, Vec::new())),
+            vec!["get_activities".to_owned(), "search_food".to_owned()],
+            "every text block's tool, in order, must reach the usage row"
+        );
+    }
+
+    /// The runtime's own calls win: a reply that made native calls and
+    /// quotes a block in its prose is not counted twice.
+    #[test]
+    fn native_calls_are_recorded_as_the_runtime_reported_them() {
+        let native = ObservedToolCall {
+            id: "acp-tool-1".to_owned(),
+            title: "get_stats".to_owned(),
+            status: "Completed".to_owned(),
+            ..ObservedToolCall::default()
+        };
+        let content = "<tool_call>{\"name\": \"get_activities\", \"arguments\": {}}</tool_call>";
+
+        assert_eq!(
+            headless_tools_asked(&reply(content, vec![native])),
+            vec!["get_stats".to_owned()],
+            "native calls win over a block quoted in prose"
+        );
+    }
+
+    /// Prose with no block records no tool.
+    #[test]
+    fn a_plain_answer_records_no_tool() {
+        assert_eq!(
+            headless_tools_asked(&reply("Tu as roulé 0 km.", Vec::new())),
+            Vec::<String>::new(),
+            "a reply with no tool_call block names no tool"
+        );
+    }
 }

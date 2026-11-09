@@ -781,6 +781,12 @@ pub(super) fn repair_messages(
 /// corrected reply now, reply with the message text only") keeps it in
 /// chat-output behavior. English on purpose, like the access-failure re-ask.
 ///
+/// The payload is what the platform holds, not proof of a live read: a peer
+/// fetch serves the activity cache when the live fetch fails, so a prompt that
+/// called it "verified … fetched just now" had a coach retract a true "his
+/// Strava needs reconnecting" and claim a live fetch that never happened (run
+/// 42510466793). The prompt states neither, and forbids narrating either.
+///
 /// The flagged claims are the checker's verdict, not a fact: it can miss
 /// evidence the turn did read, and a re-ask that told the model to drop every
 /// flagged claim had it retract a correct start time under challenge
@@ -798,14 +804,17 @@ pub fn peer_repair_prompt(
     language_directive: &str,
 ) -> String {
     format!(
-        "Here are {peer_name}'s verified activities for the last four weeks, fetched just \
-         now:\n{payload}\n\nA check found no support for these claims your previous \
+        "Here are {peer_name}'s activities for the last four weeks as the platform holds \
+         them:\n{payload}\n\nA check found no support for these claims your previous \
          answer made about {peer_name}: {claims}.\n\nCheck each of them against the data above \
-         before you change it: keep a claim the data confirms, correct one it contradicts, and \
-         say plainly only what it cannot confirm. Then write the corrected reply to the \
-         athlete's last question now, using only the data above and the roster context. If \
-         your original reply included a dravr-viz chart or table, produce the corrected block \
-         again from this data. Reply with the message text only.\n\n{language_directive}",
+         and the roster context before you change it: keep a claim the data confirms or the \
+         roster context states, correct one either contradicts, and say plainly only what \
+         neither can confirm. Then write the \
+         corrected reply to the athlete's last question now, using only the data above and the \
+         roster context. Do not say how or when this data was fetched, or what state any of \
+         {peer_name}'s connections is in, beyond what the data and the roster context state. \
+         If your original reply included a dravr-viz chart or table, produce the corrected \
+         block again from this data. Reply with the message text only.\n\n{language_directive}",
         claims = unsupported.join("; "),
     )
 }

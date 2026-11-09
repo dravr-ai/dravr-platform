@@ -13,7 +13,7 @@ use pierre_core::models::groups::{
     GroupAggregateStats, GroupContext, GroupDigestMode, GroupHealthFlag, GroupInvite,
     GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupWeeklyReport,
     HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard,
-    OvertrainingRiskLevel, UpdateGroupRequest,
+    OvertrainingRiskLevel, UpdateGroupRequest, GROUP_CONTEXT_FOOTER,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::{DelegationEndReason, TenantId};
@@ -280,7 +280,15 @@ impl GroupService {
         // visible/consenting members were collected above.
         let alerts = connection_and_staleness_alerts(&visible_snapshots);
 
-        Ok(format!("{base_system_prompt}{context_block}{alerts}"))
+        // The alerts close the section, ahead of its footer. The reply checks
+        // take the section up to the footer as the platform's roster evidence
+        // and nothing after it (carnet#1054); with the alerts after the
+        // footer, a coach's true "son Strava est à reconnecter" was judged
+        // unsupported, and the repair it triggered had the coach retract it.
+        let separator = if alerts.is_empty() { "" } else { "\n" };
+        Ok(format!(
+            "{base_system_prompt}{context_block}{alerts}{separator}{GROUP_CONTEXT_FOOTER}\n"
+        ))
     }
 
     // ========================================================================

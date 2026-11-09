@@ -538,7 +538,10 @@ impl UniversalExecutor {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
-        let result = self.dispatch(request).instrument(span.clone()).await;
+        // Boxed: a tool body may dispatch another tool through here
+        // (`analyze_activity` → `get_activity_intelligence`), and an inline
+        // `dispatch` future would ride in that body's future and its callers'.
+        let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
         record_outcome(&span, &result);
         result
     }

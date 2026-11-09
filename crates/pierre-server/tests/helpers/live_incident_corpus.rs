@@ -24,6 +24,7 @@ use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
+use pierre_core::models::recipes::{IngredientUnit, MealTiming, Recipe, RecipeIngredient};
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User,
     UserStatus, UserTier,
@@ -171,6 +172,47 @@ pub(crate) const SEEDED_RUN_NAME: &str = "Course";
 /// The title of the fixture's one system agent, the coach every DM episode
 /// talks to and the name `first_reply_introduction` must hear.
 pub(crate) const EVAL_COACH_TITLE: &str = "Eval Coach";
+
+/// One recipe the athlete saved, as the fixture seeds it and the ledger
+/// states it.
+pub(crate) struct SavedRecipe {
+    pub name: &'static str,
+    pub timing: MealTiming,
+    pub timing_label: &'static str,
+    /// `(name, grams)` per ingredient.
+    pub ingredients: &'static [(&'static str, f64)],
+}
+
+/// The athlete's saved recipes.
+///
+/// `dinner_recipe` asks the coach to find a recipe for tonight. A collection
+/// of zero gave that question nothing to find: `search_recipes` and
+/// `list_recipes` could only come back empty, so composing one from
+/// `get_recipe_constraints` was as good an answer as any. An athlete who asks
+/// "trouve-moi une recette" usually has some saved; one of these fits a meal
+/// after training.
+pub(crate) const SAVED_RECIPES: &[SavedRecipe] = &[
+    SavedRecipe {
+        name: "Bol riz, poulet et brocoli",
+        timing: MealTiming::PostTraining,
+        timing_label: "post_training",
+        ingredients: &[
+            ("riz basmati cuit", 200.0),
+            ("poitrine de poulet grillée", 150.0),
+            ("brocoli vapeur", 120.0),
+        ],
+    },
+    SavedRecipe {
+        name: "Gruau banane et beurre d'arachide",
+        timing: MealTiming::PreTraining,
+        timing_label: "pre_training",
+        ingredients: &[
+            ("flocons d'avoine", 80.0),
+            ("banane", 118.0),
+            ("beurre d'arachide", 16.0),
+        ],
+    },
+];
 
 /// The instant the fixture's activity history is measured back from.
 ///
@@ -1137,6 +1179,7 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     }
 
     seed_activities(resources, athlete, tenant, peer).await;
+    seed_recipes(resources, athlete, tenant).await;
 
     let group_channel = "C_LIVE_INCIDENT_EVAL".to_owned();
     let dm_channel = "D_LIVE_INCIDENT_EVAL".to_owned();
@@ -1393,6 +1436,35 @@ async fn seed_activities(
     whoop.clear();
 }
 
+/// Save [`SAVED_RECIPES`] to the athlete's collection.
+async fn seed_recipes(resources: &Arc<ServerContext>, athlete: Uuid, tenant: TenantId) {
+    for saved in SAVED_RECIPES {
+        let mut recipe = Recipe::new(athlete, saved.name, 1)
+            .with_description("Saved by the athlete")
+            .with_instruction("Assemble and serve");
+        recipe.meal_timing = saved.timing;
+        recipe.ingredients = saved
+            .ingredients
+            .iter()
+            .map(|(name, grams)| RecipeIngredient {
+                fdc_id: None,
+                name: (*name).to_owned(),
+                amount: *grams,
+                unit: IngredientUnit::Grams,
+                grams: *grams,
+                preparation: None,
+            })
+            .collect();
+        resources
+            .common
+            .repos
+            .recipes
+            .create(athlete, tenant, &recipe)
+            .await
+            .unwrap();
+    }
+}
+
 /// A [`SeededRun`] as the activity cache stores it: a Strava «Course».
 fn seeded_run_activity(run: &SeededRun) -> Activity {
     ActivityBuilder::new(
@@ -1455,6 +1527,20 @@ pub(crate) fn ground_truth() -> String {
          activities. Totals, paces, weekly hours and training-load figures computed from \
          this list are facts, not inventions; check them against it.\n",
     );
+    for saved in SAVED_RECIPES {
+        let ingredients: Vec<String> = saved
+            .ingredients
+            .iter()
+            .map(|(name, grams)| format!("{grams} g {name}"))
+            .collect();
+        let _ = writeln!(
+            truth,
+            "Athlete JF's saved recipe «{}» (meal timing {}): {}.",
+            saved.name,
+            saved.timing_label,
+            ingredients.join(", ")
+        );
+    }
     truth.push_str(&connections_line(
         ATHLETE_DISPLAY,
         ATHLETE_CONNECTIONS,
@@ -1514,13 +1600,20 @@ pub(crate) fn reconnect_alert(display: &str, providers: &[&str]) -> String {
     format!("{display} needs to reconnect: {}", providers.join(", "))
 }
 
-/// One ledger row: who, the date and start, distance, duration and pace.
+/// One ledger row: who, the date and start, the activity as the agent's tools
+/// show it, distance, duration and pace.
+///
+/// The sport and the provider are what the tools hand the agent for every
+/// seeded run (see [`seeded_run_activity`]). A ledger that said only «run
+/// «Course»» had the judge grade a correct «enregistrée sur Strava comme Run»
+/// as invented (run 42510466793): the judge is shown what the agent is shown
+/// (carnet#1037, carnet#1038).
 fn ledger_line(who: &str, run: &SeededRun) -> String {
     let km = run.metres / 1_000.0;
     let pace_seconds = (run.seconds as f64 / km).round() as u64;
     format!(
-        "{who}, {date}: run «{SEEDED_RUN_NAME}», {km} km in {hours}h{minutes:02} ({seconds} s), \
-         pace {pace_min}min{pace_sec:02}/km.\n",
+        "{who}, {date}: run «{SEEDED_RUN_NAME}» (a Strava activity, sport Run), {km} km in \
+         {hours}h{minutes:02} ({seconds} s), pace {pace_min}min{pace_sec:02}/km.\n",
         date = start_label(run.days_ago, run.start),
         hours = run.seconds / 3_600,
         minutes = run.seconds % 3_600 / 60,
