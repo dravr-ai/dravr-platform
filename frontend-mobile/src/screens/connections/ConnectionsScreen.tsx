@@ -1,5 +1,5 @@
 // ABOUTME: The Connections pane — one row per fitness data provider, its brand glyph, one status word and one ink action, then the connected-apps section
-// ABOUTME: Runs each row's connect plan (authorization, sign-in, Intervals.icu), the history sheet and the disconnect confirm; a long-press opens the menu
+// ABOUTME: Runs each row's connect plan (authorization, sign-in, Intervals.icu), the history sign-in and the disconnect confirm; a long-press opens the menu
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -54,7 +54,6 @@ import {
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
-import { BringHistorySheet } from '../../components/BringHistorySheet';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 import { PreferredCalendarSection } from './PreferredCalendarSection';
 import { useSignInModal } from '../../hooks/useSignInModal';
@@ -65,7 +64,6 @@ import {
   describeApiError,
   importTombstoneFromReturn,
   refusalReason,
-  shownHistoryChoices,
 } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
@@ -82,8 +80,6 @@ export function ConnectionsScreen() {
   // The provider sign-in window: the account, the notice its row owes, and
   // whether it copies the history of a row already connected.
   const signIn = useSignInModal();
-  // The connected row whose "Bring in your history" sheet is open.
-  const [historySheetFor, setHistorySheetFor] = useState<ExtendedProviderStatus | null>(null);
   // The row whose connect came back refused, and why when the server named
   // it: it says so, and a tap on that line starts its connect again.
   const [refusedCard, setRefusedCard] = useState<RefusedConnect | null>(null);
@@ -249,12 +245,12 @@ export function ConnectionsScreen() {
           // OAuth completed successfully — refresh status and show the
           // post-connect spinner. Mirrors the web onboarding UX so the
           // moment of triumph isn't a modal alert the user has to dismiss.
-          // A grant whose history is still needed opens the sheet that
-          // brings it in instead (carnet#1386).
+          // A grant whose history is still needed opens the sign-in that
+          // copies it instead, at once (carnet#1472).
           const served = await loadConnectionStatus();
           const owed = cardAwaitingHistory(served, providerId);
           if (owed) {
-            setHistorySheetFor(owed);
+            signIn.open(owed.target, owed.card, true);
           } else {
             setJustConnected(providerName);
           }
@@ -522,19 +518,19 @@ export function ConnectionsScreen() {
     } else if (isConnected) {
       // A push-fed grant (Garmin) carries only what comes after it: while the
       // history is needed, or its last copy did not finish, the row opens the
-      // sheet that brings it in; disconnecting stays in the row's menu
-      // (carnet#1386).
-      const offersHistory =
-        (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(provider).length > 0;
+      // sign-in that copies it; disconnecting stays in the row's menu
+      // (carnet#1472).
+      const historySignIn =
+        status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
       trailing = (
         <>
           <StatusDot tone="success" />
           <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
-          {offersHistory
+          {historySignIn
             ? action(
                 t(historyActionKey(provider)),
-                () => setHistorySheetFor(provider),
-                t(HISTORY_ACTION_KEYS.addAria, { provider: provider.display_name }),
+                () => signIn.open(historySignIn, provider, true),
+                t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name }),
               )
             : canConnect && action(t('app.disconnect'), disconnect)}
         </>
@@ -709,12 +705,6 @@ export function ConnectionsScreen() {
           </Section>
         </View>
       </PaneScrollView>
-
-      <BringHistorySheet
-        card={historySheetFor}
-        onClose={() => setHistorySheetFor(null)}
-        onSignIn={(target, card) => signIn.open(target, card, true)}
-      />
 
       <SciotteLoginModal
         visible={signIn.target !== null}

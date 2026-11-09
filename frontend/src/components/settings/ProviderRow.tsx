@@ -10,6 +10,7 @@ import {
   HISTORY_ACTION_KEYS,
   IMPORT_HISTORY_ON_CARD_KEYS,
   cardStatus,
+  connectPlan,
   coachPlatformName,
   countKey,
   delegationRefusalKey,
@@ -18,7 +19,7 @@ import {
   providerScopeLabelKey,
 } from '@pierre/shared-constants';
 import type { ImportsOverview } from '@pierre/shared-types';
-import { cardExportSource, importedHistoryCount, shownHistoryChoices } from '@pierre/ui-logic';
+import { cardExportSource, importedHistoryCount } from '@pierre/ui-logic';
 import type { ProviderStatus } from '../../services/api';
 import { useTheme } from '../../hooks/useTheme';
 import { Badge, Button } from '../ui';
@@ -38,7 +39,7 @@ interface ProviderRowProps {
   aiConsentPending: boolean;
   /** Connect, reconnect, authorize or move the card, the way its plan says. */
   onConnect: () => void;
-  /** Open the card's "Bring in your history" sheet. */
+  /** Open the account sign-in that copies the card's history (`connectPlan(card).history.signIn`). */
   onAddHistory: () => void;
   onDisconnect: () => void;
   onWithdrawAiConsent: () => void;
@@ -67,10 +68,10 @@ export default function ProviderRow({
   // an export source for; it opens that import.
   const archiveSource = cardExportSource(provider);
   const importedCount = archiveSource ? importedHistoryCount(importsOverview, archiveSource) : 0;
-  // A card offers its history only while it has a way to bring it in that
-  // this build can show; with none, it offers neither the action nor the sheet.
+  // A card offers its history only while the server names the sign-in that
+  // copies it; with none, it offers no history action.
   const offersHistory =
-    (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(provider).length > 0;
+    (status === 'history_needed' || status === 'history_incomplete') && connectPlan(provider).history.signIn !== null;
   // A connected card whose connection still serves: its actions are the
   // history, the AI consent and the disconnect, and a card asked to move to its
   // official connection also offers that move. Every other card — to connect,
@@ -199,7 +200,7 @@ export default function ProviderRow({
               )}
               {/* A push-fed grant (Garmin) carries only what comes after it:
                   while the history is needed, or its last copy did not finish,
-                  the card opens the sheet that chooses how to bring it in. */}
+                  the card opens the sign-in that copies it. */}
               {offersHistory && (
                 <Button
                   variant="outline"
@@ -207,7 +208,7 @@ export default function ProviderRow({
                   onClick={onAddHistory}
                   data-testid={`provider-history-add-${provider.provider}`}
                   aria-describedby={historyLineId(provider.provider)}
-                  title={t(HISTORY_ACTION_KEYS.addAria, name)}
+                  title={t(HISTORY_ACTION_KEYS.explainer, name)}
                 >
                   {t(historyActionKey(provider))}
                 </Button>

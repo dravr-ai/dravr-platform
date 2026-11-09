@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: connect plans, the history sheet after a grant, export links, own-app, Intervals.icu, coach-only
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: connect plans, the history sign-in after a grant, export links, own-app, Intervals.icu, coach-only
 // ABOUTME: A failed Strava OAuth falls back to its sign-in, a refused Garmin grant says so on its row; a coach who does not train sees only the coaching platforms
 
 import React from 'react';
-import { Modal } from 'react-native';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -127,13 +126,6 @@ const STRAVA_CARD = {
   seats_left: 3,
 };
 
-/** iOS reports the history sheet gone through its `onDismiss`; a test sends it. */
-function historySheetGone() {
-  const modal = screen.UNSAFE_getAllByType(Modal).find((each) => typeof each.props.onDismiss === 'function');
-  if (!modal) throw new Error('the history sheet has no onDismiss');
-  act(() => modal.props.onDismiss());
-}
-
 beforeEach(() => {
   mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
 });
@@ -215,7 +207,7 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
   });
 });
 
-describe('OnboardingConnectScreen — a Garmin grant whose history is needed (carnet#1386)', () => {
+describe('OnboardingConnectScreen — a Garmin grant whose history is needed (carnet#1472)', () => {
   const garminRow = (overrides: Record<string, unknown> = {}) => ({
     provider: 'sciotte_garmin',
     display_name: 'Garmin',
@@ -239,14 +231,14 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
         archive_source,
       },
     });
-  const addHint = i18n.t('providers.history.addAria', { provider: 'Garmin' });
+  const addHint = i18n.t('providers.history.explainer', { provider: 'Garmin' });
 
   beforeEach(() => {
     jest.clearAllMocks();
     initMobileOAuth.mockResolvedValue({ authorization_url: 'https://connect.garmin.com/oauth2Confirm' });
   });
 
-  it('opens the history sheet when the grant comes back with its history needed, then the sign-in that copies it', async () => {
+  it('opens the Garmin sign-in by itself when the grant comes back with its history needed, with no sheet (carnet#1472)', async () => {
     getProvidersStatus
       .mockResolvedValueOnce({ providers: [garminRow()] })
       .mockResolvedValue({ providers: [granted(true)] });
@@ -256,10 +248,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     renderScreen();
     fireEvent.press(await screen.findByLabelText('Connect Garmin'));
 
-    expect(await screen.findByTestId('history-sheet')).toBeTruthy();
-    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
-    fireEvent.press(screen.getByTestId('history-choice-sign-in'));
-    historySheetGone();
     expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
   });
 
@@ -274,7 +262,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     fireEvent.press(await screen.findByLabelText('Connect Garmin'));
 
     await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(2));
-    expect(screen.queryByTestId('history-sheet')).toBeNull();
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
@@ -367,7 +354,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     consoleError.mockRestore();
   });
 
-  it('offers the history sheet on a row whose history is needed', async () => {
+  it('opens the Garmin sign-in directly from a row whose history is needed', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [granted(true)] });
 
     renderScreen();
@@ -377,9 +364,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     expect(add.props.accessibilityLabel).toBeUndefined();
     fireEvent.press(add);
 
-    expect(await screen.findByTestId('history-sheet')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('history-choice-sign-in'));
-    historySheetGone();
     expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
@@ -389,23 +373,15 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
 
     renderScreen();
     fireEvent.press(await screen.findByHintText(addHint));
-    fireEvent.press(await screen.findByTestId('history-choice-sign-in'));
-    historySheetGone();
 
     expect(await screen.findByText('sciotte-modal:garmin:consent:history')).toBeTruthy();
   });
 
-  it("opens the export's import inside the connect step, from the sheet and from the row", async () => {
+  it("opens the export's import inside the connect step, from the row", async () => {
     getProvidersStatus.mockResolvedValue({ providers: [granted(true, 'garmin_archive')] });
 
     renderScreen();
     fireEvent.press(await screen.findByTestId('provider-export-sciotte_garmin'));
-    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
-
-    fireEvent.press(screen.getByHintText(addHint));
-    fireEvent.press(await screen.findByTestId('history-choice-archive'));
-    historySheetGone();
-    expect(mockPush).toHaveBeenCalledTimes(2);
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
   });
 

@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
-// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) in this tab, the mirror path, refused grants, the history sheet, export links, own-app setup and Intervals.icu
+// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) in this tab, the mirror path, refused grants, the history sign-in a grant chains into, export links, own-app setup and Intervals.icu
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -514,7 +514,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.user.onboardingStatus() });
   });
 
-  describe('a Garmin grant whose history is needed opens the "Bring in your history" sheet (carnet#1386)', () => {
+  describe('a Garmin grant whose history is needed chains straight into the Garmin sign-in (carnet#1472)', () => {
     // The Garmin card connected through its OAuth grant, whose history has
     // not been brought in yet: what the server serves after a fresh grant.
     function garminAwaiting(awaiting: boolean, archive_source: string | null = null) {
@@ -536,13 +536,14 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       });
     }
 
-    it('opens the sheet once a Garmin grant comes back with its history needed, never the sign-in itself', async () => {
+    it('opens the Garmin sign-in in history mode once a Garmin grant comes back with its history needed, with nothing to choose', async () => {
       localStorage.setItem('pierre_oauth_result', grant('garmin'));
-      getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
+      getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true, 'garmin_archive')] });
       renderCards();
 
-      expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      const modal = await screen.findByTestId('sciotte-modal');
+      expect(modal).toHaveTextContent('garmin');
+      expect(modal).toHaveAttribute('data-history-mode', 'true');
       // The grant is left for the success handlers, as every grant is.
       expect(localStorage.getItem('pierre_oauth_result')).not.toBeNull();
       expect(assign).not.toHaveBeenCalled();
@@ -557,7 +558,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
-    it('offers "Add history" on the card, whose sheet\'s sign-in opens the Garmin login in history mode', async () => {
+    it('offers "Add history" on the card, whose tap opens the Garmin login in history mode', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(true)] });
       const user = userEvent.setup();
       renderCards();
@@ -569,20 +570,16 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       const add = screen.getByRole('button', {
         name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.add')),
       });
-      expect(add).toHaveAccessibleDescription(i18n.t('providers.history.addAria', { provider: 'Garmin' }));
+      expect(add).toHaveAccessibleDescription(i18n.t('providers.history.explainer', { provider: 'Garmin' }));
       await user.click(add);
-
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
-      await user.click(await screen.findByTestId('bring-history-sign-in'));
 
       const modal = await screen.findByTestId('sciotte-modal');
       expect(modal).toHaveTextContent('garmin');
       expect(modal).toHaveAttribute('data-history-mode', 'true');
-      expect(screen.queryByTestId('bring-history-sheet')).not.toBeInTheDocument();
       expect(assign).not.toHaveBeenCalled();
     });
 
-    it('offers no "Add history" and opens no sheet for a card with no choice this build can show', async () => {
+    it('offers no "Add history" and opens no sign-in for a card the server names no sign-in for', async () => {
       const bare = {
         ...garminAwaiting(true),
         history: { state: 'needed' as const, sign_in_target: null, archive_source: 'fit_zip_archive' },
@@ -593,7 +590,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
       expect(await screen.findByLabelText('Garmin is connected')).toBeDisabled();
       expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
-      expect(screen.queryByTestId('bring-history-sheet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
     it('offers to try again from the card of a copy that did not finish', async () => {
@@ -609,7 +606,9 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
       await user.click(retry);
 
-      expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
+      const modal = await screen.findByTestId('sciotte-modal');
+      expect(modal).toHaveTextContent('garmin');
+      expect(modal).toHaveAttribute('data-history-mode', 'true');
       expect(assign).not.toHaveBeenCalled();
     });
   });

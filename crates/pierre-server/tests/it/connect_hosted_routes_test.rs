@@ -1224,3 +1224,40 @@ async fn picker_reads_an_imported_garmin_history_on_a_grant() {
     );
     assert_eq!(card["migrate"], false, "a grant holder has moved: {card}");
 }
+
+/// A fresh Garmin grant holds no history yet: its card reads `needed` with the
+/// sign-in that copies it, and the page carries no step that asks the athlete
+/// to choose how to bring it in (carnet#1472).
+#[tokio::test]
+async fn a_garmin_grant_with_no_history_names_its_sign_in_and_offers_no_choice() {
+    let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
+    hold_garmin_grant(&resources, user_id, tenant_id).await;
+    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
+    assert_eq!(card["connected"], true, "{card}");
+    assert_eq!(
+        card["history_state"], "needed",
+        "bug: a fresh grant has received no past workouts: {card}"
+    );
+    assert_eq!(
+        card["history_sign_in"], true,
+        "bug: the Garmin sign-in copies a grant's history: {card}"
+    );
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let body = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(AuthRoutes::routes(resources.auth_routes_context()))
+    .await
+    .text();
+    // The page's script, which opens that sign-in on the return and on a tap,
+    // runs in frontend/src/__tests__/hostedLoginCodeStep.test.ts; here, the
+    // served markup carries no step that asks the athlete to choose.
+    for gone in ["phase-history", "history-not-now", "history-export"] {
+        assert!(
+            !body.contains(gone),
+            "bug: the page still carries the history choice step ({gone})"
+        );
+    }
+}

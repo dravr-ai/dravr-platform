@@ -228,16 +228,14 @@ export const HISTORY_LINE_KEYS: Readonly<Record<Exclude<HistoryState, 'not_appli
 };
 
 /**
- * The words of the card's history action, its spoken hint naming the
- * provider, and the line that explains the one-time sign-in (the sign-in
- * choice's hint in the history sheet). The action opens the sheet
- * (`connectPlan(card).history.choices`); its accessible name is its visible
- * words (`historyActionKey`), so `addAria` is only ever a hint or a
- * description, never a label that replaces them (WCAG 2.5.3, label in name).
+ * The words of the card's history action and the line that explains the
+ * one-time sign-in it opens (`connectPlan(card).history.signIn`). The
+ * action's accessible name is its visible words (`historyActionKey`), so
+ * `explainer` is only ever a hint or a description, never a label that
+ * replaces them (WCAG 2.5.3, label in name).
  */
 export const HISTORY_ACTION_KEYS = {
   add: 'providers.history.add',
-  addAria: 'providers.history.addAria',
   retry: 'providers.history.retry',
   explainer: 'providers.history.explainer',
 } as const;

@@ -213,7 +213,7 @@ export {
   refusalReloadsCards,
   refusalReturnsToCard,
 } from './connect-plan';
-export type { CardStatus, ConnectPlanCard, HistoryChoice } from './connect-plan';
+export type { CardStatus, ConnectPlanCard } from './connect-plan';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

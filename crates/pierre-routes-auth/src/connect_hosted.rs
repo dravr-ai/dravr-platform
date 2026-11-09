@@ -136,12 +136,12 @@ struct ConnectProviderCard {
     connected: bool,
     /// Where the card's past workouts stand, as `/api/providers` serves its
     /// `history.state`: `needed` and `incomplete` keep a connected card
-    /// pickable, which opens the history step, and a grant the page just came
-    /// back from opens it when `needed`; `importing` shows the card disabled
-    /// while the copy runs (carnet#1386).
+    /// pickable when `history_sign_in`, which opens that sign-in, and a grant
+    /// the page just came back from opens it at once when `needed`;
+    /// `importing` shows the card disabled while the copy runs (carnet#1472).
     history_state: HistoryState,
-    /// The history step offers the one-time sign-in that copies the history
-    /// (the card's usr/pwd login), for a card whose history it can bring in.
+    /// The card's usr/pwd login copies its history once: the one-time
+    /// sign-in a card whose history is still to bring in opens.
     history_sign_in: bool,
     /// The hosted import page for the provider's own export, carrying the
     /// connect link-token and the source, where this server imports it there.

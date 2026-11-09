@@ -131,7 +131,7 @@ export {
   uploadPercent,
 } from './archiveImport';
 
-export { cardAwaitingHistory, cardExportSource, shownHistoryChoices } from './cardHistory';
+export { cardAwaitingHistory, cardExportSource } from './cardHistory';
 
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';

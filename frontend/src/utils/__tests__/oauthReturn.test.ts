@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OAUTH_RESULT_KEY,
-  historyChoiceAfterGrant,
+  historySignInAfterGrant,
   refusalAnswer,
   returnToConnectStart,
   settleOAuthReturn,
@@ -211,7 +211,7 @@ describe('returnToConnectStart', () => {
   });
 });
 
-describe('historyChoiceAfterGrant', () => {
+describe('historySignInAfterGrant', () => {
   // The Garmin card as the server serves it after a Garmin grant.
   const garmin = (state: 'needed' | 'imported' | 'incomplete') =>
     ({
@@ -221,29 +221,29 @@ describe('historyChoiceAfterGrant', () => {
       history: { state, sign_in_target: 'sciotte_garmin', archive_source: 'garmin_archive' },
     }) as ExtendedProviderStatus;
 
-  it('leads a Garmin grant whose history is still needed to the Garmin card', () => {
+  it('chains a Garmin grant whose history is still needed straight into the Garmin sign-in (carnet#1472)', () => {
     const card = garmin('needed');
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
+    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [card])).toEqual({ card, target: 'garmin' });
   });
 
   it('matches a card by its own key too', () => {
     const card = { ...garmin('needed'), provider: 'garmin' };
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [card])).toBe(card);
+    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [card])).toEqual({ card, target: 'garmin' });
   });
 
-  it('leads nowhere once the history is in or was tried, on a refusal, or for another grant', () => {
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [garmin('imported')])).toBeNull();
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [garmin('incomplete')])).toBeNull();
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: false }, [garmin('needed')])).toBeNull();
-    expect(historyChoiceAfterGrant({ provider: 'whoop', success: true }, [garmin('needed')])).toBeNull();
+  it('chains nothing once the history is in or was tried, on a refusal, or for another grant', () => {
+    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [garmin('imported')])).toBeNull();
+    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [garmin('incomplete')])).toBeNull();
+    expect(historySignInAfterGrant({ provider: 'garmin', success: false }, [garmin('needed')])).toBeNull();
+    expect(historySignInAfterGrant({ provider: 'whoop', success: true }, [garmin('needed')])).toBeNull();
   });
 
-  it('opens no sheet for a card with no history choice this build can show', () => {
+  it('chains nothing for a card the server names no sign-in for', () => {
     const bare = {
       ...garmin('needed'),
-      history: { state: 'needed', sign_in_target: null, archive_source: 'polar_archive' },
+      history: { state: 'needed', sign_in_target: null, archive_source: 'garmin_archive' },
     } as ExtendedProviderStatus;
-    expect(historyChoiceAfterGrant({ provider: 'garmin', success: true }, [bare])).toBeNull();
+    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [bare])).toBeNull();
   });
 });
 

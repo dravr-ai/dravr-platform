@@ -1260,7 +1260,7 @@ describe('UserSettings Component', () => {
       expect(screen.queryByText('garmin connected successfully!')).not.toBeInTheDocument();
     });
 
-    it('opens the history sheet on a Garmin grant whose history is still needed (carnet#1386)', async () => {
+    it('opens the Garmin sign-in in history mode on a Garmin grant whose history is still needed (carnet#1472)', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [
           {
@@ -1276,12 +1276,13 @@ describe('UserSettings Component', () => {
       await openProviders();
 
       expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
-      expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      const modal = await screen.findByTestId('sciotte-modal');
+      expect(modal).toHaveTextContent('garmin');
+      expect(modal).toHaveAttribute('data-history-mode', 'true');
       expect(assign).not.toHaveBeenCalled();
     });
 
-    it('offers no "Add history" and opens no sheet when the card has no choice this build can show', async () => {
+    it('offers no "Add history" and opens no sign-in when the server names no sign-in for the card', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [
           {
@@ -1298,7 +1299,7 @@ describe('UserSettings Component', () => {
 
       expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
       expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('bring-history-sheet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
     it('leaves a Garmin grant whose history is in alone', async () => {
@@ -1321,7 +1322,7 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
     });
 
-    it('offers "Add history" on a Garmin grant whose history is needed, its sheet leading to the login in history mode', async () => {
+    it('offers "Add history" on a Garmin grant whose history is needed, its tap opening the login in history mode', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [
           {
@@ -1345,8 +1346,6 @@ describe('UserSettings Component', () => {
       );
       const user = userEvent.setup();
       await user.click(importHistory);
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
-      await user.click(await screen.findByTestId('bring-history-sign-in'));
 
       const modal = await screen.findByTestId('sciotte-modal');
       expect(modal).toHaveTextContent('garmin');
@@ -1383,7 +1382,7 @@ describe('UserSettings Component', () => {
         expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
       });
 
-      it('offers to try again when the copy did not finish, through the history sheet', async () => {
+      it('offers to try again when the copy did not finish, its tap opening the login in history mode', async () => {
         getProvidersStatus.mockResolvedValue({ providers: [garminWith('incomplete'), card('whoop', 'WHOOP')] });
         await openProviders();
 
@@ -1392,23 +1391,21 @@ describe('UserSettings Component', () => {
         expect(retry).toHaveTextContent(i18n.t('providers.history.retry'));
         await userEvent.setup().click(retry);
 
-        expect(await screen.findByTestId('bring-history-sheet')).toBeInTheDocument();
-        expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+        const modal = await screen.findByTestId('sciotte-modal');
+        expect(modal).toHaveTextContent('garmin');
+        expect(modal).toHaveAttribute('data-history-mode', 'true');
         expect(assign).not.toHaveBeenCalled();
       });
 
-      it('says the history is missing on the card, and what the sign-in does in the sheet', async () => {
+      it('says the history is missing on the card, its action titled with what the sign-in does', async () => {
         getProvidersStatus.mockResolvedValue({ providers: [garminWith('needed'), card('whoop', 'WHOOP')] });
         await openProviders();
 
         const history = await screen.findByTestId('provider-history-sciotte_garmin');
         expect(history).toHaveTextContent(line('needed'));
         const explainer = i18n.t('providers.history.explainer', { provider: 'Garmin' });
-        // Said once, where the choice is made.
         expect(history).not.toHaveTextContent(explainer);
-        await userEvent.setup().click(screen.getByTestId('provider-history-add-sciotte_garmin'));
-
-        expect(await screen.findByTestId('bring-history-sign-in')).toHaveTextContent(explainer);
+        expect(screen.getByTestId('provider-history-add-sciotte_garmin')).toHaveAttribute('title', explainer);
       });
 
       it('adds nothing to a card whose history is not applicable, or that carries none', async () => {

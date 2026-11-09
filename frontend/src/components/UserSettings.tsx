@@ -10,14 +10,13 @@ import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi, importsApi } from '../services/api';
-import BringHistorySheet from './import/BringHistorySheet';
 import { useImportResultRefresh } from './import/useImportResultRefresh';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
 import ProviderRow from './settings/ProviderRow';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
-  historyChoiceAfterGrant,
+  historySignInAfterGrant,
   refusalAnswer,
   startOAuthInThisTab,
   type OAuthResult,
@@ -185,8 +184,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const [signIn, setSignIn] = useState<{ target: SciotteTarget; consentRequired: boolean; historyMode: boolean } | null>(
     null,
   );
-  // The card whose "Bring in your history" sheet is open.
-  const [historySheetCard, setHistorySheetCard] = useState<ProviderStatus | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
@@ -531,9 +528,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     if (result.success) {
       setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
       // A grant whose card still needs its history (Garmin pushes only what
-      // comes after it) opens the sheet that chooses how to bring it in.
-      const historyCard = historyChoiceAfterGrant(result, providersResponse?.providers ?? []);
-      if (historyCard) setHistorySheetCard(historyCard);
+      // comes after it) opens the sign-in that copies it, at once (carnet#1472).
+      const chained = historySignInAfterGrant(result, providersResponse?.providers ?? []);
+      if (chained) {
+        setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true });
+      }
       return;
     }
     // The account belonged to a deleted Dravr account: the callback page
@@ -808,7 +807,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                       isConnecting={connectingProvider === provider.provider}
                       aiConsentPending={aiConsent.isPending}
                       onConnect={() => connectCard(provider)}
-                      onAddHistory={() => setHistorySheetCard(provider)}
+                      onAddHistory={() => {
+                        const target = connectPlan(provider).history.signIn;
+                        if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true });
+                      }}
                       onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
                       onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
                     />
@@ -1660,16 +1662,6 @@ Authorization: Bearer <your-token-here>`}
           displayName={ownAppSetup.provider.display_name}
           devPortalUrl={ownAppSetup.devPortalUrl}
           callbackUrl={ownAppSetup.provider.oauth_callback_url}
-        />
-      )}
-
-      {historySheetCard && (
-        <BringHistorySheet
-          card={historySheetCard}
-          onClose={() => setHistorySheetCard(null)}
-          onSignIn={(target) =>
-            setSignIn({ target, consentRequired: historySheetCard.consent_required, historyMode: true })
-          }
         />
       )}
 
