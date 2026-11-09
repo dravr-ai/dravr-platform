@@ -25,7 +25,7 @@ export default function ImpersonationBanner() {
   };
 
   return (
-    <div className="bg-warning text-on-primary px-4 py-2 sticky top-0 z-50 pad-safe-top md:ml-[var(--shell-aside-width,0px)]">
+    <div className="bg-warning text-on-surface dark:text-on-primary px-4 py-2 sticky top-0 z-50 pad-safe-top md:ml-[var(--shell-aside-width,0px)]">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3">
           <svg
@@ -47,12 +47,12 @@ export default function ImpersonationBanner() {
               {impersonation.targetUser.display_name || impersonation.targetUser.email}
             </span>
             {impersonation.targetUser.display_name && (
-              <span className="text-warning ml-1">
+              <span className="ml-1">
                 ({impersonation.targetUser.email})
               </span>
             )}
           </span>
-          <span className="text-warning text-sm">
+          <span className="text-sm">
             {t('frag.roleLabel')} {impersonation.targetUser.role}
           </span>
         </div>

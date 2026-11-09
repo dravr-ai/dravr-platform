@@ -7,7 +7,15 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { BOREAL_LIGHT, BOREAL_DARK, BORDER_INK, PRIMARY_HOVER, ghostBorder } from '@pierre/shared-constants';
+import {
+  BOREAL_LIGHT,
+  BOREAL_DARK,
+  BORDER_INK,
+  PRIMARY_HOVER,
+  SEMANTIC_COLORS,
+  SEMANTIC_COLORS_DARK,
+  ghostBorder,
+} from '@pierre/shared-constants';
 
 // The WCAG 4.5:1 floors — every text role on every tier, every bound ink on
 // its tint, every filled pair — are measured by the generator that writes the
@@ -126,6 +134,13 @@ describe('primary is a usable green in both schemes', () => {
     // White on the filled primary, and the filled hover under the same white.
     expect(contrast('#ffffff', BOREAL_LIGHT.primary)).toBeGreaterThanOrEqual(7);
     expect(contrast('#ffffff', PRIMARY_HOVER.light)).toBeGreaterThanOrEqual(7);
+  });
+
+  it('keeps the impersonation banner ink readable on its warning fill in both schemes', () => {
+    // ImpersonationBanner: bg-warning text-on-surface dark:text-on-primary (carnet#1462).
+    // White on the light bronze read 3.4:1; the banner's text is normal-size.
+    expect(contrast(BOREAL_LIGHT.onSurface, SEMANTIC_COLORS.warning)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(BOREAL_DARK.onPrimary, SEMANTIC_COLORS_DARK.warning)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('keeps the athlete bubble ink well clear of its tint in both schemes', () => {

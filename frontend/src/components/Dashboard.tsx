@@ -183,6 +183,7 @@ const CoachHome = lazy(() => import("./coach-home/CoachHome"));
 import { BILLING_ENABLED } from "../constants/features";
 import { ADMIN_ONLY_TABS, SUPER_ADMIN_ONLY_TABS } from "../constants/adminTabs";
 import { PAGE_GUTTER_CLASS, layoutForRoute } from "../constants/surfaceLayout";
+import { groupBySection } from "../utils/sidebarSections";
 import { useTranslation } from "@pierre/i18n";
 import { track } from "../services/analytics";
 
@@ -1192,11 +1193,14 @@ export default function Dashboard({
   );
 
   // For admin users, use sidebar tabs
-  const tabs = isSuperAdmin
-    ? superAdminTabs
-    : isAdminUser
-      ? adminTabs
-      : regularTabs;
+  // Grouped so each section is one run: the rail draws a header per run.
+  const tabs = useMemo(
+    () =>
+      groupBySection(
+        isSuperAdmin ? superAdminTabs : isAdminUser ? adminTabs : regularTabs,
+      ),
+    [isSuperAdmin, isAdminUser, superAdminTabs, adminTabs, regularTabs],
+  );
   // Whether this surface takes the shell's gutter or paints to the pane edges.
   const pageLayout = layoutForRoute(activeTab);
 

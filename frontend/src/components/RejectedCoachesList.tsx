@@ -165,7 +165,7 @@ export default function RejectedCoachesList() {
               {/* Metadata */}
               <div className="flex-shrink-0 text-right">
                 <span className="text-xs text-outline">
-                  {coach.token_count.toLocaleString()} tokens
+                  {coach.token_count.toLocaleString(ADMIN_LOCALE)} tokens
                 </span>
               </div>
             </div>

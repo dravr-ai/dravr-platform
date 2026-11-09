@@ -213,6 +213,18 @@ describe('Dashboard super-admin tabs', () => {
     expect(screen.queryByTestId('impersonation-log-tab')).toBeNull();
   });
 
+  it('draws each rail section header once for a super admin', async () => {
+    auth.role = 'super_admin';
+    await act(async () => {
+      renderDashboard();
+    });
+    expect(await screen.findByTestId('users-tab')).toBeInTheDocument();
+    // The super-admin tabs append Platform and Configuration entries after Developer.
+    for (const section of ['Platform', 'Coaching', 'Configuration', 'Developer']) {
+      expect(screen.getAllByText(section, { exact: true }), `${section} header`).toHaveLength(1);
+    }
+  });
+
   it('opens the impersonation log for a super admin', async () => {
     auth.role = 'super_admin';
     window.history.replaceState(null, '', '/#impersonation-log');

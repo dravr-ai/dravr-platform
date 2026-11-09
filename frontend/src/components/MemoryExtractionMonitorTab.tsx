@@ -61,7 +61,7 @@ function formatTimestamp(iso: string | null, empty: string): string {
     return empty;
   }
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(ADMIN_LOCALE);
   } catch {
     return iso;
   }
@@ -285,7 +285,7 @@ export default function MemoryExtractionMonitorTab() {
             <Card className="p-4">
               <div className="text-xs text-on-surface-variant">Total facts</div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
-                {metrics.total_facts.toLocaleString()}
+                {metrics.total_facts.toLocaleString(ADMIN_LOCALE)}
               </div>
             </Card>
             <Card className="p-4">
@@ -293,7 +293,7 @@ export default function MemoryExtractionMonitorTab() {
                 Fact rows touched, 24 hours
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
-                {metrics.facts_last_24h.toLocaleString()}
+                {metrics.facts_last_24h.toLocaleString(ADMIN_LOCALE)}
               </div>
             </Card>
             <Card className="p-4">
@@ -301,7 +301,7 @@ export default function MemoryExtractionMonitorTab() {
                 Fact rows touched, 7 days
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
-                {metrics.facts_last_7d.toLocaleString()}
+                {metrics.facts_last_7d.toLocaleString(ADMIN_LOCALE)}
               </div>
             </Card>
             <Card className="p-4">
@@ -309,7 +309,7 @@ export default function MemoryExtractionMonitorTab() {
                 Distinct users
               </div>
               <div className="mt-1 text-3xl font-semibold text-on-surface">
-                {metrics.distinct_users.toLocaleString()}
+                {metrics.distinct_users.toLocaleString(ADMIN_LOCALE)}
               </div>
             </Card>
           </div>
@@ -351,7 +351,7 @@ export default function MemoryExtractionMonitorTab() {
                         </div>
                       </div>
                       <div className="w-24 text-right text-sm text-on-surface-variant">
-                        {row.count.toLocaleString()}{" "}
+                        {row.count.toLocaleString(ADMIN_LOCALE)}{" "}
                         <span className="text-xs text-outline">({pct}%)</span>
                       </div>
                     </li>

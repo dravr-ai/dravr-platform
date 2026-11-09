@@ -171,7 +171,7 @@ function StatusPill({ label, count, tone }: StatusPillProps) {
   const toneClasses: Record<StatusPillProps['tone'], string> = {
     positive: 'text-success border-success',
     negative: 'text-error border-error',
-    warning: 'text-warning border-warning',
+    warning: 'text-on-warning-container border-warning',
     neutral: 'text-on-surface-variant border-outline-variant',
   };
   return (

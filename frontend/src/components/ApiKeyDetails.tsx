@@ -9,6 +9,7 @@ import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import type { RotateAdminTokenResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 interface ApiKeyDetailsProps {
   token: AdminToken;
@@ -248,7 +249,7 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
                   the required type is exactly why neither side caught it. An
                   unguarded deref here throws past this component to the root
                   ErrorBoundary and blanks the whole SPA. */}
-              {(token.usage_count ?? 0).toLocaleString()}
+              {(token.usage_count ?? 0).toLocaleString(ADMIN_LOCALE)}
             </div>
           </div>
           <div>

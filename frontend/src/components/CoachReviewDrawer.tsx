@@ -179,7 +179,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
                 System Prompt
               </h4>
               <span className="text-xs text-outline">
-                {coach.token_count.toLocaleString()} tokens
+                {coach.token_count.toLocaleString(ADMIN_LOCALE)} tokens
               </span>
             </div>
             <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">

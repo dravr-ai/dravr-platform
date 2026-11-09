@@ -183,7 +183,7 @@ export default function AdminSettings() {
                   'When enabled, new registrations are auto-approved. When disabled, only emails from auto_approve_domains are auto-approved.'}
               </p>
               {autoApprovalLockedByEnv && (
-                <p className="text-xs text-warning mt-2" data-testid="auto-approval-env-lock">
+                <p className="text-xs text-on-warning-container mt-2" data-testid="auto-approval-env-lock">
                   Locked by the AUTO_APPROVE_USERS environment variable on the server. Change it
                   there and restart — a value saved here would be ignored.
                 </p>

@@ -9,6 +9,7 @@ import { toolUsageQuery } from './analyticsQueries';
 import { useAdminScope } from '../hooks/useAdminScope';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /** Format an average latency (ms) for display, or a dash when unknown. */
 function formatLatency(ms: number | null): string {
@@ -95,7 +96,7 @@ export default function ToolUsagePanel() {
         <div className="bg-surface-container rounded-lg p-4">
           <p className="text-sm text-on-surface-variant">Total invocations</p>
           <p className="text-2xl font-semibold text-on-surface">
-            {summary.total_invocations.toLocaleString()}
+            {summary.total_invocations.toLocaleString(ADMIN_LOCALE)}
           </p>
         </div>
         <div className="bg-surface-container rounded-lg p-4">
@@ -105,7 +106,7 @@ export default function ToolUsagePanel() {
         <div className="bg-surface-container rounded-lg p-4">
           <p className="text-sm text-on-surface-variant">Turns with tools</p>
           <p className="text-2xl font-semibold text-on-surface">
-            {summary.turns_with_tools.toLocaleString()}
+            {summary.turns_with_tools.toLocaleString(ADMIN_LOCALE)}
           </p>
         </div>
       </div>
@@ -129,10 +130,10 @@ export default function ToolUsagePanel() {
               >
                 <td className="py-2 pr-4 font-mono text-on-surface">{item.tool_name}</td>
                 <td className="py-2 px-4 text-right text-on-surface">
-                  {item.invocation_count.toLocaleString()}
+                  {item.invocation_count.toLocaleString(ADMIN_LOCALE)}
                 </td>
                 <td className="py-2 px-4 text-right text-on-surface-variant">
-                  {item.turn_count.toLocaleString()}
+                  {item.turn_count.toLocaleString(ADMIN_LOCALE)}
                 </td>
                 <td className="py-2 pl-4 text-right text-on-surface-variant">
                   {formatLatency(item.avg_latency_ms)}

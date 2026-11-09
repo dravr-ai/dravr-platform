@@ -162,7 +162,7 @@ export default function UserDetailDrawer({
 
   const formatLimit = (limit: number | null) => {
     if (limit === null) return 'Unlimited';
-    return limit.toLocaleString();
+    return limit.toLocaleString(ADMIN_LOCALE);
   };
 
   const getUsagePercentage = (used: number, limit: number | null) => {
@@ -400,7 +400,7 @@ export default function UserDetailDrawer({
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-on-surface-variant">Monthly Usage</span>
                     <span className="font-medium text-on-surface">
-                      {rateLimit.rate_limits.monthly.used.toLocaleString()} / {formatLimit(rateLimit.rate_limits.monthly.limit)}
+                      {rateLimit.rate_limits.monthly.used.toLocaleString(ADMIN_LOCALE)} / {formatLimit(rateLimit.rate_limits.monthly.limit)}
                     </span>
                   </div>
                   <div className="w-full bg-surface-container-high rounded-full h-2">
@@ -536,7 +536,7 @@ export default function UserDetailDrawer({
                 <div className="flex items-center justify-between">
                   <span className="text-on-surface-variant">API-key requests</span>
                   <span className="text-2xl font-bold text-on-surface">
-                    {activity.total_requests.toLocaleString()}
+                    {activity.total_requests.toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
 
@@ -548,7 +548,7 @@ export default function UserDetailDrawer({
                         <div key={tool.tool_name} className="flex items-center justify-between">
                           <span className="text-sm font-medium text-on-surface">{tool.tool_name}</span>
                           <div className="flex items-center space-x-2">
-                            <span className="text-sm text-on-surface-variant">{tool.call_count.toLocaleString()}</span>
+                            <span className="text-sm text-on-surface-variant">{tool.call_count.toLocaleString(ADMIN_LOCALE)}</span>
                             <span className="text-xs text-outline">({tool.percentage.toFixed(1)}%)</span>
                           </div>
                         </div>
@@ -585,7 +585,7 @@ export default function UserDetailDrawer({
                   <span className="text-2xl font-bold text-on-surface">
                     {usage.by_model
                       .reduce((acc, m) => acc + m.total_tokens, 0)
-                      .toLocaleString()}
+                      .toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -597,7 +597,7 @@ export default function UserDetailDrawer({
                 <div className="flex items-center justify-between">
                   <span className="text-on-surface-variant">Total Calls</span>
                   <span className="font-medium text-on-surface">
-                    {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString()}
+                    {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString(ADMIN_LOCALE)}
                   </span>
                 </div>
                 <div>
@@ -616,7 +616,7 @@ export default function UserDetailDrawer({
                         {/* One model appears once per call type, so a row without it reads as a duplicate. */}
                         <div className="flex flex-wrap gap-x-2 text-xs text-on-surface-variant">
                           <span className="whitespace-nowrap">{row.call_type}</span>
-                          <span className="whitespace-nowrap">{row.total_tokens.toLocaleString()} tok</span>
+                          <span className="whitespace-nowrap">{row.total_tokens.toLocaleString(ADMIN_LOCALE)} tok</span>
                           <span className="whitespace-nowrap">{row.calls} calls</span>
                           <span className="whitespace-nowrap">{formatCost(row.cost_usd ?? 0)}</span>
                         </div>

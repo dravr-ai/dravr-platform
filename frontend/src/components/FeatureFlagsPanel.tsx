@@ -11,7 +11,7 @@ import type { FeatureFlagRow, KnownFeatureFlag } from '../services/api/admin';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Card } from './ui';
 import { featureFlagsQuery, type FeatureFlagScope } from './featureFlagsQuery';
-import { describeAdminError } from '../utils/adminLocale';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 interface FeatureFlagsPanelProps {
   scope: FeatureFlagScope;
@@ -127,7 +127,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                 <p className="text-sm text-on-surface-variant mt-1">{flag.description}</p>
                 {flag.storedRow != null && (
                   <p className="text-xs text-on-surface-variant mt-1">
-                    Set {new Date(flag.storedRow.updated_at).toLocaleString()}
+                    Set {new Date(flag.storedRow.updated_at).toLocaleString(ADMIN_LOCALE)}
                   </p>
                 )}
               </div>

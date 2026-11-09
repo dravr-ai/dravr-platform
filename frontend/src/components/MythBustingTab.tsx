@@ -14,7 +14,7 @@ import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(ADMIN_LOCALE);
   } catch {
     return iso;
   }

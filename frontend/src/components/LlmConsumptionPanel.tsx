@@ -17,6 +17,7 @@ import type { AdminTimeRange } from "../hooks/useAdminTimeRange";
 import type { ConsumptionBreakdownItem } from "../services/api/usage";
 import { formatCost } from "../utils/formatCost";
 import { tint, useChartTheme } from "../hooks/useChartTheme";
+import { ADMIN_LOCALE } from "../utils/adminLocale";
 
 /** Format a token count for display (e.g., 1,234,567 -> "1.23M") */
 function formatTokens(count: number): string {
@@ -26,7 +27,7 @@ function formatTokens(count: number): string {
   if (count >= 1_000) {
     return `${(count / 1_000).toFixed(1)}K`;
   }
-  return count.toLocaleString();
+  return count.toLocaleString(ADMIN_LOCALE);
 }
 
 /** Format date for chart labels (e.g. "Feb 17") */
@@ -290,7 +291,7 @@ export default function LlmConsumptionPanel() {
         </div>
         <div className="stat-card-dark">
           <div className="font-mono text-2xl font-medium text-on-surface">
-            {summary.total_calls.toLocaleString()}
+            {summary.total_calls.toLocaleString(ADMIN_LOCALE)}
           </div>
           <div className="text-sm text-on-surface-variant">Total Calls</div>
         </div>
@@ -400,7 +401,7 @@ export default function LlmConsumptionPanel() {
                       {formatTokens(item.total_tokens)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">
-                      {item.calls.toLocaleString()}
+                      {item.calls.toLocaleString(ADMIN_LOCALE)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">
                       {formatCost(item.cost_usd)}

@@ -18,7 +18,7 @@ import VerdictTriagePanel from './VerdictTriagePanel';
 import type { DispositionInput } from './VerdictTriagePanel';
 import { useAdminScope } from '../hooks/useAdminScope';
 import AdminScopeBar from './AdminScopeBar';
-import { describeAdminError } from '../utils/adminLocale';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -82,7 +82,7 @@ const DISPOSITION_VARIANT: Record<NonNullable<ClaimVerdict['disposition']>, Badg
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(ADMIN_LOCALE);
   } catch {
     return iso;
   }

@@ -329,7 +329,7 @@ export default function HarnessConfigTab() {
             </Badge>
             {savedAt ? (
               <span className="text-xs text-on-surface-variant">
-                Saved {new Date(savedAt).toLocaleString()}
+                Saved {new Date(savedAt).toLocaleString(ADMIN_LOCALE)}
               </span>
             ) : null}
           </div>

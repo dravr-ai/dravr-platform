@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Lazy load tab content components
 const CoachReviewQueue = lazy(() => import('./CoachReviewQueue'));
@@ -74,7 +75,7 @@ export default function CoachStoreManagement() {
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined) return '—';
-    return num.toLocaleString();
+    return num.toLocaleString(ADMIN_LOCALE);
   };
 
   // `rejection_rate` arrives as a percentage already (rejected / decided * 100,

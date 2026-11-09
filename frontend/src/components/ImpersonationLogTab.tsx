@@ -59,7 +59,7 @@ function SessionRow({ session }: { session: ImpersonationSessionSummary }) {
           <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-on-surface-variant">
             <span>Started {formatDateTime(session.started_at, ADMIN_LOCALE)}</span>
             <span>{Math.max(1, Math.round(session.duration_seconds / 60))} min</span>
-            <span className={session.is_active ? 'font-medium text-warning' : undefined}>
+            <span className={session.is_active ? 'font-medium text-on-warning-container' : undefined}>
               {session.is_active ? 'Active' : 'Ended'}
             </span>
           </p>

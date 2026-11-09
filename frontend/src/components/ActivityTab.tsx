@@ -44,7 +44,7 @@ function formatDuration(ms: number | null): string {
 function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
-  return count.toLocaleString();
+  return count.toLocaleString(ADMIN_LOCALE);
 }
 
 /** Format a relative time (e.g., "2 min ago"), or the date and time once it is a day old */
@@ -70,7 +70,7 @@ function buildEntries(
     title: `${call.provider}/${call.model}`,
     subtitle: `${formatTokens(call.total_tokens)} tokens  ${formatCost(call.cost_usd)}  ${formatDuration(call.execution_time_ms)}`,
     category: call.call_type,
-    detail: `Provider: ${call.provider} | Model: ${call.model} | Tokens: ${call.total_tokens.toLocaleString()} | Cost: ${formatCost(call.cost_usd)} | Duration: ${formatDuration(call.execution_time_ms)}`,
+    detail: `Provider: ${call.provider} | Model: ${call.model} | Tokens: ${call.total_tokens.toLocaleString(ADMIN_LOCALE)} | Cost: ${formatCost(call.cost_usd)} | Duration: ${formatDuration(call.execution_time_ms)}`,
     timestamp: call.created_at,
     rawData: call,
   }));
@@ -327,20 +327,20 @@ export default function ActivityTab() {
                           <>
                             <DetailItem label="Provider" value={(entry.rawData as RecentLlmCall).provider} />
                             <DetailItem label="Model" value={(entry.rawData as RecentLlmCall).model} />
-                            <DetailItem label="Tokens" value={(entry.rawData as RecentLlmCall).total_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Read" value={(entry.rawData as RecentLlmCall).cached_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Write" value={(entry.rawData as RecentLlmCall).cached_write_tokens.toLocaleString()} />
-                            <DetailItem label="Cache Write (1h)" value={(entry.rawData as RecentLlmCall).cached_write_1h_tokens.toLocaleString()} />
+                            <DetailItem label="Tokens" value={(entry.rawData as RecentLlmCall).total_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Read" value={(entry.rawData as RecentLlmCall).cached_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Write" value={(entry.rawData as RecentLlmCall).cached_write_tokens.toLocaleString(ADMIN_LOCALE)} />
+                            <DetailItem label="Cache Write (1h)" value={(entry.rawData as RecentLlmCall).cached_write_1h_tokens.toLocaleString(ADMIN_LOCALE)} />
                             <DetailItem label="Cost" value={formatCost((entry.rawData as RecentLlmCall).cost_usd)} />
                             <DetailItem label="Duration" value={formatDuration((entry.rawData as RecentLlmCall).execution_time_ms)} />
                             <DetailItem label="Type" value={(entry.rawData as RecentLlmCall).call_type} />
-                            <DetailItem label="Time" value={new Date(entry.timestamp).toLocaleString()} />
+                            <DetailItem label="Time" value={new Date(entry.timestamp).toLocaleString(ADMIN_LOCALE)} />
                           </>
                         ) : (
                           <>
                             <DetailItem label="Title" value={(entry.rawData as RecentConversation).title || 'Untitled'} />
                             <DetailItem label="User" value={(entry.rawData as RecentConversation).user_email || 'Unknown'} />
-                            <DetailItem label="Last Updated" value={new Date(entry.timestamp).toLocaleString()} />
+                            <DetailItem label="Last Updated" value={new Date(entry.timestamp).toLocaleString(ADMIN_LOCALE)} />
                           </>
                         )}
                       </div>
