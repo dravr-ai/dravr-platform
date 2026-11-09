@@ -51,7 +51,7 @@ use dravr_riviere::TimeSeriesStore;
 ///
 /// Consumers: middleware (`tenant`, `auth`), admin-route context, identity
 /// route layer, OAuth backend resolver, provider-refresh service, the A2A
-/// client (which authenticates via `api_keys` + `a2a` together).
+/// client (which authenticates via `oauth2_server` + `a2a` together).
 ///
 /// Every field listed here has its canonical home in this view; other views
 /// must not duplicate them.

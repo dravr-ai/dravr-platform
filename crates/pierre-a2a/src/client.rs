@@ -8,7 +8,7 @@
 //!
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Arc resource sharing for A2A client management
-// - String ownership for client IDs, names, and API keys
+// - String ownership for client IDs and names
 //!
 //! Handles registration, management, and monitoring of A2A clients
 //! that connect to Pierre for agent-to-agent communication.
@@ -24,7 +24,7 @@ use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 use secrecy::SecretString;
-// Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
+// Trait methods are dispatched through repos.a2a / repos.oauth2_server Arc<dyn Trait>;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
 use std::fmt;
@@ -275,16 +275,6 @@ impl A2AClientManager {
                 client_id, e
             );
             // Continue with deactivation even if session invalidation fails
-        }
-
-        // Deactivate any API key linked to the client: registration issues
-        // none, and a linked key authenticates until it is retired
-        if let Err(e) = self.repos.a2a.deactivate_client_api_keys(client_id).await {
-            error!(
-                "Failed to deactivate API keys for client {}: {}",
-                client_id, e
-            );
-            // Continue with deactivation even if API key deactivation fails
         }
 
         Ok(())

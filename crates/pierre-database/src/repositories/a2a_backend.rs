@@ -267,7 +267,6 @@ macro_rules! impl_a2a_repository {
                     .bind($ids::bind(client.user_id))
                     .bind(&client.name)
                     .bind(&client.description)
-                    .bind(&client.id)
                     .bind($lists::bind_json(&client.capabilities))
                     .bind($lists::bind_json(&client.redirect_uris))
                     .bind(client.contact_email.as_deref().map(normalize_email))
@@ -329,17 +328,6 @@ macro_rules! impl_a2a_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to invalidate A2A client sessions: {e}"))
-                    })?;
-                Ok(())
-            }
-
-            async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()> {
-                sqlx::query(DEACTIVATE_CLIENT_API_KEYS_SQL)
-                    .bind(client_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to deactivate client API keys: {e}"))
                     })?;
                 Ok(())
             }

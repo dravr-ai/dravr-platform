@@ -144,12 +144,13 @@ macro_rules! user_owned_tables {
         /// Each holds a user's own rows without a foreign key that cascades the
         /// account delete to them on both engines: by its `user_id`, or through
         /// a row the user owns (a messaging session's messages, an A2A
-        /// client's API key). A table whose rows reference another listed
-        /// table's, or a row the account delete cascades to, without
-        /// cascading comes before it (`sleep_sessions`, `recovery_metrics`,
-        /// `health_snapshots` and `daily_activity` before `data_sources`; the messaging rows before
-        /// the account row takes their sessions; the A2A keys before
-        /// `a2a_clients` takes the link naming them). `chat_conversations`
+        /// client's `OAuth2` registration). A table whose rows reference
+        /// another listed table's, or a row the account delete cascades to,
+        /// without cascading comes before it (`sleep_sessions`,
+        /// `recovery_metrics`, `health_snapshots` and `daily_activity` before
+        /// `data_sources`; the messaging rows before the account row takes
+        /// their sessions; the A2A clients' `OAuth2` registrations before
+        /// `a2a_clients` takes the ids naming them). `chat_conversations`
         /// cascades from the account, and is cleared first anyway: a
         /// conversation with an agent the user authored references that agent
         /// with no `ON DELETE`, and on Postgres the agent's cascade can run
@@ -158,9 +159,9 @@ macro_rules! user_owned_tables {
         /// Each is the user's own data: memberships, provider tokens and
         /// connections, health and activity rows, plans (and the drafts a coach
         /// wrote of their athletes' plans, which live beside those athletes'
-        /// seasons), facts, notifications,
-        /// messaging history, device tokens, OAuth server grants, A2A client
-        /// keys, usage records. A row attributing an act to the user in
+        /// seasons), facts, notifications, messaging history, device tokens,
+        /// OAuth server grants, the registrations of the A2A clients they
+        /// registered, usage records. A row attributing an act to the user in
         /// someone else's record is not here: those that do not cascade block
         /// the delete instead ([`DELETION_BLOCKERS_SQL`]).
         ///
@@ -214,7 +215,7 @@ user_owned_tables!(
     "oauth2_auth_codes",
     "oauth2_refresh_tokens",
     "oauth2_states",
-    "api_keys" where "id IN (SELECT l.api_key_id FROM a2a_client_api_keys l JOIN a2a_clients c ON c.client_id = l.client_id WHERE CAST(c.user_id AS TEXT) = $1)",
+    "oauth2_clients" where "client_id IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_tasks" where "session_token = 'user:' || $1 OR session_token IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_clients",
     "push_receipts_pending",

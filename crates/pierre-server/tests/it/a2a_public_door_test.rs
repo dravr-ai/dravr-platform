@@ -932,8 +932,7 @@ async fn registration_hands_out_the_id_and_secret_and_mints_nothing_else() {
     assert_eq!(record["capabilities"], json!(["fitness-data-analysis"]));
 }
 
-/// `api_key_hash` is `NOT NULL UNIQUE` and nothing writes a key to it any more,
-/// so two clients must not collide on whatever fills it.
+/// One user may register several clients, each with its own id and secret.
 #[tokio::test]
 async fn two_clients_register_side_by_side() {
     let resources = resources().await;

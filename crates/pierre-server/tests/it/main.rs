@@ -24,6 +24,7 @@ mod recording_post;
 #[path = "../helpers/scope_probes.rs"]
 mod scope_probes;
 
+mod a2a_api_key_drop_migration_test;
 mod a2a_client_credentials_token_test;
 mod a2a_compliance_test;
 mod a2a_cross_user_isolation_test;

@@ -32,9 +32,6 @@ pub trait A2ARepository: Send + Sync {
     async fn deactivate_client(&self, client_id: &str) -> AppResult<()>;
     /// Invalidate all active sessions for a client
     async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()>;
-    /// Deactivate the API keys a client was issued before registration
-    /// stopped minting them; a client registered since has none
-    async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()>;
     /// Create a new A2A session
     async fn create_session(
         &self,
@@ -155,16 +152,14 @@ macro_rules! client_columns {
     };
 }
 
-/// Register a client. `api_key_hash` is `NOT NULL UNIQUE` and no longer means
-/// anything: nothing reads it, so `$5` is the client's own id, the one value
-/// the constraint is sure to accept.
+/// Register a client.
 pub(crate) const INSERT_CLIENT_SQL: &str = r"
             INSERT INTO a2a_clients (
-                client_id, user_id, name, description, api_key_hash,
+                client_id, user_id, name, description,
                 capabilities, redirect_uris, contact_email,
                 rate_limit_per_minute, rate_limit_per_day, is_active,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
 /// One client by id, active or not.
@@ -195,11 +190,6 @@ pub(crate) const DEACTIVATE_CLIENT_SQL: &str =
 /// End every session of a client by moving its expiry into the past.
 pub(crate) const INVALIDATE_CLIENT_SESSIONS_SQL: &str =
     "UPDATE a2a_sessions SET expires_at = $1 WHERE client_id = $2";
-
-/// Retire every API key a client was issued before registration stopped
-/// minting them.
-pub(crate) const DEACTIVATE_CLIENT_API_KEYS_SQL: &str = "UPDATE api_keys SET is_active = FALSE \
-     WHERE id IN (SELECT api_key_id FROM a2a_client_api_keys WHERE client_id = $1)";
 
 /// The session projection every session read returns.
 macro_rules! session_columns {

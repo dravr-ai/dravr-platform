@@ -35,8 +35,8 @@ const SCRAPER_RIDE_ID: &str = "15551234567";
 #[tokio::test]
 async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
     // The ride is dated from today, not a fixed day: the merge reads a window
-    // that ends now, so a fixed date ages out of it and the WHOOP-only session
-    // a day earlier drops off (the PG lane went red on 2026-11-08 this way).
+    // that ends now, so a fixed date ages out of it and both WHOOP rows drop off
+    // with it; the twin-dedup assertion would then pass without dedup running.
     let ride_start: DateTime<Utc> = (Utc::now() - Duration::days(3))
         .with_nanosecond(0)
         .expect("zero nanoseconds is valid");

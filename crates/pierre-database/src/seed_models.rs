@@ -245,9 +245,6 @@ pub struct SeedA2AClient {
     pub name: String,
     /// Client description
     pub description: String,
-    /// Stored in the column `api_key_hash`, which nothing reads; it only
-    /// has to be unique
-    pub public_key: String,
     /// JSON capabilities array
     pub capabilities: String,
     /// Record creation timestamp

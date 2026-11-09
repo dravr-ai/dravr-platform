@@ -457,7 +457,7 @@ user_export_tables_sql!(
     // The names and dates of the athlete's keys; never the keys.
     "api_keys" { rows: [uuid "user_id"], tenant: none, except: ["key_hash"], page: 50, key: [text "id"] },
     "user_mcp_tokens" { rows: [uuid "user_id"], tenant: none, except: ["token_hash"], page: 50, key: [text "id"] },
-    "a2a_clients" { rows: [uuid "user_id"], tenant: none, except: ["api_key_hash"], page: 50, key: [text "client_id"] },
+    "a2a_clients" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [text "client_id"] },
     // The tables that grow with the athlete's history, last, in rough order of
     // how much each row weighs.
     // The file stops at its size or time limit, so everything above is written
