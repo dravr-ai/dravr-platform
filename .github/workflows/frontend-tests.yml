@@ -182,7 +182,9 @@ jobs:
 
   e2e-tests:
     name: Playwright E2E Tests
-    runs-on: ubuntu-latest
+    # Playwright ships no chromium for ubuntu-latest's 26.04 image
+    # ("Playwright does not support chromium on ubuntu26.04-x64", 2026-11-10).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45  # Playwright, ~20 min
 
     steps:
@@ -237,7 +239,9 @@ jobs:
   # and on a run that selects no test, so an empty suite cannot pass.
   e2e-production-build:
     name: Playwright E2E (production build + CSP)
-    runs-on: ubuntu-latest
+    # Playwright ships no chromium for ubuntu-latest's 26.04 image
+    # ("Playwright does not support chromium on ubuntu26.04-x64", 2026-11-10).
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:

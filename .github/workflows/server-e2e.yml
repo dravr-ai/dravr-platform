@@ -331,7 +331,9 @@ jobs:
 
   playwright:
     name: Playwright Integration Tests (Real Server)
-    runs-on: ubuntu-latest
+    # Playwright ships no chromium for ubuntu-latest's 26.04 image
+    # ("Playwright does not support chromium on ubuntu26.04-x64", 2026-11-10).
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.playwright == 'true'
     timeout-minutes: 45
