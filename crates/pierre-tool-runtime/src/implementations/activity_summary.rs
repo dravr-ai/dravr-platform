@@ -27,6 +27,9 @@ const MAX_COMMENT_CHARS: usize = 300;
 /// Most comments `mode=detailed` carries per activity — the newest ones.
 const MAX_COMMENTS: usize = 10;
 
+/// Longest recording-device name a summary row carries, in characters.
+const DEVICE_NAME_MAX_CHARS: usize = 60;
+
 /// Longest comment author name, in characters.
 const MAX_AUTHOR_CHARS: usize = 60;
 
@@ -75,8 +78,26 @@ pub struct ActivitySummary {
     pub start_date_local: Option<String>,
     /// Distance in meters (0.0 if not available)
     pub distance_meters: f64,
-    /// Duration in seconds
+    /// Elapsed time in seconds, stops included.
     pub duration_seconds: u64,
+    /// Seconds spent moving, when the provider reports it. Much less than
+    /// `duration_seconds` means the athlete was stopped or doing something
+    /// other than the sport for the difference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moving_time_seconds: Option<u64>,
+    /// The provider's workout tag (Strava: runs 0 default, 1 race, 2 long
+    /// run, 3 workout; rides 10 default, 11 race, 12 workout).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workout_type: Option<u32>,
+    /// Recorded on an indoor trainer or treadmill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trainer: Option<bool>,
+    /// The athlete flagged the activity as a commute.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commute: Option<bool>,
+    /// The recording device, as one defanged line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
     /// Total elevation gained in meters, when the provider reports it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elevation_gain_meters: Option<f64>,
@@ -156,6 +177,14 @@ impl From<&Activity> for ActivitySummary {
             start_date_local: None,
             distance_meters: activity.distance_meters().unwrap_or(0.0),
             duration_seconds: activity.duration_seconds(),
+            moving_time_seconds: activity.moving_time_seconds(),
+            workout_type: activity.workout_type(),
+            trainer: activity.trainer(),
+            commute: activity.commute(),
+            device_name: activity
+                .device_name()
+                .map(|name| display_line(name, DEVICE_NAME_MAX_CHARS))
+                .filter(|name| !name.is_empty()),
             elevation_gain_meters: activity.elevation_gain(),
             average_heart_rate: activity.average_heart_rate(),
             max_heart_rate: activity.max_heart_rate(),

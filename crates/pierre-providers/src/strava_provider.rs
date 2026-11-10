@@ -312,6 +312,15 @@ impl StravaProvider {
         .normalized_power_opt(activity.weighted_average_watts.map(f32_to_u32))
         .calories_opt(activity.calories.map(f32_to_u32))
         .suffer_score_opt(activity.suffer_score.map(f32_to_u32))
+        .moving_time_seconds_opt(
+            activity
+                .moving_time
+                .filter(|seconds| *seconds > 0)
+                .map(u64::from),
+        )
+        .workout_type_opt(activity.workout_type)
+        .trainer_opt(activity.trainer)
+        .commute_opt(activity.commute)
         .start_latitude_opt(
             activity
                 .start_latlng

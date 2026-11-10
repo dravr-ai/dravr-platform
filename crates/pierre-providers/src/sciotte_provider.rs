@@ -53,6 +53,7 @@ use crate::spi::{
 };
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
+mod activity_times;
 mod factory;
 mod rotation;
 
@@ -604,12 +605,14 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
         .as_ref()
         .map(|v| v.iter().map(convert_lap).collect());
 
+    let (duration_seconds, moving_time_seconds) = activity_times::elapsed_and_moving(sciotte);
+
     ActivityBuilder::new(
         &sciotte.id,
         &sciotte.name,
         sport_type,
         sciotte.start_date,
-        sciotte.duration_seconds,
+        duration_seconds,
         "sciotte",
     )
     // The service the scraper read: its terms bind its data whichever path
@@ -643,6 +646,9 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .perceived_exertion_opt(perceived_exertion)
     .feel_opt(feel)
     .comments_opt(comments)
+    .moving_time_seconds_opt(moving_time_seconds)
+    .workout_type_opt(sciotte.workout_type)
+    .device_name_opt(activity_times::device_name(sciotte))
     .build()
 }
 
