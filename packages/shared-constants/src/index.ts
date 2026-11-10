@@ -201,17 +201,21 @@ export type {
   SciotteLoginPreset,
 } from './providers';
 
-// What a provider card offers — its connect or reconnect, history choices, the
-// move to the official connection, and where a refused grant goes
+// What a provider card offers — its connect or reconnect, the sign-in its
+// history needs, the move to the official connection, where a refused grant
+// goes, and the OAuth a failed sign-in falls back to
 export {
   OAUTH_NO_SEAT,
   SIGN_IN_OAUTH_REQUIRED,
+  SIGN_IN_UNAVAILABLE,
   cardForSlug,
   cardStatus,
   connectPlan,
   credentialFallbackOnRefusal,
+  oauthFallbackTarget,
   refusalReloadsCards,
   refusalReturnsToCard,
+  signInFallsBackToOAuth,
 } from './connect-plan';
 export type { CardStatus, ConnectPlanCard } from './connect-plan';
 

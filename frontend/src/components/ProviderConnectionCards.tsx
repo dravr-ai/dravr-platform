@@ -20,6 +20,7 @@ import {
   historyActionKey,
   historyImporting,
   noticeRequired,
+  oauthFallbackTarget,
   providerGlyphInk,
   refusalReturnsToCard,
   type CardStatus,
@@ -71,11 +72,16 @@ const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'connect',
 ]);
 
-/** The account sign-in on screen, and whether it is a card's one-time history copy. */
+/**
+ * The account sign-in on screen, whether it is a card's one-time history
+ * copy, and the card whose OAuth a sign-in that cannot complete falls back to
+ * (`oauthFallbackTarget`, carnet#1477), when it may.
+ */
 interface SignInWindow {
   target: SciotteTarget;
   consentRequired: boolean;
   historyMode: boolean;
+  fallback: { provider: SciotteTarget; card: ProviderStatus } | null;
 }
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
@@ -192,8 +198,18 @@ export default function ProviderConnectionCards({
     },
   });
 
-  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false) =>
-    setSignIn({ target, consentRequired: card?.consent_required ?? false, historyMode });
+  // Only the sign-in a card's own plan opens may fall back to its OAuth
+  // (`fromPlan`): one opened because the provider refused its grant would
+  // bounce the athlete between the two, and a history copy has its grant.
+  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false, fromPlan = false) => {
+    const oauth = card && fromPlan && !historyMode ? oauthFallbackTarget(card) : null;
+    setSignIn({
+      target,
+      consentRequired: card?.consent_required ?? false,
+      historyMode,
+      fallback: card && oauth ? { provider: oauth, card } : null,
+    });
+  };
 
   // The result a connect started here came back with (`settleOAuthReturn`).
   // A grant reloads the cards and, when the granted card still needs its
@@ -261,6 +277,15 @@ export default function ProviderConnectionCards({
     };
   }, [refetch, queryClient]);
 
+  // A sign-in that could not complete hands over to the card's OAuth
+  // (carnet#1477): the window closes and the authorization starts in its place.
+  const fallBackToOAuth =
+    ({ provider, card }: NonNullable<SignInWindow['fallback']>) =>
+    () => {
+      setSignIn(null);
+      connectViaOAuth(provider, card);
+    };
+
   // Launch the OAuth authorization flow for a provider: go, in this tab, to
   // the server's launch route, which 302s to the provider and returns here
   // (`startOAuthInThisTab`). `card` is the card tapped, whose own-app setup
@@ -310,7 +335,7 @@ export default function ProviderConnectionCards({
         return;
       case 'sign_in':
         // The provider's own account sign-in, after its notice when it has one.
-        openSignIn(provider, primary.target);
+        openSignIn(provider, primary.target, false, true);
         return;
       case 'intervals':
         // The authorization first while the server offers it, with the
@@ -480,6 +505,7 @@ export default function ProviderConnectionCards({
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
+        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
       />
 
       <ProviderNoticeDialog

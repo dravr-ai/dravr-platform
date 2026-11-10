@@ -161,11 +161,13 @@ vi.mock('../SciotteLoginModal', () => ({
     target,
     consentRequired,
     historyMode,
+    onFallBackToOAuth,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
     historyMode?: boolean;
+    onFallBackToOAuth?: () => void;
   }) =>
     isOpen ? (
       <div
@@ -174,6 +176,12 @@ vi.mock('../SciotteLoginModal', () => ({
         data-history-mode={String(Boolean(historyMode))}
       >
         {target}
+        {/* What a sign-in that could not complete does, when the card offers it. */}
+        {onFallBackToOAuth && (
+          <button type="button" data-testid="sign-in-unavailable" onClick={onFallBackToOAuth}>
+            unavailable
+          </button>
+        )}
       </div>
     ) : null,
 }));
@@ -1198,6 +1206,40 @@ describe('UserSettings Component', () => {
 
       expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin');
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('starts the Strava OAuth when a sign-in-first Strava card\'s sign-in cannot complete (carnet#1477)', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          { ...card('sciotte', 'Strava'), requires_oauth: false, recommended_backend: 'mirror', seats_left: 3 },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      await openProviders();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId('provider-connect-sciotte'));
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
+      await user.click(screen.getByTestId('sign-in-unavailable'));
+
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava');
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('offers no OAuth fallback from a Strava sign-in with the pool full', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          { ...card('sciotte', 'Strava'), requires_oauth: false, recommended_backend: 'mirror', seats_left: 0 },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      await openProviders();
+
+      await userEvent.setup().click(screen.getByTestId('provider-connect-sciotte'));
+
+      expect(await screen.findByTestId('sciotte-modal')).toBeInTheDocument();
+      expect(screen.queryByTestId('sign-in-unavailable')).not.toBeInTheDocument();
     });
 
     it('offers each card\'s export link where the server names a source, and opens that import', async () => {

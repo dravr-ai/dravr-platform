@@ -56,6 +56,7 @@ jest.mock('../../../components/SciotteLoginModal', () => {
       historyMode,
       onClose,
       onOAuthRequired,
+      onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
@@ -63,6 +64,7 @@ jest.mock('../../../components/SciotteLoginModal', () => {
       historyMode?: boolean;
       onClose?: () => void;
       onOAuthRequired?: () => void;
+      onFallBackToOAuth?: () => void;
     }) =>
       visible
         ? React.createElement(
@@ -81,6 +83,14 @@ jest.mock('../../../components/SciotteLoginModal', () => {
               },
               'refuse:oauth_required',
             ),
+            // What a sign-in that could not complete does, when the card offers it.
+            onFallBackToOAuth
+              ? React.createElement(
+                  Text,
+                  { testID: 'sciotte-modal-unavailable', onPress: () => onFallBackToOAuth() },
+                  'refuse:sign_in_unavailable',
+                )
+              : null,
           )
         : null,
   };
@@ -216,6 +226,54 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
   });
+  describe('a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
+    const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
+
+    it.each([
+      ['strava', () => signInFirst(stravaCard('mirror'))],
+      ['garmin', () => signInFirst(garminCard('mirror'))],
+    ] as const)('starts the %s OAuth when its sign-in cannot complete', async (provider, card) => {
+      getProvidersStatus.mockResolvedValue({ providers: [card()] });
+      openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      fireEvent.press(await screen.findByText('Connect'));
+      expect(await screen.findByText(`sciotte-modal:${provider}`)).toBeTruthy();
+      expect(initMobileOAuth).not.toHaveBeenCalled();
+      fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
+
+      await waitFor(() =>
+        expect(initMobileOAuth).toHaveBeenCalledWith(provider, 'dravr://oauth-callback', { tosConsent: false }),
+      );
+      expect(screen.queryByText(`sciotte-modal:${provider}`)).toBeNull();
+    });
+
+    it('offers no fallback with the pool full', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      fireEvent.press(await screen.findByText('Connect'));
+
+      expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+      expect(screen.queryByTestId('sciotte-modal-unavailable')).toBeNull();
+    });
+
+    it('never falls back from a sign-in a refused Strava grant opened', async () => {
+      // Seats free and the sign-in first, yet the grant was started (the
+      // athlete's tap on a stale row) and refused: its sign-in offers no way back.
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+      openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
+      linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
+
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      getProvidersStatus.mockResolvedValue({ providers: [signInFirst(stravaCard('mirror'))] });
+      fireEvent.press(await screen.findByText('Connect'));
+
+      expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+      expect(screen.queryByTestId('sciotte-modal-unavailable')).toBeNull();
+    });
+  });
+
   it('offers to start fresh, never the Sciotte fallback, when the account was a deleted account\'s', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });

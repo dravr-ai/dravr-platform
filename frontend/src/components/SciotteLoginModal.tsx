@@ -25,6 +25,7 @@ import {
   loginIdentifierField,
   refusalReloadsCards,
   providerGlyphInk,
+  signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 
@@ -64,6 +65,14 @@ interface SciotteLoginModalProps {
    * next tap follows the new plan.
    */
   onPlanChanged?: () => void;
+  /**
+   * The card's account sign-in goes first with an OAuth seat free
+   * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
+   * provider stops at a challenge, hands over to the provider's OAuth through
+   * this instead of showing the failure (carnet#1477). Wrong credentials still
+   * show theirs, for the athlete to type again.
+   */
+  onFallBackToOAuth?: () => void;
 }
 
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
@@ -83,6 +92,7 @@ export default function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onPlanChanged,
+  onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -227,6 +237,10 @@ export default function SciotteLoginModal({
       } catch (err) {
         // The window was closed: nothing is left to tell.
         if (signal.aborted) return;
+        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+          onFallBackToOAuth();
+          return;
+        }
         setError(refusalMessage(err, 'auth.loginFailed'));
         setPhase('error');
         if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
@@ -234,7 +248,7 @@ export default function SciotteLoginModal({
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onPlanChanged, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onPlanChanged, onFallBackToOAuth, refusalMessage, t]
   );
 
   // What a refused continuation tells the user.
@@ -286,13 +300,17 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
+        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+          onFallBackToOAuth();
+          return;
+        }
         setError(continuationError(err));
         setPhase('error');
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [beginRequest, attemptId, continuationError, onClose, onConnected, t]
+    [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -373,13 +391,17 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
+        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+          onFallBackToOAuth();
+          return;
+        }
         setError(continuationError(err));
         setPhase('error');
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, t]
+    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
   );
 
 

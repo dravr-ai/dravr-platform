@@ -16,6 +16,9 @@ import {
   refusalReloadsCards,
   refusalReturnsToCard,
   type ConnectPlanCard,
+  SIGN_IN_UNAVAILABLE,
+  oauthFallbackTarget,
+  signInFallsBackToOAuth,
 } from '../src/connect-plan';
 
 const card = (overrides: Partial<ConnectPlanCard> & Pick<ConnectPlanCard, 'provider'>): ConnectPlanCard => ({
@@ -283,5 +286,31 @@ describe('a refused connect', () => {
     }
     expect(refusalReloadsCards('login_challenge')).toBe(false);
     expect(refusalReloadsCards(undefined)).toBe(false);
+  });
+});
+
+describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
+  const signInFirst = (provider: string, seats: number, connected = false) =>
+    card({ provider, connected, recommended_backend: 'mirror', seats_left: seats });
+
+  it('falls back to the provider OAuth on a card whose sign-in goes first with a seat free', () => {
+    expect(oauthFallbackTarget(signInFirst('sciotte', 3))).toBe('strava');
+    expect(oauthFallbackTarget(signInFirst('sciotte_garmin', 1))).toBe('garmin');
+  });
+
+  it('has no OAuth to fall back to with the pool full, on OAuth first, once connected, or for COROS', () => {
+    expect(oauthFallbackTarget(signInFirst('sciotte', 0))).toBeNull();
+    expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'oauth', seats_left: 3 }))).toBeNull();
+    expect(oauthFallbackTarget(signInFirst('sciotte', 3, true))).toBeNull();
+    expect(oauthFallbackTarget(signInFirst('sciotte_coros', 3))).toBeNull();
+    expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'mirror' }))).toBeNull();
+  });
+
+  it('falls back on a sign-in that could not complete or met a challenge, never on any other refusal', () => {
+    expect(signInFallsBackToOAuth(SIGN_IN_UNAVAILABLE)).toBe(true);
+    expect(signInFallsBackToOAuth('login_challenge')).toBe(true);
+    for (const reason of ['oauth_required', 'login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
+      expect(signInFallsBackToOAuth(reason)).toBe(false);
+    }
   });
 });

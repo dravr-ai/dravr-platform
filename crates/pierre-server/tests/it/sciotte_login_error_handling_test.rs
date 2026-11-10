@@ -22,7 +22,9 @@
 //! two helpers are the testable seam (re-exported `#[doc(hidden)]` from the
 //! otherwise-private `sciotte` module).
 
-use pierre_routes_auth::{friendly_login_failure_message, report_login_system_failure};
+use pierre_routes_auth::{
+    friendly_login_failure_message, report_login_system_failure, SIGN_IN_UNAVAILABLE_REASON,
+};
 use uuid::Uuid;
 
 /// The exact class of raw stderr a Chrome-launch failure surfaces — the
@@ -61,6 +63,11 @@ fn system_failure_returns_friendly_message_not_raw_stderr() {
     // it echoed the full stderr; it must now be the friendly copy verbatim.
     let shown = err.sanitized_message();
     assert_eq!(shown, friendly_login_failure_message("sciotte"));
+    assert_eq!(
+        err.details.as_ref().and_then(|d| d.get("reason")).and_then(|r| r.as_str()),
+        Some(SIGN_IN_UNAVAILABLE_REASON),
+        "bug: a failed sign-in carries no reason, so a sign-in-first card cannot fall back to the OAuth (carnet#1477)"
+    );
 
     for &leak in LEAK_TOKENS {
         assert!(

@@ -6,6 +6,7 @@
 
 import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
 import {
+  SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_PRESETS,
   cardHistoryState,
   intervalsConnectPath,
@@ -26,6 +27,7 @@ export type ConnectPlanCard = Pick<
   | 'own_app_required'
   | 'consent_required'
   | 'recommended_backend'
+  | 'seats_left'
   | 'migration'
   | 'history'
 >;
@@ -210,4 +212,39 @@ export const SIGN_IN_OAUTH_REQUIRED = 'oauth_required' as const;
  */
 export function refusalReloadsCards(reason: string | null | undefined): boolean {
   return reason === OAUTH_NO_SEAT || reason === SIGN_IN_OAUTH_REQUIRED;
+}
+
+/**
+ * `details.reason` of a sign-in that could not complete for a reason that is
+ * not the athlete's credentials — the service failed, timed out or shed the
+ * login (mirrors the server's `SIGN_IN_UNAVAILABLE_REASON`).
+ */
+export const SIGN_IN_UNAVAILABLE = 'sign_in_unavailable' as const;
+
+/**
+ * The provider whose OAuth a failed account sign-in on `card` falls back to,
+ * or `null` (carnet#1477): a card not yet connected whose account sign-in goes
+ * first while an OAuth seat is free — `recommended_backend` `mirror` with
+ * `seats_left` above zero, which only the operator's sign-in-first order
+ * produces. With the pool full there is no OAuth to fall back to.
+ */
+export function oauthFallbackTarget(
+  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'recommended_backend' | 'seats_left'>,
+): SciotteTarget | null {
+  if (card.connected || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
+    return null;
+  }
+  const target = sciotteTargetForBackend(card.provider);
+  return target && DUAL_BACKEND_TARGETS.has(target) ? target : null;
+}
+
+/**
+ * Whether a refused sign-in falls back to its provider's OAuth when its card
+ * offers one ({@link oauthFallbackTarget}): the sign-in could not complete
+ * ({@link SIGN_IN_UNAVAILABLE}) or the provider stopped it at a challenge.
+ * Wrong credentials answer `status: failed`, never a refusal, so the athlete
+ * types them again instead.
+ */
+export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
+  return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;
 }

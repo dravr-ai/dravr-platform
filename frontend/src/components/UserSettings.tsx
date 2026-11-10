@@ -52,6 +52,7 @@ import {
   HISTORY_IMPORTING_REFRESH_MS,
   cardStatus,
   connectPlan,
+  oauthFallbackTarget,
   historyImporting,
   intervalsConnectPath,
   noticeRequired,
@@ -180,10 +181,16 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const [providerToDisconnect, setProviderToDisconnect] = useState<{ id: string; name: string } | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // The account sign-in on screen: its target, whether the card still needs
-  // its exposure notice accepted, and whether it is the one-time history copy.
-  const [signIn, setSignIn] = useState<{ target: SciotteTarget; consentRequired: boolean; historyMode: boolean } | null>(
-    null,
-  );
+  // its exposure notice accepted, whether it is the one-time history copy, and
+  // the OAuth provider a sign-in that cannot complete falls back to
+  // (`oauthFallbackTarget`, carnet#1477) — `null` for a history copy or a
+  // sign-in a refused grant opened.
+  const [signIn, setSignIn] = useState<{
+    target: SciotteTarget;
+    consentRequired: boolean;
+    historyMode: boolean;
+    fallback: SciotteTarget | null;
+  } | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
@@ -476,11 +483,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
         else handleConnectProvider(primary.provider);
         return;
       case 'sign_in':
-        setSignIn({ target: primary.target, consentRequired: provider.consent_required, historyMode: false });
+        setSignIn({
+          target: primary.target,
+          consentRequired: provider.consent_required,
+          historyMode: false,
+          fallback: oauthFallbackTarget(provider),
+        });
         return;
       case 'none':
         return;
     }
+  };
+
+  // A sign-in that could not complete hands over to its provider's OAuth
+  // (carnet#1477): the window closes and the authorization starts instead.
+  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+    setSignIn(null);
+    handleConnectProvider(provider);
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
@@ -531,7 +550,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       // comes after it) opens the sign-in that copies it, at once (carnet#1472).
       const chained = historySignInAfterGrant(result, providersResponse?.providers ?? []);
       if (chained) {
-        setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true });
+        setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true, fallback: null });
       }
       return;
     }
@@ -544,7 +563,12 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     // it failed, the card's Connect trying again (`refusalAnswer`).
     const answer = refusalAnswer(result, providersResponse?.providers ?? []);
     if (answer?.kind === 'sign_in') {
-      setSignIn({ target: answer.target, consentRequired: answer.card?.consent_required ?? false, historyMode: false });
+      setSignIn({
+        target: answer.target,
+        consentRequired: answer.card?.consent_required ?? false,
+        historyMode: false,
+        fallback: null,
+      });
     } else {
       setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
     }
@@ -809,7 +833,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                       onConnect={() => connectCard(provider)}
                       onAddHistory={() => {
                         const target = connectPlan(provider).history.signIn;
-                        if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true });
+                        if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true, fallback: null });
                       }}
                       onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
                       onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
@@ -1677,6 +1701,7 @@ Authorization: Bearer <your-token-here>`}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
+        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
       />
 
       {/* Intervals.icu: the authorization when offered, and the API-key form */}

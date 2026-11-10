@@ -41,6 +41,7 @@ import { useSignInModal } from '../../hooks/useSignInModal';
 import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
+import type { SciotteTarget } from '@pierre/shared-types';
 import {
   COACH_PLATFORM_PROVIDERS,
   HISTORY_ACTION_KEYS,
@@ -316,6 +317,14 @@ export function OnboardingConnectScreen() {
     continueConnect(provider, false);
   };
 
+  // A sign-in that could not complete hands over to its provider's OAuth
+  // (carnet#1477): the window closes and the authorization starts instead.
+  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+    const card = cardForSlug(provider, providers);
+    signIn.close();
+    void launchOAuth(provider, card?.display_name ?? provider);
+  };
+
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     // The card's `connectPlan` decides: the Strava and Garmin cards (named for
@@ -325,7 +334,7 @@ export function OnboardingConnectScreen() {
     const primary = connectPlan(provider).primary;
     switch (primary.kind) {
       case 'sign_in':
-        openSignIn(primary.target, provider);
+        openSignIn(primary.target, provider, false, true);
         return;
       case 'intervals':
         // Intervals.icu leads with the athlete's authorization while the
@@ -568,6 +577,7 @@ export function OnboardingConnectScreen() {
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
+        onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         onOAuthRequired={() => {
           const target = signIn.target;
           const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;

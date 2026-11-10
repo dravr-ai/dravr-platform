@@ -154,7 +154,7 @@ pub use sciotte::{
 pub use sciotte::{
     forget_remote_flow, login_failure_response, remember_remote_flow, remember_remote_flow_for,
     require_remote_flow, CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
-    REMOTE_FLOW_TTL_SECS,
+    REMOTE_FLOW_TTL_SECS, SIGN_IN_UNAVAILABLE_REASON,
 };
 
 // Re-export the cross-cutting auth DTOs so existing

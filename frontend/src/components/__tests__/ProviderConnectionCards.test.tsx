@@ -46,11 +46,13 @@ vi.mock('../SciotteLoginModal', () => ({
     target,
     consentRequired,
     historyMode,
+    onFallBackToOAuth,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
     historyMode?: boolean;
+    onFallBackToOAuth?: () => void;
   }) =>
     isOpen ? (
       <div
@@ -59,6 +61,12 @@ vi.mock('../SciotteLoginModal', () => ({
         data-history-mode={String(Boolean(historyMode))}
       >
         {target}
+        {/* What a sign-in that could not complete does, when the card offers it. */}
+        {onFallBackToOAuth && (
+          <button type="button" data-testid="sign-in-unavailable" onClick={onFallBackToOAuth}>
+            unavailable
+          </button>
+        )}
       </div>
     ) : null,
 }));
@@ -337,6 +345,61 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
     // The failed result is consumed so other observers don't double-handle it.
     expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
+  });
+
+  describe('a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
+    // The operator put the sign-in first: the card recommends it with seats free.
+    const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
+
+    it('starts the Strava OAuth when the Strava sign-in cannot complete', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [signInFirst(stravaCard('mirror'))] });
+      const user = userEvent.setup();
+      renderCards();
+
+      await user.click(await screen.findByLabelText('Connect to Strava'));
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
+      await user.click(screen.getByTestId('sign-in-unavailable'));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('starts the Garmin OAuth when the Garmin sign-in cannot complete', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [signInFirst(garminCard('mirror'))] });
+      const user = userEvent.setup();
+      renderCards();
+
+      await user.click(await screen.findByLabelText('Connect to Garmin'));
+      await user.click(await screen.findByTestId('sign-in-unavailable'));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    });
+
+    it('offers no fallback with the pool full', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+      const user = userEvent.setup();
+      renderCards();
+
+      await user.click(await screen.findByLabelText('Connect to Strava'));
+
+      expect(await screen.findByTestId('sciotte-modal')).toBeInTheDocument();
+      expect(screen.queryByTestId('sign-in-unavailable')).not.toBeInTheDocument();
+    });
+
+    it('never falls back from a sign-in a refused Strava grant opened', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [signInFirst(stravaCard('mirror'))] });
+      renderCards();
+      await screen.findByLabelText('Connect to Strava');
+      const failed = JSON.stringify({ type: 'oauth_completed', provider: 'strava', success: false, timestamp: Date.now() });
+      await act(async () => {
+        localStorage.setItem('pierre_oauth_result', failed);
+        window.dispatchEvent(new StorageEvent('storage', { key: 'pierre_oauth_result', newValue: failed }));
+      });
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(screen.queryByTestId('sign-in-unavailable')).not.toBeInTheDocument();
+    });
   });
 
   describe('a Garmin grant that comes back refused', () => {

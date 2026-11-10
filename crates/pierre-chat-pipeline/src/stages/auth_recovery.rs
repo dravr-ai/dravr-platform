@@ -70,7 +70,9 @@ use pierre_providers::{ai_scope, backend_resolver};
 use pierre_tool_runtime::implementations::connection::{
     is_no_seat_refusal, is_notice_refusal, mint_oauth_authorize_url,
 };
-use pierre_tool_runtime::protocol::reauth_notice::reconnects_through_oauth;
+use pierre_tool_runtime::protocol::reauth_notice::{
+    new_strava_sign_in_falls_back, reconnects_through_oauth,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -428,9 +430,13 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
     };
 }
 
-/// The URL the reconnect offer for `provider_slug` carries: the connect
-/// picker when the athlete moves to the provider's OAuth (`through_oauth`),
-/// else the provider's own reconnect ([`mint_reconnect_url`]).
+/// The URL the reconnect offer for `provider_slug` carries.
+///
+/// The connect picker when the athlete moves to the provider's OAuth
+/// (`through_oauth`), or makes a new Strava connection whose sign-in falls
+/// back to the OAuth ([`new_strava_sign_in_falls_back`]) — the picker carries
+/// that fallback, the bare sign-in page does not — else the provider's own
+/// reconnect ([`mint_reconnect_url`]).
 async fn mint_offer_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -439,7 +445,15 @@ async fn mint_offer_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    if through_oauth {
+    if through_oauth
+        || new_strava_sign_in_falls_back(
+            deps.tool_runtime,
+            user_id,
+            input.tool_tenant_id,
+            provider_slug,
+        )
+        .await
+    {
         mint_connect_picker_url(deps, user_id, input, profile).await
     } else {
         mint_reconnect_url(deps, provider_slug, user_id, input, profile).await

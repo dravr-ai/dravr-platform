@@ -38,6 +38,7 @@ import {
   SCIOTTE_LOGIN_PRESETS,
   SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
+  signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
@@ -83,6 +84,14 @@ interface SciotteLoginModalProps {
    * its cards again, whose plan then leads to that authorization.
    */
   onOAuthRequired?: () => void;
+  /**
+   * The card's account sign-in goes first with an OAuth seat free
+   * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
+   * provider stops at a challenge, hands over to the provider's OAuth through
+   * this instead of showing the failure (carnet#1477). Wrong credentials still
+   * show theirs, for the athlete to type again.
+   */
+  onFallBackToOAuth?: () => void;
 }
 
 /**
@@ -222,6 +231,7 @@ export function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onOAuthRequired,
+  onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   // Closing the window ends the sign-in it started, on the server too.
@@ -394,13 +404,17 @@ export function SciotteLoginModal({
     } catch (err) {
       // The window was closed: nothing is left to tell.
       if (signal.aborted) return;
+      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+        onFallBackToOAuth();
+        return;
+      }
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
       if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onOAuthRequired, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onOAuthRequired, onFallBackToOAuth, refusalMessage, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -440,12 +454,16 @@ export function SciotteLoginModal({
       }
     } catch (err) {
       if (signal.aborted) return;
+      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+        onFallBackToOAuth();
+        return;
+      }
       setError(continuationError(err));
       setPhase('error');
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [beginRequest, attemptId, continuationError, onClose, onConnected, t]);
+  }, [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -488,12 +506,16 @@ export function SciotteLoginModal({
       }
     } catch (err) {
       if (signal.aborted) return;
+      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+        onFallBackToOAuth();
+        return;
+      }
       setError(continuationError(err));
       setPhase('error');
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, t]);
+  }, [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]);
 
   // A provider that signs in with its own credentials draws the form's mark on
   // its own colour, not the email row's Strava orange.

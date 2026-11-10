@@ -112,6 +112,15 @@ pub const LOGIN_FLOW_EXPIRED_REASON: &str = "login_flow_expired";
 /// athlete's own language from it, and never print the message.
 pub const LOGIN_CHALLENGE_REASON: &str = LOGIN_CHALLENGE;
 
+/// `details.reason` of a sign-in that could not complete for a reason that is
+/// not the athlete's credentials: the service failed, timed out, or shed the
+/// login past its retries.
+///
+/// A login UI whose card puts the account sign-in first with an OAuth seat
+/// free falls back to the provider's OAuth on it (carnet#1477); wrong
+/// credentials answer `status: failed` instead and never fall back.
+pub const SIGN_IN_UNAVAILABLE_REASON: &str = "sign_in_unavailable";
+
 /// `reason` of an `otp_required` answer to a refused or incomplete code.
 ///
 /// The same sign-in takes another code; the login UIs word the message
@@ -748,7 +757,11 @@ pub fn report_login_system_failure<E: Display>(
         reason = %reason,
         "sciotte login failed"
     );
-    AppError::invalid_input(friendly_login_failure_message(provider))
+    let mut refusal = AppError::invalid_input(friendly_login_failure_message(provider));
+    refusal.details = Some(Box::new(
+        serde_json::json!({ "reason": SIGN_IN_UNAVAILABLE_REASON }),
+    ));
+    refusal
 }
 
 /// Friendly, provider-aware copy shown to the user on a sciotte login *system* failure.
@@ -878,12 +891,14 @@ pub fn login_failure_response(
 /// `WARN` instead of `ERROR`, so the shed leaves one backpressure line in the
 /// logs and nothing in the ops channel.
 fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
-    AppError::new(
+    let mut shed = AppError::new(
         ErrorCode::ExternalRateLimited,
         friendly_login_failure_message(provider),
-    )
-    .with_retry_after(retry_after_secs)
-    .into_response()
+    );
+    shed.details = Some(Box::new(
+        serde_json::json!({ "reason": SIGN_IN_UNAVAILABLE_REASON }),
+    ));
+    shed.with_retry_after(retry_after_secs).into_response()
 }
 
 /// Refuse a login to a backend whose exposure notice is in force for this

@@ -19,12 +19,16 @@
 
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::OAuthTokenRepository;
 use pierre_database::database::system_settings::{
     SETTING_CONNECT_ORDER_GARMIN, SETTING_CONNECT_ORDER_STRAVA,
 };
 use pierre_database::repositories::SystemSettingsRepository;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{debug, warn};
+
+use crate::config::oauth::OAuthConfig;
+use crate::strava_pool;
 
 /// Which way a new connection of one provider goes first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +143,45 @@ pub async fn set_connect_order(
     settings.set_setting(key, order.as_str()).await
 }
 
+/// Whether a NEW connection goes through the provider's OAuth.
+///
+/// Under `order` with `seats_left` free on its client: OAuth first and a seat
+/// to take; otherwise it signs in with the account. The one rule the provider
+/// card's recommendation and the chat's connect read (carnet#1477).
+#[must_use]
+pub fn new_connection_through_oauth(order: ConnectOrder, seats_left: u32) -> bool {
+    order == ConnectOrder::OAuthFirst && seats_left > 0
+}
+
+/// Whether a NEW connection's failed account sign-in falls back to the OAuth.
+///
+/// The sign-in goes first by the operator's order while a seat is still free.
+/// With the pool full there is no OAuth to fall back to.
+#[must_use]
+pub fn sign_in_falls_back_to_oauth(order: ConnectOrder, seats_left: u32) -> bool {
+    order == ConnectOrder::SignInFirst && seats_left > 0
+}
+
+/// Strava's connect order and the seats left on its OAuth pool, read once.
+///
+/// A seat count that fails reads as none left, as the provider card reads
+/// it, so nothing is sent into an OAuth that cannot finish.
+pub async fn strava_order_and_seats(
+    settings: &dyn SystemSettingsRepository,
+    tokens: &dyn OAuthTokenRepository,
+    server: &OAuthConfig,
+) -> (ConnectOrder, u32) {
+    let order = connect_order(settings, oauth_providers::STRAVA).await;
+    let seats = match strava_pool::strava_seat_summary(tokens, server).await {
+        Ok(summary) => summary.left(),
+        Err(e) => {
+            debug!(error = %e, "Strava seats could not be counted; reading as none left");
+            0
+        }
+    };
+    (order, seats)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,6 +286,38 @@ mod tests {
             setting_key(oauth_providers::SCIOTTE_GARMIN),
             None,
             "bug: a mirror key carries an order"
+        );
+    }
+
+    #[test]
+    fn a_new_connection_takes_the_oauth_only_when_it_goes_first_with_a_seat() {
+        assert!(
+            new_connection_through_oauth(ConnectOrder::OAuthFirst, 3),
+            "bug: OAuth first with a seat"
+        );
+        assert!(
+            !new_connection_through_oauth(ConnectOrder::OAuthFirst, 0),
+            "bug: a full pool signs in"
+        );
+        assert!(
+            !new_connection_through_oauth(ConnectOrder::SignInFirst, 3),
+            "bug: sign-in first signs in"
+        );
+    }
+
+    #[test]
+    fn a_failed_sign_in_falls_back_only_while_the_sign_in_goes_first_with_a_seat() {
+        assert!(
+            sign_in_falls_back_to_oauth(ConnectOrder::SignInFirst, 3),
+            "bug: no fallback with a seat free"
+        );
+        assert!(
+            !sign_in_falls_back_to_oauth(ConnectOrder::SignInFirst, 0),
+            "bug: a fallback into a full pool"
+        );
+        assert!(
+            !sign_in_falls_back_to_oauth(ConnectOrder::OAuthFirst, 3),
+            "bug: OAuth first never signs in first"
         );
     }
 }

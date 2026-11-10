@@ -36,7 +36,10 @@ use serde_json::{json, Value};
 use urlencoding::encode;
 
 use crate::hosted_page::{script_json, PageStrings};
-use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON};
+use crate::sciotte::{
+    CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
+    SIGN_IN_UNAVAILABLE_REASON,
+};
 use crate::sciotte_grant_gate::OAUTH_REQUIRED_REASON;
 use crate::sciotte_hosted_templates;
 
@@ -125,6 +128,7 @@ pub(crate) fn render_connect_page(
     .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
     .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
     .replace("{{OAUTH_REQUIRED_REASON}}", OAUTH_REQUIRED_REASON)
+    .replace("{{SIGN_IN_UNAVAILABLE_REASON}}", SIGN_IN_UNAVAILABLE_REASON)
     // The JSON goes in last so an escaped token/channel can never close the
     // script context before it.
     .replace("{{STRINGS_JSON}}", &script_json(&script_strings))

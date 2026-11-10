@@ -3,11 +3,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, and a Garmin grant's history sign-in
+// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { JSDOM, VirtualConsole } from 'jsdom';
+// jsdom has no navigation: its `Location` implementation is reached to record
+// where the page's script sends the browser.
+import { implForWrapper } from 'jsdom/lib/jsdom/living/generated/utils.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -104,6 +107,8 @@ function renderPage(page: Page, cards: unknown[] = COROS_CARDS): string {
     FLOW_EXPIRED_REASON: 'login_flow_expired',
     LOGIN_CHALLENGE_REASON: 'login_challenge',
     CODE_REJECTED_REASON: 'code_rejected',
+    OAUTH_REQUIRED_REASON: 'oauth_required',
+    SIGN_IN_UNAVAILABLE_REASON: 'sign_in_unavailable',
     CONSENT_REQUIRED: 'false',
     CONSENT_HIDDEN: ' hidden',
     PROVIDERS_JSON: JSON.stringify(cards),
@@ -139,12 +144,16 @@ afterEach(() => {
  */
 function open(page: Page, answers: Record<string, Answer[]>, cards?: unknown[], search = '') {
   const calls: Array<{ path: string; body: unknown; keepalive?: boolean; authorization?: string }> = [];
+  const navigations: string[] = [];
   const virtualConsole = new VirtualConsole();
   dom = new JSDOM(renderPage(page, cards), {
     runScripts: 'dangerously',
     url: `https://hosted.test/providers/${page}?token=link-token${search}`,
     virtualConsole,
     beforeParse(window) {
+      (implForWrapper(window.location) as { assign: (url: string) => void }).assign = (url) => {
+        navigations.push(url);
+      };
       Object.assign(window, {
         fetch: async (
           url: string,
@@ -174,7 +183,7 @@ function open(page: Page, answers: Record<string, Answer[]>, cards?: unknown[], 
     byId(formId).dispatchEvent(new dom!.window.Event('submit', { bubbles: true, cancelable: true }));
   const visible = (id: string) => !byId(id).hidden;
   const hide = () => dom!.window.dispatchEvent(new dom!.window.Event('pagehide'));
-  return { document, byId, submit, visible, calls, hide };
+  return { document, byId, submit, visible, calls, hide, navigations };
 }
 
 const LOGIN = '/api/providers/sciotte/login';
@@ -369,5 +378,84 @@ describe('connect_hosted — a Garmin grant whose history is needed (carnet#1472
     card.click();
     expect(view.visible('phase-credentials')).toBe(false);
     expect(view.calls).toEqual([]);
+  });
+});
+
+describe('connect_hosted — a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
+  /** The Strava card as the picker serves it while its sign-in goes first; `fallback` as the server sets it. */
+  const stravaSignInFirst = (fallback: boolean) => [
+    {
+      provider: 'sciotte',
+      display_name: 'Strava',
+      description: '',
+      connected: false,
+      history_state: 'not_applicable',
+      history_sign_in: false,
+      migrate: false,
+      kind: 'credentials',
+      target: 'strava',
+      consent_required: false,
+      login_identifier: 'email',
+      oauth_fallback: fallback,
+    },
+  ];
+  const OAUTH_INIT = '/api/providers/connect/oauth-init/strava?token=link-token';
+
+  async function signIn(cards: unknown[], answer: Answer) {
+    const view = open('connect_hosted', { [LOGIN]: [answer] }, cards);
+    (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+    expect(view.visible('phase-credentials')).toBe(true);
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+    await vi.waitFor(() => expect(view.calls).toHaveLength(1));
+    return view;
+  }
+
+  it.each(['sign_in_unavailable', 'login_challenge'])('starts the Strava OAuth when the sign-in answers %s', async (reason) => {
+    const view = await signIn(stravaSignInFirst(true), {
+      status: 400,
+      body: { message: 'server prose', details: { reason } },
+    });
+
+    await vi.waitFor(() => expect(view.navigations).toEqual([OAUTH_INIT]));
+    expect(view.visible('phase-error')).toBe(false);
+  });
+
+  it('keeps wrong credentials on the page, for another try', async () => {
+    const view = await signIn(stravaSignInFirst(true), { status: 200, body: { status: 'failed', error: 'bad' } });
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.byId('error-message').textContent).toBe(fill(text('hosted.common.signInRejected'), 'Strava'));
+    expect(view.navigations).toEqual([]);
+  });
+
+  it('shows the failure on a card the server offers no fallback for', async () => {
+    const view = await signIn(stravaSignInFirst(false), {
+      status: 400,
+      body: { message: 'server prose', details: { reason: 'sign_in_unavailable' } },
+    });
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.byId('error-message').textContent).toBe(fill(text('hosted.common.signInUnavailable'), 'Strava'));
+    expect(view.navigations).toEqual([]);
+  });
+
+  it('never falls back from the sign-in a refused Strava grant opened', async () => {
+    const view = open(
+      'connect_hosted',
+      {
+        [LOGIN]: [{ status: 400, body: { message: 'server prose', details: { reason: 'sign_in_unavailable' } } }],
+      },
+      stravaSignInFirst(true),
+      '&provider=strava&success=false',
+    );
+    expect(view.visible('phase-credentials')).toBe(true);
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.navigations).toEqual([]);
   });
 });

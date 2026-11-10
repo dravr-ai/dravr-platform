@@ -157,7 +157,7 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, migrate, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, migrate, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback }]
                 // `history_state` ('needed'|'importing'|'incomplete'|'imported'|'not_applicable'):
                 // a connected card whose history is `needed` or `incomplete`
                 // opens the credential sign-in that copies it when
@@ -178,6 +178,9 @@
                 // `details.reason` of a usr/pwd sign-in refused because the
                 // provider now connects through its own OAuth.
                 oauthRequiredReason: "{{OAUTH_REQUIRED_REASON}}",
+                // `details.reason` of a sign-in that could not complete for a
+                // reason that is not the athlete's credentials.
+                signInUnavailableReason: "{{SIGN_IN_UNAVAILABLE_REASON}}",
                 // The strings the script sets, in the athlete's locale. A
                 // `{0}` in one is the slot `fmt` fills.
                 strings: {{STRINGS_JSON}},
@@ -376,6 +379,10 @@
 
             // Whether the credential sign-in under way copies a history.
             let historyMode = false;
+            // The provider whose OAuth the sign-in under way falls back to when
+            // it cannot complete or meets a challenge (a card whose sign-in goes
+            // first with an OAuth seat free, carnet#1477), else null.
+            let credFallback = null;
 
             function goToSuccess(target) {
                 const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
@@ -435,6 +442,8 @@
             // when the account has not accepted it.
             function pickCredentials(p, forHistory) {
                 historyMode = Boolean(forHistory);
+                // A history copy is beside a grant already: nothing to fall back to.
+                credFallback = !historyMode && p.oauth_fallback ? p.target : null;
                 credTarget = p.target || 'strava';
                 credLabel = p.display_name;
                 document.getElementById('cred-title').textContent = fmt(S.accountTitle, credLabel);
@@ -468,6 +477,17 @@
                 return fmt(S.signInUnavailable, credLabel);
             }
             function showFailure(failure) {
+                // A sign-in that could not complete, on a card whose sign-in goes
+                // first, hands over to the provider's OAuth instead. Wrong
+                // credentials (`rejected`) keep the error, for another try.
+                const reason = failure && failure.reason;
+                if (credFallback && (reason === CONFIG.signInUnavailableReason
+                    || reason === CONFIG.loginChallengeReason)) {
+                    const provider = credFallback;
+                    credFallback = null;
+                    startOAuth(provider, false);
+                    return;
+                }
                 document.getElementById('error-message').textContent = failureText(failure || {});
                 showPhase('error');
             }
@@ -640,6 +660,8 @@
             // Open the credential form for Strava, whose refused grant falls
             // back to its username and password sign-in.
             function openCredentialFallback(target, label, noticeOverride) {
+                // Opened because the provider refused its grant: never back to it.
+                credFallback = null;
                 credTarget = target;
                 credLabel = label;
                 document.getElementById('cred-title').textContent = fmt(S.accountTitle, label);

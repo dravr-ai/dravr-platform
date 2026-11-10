@@ -16,7 +16,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
-use pierre_auth::connect_order::{connect_order, ConnectOrder};
+use pierre_auth::connect_order::{connect_order, new_connection_through_oauth, ConnectOrder};
 use pierre_auth::{garmin_seats, strava_pool};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
@@ -98,7 +98,7 @@ impl CardSeats {
             oauth_providers::SCIOTTE_GARMIN => (self.garmin, self.garmin_order),
             _ => return (None, None),
         };
-        let oauth_first = order == ConnectOrder::OAuthFirst && left > 0;
+        let oauth_first = new_connection_through_oauth(order, left);
         let backend = if oauth_first || grant_serves {
             "oauth"
         } else {

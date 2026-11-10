@@ -32,12 +32,14 @@ jest.mock('../src/components/SciotteLoginModal', () => {
       consentRequired,
       onConnected,
       onOAuthRequired,
+      onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       onConnected: () => void;
       onOAuthRequired?: () => void;
+      onFallBackToOAuth?: () => void;
     }) =>
       visible
         ? React.createElement(
@@ -54,6 +56,14 @@ jest.mock('../src/components/SciotteLoginModal', () => {
               { onPress: () => onOAuthRequired?.(), testID: 'sciotte-modal-oauth-required' },
               'refuse:oauth_required',
             ),
+            // A sign-in that could not complete, offered only with a fallback.
+            onFallBackToOAuth
+              ? React.createElement(
+                  Text,
+                  { onPress: onFallBackToOAuth, testID: 'sciotte-modal-unavailable' },
+                  'refuse:sign_in_unavailable',
+                )
+              : null,
           )
         : null,
   };
@@ -171,6 +181,35 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     fireEvent.press(screen.getByText('reply:reconnect'));
 
     expect(status.handleConnectProvider).toHaveBeenCalledWith('strava');
+  });
+
+  it('falls back to the Strava OAuth when a sign-in-first card\'s sign-in cannot complete (carnet#1477)', () => {
+    mockSlug = 'strava';
+    const status = providerStatus([
+      card({ provider: 'sciotte', display_name: 'Strava', connected: false, needs_reauth: false, recommended_backend: 'mirror', seats_left: 3 }),
+    ]);
+    renderThread(status);
+
+    fireEvent.press(screen.getByText('reply:reconnect'));
+    expect(screen.getByText('sciotte-modal:strava')).toBeTruthy();
+    expect(status.handleConnectProvider).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
+
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava');
+    expect(screen.queryByTestId('sciotte-modal')).toBeNull();
+  });
+
+  it('offers no OAuth fallback from a sign-in with the pool full', () => {
+    mockSlug = 'strava';
+    const status = providerStatus([
+      card({ provider: 'sciotte', display_name: 'Strava', connected: false, needs_reauth: false, recommended_backend: 'mirror', seats_left: 0 }),
+    ]);
+    renderThread(status);
+
+    fireEvent.press(screen.getByText('reply:reconnect'));
+
+    expect(screen.getByText('sciotte-modal:strava')).toBeTruthy();
+    expect(screen.queryByTestId('sciotte-modal-unavailable')).toBeNull();
   });
 
   it('signs in to Strava again for a Strava card served by its sign-in', () => {

@@ -181,6 +181,20 @@ struct ConnectProviderCard {
     /// `"email_or_username"` (Garmin) or `"email"`. Read by the page for
     /// Sciotte cards only.
     login_identifier: &'static str,
+    /// The card's account sign-in goes first while an OAuth seat is free (the
+    /// operator's sign-in-first connect order): a sign-in that cannot complete
+    /// or meets a challenge starts the provider's OAuth for `target` instead
+    /// of showing the failure (carnet#1477). Wrong credentials never do.
+    oauth_fallback: bool,
+}
+
+/// Whether a not-yet-connected card's sign-in falls back to its provider's
+/// OAuth: it recommends the sign-in (`mirror`) with seats still free, which
+/// only the operator's sign-in-first connect order produces.
+fn oauth_fallback(p: &ProviderStatus) -> bool {
+    !p.connected
+        && p.recommended_backend.as_deref() == Some("mirror")
+        && p.seats_left.is_some_and(|left| left > 0)
 }
 
 /// Verify a connect-scoped link-token. A narrow per-provider token (e.g. a
@@ -234,6 +248,7 @@ async fn build_connect_providers(
             "sciotte" => {
                 let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                 let history = history(&p);
+                let fallback = oauth_fallback(&p);
                 cards.push(ConnectProviderCard {
                     provider: if oauth_first {
                         "strava".to_owned()
@@ -257,6 +272,7 @@ async fn build_connect_providers(
                     notice: exposure_notice(strings, "strava"),
                     form_url: None,
                     login_identifier: "email",
+                    oauth_fallback: fallback,
                 });
             }
             // Garmin: OAuth-first while the Developer Program client has a
@@ -269,6 +285,7 @@ async fn build_connect_providers(
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
                     let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                     let history = history(&p);
+                    let fallback = oauth_fallback(&p);
                     cards.push(ConnectProviderCard {
                         provider: if oauth_first {
                             target.to_owned()
@@ -294,6 +311,7 @@ async fn build_connect_providers(
                         login_identifier: SciotteTarget::from_target_param(target)
                             .login_identifier()
                             .as_str(),
+                        oauth_fallback: fallback,
                     });
                 }
             }
@@ -323,6 +341,7 @@ async fn build_connect_providers(
                     encode(link_token)
                 )),
                 login_identifier: "email",
+                oauth_fallback: false,
             }),
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
@@ -340,6 +359,7 @@ async fn build_connect_providers(
                 notice: exposure_notice(strings, &provider_name),
                 form_url: None,
                 login_identifier: "email",
+                oauth_fallback: false,
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
             _ => {}

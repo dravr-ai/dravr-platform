@@ -30,6 +30,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useAiConsent } from '../../hooks/useAiConsent';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import type { SciotteTarget } from '@pierre/shared-types';
 import {
   AI_CONSENT_KEYS,
   HISTORY_ACTION_KEYS,
@@ -385,12 +386,20 @@ export function ConnectionsScreen() {
     continueConnect(provider, false);
   };
 
+  // A sign-in that could not complete hands over to its provider's OAuth
+  // (carnet#1477): the window closes and the authorization starts instead.
+  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+    const card = cardForSlug(provider, providers);
+    signIn.close();
+    void handleConnect(provider, card?.display_name ?? provider);
+  };
+
   /** The connect `startConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     const primary = connectPlan(provider).primary;
     switch (primary.kind) {
       case 'sign_in':
-        signIn.open(primary.target, provider);
+        signIn.open(primary.target, provider, false, true);
         return;
       case 'intervals':
         if (primary.path === 'authorize') {
@@ -716,6 +725,7 @@ export function ConnectionsScreen() {
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
+        onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         onOAuthRequired={() => {
           const target = signIn.target;
           const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;

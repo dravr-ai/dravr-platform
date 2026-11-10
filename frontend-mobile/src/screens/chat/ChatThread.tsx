@@ -27,6 +27,7 @@ import type {
   Message,
   MessageAudience,
   MessageOrigin,
+  SciotteTarget,
   TurnSendOptions,
   UseCaseStarter,
 } from '@pierre/shared-types';
@@ -180,6 +181,7 @@ export function ChatThread({
   // (COROS, TrainingPeaks, Strava or Garmin with no seat).
   const signIn = useSignInModal();
   const openSignIn = signIn.open;
+  const closeSignIn = signIn.close;
 
   // Opening the keyboard shortens the visible list. `onContentSizeChange` only
   // fires when the CONTENT changes, so tapping into the composer on an existing
@@ -425,7 +427,9 @@ export function ChatThread({
       return;
     }
     if (primary.kind === 'sign_in') {
-      openSignIn(primary.target, card);
+      // The card's own plan: a sign-in-first card's sign-in that cannot
+      // complete falls back to its OAuth (carnet#1477).
+      openSignIn(primary.target, card, false, true);
       return;
     }
     // No app of the server's can authorize the provider for this athlete:
@@ -442,6 +446,16 @@ export function ChatThread({
     }
     await providerStatus.handleConnectProvider(primary.kind === 'oauth' ? primary.provider : card.provider);
   }, [providerStatus, openSignIn]);
+
+  // A sign-in that could not complete hands over to its provider's OAuth
+  // (carnet#1477): the window closes and the authorization starts instead.
+  const fallBackToOAuth = useCallback(
+    (provider: SciotteTarget) => () => {
+      closeSignIn();
+      void providerStatus.handleConnectProvider(provider);
+    },
+    [closeSignIn, providerStatus],
+  );
 
   // An app saved in the credentials sheet changes the status the gate above
   // reads (`own_app_required`), so closing the sheet re-reads it: the next
@@ -673,6 +687,7 @@ export function ChatThread({
           target={signIn.target}
           consentRequired={signIn.consentRequired}
           onOAuthRequired={() => void providerStatus.refreshAfterLink()}
+          onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         />
       )}
 

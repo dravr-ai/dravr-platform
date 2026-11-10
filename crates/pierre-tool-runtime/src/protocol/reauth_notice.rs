@@ -49,12 +49,14 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use pierre_auth::connect_order::{sign_in_falls_back_to_oauth, strava_order_and_seats};
 use pierre_auth::garmin_seats::reconnects_through_garmin_oauth;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::reauth_strings::{
     KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_BODY, KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_TITLE,
     KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
 };
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-notifications")]
 use pierre_core::models::NotificationScreen;
@@ -169,6 +171,43 @@ pub async fn reconnects_through_oauth(
         backend,
     )
     .await
+}
+
+/// Whether a sign-in hand-off is a new Strava connection that can fall back.
+///
+/// True for the Strava mirror `backend` when the athlete holds neither a
+/// Strava grant nor a Strava session in `tenant_id` and the operator's order
+/// puts the sign-in first while a seat is free ([`sign_in_falls_back_to_oauth`],
+/// carnet#1477). Its link is then the connect picker, which carries that
+/// fallback; the bare sign-in page does not.
+///
+/// A lookup that fails reads as a connection held, so the athlete keeps the
+/// sign-in link they had.
+pub async fn new_strava_sign_in_falls_back(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    if backend != oauth_providers::SCIOTTE {
+        return false;
+    }
+    let repos = runtime.repos();
+    for held in [oauth_providers::STRAVA, oauth_providers::SCIOTTE] {
+        if !matches!(
+            repos.oauth_tokens.get_token(user_id, tenant_id, held).await,
+            Ok(None)
+        ) {
+            return false;
+        }
+    }
+    let (order, seats) = strava_order_and_seats(
+        repos.system_settings.as_ref(),
+        repos.oauth_tokens.as_ref(),
+        &runtime.config().oauth,
+    )
+    .await;
+    sign_in_falls_back_to_oauth(order, seats)
 }
 
 /// Claim the connection's one notice for its current `needs_reauth`

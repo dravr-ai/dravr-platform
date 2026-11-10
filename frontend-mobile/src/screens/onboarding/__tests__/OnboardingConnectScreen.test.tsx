@@ -52,12 +52,14 @@ jest.mock('../../../components/SciotteLoginModal', () => {
       consentRequired,
       historyMode,
       onOAuthRequired,
+      onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       historyMode?: boolean;
       onOAuthRequired?: () => void;
+      onFallBackToOAuth?: () => void;
     }) =>
       visible
         ? React.createElement(
@@ -73,6 +75,14 @@ jest.mock('../../../components/SciotteLoginModal', () => {
               { testID: 'sciotte-modal-oauth-required', onPress: () => onOAuthRequired?.() },
               'refuse:oauth_required',
             ),
+            // What a sign-in that could not complete does, when the card offers it.
+            onFallBackToOAuth
+              ? React.createElement(
+                  Text,
+                  { testID: 'sciotte-modal-unavailable', onPress: () => onFallBackToOAuth() },
+                  'refuse:sign_in_unavailable',
+                )
+              : null,
           )
         : null,
   };
@@ -204,6 +214,21 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
 
     expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('sciotte-modal-unavailable')).toBeNull();
+  });
+
+  it('starts the Garmin OAuth when a sign-in-first Garmin sign-in cannot complete (carnet#1477)', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{ ...garminCard('mirror'), seats_left: 3 }] });
+    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
+
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', expect.any(String), expect.anything()));
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 });
 
