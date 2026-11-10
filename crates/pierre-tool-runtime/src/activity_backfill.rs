@@ -50,6 +50,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage, JobLease};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
+use pierre_providers::request_budget::in_background;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, instrument, warn};
@@ -64,7 +65,7 @@ use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::training_history_compute::{
-    compute_and_persist_history, default_window, TrainingHistoryComputed,
+    compute_history_after_capture, default_window, TrainingHistoryComputed,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{session_beside_grant, session_imports_history};
@@ -325,8 +326,11 @@ pub(crate) fn resume_recorded_backfill(
 /// A job naming a usr/pwd session beside a push-fed grant is that session's
 /// one-time history import ([`HistoryImport`]): it reads the session itself,
 /// and its end, whatever it is, retires the session (carnet#1386).
+/// A job no conversation waits on runs [`in_background`], leaving the head
+/// reads athletes wait on the rest of each window (carnet#1478).
 fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(JobLease, i64)>) {
-    tokio::spawn(async move {
+    let awaited = job.pierre_conversation_id.is_some();
+    let run = async move {
         let import = HistoryImport::of(&job).await;
         if let Some((row_id, attempts)) = recorded {
             run_recorded_backfill(&job, &row_id, attempts, import.as_ref()).await;
@@ -337,7 +341,12 @@ fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(J
             }
         }
         release_in_flight(&key);
-    });
+    };
+    if awaited {
+        tokio::spawn(run);
+    } else {
+        tokio::spawn(in_background(run));
+    }
 }
 
 /// What recording a job in the ledger came to.
@@ -990,10 +999,11 @@ fn filled_page(
 /// capture still moves its most recent days.
 ///
 /// Best-effort — the capture already succeeded, and a rollup that fails to warm
-/// costs one on-demand recompute, never the rows just written. The compute's own
-/// request for missing depth is a no-op from here: this job still holds the
-/// in-flight `(user, provider)` claim, so [`spawn_activity_backfill`] declines
-/// the duplicate.
+/// costs one on-demand recompute, never the rows just written. The compute makes
+/// no request for missing depth from here ([`compute_history_after_capture`]):
+/// this job's in-flight claim covers only its own provider, so the ask would
+/// start a capture on each of the athlete's other connections, whose warms
+/// would ask again, without end (carnet#1478).
 async fn warm_training_history(job: &ActivityBackfillJob) {
     match warm_default_window(job).await {
         Ok(computed) => info!(
@@ -1015,7 +1025,7 @@ async fn warm_training_history(job: &ActivityBackfillJob) {
 /// Resolve the athlete's default window and recompute it from the cache.
 async fn warm_default_window(job: &ActivityBackfillJob) -> AppResult<TrainingHistoryComputed> {
     let (from, to) = default_window(&job.resources, job.user_id).await?;
-    compute_and_persist_history(&job.resources, job.tenant_id, job.user_id, from, to).await
+    compute_history_after_capture(&job.resources, job.tenant_id, job.user_id, from, to).await
 }
 
 /// Write the scraped historical activities through to the durable cache and

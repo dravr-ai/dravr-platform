@@ -41,6 +41,7 @@ mod activities_payload_projection_test;
 mod activity_backfill_coverage_test;
 mod activity_backfill_gate_test;
 mod activity_backfill_resume_test;
+mod activity_backfill_warm_loop_test;
 mod activity_cache_detail_test;
 mod activity_cache_serve_freshness_test;
 mod activity_cache_test;
