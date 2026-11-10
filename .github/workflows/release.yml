@@ -159,8 +159,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux GNU (glibc) - x86_64
-          - os: ubuntu-latest
+          # Linux GNU (glibc) - x86_64. A glibc binary runs only where glibc is
+          # at least the one it was linked against: ubuntu-latest is 26.04
+          # (glibc 2.43), which no Debian or Ubuntu LTS a user runs has yet;
+          # 24.04 links against 2.39.
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
             platform: linux
@@ -227,6 +230,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
+      # The runner image is in the key, so no build tree from another image is restored.
       - name: Cache Rust dependencies
         uses: actions/cache@v6
         with:
@@ -236,9 +240,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
+          key: ${{ matrix.os }}-${{ matrix.target }}-cargo-release-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+            ${{ matrix.os }}-${{ matrix.target }}-cargo-release-
 
       - name: Build release binary (fat LTO for distribution)
         run: cargo build --profile release-lto --target ${{ matrix.target }} --locked
