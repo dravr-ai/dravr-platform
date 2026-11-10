@@ -159,8 +159,10 @@ pub async fn in_background<F: Future>(work: F) -> F::Output {
     BACKGROUND.scope((), work).await
 }
 
-/// Whether the running task is inside [`in_background`].
-fn is_background() -> bool {
+/// Whether the running task is inside [`in_background`]: work nobody is
+/// waiting on, whose refused request is the share doing its job.
+#[must_use]
+pub fn is_background() -> bool {
     BACKGROUND.try_with(|()| ()).is_ok()
 }
 

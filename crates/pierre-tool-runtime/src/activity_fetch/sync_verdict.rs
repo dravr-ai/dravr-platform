@@ -19,11 +19,12 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
+use pierre_providers::request_budget::is_background;
 use pierre_providers::sciotte_error::is_coach_account_refusal;
 use tracing::field::Empty;
 use tracing::{error, info, instrument, warn, Span};
@@ -363,6 +364,13 @@ async fn connect_prefetch_answer(
 /// words, and the connect-time role probe already reported it. It is still
 /// recorded, so the backoff spaces the reads it would otherwise repeat, and
 /// logged at `info` with the same fields.
+///
+/// A rate-limit refusal of work nobody waits on ([`is_background`]) — the
+/// capture sweep held to its share of the app's budget — is neither paged nor
+/// recorded. The read never reached the provider, so it says nothing about the
+/// sync, and a recorded failure would pause the very read an athlete waits on,
+/// which still has the rest of the budget (carnet#1491). A budget that refuses
+/// that read too is paged by the limiter's own alert.
 pub async fn record_head_outcome(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -380,6 +388,9 @@ pub async fn record_head_outcome(
         return;
     };
     if !covers_list_head(params, Utc::now().timestamp()) {
+        return;
+    }
+    if deferred_in_background(read, user_id, provider_slug) {
         return;
     }
     // The message is the dedup key of the error layer (target plus its first
@@ -404,6 +415,25 @@ pub async fn record_head_outcome(
         );
     }
     record_sync_failure(runtime, user_id, tenant, provider_slug, failure).await;
+}
+
+/// Whether `read` is a rate-limit refusal of work nobody waits on
+/// ([`is_background`]), logged at `info` when it is: the read
+/// [`record_head_outcome`] neither pages nor records.
+fn deferred_in_background(read: &AppResult<HeadRead>, user_id: Uuid, provider_slug: &str) -> bool {
+    let Err(e) = read else {
+        return false;
+    };
+    if e.code != ErrorCode::ExternalRateLimited || !is_background() {
+        return false;
+    }
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        cause = %e,
+        "Live activity head read deferred: background work is held to its share of the provider budget"
+    );
+    true
 }
 
 /// Judge an empty answer for `params`: an honest zero over a window the cache
