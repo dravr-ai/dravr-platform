@@ -30,7 +30,7 @@ use pierre_services::analytics::hash_id;
 use pierre_services::conversation_forge::conversation_cap_reply;
 use serde_json::Value;
 
-use super::addressing::reply_recipient;
+use super::addressing::{answer_reply_to, reply_recipient};
 use super::agent_proposal::maybe_send_agent_proposal;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::ambient_context::build_group_ambient_context;
@@ -235,9 +235,9 @@ async fn deliver_reply(
 /// Every piece carries the turn id from the inbound utterance, so a consumer
 /// inspecting the `DeliveryReceipt` can look up the full turn trace via
 /// `/internal/conversation-turn` — and a split reply reads as one turn rather
-/// than several. `.into()` bridges pierre-core's newtype to canot's. Each is
-/// threaded under the athlete's message so a client that groups replies keeps
-/// the whole answer together.
+/// than several. `.into()` bridges pierre-core's newtype to canot's. Each
+/// anchors where [`answer_reply_to`] says, so every piece of one answer lands in
+/// the same place as the status placeholder that carries the first.
 pub(super) fn reply_message(
     dispatch: &PendingDispatch,
     turn_id: ConversationTurnId,
@@ -249,7 +249,11 @@ pub(super) fn reply_message(
             .to_owned(),
         content,
         turn_id: turn_id.into(),
-        reply_to: Some(dispatch.channel_message_id.clone()),
+        reply_to: answer_reply_to(
+            dispatch.channel_type,
+            &dispatch.channel_message_id,
+            dispatch.thread_id.as_deref(),
+        ),
         thread_id: dispatch.thread_id.clone(),
     }
 }
@@ -1064,7 +1068,11 @@ async fn send_plain_reply(dispatch: &PendingDispatch, channel_config: &ChannelCo
         // there's no upstream id to thread. The platform records a
         // terminal failed turn under this id so operators can correlate.
         turn_id: CanotTurnId::new(),
-        reply_to: Some(dispatch.channel_message_id.clone()),
+        reply_to: answer_reply_to(
+            dispatch.channel_type,
+            &dispatch.channel_message_id,
+            dispatch.thread_id.as_deref(),
+        ),
         thread_id: dispatch.thread_id.clone(),
     };
 

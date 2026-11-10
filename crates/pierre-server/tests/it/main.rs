@@ -741,6 +741,7 @@ mod signup_codes_test;
 mod signup_guards_test;
 mod simple_integration_test;
 mod slack_actions_unit_test;
+mod slack_answer_placement_test;
 mod slack_athlete_tap_test;
 mod slack_coach_access_action_test;
 mod slack_feedback_reply_action_test;
