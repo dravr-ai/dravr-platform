@@ -717,8 +717,11 @@ pub(crate) const CORPUS: &[Episode] = &[
         incident: "carnet#406 one search away: each turn needs a tool outside the loaded core",
         group: false,
         turns: &[
+            // estimate_vo2max reads a field test the athlete reports, never the
+            // recorded runs (a VO2max read from runs is predict_performance's
+            // VDOT), so the turn states the test it asks about.
             Turn {
-                user: "Estime ma VO2max à partir de mes sorties.",
+                user: "J'ai fait un test de Cooper: 2,8 km en 12 minutes. Estime ma VO2max.",
                 expect: &[
                     Expect::Calls(&["estimate_vo2max"]),
                     Expect::NoneOf(DISOWNED_TOOL),
