@@ -223,7 +223,10 @@ jobs:
 
   build-server:
     name: Build Server (thin release)
-    runs-on: ubuntu-latest
+    # The binary runs in the Playwright job below, pinned to 24.04: built on
+    # 26.04 it needs GLIBC_2.43, which 24.04 lacks. The image is in the reuse
+    # and cache keys, so a binary or build tree from another image never lands.
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.build == 'true'
     timeout-minutes: 45  # a release build off the restored target/
@@ -245,7 +248,7 @@ jobs:
         uses: ./.github/actions/prebuilt-server
         with:
           prefix: server-e2e-binaries
-          variant: ${{ runner.os }}-${{ runner.arch }}-release-default-features
+          variant: ${{ runner.os }}-ubuntu-24.04-${{ runner.arch }}-release-default-features
           extra-paths: .github/workflows/server-e2e.yml
           path: target/release
 
@@ -277,9 +280,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-mobile-server-1.99.1-
+            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-
 
       - name: Build Pierre server and CLI (thin release)
         if: steps.prebuilt.outputs.hit != 'true'
