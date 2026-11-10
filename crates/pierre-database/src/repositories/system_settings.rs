@@ -95,6 +95,28 @@ where
     })
 }
 
+/// The operator's key/value settings, reached through the registry.
+///
+/// The `dyn` seam for code that takes repository traits rather than the
+/// concrete backend: `pierre_auth`'s connect order (carnet#1472), read beside
+/// the token and connection repositories, and the backfill notifier, which
+/// holds only the registry. A missing row is `None`; every reader chooses its
+/// own default.
+#[async_trait::async_trait]
+pub trait SystemSettingsRepository: Send + Sync {
+    /// Read one setting by key.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails or the row cannot be decoded.
+    async fn get_setting(&self, key: &str) -> AppResult<Option<SystemSetting>>;
+
+    /// Write one setting (upsert).
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    async fn set_setting(&self, key: &str, value: &str) -> AppResult<()>;
+}
+
 /// Emit the system-settings operations for one backend type. The body is
 /// written once here; each backend invokes it with its own type, and sqlx
 /// resolves the driver from `self.pool()` per expansion.
@@ -197,6 +219,17 @@ macro_rules! impl_system_settings {
                     if enabled { "true" } else { "false" },
                 )
                 .await
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl $crate::repositories::system_settings::SystemSettingsRepository for $ty {
+            async fn get_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
+                self.get_system_setting(key).await
+            }
+
+            async fn set_setting(&self, key: &str, value: &str) -> AppResult<()> {
+                self.set_system_setting(key, value).await
             }
         }
     };

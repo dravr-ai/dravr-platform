@@ -703,6 +703,7 @@ pub(crate) async fn compute_providers_status(
                     connection_type.as_deref(),
                     card_seats.garmin_left(),
                     card_backend::garmin_grant_held(resources, user_id, tenant_id).await,
+                    card_seats.garmin_order(),
                 )
             } else {
                 None

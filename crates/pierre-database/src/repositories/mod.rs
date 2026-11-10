@@ -356,6 +356,7 @@ pub use signup_cohort::{NewUserMilestones, NewUserTurn, SignupCohortRepository};
 pub use store_listings::*;
 pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;
+pub use system_settings::SystemSettingsRepository;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;

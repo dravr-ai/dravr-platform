@@ -22,6 +22,8 @@ pub mod api_keys;
 pub mod audit_trail;
 pub mod claim_verdicts;
 pub mod coach_access;
+/// The per-provider connect order: Strava and Garmin, OAuth first or the account sign-in first.
+pub mod connect_order;
 pub mod contremaitre_admin;
 /// Super-admin deletion ledger: the hash-chained receipts and the import tombstones.
 pub mod deletion_ledger;

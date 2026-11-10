@@ -26,9 +26,9 @@ fn cli_binary() -> String {
 }
 
 /// What the binary sent for one request.
-struct Sent {
-    request_line: String,
-    body: Option<Value>,
+pub(crate) struct Sent {
+    pub(crate) request_line: String,
+    pub(crate) body: Option<Value>,
 }
 
 /// Answer one connection with `status` and `reply`, returning what it asked.
@@ -74,13 +74,13 @@ fn answer_one(listener: &TcpListener, status: u16, reply: &Value) -> Sent {
 
 /// A stand-in that answers each scripted reply once, in order, then stops, so a
 /// request beyond the script fails the binary rather than passing silently.
-struct ServerStandIn {
-    base_url: String,
+pub(crate) struct ServerStandIn {
+    pub(crate) base_url: String,
     sent: JoinHandle<Vec<Sent>>,
 }
 
 impl ServerStandIn {
-    fn serve(script: Vec<(u16, Value)>) -> Self {
+    pub(crate) fn serve(script: Vec<(u16, Value)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let sent = thread::spawn(move || {
@@ -95,16 +95,16 @@ impl ServerStandIn {
         }
     }
 
-    fn sent(self) -> Vec<Sent> {
+    pub(crate) fn sent(self) -> Vec<Sent> {
         self.sent.join().unwrap()
     }
 }
 
 /// A throwaway `HOME` holding credentials for the stand-in.
-struct CliHome(PathBuf);
+pub(crate) struct CliHome(PathBuf);
 
 impl CliHome {
-    fn for_server(base_url: &str) -> Self {
+    pub(crate) fn for_server(base_url: &str) -> Self {
         let home = env::temp_dir().join(format!("pierre-cli-guardian-{}", Uuid::new_v4()));
         let config_dir = home.join(".pierre");
         fs::create_dir_all(&config_dir).unwrap();
@@ -123,7 +123,7 @@ impl CliHome {
         Self(home)
     }
 
-    fn run(&self, args: &[&str]) -> Output {
+    pub(crate) fn run(&self, args: &[&str]) -> Output {
         Command::new(cli_binary())
             .args(args)
             .env("HOME", &self.0)
@@ -167,7 +167,7 @@ fn current_policy() -> Value {
     })
 }
 
-fn stdout_of(output: &Output) -> String {
+pub(crate) fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 

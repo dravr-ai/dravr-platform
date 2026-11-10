@@ -239,6 +239,7 @@ mod configuration_vo2_max_test;
 mod connect_hosted_intervals_icu_test;
 mod connect_hosted_locale_test;
 mod connect_hosted_routes_test;
+mod connect_order_test;
 mod console_user_management_test;
 mod content_blocks_roundtrip_test;
 mod contremaitre_test;

@@ -149,7 +149,8 @@ pub async fn notify_needs_reauth(
 ///
 /// True for a `sciotte_garmin` session the athlete made themselves (never a
 /// coach's delegated one) while they hold no Garmin grant in this tenant and
-/// a seat is free on the server's Garmin client — the one rule
+/// a seat is free on the server's Garmin client while its OAuth goes first
+/// (carnet#1472) — the one rule
 /// [`reconnects_through_garmin_oauth`] reads. With the pool full, or for any
 /// other backend, the reconnect is the ordinary one.
 pub async fn reconnects_through_oauth(
@@ -161,6 +162,7 @@ pub async fn reconnects_through_oauth(
     reconnects_through_garmin_oauth(
         runtime.repos().oauth_tokens.as_ref(),
         runtime.repos().provider_connections.as_ref(),
+        runtime.repos().system_settings.as_ref(),
         &runtime.config().oauth,
         user_id,
         tenant_id,

@@ -13,6 +13,7 @@
 //! one, because the environment is shared by every test in a binary.
 
 mod admin_role_test;
+mod connect_order_cli_test;
 mod debug_redaction_test;
 mod device_flow_test;
 mod guardian_settings_cli_test;

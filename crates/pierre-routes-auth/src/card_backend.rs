@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use pierre_auth::connect_order::ConnectOrder;
 use pierre_auth::dto::auth::ProviderMigration;
 use pierre_auth::garmin_seats::garmin_oauth_required;
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -72,7 +73,8 @@ pub(crate) fn reauth_flag(
 
 /// The move the Garmin card asks of an athlete it shows served by their own
 /// usr/pwd session alone: [`ProviderMigration::OauthRequired`] while the
-/// server's Garmin client has `garmin_seats_left` free, else `None`.
+/// server's Garmin client has `garmin_seats_left` free and Garmin's OAuth
+/// goes first (`garmin_order`), else `None`.
 ///
 /// Only the `sciotte_garmin` card whose `connected_backend` is its usr/pwd
 /// session, made by the athlete themselves (`connection_type` is not
@@ -86,11 +88,12 @@ pub(crate) fn card_migration(
     connection_type: Option<&str>,
     garmin_seats_left: u32,
     garmin_grant_held: bool,
+    garmin_order: ConnectOrder,
 ) -> Option<ProviderMigration> {
     let usr_pwd_only = card == oauth_providers::SCIOTTE_GARMIN
         && connected_backend == Some(oauth_providers::SCIOTTE_GARMIN)
         && connection_type != Some(ConnectionType::Delegated.as_str());
-    (usr_pwd_only && garmin_oauth_required(garmin_seats_left, garmin_grant_held))
+    (usr_pwd_only && garmin_oauth_required(garmin_seats_left, garmin_grant_held, garmin_order))
         .then_some(ProviderMigration::OauthRequired)
 }
 
@@ -129,7 +132,14 @@ mod tests {
     #[test]
     fn a_usr_pwd_only_garmin_card_is_asked_to_move_while_a_seat_is_free() {
         assert_eq!(
-            card_migration(oauth_providers::SCIOTTE_GARMIN, SESSION, MANUAL, 5, false),
+            card_migration(
+                oauth_providers::SCIOTTE_GARMIN,
+                SESSION,
+                MANUAL,
+                5,
+                false,
+                ConnectOrder::OAuthFirst
+            ),
             Some(ProviderMigration::OauthRequired),
             "bug: a usr/pwd-only Garmin athlete with a seat free is asked to move"
         );
@@ -138,7 +148,14 @@ mod tests {
     #[test]
     fn a_full_pool_asks_no_move() {
         assert_eq!(
-            card_migration(oauth_providers::SCIOTTE_GARMIN, SESSION, MANUAL, 0, false),
+            card_migration(
+                oauth_providers::SCIOTTE_GARMIN,
+                SESSION,
+                MANUAL,
+                0,
+                false,
+                ConnectOrder::OAuthFirst
+            ),
             None,
             "bug: with no seat the usr/pwd session stays the way in"
         );
@@ -147,7 +164,14 @@ mod tests {
     #[test]
     fn a_grant_a_delegation_or_another_card_asks_no_move() {
         assert_eq!(
-            card_migration(oauth_providers::SCIOTTE_GARMIN, SESSION, MANUAL, 5, true),
+            card_migration(
+                oauth_providers::SCIOTTE_GARMIN,
+                SESSION,
+                MANUAL,
+                5,
+                true,
+                ConnectOrder::OAuthFirst
+            ),
             None,
             "bug: a grant holder is on the OAuth already"
         );
@@ -157,7 +181,8 @@ mod tests {
                 Some(oauth_providers::GARMIN),
                 Some("oauth"),
                 5,
-                false
+                false,
+                ConnectOrder::OAuthFirst
             ),
             None,
             "bug: a card the grant serves asks no move"
@@ -168,13 +193,21 @@ mod tests {
                 SESSION,
                 Some(ConnectionType::Delegated.as_str()),
                 5,
-                false
+                false,
+                ConnectOrder::OAuthFirst
             ),
             None,
             "bug: a coach's view of a member is not the athlete's to move"
         );
         assert_eq!(
-            card_migration(oauth_providers::SCIOTTE_GARMIN, None, None, 5, false),
+            card_migration(
+                oauth_providers::SCIOTTE_GARMIN,
+                None,
+                None,
+                5,
+                false,
+                ConnectOrder::OAuthFirst
+            ),
             None,
             "bug: a disconnected card has nothing to move"
         );
@@ -184,10 +217,29 @@ mod tests {
                 Some(oauth_providers::SCIOTTE_COROS),
                 MANUAL,
                 5,
-                false
+                false,
+                ConnectOrder::OAuthFirst
             ),
             None,
             "bug: COROS has no OAuth to move to"
+        );
+    }
+
+    /// With the sign-in first (carnet#1472), a usr/pwd-only Garmin athlete is
+    /// never asked to move, seats or not.
+    #[test]
+    fn a_sign_in_first_order_asks_no_move() {
+        assert_eq!(
+            card_migration(
+                oauth_providers::SCIOTTE_GARMIN,
+                SESSION,
+                MANUAL,
+                5,
+                false,
+                ConnectOrder::SignInFirst
+            ),
+            None,
+            "bug: the sign-in-first order still asks a usr/pwd-only athlete to move"
         );
     }
 }

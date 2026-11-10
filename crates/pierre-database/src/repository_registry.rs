@@ -36,13 +36,13 @@ use crate::repositories::{
     SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
-    UsageRepository, UseCaseExposureRepository, UserExportRepository, UserInvitationRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    UserToolOverrideRepository, WeatherCacheRepository, WebsiteSignInTokenRepository,
-    WorkerRunRepository, WorkoutTemplateRepository,
+    SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
+    TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
+    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserExportRepository,
+    UserInvitationRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -197,6 +197,9 @@ pub struct RepositoryRegistry {
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
     pub weather_cache: Arc<dyn WeatherCacheRepository>,
+    /// The operator's key/value settings (`system_settings`), for code that
+    /// holds the registry but no backend handle
+    pub system_settings: Arc<dyn SystemSettingsRepository>,
     /// Endurance typed physiological profile (FTP, threshold pace, zones)
     pub user_physiological_profile: Arc<dyn UserPhysiologicalProfileRepository>,
     /// Endurance dossier composer (read-time aggregate from physiology /
@@ -379,6 +382,7 @@ impl RepositoryRegistry {
             a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
+            system_settings: db.clone(),
             user_physiological_profile: db.clone(),
             dossier: db.clone(),
             training_history: db.clone(),
@@ -491,6 +495,7 @@ impl RepositoryRegistry {
             a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
+            system_settings: db.clone(),
             user_physiological_profile: db.clone(),
             dossier: db.clone(),
             training_history: db.clone(),

@@ -28,9 +28,9 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, admin_scope, api_keys, audit_trail, claim_verdicts, coach_access,
-    deletion_ledger, device_auth, device_web, engagement, feature_flags, guardian_config,
-    harness_config, memory_worker, new_users, provider_clone, provider_data, settings, setup,
-    signup_codes, strava_pool, tokens, user_removal, users, website,
+    connect_order, deletion_ledger, device_auth, device_web, engagement, feature_flags,
+    guardian_config, harness_config, memory_worker, new_users, provider_clone, provider_data,
+    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -509,6 +509,13 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/guardian",
                 put(guardian_config::handle_put_guardian_config),
+            )
+            // Which way a new Strava or Garmin connection goes first
+            // (carnet#1472). Super-admin only inside the handlers.
+            .route(
+                "/admin/settings/connect-order",
+                get(connect_order::handle_get_connect_order)
+                    .put(connect_order::handle_set_connect_order),
             )
             .with_state(context)
     }
