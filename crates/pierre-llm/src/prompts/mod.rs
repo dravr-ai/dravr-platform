@@ -146,13 +146,6 @@ pub const LANGUAGE_CLASSIFICATION_PROMPT: &str = system::LANGUAGE_CLASSIFICATION
 /// filled by the caller; the answer is `{"unsupported": [...]}`.
 pub const PEER_CLAIM_VERIFIER_PROMPT: &str = system::PEER_CLAIM_VERIFIER;
 
-/// Viz-repair prompt.
-///
-/// Mirrors the catalogue's `viz_repair` key so the registry seeds every key
-/// the manifest publishes. No call site reads it: a chart the schema refuses
-/// is dropped, not repaired (carnet#1471). It leaves with the catalogue entry.
-pub const VIZ_REPAIR_PROMPT: &str = system::VIZ_REPAIR;
-
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
 pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
 

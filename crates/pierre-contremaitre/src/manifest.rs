@@ -284,8 +284,8 @@ mod tests {
     use crate::tool_descriptions::ToolDescriptionRegistry;
     use crate::training_catalogue::TrainingCatalogueRegistry;
 
-    const KEY: &str = "viz_repair";
-    const PATH: &str = "prompts/system/viz_repair.md";
+    const KEY: &str = "peer_claim_verifier";
+    const PATH: &str = "prompts/system/peer_claim_verifier.md";
     const OTHER_PATH: &str = "prompts/system/claim_judge.md";
 
     /// A manifest laid out as contremaitre's `build-manifest.py` writes it.

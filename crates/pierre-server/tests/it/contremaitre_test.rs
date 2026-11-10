@@ -222,7 +222,6 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "tool_discipline_messaging",
     "tool_discipline_shared",
     "visual_blocks",
-    "viz_repair",
 ];
 
 /// Coaching personas the registry seeds beside the system prompts (casual,
