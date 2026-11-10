@@ -122,10 +122,13 @@ use crate::common::{
     test_server_config_with_sciotte, PLACEHOLDER_LLM_MODEL,
 };
 use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::live_lane::{
+    await_contremaitre_overlay, lane_timeouts, turn_timeout, turn_usage, usage_ids,
+};
 use crate::live_incident_corpus::{
-    athlete_runs, classify_findings, ground_truth, lane_timeouts, seed_fixture, sunday_ride_start,
-    turn_timeout, Classified, Episode, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME,
-    SIGNING_SECRET, SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
+    athlete_runs, classify_findings, ground_truth, seed_fixture, sunday_ride_start, Classified,
+    Episode, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET, SUNDAY_RIDE_HOURS,
+    SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -146,7 +149,6 @@ use serde::Deserialize;
 use serde_json::json;
 use serial_test::serial;
 use sha2::Sha256;
-use std::collections::HashSet;
 use std::env;
 use std::fmt::Write as _;
 use std::panic::resume_unwind;
@@ -159,9 +161,6 @@ use tokio::time::sleep;
 
 /// Poll interval while waiting for the delivered message to land.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
-
-/// How many polls a turn's `llm_usage` rows get to settle after the reply.
-const USAGE_SETTLE_POLLS: usize = 10;
 
 /// How much of a delivered reply the failure report quotes. Enough to see
 /// what the athlete actually got; short enough that eleven of them stay
@@ -234,50 +233,6 @@ fn turn_delay() -> Duration {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0),
     )
-}
-
-/// How long a pass waits for its server's first contremaitre sync.
-///
-/// A full sync from the GitHub store takes ~50 s (`tool_sync.rs`); the bound
-/// leaves room for a slow API without letting a dead sync stall the job.
-const CONTREMAITRE_SYNC_DEADLINE: Duration = Duration::from_secs(240);
-
-/// Hold the pass until the server has applied its contremaitre overlays,
-/// when the lane was pointed at a contremaitre ref (`CONTREMAITRE_REPO`).
-///
-/// The server's first sync runs in the background, off the boot path, and the
-/// first turn goes out about a second after boot — so without this wait a run
-/// meant to grade a ref's tool descriptions grades the compiled-in ones. The
-/// tool overlays land in one swap (`update_all`) after the system prompts, so
-/// a non-empty tool-description registry means both are live. A sync that
-/// never lands is a lane fault, not a draw: the pass stops rather than grade
-/// a surface it was not asked to.
-async fn await_contremaitre_overlay(resources: &Arc<ServerContext>) {
-    if !env::var("CONTREMAITRE_REPO").is_ok_and(|v| !v.is_empty()) {
-        return;
-    }
-    let started = Instant::now();
-    let registry = &resources.mcp.tool_description_registry;
-    while registry.count() == 0 {
-        assert!(
-            started.elapsed() < CONTREMAITRE_SYNC_DEADLINE,
-            "CONTREMAITRE_REPO is set but no tool-description overlay landed within {}s — \
-             the pass would grade the compiled-in descriptions, not the ref it names",
-            CONTREMAITRE_SYNC_DEADLINE.as_secs()
-        );
-        sleep(POLL_INTERVAL).await;
-    }
-    println!(
-        "contremaitre overlay live after {:.1}s: {} tool descriptions, tool_discipline_shared {} B (ref {})",
-        started.elapsed().as_secs_f64(),
-        registry.count(),
-        resources
-            .mcp
-            .prompt_registry
-            .tool_discipline_shared_prompt()
-            .len(),
-        env::var("CONTREMAITRE_BRANCH").unwrap_or_default(),
-    );
 }
 
 /// The absence of any observation. Never a quality signal.
@@ -388,87 +343,6 @@ struct Delivered {
     blocks: Option<String>,
     /// The tools the model asked for during the turn, in call order.
     tools: Vec<String>,
-}
-
-/// What the model did during one turn, from the `llm_usage` rows it added.
-struct TurnUsage {
-    /// Every tool a call of the turn asked for, in call order.
-    tools: Vec<String>,
-    /// How many model calls the turn made.
-    calls: usize,
-    /// Prompt tokens over those calls: what deferral is meant to shrink.
-    prompt_tokens: i64,
-}
-
-/// The ids of the tenant's `llm_usage` rows so far.
-async fn usage_ids(resources: &Arc<ServerContext>, tenant: TenantId) -> HashSet<String> {
-    usage_rows(resources, tenant)
-        .await
-        .into_iter()
-        .map(|(id, _, _)| id)
-        .collect()
-}
-
-/// Every `llm_usage` row of the tenant as `(id, tools_called, prompt_tokens)`.
-async fn usage_rows(
-    resources: &Arc<ServerContext>,
-    tenant: TenantId,
-) -> Vec<(String, String, i64)> {
-    const SQL: &str = "SELECT id, tools_called, CAST(prompt_tokens AS BIGINT) FROM llm_usage \
-                       WHERE tenant_id = $1 ORDER BY created_at";
-    let tenant = tenant.to_string();
-    match resources.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => sqlx::query_as(SQL)
-            .bind(&tenant)
-            .fetch_all(sqlite.pool())
-            .await
-            .unwrap(),
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(SQL)
-            .bind(&tenant)
-            .fetch_all(pg.pool())
-            .await
-            .unwrap(),
-    }
-}
-
-/// What the turn's model calls were, from the rows added since `before`.
-///
-/// The rows are written on a drained background task, so the reply can land
-/// first: read until two reads a poll apart agree.
-async fn turn_usage(
-    resources: &Arc<ServerContext>,
-    tenant: TenantId,
-    before: &HashSet<String>,
-) -> TurnUsage {
-    let mut last = 0;
-    for _ in 0..USAGE_SETTLE_POLLS {
-        sleep(POLL_INTERVAL).await;
-        let count = usage_rows(resources, tenant)
-            .await
-            .iter()
-            .filter(|(id, _, _)| !before.contains(id))
-            .count();
-        if count == last && count > 0 {
-            break;
-        }
-        last = count;
-    }
-    let added: Vec<(String, String, i64)> = usage_rows(resources, tenant)
-        .await
-        .into_iter()
-        .filter(|(id, _, _)| !before.contains(id))
-        .collect();
-    TurnUsage {
-        tools: added
-            .iter()
-            .flat_map(|(_, tools, _)| {
-                serde_json::from_str::<Vec<String>>(tools).unwrap_or_default()
-            })
-            .collect(),
-        calls: added.len(),
-        prompt_tokens: added.iter().map(|(_, _, tokens)| tokens).sum(),
-    }
 }
 
 /// Who wrote the reply the athlete read.

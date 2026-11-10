@@ -17,6 +17,8 @@ mod messaging_fixtures;
 // messaging_fixtures loads db_fixtures itself (a separate binary includes it
 // alone), so the crate root reuses that copy rather than loading a second.
 use messaging_fixtures::db_fixtures;
+#[path = "../helpers/injection_corpus.rs"]
+mod injection_corpus;
 #[path = "../helpers/live_incident_corpus.rs"]
 mod live_incident_corpus;
 #[path = "../helpers/recording_post.rs"]
@@ -379,6 +381,7 @@ mod identity_anchor_test;
 mod impersonation_log_routes_test;
 mod impersonation_revocation_test;
 mod import_upload_test;
+mod injection_corpus_eval_test;
 mod intelligence_algorithms_test;
 mod intelligence_comprehensive_test;
 mod intelligence_config_test;

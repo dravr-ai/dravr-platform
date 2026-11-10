@@ -401,6 +401,11 @@ path = "tests/live/live_incident_corpus_test.rs"
 required-features = ["live-e2e"]
 
 [[test]]
+name = "injection_corpus_test"
+path = "tests/live/injection_corpus_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
 name = "route_discovery_live_test"
 path = "tests/live/route_discovery_live_test.rs"
 required-features = ["live-e2e"]
@@ -446,6 +451,7 @@ workspace = true
 # `#[path]`, so it reads each file as unlinked.
 [package.metadata.cargo-shear]
 ignored-paths = [
+    "tests/helpers/injection_corpus.rs",
     "tests/helpers/live_incident_corpus.rs",
     "tests/helpers/messaging_fixtures.rs",
     "tests/helpers/recording_post.rs",
