@@ -20,7 +20,7 @@
 # generic fn over `sqlx::Row`, and a `macro_rules!` emits the impl block for
 # each backend from that single body. repositories/commitments.rs,
 # repositories/resumable_turns.rs, repositories/short_links.rs and
-# repositories/guardian_actions.rs are the worked examples.
+# repositories/agent_drafts.rs are the worked examples.
 #
 # This check is diff-driven and compile-free, in the shape of Tiers 1c/1d/1e-move:
 #   1. Find every mirrored pair the diff adds or edits on either side. A pair
@@ -353,7 +353,7 @@ if [[ "$fail" -ne 0 ]]; then
     echo "\`pub(crate) const *_SQL\` with \$n placeholders, make the row extractor generic over"
     echo "\`sqlx::Row\`, and emit both impls from one \`macro_rules!\`. Worked examples:"
     echo "  repositories/short_links.rs      (no per-backend difference)"
-    echo "  repositories/guardian_actions.rs (a DateTime bind that suits both)"
+    echo "  repositories/agent_drafts.rs     (a DateTime bind that suits both)"
     echo "  repositories/resumable_turns.rs  (one backend-specific clause, as a macro literal)"
     exit 1
 fi

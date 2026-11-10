@@ -66,8 +66,7 @@ const PROPOSED_ROUTE_TOOLS: [&str; 2] = ["discover_routes", "compose_route"];
 /// about maps, not about what a read costs: a reply that draws five maps is not
 /// a reply anyone reads, and how many there are is decided by model output. So
 /// one budget covers both kinds, and the blocks past it are refused with a
-/// reason the repair re-ask can act on. It covers the whole turn: the repair
-/// pass shares this map, so a second extraction cannot buy a second round.
+/// reason that names the budget.
 const MAX_ROUTE_TRACKS_PER_REPLY: usize = 4;
 
 /// What reading one named line produced.
@@ -150,9 +149,8 @@ pub type RouteTracks = BTreeMap<RouteSubject, RouteTrackResult>;
 
 /// Read the line of every route this reply's route blocks name.
 ///
-/// Fills `tracks` in place and skips the routes it already holds, so the
-/// repair re-ask can be handed the same map: a repaired reply naming the same
-/// route costs nothing, and one naming a different route is read once.
+/// Fills `tracks` in place and skips the routes it already holds, so a reply
+/// naming the same route twice reads its line once.
 ///
 /// Nothing here fails the turn. A route that cannot be read leaves its reason
 /// in the map, the block that named it is refused during extraction, and the
@@ -568,8 +566,8 @@ mod tests {
     }
 
     /// A ref that was never stored for this athlete — another athlete's, one
-    /// past its day, an invented one — is refused with a sentence the repair
-    /// re-ask can act on.
+    /// past its day, an invented one — is refused with a sentence that says
+    /// what to do instead.
     #[tokio::test]
     async fn an_unknown_route_ref_is_refused_with_what_to_do() {
         let cache = memory_cache().await;

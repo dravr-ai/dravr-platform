@@ -70,7 +70,7 @@ use tracing::{error, info, warn};
 
 #[path = "pierre-mcp-server/env_validation.rs"]
 mod env_validation;
-use env_validation::{validate_guardian_settings, validate_required_environment};
+use env_validation::validate_required_environment;
 /// Command-line arguments for the Dravr MCP server
 #[derive(Debug, Parser)]
 #[command(name = "pierre-mcp-server")]
@@ -178,7 +178,6 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     validate_required_environment()?;
 
     let mut config = ServerConfig::from_env()?;
-    validate_guardian_settings(&config.guardian)?;
 
     if let Some(http_port) = args.http_port {
         config.http_port = http_port;

@@ -166,8 +166,7 @@ async fn reask_with(
 }
 
 /// Take the re-ask's reply if it is free of capability-failure claims;
-/// otherwise leave the original reply alone. Mirrors the identity re-ask's
-/// accept-only-if-clean contract.
+/// otherwise leave the original reply alone: accept only if clean.
 fn apply_reask_outcome(
     outcome: Result<ChatResponse, AppError>,
     policy: ClaimPolicy,

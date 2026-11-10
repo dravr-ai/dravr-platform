@@ -651,8 +651,8 @@ fn the_same_comparison_as_one_series_is_accepted() {
 /// A route names its line by `activity_id` or by `route_ref`, never both, and
 /// asks for climbs only on a recorded activity. Breaking that fails the route
 /// arm's own `oneOf`, whose bare message — "not valid under any of the
-/// schemas listed" — names no field; the refusal the repair re-ask reads
-/// states the rule instead.
+/// schemas listed" — names no field; the refusal the extraction logs states
+/// the rule instead.
 #[test]
 fn a_route_breaking_its_one_of_is_refused_with_the_rule() {
     let granted = vec!["route".to_owned()];

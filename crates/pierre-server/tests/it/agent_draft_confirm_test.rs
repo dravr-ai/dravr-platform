@@ -30,7 +30,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GUARDIAN_CONFIRM_NOT_FOUND,
 };
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{ClaimOutcome, PendingGuardianAction, AGENT_PROPOSAL_ACTION};
+use pierre_database::repositories::{ClaimOutcome, PendingAgentDraft, AGENT_PROPOSAL_ACTION};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::RuntimeTool;
@@ -90,8 +90,8 @@ async fn server() -> (Arc<ServerContext>, Arc<AtomicBool>) {
 }
 
 /// A draft as `/agent create` parks it.
-fn draft(user_id: Uuid, tenant: TenantId) -> PendingGuardianAction {
-    PendingGuardianAction {
+fn draft(user_id: Uuid, tenant: TenantId) -> PendingAgentDraft {
+    PendingAgentDraft {
         id: Uuid::new_v4().simple().to_string(),
         tenant_id: tenant.to_string(),
         user_id: user_id.to_string(),
@@ -107,11 +107,11 @@ fn draft(user_id: Uuid, tenant: TenantId) -> PendingGuardianAction {
     }
 }
 
-async fn park(resources: &Arc<ServerContext>, row: &PendingGuardianAction, minutes: i64) {
+async fn park(resources: &Arc<ServerContext>, row: &PendingAgentDraft, minutes: i64) {
     resources
         .common
         .repos
-        .guardian_actions
+        .agent_drafts
         .create_pending_action(row, Utc::now() + Duration::minutes(minutes))
         .await
         .expect("park row");
@@ -152,7 +152,7 @@ async fn still_claimable(
         resources
             .common
             .repos
-            .guardian_actions
+            .agent_drafts
             .claim_pending_action(id, &user_id.to_string(), &tenant.to_string(), "denied")
             .await
             .expect("claim runs"),
@@ -252,7 +252,7 @@ async fn a_claimed_row_that_is_no_draft_answers_not_found_and_never_runs() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let not_found =
         MessagingStringsRegistry::new().render(KEY_GUARDIAN_CONFIRM_NOT_FOUND, "en", &[]);
-    let parked_call = || PendingGuardianAction {
+    let parked_call = || PendingAgentDraft {
         tool_name: "notices_a_run".to_owned(),
         arguments: json!({}),
         deny_reason: "tainted_sink".to_owned(),

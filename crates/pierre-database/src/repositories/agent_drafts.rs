@@ -21,7 +21,7 @@ pub const AGENT_PROPOSAL_ACTION: &str = "coach.create_proposal";
 /// `arguments` is the draft as JSON, never echoed to the user. Ids are uuid-simple
 /// tokens (122-bit entropy); ownership is still enforced on claim.
 #[derive(Debug, Clone)]
-pub struct PendingGuardianAction {
+pub struct PendingAgentDraft {
     /// Opaque uuid-simple claim token, surfaced to the user in the prompt.
     pub id: String,
     /// Stringified tenant the action was parked under.
@@ -42,10 +42,10 @@ pub struct PendingGuardianAction {
 pub enum ClaimOutcome {
     /// The caller won the single-use claim; the action payload follows.
     /// Boxed: the payload dwarfs the unit variants (`large_enum_variant`).
-    Claimed(Box<PendingGuardianAction>),
+    Claimed(Box<PendingAgentDraft>),
     /// The row belongs to the caller but its TTL elapsed; it has been marked
     /// `expired`. The payload names what lapsed. Boxed like [`Self::Claimed`].
-    Expired(Box<PendingGuardianAction>),
+    Expired(Box<PendingAgentDraft>),
     /// No claimable row: unknown id, another user's row, or already resolved.
     /// Collapsed into one variant on purpose — distinguishing "someone
     /// else's id" from "unknown id" would let ids be probed for existence.
@@ -54,11 +54,11 @@ pub enum ClaimOutcome {
 
 /// Persistent store of parked actions awaiting their owner's answer.
 #[async_trait]
-pub trait GuardianPendingActionsRepository: Send + Sync {
+pub trait AgentDraftsRepository: Send + Sync {
     /// Park an action until `expires_at`.
     async fn create_pending_action(
         &self,
-        action: &PendingGuardianAction,
+        action: &PendingAgentDraft,
         expires_at: DateTime<Utc>,
     ) -> AppResult<()>;
 
@@ -134,7 +134,7 @@ pub(crate) const SWEEP_PENDING_ACTIONS_SQL: &str =
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded, or
 /// when `arguments` does not parse as JSON.
-pub(crate) fn action_from_row<R>(id: &str, row: &R) -> AppResult<PendingGuardianAction>
+pub(crate) fn action_from_row<R>(id: &str, row: &R) -> AppResult<PendingAgentDraft>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -147,7 +147,7 @@ where
     let arguments_raw = get("arguments")?;
     let arguments = serde_json::from_str(&arguments_raw)
         .map_err(|e| AppError::database(format!("guardian_pending_actions arguments JSON: {e}")))?;
-    Ok(PendingGuardianAction {
+    Ok(PendingAgentDraft {
         id: id.to_owned(),
         tenant_id: get("tenant_id")?,
         user_id: get("user_id")?,
@@ -157,17 +157,17 @@ where
     })
 }
 
-/// Emit the whole [`GuardianPendingActionsRepository`] implementation for one
+/// Emit the whole [`AgentDraftsRepository`] implementation for one
 /// backend type. The body is written once here; each backend's shell invokes it
 /// with its own type, and sqlx resolves the driver from `self.pool()` per
 /// expansion.
-macro_rules! impl_guardian_pending_actions_repository {
+macro_rules! impl_agent_drafts_repository {
     ($ty:ty) => {
         #[async_trait::async_trait]
-        impl GuardianPendingActionsRepository for $ty {
+        impl AgentDraftsRepository for $ty {
             async fn create_pending_action(
                 &self,
-                action: &PendingGuardianAction,
+                action: &PendingAgentDraft,
                 expires_at: DateTime<Utc>,
             ) -> AppResult<()> {
                 // Opportunistic hygiene: the parking path is rare (an athlete
@@ -272,7 +272,7 @@ macro_rules! impl_guardian_pending_actions_repository {
                 id: &str,
                 user_id: &str,
                 tenant_id: &str,
-            ) -> AppResult<Option<PendingGuardianAction>> {
+            ) -> AppResult<Option<PendingAgentDraft>> {
                 let row = sqlx::query(READ_CLAIMED_ACTION_SQL)
                     .bind(id)
                     .bind(user_id)
@@ -289,4 +289,4 @@ macro_rules! impl_guardian_pending_actions_repository {
         }
     };
 }
-pub(crate) use impl_guardian_pending_actions_repository;
+pub(crate) use impl_agent_drafts_repository;

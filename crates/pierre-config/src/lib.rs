@@ -43,8 +43,6 @@ pub mod database;
 pub mod environment;
 /// Goal management configuration
 pub mod goal_management;
-/// `GUARDIAN_*` tool-dispatch policy overrides captured at startup
-pub mod guardian;
 /// Logging and PII redaction configuration
 pub mod logging;
 /// MCP protocol and runtime configuration

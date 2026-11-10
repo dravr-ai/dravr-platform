@@ -163,20 +163,19 @@ impl fmt::Debug for ToolLoopParams<'_> {
     }
 }
 
-/// A tool blocked by the runtime Guardian while in `enforce` mode.
+/// A tool blocked by the runtime Guardian.
 ///
 /// Surfaced out of the tool loop as an out-of-band signal (parallel to
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// The chokepoint raises one in `enforce` mode (the default); `observe` logs and
-/// falls through to execution.
+/// The chokepoint raises one whenever the Guardian denies a call.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
     pub tool_name: String,
     /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
-    /// `budget_exceeded`, `egress_forbidden`. Used for structured logging — never
+    /// `budget_exceeded`, `turn_blocked`. Used for structured logging — never
     /// shown verbatim to the user.
     pub reason: String,
     /// Registry names of the consequential calls that succeeded before the
@@ -753,7 +752,7 @@ mod tests {
         let blocked = ToolLoopResult {
             guardian_denied: Some(GuardianDenial {
                 tool_name: "get_activities".to_owned(),
-                reason: "egress_forbidden".to_owned(),
+                reason: "budget_exceeded".to_owned(),
                 committed: Vec::new(),
                 unconfirmed: Vec::new(),
             }),

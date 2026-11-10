@@ -31,7 +31,7 @@ use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use pierre_auth::key_management::{KeyManager, LocalKekProvider, MasterEncryptionKey};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
-    GuardianSettings, HttpClientConfig, OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride,
+    HttpClientConfig, OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride,
     SciotteServiceConfig, ServerConfig,
 };
 use pierre_core::billing::BillingProvider;
@@ -54,6 +54,7 @@ use pierre_mcp_server::{
 };
 use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
 use secrecy::SecretString;
@@ -716,14 +717,25 @@ pub(crate) fn set_provider_endpoints(
         .insert(provider.to_owned(), endpoints);
 }
 
-/// [`test_server_config`] under the operator's `GUARDIAN_*` overrides
-/// `guardian`, as startup would have read them.
-#[must_use]
-pub(crate) fn test_server_config_with_guardian(guardian: GuardianSettings) -> ServerConfig {
-    ServerConfig {
-        guardian,
-        ..test_server_config()
-    }
+/// Put `resources` under a Guardian destructive budget of `budget`, as an
+/// operator's save of the stored document would.
+pub(crate) fn set_destructive_budget(resources: &ServerContext, budget: u16) {
+    resources
+        .fitness
+        .guardian_config_registry
+        .install(GuardianConfigDocument {
+            max_destructive_per_turn: Some(budget),
+            ..GuardianConfigDocument::default()
+        });
+}
+
+/// Test resources under a Guardian destructive budget of zero: every
+/// irreversible tool is refused at the gate.
+pub(crate) async fn create_test_server_resources_with_no_destructive_budget(
+) -> Result<Arc<ServerContext>> {
+    let resources = create_test_server_resources().await?;
+    set_destructive_budget(&resources, 0);
+    Ok(resources)
 }
 
 /// [`test_server_config`] with `provider`'s API reached at `api_base`.

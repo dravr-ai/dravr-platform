@@ -1588,19 +1588,10 @@ export interface HarnessConfigResponse {
   in_force: HarnessInForce;
 }
 
-/** One high-impact edit a save must acknowledge. */
-export interface SettingImpact {
-  field: string;
-  from: string;
-  to: string;
-  effect: string;
-}
-
 /** The body of a refused setting save. Branch on `code`, never on the message. */
 export interface SettingRefusal {
   code: string;
   message: string;
-  impacted_fields?: SettingImpact[];
 }
 
 export const HARNESS_CONFIG_STALE = 'harness_config_stale';
@@ -1613,7 +1604,6 @@ export function harnessRefusalOf(err: unknown): SettingRefusal | null {
   return {
     code: data.code,
     message: typeof data.message === 'string' ? data.message : '',
-    impacted_fields: data.impacted_fields,
   };
 }
 

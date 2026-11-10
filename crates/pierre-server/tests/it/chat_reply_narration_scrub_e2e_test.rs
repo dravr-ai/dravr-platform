@@ -790,11 +790,6 @@ mod reply_narration_scrub {
         );
     }
 
-    /// Coaching text the re-ask returns on its second call. Must reach the
-    /// athlete verbatim — a withheld apology here means the re-ask never ran.
-    const REASK_COACHING: &str = "Pour tes descentes, on vise 900 m de dénivelé négatif \
-                                  une fois par semaine, plus des step-downs excentriques.";
-
     /// Heading of the assembled agent system prompt (`pierre_system.md`), which
     /// only the turn's own completions carry.
     const ASSEMBLED_PROMPT_MARKER: &str = "# Dravr Fitness Intelligence Assistant";
@@ -827,81 +822,10 @@ mod reply_narration_scrub {
         }
     }
 
-    /// Leaks on the first completion, answers with `reask` on the second.
+    /// Leaks on every completion of the turn, counting them.
     ///
-    /// This is the production shape: the break is per-completion, not
-    /// per-conversation — in the conversation behind the 2026-08-05 Telegram
-    /// incident the turns either side of the leak answered correctly.
-    struct LeakThenRecoverMockProvider {
-        calls: Arc<AtomicUsize>,
-        /// What the re-ask completes with: [`REASK_COACHING`] for a re-ask
-        /// that recovers, empty for the provider's empty-completion class.
-        reask: &'static str,
-    }
-
-    #[async_trait]
-    impl LlmProvider for LeakThenRecoverMockProvider {
-        fn name(&self) -> &'static str {
-            "mock-model"
-        }
-        fn display_name(&self) -> &'static str {
-            "Leak-then-recover Mock LLM (re-ask e2e)"
-        }
-        fn capabilities(&self) -> LlmCapabilities {
-            LlmCapabilities::SYSTEM_MESSAGES
-        }
-        fn default_model(&self) -> &'static str {
-            "mock-model"
-        }
-        fn available_models(&self) -> &[String] {
-            &[]
-        }
-
-        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            // Count ONLY the turn's own completions. The pipeline also drives
-            // this provider after the reply lands — `advice_capture` and
-            // `memory_extraction` each spawn their own call — so a bare counter
-            // reads 4 and says nothing about whether the re-ask was bounded.
-            // The turn's completions are the ones carrying the athlete's
-            // question; the extractors send their own prompts.
-            if !turn_completion(request) {
-                return Ok(plain_response("not a turn completion"));
-            }
-            let n = self.calls.fetch_add(1, Ordering::SeqCst);
-            // Call 0 is the turn's own completion and leaks; call 1 is the
-            // re-ask. Verbatim shape of the 2026-08-05 production break.
-            let content = if n == 0 {
-                "I'm GitHub Copilot CLI, a terminal-based coding assistant — I don't have \
-                 access to fitness tools."
-                    .to_owned()
-            } else {
-                self.reask.to_owned()
-            };
-            Ok(ChatResponse {
-                content,
-                model: "mock-model".to_owned(),
-                usage: Some(TokenUsage::new(20, 30, 50)),
-                finish_reason: Some("stop".to_owned()),
-                warnings: None,
-                tool_calls: None,
-            })
-        }
-
-        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
-            let chunk = StreamChunk {
-                delta: "streaming not used".to_owned(),
-                is_final: true,
-                finish_reason: Some("stop".to_owned()),
-            };
-            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
-        }
-
-        async fn health_check(&self) -> Result<bool, AppError> {
-            Ok(true)
-        }
-    }
-
-    /// Leaks on every completion, so the re-ask cannot rescue the turn.
+    /// Any completion after the first would be a second try at a reply that
+    /// is withheld, so the count proves nothing re-samples it.
     struct AlwaysLeakMockProvider {
         calls: Arc<AtomicUsize>,
     }
@@ -912,7 +836,7 @@ mod reply_narration_scrub {
             "mock-model"
         }
         fn display_name(&self) -> &'static str {
-            "Always-leak Mock LLM (re-ask bound e2e)"
+            "Always-leak Mock LLM (withhold e2e)"
         }
         fn capabilities(&self) -> LlmCapabilities {
             LlmCapabilities::SYSTEM_MESSAGES
@@ -925,8 +849,8 @@ mod reply_narration_scrub {
         }
 
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            // Same discrimination as LeakThenRecoverMockProvider: post-turn
-            // extractors share this provider and would inflate the bound.
+            // Post-turn extractors (`advice_capture`, `memory_extraction`)
+            // share this provider and would inflate the count.
             if !turn_completion(request) {
                 return Ok(plain_response("not a turn completion"));
             }
@@ -955,58 +879,29 @@ mod reply_narration_scrub {
         }
     }
 
-    /// Drive one Slack turn through the pipeline and return the persisted reply.
-    ///
-    /// Extracted so the two re-ask tests below differ only in which provider
-    /// they hand it, which is the variable under test.
-    async fn run_one_slack_turn(
-        provider: Arc<dyn LlmProvider>,
-        email: &str,
-        sender: &str,
-    ) -> Option<String> {
-        drive_slack_turn(provider, email, sender, false)
-            .await
-            .map(|(content, _)| content)
-    }
-
-    /// Same turn, but the provider arrives the way production supplies it.
-    async fn run_one_slack_turn_via_chat_provider(
-        provider: Arc<dyn LlmProvider>,
-        email: &str,
-        sender: &str,
-    ) -> Option<String> {
-        drive_slack_turn(provider, email, sender, true)
-            .await
-            .map(|(content, _)| content)
-    }
-
     /// One Slack turn's persisted reply: its content and its `finish_reason`
     /// stamp, which says what the platform did with the reply where the
     /// content is localized copy.
+    ///
+    /// The provider arrives as production wires it: a `ChatProvider`, with
+    /// `llm_provider` left empty.
     async fn drive_slack_turn(
         provider: Arc<dyn LlmProvider>,
         email: &str,
         sender: &str,
-        as_chat_provider: bool,
     ) -> Option<(String, Option<String>)> {
-        let resources = if as_chat_provider {
-            create_test_server_resources_with_chat_provider(provider)
-                .await
-                .unwrap()
-        } else {
-            create_test_server_resources_with_llm(provider)
-                .await
-                .unwrap()
-        };
+        let resources = create_test_server_resources_with_chat_provider(provider)
+            .await
+            .unwrap();
         let (admin_user_id, tenant_id) = create_admin_user_in_tenant(&resources, email).await;
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let signing_secret = "reask_secret";
+        let signing_secret = "leak_secret";
         db.upsert_channel_config(&UpsertChannelConfigParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,
             channel_type: "slack",
-            api_key: Some("xoxb-reask"),
+            api_key: Some("xoxb-leak"),
             api_secret: None,
             webhook_secret: Some(signing_secret),
             verify_token: None,
@@ -1024,7 +919,7 @@ mod reply_narration_scrub {
             user_id: &admin_user_id.to_string(),
             channel_type: "slack",
             channel_user_id: sender,
-            display_name: Some("Re-ask Sender"),
+            display_name: Some("Leak Sender"),
         })
         .await
         .unwrap();
@@ -1035,7 +930,7 @@ mod reply_narration_scrub {
                 "type": "message",
                 "user": sender,
                 "text": "Comment preparer mes jambes pour les longues descentes?",
-                "channel": "C_REASK",
+                "channel": "C_LEAK",
                 "ts": "1700000009.000001"
             }
         })
@@ -1056,162 +951,45 @@ mod reply_narration_scrub {
         wait_for_persisted_assistant_row(&resources, tenant_id).await
     }
 
-    /// A leaked completion must be re-asked, and the clean answer delivered.
+    /// A leaked completion is withheld, and nothing asks the model again.
     ///
-    /// Before this, the athlete lost the turn outright: the boundary withheld
-    /// the leak (correctly) and substituted "my reply didn't go through —
-    /// resend". Measured over 30 days that cost 7 of 217 guided-flow-inactive
-    /// turns, each of them a real question.
+    /// Production wiring, because a seam the server leaves empty once hid a
+    /// whole stage behind green tests. The identity re-ask that used to sit
+    /// before the withhold ran zero times in 30 days of dev traffic and was
+    /// removed (carnet#1471); the withhold at the response boundary is what
+    /// keeps the break from the athlete, so this pins all of it: the stamp, the
+    /// copy, the absent product name, and a single turn completion.
     #[tokio::test]
     #[serial]
-    async fn a_leaked_reply_is_reasked_and_the_clean_answer_delivered() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mock = Arc::new(LeakThenRecoverMockProvider {
-            calls: Arc::clone(&calls),
-            reask: REASK_COACHING,
-        });
-
-        let reply = run_one_slack_turn(mock, "reask-recover@example.com", "U_REASK_OK")
-            .await
-            .expect("pipeline did not persist an assistant chat_messages row within 30s");
-
-        assert!(
-            reply.contains("dénivelé négatif") || reply.contains(REASK_COACHING),
-            "the re-ask's clean coaching answer must reach the athlete, got: {reply:?}"
-        );
-        let lower = reply.to_lowercase();
-        assert!(
-            !lower.contains("copilot"),
-            "the leaked first completion must never be delivered, got: {reply:?}"
-        );
-        assert!(
-            !reply.contains("n'est pas pass"),
-            "the athlete must NOT get the withhold substitute when the re-ask \
-             succeeded — that is the whole point of the re-ask, got: {reply:?}"
-        );
-        assert_eq!(
-            calls.load(Ordering::SeqCst),
-            2,
-            "exactly one re-ask: the turn's own completion plus one retry"
-        );
-    }
-
-    /// The re-ask must fire under PRODUCTION provider wiring, not just test wiring.
-    ///
-    /// This is the test whose absence let the re-ask ship inert. The two tests
-    /// above use `create_test_server_resources_with_llm`, which sets
-    /// `llm_provider` — but `pierre-mcp-server.rs` sets `llm_provider: None`
-    /// and supplies a `ChatProvider` instead. The first implementation read
-    /// `ctx.llm_provider` directly, so it returned early on every live turn
-    /// while both tests stayed green.
-    ///
-    /// Identical mock and assertions to
-    /// `a_leaked_reply_is_reasked_and_the_clean_answer_delivered`; the ONLY
-    /// difference is which seam the provider arrives through. It fails against
-    /// the original implementation and passes against the factory-resolved one.
-    #[tokio::test]
-    #[serial]
-    async fn the_reask_fires_when_the_provider_is_wired_as_production_wires_it() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mock = Arc::new(LeakThenRecoverMockProvider {
-            calls: Arc::clone(&calls),
-            reask: REASK_COACHING,
-        });
-
-        let reply = run_one_slack_turn_via_chat_provider(
-            mock,
-            "reask-prodwiring@example.com",
-            "U_REASK_PROD",
-        )
-        .await
-        .expect("pipeline did not persist an assistant chat_messages row within 30s");
-
-        assert!(
-            reply.contains("dénivelé négatif") || reply.contains(REASK_COACHING),
-            "with production wiring the re-ask must still deliver the clean answer; \
-             a withhold here means it resolved no provider and returned early — \
-             got: {reply:?}"
-        );
-        assert_eq!(
-            calls.load(Ordering::SeqCst),
-            2,
-            "the re-ask must actually run under production wiring"
-        );
-    }
-
-    /// A re-ask that leaks again must still withhold — and must not try a third time.
-    ///
-    /// The bound is the safety property. Without it a persistently leaking
-    /// provider would spin the turn, and each extra completion costs the
-    /// athlete latency on a reply they are not going to receive anyway.
-    #[tokio::test]
-    #[serial]
-    async fn a_second_leak_still_withholds_and_stops_at_one_retry() {
+    async fn a_leaked_reply_is_withheld_without_a_second_completion() {
         let calls = Arc::new(AtomicUsize::new(0));
         let mock = Arc::new(AlwaysLeakMockProvider {
             calls: Arc::clone(&calls),
         });
 
-        let reply = run_one_slack_turn(mock, "reask-exhausted@example.com", "U_REASK_FAIL")
-            .await
-            .expect("pipeline did not persist an assistant chat_messages row within 30s");
-
-        let lower = reply.to_lowercase();
-        assert!(
-            !lower.contains("copilot"),
-            "a twice-leaked turn must still be withheld, got: {reply:?}"
-        );
-        assert!(
-            !lower.contains("coding assistant"),
-            "the withhold must replace the reply wholesale, got: {reply:?}"
-        );
-        assert_eq!(
-            calls.load(Ordering::SeqCst),
-            2,
-            "the re-ask is bounded to ONE retry — a third completion means the \
-             bound was lost"
-        );
-    }
-
-    /// An empty re-ask must leave the withhold in place, not blank the turn.
-    ///
-    /// An empty completion is identity-clean, so a re-ask that took anything
-    /// identity-clean swapped the withheld reply for nothing: the athlete read
-    /// « je n'ai pas réussi à formuler une réponse » instead of the withhold,
-    /// and the turn's leak went unrecorded (carnet#108). Driven through
-    /// production wiring, because that is where the re-ask runs.
-    #[tokio::test]
-    #[serial]
-    async fn an_empty_reask_keeps_the_withhold_instead_of_blanking_the_turn() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mock = Arc::new(LeakThenRecoverMockProvider {
-            calls: Arc::clone(&calls),
-            reask: "",
-        });
-
         let (reply, finish_reason) =
-            drive_slack_turn(mock, "reask-empty@example.com", "U_REASK_EMPTY", true)
+            drive_slack_turn(mock, "leak-withheld@example.com", "U_LEAK_WITHHELD")
                 .await
                 .expect("pipeline did not persist an assistant chat_messages row within 30s");
 
         assert_eq!(
             finish_reason.as_deref(),
             Some(WITHHELD_REPLY_FINISH_REASON),
-            "an empty re-ask must leave the leak for the boundary to withhold; any \
-             other stamp means the empty completion replaced it — got {reply:?}"
+            "a leaked reply must be withheld at the boundary, got {reply:?}"
         );
         assert!(
             !reply.trim().is_empty(),
             "the athlete must read the withhold copy, never an empty turn"
         );
+        let lower = reply.to_lowercase();
         assert!(
-            !reply.to_lowercase().contains("copilot"),
-            "the leaked first completion must never be delivered, got: {reply:?}"
+            !lower.contains("copilot") && !lower.contains("coding assistant"),
+            "the leaked completion must never be delivered, got: {reply:?}"
         );
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            2,
-            "the turn's own completion plus exactly one re-ask"
+            1,
+            "the withheld reply is not re-sampled: one turn completion, no re-ask"
         );
     }
 }

@@ -772,9 +772,9 @@ async fn run_turn(
     )
     .await?;
 
-    // Stages 14a–18: the bounded identity re-ask, the provider re-auth recovery short-circuit,
+    // Stages 14b–18: capability recovery, the provider re-auth recovery short-circuit,
     // then either skip post-processing (recovery content is already canonical) or run the
-    // standard guardrails/verification/hook chain on LLM-produced text.
+    // standard withhold/guardrails/verification/hook chain on LLM-produced text.
     let (post_processed, reconnect) = run_recovery_and_post_process(
         RecoveryAndPostProcessInputs {
             ctx,

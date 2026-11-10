@@ -21,13 +21,12 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use pierre_chat_pipeline::stages::capability_recovery::{
-    parse_unsupported_verdict, peer_repair_prompt,
-};
+use pierre_chat_pipeline::stages::capability_recovery::peer_repair_prompt;
 use pierre_chat_pipeline::stages::capability_subject::{
     resolve_ask_subject, subject_reask_instruction, AskSubject, OwnActivities,
     SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
 };
+use pierre_chat_pipeline::stages::peer_claim_verifier::parse_unsupported_verdict;
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
 use pierre_core::models::MemberFitnessSnapshot;

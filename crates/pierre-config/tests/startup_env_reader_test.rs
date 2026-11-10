@@ -1,5 +1,5 @@
 // ABOUTME: The startup readers that capture operator settings from the environment into ServerConfig
-// ABOUTME: GUARDIAN_* overrides, service addresses, time bounds, tool deferral and webhook secrets, read once
+// ABOUTME: Service addresses, time bounds, tool deferral and webhook secrets, read once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,16 +16,9 @@ use std::env;
 
 use pierre_config::chat_tools::DEFER_TOOLS_VAR;
 use pierre_config::environment::{
-    ChatToolSettings, ExternalServicesConfig, GuardianSettings, SciotteServiceConfig,
-    ServerTimeouts, WebhookSecrets,
+    ChatToolSettings, ExternalServicesConfig, SciotteServiceConfig, ServerTimeouts, WebhookSecrets,
 };
 use secrecy::ExposeSecret;
-
-const GUARDIAN_VARS: [&str; 3] = [
-    "GUARDIAN_MODE",
-    "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
-    "GUARDIAN_MAX_WRITES_PER_TURN",
-];
 
 const TIMEOUT_VARS: [&str; 6] = [
     "PIERRE_MCP_TASK_FAST_PATH_MS",
@@ -37,30 +30,13 @@ const TIMEOUT_VARS: [&str; 6] = [
 ];
 
 #[test]
-fn startup_captures_guardian_overrides_and_the_sciotte_service() {
-    for key in GUARDIAN_VARS {
-        env::remove_var(key);
-    }
+fn startup_captures_the_sciotte_service_and_operator_settings() {
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");
     env::remove_var("DRAVR_SCIOTTE_AUDIENCE");
 
-    assert_eq!(GuardianSettings::from_env(), GuardianSettings::default());
     let unset = SciotteServiceConfig::from_env();
     assert_eq!(unset.remote_url, None);
     assert_eq!(unset.audience, None);
-
-    // Guardian values are kept as written; the tool runtime parses them.
-    env::set_var("GUARDIAN_MODE", " observe ");
-    env::set_var("GUARDIAN_MAX_WRITES_PER_TURN", "7");
-    env::set_var("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN", "4");
-    assert_eq!(
-        GuardianSettings::from_env(),
-        GuardianSettings {
-            mode: Some(" observe ".to_owned()),
-            max_destructive_per_turn: Some("4".to_owned()),
-            max_writes_per_turn: Some("7".to_owned()),
-        }
-    );
 
     // A URL that is only slashes, or an empty audience, configures nothing.
     env::set_var("DRAVR_SCIOTTE_REMOTE_URL", "//");
@@ -158,7 +134,7 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
     ] {
         env::remove_var(key);
     }
-    for key in GUARDIAN_VARS.iter().chain(TIMEOUT_VARS.iter()) {
+    for key in TIMEOUT_VARS {
         env::remove_var(key);
     }
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");

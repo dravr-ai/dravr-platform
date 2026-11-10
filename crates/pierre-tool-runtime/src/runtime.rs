@@ -186,13 +186,13 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Tool-selection scoring service.
     fn tool_selection(&self) -> &Arc<ToolSelectionService>;
 
-    /// The effective [`Guardian`] (budget/egress policy) for this
+    /// The effective [`Guardian`] (per-turn budget policy) for this
     /// dispatch: the hot-reloadable
-    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot, built
-    /// over the `GUARDIAN_*` settings the server's configuration captured at
-    /// startup. Because the snapshot can be swapped by an admin update between
-    /// calls, a caller needing a consistent policy across several reads binds
-    /// ONE returned `Arc` locally rather than re-fetching mid-flow.
+    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot of the
+    /// stored `guardian_config` row. Because the snapshot can be swapped by an
+    /// admin update between calls, a caller needing a consistent policy across
+    /// several reads binds ONE returned `Arc` locally rather than re-fetching
+    /// mid-flow.
     fn guardian(&self) -> Arc<Guardian>;
 
     /// The process-wide, tenant-scoped per-turn budget store. Shared

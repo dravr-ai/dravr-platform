@@ -81,7 +81,7 @@ pub(crate) async fn resolve_pending(
     let outcome = ctx
         .ctx
         .repos()
-        .guardian_actions
+        .agent_drafts
         .claim_pending_action(
             id,
             &ctx.user_id.to_string(),

@@ -167,7 +167,7 @@ use crate::injection_corpus::grading::{
 };
 use crate::injection_corpus::{Scenario, Surface, SCENARIOS, WARM_UP};
 use pierre_chat_pipeline::ServedTurn;
-use pierre_config::environment::{ChatToolSettings, GuardianSettings, ServerConfig};
+use pierre_config::environment::{ChatToolSettings, ServerConfig};
 use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -446,10 +446,9 @@ async fn run_lane() {
     let attempts = attempts();
     println!(
         "injection eval: model {model}, provider {}, {} scenario(s) x {attempts} attempt(s), \
-         guardian {:?}, defer-tools {:?}, turn wait {}s",
+         defer-tools {:?}, turn wait {}s",
         provider.name(),
         scenarios.len(),
-        GuardianSettings::from_env(),
         env::var("PIERRE_CHAT_DEFER_TOOLS").ok(),
         turn_timeout().as_secs(),
     );
@@ -509,7 +508,6 @@ async fn run_pass(
             llm_chain: chain.clone(),
             timeouts: lane_timeouts(),
             chat_tools: ChatToolSettings::from_env(),
-            guardian: GuardianSettings::from_env(),
             ..test_server_config_with_sciotte(scraper_url)
         },
     )

@@ -29,9 +29,7 @@ use pierre_core::llm::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::{
-    NewConversation, PendingGuardianAction, AGENT_PROPOSAL_ACTION,
-};
+use pierre_database::repositories::{NewConversation, PendingAgentDraft, AGENT_PROPOSAL_ACTION};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
@@ -795,7 +793,7 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
         let (resources, user, tenant, archived, token) = athlete_with_one_archived().await;
         let chat = &resources.common.repos.chat;
         let content = if command == "/confirm" {
-            let expired = PendingGuardianAction {
+            let expired = PendingAgentDraft {
                 id: Uuid::new_v4().simple().to_string(),
                 tenant_id: tenant.to_string(),
                 user_id: user.clone(),
@@ -806,7 +804,7 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
             resources
                 .common
                 .repos
-                .guardian_actions
+                .agent_drafts
                 .create_pending_action(&expired, Utc::now() - Duration::minutes(1))
                 .await
                 .unwrap();

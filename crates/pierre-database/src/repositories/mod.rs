@@ -30,6 +30,8 @@ pub mod admin;
 pub mod admin_audit;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
+/// Repository trait for the agent drafts `/agent create` parks for `/confirm` and `/deny`.
+pub mod agent_drafts;
 /// The agent row decoders both backends share, emitted per backend.
 pub(crate) mod agent_rows;
 /// Repository traits for the agents catalogue and coaching groups.
@@ -111,8 +113,6 @@ pub mod garmin_push_inbox;
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
-/// Repository trait for the pending-action store behind `/confirm` and `/deny`.
-pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
@@ -292,6 +292,7 @@ pub use admin_audit::{
     NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
 };
 pub use agent_artefacts::*;
+pub use agent_drafts::*;
 pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
@@ -323,7 +324,6 @@ pub use firebase_identity_deletions::{
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
-pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
 pub use impersonation::*;

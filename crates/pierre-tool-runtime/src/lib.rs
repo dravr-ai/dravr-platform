@@ -99,7 +99,7 @@ pub mod group_activity_cache;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
-/// The Guardian: dispatch-time budget/egress guard + the absorbed tenant
+/// The Guardian: dispatch-time per-turn budget guard + the absorbed tenant
 /// tool-disable allowlist, interposed at the universal execution chokepoint.
 pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
@@ -137,7 +137,7 @@ pub mod runtime;
 pub mod schema_canonical;
 /// The capability -> OAuth scope derivation and the check the chokepoint reads.
 pub mod scopes;
-/// Guardian security classification: the egress/trust axis every tool declares
+/// Guardian security classification: the blast-radius axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.

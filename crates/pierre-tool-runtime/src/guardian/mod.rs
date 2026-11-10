@@ -1,5 +1,5 @@
-// ABOUTME: The Guardian — dispatch-time guard that gates tool egress on per-turn budgets and tenant tool-disable.
-// ABOUTME: Pure decide() for the budgets and the external-send deny (mode-gated) + async tool-disable (always enforced).
+// ABOUTME: The Guardian — dispatch-time guard that gates tool dispatch on per-turn budgets and tenant tool-disable.
+// ABOUTME: Pure decide() for the two per-turn caps, always enforced, + async tenant tool-disable.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,29 +16,23 @@
 //! for them, and the next message gets a fresh budget. A one-shot MCP or A2A call
 //! is its own turn, so these budgets never accumulate across such calls.
 //!
-//! Two kinds of gate live here:
+//! Two kinds of gate live here, both always enforced:
 //! - **Tool-disable** ([`caller_tool_enabled`], [`tenant_tool_enabled`]) — an
-//!   operator explicitly disabled a tool, for the tenant or for the caller;
-//!   this is configuration, always enforced regardless of [`GuardianMode`].
-//! - **Budget / egress** ([`Guardian::decide`]) — budgets are gated by
-//!   [`GuardianMode`]: `observe` logs would-be denials, `enforce` blocks. An external
-//!   send is refused in both modes. Under `enforce` a turn's
-//!   first block also stops it committing: the athlete's reply is settled, so
-//!   later writes are refused while reads go on.
+//!   operator explicitly disabled a tool, for the tenant or for the caller.
+//! - **Budgets** ([`Guardian::decide`]) — the per-turn destructive and write
+//!   caps. A turn's first block also stops it committing: the athlete's reply
+//!   is settled, so later writes are refused while reads go on.
 
 pub mod config;
-pub mod impact;
 pub mod policy;
 pub mod state;
 
 pub use config::{
     parse_persisted_document, validate_document, GuardianConfigDocument, GuardianConfigRegistry,
-    GuardianConfigSnapshot, GuardianConfigSource, GuardianFieldSource, GuardianFieldSources,
-    GuardianReloadOutcome, PersistedGuardianDocument, GUARDIAN_CONFIG_SCHEMA_VERSION,
+    GuardianConfigSnapshot, GuardianReloadOutcome, PersistedGuardianDocument,
     GUARDIAN_CONFIG_SETTING_KEY,
 };
-pub use impact::{high_impact_changes, GuardianImpact};
-pub use policy::{validate_settings, GuardianEnvOverrides, GuardianMode, GuardianPolicy};
+pub use policy::GuardianPolicy;
 pub use state::{CallFate, GuardianTurns, HeadlessBlock, ReadFingerprint, TurnKey, TurnState};
 
 use std::sync::Arc;
@@ -57,8 +51,8 @@ use crate::security::SecurityLabels;
 pub enum Decision {
     /// The tool may execute.
     Allow,
-    /// The tool is denied; the reason drives logging and (in enforce) the
-    /// in-band error surfaced to the LLM.
+    /// The tool is denied; the reason drives logging and the in-band error
+    /// surfaced to the LLM.
     Deny(DenyReason),
 }
 
@@ -67,9 +61,6 @@ pub enum Decision {
 pub enum DenyReason {
     /// The per-turn consequential-action budget is exhausted.
     BudgetExceeded,
-    /// The tool sends data to a third party. None exist today, and one that
-    /// ships stays refused until a decision about its egress replaces this.
-    EgressForbidden,
     /// An earlier call in this turn was denied, so the reply the athlete gets is
     /// about that call and nothing further may commit behind it. Reads stay
     /// allowed, so the model can finish its answer.
@@ -83,25 +74,22 @@ impl DenyReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BudgetExceeded => "budget_exceeded",
-            Self::EgressForbidden => "egress_forbidden",
             Self::TurnBlocked => "turn_blocked",
         }
     }
 }
 
-/// The outcome of the budget/egress gate at one dispatch point.
+/// The outcome of the budget gate at one dispatch point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GateOutcome {
-    /// The call may run — allowed, or a would-deny in `observe`, which logs the
-    /// flag and executes anyway.
+    /// The call may run.
     Proceed,
-    /// Blocked: `enforce` mode saw a denial. Carries the reason so the caller
-    /// renders the transport-appropriate refusal.
+    /// Blocked. Carries the reason so the caller renders the
+    /// transport-appropriate refusal.
     Blocked(DenyReason),
 }
 
-/// Run the budget/egress decision + atomic budget reserve for one dispatch,
-/// applying the active [`GuardianMode`].
+/// Run the budget decision + atomic budget reserve for one dispatch.
 ///
 /// This is the SINGLE gate every dispatch point shares — the chokepoint
 /// [`crate::protocol::executor::UniversalExecutor::execute_tool`], which every
@@ -118,35 +106,28 @@ pub fn guardian_gate(
     labels: SecurityLabels,
     writes_data: bool,
 ) -> (GateOutcome, bool) {
-    // External send is refused in every mode: setting a mode must not open egress.
-    let mode_blocks = guardian.mode().blocks() || labels.is_external_send();
     let (decision, reserved) = turns.decide_and_reserve(
         turn_key,
         labels,
         writes_data,
         |turn_state| guardian.decide(labels, writes_data, turn_state),
-        // The call runs on an allow, and on a would-deny in observe. Only a block
-        // latches the turn, so an observed would-deny never does (carnet#1397).
-        |decision| {
-            if matches!(decision, Decision::Allow) || !mode_blocks {
-                CallFate::Runs
-            } else {
-                CallFate::Blocked
-            }
+        // The call runs on an allow; a denial blocks it and latches the turn.
+        |decision| match decision {
+            Decision::Allow => CallFate::Runs,
+            Decision::Deny(_) => CallFate::Blocked,
         },
     );
-    if let Decision::Deny(reason) = decision {
-        warn!(
-            tool_name = %tool_name,
-            reason = reason.as_str(),
-            mode = guardian.mode().as_str(),
-            "guardian flagged tool dispatch"
-        );
-        if mode_blocks {
-            return (GateOutcome::Blocked(reason), reserved);
+    match decision {
+        Decision::Allow => (GateOutcome::Proceed, reserved),
+        Decision::Deny(reason) => {
+            warn!(
+                tool_name = %tool_name,
+                reason = reason.as_str(),
+                "guardian blocked tool dispatch"
+            );
+            (GateOutcome::Blocked(reason), reserved)
         }
     }
-    (GateOutcome::Proceed, reserved)
 }
 
 /// The dispatch-time guard. Holds the resolved [`GuardianPolicy`]; the per-turn
@@ -163,12 +144,6 @@ impl Guardian {
         Self { policy }
     }
 
-    /// The active mode (controls whether `decide` denials actually block).
-    #[must_use]
-    pub const fn mode(&self) -> GuardianMode {
-        self.policy.mode
-    }
-
     /// The resolved policy.
     #[must_use]
     pub const fn policy(&self) -> &GuardianPolicy {
@@ -178,24 +153,19 @@ impl Guardian {
     /// Decide whether to allow a tool call, given the tool's [`SecurityLabels`],
     /// whether it is a `WRITES_DATA` sink, and the current [`TurnState`].
     ///
-    /// Pure and synchronous. The decision is mode-independent; the caller
-    /// applies [`GuardianMode`] (observe logs, enforce blocks). The separate
+    /// Pure and synchronous; a denial blocks the call. The separate
     /// tool-disable gate ([`caller_tool_enabled`] at the dispatch chokepoint,
     /// [`tenant_tool_enabled`] inside a tool) is always enforced.
     ///
     /// A turn already blocked is checked first, ahead of the budgets. The reply
     /// is settled by then, so the later call's refusal must not vary with what
     /// is left of a budget, and anyone grouping `budget_exceeded` must not
-    /// count the calls an earlier denial stopped. Only enforce mode latches a
-    /// turn, so observe never reaches this arm; a mode flipped mid-turn reads it
-    /// as one more would-deny and lets the call run.
+    /// count the calls an earlier denial stopped.
     #[must_use]
     pub fn decide(&self, labels: SecurityLabels, writes_data: bool, turn: &TurnState) -> Decision {
         // The turn stopped committing at its first block. Reads carry on so the
         // model can finish.
-        if turn.is_blocked()
-            && (writes_data || labels.is_irreversible() || labels.is_external_send())
-        {
+        if turn.is_blocked() && (writes_data || labels.is_irreversible()) {
             return Decision::Deny(DenyReason::TurnBlocked);
         }
 
@@ -206,9 +176,6 @@ impl Guardian {
         }
         if writes_data && turn.write_count() >= self.policy.max_writes_per_turn {
             return Decision::Deny(DenyReason::BudgetExceeded);
-        }
-        if labels.is_external_send() {
-            return Decision::Deny(DenyReason::EgressForbidden);
         }
 
         Decision::Allow
@@ -237,8 +204,8 @@ pub fn tenant_disabled_message(tool_name: &str) -> String {
 
 /// Whether `tool_name` is enabled for `tenant` (the absorbed tenant tool-disable allowlist).
 ///
-/// Always enforced regardless of [`GuardianMode`] — it is a tenant's explicit
-/// configuration, not a Guardian heuristic. For the caller's own call, the
+/// Always enforced — it is a tenant's explicit configuration, not a Guardian
+/// heuristic. For the caller's own call, the
 /// dispatch chokepoint asks [`caller_tool_enabled`] instead, which also honours
 /// a per-user override; this tenant-only form is for a tool acting under a
 /// tenant other than the caller's, which honours that tenant's configuration.
@@ -344,35 +311,30 @@ mod tests {
     }
 
     #[test]
-    fn observe_runs_an_over_budget_call_and_still_refuses_an_external_send() {
+    fn a_denial_blocks_the_call_and_latches_the_turn() {
         let guardian = Guardian::new(GuardianPolicy {
-            mode: GuardianMode::Observe,
             max_destructive_per_turn: 0,
             ..GuardianPolicy::default()
         });
         let turns = GuardianTurns::new();
-        let key = TurnKey::new(None, "observed-turn");
-        let gate = |labels| guardian_gate(&guardian, &turns, &key, "a_tool", labels, false);
+        let key = TurnKey::new(None, "blocked-turn");
+        let gate =
+            |labels, writes| guardian_gate(&guardian, &turns, &key, "a_tool", labels, writes);
 
         assert_eq!(
-            gate(SecurityLabels::IRREVERSIBLE).0,
-            GateOutcome::Proceed,
-            "observe only logs a budget denial"
+            gate(SecurityLabels::IRREVERSIBLE, false),
+            (GateOutcome::Blocked(DenyReason::BudgetExceeded), false),
+            "a call over its cap is blocked, with nothing reserved"
         );
         assert_eq!(
-            gate(SecurityLabels::EXTERNAL_SEND).0,
-            GateOutcome::Blocked(DenyReason::EgressForbidden),
-            "a mode must not open egress"
+            gate(SecurityLabels::empty(), true),
+            (GateOutcome::Blocked(DenyReason::TurnBlocked), false),
+            "a write behind the block is refused though its own cap has room"
         );
-    }
-
-    #[test]
-    fn an_external_send_is_refused_in_every_turn() {
-        let guardian = Guardian::new(GuardianPolicy::default());
         assert_eq!(
-            guardian.decide(SecurityLabels::EXTERNAL_SEND, false, &TurnState::default()),
-            Decision::Deny(DenyReason::EgressForbidden),
-            "external send has no allowlist: a clean turn is refused too"
+            gate(SecurityLabels::empty(), false),
+            (GateOutcome::Proceed, true),
+            "a read still runs so the model can finish"
         );
     }
 }

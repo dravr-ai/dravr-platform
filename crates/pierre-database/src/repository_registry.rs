@@ -15,25 +15,25 @@ use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository, AccountResetRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
     ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
-    AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository,
-    AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
+    AgentDraftsRepository, AgentsRepository, ApiKeyRepository, AppAttestKeyRepository,
+    ArchiveErasureRepository, AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
     CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
     CoachAttentionDismissalRepository, CoachReplyReviewRepository, CoachingGroupRepository,
     CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
-    FitnessConfigRepository, GarminPushInboxRepository, GuardianPendingActionsRepository,
-    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
-    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
-    LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
-    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
-    PersonalBestRepository, PlatformPostClaimRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
-    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    FitnessConfigRepository, GarminPushInboxRepository, HarnessMemoryRepository,
+    HealthSnapshotRepository, HomePreferencesRepository, ImpersonationRepository,
+    ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
@@ -270,7 +270,7 @@ pub struct RepositoryRegistry {
     /// by the account deletion, read by every door that would import them.
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
     /// Parked actions awaiting their owner: the agent drafts of `/agent create`.
-    pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
+    pub agent_drafts: Arc<dyn AgentDraftsRepository>,
     /// The admin audit trail: one row per operator write through the admin
     /// API, or `pierre-cli` straight to the database (carnet#1391).
     pub admin_audit: Arc<dyn AdminAuditRepository>,
@@ -415,7 +415,7 @@ impl RepositoryRegistry {
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
             engagement: db.clone(),
-            guardian_actions: db,
+            agent_drafts: db,
         }
     }
 
@@ -528,7 +528,7 @@ impl RepositoryRegistry {
             import_tombstones: db.clone(),
             admin_audit: db.clone(),
             engagement: db.clone(),
-            guardian_actions: db,
+            agent_drafts: db,
         }
     }
 }

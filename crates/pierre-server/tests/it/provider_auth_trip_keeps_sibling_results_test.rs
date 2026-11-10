@@ -28,13 +28,12 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use common::{
-    create_test_server_resources_with_config, create_test_server_resources_with_sciotte,
-    create_test_user, test_server_config_with_guardian,
+    create_test_server_resources_with_no_destructive_budget,
+    create_test_server_resources_with_sciotte, create_test_user,
 };
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
-use pierre_config::environment::GuardianSettings;
 use pierre_core::errors::AppError;
 use pierre_core::models::ConnectionType;
 use pierre_llm::{
@@ -344,15 +343,9 @@ impl LlmProvider for AuthTripThenDenied {
 #[tokio::test]
 async fn a_batch_that_trips_auth_and_is_denied_returns_the_denial() {
     common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
     let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");

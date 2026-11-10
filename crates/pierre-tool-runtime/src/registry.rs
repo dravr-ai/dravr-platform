@@ -235,7 +235,7 @@ impl ToolRegistry {
     /// [`RuntimeTool::security_class`]. `None` for an unknown tool name.
     ///
     /// This is how the dispatch-time [`crate::guardian::Guardian`] reads a
-    /// tool's egress/trust labels — the labels live on the tool object itself
+    /// tool's blast-radius labels — the labels live on the tool object itself
     /// (the registry stores `Arc<dyn RuntimeTool>`), not in any parallel table.
     #[must_use]
     pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {

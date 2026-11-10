@@ -54,7 +54,7 @@ use uuid::Uuid;
 /// judge is disabled in the harness config or no provider is wired.
 ///
 /// Goes through [`chat_provider_from_resources_arc`], the same factory
-/// Stage 11 dispatch and the identity-leak re-ask use. Pub so integration
+/// Stage 11 dispatch and capability recovery use. Pub so integration
 /// tests can pin the production resolution seam — the previous direct
 /// `ctx.llm_provider` read was dead code on every live turn while tests
 /// stayed green, because they injected through the seam production leaves
@@ -560,10 +560,10 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
 
     let corpus = ctx.evidence_registry.resolved_corpus();
     // The LLM-judge layer (Layer 5), resolved through the same provider
-    // factory Stage 11 dispatch and the identity-leak re-ask use — reading
+    // factory Stage 11 dispatch and capability recovery use — reading
     // `ctx.llm_provider` directly made the judge dead code in production,
     // where the binary wires `chat_provider` and leaves `llm_provider: None`
-    // (the exact trap documented on `resolve_reask_provider`). Gated by the
+    // (the trap [`resolve_claim_judge`] documents). Gated by the
     // hot-reloadable harness config so operators can drop back to
     // deterministic-only at runtime.
     let judge_provider = resolve_claim_judge(

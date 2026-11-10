@@ -48,6 +48,7 @@ use super::capability_subject::{
 use super::claim_density::{
     previous_reply_asserted_athlete_facts, previous_reply_asserted_unsupplied_facts,
 };
+use super::peer_claim_verifier::verify_peer_claims;
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerGroundingBlock, PeerMention,
     PEER_FETCH_TOOL,
@@ -320,11 +321,6 @@ async fn route_to_subject(
 /// The requester's own fetch succeeded, so the claim is disproven: re-ask
 /// with the data, and hold the replacement to the same standard as the reply
 /// it replaced.
-///
-/// The recovery stamp net in `run_recovery_and_post_process` re-checks the
-/// final content after the downstream identity re-ask, so a re-sample over the
-/// pre-recovery messages that brings back the disproven denial is stamped
-/// before it persists.
 async fn reground_requester(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
@@ -1056,72 +1052,6 @@ fn turn_evidence_with(llm_messages: &[ChatMessage], extra: &str) -> String {
         evidence.push_str(extra);
     }
     evidence
-}
-
-/// Ask the verifier model which claims about `peer` the evidence fails to
-/// support. Fail-open: a verifier outage or an unparseable verdict reports
-/// "supported" (and logs), because a flaky judge must never cost the athlete
-/// a legitimate reply. Runs on the turn's model; records on `deps.verifier_recorder`.
-pub(super) async fn verify_peer_claims(
-    deps: &CapabilityRecoveryDeps<'_>,
-    provider: &pierre_llm::ChatProvider,
-    evidence: &str,
-    reply: &str,
-    peer: &str,
-) -> Vec<String> {
-    let prompt = format!(
-        "You are a strict fact checker for a fitness coach.\n\nEVIDENCE (tool results and \
-         pre-loaded data from this conversation turn):\n{evidence}\n\nREPLY the coach wrote:\n\
-         {reply}\n\nList every specific numeric or factual claim the REPLY makes about \
-         \"{peer}\" that the EVIDENCE does not support, verbatim or by simple arithmetic \
-         (sums, averages, unit conversions) over evidence rows. General encouragement and \
-         advice are not claims. Respond with ONLY a JSON object of the form \
-         {{\"unsupported\": [\"<claim>\", ...]}} — and {{\"unsupported\": []}} when every \
-         claim is supported."
-    );
-    let request = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_model(deps.active_model);
-    match complete_recorded(provider, &request, Some(deps.verifier_recorder)).await {
-        Ok(verdict) => parse_unsupported_verdict(&verdict.content),
-        Err(e) => {
-            warn!(error = %e, "peer_claim_verifier_failed: treating the reply as supported");
-            Vec::new()
-        }
-    }
-}
-
-/// Extract the `unsupported` list from a verifier reply.
-///
-/// Tolerates prose around the JSON (first `{` to last `}`); anything that
-/// still fails to parse reports "supported" — the fail-open contract of
-/// [`verify_peer_claims`], surfaced here so it is unit-testable.
-#[must_use]
-pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
-    let Some(start) = text.find('{') else {
-        warn!("peer_claim_verdict_unparseable: no JSON object in the verifier reply");
-        return Vec::new();
-    };
-    let Some(end) = text.rfind('}') else {
-        warn!("peer_claim_verdict_unparseable: unterminated JSON in the verifier reply");
-        return Vec::new();
-    };
-    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&text[start..=end]);
-    match parsed {
-        Ok(value) => value
-            .get("unsupported")
-            .and_then(serde_json::Value::as_array)
-            .map(|claims| {
-                claims
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        Err(e) => {
-            warn!(error = %e, "peer_claim_verdict_unparseable: treating the reply as supported");
-            Vec::new()
-        }
-    }
 }
 
 #[cfg(test)]

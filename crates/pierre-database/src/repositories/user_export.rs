@@ -545,7 +545,7 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     ("sync_state", "operational: sync cursors"),
     (
         "guardian_pending_actions",
-        "operational: transient tool-call approvals",
+        "operational: transient agent drafts awaiting confirmation",
     ),
     ("mcp_tasks", "operational: transient protocol tasks"),
     ("messaging_outbound_queue", "operational: delivery queue"),

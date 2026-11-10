@@ -28,6 +28,8 @@ pub mod admin;
 pub mod admin_audit;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
 pub mod agent_artefacts;
+/// Parked agent drafts (`SQLite`) backing `AgentDraftsRepository`.
+pub mod agent_drafts;
 /// Coaches (custom AI personas) storage and management
 pub mod agents;
 /// Analytics and usage statistics database operations
@@ -80,8 +82,6 @@ pub mod first_run_progress;
 pub mod fitness_configurations;
 /// Every batch Garmin pushes, written before the 200 and worked under a lease (`SQLite`)
 pub mod garmin_push_inbox;
-/// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.
-pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Impersonation session management for super admin user impersonation

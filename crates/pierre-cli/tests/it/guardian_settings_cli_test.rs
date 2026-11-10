@@ -145,19 +145,12 @@ const STAMP: &str = "2026-11-04T12:00:00.123456+00:00";
 
 fn current_policy() -> Value {
     json!({
-        "config": {"schema_version": 2, "max_writes_per_turn": 9},
+        // A row an older binary wrote: its retired keys must not stop an edit.
+        "config": {"schema_version": 2, "mode": "enforce", "max_writes_per_turn": 9},
         "effective": {
-            "mode": "enforce",
             "max_destructive_per_turn": 3,
             "max_writes_per_turn": 9
         },
-        "sources": {
-            "mode": "default",
-            "max_destructive_per_turn": "default",
-            "max_writes_per_turn": "database"
-        },
-        "env_pinned": [],
-        "source": "persisted",
         "updated_at": STAMP,
         "loaded_at": STAMP,
         "instance_id": "rev:abc",
@@ -176,49 +169,7 @@ fn stderr_of(output: &Output) -> String {
 }
 
 #[test]
-fn an_unacknowledged_impact_exits_non_zero_and_lists_each_field() {
-    let refusal = json!({
-        "code": "guardian_config_impact_not_acknowledged",
-        "message": "This save changes what athletes can do on every turn.",
-        "impacted_fields": [{
-            "field": "mode",
-            "from": "enforce",
-            "to": "observe",
-            "effect": "The Guardian stops blocking anything."
-        }]
-    });
-    let server = ServerStandIn::serve(vec![(200, current_policy()), (409, refusal)]);
-    let home = CliHome::for_server(&server.base_url);
-
-    let output = home.run(&["settings", "guardian", "set", "--mode", "observe"]);
-
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let stderr = stderr_of(&output);
-    assert!(stderr.contains("mode: enforce -> observe"), "{stderr}");
-    assert!(
-        stderr.contains("The Guardian stops blocking anything."),
-        "{stderr}"
-    );
-    assert!(stderr.contains("--acknowledge-impact"), "{stderr}");
-    assert!(!stdout_of(&output).contains("updated."), "{output:?}");
-
-    let sent = server.sent();
-    assert_eq!(
-        sent[1].request_line,
-        "PUT /admin/settings/guardian HTTP/1.1"
-    );
-    let body = sent[1].body.as_ref().unwrap();
-    assert_eq!(body["mode"], "observe");
-    assert_eq!(
-        body["max_writes_per_turn"], 9,
-        "unset flags keep their value"
-    );
-    assert_eq!(body["expected_updated_at"], STAMP, "echoed verbatim");
-    assert_eq!(body["acknowledge_impact"], false);
-}
-
-#[test]
-fn an_acknowledged_save_says_so_and_exits_zero() {
+fn a_save_sends_the_edit_on_the_token_it_read_and_exits_zero() {
     let server = ServerStandIn::serve(vec![(200, current_policy()), (200, current_policy())]);
     let home = CliHome::for_server(&server.base_url);
 
@@ -226,16 +177,40 @@ fn an_acknowledged_save_says_so_and_exits_zero() {
         "settings",
         "guardian",
         "set",
-        "--mode",
-        "observe",
-        "--acknowledge-impact",
+        "--max-destructive-per-turn",
+        "1",
     ]);
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert!(stdout_of(&output).contains("Guardian config updated."));
+
+    let sent = server.sent();
     assert_eq!(
-        server.sent()[1].body.as_ref().unwrap()["acknowledge_impact"],
-        true
+        sent[1].request_line,
+        "PUT /admin/settings/guardian HTTP/1.1"
+    );
+    let body = sent[1].body.as_ref().unwrap();
+    assert_eq!(
+        body,
+        &json!({
+            "max_destructive_per_turn": 1,
+            "max_writes_per_turn": 9,
+            "expected_updated_at": STAMP
+        }),
+        "unset flags keep their value, the token is echoed verbatim, and the \
+         retired keys the row held are not written back"
+    );
+}
+
+/// carnet#1471: the gate always enforces, so there is no mode to set.
+#[test]
+fn the_mode_flag_is_gone() {
+    let output = CliHome::for_server("http://127.0.0.1:9")
+        .run(&["settings", "guardian", "set", "--mode", "observe"]);
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        stderr_of(&output).contains("unexpected argument '--mode'"),
+        "{output:?}"
     );
 }
 
@@ -268,8 +243,8 @@ fn a_dry_run_reads_once_and_never_writes() {
         "settings",
         "guardian",
         "set",
-        "--mode",
-        "observe",
+        "--max-destructive-per-turn",
+        "2",
         "--clear",
         "max_writes_per_turn",
         "--dry-run",
@@ -278,16 +253,14 @@ fn a_dry_run_reads_once_and_never_writes() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stdout = stdout_of(&output);
     assert!(stdout.contains("nothing was written"), "{stdout}");
-    assert!(stdout.contains("mode: (unset) -> observe"), "{stdout}");
+    assert!(
+        stdout.contains("max_destructive_per_turn: (unset) -> 2"),
+        "{stdout}"
+    );
     assert!(
         stdout.contains("max_writes_per_turn: 9 -> (unset)"),
         "{stdout}"
     );
-    assert!(
-        stdout.contains("would need --acknowledge-impact"),
-        "{stdout}"
-    );
-    assert!(stdout.contains("mode: enforce -> observe."), "{stdout}");
     assert!(!stdout.contains("updated."), "{stdout}");
 
     let sent = server.sent();

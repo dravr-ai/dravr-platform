@@ -1,5 +1,5 @@
-// ABOUTME: Deterministic unit tests for the Guardian decision logic (budgets, egress, the turn block).
-// ABOUTME: Tests Guardian::decide() with injected policies — no env/singleton, no server harness.
+// ABOUTME: Deterministic unit tests for the Guardian decision logic (the budgets and the turn block).
+// ABOUTME: Tests Guardian::decide() with injected policies — no stored row, no server harness.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,22 +7,20 @@
 //! Guardian policy-logic tests.
 //!
 //! These exercise the pure, synchronous [`Guardian::decide`] against an
-//! explicit [`GuardianPolicy`], so they are fast and free of the process-wide
-//! env-driven singleton. They pin what the Guardian still decides: the budget
-//! caps, the hard deny of an external send, and a turn that stops committing
-//! behind its first block.
+//! explicit [`GuardianPolicy`], so they are fast and need no stored row. They
+//! pin what the Guardian decides: the budget caps, and a turn that stops
+//! committing behind its first block.
 
 use pierre_tool_runtime::guardian::{
-    guardian_gate, CallFate, Decision, DenyReason, GateOutcome, Guardian, GuardianMode,
-    GuardianPolicy, GuardianTurns, HeadlessBlock, TurnKey, TurnState,
+    guardian_gate, CallFate, Decision, DenyReason, GateOutcome, Guardian, GuardianPolicy,
+    GuardianTurns, HeadlessBlock, TurnKey, TurnState,
 };
 use pierre_tool_runtime::SecurityLabels;
 
-/// An enforce-mode policy with budgets small enough that a denial takes one or
-/// a few calls to reach in the pure logic.
+/// A policy with budgets small enough that a denial takes one or a few calls to
+/// reach in the pure logic.
 fn enforce_policy() -> GuardianPolicy {
     GuardianPolicy {
-        mode: GuardianMode::Enforce,
         max_destructive_per_turn: 1,
         max_writes_per_turn: 5,
     }
@@ -68,17 +66,6 @@ fn budget_caps_writes_per_turn() {
     assert_eq!(
         guardian.decide(SecurityLabels::empty(), true, &turn),
         Decision::Deny(DenyReason::BudgetExceeded)
-    );
-}
-
-#[test]
-fn an_external_send_is_denied_with_budget_to_spare() {
-    let guardian = Guardian::new(enforce_policy());
-    let turn = TurnState::default();
-    // No allowlist exists: egress is closed for every tenant.
-    assert_eq!(
-        guardian.decide(SecurityLabels::EXTERNAL_SEND, false, &turn),
-        Decision::Deny(DenyReason::EgressForbidden)
     );
 }
 
@@ -137,7 +124,7 @@ fn reserve_increments_and_is_visible_to_the_next_decide() {
 
 #[test]
 fn no_reserve_when_will_not_execute() {
-    // An enforce-mode block does not execute → nothing is reserved (E2: a blocked
+    // A blocked call does not execute → nothing is reserved (E2: a blocked
     // call must not consume budget).
     let store = GuardianTurns::new();
     let key = TurnKey::new(None, "turn-1");
@@ -190,7 +177,7 @@ fn per_turn_keys_do_not_share_budget() {
 // pin that shared gate's decisions.
 
 #[test]
-fn guardian_gate_blocks_second_destructive_in_enforce() {
+fn guardian_gate_blocks_the_second_destructive_call() {
     let guardian = Guardian::new(enforce_policy());
     let turns = GuardianTurns::new();
     let key = TurnKey::new(None, "turn-1");
@@ -218,37 +205,6 @@ fn guardian_gate_blocks_second_destructive_in_enforce() {
         true,
     );
     assert_eq!(second, GateOutcome::Blocked(DenyReason::BudgetExceeded));
-}
-
-#[test]
-fn guardian_gate_observe_reports_but_proceeds() {
-    let mut policy = enforce_policy();
-    policy.mode = GuardianMode::Observe;
-    let guardian = Guardian::new(policy);
-    let turns = GuardianTurns::new();
-    let key = TurnKey::new(None, "turn-2");
-
-    // Exhaust the destructive budget in observe.
-    let _ = guardian_gate(
-        &guardian,
-        &turns,
-        &key,
-        "disconnect_provider",
-        SecurityLabels::IRREVERSIBLE,
-        true,
-    );
-    // A would-deny in observe still PROCEEDS (logs, runs anyway) and still
-    // reserves budget for the call that will run.
-    let (outcome, reserved) = guardian_gate(
-        &guardian,
-        &turns,
-        &key,
-        "disconnect_provider",
-        SecurityLabels::IRREVERSIBLE,
-        true,
-    );
-    assert_eq!(outcome, GateOutcome::Proceed);
-    assert!(reserved);
 }
 
 // #10: the block the chokepoint records and the turn's tool loop consumes so one
@@ -302,7 +258,6 @@ fn a_block_stops_the_turn_committing_through_the_real_gate_and_store() {
     for (tool, labels, writes) in [
         ("set_goal", SecurityLabels::empty(), true),
         ("disconnect_provider", SecurityLabels::IRREVERSIBLE, false),
-        ("send_email", SecurityLabels::EXTERNAL_SEND, false),
     ] {
         assert_eq!(
             gate(tool, labels, writes),
@@ -316,27 +271,4 @@ fn a_block_stops_the_turn_committing_through_the_real_gate_and_store() {
         gate("get_connection_status", SecurityLabels::empty(), false),
         (GateOutcome::Proceed, true)
     );
-}
-
-/// Observe logs the would-deny and runs the call, so it never latches: the next
-/// call gets the same answer it would have had with no earlier flag.
-#[test]
-fn observe_never_latches_a_turn() {
-    let guardian = Guardian::new(GuardianPolicy {
-        mode: GuardianMode::Observe,
-        max_destructive_per_turn: 0,
-        ..enforce_policy()
-    });
-    let turns = GuardianTurns::new();
-    let key = TurnKey::new(None, "unlatched-turn");
-    let (flagged, _) = guardian_gate(
-        &guardian,
-        &turns,
-        &key,
-        "disconnect_provider",
-        SecurityLabels::IRREVERSIBLE,
-        false,
-    );
-    assert_eq!(flagged, GateOutcome::Proceed);
-    assert!(!peek(&turns, &key, TurnState::is_blocked));
 }

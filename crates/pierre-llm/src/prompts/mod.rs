@@ -141,10 +141,16 @@ pub const PERSONA_STYLE_EDITOR_PROMPT: &str = system::PERSONA_STYLE_EDITOR;
 /// local detector can. `{{MESSAGE}}` is the message's opening excerpt.
 pub const LANGUAGE_CLASSIFICATION_PROMPT: &str = system::LANGUAGE_CLASSIFICATION;
 
+/// Instructs the call that checks a group reply's claims about one peer
+/// against the turn's evidence. `{{EVIDENCE}}`, `{{REPLY}}` and `{{PEER}}` are
+/// filled by the caller; the answer is `{"unsupported": [...]}`.
+pub const PEER_CLAIM_VERIFIER_PROMPT: &str = system::PEER_CLAIM_VERIFIER;
+
 /// Viz-repair prompt.
 ///
-/// Instructs the single re-ask that corrects `dravr-viz` blocks the schema
-/// refused. `{{RULES}}` is the per-block refusal reasons.
+/// Mirrors the catalogue's `viz_repair` key so the registry seeds every key
+/// the manifest publishes. No call site reads it: a chart the schema refuses
+/// is dropped, not repaired (carnet#1471). It leaves with the catalogue entry.
 pub const VIZ_REPAIR_PROMPT: &str = system::VIZ_REPAIR;
 
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.

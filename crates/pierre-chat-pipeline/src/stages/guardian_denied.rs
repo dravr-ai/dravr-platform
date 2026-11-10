@@ -227,7 +227,7 @@ mod tests {
         let registry = Arc::new(MessagingStringsRegistry::new());
         let mut result = loop_result(Some(GuardianDenial {
             tool_name: "disconnect_provider".to_owned(),
-            reason: "egress_forbidden".to_owned(),
+            reason: "budget_exceeded".to_owned(),
             committed: Vec::new(),
             unconfirmed: Vec::new(),
         }));

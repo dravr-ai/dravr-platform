@@ -129,7 +129,7 @@ pub struct AuthRecovery {
     /// underneath the offer and still owes every content-aware stage below.
     /// Also false on a hard signal whose mint failed: that reply names the
     /// dropped provider and carries no link, so it stays on the ordinary path
-    /// and the identity re-ask and post-processing both get their say over it.
+    /// and post-processing, the identity withhold included, gets its say over it.
     pub owns_reply: bool,
 }
 
@@ -387,8 +387,8 @@ fn parse_turn_user_id(raw: &str) -> Option<Uuid> {
 /// No [`ReconnectPrompt`]: there is no URL for a surface to draw a control
 /// around, and a control that goes nowhere is worse than the sentence.
 /// `owns_reply: false` whichever standing this is: a linkless sentence is not
-/// a finished turn — the bounded identity re-ask, then post-processing with
-/// its content blocks and guardrails, are what shape a reply the
+/// a finished turn — post-processing, with its identity withhold, content
+/// blocks and guardrails, is what shapes a reply the
 /// short-circuit hands out verbatim.
 fn deliver_linkless_sentence(
     deps: &AuthRecoveryDeps<'_>,

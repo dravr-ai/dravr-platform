@@ -213,6 +213,7 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "memory_extraction",
     "messaging_context",
     "outcome_judge",
+    "peer_claim_verifier",
     "persona_style_editor",
     "pierre_system",
     "platform_contract",

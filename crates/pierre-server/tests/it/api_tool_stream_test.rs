@@ -20,7 +20,7 @@
 //!   fragment is gone before the tail's reply arrives;
 //! - a refusal takes back what it streamed;
 //! - over real HTTP, the deltas ride the turn body as `delta` frames, and a
-//!   reply a later check replaces (an identity break re-asked away) is taken
+//!   reply a later check replaces (an identity break withheld) is taken
 //!   back with a `retract` frame before `done`;
 //! - over real HTTP, each tool call the loop runs rides the body as a step —
 //!   a `progress` frame when it starts and one when it completes — before the
@@ -101,9 +101,9 @@ const fn reply(text: &'static str, close: Close) -> Reply {
 }
 
 /// An Anthropic-API-shaped tier streaming its script in order, whatever the
-/// model, and answering every plain completion with `fallback` — the identity
-/// re-ask and the pipeline's other single-shot calls ask it that way, so they
-/// never consume the script the tool loop streams.
+/// model, and answering every plain completion with `fallback` — the
+/// pipeline's single-shot calls ask it that way, so they never consume the
+/// script the tool loop streams.
 struct ScriptedStream {
     name: &'static str,
     script: Mutex<VecDeque<Reply>>,
@@ -591,8 +591,9 @@ async fn an_anthropic_turn_streams_delta_frames_that_spell_the_persisted_reply()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_a_later_check_replaces_is_retracted_before_done() {
-    // The streamed reply breaks character; the identity re-ask (a plain
-    // completion, answered by the tier's fallback) replaces it.
+    // The streamed reply breaks character; the response boundary withholds it
+    // and the withhold copy replaces it. Nothing re-asks the model: were a
+    // plain completion sent, the tier's fallback would answer GREETING.
     let tier = ScriptedStream::new(
         "anthropic",
         &[reply(LEAKED_REPLY, Close::Answers)],
@@ -611,7 +612,11 @@ async fn a_reply_a_later_check_replaces_is_retracted_before_done() {
         "the replaced draft is taken back before the turn ends: {frames:?}"
     );
     let reply = delivered(&frames);
-    assert_eq!(reply, GREETING, "the re-ask's clean reply is delivered");
+    assert_ne!(reply, GREETING, "the withheld reply is not re-asked");
+    assert!(
+        !reply.trim().is_empty() && !reply.contains("Copilot"),
+        "the withhold copy is delivered, never the leaked draft: {reply:?}"
+    );
     assert!(
         bubble(&events).is_empty(),
         "nothing of the leaked draft is left on screen when `done` paints the reply"

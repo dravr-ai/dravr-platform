@@ -317,16 +317,20 @@ fn test_settings_guardian_set_help_lists_every_policy_flag() {
 
     assert_eq!(exit_code, 0, "Guardian set help should exit with 0");
     for flag in [
-        "--mode",
         "--max-destructive-per-turn",
         "--max-writes-per-turn",
         "--clear",
-        "--acknowledge-impact",
         "--dry-run",
     ] {
         assert!(stdout.contains(flag), "set help should list {flag}");
     }
-    for removed in ["--tainted-destructive", "--plan-mode", "--external-send"] {
+    for removed in [
+        "--mode",
+        "--acknowledge-impact",
+        "--tainted-destructive",
+        "--plan-mode",
+        "--external-send",
+    ] {
         assert!(!stdout.contains(removed), "{removed} went with its rule");
     }
 }

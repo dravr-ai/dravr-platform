@@ -46,37 +46,24 @@ impl<'de> Deserialize<'de> for ExpectedRevision {
 
 /// Body of a refused save.
 #[derive(Debug, Serialize)]
-struct SettingRefusal<'text, I> {
+struct SettingRefusal<'text> {
     /// Stable identifier for a client to branch on.
     #[serde(rename = "code")]
     refusal_code: &'text str,
     /// What was refused and the next action.
     message: &'text str,
-    /// The high-impact edits to acknowledge, when that is the refusal.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    impacted_fields: Vec<I>,
 }
 
-/// A refusal listing the edits it is about.
-pub(crate) fn impact_refusal<I: Serialize>(
-    code: &str,
-    message: &str,
-    impacted_fields: Vec<I>,
-) -> Response {
+/// The save's base is missing or no longer the row's.
+pub(crate) fn stale_refusal(code: &str, message: &str) -> Response {
     (
         StatusCode::CONFLICT,
         Json(SettingRefusal {
             refusal_code: code,
             message,
-            impacted_fields,
         }),
     )
         .into_response()
-}
-
-/// The save's base is missing or no longer the row's.
-pub(crate) fn stale_refusal(code: &str, message: &str) -> Response {
-    impact_refusal::<()>(code, message, Vec::new())
 }
 
 /// The save's body did not parse: broken JSON, a wrong content type, or a value out
@@ -84,10 +71,9 @@ pub(crate) fn stale_refusal(code: &str, message: &str) -> Response {
 pub(crate) fn malformed_refusal(code: &str, setting: &str, rejection: &JsonRejection) -> Response {
     (
         rejection.status(),
-        Json(SettingRefusal::<()> {
+        Json(SettingRefusal {
             refusal_code: code,
             message: &format!("{setting} was not saved: {}", rejection.body_text()),
-            impacted_fields: Vec::new(),
         }),
     )
         .into_response()

@@ -40,7 +40,7 @@ mod capability_recovery {
         TokenUsage,
     };
     use pierre_core::models::ConnectionType;
-    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus, WITHHELD_REPLY_FINISH_REASON};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
@@ -979,10 +979,8 @@ mod capability_recovery {
 
     /// Reproduces the carnet#141 incident shape. The main completion
     /// fabricates the access denial; the recovery re-ask (recognised by
-    /// [`REASK_MARKER`]) answers cleanly but leaks the model identity; every
-    /// later completion re-samples the original denial — the identity re-ask
-    /// replays the PRE-recovery `llm_messages`, so no marker distinguishes it
-    /// from the main turn, only the call order the counter records.
+    /// [`REASK_MARKER`]) answers cleanly but leaks the model identity; any
+    /// other completion would re-sample the original denial.
     struct ClaimLeakThenClaimMockProvider {
         /// Shared with the test body (the provider itself is handed to the
         /// harness as a trait object), like `ScriptedGroupLlm::seen_requests`.
@@ -995,7 +993,7 @@ mod capability_recovery {
             "claim_leak_then_claim_mock"
         }
         fn display_name(&self) -> &'static str {
-            "Claim-leak-then-claim Mock LLM (reinstated-denial e2e)"
+            "Claim-leak-then-claim Mock LLM (recovered-leak withhold e2e)"
         }
         fn capabilities(&self) -> LlmCapabilities {
             LlmCapabilities::SYSTEM_MESSAGES
@@ -1038,18 +1036,15 @@ mod capability_recovery {
     }
 
     /// carnet#141: the recovery stage disproves the denial and installs a
-    /// replacement built on the verification payload — which lives only in the
-    /// stage's own re-ask request, never in `llm_messages`. When that
-    /// replacement leaks the model identity, the identity re-ask re-samples
-    /// over the PRE-recovery messages — without the fetched evidence — and
-    /// accepts anything identity-clean, here the very denial the fetch just
-    /// disproved. Delivery stays honest (the athlete reads what the model
-    /// said), but the row must carry the no-replay stamp: without the recovery
-    /// stamp net this turn persists `finish_reason: "stop"` and the disproven
-    /// denial replays into every later prompt as established fact.
+    /// replacement that leaks the model identity. The leak is a reply a model
+    /// wrote, so it reaches the response boundary like any other and is
+    /// withheld there. Before carnet#1471 an identity re-ask re-sampled it over
+    /// the PRE-recovery messages and could bring back the very denial the fetch
+    /// had disproved; with the re-ask gone, neither the leak nor the denial is
+    /// delivered, and the row is stamped withheld so neither ever replays.
     #[tokio::test]
     #[serial]
-    async fn a_denial_reinstated_by_the_identity_reask_is_stamped() {
+    async fn a_leak_in_the_recovery_replacement_is_withheld() {
         let scraper_url = spawn_mock_scraper().await;
         let completions = Arc::new(AtomicUsize::new(0));
         let mock = Arc::new(ClaimLeakThenClaimMockProvider {
@@ -1063,7 +1058,7 @@ mod capability_recovery {
         .unwrap();
         let (user_id, tenant_id) = create_user_with_connection(
             &resources,
-            "capability-reinstated@example.com",
+            "capability-recovered-leak@example.com",
             "sciotte",
             &ConnectionType::Manual,
         )
@@ -1074,8 +1069,8 @@ mod capability_recovery {
             &resources,
             tenant_id,
             user_id,
-            "U_CAP_REINSTATED",
-            "capability_reinstated_secret",
+            "U_CAP_RECOVERED_LEAK",
+            "capability_recovered_leak_secret",
             "Propose-moi une sortie basée sur mes activités récentes",
         )
         .await;
@@ -1084,29 +1079,25 @@ mod capability_recovery {
             .await
             .expect("pipeline did not persist an assistant chat_messages row within 30s");
 
-        // Honest delivery is unchanged: the identity-clean re-sample IS the
-        // reply the athlete reads, and the leak never is.
-        assert!(
-            reply.contains("problème de connexion"),
-            "the identity re-ask's clean re-sample must stay the delivered reply, got: {reply:?}"
-        );
         assert!(
             !reply.contains("GitHub Copilot"),
             "the model-identity leak must never be delivered, got: {reply:?}"
         );
         assert!(
-            completions.load(Ordering::SeqCst) >= 3,
-            "main turn, recovery re-ask and identity re-ask must all have completed; saw {}",
+            !reply.contains("problème de connexion"),
+            "the disproven denial must not come back in place of the leak, got: {reply:?}"
+        );
+        assert!(
+            completions.load(Ordering::SeqCst) >= 2,
+            "main turn and recovery re-ask must both have completed; saw {}",
             completions.load(Ordering::SeqCst)
         );
-        // The reinstated denial contradicts the verification fetch that just
-        // succeeded, so it must never replay into a later prompt.
         assert_eq!(
             persisted_finish_reason(&resources, tenant_id)
                 .await
                 .as_deref(),
-            Some("capability_claim_unverified"),
-            "a denial reinstated by the identity re-ask must carry the no-replay stamp"
+            Some(WITHHELD_REPLY_FINISH_REASON),
+            "a leaking recovery replacement must be withheld at the boundary"
         );
     }
 

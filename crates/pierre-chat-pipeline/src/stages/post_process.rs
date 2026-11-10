@@ -7,12 +7,12 @@
 use pierre_core::models::{AgentRuntimeContext, CoachingPersona};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
-use tracing::{info, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::envelope::VerdictChip;
 use crate::hooks::PipelineHooks;
-use crate::recorders::{turn_call_recorder, PERSONA_REWRITE_CALL_TYPE, VIZ_REPAIR_CALL_TYPE};
+use crate::recorders::{turn_call_recorder, PERSONA_REWRITE_CALL_TYPE};
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
@@ -237,88 +237,12 @@ async fn apply_style_stages(
     .await
 }
 
-/// Borrowed inputs to [`repaired_extraction`], bundled to stay within the
-/// argument-count lint. The route-track map rides separately because the
-/// repair pass fills it.
-struct RepairInputs<'a> {
-    /// Shared pipeline context.
-    ctx: &'a ChatPipelineContext,
-    /// The turn being answered, for the track read's tenant and user scope.
-    input: &'a TurnInput,
-    /// Visual kinds this conversation may draw.
-    granted: &'a [String],
-    /// Tools that actually ran, for the attribution gate.
-    tools_called: &'a [String],
-    /// The reply as the model wrote it, fences and all.
-    raw_content: &'a str,
-    /// What the first extraction produced, which the repair must beat.
-    current: &'a viz_blocks::VizExtraction,
-    /// Model id the turn is pinned to.
-    active_model: &'a str,
-}
-
-/// One bounded re-ask for a reply whose blocks the schema refused.
-///
-/// `Some` only for a repair that is strictly better than what we already had:
-/// it recovered at least one block *and* left fewer refusals behind. Anything
-/// else — no provider, a failed or empty completion, a repair that traded one
-/// refusal for another — yields `None` and the original extraction stands, so
-/// this can only add a chart, never cost the athlete prose they would have got.
-async fn repaired_extraction(
-    args: RepairInputs<'_>,
-    tracks: &mut viz_route::RouteTracks,
-) -> Option<viz_blocks::VizExtraction> {
-    let RepairInputs {
-        ctx,
-        input,
-        granted,
-        tools_called,
-        raw_content,
-        current,
-        active_model,
-    } = args;
-    if current.refusals.is_empty() {
-        return None;
-    }
-    let provider = ctx.chat_provider.as_ref()?;
-    let recorder = turn_call_recorder(ctx, input, VIZ_REPAIR_CALL_TYPE);
-    let repaired = viz_blocks::repair_refused_blocks(
-        provider,
-        &ctx.prompt_registry,
-        raw_content,
-        &current.refusals,
-        active_model,
-        Some(&recorder),
-    )
-    .await?;
-    // A repaired reply may name a route the first pass never read. The map is
-    // shared, so the ones it already holds cost nothing here.
-    viz_route::read_route_tracks(ctx, input, granted, tools_called, &repaired, tracks).await;
-    let second =
-        viz_blocks::extract_viz_blocks(&ctx.viz_schemas, granted, tools_called, tracks, &repaired)?;
-    if second.blocks.len() > current.blocks.len() && second.refusals.len() < current.refusals.len()
-    {
-        info!(
-            recovered = second.blocks.len() - current.blocks.len(),
-            still_refused = second.refusals.len(),
-            "viz-blocks: repair re-ask recovered a block the schema had refused"
-        );
-        return Some(second);
-    }
-    info!(
-        still_refused = second.refusals.len(),
-        "viz-blocks: repair re-ask did not improve on the original; keeping it"
-    );
-    None
-}
-
 async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     agent_ctx: Option<&AgentRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
-    active_model: &str,
 ) -> (String, Option<String>, usize) {
     // Extraction is channel-agnostic. Messaging used to short-circuit here,
     // when a chart had nowhere to go on a channel that cannot render one
@@ -346,7 +270,10 @@ async fn lift_viz_blocks(
     let mut tracks = viz_route::RouteTracks::new();
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
         .await;
-    let Some(mut extraction) = viz_blocks::extract_viz_blocks(
+    // A refused block is dropped from the reply and the prose stands alone:
+    // the extraction already removed its fence and logged why. It is not
+    // re-asked — over 30 days of dev traffic a repair never ran.
+    let Some(extraction) = viz_blocks::extract_viz_blocks(
         &ctx.viz_schemas,
         granted,
         tools_called,
@@ -356,26 +283,6 @@ async fn lift_viz_blocks(
         return (raw_content, None, 0);
     };
 
-    // A refused block is the failure the athlete feels: they asked for a chart
-    // and the prose arrives without one, with nothing admitting a visual was
-    // withheld. The refusals now name the offending field, so the model can be
-    // handed something it can act on — one re-ask, fail-open.
-    if let Some(better) = repaired_extraction(
-        RepairInputs {
-            ctx,
-            input,
-            granted,
-            tools_called,
-            raw_content: &raw_content,
-            current: &extraction,
-            active_model,
-        },
-        &mut tracks,
-    )
-    .await
-    {
-        extraction = better;
-    }
     // Re-encoding cannot realistically fail for values that were just parsed,
     // but if it did, keeping the marker text without the blocks would leave the
     // athlete reading a bare `⟦viz:0⟧`.
@@ -512,15 +419,8 @@ pub(crate) async fn post_process_assistant_reply(
     }
 
     // Stage 15.55: Inline visual blocks.
-    let (raw_content, content_blocks, block_count) = lift_viz_blocks(
-        ctx,
-        input,
-        agent_ctx,
-        tools_called,
-        raw_content,
-        active_model,
-    )
-    .await;
+    let (raw_content, content_blocks, block_count) =
+        lift_viz_blocks(ctx, input, agent_ctx, tools_called, raw_content).await;
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le
