@@ -390,7 +390,11 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-server:
     name: Publish Server Image
-    runs-on: ubuntu-latest
+    # The binaries built here ship on debian:trixie-slim (glibc 2.41). ubuntu-latest is
+    # 26.04, whose glibc 2.43 the binary then requires, and the runtime check
+    # in server-binaries fails it; 24.04 builds against glibc 2.39. The image
+    # is in the cache key too, so no build tree from 26.04 is restored.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60  # binaries, image and Trivy, p90 29 min
     needs: resolve-sha
     # The rollback verdict is honoured here and in publish-frontend only. deploy-dev
@@ -512,7 +516,7 @@ jobs:
         if: steps.ci-binaries.outputs.found != 'true'
         uses: ./.github/actions/rust-setup
         with:
-          shared-key: release
+          shared-key: release-ubuntu-24.04
           free-disk-space: 'true'
 
       # Restores the rust-cache ci-backend.yml's release-binary saves under the

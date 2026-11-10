@@ -5,7 +5,7 @@ name: Server Binaries
 description: >-
   Builds pierre-mcp-server (and optionally pierre-cli) with the release-lto profile and the
   production feature set, then stages them in one directory for `docker build --build-context`.
-  The calling job runs ./.github/actions/rust-setup with `shared-key: release` first, in a job
+  The calling job runs ./.github/actions/rust-setup with `shared-key: release-ubuntu-24.04` first, in a job
   whose env carries ci-backend.yml's COPILOT_SKIP_CLI_DOWNLOAD, CARGO_TERM_COLOR and
   CARGO_NET_GIT_FETCH_WITH_CLI.
 
@@ -38,7 +38,7 @@ runs:
       shell: bash
       run: |
         if ! grep -q 'fuse-ld=mold' .cargo/config.toml 2>/dev/null; then
-          echo "::error::server-binaries needs ./.github/actions/rust-setup (shared-key: release) to run first in this job: .cargo/config.toml carries no mold link flag"
+          echo "::error::server-binaries needs ./.github/actions/rust-setup (shared-key: release-ubuntu-24.04) to run first in this job: .cargo/config.toml carries no mold link flag"
           exit 1
         fi
 

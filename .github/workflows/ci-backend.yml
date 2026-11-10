@@ -1518,7 +1518,11 @@ jobs:
   release-binary:
     name: Release Binary Validation
     timeout-minutes: 90  # a full release build plus the size check
-    runs-on: ubuntu-latest
+    # The binary ships on debian:trixie-slim (glibc 2.41). ubuntu-latest is
+    # 26.04, whose glibc 2.43 the binary then requires, and the runtime check
+    # in server-binaries fails it; 24.04 builds against glibc 2.39. The image
+    # is in the cache key too, so no build tree from 26.04 is restored.
+    runs-on: ubuntu-24.04
     # Not behind clippy. Chained, the backend's wall was clippy's 8.5 min plus
     # this job's 18 (median, Oct 22-29), and Backend (Rust) was the last lane
     # to finish on 54 of 147 green commits. In parallel it costs one release
@@ -1549,7 +1553,7 @@ jobs:
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
         with:
-          shared-key: release
+          shared-key: release-ubuntu-24.04
           free-disk-space: 'true'
 
       - name: Build release binary
