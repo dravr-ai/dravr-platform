@@ -565,11 +565,17 @@ mod reset_locale {
             "the archived thread stays readable"
         );
         assert_eq!(
-            chat.list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
-                .await
-                .unwrap()
-                .items
-                .len(),
+            chat.list_conversations(
+                &user,
+                tenant,
+                DEFAULT_MAX_ACTIVE_CONVERSATIONS + 1,
+                0,
+                TransportPolicy::FirstPartyOnly
+            )
+            .await
+            .unwrap()
+            .items
+            .len(),
             cap + 1,
             "the archived thread is still listed beside the fresh one"
         );

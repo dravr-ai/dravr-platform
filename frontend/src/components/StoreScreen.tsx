@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
-import { chatApi, storeApi, coachesApi } from '../services/api';
+import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { SearchField, TabHeader } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
@@ -16,6 +16,8 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
+import { openNewChat } from './home/openNewChat';
+import { conversationCapOf } from './chat/conversationCap';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
 import {
@@ -270,24 +272,26 @@ export default function StoreScreen({
     },
   });
 
-  // t('discover.openChat') on the post-install hint: a new topic in the
-  // athlete's personal thread, bound to the agent the install put on the
-  // team, then Home. Binding it with the topic is what makes the server post
-  // the agent's welcome before the thread is read. The store refuses to
-  // install a listing twice, so the hint only ever holds a fresh install.
+  // t('discover.openChat') on the post-install hint: a new chat bound to the
+  // agent the install put on the team, then Home — beside the athlete's
+  // personal thread, or that thread itself when it is their first chat
+  // (carnet#1473). Binding the agent with the chat is what makes the server
+  // post its welcome before the thread is read. The store refuses to install
+  // a listing twice, so the hint only ever holds a fresh install.
   const openChat = useMutation({
-    mutationFn: (agentId: string) => chatApi.openPersonalTopic({ agent_id: agentId }),
-    onSuccess: ({ conversation }) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(conversation.id) });
-      // The topic may be what opened the athlete's thread.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
+    mutationFn: (agentId: string) => openNewChat(queryClient, { agent_id: agentId }),
+    onSuccess: ({ id }) => {
       setActionError(null);
       setInstalledAgent(null);
-      onNavigate?.(homeConversationRoute(conversation.id));
+      onNavigate?.(homeConversationRoute(id));
     },
     onError: (error: Error) => {
-      setActionError(error.message || t('app.couldNotOpenChat'));
+      const cap = conversationCapOf(error);
+      setActionError(
+        cap
+          ? t('chat.conversationLimitBody', { limit: cap.limit ?? '' })
+          : error.message || t('app.couldNotOpenChat'),
+      );
     },
   });
 

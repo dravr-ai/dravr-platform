@@ -19,7 +19,11 @@ export interface TodayActions {
    * bubble shows as `display` until the turn echoes the words it stands for.
    */
   send: (text: string, display: string) => void;
-  /** Open the personal thread where one of its topics starts. */
+  /**
+   * Open a conversation where it starts: the personal thread at one of its
+   * topics' dividers, or from its first row when `dividerId` is `null` — the
+   * new chat a Your team row opened.
+   */
   openTopic: (conversationId: string, dividerId: string | null) => void;
   /** Step out of the Today sheet, before something opens over the page. */
   dismiss: () => void;

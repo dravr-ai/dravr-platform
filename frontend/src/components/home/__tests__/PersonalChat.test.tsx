@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Home's personal surface — Today beside the thread, its folded line, the history, where a Today tap drafts, and the empty thread's starters
-// ABOUTME: Drives the PersonalChat host against mocked chat reads; Today is a stand-in the test hands it
+// ABOUTME: Tests Home's personal surface — Today beside the thread, its folded line, the history, where a Today tap drafts, the empty thread's starters
+// ABOUTME: and what "+" opens: a new conversation beside the personal thread, or that thread itself when the athlete has none (carnet#1473)
 
 import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -19,6 +19,7 @@ const getConversationMessages = vi.fn();
 const getConversationVerdicts = vi.fn();
 const createConversation = vi.fn();
 const openPersonalTopic = vi.fn();
+const getPersonalConversation = vi.fn();
 const markConversationRead = vi.fn();
 const sendTurn = vi.fn();
 const listStarters = vi.fn();
@@ -34,6 +35,7 @@ vi.mock('../../../services/api', () => ({
     getConversationVerdicts: (...a: unknown[]) => getConversationVerdicts(...a),
     createConversation: (...a: unknown[]) => createConversation(...a),
     openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
+    getPersonalConversation: (...a: unknown[]) => getPersonalConversation(...a),
     markConversationRead: (...a: unknown[]) => markConversationRead(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
     listStarters: (...a: unknown[]) => listStarters(...a),
@@ -153,6 +155,8 @@ describe('Home — the personal surface', () => {
     markConversationRead.mockResolvedValue(undefined);
     listCoaches.mockResolvedValue({ agents: [] });
     createConversation.mockResolvedValue({ id: 'conv-new', title: 'Chat' });
+    // The athlete's personal thread is conv-1, the thread Home opens on.
+    getPersonalConversation.mockResolvedValue({ id: 'conv-1', title: 'Bromont analysis', personal: true });
     openPersonalTopic.mockResolvedValue({
       conversation: { id: 'conv-new', title: 'Dravr', personal: true },
       divider: null,
@@ -264,7 +268,8 @@ describe('Home — the personal surface', () => {
     expect(screen.queryByTestId('home-today-panel')).toBeNull();
   });
 
-  it('offers the starters ranked for the athlete with no thread open, and a tap opens a topic on its postback', async () => {
+  it('offers the starters ranked for the athlete with no thread yet, and a tap opens their personal thread on its postback', async () => {
+    getPersonalConversation.mockResolvedValue(null);
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -286,8 +291,8 @@ describe('Home — the personal surface', () => {
 
     await user.click(within(empty).getByTestId('chat-empty-starter-about_me_more'));
 
-    // The athlete speaks first: the topic opens in the personal thread without
-    // a welcome, so the same starters are not offered again over the answer.
+    // The athlete's first chat opens their personal thread, and they speak
+    // first: no welcome offers the same starters again over the answer.
     await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
     expect(openPersonalTopic.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
     expect(createConversation).not.toHaveBeenCalled();
@@ -383,23 +388,89 @@ describe('Home — the personal surface', () => {
     await waitFor(() => expect(screen.getByTestId('thread-title')).toHaveTextContent('Bromont analysis'));
   });
 
-  // Home's "+" opens a topic in the personal thread, which no cap refuses —
-  // the cap's wording is pinned where a room is created (ChatComposeMenu).
-  describe('when a new chat cannot be opened', () => {
-    async function startNewChat() {
+  // carnet#1473: "+" is a new conversation beside the personal thread, never a
+  // topic in it — each agent keeps its own thread, the earlier ones in History.
+  describe('"+" → New chat', () => {
+    async function startNewChat(selected: string | null = 'conv-1', onSelectConversation = vi.fn()) {
       const user = userEvent.setup();
-      renderHome('conv-1');
+      renderHome(selected, { onSelectConversation });
       const [menuButton] = await screen.findAllByRole('button', { name: 'New' });
       await user.click(menuButton);
       await user.click(await screen.findByRole('menuitem', { name: 'New chat' }));
+      return { user, onSelectConversation };
     }
+
+    it('creates a new conversation and opens it, leaving the personal thread as it was', async () => {
+      const { onSelectConversation } = await startNewChat();
+
+      await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+      expect(createConversation).toHaveBeenCalledTimes(1);
+      // No agent named: the server binds the athlete's own; the agent welcomes them.
+      expect(createConversation.mock.calls[0][0]).toEqual({ athlete_speaks_first: undefined });
+      expect(openPersonalTopic).not.toHaveBeenCalled();
+    });
+
+    it('creates one from History\'s "+" too', async () => {
+      const onSelectConversation = vi.fn();
+      const user = userEvent.setup();
+      renderHome('conv-1', { onSelectConversation });
+      await user.click(await screen.findByTestId('home-history-button'));
+      await user.click(await screen.findByTestId('home-history-new'));
+
+      await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+      expect(createConversation).toHaveBeenCalledTimes(1);
+      expect(openPersonalTopic).not.toHaveBeenCalled();
+    });
+
+    it('waits for the personal thread to be found before choosing, so an athlete who has one never gets a topic', async () => {
+      let answer: (value: unknown) => void = () => {};
+      getPersonalConversation.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      const onSelectConversation = vi.fn();
+      const user = userEvent.setup();
+      renderHome(null, { onSelectConversation, resolving: true });
+      await user.click(await screen.findByTestId('home-history-button'));
+      await user.click(await screen.findByTestId('home-history-new'));
+
+      expect(createConversation).not.toHaveBeenCalled();
+      expect(openPersonalTopic).not.toHaveBeenCalled();
+      answer({ id: 'conv-1', personal: true });
+
+      await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+      expect(openPersonalTopic).not.toHaveBeenCalled();
+    });
+
+    it('opens the personal thread itself for an athlete who has none yet', async () => {
+      getPersonalConversation.mockResolvedValue(null);
+      const { onSelectConversation } = await startNewChat(null);
+
+      await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+      expect(openPersonalTopic).toHaveBeenCalledTimes(1);
+      expect(createConversation).not.toHaveBeenCalled();
+    });
 
     function refusedWith(details: Record<string, unknown>, code: string) {
       return { response: { status: 429, data: { code, message: 'refused', details } } };
     }
 
+    it('says the conversation cap is reached when the server refuses at max_active_conversations', async () => {
+      createConversation.mockRejectedValue(
+        refusedWith({ limit_type: 'max_active_conversations', current: 20, limit: 20 }, 'QuotaExceeded'),
+      );
+
+      const { onSelectConversation } = await startNewChat();
+
+      expect(await screen.findByText('Conversation limit reached')).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "You've reached your limit of 20 active conversations. Delete one from the sidebar to start a new chat.",
+        ),
+      ).toBeInTheDocument();
+      expect(onSelectConversation).not.toHaveBeenCalled();
+      expect(openPersonalTopic).not.toHaveBeenCalled();
+    });
+
     it('reads a spent request budget as the usage quota, not as the conversation cap', async () => {
-      openPersonalTopic.mockRejectedValue(
+      createConversation.mockRejectedValue(
         refusedWith(
           { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
           'RateLimitExceeded',
@@ -416,11 +487,10 @@ describe('Home — the personal surface', () => {
       expect(
         screen.queryByText('Something went wrong creating the conversation. Please try again.'),
       ).toBeNull();
-      expect(createConversation).not.toHaveBeenCalled();
     });
 
     it('falls back to the create-failed sentence for any other failure', async () => {
-      openPersonalTopic.mockRejectedValue({
+      createConversation.mockRejectedValue({
         response: { status: 409, data: { code: 'ResourceAlreadyExists' } },
       });
 

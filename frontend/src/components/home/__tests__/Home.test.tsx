@@ -29,6 +29,8 @@ const api = vi.hoisted(() => ({
   listAgents: vi.fn(),
   getPersonalConversation: vi.fn(),
   openPersonalTopic: vi.fn(),
+  createConversation: vi.fn(),
+  getConversations: vi.fn(),
   getOnboardingStatus: vi.fn(),
 }));
 
@@ -49,7 +51,12 @@ vi.mock('../../../services/api', () => ({
   gettingStartedApi: { get: api.getGettingStarted },
   providersApi: { getProvidersStatus: api.getProvidersStatus },
   coachesApi: { list: api.listAgents },
-  chatApi: { getPersonalConversation: api.getPersonalConversation, openPersonalTopic: api.openPersonalTopic },
+  chatApi: {
+    getPersonalConversation: api.getPersonalConversation,
+    openPersonalTopic: api.openPersonalTopic,
+    createConversation: api.createConversation,
+    getConversations: api.getConversations,
+  },
   userApi: { getOnboardingStatus: api.getOnboardingStatus },
   // The route-marker beta is off: these suites pin the map without its markers.
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
@@ -145,6 +152,7 @@ beforeEach(() => {
   api.getOnboardingStatus.mockResolvedValue({ pillars_covered: 2, pillars_total: 7 });
   api.listAgents.mockResolvedValue({ agents: [RECOVERY, NOT_ON_TEAM, FUELLING, ENDURANCE] });
   api.getPersonalConversation.mockResolvedValue({ id: 'conv-home', title: 'Home', agent_id: ENDURANCE.id });
+  api.getConversations.mockResolvedValue({ conversations: [], total: 0 });
   api.getRecentActivities.mockResolvedValue(recentResponse());
   api.getActivityRoute.mockResolvedValue({ route: routeView(), reason: null });
   api.getCalendar.mockImplementation(async (from: string, to: string) => calendarAnswer(from, to));
@@ -454,7 +462,47 @@ describe('Home — Your team', () => {
     expect(onNavigate.mock.calls).toEqual([['discover'], ['discover']]);
   });
 
-  it('opens a topic with the agent a row names', async () => {
+  // carnet#1473: a row is a new chat with that agent beside the personal
+  // thread, which keeps its own agent — never a topic rebinding it.
+  it('opens a new chat with the agent a row names, leaving the personal thread as it was', async () => {
+    api.createConversation.mockResolvedValue({ id: 'conv-fuel', title: 'Fuelling' });
+    const { actions } = renderHome();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
+    await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-fuel', null));
+    expect(api.createConversation).toHaveBeenCalledExactlyOnceWith({ agent_id: FUELLING.id });
+    expect(api.openPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  // carnet#1473, as a messenger opens a contact: a row lands back in the
+  // athlete's latest chat with that agent; only "+" always starts a new one.
+  it('reopens the latest chat with the agent a row names rather than starting another', async () => {
+    api.getConversations.mockResolvedValue({
+      conversations: [
+        { id: 'conv-fuel-old', agent_id: FUELLING.id, updated_at: '2026-11-01T10:00:00Z', message_count: 4 },
+        { id: 'conv-fuel-new', agent_id: FUELLING.id, updated_at: '2026-11-08T10:00:00Z', message_count: 2 },
+        {
+          id: 'conv-fuel-archived',
+          agent_id: FUELLING.id,
+          updated_at: '2026-11-09T10:00:00Z',
+          archived_at: '2026-11-09T11:00:00Z',
+          message_count: 1,
+        },
+        { id: 'conv-fuel-room', agent_id: FUELLING.id, group_id: 'g-1', updated_at: '2026-11-09T12:00:00Z', message_count: 9 },
+        { id: 'conv-recovery', agent_id: RECOVERY.id, updated_at: '2026-11-09T13:00:00Z', message_count: 3 },
+      ],
+      total: 5,
+    });
+    const { actions } = renderHome();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
+    await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-fuel-new', null));
+    expect(api.createConversation).not.toHaveBeenCalled();
+    expect(api.openPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  it('opens the personal thread with the agent a row names for an athlete who has none yet', async () => {
+    api.getPersonalConversation.mockResolvedValue(null);
     api.openPersonalTopic.mockResolvedValue({
       conversation: { id: 'conv-home', title: 'Home' },
       divider: { id: 'divider-7' },
@@ -462,8 +510,22 @@ describe('Home — Your team', () => {
     const { actions } = renderHome();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
-    expect(api.openPersonalTopic).toHaveBeenCalledExactlyOnceWith({ agent_id: FUELLING.id });
     await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-home', 'divider-7'));
+    expect(api.openPersonalTopic).toHaveBeenCalledExactlyOnceWith({ agent_id: FUELLING.id });
+    expect(api.createConversation).not.toHaveBeenCalled();
+  });
+
+  it('says the conversation cap is reached when a row cannot open its chat', async () => {
+    api.createConversation.mockRejectedValue({
+      response: { status: 429, data: { details: { limit_type: 'max_active_conversations', limit: 20 } } },
+    });
+    const { actions } = renderHome();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "You've reached your limit of 20 active conversations. Delete one from the sidebar to start a new chat.",
+    );
+    expect(actions.openTopic).not.toHaveBeenCalled();
   });
 
   it('offers Pick your team to an athlete with no team, and marks no lead it does not have', async () => {

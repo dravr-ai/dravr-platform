@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Today's Your team — the agent leading the athlete's thread, then the other agents on their team, and the way to Discover
-// ABOUTME: A row opens a topic with that agent; an athlete with no team is offered the onboarding picker, never a silent backfill (carnet#1098)
+// ABOUTME: A row reopens the athlete's latest chat with that agent, else a new one; an athlete with no team is offered the onboarding picker, never a silent backfill (carnet#1098)
 
 import { useMemo, useState } from 'react';
 import { clsx } from 'clsx';
@@ -12,7 +12,7 @@ import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { Agent } from '@pierre/shared-types';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
-import { chatApi, coachesApi, userApi } from '../../services/api';
+import { coachesApi, userApi } from '../../services/api';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { avatarShapeClass, avatarSlotClass } from '../chat/avatarSlots';
 import { Section } from '../ui/Section';
@@ -21,6 +21,8 @@ import { Sheet } from '../ui/Sheet';
 import { TeamPicker, type TeamChoice } from '../onboarding/TeamPicker';
 import { useTeamProposal } from '../onboarding/useTeamProposal';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
+import { conversationCapOf } from '../chat/conversationCap';
+import { openChatWithAgent } from './openNewChat';
 import type { TodayActions } from './personalToday';
 
 /** The agent list changes when the athlete adds or removes one, which invalidates it; the cache stays warm. */
@@ -73,7 +75,9 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const personal = usePersonalConversation();
-  const [openError, setOpenError] = useState(false);
+  // What a refused row says: the active-conversation cap, or that the chat
+  // could not be opened.
+  const [openError, setOpenError] = useState<string | null>(null);
   const agentsQuery = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
@@ -84,18 +88,21 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
     [agentsQuery.data, personal.agentId],
   );
 
-  // A row opens a fresh topic in the personal thread, bound to that agent —
-  // the same path Discover's "Open chat" takes — and lands on it.
-  const openTopic = useMutation({
-    mutationFn: (agentId: string) => chatApi.openPersonalTopic({ agent_id: agentId }),
-    onSuccess: ({ conversation, divider }) => {
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(conversation.id) });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
-      setOpenError(false);
-      actions.openTopic(conversation.id, divider?.id ?? null);
+  // A row opens the athlete's chat with that agent, as a messenger opens a
+  // contact: their latest conversation with it, else a new one beside the
+  // personal thread (carnet#1473) — and lands on it.
+  const openChat = useMutation({
+    mutationFn: (agentId: string) => openChatWithAgent(queryClient, agentId),
+    onSuccess: ({ id, dividerId }) => {
+      setOpenError(null);
+      actions.openTopic(id, dividerId);
     },
-    onError: () => setOpenError(true),
+    onError: (error) => {
+      const cap = conversationCapOf(error);
+      setOpenError(
+        cap ? t('chat.conversationLimitBody', { limit: cap.limit ?? '' }) : t('app.couldNotOpenChat'),
+      );
+    },
   });
 
   const findMore = (
@@ -141,8 +148,8 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
                   data-testid={isLead ? 'home-team-lead' : 'home-team-member'}
                   aria-label={t('home.team.openAgentAria', { agent: agent.title })}
                   className={ROW_CLASS}
-                  disabled={openTopic.isPending}
-                  onClick={() => openTopic.mutate(agent.id)}
+                  disabled={openChat.isPending}
+                  onClick={() => openChat.mutate(agent.id)}
                 >
                   <AgentAvatar agent={agent} />
                   <span className="min-w-0 flex-1">
@@ -175,7 +182,7 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
       )}
       {openError && (
         <p role="alert" className="mt-2 text-sm text-error">
-          {t('app.couldNotOpenChat')}
+          {openError}
         </p>
       )}
     </Section>

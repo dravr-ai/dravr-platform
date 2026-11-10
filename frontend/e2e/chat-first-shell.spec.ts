@@ -27,10 +27,11 @@ interface CreatedConversation {
   body: Record<string, unknown>;
 }
 
-/** Everything the shell put on the wire: conversations created, turns sent. */
+/** Everything the shell put on the wire: conversations created, turns sent, personal-thread topics opened. */
 interface ShellTraffic {
   created: CreatedConversation[];
   sent: string[];
+  topics: CreatedConversation[];
 }
 
 async function setupShellMocks(page: Page): Promise<ShellTraffic> {
@@ -215,8 +216,28 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
     });
   });
 
-  // Home's "+" opens a topic in the athlete's one thread (carnet#840): the
-  // thread the list holds, here conv-1.
+  // The new chat "+" creates beside the athlete's thread (carnet#1473): an
+  // empty transcript but for its agent's welcome.
+  await page.route('**/api/chat/conversations/conv-new/messages', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'msg-welcome',
+            conversation_id: 'conv-new',
+            role: 'assistant',
+            content: 'Hi, what shall we work on?',
+            created_at: '2026-08-20T11:00:00Z',
+          },
+        ],
+      }),
+    });
+  });
+
+  // The topic path is only an athlete's first chat, which opens their thread
+  // (carnet#840); with conv-1 in the list, "+" never takes it.
   const topics: CreatedConversation[] = [];
   await page.route('**/api/chat/personal/topics', async (route, request) => {
     topics.push({ body: request.postDataJSON() });
@@ -390,7 +411,7 @@ test.describe('Chat-first shell', () => {
     await expect(page.getByText('custom AI personas')).toHaveCount(0);
   });
 
-  test('the "+" on Home offers a new chat, a new group chat and adding someone, and opens a new topic in the athlete\'s thread', async ({ page }) => {
+  test('the "+" on Home offers a new chat, a new group chat and adding someone, and opens a new conversation beside the athlete\'s thread', async ({ page }) => {
     const { created, topics } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
@@ -407,10 +428,12 @@ test.describe('Chat-first shell', () => {
 
     await menu.getByRole('menuitem', { name: 'New chat' }).click();
 
-    // A new chat on Home is a topic in the athlete's one thread, never another thread.
-    await expect.poll(() => topics.length).toBe(1);
-    expect(created).toHaveLength(0);
-    await expect(page).toHaveURL(/#home\/chat\/conv-1$/);
+    // A new chat on Home is a conversation of its own, never a topic in the
+    // athlete's thread (carnet#1473): no divider, no other agent bound to it.
+    await expect.poll(() => created.length).toBe(1);
+    expect(topics).toHaveLength(0);
+    await expect(page).toHaveURL(/#home\/chat\/conv-new$/);
+    await expect(page.getByText('Hi, what shall we work on?')).toBeVisible();
   });
 
   test('"New group chat" asks for a name and sends /group create, creating no group itself', async ({ page }) => {

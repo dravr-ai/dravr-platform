@@ -297,7 +297,7 @@ interface MockedListRow {
   last_message?: { created_at?: string } | null;
 }
 
-/** The thread a mocked server forges when "+" finds the athlete has none. */
+/** The thread a mocked server forges when a first chat finds the athlete has none. */
 function mockForgedPersonalThread(): Record<string, unknown> {
   return {
     id: MOCK_FORGED_PERSONAL_ID,
@@ -449,7 +449,29 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   // Mock chat conversations endpoint. Rows carry the unified-list shape —
   // coach handle/title, group id/name, last_message and unread_count — so a
   // spec that overrides this with its own rows starts from the real contract.
-  await page.route('**/api/chat/conversations**', async (route) => {
+  // A POST creates a conversation as the server does — a new chat beside an
+  // athlete's personal thread (carnet#1473) — bound to the agent it names.
+  let created = 0;
+  await page.route('**/api/chat/conversations**', async (route, request) => {
+    if (request.method() === 'POST' && /\/api\/chat\/conversations$/.test(new URL(request.url()).pathname)) {
+      created += 1;
+      const body = (request.postDataJSON() ?? {}) as { agent_id?: string };
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: `conv-new-${created}`,
+          title: 'New chat',
+          agent_id: body.agent_id ?? null,
+          group_id: null,
+          message_count: 0,
+          total_tokens: 0,
+          created_at: '2026-10-01T09:00:00Z',
+          updated_at: '2026-10-01T09:00:00Z',
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -461,8 +483,9 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   // finds it: the thread flagged personal, else the newest one of their own the
   // list holds, else none — a look forges nothing, so Home opens on its empty
   // pane. The list is read through the page's own fetch, so a spec's list mock
-  // — registered after this one — is the list it adopts from. "+" opens a
-  // topic in that same thread, forging the one the server would when none.
+  // — registered after this one — is the list it adopts from. An athlete's
+  // first chat opens a topic, forging the thread the server would; once they
+  // have one, "+" creates a conversation beside it instead (carnet#1473).
   await page.route('**/api/chat/personal', async (route) => {
     await route.fulfill({
       status: 200,

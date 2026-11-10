@@ -1,5 +1,5 @@
-// ABOUTME: Handlers for /api/chat/personal — the caller's one personal thread, and the topics Home's "+" opens in it
-// ABOUTME: Resolved on the server (carnet#840): Home opens the thread it names, "+" divides it instead of forging another
+// ABOUTME: Handlers for /api/chat/personal — the caller's one personal thread, and the topics onboarding and a first chat open in it
+// ABOUTME: Resolved on the server (carnet#840): Home opens the thread it names; a later new chat is its own conversation (carnet#1473)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,9 +32,11 @@ use super::turn_response::message_response;
 /// The caller's personal thread: the designated one, else their newest
 /// in-app thread of their own, adopted now.
 ///
-/// `conversation` is `null` for an athlete who has none yet. Nothing is
+/// `conversation` is `null` for an athlete who has none yet. No thread is
 /// forged for a look: Home opens on its empty pane, and the first thing the
-/// athlete starts there — "+", a starter — opens the thread.
+/// athlete starts there — a new chat, a starter — opens the thread. A thread
+/// adopted with turns in it gets its divider row on this call (see
+/// [`find_personal_thread`]).
 pub(super) async fn get_personal_thread(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -55,13 +57,15 @@ pub(super) async fn get_personal_thread(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Open a new topic in the caller's personal thread — Home's "+".
+/// Open a new topic in the caller's personal thread — onboarding's Start, and
+/// a new chat for an athlete who has no personal thread yet. A new chat for
+/// one who has it is `POST /api/chat/conversations` instead (carnet#1473).
 ///
 /// A divider row, after which the model reads the thread afresh; the thread
 /// is rebound to the agent the request names, when it names one, and that
 /// agent's welcome opens the topic unless the athlete is about to speak
-/// first. An athlete with no thread yet gets one, opened the way "+" always
-/// opened a thread: bound to their agent, with no guided walk. No cap applies.
+/// first. An athlete with no thread yet gets one, opened the way a new chat
+/// opens a thread: bound to their agent, with no guided walk. No cap applies.
 pub(super) async fn open_personal_topic(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -92,7 +96,7 @@ pub(super) async fn open_personal_topic(
         tenant_id,
         TopicOpening {
             agent_id: request.agent_id.as_deref(),
-            // "+" never started a walk; it was a blank thread with its agent.
+            // A new chat never started a walk; it was a blank thread with its agent.
             guided_flow: false,
         },
     )
@@ -133,7 +137,7 @@ pub(super) async fn open_personal_topic(
 /// turn, posted on Skip as on Start so every surface lands on it.
 ///
 /// Forges the thread when there is none yet, bound to the athlete's
-/// selection with no guided walk, as "+" opens one. Posts only when the
+/// selection with no guided walk, as a first chat opens one. Posts only when the
 /// thread answers with `lead` — a thread the athlete had pointed elsewhere
 /// keeps its own agent — and the introduction ledger makes it once per
 /// topic, so the topic Start opens next finds it already welcomed.
