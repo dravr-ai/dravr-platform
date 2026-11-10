@@ -651,17 +651,16 @@ impl FitnessProvider for CorosProvider {
         Self::convert_workout(&workout)
     }
 
+    /// COROS has no aggregate endpoint, so the totals are summed over the
+    /// default page of recent workouts, and say so in their coverage.
     async fn get_stats(&self) -> AppResult<Stats> {
-        // COROS may not have a direct stats endpoint
-        // Return empty stats - can be aggregated from activities if needed
-        Ok(Stats {
-            total_activities: 0,
-            total_distance: 0.0,
-            total_duration: 0,
-            total_elevation_gain: 0.0,
-            coverage: StatsCoverage::recent(&[]),
-            year_to_date: None,
-        })
+        let activities = self
+            .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
+            .await?;
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 }
 

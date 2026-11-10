@@ -17,8 +17,12 @@ use chrono::Utc;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
+use pierre_providers::models::StatsCoverage;
 use pierre_providers::registry::{get_supported_providers, global_registry};
 use secrecy::SecretString;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 
 fn ensure_http_clients_initialized() {
     // Server config first (required for provider defaults)
@@ -500,26 +504,89 @@ async fn test_coros_provider_no_credentials_error() {
     assert!(result.is_err(), "Should error when no credentials set");
 }
 
+/// Serve one HTTP answer of `body` on a local port, returning the API base URL
+/// and the request line the provider sent.
+async fn serve_once(body: &'static str) -> (String, JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+    let served = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = vec![0_u8; 8192];
+        let read = socket.read(&mut request).await.unwrap();
+        let line = String::from_utf8_lossy(&request[..read])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let answer = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(answer.as_bytes()).await.unwrap();
+        line
+    });
+    (base, served)
+}
+
+/// COROS has no aggregate endpoint, so its stats are summed over the recent
+/// workouts the listing returns, and say so in their coverage.
 #[tokio::test]
-async fn test_coros_provider_stats_returns_empty() {
+async fn coros_stats_are_summed_over_the_recent_workouts() {
     ensure_http_clients_initialized();
-    let provider = CorosProvider::new();
+    let (base, served) = serve_once(
+        r#"{"data":[
+            {"id":"w2","name":"Trail Run","start_time":"2025-01-06T07:00:00Z","duration":2700,"sport_type":1,"distance":8500.0,"elevation_gain":125.0},
+            {"id":"w1","name":"Easy Run","start_time":"2025-01-05T16:00:00Z","duration":5400,"sport_type":1,"distance":12000.0}
+        ],"pagination":{"next_token":null,"total":2}}"#,
+    )
+    .await;
+    let provider = CorosProvider::with_config(ProviderConfig {
+        name: oauth_providers::COROS.to_owned(),
+        auth_url: format!("{base}/auth"),
+        token_url: format!("{base}/token"),
+        api_base_url: base,
+        revoke_url: None,
+        default_scopes: vec!["read:workouts".to_owned()],
+    });
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: "test_client_id".to_owned(),
+            client_secret: SecretString::from("test_client_secret"),
+            access_token: Some(SecretString::from("test_access_token")),
+            refresh_token: Some(SecretString::from("test_refresh_token")),
+            expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+            scopes: vec!["read:workouts".to_owned()],
+            kind: CredentialKind::OAuthBearer,
+            request_budget: None,
+        })
+        .await
+        .unwrap();
 
-    // Set credentials
-    let credentials = OAuth2Credentials {
-        client_id: "test_client_id".to_owned(),
-        client_secret: SecretString::from("test_client_secret"),
-        access_token: Some(SecretString::from("test_access_token")),
-        refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-        scopes: vec!["read:workouts".to_owned()],
-        kind: CredentialKind::OAuthBearer,
-        request_budget: None,
-    };
-
-    provider.set_credentials(credentials).await.unwrap();
-
-    // Stats returns empty (COROS may not have a stats endpoint)
     let stats = provider.get_stats().await.unwrap();
-    assert_eq!(stats.total_activities, 0);
+
+    assert_eq!(stats.total_activities, 2, "bug: both workouts count");
+    assert_eq!(stats.total_duration, 8100, "bug: durations add");
+    assert!(
+        (stats.total_distance - 20_500.0).abs() < f64::EPSILON,
+        "bug: distances add, got {}",
+        stats.total_distance
+    );
+    assert!(
+        (stats.total_elevation_gain - 125.0).abs() < f64::EPSILON,
+        "bug: a workout with no climb adds nothing, got {}",
+        stats.total_elevation_gain
+    );
+    assert_eq!(
+        stats.coverage,
+        StatsCoverage::RecentActivities {
+            count: 2,
+            oldest: Some("2025-01-05T16:00:00Z".parse().unwrap()),
+        },
+        "bug: the totals are a recent sample and must say so"
+    );
+    let line = served.await.unwrap();
+    assert!(
+        line.starts_with("GET /api/v1/workouts?limit="),
+        "bug: stats read the workout listing, sent {line}"
+    );
 }

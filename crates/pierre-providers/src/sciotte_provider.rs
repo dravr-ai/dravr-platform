@@ -956,21 +956,10 @@ impl FitnessProvider for SciotteProvider {
             .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(100), None))
             .await?;
 
-        let total_distance: f64 = activities
-            .iter()
-            .filter_map(Activity::distance_meters)
-            .sum();
-        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
-        let total_elevation: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
-
-        Ok(Stats {
-            total_activities: activities.len() as u64,
-            total_distance,
-            total_duration,
-            total_elevation_gain: total_elevation,
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one

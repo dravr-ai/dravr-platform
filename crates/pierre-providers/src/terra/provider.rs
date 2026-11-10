@@ -246,17 +246,10 @@ impl FitnessProvider for TerraProvider {
     #[instrument(skip(self), fields(provider = "terra", api_call = "get_stats"))]
     async fn get_stats(&self) -> AppResult<Stats> {
         let activities = self.cached()?.all().await?;
-        Ok(Stats {
-            total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
-            total_distance: activities
-                .iter()
-                .filter_map(Activity::distance_meters)
-                .sum(),
-            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
-            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 }
 

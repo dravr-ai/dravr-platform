@@ -850,17 +850,10 @@ impl FitnessProvider for WahooProvider {
         let activities = self
             .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
             .await?;
-        Ok(Stats {
-            total_activities: activities.len() as u64,
-            total_distance: activities
-                .iter()
-                .filter_map(Activity::distance_meters)
-                .sum(),
-            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
-            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 
     fn calendar_key(&self, external_id: &str) -> String {
