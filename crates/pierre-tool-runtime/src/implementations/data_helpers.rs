@@ -119,11 +119,13 @@ pub use pierre_core::models::connection_needs_reauth;
 /// Whether a `get_activities` query may use the `CacheKey` response cache.
 ///
 /// One decision governs BOTH the read short-circuit and the write-through, so
-/// the two never diverge. Three query shapes must bypass the response cache:
+/// the two never diverge. The cache holds summaries only; a hit details the
+/// recent window from the stored details, and reads no provider. Three query
+/// shapes must bypass it:
 ///
-/// * `auto_promote_to_detail` — the cache key omits `mode`, so a cached summary
-///   cannot satisfy a detail-promoted response, and a detail payload must not be
-///   written under a key a summary request would later read.
+/// * `explicit_detail` — an explicit `mode=detailed` reads the detail of the
+///   older rows from the provider, which a hit never does, and the cache key
+///   omits `mode`, so a summary call's entry would answer it without them.
 /// * `is_historical` — a deep historical window must route through the
 ///   coverage-aware gate, never a TTL'd response that could keep serving a stale
 ///   slice after the coverage was purged. Excluding it from the WRITE too keeps
@@ -134,12 +136,12 @@ pub use pierre_core::models::connection_needs_reauth;
 ///
 /// `pub` so the read/write contract is exercisable by the integration test suite.
 #[must_use]
-pub fn response_cache_eligible(
-    auto_promote_to_detail: bool,
+pub const fn response_cache_eligible(
+    explicit_detail: bool,
     is_historical: bool,
     is_custom_sort: bool,
 ) -> bool {
-    !auto_promote_to_detail && !is_historical && !is_custom_sort
+    !explicit_detail && !is_historical && !is_custom_sort
 }
 
 /// Build the LLM-facing `coverage` sidecar for a served activity window.

@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, Lap, Split, TenantId};
+use pierre_core::models::{Activity, GearRef, Lap, SegmentEffort, Split, TenantId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -170,12 +170,14 @@ pub struct ActivityFetchFailureRecord {
 
 /// What a detail read of an activity found that its list read never carries.
 ///
-/// A provider serves splits and laps only on a detail read, while every list
+/// A provider serves splits, laps, the athlete's description, the recording
+/// device and the segment efforts only on a detail read, while every list
 /// write-through replaces the cached activity whole. Stored beside the list
 /// copy ([`ActivityCacheRepository::store_activity_detail`]), never inside
-/// it, and read back into every cached activity whose list copy lacks them.
-/// The keys are the [`Activity`] fields they fill, under the same names.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// it, and read back into every cached activity whose list copy lacks them:
+/// a detail read once is served from here from then on. The keys are the
+/// [`Activity`] fields they fill, under the same names.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ActivityDetail {
     /// The provider's uniform distance buckets, in order.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -183,28 +185,57 @@ pub struct ActivityDetail {
     /// The laps the athlete or the workout marked, in order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub laps: Option<Vec<Lap>>,
+    /// The athlete's own description of the activity. Untrusted text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The device that recorded the activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    /// The segment efforts the activity holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_efforts: Option<Vec<SegmentEffort>>,
+    /// The gear the activity was recorded with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gear: Option<GearRef>,
+    /// The athlete's private note. The athlete's alone: readers other than
+    /// the athlete strip it before serializing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_note: Option<String>,
 }
 
 impl ActivityDetail {
     /// The detail-only fields a detailed read of `activity` carried. A read
-    /// that carried neither splits nor laps yields a detail with neither
-    /// ([`Self::is_empty`]): stored, it fills nothing, and it answers the row
-    /// only until its recheck instant
-    /// ([`ActivityCacheRepository::store_activity_detail`]).
+    /// that carried none of them yields an empty detail ([`Self::is_empty`]):
+    /// stored, it fills nothing, and it answers the row only until its
+    /// recheck instant ([`ActivityCacheRepository::store_activity_detail`]).
     #[must_use]
     pub fn from_activity(activity: &Activity) -> Self {
         Self {
             splits: activity.splits().cloned(),
             laps: activity.laps().cloned(),
+            description: activity
+                .description()
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_owned),
+            device_name: activity.device_name().map(str::to_owned),
+            segment_efforts: activity.segment_efforts().cloned(),
+            gear: activity.gear().cloned(),
+            private_note: activity.private_note().map(str::to_owned),
         }
     }
 
-    /// Whether the read carried neither splits nor laps: an activity that has
-    /// none reads this way, and so does one whose provider served it without
-    /// them because the request carrying them failed.
+    /// Whether the read carried none of the detail-only fields: an activity
+    /// that has none reads this way, and so does one whose provider served it
+    /// without them because the request carrying them failed.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.splits.is_none() && self.laps.is_none()
+        self.splits.is_none()
+            && self.laps.is_none()
+            && self.description.is_none()
+            && self.device_name.is_none()
+            && self.segment_efforts.is_none()
+            && self.gear.is_none()
+            && self.private_note.is_none()
     }
 }
 

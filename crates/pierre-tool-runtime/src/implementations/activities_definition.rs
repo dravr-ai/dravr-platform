@@ -34,7 +34,7 @@ pub(crate) fn get_activities_definition() -> Tool {
         PropertySchema {
             property_type: "integer".to_owned(),
             description: Some(
-                "Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.".to_owned(),
+                "Maximum activities (1-400): 1 for 'last activity'; a window (this week/month) gets `after`/`before` and 50. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.".to_owned(),
             ),
             ..Default::default()
         },
@@ -87,7 +87,7 @@ pub(crate) fn get_activities_definition() -> Tool {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(
-                "'summary' (default, minimal fields) or 'detailed' (full activity data)."
+                "'summary' (default; the last 14 days always carry detail) or 'detailed' (older rows too, 30 max)."
                     .to_owned(),
             ),
             ..Default::default()

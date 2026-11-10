@@ -274,11 +274,14 @@ fn shallow_year_coverage_does_not_cover_a_deeper_year() {
 }
 
 #[test]
-fn recent_summary_query_uses_the_response_cache() {
-    // Not auto-promoted, not historical, default sort: the ordinary recent
-    // path — the response cache is its only read-cache between a turn and a
-    // live fetch.
-    assert!(response_cache_eligible(false, false, false));
+fn recent_query_uses_the_response_cache() {
+    // Not historical, default sort: the ordinary recent path — the response
+    // cache is its only read-cache between a turn and a live fetch. It holds
+    // summaries; a hit details the recent window from the stored details.
+    assert!(
+        response_cache_eligible(false, false, false),
+        "bug: an ordinary recent read must use the response cache"
+    );
 }
 
 #[test]
@@ -287,20 +290,21 @@ fn historical_query_bypasses_the_response_cache() {
     // response cache — a TTL'd hit short-circuited the coverage-aware gate and
     // kept serving the stale slice after the coverage purge ("2022 stuck at
     // Jul–Dec"). Excluding it from the WRITE too stops dead never-read entries.
-    assert!(!response_cache_eligible(false, true, false));
+    assert!(
+        !response_cache_eligible(false, true, false),
+        "bug: a historical window must bypass the response cache"
+    );
 }
 
 #[test]
-fn detail_promoted_query_bypasses_the_response_cache() {
-    // The cache key omits `mode`, so a detail-promoted payload must neither be
-    // read from nor written under a key a summary request would use.
-    assert!(!response_cache_eligible(true, false, false));
-}
-
-#[test]
-fn detail_promoted_historical_query_bypasses_the_response_cache() {
-    // Both exclusions at once still bypasses the cache.
-    assert!(!response_cache_eligible(true, true, false));
+fn explicit_detail_query_bypasses_the_response_cache() {
+    // The cache key omits `mode`, and a hit reads no provider: an explicit
+    // `mode=detailed` served from a summary call's entry would carry no
+    // detail for its older rows.
+    assert!(
+        !response_cache_eligible(true, false, false),
+        "bug: an explicit mode=detailed must bypass the response cache"
+    );
 }
 
 #[test]
@@ -308,7 +312,10 @@ fn custom_sort_query_bypasses_the_response_cache() {
     // The cache key omits sort_by and the cached-serve path re-orders by date,
     // so a "longest to shortest" (non-default sort) ask must bypass the cache —
     // otherwise it could serve a date-ordered cached slice for a distance sort.
-    assert!(!response_cache_eligible(false, false, true));
+    assert!(
+        !response_cache_eligible(false, false, true),
+        "bug: a custom sort must bypass the response cache"
+    );
 }
 
 /// Build a Run activity with an explicit id, start date, distance (km) and

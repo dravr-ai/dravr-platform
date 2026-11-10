@@ -60,6 +60,8 @@ pub mod activity_backfill;
 /// the module whose job rows it claims.
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill_resume;
+/// The one store of activity detail reads.
+pub mod activity_detail_store;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_fetch;
 /// What a model may see of provider data under each provider's AI policy.

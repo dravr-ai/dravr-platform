@@ -649,6 +649,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .moving_time_seconds_opt(moving_time_seconds)
     .workout_type_opt(sciotte.workout_type)
     .device_name_opt(activity_times::device_name(sciotte))
+    .gear_opt(activity_times::gear(sciotte))
     .build()
 }
 

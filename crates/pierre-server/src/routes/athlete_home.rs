@@ -728,7 +728,7 @@ impl<'a> Workout<'a> {
     /// merged session carries neither, and no copy of it holds a stored
     /// detail read that still answers it — one that found neither answers
     /// only until its recheck instant
-    /// ([`crate::services::activity_detail::EMPTY_DETAIL_RECHECK_MINUTES`]).
+    /// ([`pierre_tool_runtime::activity_detail_store::EMPTY_DETAIL_RECHECK_MINUTES`]).
     fn detail_unread(&self) -> bool {
         self.session.splits().is_none()
             && self.session.laps().is_none()

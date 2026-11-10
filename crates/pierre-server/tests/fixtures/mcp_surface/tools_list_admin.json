@@ -9330,11 +9330,11 @@
             "type": "string"
           },
           "limit": {
-            "description": "Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.",
+            "description": "Maximum activities (1-400): 1 for 'last activity'; a window (this week/month) gets `after`/`before` and 50. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.",
             "type": "integer"
           },
           "mode": {
-            "description": "'summary' (default, minimal fields) or 'detailed' (full activity data).",
+            "description": "'summary' (default; the last 14 days always carry detail) or 'detailed' (older rows too, 30 max).",
             "type": "string"
           },
           "offset": {
@@ -9465,7 +9465,7 @@
             "description": "Context metadata for activity retrieval responses\nProvides LLMs with guidance on data sufficiency and whether to fetch more",
             "properties": {
               "advice": {
-                "description": "Actionable advice for the LLM when the requested payload shape\nhas trade-offs it should be aware of.\n\nPopulated when `limit > activity_detail_threshold`: the response\nis summary-mode, so fields like splits, laps, segment efforts,\nand full time-series are absent. The sentence tells the LLM what\nis still available (HR, elevation, cadence, power, calories in\nthe expanded summary) and how to narrow if it needs\nper-activity depth. `None` when no trade-off applies\n(auto-promoted queries).",
+                "description": "Actionable advice for the LLM when the requested payload shape\nhas trade-offs it should be aware of.\n\nPopulated when the response is summary-mode: the last 14 days carry\nfull detail and older rows only scalar fields. The sentence tells\nthe LLM what each row carries and how to read an older row's\ndetail. `None` when every row is detailed.",
                 "type": [
                   "string",
                   "null"

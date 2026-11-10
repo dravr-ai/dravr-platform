@@ -512,11 +512,10 @@ pub trait FitnessProvider: Send + Sync {
     /// delegates to [`get_activity`](Self::get_activity) — equivalent
     /// to the summary fetch.
     ///
-    /// The chat pipeline's auto-promote path calls this method when
-    /// the caller's limit is at or below
-    /// [`pierre_core::config::fitness::activity_detail_threshold`], so
-    /// any enrichment a provider adds here flows into agent reasoning
-    /// for "analyze my last run" / "last 10 rides" style queries.
+    /// `get_activities` calls this method for every activity of the last
+    /// [`pierre_core::config::fitness::DETAIL_WINDOW_DAYS`] days that has no
+    /// stored detail yet, so any enrichment a provider adds here flows into
+    /// agent reasoning for "analyze my last run" style queries.
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         self.get_activity(id).await
     }

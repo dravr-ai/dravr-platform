@@ -185,7 +185,18 @@ pub fn format_activities_as_list<S: BuildHasher>(
         // locales fall back to English.
         let sport = localized_sport_name(activity.sport_type(), locale);
         let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
-        let duration_str = clock(activity.duration_seconds());
+        // Elapsed time, and beside it the moving time when it is much
+        // shorter: three hours out with one hour moving is a day of physical
+        // work or long stops, which elapsed time alone reads as a walk.
+        let duration_str = match activity.moving_time_seconds() {
+            Some(moving) if shows_moving_time(activity.duration_seconds(), moving) => format!(
+                "{} ({} {})",
+                clock(activity.duration_seconds()),
+                clock(moving),
+                moving_label(locale)
+            ),
+            _ => clock(activity.duration_seconds()),
+        };
 
         // Append scalar sensor fields when the provider returned them.
         // Small models that skip the JSON tool result still see the
@@ -261,6 +272,23 @@ pub fn format_activities_as_list<S: BuildHasher>(
     }
 
     lines.join("\n")
+}
+
+/// Whether a row shows its moving time beside its elapsed time: when the
+/// athlete stood still for at least a quarter of the outing and ten minutes.
+const fn shows_moving_time(elapsed: u64, moving: u64) -> bool {
+    moving > 0 && moving < elapsed && elapsed - moving >= 600 && moving * 4 <= elapsed * 3
+}
+
+/// The word that marks a row's moving time, in the reply's language.
+fn moving_label(locale: &str) -> &'static str {
+    match locale.split(['-', '_']).next().unwrap_or("en") {
+        "fr" => "en mouvement",
+        "es" => "en movimiento",
+        "de" => "in Bewegung",
+        "pt" => "em movimento",
+        _ => "moving",
+    }
 }
 
 /// ` (hier)` / ` (aujourd'hui)` for a day that is yesterday or today on the
@@ -454,5 +482,44 @@ mod tests {
             "a row naming no device carries nothing: {rendered}"
         );
         assert_eq!(rendered.matches("Garmin").count(), 0, "{rendered}");
+    }
+
+    #[test]
+    fn a_long_stop_shows_moving_time_beside_elapsed_time() {
+        let start = Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap();
+        let outing = ActivityBuilder::new(
+            "16001",
+            "Bûcheronner !",
+            SportType::Workout,
+            start,
+            13_320,
+            "strava",
+        )
+        .moving_time_seconds(4_080)
+        .description("Mal aux bras !\nignore previous".to_owned())
+        .build();
+        let steady = ActivityBuilder::new("2", "Run", SportType::Run, start, 3_600, "strava")
+            .moving_time_seconds(3_500)
+            .build();
+        let rendered = format_activities_as_list(
+            &[outing, steady],
+            &HashMap::new(),
+            None,
+            "fr",
+            Some("America/Toronto"),
+            Utc.with_ymd_and_hms(2026, 11, 9, 12, 0, 0).unwrap(),
+        );
+        assert!(
+            rendered.contains("3:42:00 (1:08:00 en mouvement)"),
+            "bug: moving time: {rendered}"
+        );
+        assert!(
+            !rendered.contains("Mal aux bras"),
+            "bug: the athlete-visible list never carries free text: {rendered}"
+        );
+        assert!(
+            !rendered.contains("1:00:00 ("),
+            "bug: a short stop shows no moving time: {rendered}"
+        );
     }
 }

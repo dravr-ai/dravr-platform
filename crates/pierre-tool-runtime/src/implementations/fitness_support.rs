@@ -20,13 +20,18 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::activity_detail_store::stored_details;
 use crate::activity_fetch::{activity_date_span, activity_window_totals, WindowTotals};
 use crate::implementations::activities_output::ActivitiesPayload;
+use crate::implementations::activity_detail_promotion::{
+    detail_lookup_since, effective_mode, promote_to_detail, DetailPlan, Promoted,
+};
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
 use crate::implementations::data_helpers::{activity_coverage_note, pagination_has_more};
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
+use chrono::{DateTime, Utc};
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
@@ -35,8 +40,12 @@ use dravr_meteo::WeatherProvider;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::parse_zone;
+use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
-use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
+use pierre_core::models::{
+    resolve_sport_type, sport_matches_family, Activity, SportType, TenantId,
+};
+use pierre_database::RepositoryRegistry;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::FragmentReport;
@@ -44,7 +53,8 @@ use pierre_services::weather_backfill;
 use serde::Serialize;
 use serde_json::{to_value, Value};
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::slice;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -202,13 +212,10 @@ pub struct ActivityRetrievalContext {
     /// Actionable advice for the LLM when the requested payload shape
     /// has trade-offs it should be aware of.
     ///
-    /// Populated when `limit > activity_detail_threshold`: the response
-    /// is summary-mode, so fields like splits, laps, segment efforts,
-    /// and full time-series are absent. The sentence tells the LLM what
-    /// is still available (HR, elevation, cadence, power, calories in
-    /// the expanded summary) and how to narrow if it needs
-    /// per-activity depth. `None` when no trade-off applies
-    /// (auto-promoted queries).
+    /// Populated when the response is summary-mode: the last 14 days carry
+    /// full detail and older rows only scalar fields. The sentence tells
+    /// the LLM what each row carries and how to read an older row's
+    /// detail. `None` when every row is detailed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advice: Option<String>,
     /// Fragment-deduplication summary when overlapping recordings of the same
@@ -285,15 +292,15 @@ impl ActivityRetrievalContext {
         // Surface the summary-mode trade-off exactly once, to the LLM,
         // at the point it reads the tool result. Keeps the per-activity
         // payload compact (no repeated warnings) while still informing
-        // the model that splits/laps/segments were omitted and that
-        // narrower queries (<= ACTIVITY_DETAIL_THRESHOLD) would fetch them.
+        // the model what the summary rows omit and how to get it.
         let advice = (mode_used == "summary").then(|| {
-            "Summary mode: each activity carries scalar fields only \
-             (HR avg/max, elevation, cadence, power, calories, suffer score). \
-             Splits, laps, segment efforts, and time-series are omitted. \
-             Request limit <= ACTIVITY_DETAIL_THRESHOLD to auto-promote a \
-             narrower query to full detail."
-                .to_owned()
+            format!(
+                "Summary mode: activities from the last {DETAIL_WINDOW_DAYS} days carry full \
+                 detail (description, device, splits, laps, segment efforts); older rows \
+                 carry scalar fields only (HR avg/max, elevation, cadence, power, \
+                 calories, suffer score, moving time). Pass mode=detailed to read \
+                 the detail of older rows (up to {EXPLICIT_DETAIL_CAP} per call)."
+            )
         });
 
         let fragment_dedup = fragment_report.and_then(FragmentDedupSummary::from_report);
@@ -316,7 +323,7 @@ impl ActivityRetrievalContext {
     /// Calculate the date range from activities
     fn calculate_date_range(activities: &[Activity]) -> DateRange {
         if activities.is_empty() {
-            let now = chrono::Utc::now();
+            let now = Utc::now();
             return DateRange {
                 start: now.to_rfc3339(),
                 end: now.to_rfc3339(),
@@ -440,6 +447,55 @@ pub(crate) struct CachedActivitiesParams<'a> {
     /// User's BCP-47 locale, threaded to [`ActivitiesResponseParams::locale`]
     /// for localized sport-type labels. Defaults to "en".
     pub locale: String,
+    /// What the hit details, from the stored details alone.
+    pub detail: CachedDetail<'a>,
+}
+
+/// Where a cached list's recent window finds its stored details.
+pub(crate) struct CachedDetail<'a> {
+    pub repos: &'a RepositoryRegistry,
+    pub tenant_id: TenantId,
+    pub window_start: DateTime<Utc>,
+    pub provider_names: &'a [&'a str],
+}
+
+/// Detail a cached list's recent window from the store only: the live read
+/// that stored the list stored its details too. An explicit `mode=detailed`
+/// never reaches a hit (`response_cache_eligible`). `None` when a recent row
+/// has no stored detail yet: the hit is then a miss, and the live read
+/// details it (D1, every activity of the last 14 days).
+async fn detail_cached_list(
+    detail: &CachedDetail<'_>,
+    policies: &dyn ProviderTerms,
+    user_id: Uuid,
+    activities: &[Activity],
+) -> Option<Promoted> {
+    let plan = DetailPlan {
+        window_start: detail.window_start,
+        explicit_cap: None,
+        read_budget: 0,
+        provider_names: detail.provider_names,
+        terms: Some(policies),
+    };
+    let stored = stored_details(
+        detail.repos,
+        policies,
+        detail.tenant_id,
+        user_id,
+        detail_lookup_since(activities, &plan),
+    )
+    .await;
+    let promoted = promote_to_detail(None, activities, &plan, &stored).await;
+    let unread = promoted.activities.iter().any(|a| {
+        a.start_date() >= plan.window_start
+            && plan.provider_names.contains(&a.provider())
+            && !promoted.detailed_ids.contains(a.id())
+    });
+    if unread {
+        info!("Cache hit holds a recent activity with no stored detail; reading live");
+        return None;
+    }
+    Some(promoted)
 }
 
 /// Try to get activities from cache
@@ -455,7 +511,12 @@ pub(crate) async fn try_get_cached_activities(
         );
 
         // Sort by start_date descending (newest first) for consistent ordering
-        let mut sorted_activities = ai_scope::filter_activities(params.policies, cached_activities);
+        // Tallied apart: a hit that turns out to hold an unread recent row is
+        // a miss, and the live read then tallies the same items itself.
+        let (mut sorted_activities, withheld) = ai_scope::tallied(async {
+            ai_scope::filter_activities(params.policies, cached_activities)
+        })
+        .await;
         sorted_activities.sort_by_key(|a| Reverse(a.start_date()));
 
         // The whole window was stored, before the display limit: frame its
@@ -464,6 +525,18 @@ pub(crate) async fn try_get_cached_activities(
         let window_span = activity_date_span(&sorted_activities, params.user_timezone.as_deref());
         let window_totals = activity_window_totals(&sorted_activities);
         sorted_activities.truncate(params.limit);
+
+        let promoted = detail_cached_list(
+            &params.detail,
+            params.policies,
+            params.user_uuid,
+            &sorted_activities,
+        )
+        .await?;
+        ai_scope::record_withheld(withheld);
+        let sorted_activities = promoted.activities;
+        let detailed_ids = promoted.detailed_ids;
+        let mode = effective_mode(params.mode, &sorted_activities, &detailed_ids);
 
         let pagination = PaginationInfo {
             offset: params.offset,
@@ -490,7 +563,8 @@ pub(crate) async fn try_get_cached_activities(
             user_uuid: params.user_uuid,
             tenant_id: params.tenant_id,
             provider_name: params.provider_name,
-            mode: params.mode,
+            mode,
+            detailed_ids: &detailed_ids,
             output_format: params.output_format,
             pagination: Some(&pagination),
             analysis_type: params.analysis_type,
@@ -686,45 +760,58 @@ fn build_activities_metadata(
 fn prepare_activity_data(
     activities: &[Activity],
     mode: &str,
+    detailed_ids: &HashSet<String>,
     backfill_temps: &HashMap<String, f32>,
     user_timezone: Option<&str>,
 ) -> Result<(Value, &'static str), String> {
+    let tz = parse_zone(user_timezone);
     if mode == "summary" {
-        // Parse the user's IANA timezone once; activities carry UTC start_date,
-        // so we localize for display without touching the timezone-stable UTC.
-        let tz = parse_zone(user_timezone);
-        let summaries: Vec<ActivitySummary> = activities
+        // Activities carry UTC start_date; localize for display without
+        // touching the timezone-stable UTC. A detailed row renders in full,
+        // every other row as its summary.
+        let rows = activities
             .iter()
             .map(|a| {
-                let mut summary = ActivitySummary::from(a);
-                if summary.temperature.is_none() {
-                    summary.temperature = backfill_temps.get(a.id()).copied();
+                let mut row = if detailed_ids.contains(a.id()) {
+                    detail_json(slice::from_ref(a))
+                        .map_err(|e| format!("Failed to serialize activities: {e}"))?
+                        .as_array_mut()
+                        .and_then(Vec::pop)
+                        .unwrap_or(Value::Null)
+                } else {
+                    let mut summary = ActivitySummary::from(a);
+                    if summary.temperature.is_none() {
+                        summary.temperature = backfill_temps.get(a.id()).copied();
+                    }
+                    summary_json(slice::from_ref(&summary))
+                        .map_err(|e| format!("Failed to serialize activity summaries: {e}"))?
+                        .as_array_mut()
+                        .and_then(Vec::pop)
+                        .unwrap_or(Value::Null)
+                };
+                if let (Some(tz), Some(map)) = (tz, row.as_object_mut()) {
+                    map.insert(
+                        "start_date_local".to_owned(),
+                        Value::String(a.start_date().with_timezone(&tz).to_rfc3339()),
+                    );
                 }
-                if let Some(tz) = tz {
-                    summary.start_date_local = Some(a.start_date().with_timezone(&tz).to_rfc3339());
-                }
-                summary
+                Ok(row)
             })
-            .collect();
-        summary_json(&summaries)
-            .map(|v| (v, "summary"))
-            .map_err(|e| format!("Failed to serialize activity summaries: {e}"))
+            .collect::<Result<Vec<Value>, String>>()?;
+        Ok((Value::Array(rows), "summary"))
     } else {
         // Detail mode serializes the `Activity` (UTC `start_date`, athlete text
-        // fenced by `detail_json`). Mirror the summary-mode localization by
-        // injecting `start_date_local` per element when the user has a
-        // timezone on file, so deep-dive responses display local start times.
+        // fenced by `detail_json`), with `start_date_local` per element when
+        // the user has a timezone on file.
         let mut value =
             detail_json(activities).map_err(|e| format!("Failed to serialize activities: {e}"))?;
-        if let Some(tz) = parse_zone(user_timezone) {
-            if let Some(arr) = value.as_array_mut() {
-                for (obj, activity) in arr.iter_mut().zip(activities.iter()) {
-                    if let Some(map) = obj.as_object_mut() {
-                        map.insert(
-                            "start_date_local".to_owned(),
-                            Value::String(activity.start_date().with_timezone(&tz).to_rfc3339()),
-                        );
-                    }
+        if let (Some(tz), Some(arr)) = (tz, value.as_array_mut()) {
+            for (obj, activity) in arr.iter_mut().zip(activities.iter()) {
+                if let Some(map) = obj.as_object_mut() {
+                    map.insert(
+                        "start_date_local".to_owned(),
+                        Value::String(activity.start_date().with_timezone(&tz).to_rfc3339()),
+                    );
                 }
             }
         }
@@ -739,6 +826,9 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     pub tenant_id: Option<String>,
     pub provider_name: &'a str,
     pub mode: &'a str,
+    /// The activities that carry their detail; in `summary` mode they render
+    /// in full and the rest as summaries.
+    pub detailed_ids: &'a HashSet<String>,
     pub output_format: OutputFormat,
     pub pagination: Option<&'a PaginationInfo>,
     /// Analysis type for sufficiency calculation (defaults to `GeneralOverview`)
@@ -788,6 +878,7 @@ pub(crate) fn build_activities_success_response(
         tenant_id,
         provider_name,
         mode,
+        detailed_ids,
         output_format,
         pagination,
         analysis_type,
@@ -801,18 +892,23 @@ pub(crate) fn build_activities_success_response(
     } = params;
 
     // Prepare the data based on mode
-    let (data_value, mode_used) =
-        match prepare_activity_data(activities, mode, backfill_temps, user_timezone.as_deref()) {
-            Ok(result) => result,
-            Err(error) => {
-                return UniversalResponse {
-                    success: false,
-                    result: None,
-                    error: Some(error),
-                    metadata: None,
-                }
+    let (data_value, mode_used) = match prepare_activity_data(
+        activities,
+        mode,
+        detailed_ids,
+        backfill_temps,
+        user_timezone.as_deref(),
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            return UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(error),
+                metadata: None,
             }
-        };
+        }
+    };
 
     let activities_len = activities.len();
 
@@ -827,7 +923,7 @@ pub(crate) fn build_activities_success_response(
         page_merge.as_ref(),
         &locale,
         user_timezone.as_deref(),
-        chrono::Utc::now(),
+        Utc::now(),
     );
 
     // Calculate retrieval context for LLM data sufficiency guidance

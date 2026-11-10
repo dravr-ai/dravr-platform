@@ -221,8 +221,8 @@ pub(super) async fn write_details(
 /// push replaces them.
 async fn store_laps(batch: &OwnerBatch<'_>, activity_id: &str, laps: Vec<Lap>) -> AppResult<()> {
     let detail = ActivityDetail {
-        splits: None,
         laps: Some(laps),
+        ..ActivityDetail::default()
     };
     let stored = batch
         .repos

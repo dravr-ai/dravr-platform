@@ -171,7 +171,7 @@ bitflags::bitflags! {
         /// list — true for HTTP APIs, false for a headless-browser scrape
         /// where each detail is a full page navigation.
         ///
-        /// `get_activities` auto-promotes small result sets to detailed, an
+        /// `get_activities` details the activities of the last fourteen days, an
         /// N+1 that is milliseconds on an API and minutes on a scrape: a live
         /// 2026-08-12 Telegram turn spent 3m41s of its 4m37s scraping 30
         /// detail pages one at a time, after the list had already returned in

@@ -549,6 +549,7 @@ fn create_test_activity_with_segments() -> Activity {
     .segment_efforts(vec![
         SegmentEffort {
             id: "seg_001".into(),
+            segment_id: None,
             name: "Steep Climb".into(),
             elapsed_time: 600,
             moving_time: Some(590),
@@ -566,6 +567,7 @@ fn create_test_activity_with_segments() -> Activity {
         },
         SegmentEffort {
             id: "seg_002".into(),
+            segment_id: None,
             name: "Fast Descent".into(),
             elapsed_time: 300,
             moving_time: Some(295),
@@ -667,6 +669,7 @@ fn test_activity_detailed_fields_serialization() {
     // Test that detailed fields serialize/deserialize correctly
     let segment = SegmentEffort {
         id: "seg_test".into(),
+        segment_id: None,
         name: "Test Segment".into(),
         elapsed_time: 180,
         moving_time: Some(175),

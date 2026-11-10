@@ -19,7 +19,7 @@ use crate::common;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, ActivityBuilder, Lap, Split, SportType, TenantId};
+use pierre_core::models::{Activity, ActivityBuilder, GearRef, Lap, Split, SportType, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::ActivityDetail;
 use uuid::Uuid;
@@ -69,6 +69,7 @@ fn detail() -> ActivityDetail {
     ActivityDetail {
         splits: Some(vec![split(1, 262), split(2, 251)]),
         laps: Some(vec![lap()]),
+        ..ActivityDetail::default()
     }
 }
 
@@ -228,10 +229,8 @@ async fn a_deleted_or_purged_activity_takes_its_detail_with_it() {
 fn a_read_with_neither_splits_nor_laps_yields_a_detail_with_neither() {
     assert_eq!(
         ActivityDetail::from_activity(&listed_run("r6", "Run")),
-        ActivityDetail {
-            splits: None,
-            laps: None,
-        }
+        ActivityDetail::default(),
+        "bug: a read with no detail-only field yields an empty detail"
     );
     let with_laps = ActivityBuilder::new("r7", "Run", SportType::Run, started(), 1_800, "strava")
         .laps(vec![lap()])
@@ -239,8 +238,8 @@ fn a_read_with_neither_splits_nor_laps_yields_a_detail_with_neither() {
     assert_eq!(
         ActivityDetail::from_activity(&with_laps),
         ActivityDetail {
-            splits: None,
             laps: Some(vec![lap()]),
+            ..ActivityDetail::default()
         }
     );
 }
@@ -303,4 +302,63 @@ async fn a_detail_read_that_found_nothing_answers_its_row_only_until_its_recheck
     assert_eq!(r8.laps(), None);
     let r11 = fx.read(fx.tenant, "r11").await.unwrap();
     assert_eq!(r11.laps(), Some(&vec![lap()]));
+}
+
+/// A detail read once carries the athlete's description, device, gear and
+/// private note, and every later read of the row is served them without
+/// another provider read (carnet#1480).
+#[tokio::test]
+async fn a_stored_detail_serves_the_athletes_text_after_a_list_sync() {
+    let fx = fixture().await;
+    fx.list_sync(&[listed_run("r9", "Bûcheronner !")]).await;
+    let detailed = ActivityBuilder::new(
+        "r9",
+        "Bûcheronner !",
+        SportType::Run,
+        started(),
+        13_320,
+        "strava",
+    )
+    .description("Mal aux bras !".to_owned())
+    .device_name("Garmin fēnix 6S Pro")
+    .gear(GearRef {
+        id: Some("g7".to_owned()),
+        name: "Speedgoat".to_owned(),
+    })
+    .private_note("Genou sensible")
+    .build();
+    let stored = fx
+        .database
+        .repositories()
+        .activity_cache
+        .store_activity_detail(
+            fx.user_id,
+            &fx.tenant,
+            "strava",
+            "r9",
+            &ActivityDetail::from_activity(&detailed),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(stored, "bug: the detail must be stored on the user's row");
+
+    fx.list_sync(&[listed_run("r9", "Bûcheronner !")]).await;
+    let row = fx.read(fx.tenant, "r9").await.unwrap();
+    assert_eq!(
+        row.description(),
+        Some("Mal aux bras !"),
+        "bug: description lost"
+    );
+    assert_eq!(
+        row.device_name(),
+        Some("Garmin fēnix 6S Pro"),
+        "bug: device lost"
+    );
+    assert_eq!(
+        row.gear().map(|g| g.name.as_str()),
+        Some("Speedgoat"),
+        "bug: gear lost"
+    );
+    assert_eq!(row.private_note(), Some("Genou sensible"), "bug: note lost");
 }

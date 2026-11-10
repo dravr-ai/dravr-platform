@@ -22,7 +22,8 @@ use crate::models::refresh_due;
 use crate::models::StatsCoverage;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, Stats,
+    TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
@@ -376,6 +377,14 @@ impl StravaProvider {
                     .map(|name| name.trim().to_owned())
                     .filter(|name| !name.is_empty()),
             )
+            .private_note_opt(detailed.private_note.filter(|n| !n.trim().is_empty()))
+            .gear_opt(detailed.gear.and_then(|gear| {
+                let name = gear
+                    .name
+                    .map(|n| n.trim().to_owned())
+                    .filter(|n| !n.is_empty())?;
+                Some(GearRef { id: gear.id, name })
+            }))
             .perceived_exertion_opt(detailed.perceived_exertion.and_then(rpe_from_strava))
             .time_series_data_opt(streams)
             .build())
@@ -845,7 +854,7 @@ impl FitnessProvider for StravaProvider {
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         // Strava's /activities/{id} endpoint returns a richer payload than
         // the summary shape (splits, laps, segment efforts, elev_high/low,
-        // device_name, kudos/comments). Route the auto-promote path here
+        // device_name, kudos/comments). Route the recent-window detail path here
         // so the richer deserialization captures everything Strava returns
         // — even fields cageux does not yet model become available the
         // moment cageux grows the corresponding accessors (no server-side

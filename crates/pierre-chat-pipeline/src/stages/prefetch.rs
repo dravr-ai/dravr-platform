@@ -48,7 +48,7 @@ use pierre_core::models::TenantId;
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::context::{DispatchOrigin, DISPATCH_ORIGIN};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalResponse};
-use pierre_tool_runtime::tool_results::served_without_notes;
+use pierre_tool_runtime::tool_results::{athlete_notes, served_without_notes};
 
 use super::platform_markers::defang_athlete_text;
 
@@ -532,11 +532,19 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
                 return None;
             }
             let notes = served_without_notes(&value);
-            Some(Cow::Owned(if notes.is_empty() {
+            let mut text = if notes.is_empty() {
                 list.to_owned()
             } else {
                 format!("{list}\n\n{}", notes.join("\n"))
-            }))
+            };
+            // What the athlete wrote on these sessions, fenced: the
+            // athlete-visible list never carries it, so it rides here.
+            let athlete = athlete_notes(&value);
+            if !athlete.is_empty() {
+                text.push_str("\n\nThe athlete's own notes on these sessions:\n");
+                text.push_str(&athlete.join("\n"));
+            }
+            Some(Cow::Owned(text))
         })
         .unwrap_or(Cow::Borrowed(raw))
 }

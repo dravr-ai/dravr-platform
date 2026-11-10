@@ -178,6 +178,15 @@ pub struct StravaSegmentEffort {
     pub average_watts: Option<f32>,
 }
 
+/// The gear a detailed activity names: Strava's summary gear shape.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StravaGear {
+    /// Strava's gear id (`b12345` for a bike, `g12345` for shoes)
+    pub id: Option<String>,
+    /// The gear's display name as the athlete set it
+    pub name: Option<String>,
+}
+
 /// Detailed activity response from GET /activities/{id} endpoint
 /// Includes all summary fields plus additional detail-only fields like splits, laps, and segment efforts
 #[derive(Debug, Clone, Deserialize)]
@@ -211,6 +220,13 @@ pub struct DetailedActivityResponse {
     pub device_name: Option<String>,
     /// The athlete's free-text notes on the activity. Untrusted text.
     pub description: Option<String>,
+    /// The athlete's private note, which only the athlete sees on Strava.
+    /// Untrusted, and the athlete's alone.
+    #[serde(default)]
+    pub private_note: Option<String>,
+    /// The gear the activity was recorded with (`{ id, name, … }`).
+    #[serde(default)]
+    pub gear: Option<StravaGear>,
     /// The athlete's Perceived Exertion, the 1–10 slider value, `null` when
     /// unset. Undocumented by Strava and absent from the list endpoint, so
     /// only a detail read carries it (see `strava_self_report`).

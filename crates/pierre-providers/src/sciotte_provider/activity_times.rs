@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_sciotte::models::Activity as SciotteActivity;
+use pierre_core::models::GearRef;
 
 /// The activity's elapsed and moving time, in the platform's meaning:
 /// `duration_seconds` is elapsed time, as every API provider reports it,
@@ -33,6 +34,20 @@ pub(super) fn device_name(sciotte: &SciotteActivity) -> Option<String> {
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
+}
+
+/// The gear the page named, as a [`GearRef`] with no id: the page shows a
+/// name (`Salomon Spikecross (224.2 km)`), never Strava's gear id.
+pub(super) fn gear(sciotte: &SciotteActivity) -> Option<GearRef> {
+    let name = sciotte
+        .gear_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())?;
+    Some(GearRef {
+        id: None,
+        name: name.to_owned(),
+    })
 }
 
 #[cfg(test)]

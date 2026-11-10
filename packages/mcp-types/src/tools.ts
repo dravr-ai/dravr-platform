@@ -601,10 +601,10 @@ export interface GetActivitiesParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page. */
+  /** Maximum activities (1-400): 1 for 'last activity'; a window (this week/month) gets `after`/`before` and 50. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page. */
   limit?: number;
 
-  /** 'summary' (default, minimal fields) or 'detailed' (full activity data). */
+  /** 'summary' (default; the last 14 days always carry detail) or 'detailed' (older rows too, 30 max). */
   mode?: string;
 
   /** Activities to skip, for paging. */

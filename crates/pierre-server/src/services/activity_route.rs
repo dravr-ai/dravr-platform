@@ -102,6 +102,7 @@ use pierre_database::repositories::StoredRouteTrack;
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
+use pierre_tool_runtime::activity_detail_store;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::reauth_retry::flagged_session;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -110,7 +111,6 @@ use tokio::time::{sleep, timeout, timeout_at, Instant};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::services::activity_detail::store_detail;
 use crate::services::turn_lifecycle::InFlightTurns;
 
 /// Minutes an `unavailable` answer stands before the route is read again.
@@ -831,7 +831,14 @@ async fn read_streams(
         .await?;
     // The route is what the read was for: a detail that cannot be stored
     // leaves the route's outcome as the read settled it.
-    store_detail(runtime.repos(), tenant_id, user_id, cached, &detailed).await;
+    activity_detail_store::store_detail(
+        runtime.repos(),
+        tenant_id,
+        user_id,
+        cached.provider,
+        &detailed,
+    )
+    .await;
     Ok(detailed
         .time_series_data()
         .map_or(Err(RouteMiss::Unavailable), |streams| {

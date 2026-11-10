@@ -24,7 +24,8 @@
 //! because the request carrying them failed — a provider that reads its laps
 //! on a request of their own serves the activity without them when that
 //! request fails, since a swim has no laps to serve. It is stored
-//! with a recheck instant [`EMPTY_DETAIL_RECHECK_MINUTES`] out: until then
+//! with a recheck instant
+//! ([`pierre_tool_runtime::activity_detail_store::EMPTY_DETAIL_RECHECK_MINUTES`]) out: until then
 //! the view answers from it without a provider read, and past it the next
 //! open reads the detail again.
 //!
@@ -45,10 +46,9 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::ActivityDetail;
+use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
+use pierre_tool_runtime::activity_detail_store;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::sync::oneshot;
@@ -72,26 +72,6 @@ pub const DETAIL_ANSWER_TIMEOUT_SECS: u64 = 8;
 /// Past the scraper's own request deadline (320 s), as the route read's
 /// bound is, so a scrape is answered by the scraper and not cut off here.
 pub const DETAIL_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
-
-/// Minutes a stored detail read that carried neither splits nor laps answers
-/// the activity view before the detail is read again.
-///
-/// Such a read proves nothing — the request carrying the laps may have
-/// failed — so it is not kept for good. Long enough that an activity that
-/// truly has none, opened again and again, costs one provider read per half
-/// hour rather than one per open; short enough that a failure the provider
-/// has since recovered from does not hide the splits for the day.
-pub const EMPTY_DETAIL_RECHECK_MINUTES: i64 = 30;
-
-/// When a stored detail is read again: [`EMPTY_DETAIL_RECHECK_MINUTES`] out
-/// for one that carried neither splits nor laps, never for one that carried
-/// either.
-#[must_use]
-pub fn detail_recheck_at(detail: &ActivityDetail, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    detail
-        .is_empty()
-        .then(|| now + Duration::minutes(EMPTY_DETAIL_RECHECK_MINUTES))
-}
 
 /// Read the activity's detail from its provider, store it beside the cached
 /// row, and answer whether it was stored within [`DETAIL_ANSWER_TIMEOUT_SECS`].
@@ -190,65 +170,22 @@ async fn read_and_store(
             Err(e) => Err(e),
         };
     match read {
-        Ok(detailed) => store_detail(runtime.repos(), tenant_id, user_id, cached, &detailed).await,
+        Ok(detailed) => {
+            activity_detail_store::store_detail(
+                runtime.repos(),
+                tenant_id,
+                user_id,
+                cached.provider,
+                &detailed,
+            )
+            .await
+        }
         Err(e) => {
             warn!(
                 activity_id = cached.activity.id(),
                 provider = cached.provider,
                 error = %e,
                 "activity detail read failed; nothing stored"
-            );
-            false
-        }
-    }
-}
-
-/// Keep the splits and laps a detail read carried beside the activity's
-/// cached copy, which no list read carries and every list sync replaces.
-///
-/// The activity's view shows them after any later sync. A read that carried
-/// neither is stored too, until [`detail_recheck_at`]: it answers the view
-/// until then, and the detail is read again past it.
-///
-/// A detail that cannot be stored is logged, and answers `false`: the caller
-/// read it for something else, or answers from the cache as it stands.
-pub async fn store_detail(
-    repos: &RepositoryRegistry,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    cached: CachedActivityRef<'_>,
-    detailed: &Activity,
-) -> bool {
-    let detail = ActivityDetail::from_activity(detailed);
-    let recheck_at = detail_recheck_at(&detail, Utc::now());
-    let activity_id = cached.activity.id();
-    match repos
-        .activity_cache
-        .store_activity_detail(
-            user_id,
-            &tenant_id,
-            cached.provider,
-            activity_id,
-            &detail,
-            recheck_at,
-        )
-        .await
-    {
-        Ok(true) => true,
-        Ok(false) => {
-            debug!(
-                activity_id,
-                provider = cached.provider,
-                "activity left the cache during its detail read; its splits and laps are not kept"
-            );
-            false
-        }
-        Err(e) => {
-            warn!(
-                activity_id,
-                provider = cached.provider,
-                error = %e,
-                "storing the splits and laps of a detail read failed"
             );
             false
         }
