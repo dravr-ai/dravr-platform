@@ -333,7 +333,7 @@ pub fn provider_served_by_grant_note(display_name: &str) -> Value {
     json!({
         "provider": display_name,
         "note": format!(
-            "{display_name} could not be read through the athlete's sign-in just now, so the activities above came from its API connection instead: they are current and complete, and the connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
+            "{display_name} could not be read through the athlete's sign-in just now, so the activities above came from its API connection instead: they are current and complete. Do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
         ),
     })
 }

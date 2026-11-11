@@ -50,7 +50,7 @@ use pierre_middleware::provider_link_token::mint_connect_link_token;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
+use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -1369,6 +1369,111 @@ async fn a_dead_garmin_grant_still_serves_the_stored_history() {
     assert!(
         payload.get("reconnect_required").is_none(),
         "the session stands, so nothing is reconnected: {payload}"
+    );
+}
+
+/// A live Garmin grant behind a usr/pwd session answers a session read that
+/// failed with what it pushed (carnet#1494): the pushed window, the session's
+/// own rows merged in. The session's failure is recorded under the session,
+/// and the pushed rows are not written back, so the grant's freshness stays
+/// its last push. An empty pushed window vouches for nothing the failed read
+/// missed, so it does not stand in.
+#[tokio::test]
+async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
+    let scraper = scraper_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&scraper);
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let head = ActivityQueryParams {
+        after: Some((Utc::now() - Duration::days(30)).timestamp()),
+        before: None,
+        limit: Some(50),
+        offset: None,
+    };
+    let last_sync = |user_id: Uuid, tenant: TenantId, key: &'static str| {
+        let resources = Arc::clone(&resources);
+        async move {
+            resources
+                .common
+                .repos
+                .activity_cache
+                .latest_activity_sync(user_id, &tenant, key)
+                .await
+                .unwrap()
+        }
+    };
+
+    let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-live-grant@example.com").await;
+    seed_scrape_session(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
+    let pushed_at = last_sync(user_id, tenant, oauth_providers::GARMIN).await;
+    let served = fetch_provider_head(&runtime, "garmin", user_id, &tenant.to_string(), &head)
+        .await
+        .expect("the grant's pushes answer the failed session read");
+    let ids: Vec<&str> = served.iter().map(Activity::id).collect();
+    assert_eq!(ids, ["20123456789", "18000000001"]);
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_cache
+            .latest_activity_fetch_failure(user_id, &tenant, oauth_providers::SCIOTTE_GARMIN)
+            .await
+            .unwrap()
+            .is_some(),
+        "the session's failure is recorded under the session"
+    );
+    assert_eq!(
+        last_sync(user_id, tenant, oauth_providers::GARMIN).await,
+        pushed_at,
+        "bug: the pushed rows were written back, restamping the grant's freshness"
+    );
+
+    let (empty_user, _, empty_tenant) =
+        user_and_tenant(&resources, "garmin-nothing-pushed@example.com").await;
+    connect(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::GARMIN,
+        Some("garmin-user-nothing-pushed"),
+    )
+    .await;
+    connect(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        None,
+    )
+    .await;
+    seed_scrape_session(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
+    let read = fetch_provider_head(
+        &runtime,
+        "garmin",
+        empty_user,
+        &empty_tenant.to_string(),
+        &head,
+    )
+    .await;
+    assert!(
+        read.is_err(),
+        "bug: an empty pushed window stood in for a failed session read: {read:?}"
     );
 }
 

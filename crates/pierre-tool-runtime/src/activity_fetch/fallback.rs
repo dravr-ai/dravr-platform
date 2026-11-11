@@ -67,7 +67,8 @@ pub(super) async fn pair_grant(
 /// that fails too under the grant. The page is decided once both are known:
 /// `error` with the session's cause only when nothing served, a constant
 /// `warn` when the grant served. A session the read found dead is flagged
-/// for its sign-in while its grant keeps the athlete served.
+/// for its sign-in while its grant keeps the athlete served. A push-only
+/// grant (Garmin) serves only when it holds rows for the window.
 pub(super) async fn serve_head(
     runtime: &Arc<dyn ToolRuntime>,
     live: LiveRead<'_>,
@@ -116,8 +117,14 @@ async fn answer_with_grant(
     } = live;
     let grant_read =
         ai_scope::unfiltered(read_grant_head(runtime, grant, user_id, tenant, params)).await;
+    // A push-only grant always answers complete, so an empty pushed window
+    // vouches for nothing a failed session read missed: it does not serve.
+    let push_only = runtime.provider_registry().is_push_only(grant);
     match grant_read {
-        Ok(mut head) if head.verdict == HeadVerdict::Complete => {
+        Ok(mut head)
+            if head.verdict == HeadVerdict::Complete
+                && !(push_only && head.activities.is_empty()) =>
+        {
             if let Err(e) = &read {
                 flag_refusal(
                     runtime,
@@ -140,9 +147,9 @@ async fn answer_with_grant(
             Ok(head)
         }
         grant_read => {
-            if let Err(e) = &grant_read {
-                flag_refusal(runtime, user_id, tenant, grant, e, attempt_started_at).await;
-            }
+            // A grant refused behind a live session is not flagged here: its
+            // own refresh flags a dead grant, and a grant dying beside a
+            // session asks nothing of the athlete (carnet#1494).
             record_head_attempt(runtime, user_id, tenant, grant, params, &grant_read).await;
             warn!(
                 user_id = %user_id,
@@ -167,9 +174,9 @@ fn head_cause(read: &AppResult<HeadRead>) -> String {
     }
 }
 
-/// Flag `backend` when `error` is its own refusal for authentication
-/// (`reauth_notice::refused_backend`): a dead session asks for its sign-in,
-/// a refused grant stops standing behind it.
+/// Flag the session `backend` when `error` is its own refusal for
+/// authentication (`reauth_notice::refused_backend`): a dead session asks
+/// for its sign-in while its grant serves.
 async fn flag_refusal(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
