@@ -38,8 +38,11 @@ use pierre_contremaitre::PromptRegistry;
 /// first place to look if this ever needs raising. Raised to 44,000 for the
 /// ~3.2 KB of tool-use rules the public tool descriptions shed moving into
 /// `tool_discipline_shared`: 43,128 B at contremaitre 79d0c88, 43,450 B at
-/// 09dfb83, whose saved-recipes rule adds 322 B to that block.
-const ALWAYS_ON_CEILING: usize = 44_000;
+/// 09dfb83, whose saved-recipes rule adds 322 B to that block. Raised to
+/// 44,500 for the 710 B `platform_contract` gained at contremaitre a240d21b
+/// (66321a7): the rule that the athlete's own words about a session and its
+/// moving time change how the day is read — 44,160 B.
+const ALWAYS_ON_CEILING: usize = 44_500;
 
 /// Ceiling for a messaging turn, which adds the plain-text channel contract.
 ///
