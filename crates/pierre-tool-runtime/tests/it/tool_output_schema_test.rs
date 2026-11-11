@@ -31,7 +31,9 @@ use pierre_core::models::{
     ThresholdStatedOn,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
+use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
+use pierre_providers::ProviderRegistry;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
@@ -114,6 +116,7 @@ use pierre_tool_runtime::implementations::endurance_workouts::{
 use pierre_tool_runtime::implementations::endurance_workouts_output::{
     PrescribeWorkoutResult, WithdrawWorkoutResult, WorkoutTemplatesResult,
 };
+use pierre_tool_runtime::implementations::field_dictionary::dictionary;
 use pierre_tool_runtime::implementations::fitness_config::{
     DeleteFitnessConfigResult, DeleteFitnessConfigTool, GetFitnessConfigResult,
     GetFitnessConfigTool, ListFitnessConfigsResult, ListFitnessConfigsTool, SetFitnessConfigResult,
@@ -1024,8 +1027,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 status: "connected".to_owned(),
                 connected: true,
                 needs_reauth: false,
-                backend: "native".to_owned(),
+                backend: "mirror".to_owned(),
                 delegated_by: None,
+                // The real dictionary, both modes, so the schema is checked
+                // against what the tool sends.
+                fields: dictionary(&ProviderRegistry::new(), "strava", Some(FieldMode::Mirror)),
             },
         ),
         (
@@ -1037,6 +1043,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 needs_reauth: false,
                 backend: "delegated".to_owned(),
                 delegated_by: Some("Casey Coach".to_owned()),
+                fields: None,
             },
         ),
         (
@@ -1065,6 +1072,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             needs_reauth: false,
                             backend: "native".to_owned(),
                             delegated_by: None,
+                            fields: None,
                         },
                     ),
                     (
@@ -1075,6 +1083,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             needs_reauth: false,
                             backend: "delegated".to_owned(),
                             delegated_by: Some("Casey Coach".to_owned()),
+                            fields: dictionary(
+                                &ProviderRegistry::new(),
+                                "trainingpeaks",
+                                Some(FieldMode::Mirror),
+                            ),
                         },
                     ),
                 ]),

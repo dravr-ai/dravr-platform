@@ -98,6 +98,9 @@ pub mod configuration_output;
 #[cfg(feature = "tools-config")]
 pub mod configuration_document;
 
+/// The field dictionary as `get_connection_status` and `get_activities` carry it.
+pub mod field_dictionary;
+
 /// Provider connection tools: `connect_provider`, `get_connection_status`,
 /// `disconnect_provider` (`tools-connection` feature).
 #[cfg(feature = "tools-connection")]

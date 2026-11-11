@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
 use super::calendar::{calendars_held, recorded_calendar, CalendarConnections};
+use super::field_dictionary::{dictionary, FieldDictionary};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -51,6 +52,7 @@ use pierre_core::transport::Transport;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
+use pierre_providers::field_support::FieldMode;
 use pierre_providers::ProviderRegistry;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_notice::{require_notice_accepted, NOTICE_REFUSAL_ACTION};
@@ -318,17 +320,41 @@ pub struct ProviderConnectionStatus {
     /// The coach whose session a `delegated` provider is read through.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegated_by: Option<String>,
+    /// Which activity fields each way of reading the provider supplies, and
+    /// which way serves. Absent for a provider that serves no activities.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<FieldDictionary>,
 }
 
-impl From<ProviderState> for ProviderConnectionStatus {
-    fn from(state: ProviderState) -> Self {
+impl ProviderConnectionStatus {
+    /// `provider`'s reported state, with its field dictionary.
+    fn of(registry: &ProviderRegistry, provider: &str, state: ProviderState) -> Self {
         Self {
             connected: state.connected,
             status: state.status.to_owned(),
             needs_reauth: state.needs_reauth,
             backend: state.backend.as_str().to_owned(),
+            fields: dictionary(registry, provider, serving_mode(provider, state.backend)),
             delegated_by: state.delegated_by,
         }
+    }
+}
+
+/// The mode the field dictionary names for a provider served by `backend`:
+/// a delegated read goes through the coach's session on the provider's
+/// mirror when it has one (TrainingPeaks), its API otherwise.
+fn serving_mode(provider: &str, backend: BackendKind) -> Option<FieldMode> {
+    match backend {
+        BackendKind::Mirror => Some(FieldMode::Mirror),
+        BackendKind::Oauth => Some(FieldMode::Oauth),
+        BackendKind::Delegated => Some(
+            if backend_resolver::mirror_backend_for(provider).is_some() {
+                FieldMode::Mirror
+            } else {
+                FieldMode::Oauth
+            },
+        ),
+        BackendKind::None => None,
     }
 }
 
@@ -362,6 +388,11 @@ pub enum ConnectionStatusResult {
         /// The coach whose session a `delegated` provider is read through.
         #[serde(skip_serializing_if = "Option::is_none")]
         delegated_by: Option<String>,
+        /// Which activity fields each way of reading the provider supplies,
+        /// and which way serves. Absent for a provider that serves no
+        /// activities.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fields: Option<FieldDictionary>,
     },
     /// A name that is not a provider was asked about. Carries `note` instead of
     /// `needs_reauth`, because there is nothing to re-authorize.
@@ -761,6 +792,11 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                 )
                 .await;
 
+                let fields = dictionary(
+                    ctx.resources.provider_registry(),
+                    specific_provider,
+                    serving_mode(specific_provider, state.backend),
+                );
                 ok_typed(
                     "get_connection_status",
                     ConnectionStatusResult::Single {
@@ -770,6 +806,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                         needs_reauth: state.needs_reauth,
                         backend: state.backend.as_str().to_owned(),
                         delegated_by: state.delegated_by,
+                        fields,
                     },
                 )
             } else {
@@ -783,7 +820,14 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                     )
                     .await
                     .into_iter()
-                    .map(|(name, state)| (name.to_owned(), state.into()))
+                    .map(|(name, state)| {
+                        let status = ProviderConnectionStatus::of(
+                            ctx.resources.provider_registry(),
+                            name,
+                            state,
+                        );
+                        (name.to_owned(), status)
+                    })
                     .collect();
 
                 let calendar = calendar_choice_status(&ctx, tenant_id, user_uuid).await?;

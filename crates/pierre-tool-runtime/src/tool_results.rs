@@ -80,14 +80,17 @@ pub fn project_tool_payload(tool_name: &str, response: &Value) -> Option<Value> 
 /// alone, carries them through [`served_without_notes`].
 ///
 /// `reply_budget` is kept for the same reason: a window cut to fit one reply
-/// is partial, and its note says how to page to the rest.
-const ACTIVITIES_ENVELOPE_KEPT: [&str; 12] = [
+/// is partial, and its note says how to page to the rest. `field_support` is
+/// kept because it too changes what the model may say: a field the serving
+/// connection never supplies is unknown on its rows, not zero.
+const ACTIVITIES_ENVELOPE_KEPT: [&str; 13] = [
     "activity_list",
     "provider",
     "count",
     "mode",
     "format",
     "coverage",
+    "field_support",
     "offset",
     "limit",
     "has_more",
