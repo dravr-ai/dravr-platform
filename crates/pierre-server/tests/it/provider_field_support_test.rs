@@ -4,10 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! Field dictionary suite (carnet#1494).
+//
+// This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
+// cfg empties the module, and the surviving doc keeps `missing_docs` quiet.
+#![cfg(all(
+    feature = "provider-strava",
+    feature = "provider-garmin",
+    feature = "provider-intervals-icu",
+    feature = "provider-sciotte"
+))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The field dictionary (carnet#1494, directive 6): a function of the
+//! The field dictionary (directive 6): a function of the
 //! provider, per mode (mirror and OAuth), that the model reads so it never
 //! takes a field a connection does not supply for a zero.
 //!
