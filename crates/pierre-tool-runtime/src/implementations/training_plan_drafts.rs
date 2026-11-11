@@ -55,7 +55,7 @@ use super::training_plan_authorship::load_conversation;
 use super::training_plan_push::calendar_preview_after_save;
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
 use super::training_plans_output::{
-    race_summary, saved_weeks, DraftSection, PlanSafetyReport, PublishStatus,
+    race_summary, saved_weeks, DraftSection, PlanEnvelopeReport, PlanSafetyReport, PublishStatus,
     PublishTrainingPlanResult, SaveTrainingPlanResult,
 };
 use crate::context::ToolExecutionContext;
@@ -134,6 +134,7 @@ pub(super) async fn save_into_draft(
         "save_training_plan",
         SaveTrainingPlanResult {
             safety: (!safety.is_empty()).then_some(safety),
+            envelope: PlanEnvelopeReport::from_days(saved.weeks.iter().flat_map(|w| &w.days)),
             ignored_arguments: save.ignored_arguments,
             plan_id: draft.id.clone(),
             athlete: Some(athlete.to_owned()),
@@ -582,6 +583,7 @@ async fn publish(
     ok_typed(
         PUBLISH_TOOL,
         PublishTrainingPlanResult {
+            envelope: PlanEnvelopeReport::from_days(published.weeks.iter().flat_map(|w| &w.days)),
             plan_id: Some(published.plan.id),
             superseded_plan_id: published.superseded_plan_id,
             weeks_published: published.weeks.into_iter().map(|w| w.week_start).collect(),

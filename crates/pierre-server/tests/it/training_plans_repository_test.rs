@@ -96,6 +96,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -108,6 +110,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -120,6 +124,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
     ]
 }
@@ -1489,6 +1495,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -1501,6 +1509,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -1513,6 +1523,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
     ];
     let race_b = GoalRace {

@@ -49,7 +49,13 @@ use crate::common;
 /// athlete's answer when a push with several calendars asks which, kept to a
 /// one-line description and two short arguments; the push tools' `provider`
 /// text was tightened to its old length. Measured 93,370 (~456 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 93_400;
+///
+/// 2026-11-11: 93,400 → 93,850 for the parametric workout families
+/// (carnet#1465): `prescribe_workout`'s `preset`, `sport` and
+/// `template_params`, and `save_training_plan`'s `template_preset` plus three
+/// `template_params` keys (`set_rest_seconds`, `pacing`, `anchor`), each cut to
+/// a few words before measuring. Measured 93,810 (~440 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 93_850;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

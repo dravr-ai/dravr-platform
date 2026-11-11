@@ -49,6 +49,8 @@ fn fuelled_day() -> PlannedDay {
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 
@@ -200,6 +202,8 @@ fn a_rest_day_produces_no_session_to_fuel() {
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     };
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0, &FuelingDisclosure::Shown).is_none());
 }

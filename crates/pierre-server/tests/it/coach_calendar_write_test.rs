@@ -380,6 +380,8 @@ fn planned(date: NaiveDate, workout: &str, minutes: u32) -> PlannedDay {
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 

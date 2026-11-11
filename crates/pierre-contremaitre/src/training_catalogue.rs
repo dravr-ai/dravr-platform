@@ -34,8 +34,8 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use chrono::{DateTime, Utc};
 use dravr_contremaitre::training;
 use pierre_core::models::periodization::{
-    Flavour, PhaseKind, SelectionTable, SkeletonTemplate, UnresolvedReference, WorkoutFilter,
-    WorkoutPurpose, WorkoutTemplate,
+    Flavour, Generated, InstanceRequest, PhaseKind, SelectionTable, SkeletonTemplate,
+    UnresolvedReference, WorkoutFilter, WorkoutPurpose, WorkoutTemplate,
 };
 use pierre_core::models::SportType;
 use tracing::error;
@@ -317,16 +317,55 @@ impl TrainingCatalogueRegistry {
     }
 
     /// One workout template by slug.
+    ///
+    /// A slug that is no longer a file — a legacy slug a family absorbed, as
+    /// an alias or as a preset key — resolves to that family, handed back as
+    /// the session the old file described: the preset's steps, sport and
+    /// duration, generated with the alias's pinned values. A caller that
+    /// wants the family itself, with its presets, asks
+    /// [`Self::resolve_workout`].
     #[must_use]
     pub fn workout(&self, slug: &str) -> Option<WorkoutTemplate> {
-        match &self
-            .read()
-            .get(&(CatalogueKind::Workout, slug.to_owned()))?
-            .item
-        {
-            CatalogueItem::Workout(w) => Some((**w).clone()),
-            _ => None,
+        let resolved = self.resolve_workout(slug)?;
+        if resolved.request.preset.is_none() {
+            return Some(resolved.template);
         }
+        let generated = resolved.template.generate(&resolved.request, None);
+        Some(session_view(&resolved.template, generated))
+    }
+
+    /// A slug resolved against the bank: a file stem first, then a family's
+    /// legacy alias, then a family's preset key.
+    #[must_use]
+    pub fn resolve_workout(&self, slug: &str) -> Option<ResolvedWorkout> {
+        let guard = self.read();
+        if let Some(entry) = guard.get(&(CatalogueKind::Workout, slug.to_owned())) {
+            if let CatalogueItem::Workout(w) = &entry.item {
+                return Some(ResolvedWorkout {
+                    template: (**w).clone(),
+                    request: InstanceRequest::default(),
+                });
+            }
+        }
+        let mut families: Vec<&WorkoutTemplate> = guard
+            .values()
+            .filter_map(|e| match &e.item {
+                CatalogueItem::Workout(w) if w.is_family() => Some(&**w),
+                _ => None,
+            })
+            .collect();
+        families.sort_by(|a, b| a.slug.cmp(&b.slug));
+        families.into_iter().find_map(|family| {
+            let (_, alias) = family.resolve_preset(slug)?;
+            Some(ResolvedWorkout {
+                template: family.clone(),
+                request: InstanceRequest {
+                    preset: Some(slug.to_owned()),
+                    sport: alias.and_then(|a| a.sport.clone()),
+                    ..InstanceRequest::default()
+                },
+            })
+        })
     }
 
     /// The templates that satisfy `filter`, sorted by `(purpose, slug)` so
@@ -540,4 +579,188 @@ pub fn parse_catalogue_file(
         }
     };
     parsed.map_err(|e| ContremaitreError::ManifestParse(format!("training {kind}: {e}")))
+}
+
+/// A workout slug resolved against the bank.
+#[derive(Debug, Clone)]
+pub struct ResolvedWorkout {
+    /// The template the slug resolved to — a family when the slug was one of
+    /// its legacy aliases or preset keys.
+    pub template: WorkoutTemplate,
+    /// What to generate for the slug: its preset and the alias's pinned
+    /// sport; empty when the slug is the template's own.
+    pub request: InstanceRequest,
+}
+
+/// A family handed back as the single session one generated instance of it
+/// describes.
+///
+/// The view carries the instance's steps, sport and duration, named after
+/// its preset and held at that preset's readiness floor, under the family's
+/// purpose: what a legacy slug meant before its file was absorbed, and the
+/// one session a caller prescribes from a family.
+#[must_use]
+pub fn session_view(family: &WorkoutTemplate, generated: Generated) -> WorkoutTemplate {
+    let preset = generated.preset.as_deref();
+    let mut view = family.clone();
+    if let Some(named) = preset.and_then(|key| family.preset(key)) {
+        view.name = format!("{} — {}", family.name, named.name);
+    }
+    view.fit.readiness_min = family.effective_fit(preset).readiness_min;
+    view.structure = generated.steps;
+    view.duration_minutes = generated.duration_minutes;
+    view.sport = generated.sport;
+    view
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::models::periodization::ReadinessLevel;
+
+    /// A two-preset family whose slugs no catalogue file carries, so the
+    /// compiled-in bank cannot answer for it.
+    const FAMILY: &str = r#"
+id = "4b9c97a8-91d6-51bc-99d1-5454f2f8269b"
+slug = "fixture_vo2max_short"
+name = "VO2max — short intervals"
+sport = "ride"
+sport_variants = ["ride", "run"]
+intensity_distribution = "vo2max"
+purpose = "vo2max_short"
+evidence_tier = "grey"
+caveat = "Fixture."
+
+[params]
+sets = { min = 1, max = 5, default = 3 }
+reps = { min = 6, max = 30, default = 13 }
+work_seconds = { min = 15, max = 60, default = 30 }
+rest_seconds = { min = 10, max = 30, default = 15 }
+set_rest_seconds = { min = 120, max = 180, default = 180 }
+rpe = { min = 8, max = 9 }
+
+[params.intensity]
+ride = "100-110% MAP"
+run = "100-120% vVO2max"
+
+[progression]
+order = ["add_rep", "add_set", "raise_intensity"]
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+
+[frame.ride]
+warmup = { seconds = 900, target = "Z2", label = "Warm-up" }
+cooldown = { seconds = 600, target = "Z1", label = "Cool-down" }
+
+[frame.run]
+warmup = { seconds = 900, target = "Z2", label = "Warm-up" }
+cooldown = { seconds = 600, target = "Z1", label = "Cool-down" }
+
+[aliases]
+fixture_alias_30_15 = { preset = "fx_30_15", sport = "ride" }
+fixture_alias_30_30 = { preset = "fx_30_30", sport = "run" }
+
+[[presets]]
+key = "fx_30_15"
+name = "30/15 (Rønnestad)"
+shape = "intervals"
+params = { reps = { min = 10, max = 13, default = 13 }, sets = { min = 2, max = 4, default = 3 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 15, max = 15, default = 15 } }
+
+[presets.ride]
+badge = { status = "trialled", basis = "Rønnestad 2015 [RCT]" }
+cycle = [
+  { label = "30 s hard", target = "100-110% MAP", pacing = "best_sustainable" },
+  { label = "15 s float", target = "50% MAP" },
+]
+
+[presets.run]
+badge = { status = "transposed" }
+cycle = [
+  { label = "30 s fast", target = "100-105% vVO2max" },
+  { label = "15 s jog", target = "50% vVO2max" },
+]
+
+[[presets]]
+key = "fx_30_30"
+name = "30/30 (Billat)"
+shape = "intervals"
+readiness_min = "p3"
+params = { reps = { min = 10, max = 25, default = 15 }, sets = { min = 1, max = 3, default = 1 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 30, max = 30, default = 30 } }
+
+[presets.ride]
+badge = { status = "transposed" }
+cycle = [
+  { label = "30 s hard", target = "115-125% MAP" },
+  { label = "30 s float", target = "50% MAP" },
+]
+
+[presets.run]
+badge = { status = "trialled", acute_only = true, basis = "Billat 2000 [acute]" }
+cycle = [
+  { label = "30 s fast", target = "100-105% vVO2max" },
+  { label = "30 s jog", target = "50% vVO2max" },
+]
+"#;
+
+    fn registry_with_family() -> TrainingCatalogueRegistry {
+        let registry = TrainingCatalogueRegistry::new();
+        let item = parse_catalogue_file(CatalogueKind::Workout, FAMILY).unwrap();
+        registry.update(
+            CatalogueKind::Workout,
+            "fixture_vo2max_short",
+            item,
+            compute_sha256(FAMILY.as_bytes()),
+        );
+        registry
+    }
+
+    #[test]
+    fn a_legacy_alias_resolves_to_its_family_with_the_pinned_sport() {
+        let registry = registry_with_family();
+        let resolved = registry.resolve_workout("fixture_alias_30_30").unwrap();
+        assert_eq!(resolved.template.slug, "fixture_vo2max_short");
+        assert_eq!(
+            resolved.request.preset.as_deref(),
+            Some("fixture_alias_30_30"),
+            "the alias is what the generator resolves, pins and all"
+        );
+        assert_eq!(resolved.request.sport, Some(SportType::Run));
+        let by_key = registry.resolve_workout("fx_30_15").unwrap();
+        assert_eq!(by_key.template.slug, "fixture_vo2max_short");
+        assert_eq!(by_key.request.preset.as_deref(), Some("fx_30_15"));
+        assert_eq!(by_key.request.sport, None, "a preset key pins no sport");
+        let own = registry.resolve_workout("fixture_vo2max_short").unwrap();
+        assert_eq!(
+            own.request,
+            InstanceRequest::default(),
+            "the family's own slug asks for nothing"
+        );
+        assert!(registry.resolve_workout("fixture_no_such_slug").is_none());
+    }
+
+    #[test]
+    fn a_legacy_slug_reads_back_as_the_session_its_file_described() {
+        let registry = registry_with_family();
+        let view = registry.workout("fixture_alias_30_30").unwrap();
+        assert_eq!(view.slug, "fixture_vo2max_short");
+        assert_eq!(view.name, "VO2max — short intervals — 30/30 (Billat)");
+        assert_eq!(view.sport, SportType::Run, "the alias pins the run form");
+        assert_eq!(
+            view.fit.readiness_min,
+            ReadinessLevel::P3,
+            "the preset raises the family's p2 floor"
+        );
+        // Warm-up, one set of (work, float), cool-down; 15 × 60 s of reps.
+        assert_eq!(view.structure.len(), 4, "{:?}", view.structure);
+        assert_eq!(view.structure[1].target_zone, "100-105% vVO2max");
+        assert_eq!(view.structure[1].repeat, 15);
+        assert_eq!(view.duration_minutes, 15 + 15 + 10);
+        let family = registry.workout("fixture_vo2max_short").unwrap();
+        assert_eq!(family.name, "VO2max — short intervals");
+        assert_eq!(family.fit.readiness_min, ReadinessLevel::P2);
+    }
 }

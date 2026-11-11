@@ -180,6 +180,8 @@ async fn season(
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }];
     let week_start = week_start.to_string();
     let (tenant, user) = (tenant.to_string(), user_id.to_string());

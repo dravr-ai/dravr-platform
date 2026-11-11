@@ -6,6 +6,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
@@ -14,7 +15,8 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{
-    EvidenceTier, PhaseFit, PhaseKind, Progression, WorkoutFilter, WorkoutParams, WorkoutPurpose,
+    EvidenceTier, Frames, InstanceRequest, PhaseFit, PhaseKind, Progression, Regression,
+    WorkoutFilter, WorkoutParams, WorkoutPurpose,
 };
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession, PrescribedWorkout,
@@ -32,13 +34,15 @@ use super::calendar::{
 use super::coach_scope::{athlete_property, resolve_calendar_scope, under_athlete_consents};
 use super::plan_scope::PlanWriter;
 use super::training_plan_authorship::{load_conversation, resolve_turn_agent};
+use super::training_plan_schema::template_params_schema;
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::endurance_workouts_args::{
-    optional_prescription_id, sport_arg, summary_row, vocab_arg, vocabulary, ListDetail,
+    family_session, optional_prescription_id, sport_arg, summary_row, vocab_arg, vocabulary,
+    ListDetail,
 };
 use crate::implementations::endurance_workouts_output::{
     PrescribeWorkoutResult, WithdrawWorkoutResult, WorkoutTemplateFilters, WorkoutTemplateRow,
@@ -48,6 +52,7 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_contremaitre::ResolvedWorkout;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_tools_core::ToolResult;
@@ -102,31 +107,34 @@ struct SessionPayload {
 /// athlete.
 fn session_duration_minutes(session: &SessionPayload) -> AppResult<u32> {
     required_text("session.name", &session.name, MAX_NAME_LEN)?;
-    if session.structure.is_empty() {
-        return Err(AppError::invalid_input(
-            "session.structure must contain at least one step",
-        ));
-    }
-    if session.structure.len() > MAX_SESSION_STEPS {
+    structure_minutes("session.structure", &session.structure)
+}
+
+/// Hold a session's steps to the bounds above and return their total in
+/// minutes. `at` names the steps in a rejection: the payload path of an
+/// inline session's, or what built them.
+pub(super) fn structure_minutes(at: &str, structure: &[WorkoutStep]) -> AppResult<u32> {
+    if structure.is_empty() {
         return Err(AppError::invalid_input(format!(
-            "session.structure has {} steps; max {MAX_SESSION_STEPS}",
-            session.structure.len()
+            "{at} must contain at least one step"
+        )));
+    }
+    if structure.len() > MAX_SESSION_STEPS {
+        return Err(AppError::invalid_input(format!(
+            "{at} has {} steps; max {MAX_SESSION_STEPS}",
+            structure.len()
         )));
     }
 
     let mut total_seconds: u64 = 0;
-    for (index, step) in session.structure.iter().enumerate() {
-        total_seconds += validate_step(
-            &format!("session.structure[{index}]"),
-            step,
-            TargetRule::AnyLabel,
-        )?;
+    for (index, step) in structure.iter().enumerate() {
+        total_seconds += validate_step(&format!("{at}[{index}]"), step, TargetRule::AnyLabel)?;
     }
 
     let minutes = total_seconds.div_ceil(60);
     if minutes > MAX_SESSION_DURATION_MINUTES {
         return Err(AppError::invalid_input(format!(
-            "session totals {minutes} minutes; max {MAX_SESSION_DURATION_MINUTES}"
+            "{at} totals {minutes} minutes; max {MAX_SESSION_DURATION_MINUTES}"
         )));
     }
     u32::try_from(minutes)
@@ -208,6 +216,11 @@ async fn authored_template(
         },
         evidence_refs: Vec::new(),
         is_compiled_in: false,
+        presets: Vec::new(),
+        aliases: BTreeMap::new(),
+        constraints: Vec::new(),
+        regression: Regression::default(),
+        frame: Frames::default(),
         updated_at: Utc::now(),
     })
 }
@@ -262,7 +275,8 @@ async fn packaged_catalogue<'a>(
 /// Resolve the workout this call prescribes the athlete `user_id` in
 /// `tenant_id`: a named template or an inline session, never both and never
 /// neither. A named template resolves through the package of `writer`'s
-/// agent, as the writer sees it; the athlete's own sessions are theirs. An
+/// agent, as the writer sees it — a legacy slug to the family that absorbed
+/// it, with the preset it names; the athlete's own sessions are theirs. An
 /// inline session is not stored here: the caller keeps it ([`keep_session`]).
 async fn resolve_template(
     context: &ToolExecutionContext,
@@ -270,9 +284,13 @@ async fn resolve_template(
     user_id: Uuid,
     writer: &PlanWriter,
     args: &Value,
-) -> AppResult<WorkoutTemplate> {
+) -> AppResult<ResolvedWorkout> {
     let slug = args.get("template_slug").and_then(Value::as_str);
     let session = args.get("session").filter(|v| !v.is_null());
+    let as_written = |template: WorkoutTemplate| ResolvedWorkout {
+        template,
+        request: InstanceRequest::default(),
+    };
 
     match (slug, session) {
         (Some(_), Some(_)) => Err(AppError::invalid_input(
@@ -289,14 +307,16 @@ async fn resolve_template(
                      lowercase enums."
                 ))
             })?;
-            authored_template(context, tenant_id, user_id, session).await
+            authored_template(context, tenant_id, user_id, session)
+                .await
+                .map(as_written)
         }
         (Some(slug), None) => {
             let agent = writer.agent_id.as_deref();
             let catalogue =
                 packaged_catalogue(context, writer.tenant, writer.user_id, agent).await?;
-            if let Some((template, _)) = catalogue.workout(slug) {
-                return Ok(template);
+            if let Some((resolved, _)) = catalogue.resolve_workout(slug) {
+                return Ok(resolved);
             }
             context
                 .resources
@@ -304,6 +324,7 @@ async fn resolve_template(
                 .workout_templates
                 .get_user_workout_template(tenant_id, user_id, slug)
                 .await?
+                .map(as_written)
                 .ok_or_else(|| {
                     AppError::not_found(format!(
                         "no workout template with slug '{slug}' in the catalogue or among \
@@ -610,6 +631,23 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
         );
         properties.insert("session".to_owned(), session_schema());
         properties.insert(
+            "preset".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("A family's preset key; its default if omitted.".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "sport".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("ride | run | swim: the preset's form.".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert("template_params".to_owned(), template_params_schema());
+        properties.insert(
             "date".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
@@ -710,8 +748,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             under_athlete_consents(athlete_consents, Box::pin(async {
                 let (tenant_id, user_id) = (scope.tenant, scope.user_id);
                 let agent = scope.writer.agent_id.clone();
-                let template =
+                let resolved =
                     resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
+                let (template, envelope) = family_session(resolved, &args)?;
                 // An authored session becomes one of the athlete's saved sessions:
                 // their own even when no calendar takes it, a coach's only once the
                 // coach's writer is built, so a refused write saves nothing of theirs.
@@ -889,6 +928,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                         scheduled_for: date.format("%Y-%m-%d").to_string(),
                         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
                         calendar_note,
+                        envelope,
                     },
                 )
             }))

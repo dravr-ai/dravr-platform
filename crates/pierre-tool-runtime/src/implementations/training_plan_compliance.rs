@@ -27,13 +27,16 @@
 use pierre_config::tid_cuts::{build_tid_cuts, SLOTS};
 use pierre_core::models::periodization::{
     assess_week_compliance, PhaseTargets, PlannedSession, RecoverySpeed, SessionParams,
-    SpacingCheck, TidCuts, WeekInput, WeekVerdict, WorkoutTemplate,
+    SpacingCheck, SportFamily, TidCuts, WeekInput, WeekVerdict, WorkoutTemplate,
 };
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{
+    parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
+};
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
+use pierre_services::plan_calendar_push::plan_sport;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -187,7 +190,7 @@ pub(super) async fn assess_weeks(
                     template: day
                         .template_slug
                         .as_deref()
-                        .and_then(|slug| templates.get(slug)),
+                        .and_then(|slug| templates.get(&template_key(slug, day))),
                     params: day.template_params.as_ref().map(|p| SessionParams {
                         sets: p.sets,
                         reps: p.reps,
@@ -359,7 +362,59 @@ async fn resolve_templates(
             templates.insert(slug.to_owned(), template);
         }
     }
+    // A family day is measured against its preset's own ranges, not the
+    // family's outer axes, so this rail and the envelope check agree. A day
+    // the envelope check relabelled is classified by the purpose it now
+    // trains, so the hard-session and intensity counts describe the session
+    // the athlete will do rather than the template it started from.
+    for day in weeks.iter().flat_map(|w| w.days.iter()) {
+        let Some(slug) = day.template_slug.as_deref() else {
+            continue;
+        };
+        let key = template_key(slug, day);
+        if key == slug {
+            continue;
+        }
+        if let Some(variant) = templates.get(slug).map(|base| day_template(base, day)) {
+            templates.insert(key, variant);
+        }
+    }
     templates
+}
+
+/// The day's template as compliance measures it: narrowed to the day's
+/// preset in the day's sport, and filed under the purpose a relabel moved
+/// it to.
+fn day_template(base: &WorkoutTemplate, day: &PlannedDay) -> WorkoutTemplate {
+    let mut variant = base.clone();
+    let preset = day
+        .template_preset
+        .as_deref()
+        .and_then(|key| base.resolve_preset(key))
+        .map(|(preset, _)| preset);
+    let family = SportFamily::of(&plan_sport(&day.sport)).or_else(|| SportFamily::of(&base.sport));
+    if let (Some(preset), Some(family)) = (preset, family) {
+        variant.params = base.effective_ranges(preset, family);
+    }
+    if let Some(purpose) = day.envelope.as_ref().and_then(|e| e.relabelled_purpose) {
+        variant.purpose = purpose;
+    }
+    variant
+}
+
+/// The key a day's template is held under: its slug, then the family
+/// preset it names, then the purpose an envelope relabel moved it to.
+fn template_key(slug: &str, day: &PlannedDay) -> String {
+    let mut key = slug.to_owned();
+    if let Some(preset) = day.template_preset.as_deref() {
+        key.push('@');
+        key.push_str(preset);
+    }
+    if let Some(purpose) = day.envelope.as_ref().and_then(|e| e.relabelled_purpose) {
+        key.push('#');
+        key.push_str(purpose.as_str());
+    }
+    key
 }
 
 /// Report one week's verdict. Each check is a word — within, off,
@@ -386,4 +441,32 @@ fn emit_week_assessed(plan_id: &str, week_start: &str, verdict: &WeekVerdict) {
         detail = %detail,
         "saved week measured against its phase and flavour"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::implementations::tests::family;
+    use serde_json::json;
+
+    #[test]
+    fn a_family_day_is_measured_against_its_presets_ranges() {
+        let base = family();
+        let day: PlannedDay = serde_json::from_value(json!({
+            "date": "2026-11-16", "sport": "ride", "workout": "30/15",
+            "template_slug": base.slug, "template_preset": "fx_30_15",
+        }))
+        .unwrap();
+        let narrowed = day_template(&base, &day);
+        let reps = narrowed.params.reps.expect("the preset states reps");
+        let axis = base.params.reps.expect("the family states reps");
+        assert!(
+            reps.max < axis.max || reps.min > axis.min,
+            "preset reps {reps:?} narrower than the family axis {axis:?}"
+        );
+        assert_eq!(
+            template_key(&base.slug, &day),
+            format!("{}@fx_30_15", base.slug)
+        );
+    }
 }

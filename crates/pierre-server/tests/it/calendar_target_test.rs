@@ -381,6 +381,8 @@ impl Fixture {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         };
         let days = vec![
             day(0, "run", "Easy run"),

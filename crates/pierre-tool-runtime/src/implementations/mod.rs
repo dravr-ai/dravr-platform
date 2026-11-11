@@ -347,3 +347,129 @@ pub mod sync;
 /// Verification tools: `verify_claim` (`tools-verification` feature).
 #[cfg(feature = "tools-verification")]
 pub mod verification;
+
+#[cfg(test)]
+mod tests {
+    //! A two-preset workout family and a catalogue carrying it, shared by the
+    //! unit tests of the family paths. Its slugs and preset keys are its own,
+    //! so no compiled-in catalogue file can answer for them.
+
+    use pierre_contremaitre::training_catalogue::{CatalogueItem, CatalogueKind};
+    use pierre_contremaitre::TrainingCatalogueRegistry;
+    use pierre_core::models::WorkoutTemplate;
+
+    pub(super) const FAMILY_SLUG: &str = "fixture_vo2max_short";
+
+    /// A short-VO2max family: `fx_30_15` (ride-pinned alias
+    /// `fixture_alias_30_15`) and `fx_30_30` (run-pinned alias
+    /// `fixture_alias_30_30`, which raises the family's p2 floor to p3).
+    const FAMILY: &str = r#"
+id = "4b9c97a8-91d6-51bc-99d1-5454f2f8269b"
+slug = "fixture_vo2max_short"
+name = "VO2max — short intervals"
+sport = "ride"
+sport_variants = ["ride", "run"]
+intensity_distribution = "vo2max"
+purpose = "vo2max_short"
+evidence_tier = "grey"
+caveat = "Fixture."
+
+[params]
+sets = { min = 1, max = 5, default = 3 }
+reps = { min = 6, max = 30, default = 13 }
+work_seconds = { min = 15, max = 60, default = 30 }
+rest_seconds = { min = 10, max = 30, default = 15 }
+set_rest_seconds = { min = 120, max = 180, default = 180 }
+rpe = { min = 8, max = 9 }
+
+[params.intensity]
+ride = "100-110% MAP"
+run = "100-120% vVO2max"
+
+[progression]
+order = ["add_rep", "add_set", "raise_intensity"]
+
+[fit]
+phases = ["build", "peak"]
+readiness_min = "p2"
+max_per_week = 2
+min_spacing_hours = 48
+
+[frame.ride]
+warmup = { seconds = 900, target = "Z2", label = "Warm-up" }
+cooldown = { seconds = 600, target = "Z1", label = "Cool-down" }
+
+[frame.run]
+warmup = { seconds = 900, target = "Z2", label = "Warm-up" }
+cooldown = { seconds = 600, target = "Z1", label = "Cool-down" }
+
+[aliases]
+fixture_alias_30_15 = { preset = "fx_30_15", sport = "ride" }
+fixture_alias_30_30 = { preset = "fx_30_30", sport = "run" }
+
+[[constraints]]
+rule = "cycle_mean_floor"
+action = "relabel"
+sport = "ride"
+min = 80.0
+max_work_seconds = 30
+
+[[presets]]
+key = "fx_30_15"
+name = "30/15 (Rønnestad)"
+shape = "intervals"
+params = { reps = { min = 10, max = 13, default = 13 }, sets = { min = 2, max = 4, default = 3 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 15, max = 15, default = 15 } }
+
+[presets.ride]
+badge = { status = "trialled", basis = "Rønnestad 2015 [RCT]" }
+cycle = [
+  { label = "30 s hard", target = "100-110% MAP", pacing = "best_sustainable" },
+  { label = "15 s float", target = "50% MAP" },
+]
+
+[presets.run]
+badge = { status = "transposed" }
+cycle = [
+  { label = "30 s fast", target = "100-105% vVO2max" },
+  { label = "15 s jog", target = "50% vVO2max" },
+]
+
+[[presets]]
+key = "fx_30_30"
+name = "30/30 (Billat)"
+shape = "intervals"
+readiness_min = "p3"
+params = { reps = { min = 10, max = 25, default = 15 }, sets = { min = 1, max = 3, default = 1 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 30, max = 30, default = 30 } }
+
+[presets.ride]
+badge = { status = "transposed" }
+cycle = [
+  { label = "30 s hard", target = "115-125% MAP" },
+  { label = "30 s float", target = "50% MAP" },
+]
+
+[presets.run]
+badge = { status = "trialled", acute_only = true, basis = "Billat 2000 [acute]" }
+cycle = [
+  { label = "30 s fast", target = "100-105% vVO2max" },
+  { label = "30 s jog", target = "50% vVO2max" },
+]
+"#;
+
+    /// The family, parsed and validated by the kernel.
+    pub(super) fn family() -> WorkoutTemplate {
+        WorkoutTemplate::from_toml(FAMILY).unwrap()
+    }
+
+    /// The compiled-in catalogue with the family laid over it.
+    pub(super) fn catalogue_with_family() -> TrainingCatalogueRegistry {
+        let registry = TrainingCatalogueRegistry::new();
+        registry.update(
+            CatalogueKind::Workout,
+            FAMILY_SLUG,
+            CatalogueItem::Workout(Box::new(family())),
+            "fixture".to_owned(),
+        );
+        registry
+    }
+}

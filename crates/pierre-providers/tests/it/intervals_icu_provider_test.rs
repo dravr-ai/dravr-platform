@@ -9,7 +9,9 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use pierre_core::models::periodization::{Frames, Regression};
 use secrecy::SecretString;
+use std::collections::BTreeMap;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
@@ -60,12 +62,18 @@ fn sample_template() -> WorkoutTemplate {
             max_per_week: 1,
             min_spacing_hours: 0,
             contraindications: Vec::new(),
+            counts_as_quality: None,
         },
         evidence_refs: vec![
             "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md"
                 .to_owned(),
         ],
         is_compiled_in: true,
+        presets: Vec::new(),
+        aliases: BTreeMap::new(),
+        constraints: Vec::new(),
+        regression: Regression::default(),
+        frame: Frames::default(),
         updated_at: Utc::now(),
     }
 }

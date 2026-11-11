@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use pierre_core::models::periodization::{FlavourFamily, PhaseKind, WorkoutPurpose};
+use pierre_core::models::periodization::{AnchorChoice, FlavourFamily, PhaseKind, WorkoutPurpose};
 use pierre_mcp_schema::PropertySchema;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -268,13 +268,14 @@ fn flavour_schema() -> PropertySchema {
 }
 
 /// Schema for the values a day fills its template's ranges with.
-fn template_params_schema() -> PropertySchema {
+pub(super) fn template_params_schema() -> PropertySchema {
     let mut p = HashMap::new();
     for (key, text) in [
         ("sets", "Sets, when the template has them."),
         ("reps", "Repetitions per set."),
         ("work_seconds", "Work interval in seconds."),
         ("rest_seconds", "Recovery interval in seconds."),
+        ("set_rest_seconds", "Rest between sets, seconds."),
         (
             "duration_minutes",
             "Session duration in minutes, for a continuous template.",
@@ -282,6 +283,14 @@ fn template_params_schema() -> PropertySchema {
     ] {
         p.insert(key.to_owned(), integer_prop(text));
     }
+    p.insert(
+        "pacing".to_owned(),
+        string_prop("fixed | best_sustainable."),
+    );
+    p.insert(
+        "anchor".to_owned(),
+        string_prop(&vocabulary(AnchorChoice::ALL, AnchorChoice::as_str)),
+    );
     object_prop(
         "Values filling the template's ranges (list_workout_templates shows ranges and defaults).",
         p,
@@ -359,6 +368,10 @@ fn day_schema() -> PropertySchema {
     p.insert(
         "template_slug".to_owned(),
         string_prop("The catalogue template this day instantiates (a list_workout_templates slug). Give it for every quality session built from the bank."),
+    );
+    p.insert(
+        "template_preset".to_owned(),
+        string_prop("A family's preset key; omit steps and the save builds them."),
     );
     p.insert("template_params".to_owned(), template_params_schema());
     object_prop(

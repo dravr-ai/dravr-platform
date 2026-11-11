@@ -138,6 +138,8 @@ fn day(
         template_slug,
         template_params,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 
@@ -153,6 +155,9 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         work_seconds: Some(480),
         rest_seconds: Some(120),
         duration_minutes: None,
+        set_rest_seconds: None,
+        pacing: None,
+        anchor: None,
     };
     let days = vec![
         day("2026-08-24", "rest", "off", None),

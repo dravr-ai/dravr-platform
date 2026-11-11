@@ -239,10 +239,19 @@ fn week_days(
                 .as_ref()
                 .and_then(|slug| catalogue.workout(slug))
                 .map(|(template, _)| template);
+            // A family day is read at its preset: the preset's floor and
+            // quality flag, and the purpose an edit relabelled it to.
+            let preset = day
+                .template_preset
+                .as_deref()
+                .or(day.template_slug.as_deref());
+            let fit = template.as_ref().map(|t| t.effective_fit(preset));
+            let relabelled = day.envelope.as_ref().and_then(|e| e.relabelled_purpose);
             let input = DayReadinessInput {
                 date: day.date.clone(),
-                purpose: template.as_ref().map(|t| t.purpose),
-                readiness_min: template.as_ref().map(|t| t.fit.readiness_min),
+                purpose: relabelled.or_else(|| template.as_ref().map(|t| t.purpose)),
+                readiness_min: fit.map(|f| f.readiness_min),
+                counts_as_quality: fit.map(|f| f.counts_as_quality),
             };
             (input, template)
         })
@@ -654,6 +663,45 @@ mod tests {
         let morning = NaiveDate::from_ymd_opt(2026, 10, 29).unwrap();
         assert_eq!(nights.get(&morning), Some(&8.0), "{nights:?}");
         assert_eq!(nights.len(), 1, "one night, one date");
+    }
+
+    #[test]
+    fn a_family_day_is_read_at_its_preset_and_at_its_relabel() {
+        use crate::implementations::tests::{catalogue_with_family, FAMILY_SLUG};
+        let registry = catalogue_with_family();
+        let catalogue = PackagedCatalogue::catalogue_only(&registry);
+        let week: PlanWeek = serde_json::from_value(serde_json::json!({
+            "id": "w", "tenant_id": "t", "user_id": "u", "plan_id": "p",
+            "week_start": "2026-11-16", "focus": "", "status": "active",
+            "supersedes_id": null, "adjustment_reason": "",
+            "created_at": "2026-11-11T00:00:00Z", "updated_at": "2026-11-11T00:00:00Z",
+            "days": [
+                { "date": "2026-11-16", "sport": "run", "workout": "30/30",
+                  "template_slug": FAMILY_SLUG, "template_preset": "fx_30_30" },
+                { "date": "2026-11-18", "sport": "run", "workout": "30/30",
+                  "template_slug": "fixture_alias_30_30" },
+                { "date": "2026-11-20", "sport": "ride", "workout": "Tabata",
+                  "template_slug": FAMILY_SLUG, "template_preset": "fx_30_15",
+                  "envelope": { "preset": "fx_30_15", "relabelled_purpose": "threshold" } },
+            ],
+        }))
+        .unwrap();
+        let days = week_days(&catalogue, &week);
+        let inputs: Vec<&DayReadinessInput> = days.iter().map(|(input, _)| input).collect();
+        assert_eq!(
+            inputs[0].readiness_min,
+            Some(ReadinessLevel::P3),
+            "fx_30_30's floor"
+        );
+        assert_eq!(inputs[0].purpose, Some(WorkoutPurpose::Vo2maxShort));
+        assert_eq!(
+            inputs[1].readiness_min,
+            Some(ReadinessLevel::P3),
+            "a legacy slug saved before the family carries its preset's floor"
+        );
+        assert_eq!(inputs[2].readiness_min, Some(ReadinessLevel::P2));
+        assert_eq!(inputs[2].purpose, Some(WorkoutPurpose::Threshold));
+        assert!(inputs.iter().all(|d| d.counts_as_quality == Some(true)));
     }
 
     #[test]

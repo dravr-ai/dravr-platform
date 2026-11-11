@@ -403,6 +403,8 @@ fn week_days(week_start: NaiveDate, key_session: &str, key_intensity: &str) -> V
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     })
     .collect()
 }

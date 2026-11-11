@@ -1104,7 +1104,7 @@ export interface ListStretchingExercisesParams {
 
 
 /**
- * List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones prescribe_workout pushes.
+ * List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones prescribe_workout pushes.
  */
 export interface ListWorkoutTemplatesParams {
 
@@ -1114,7 +1114,7 @@ export interface ListWorkoutTemplatesParams {
   /** Only templates fitting this phase (any-phase templates always match). One of: prep, base, build, specialty, peak, taper, race, transition, recovery. */
   phase?: string;
 
-  /** Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill. */
+  /** Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep. */
   purpose?: string;
 
   /** Only templates written for this sport (primary or variant), in snake_case: run, ride, swim, strength_training, … */
@@ -1199,6 +1199,9 @@ export interface PrescribeWorkoutParams {
   /** Date to schedule it on, YYYY-MM-DD. */
   date: string;
 
+  /** A family's preset key; its default if omitted. */
+  preset?: string;
+
   /** Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks. */
   provider?: string;
 
@@ -1214,7 +1217,7 @@ export interface PrescribeWorkoutParams {
   /** Session name as you state it to the athlete. */
   name: string;
 
-  /** What the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill. Omitted, it follows from intensity_distribution. */
+  /** What the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep. Omitted, it follows from intensity_distribution. */
   purpose?: string;
 
   /** Sport: run, ride, swim, walk, hike, ski, yoga, … */
@@ -1244,6 +1247,37 @@ export interface PrescribeWorkoutParams {
   /** Intensity RELATIVE to the athlete's thresholds. Use a zone (Z1-Z7, or 'Z2 HR'), a named zone (recovery, endurance, tempo, threshold, VO2max, anaerobic, sprint), 'sweet spot', or a percent band ('75%', '88-93% FTP', '95-100% threshold HR', '90-95% threshold pace'); any other text is rejected. Never absolute watts. */
   target_zone: string;
 }[];
+};
+
+  /** ride | run | swim: the preset's form. */
+  sport?: string;
+
+  /** Values filling the template's ranges (list_workout_templates shows ranges and defaults). */
+  template_params?: {
+
+  /** preset | ftp | critical_power | map | threshold_pace | critical_speed | vvo2max | threshold_heart_rate | max_heart_rate | heart_rate_reserve | rpe */
+  anchor?: string;
+
+  /** Session duration in minutes, for a continuous template. */
+  duration_minutes?: number;
+
+  /** fixed | best_sustainable. */
+  pacing?: string;
+
+  /** Repetitions per set. */
+  reps?: number;
+
+  /** Recovery interval in seconds. */
+  rest_seconds?: number;
+
+  /** Rest between sets, seconds. */
+  set_rest_seconds?: number;
+
+  /** Sets, when the template has them. */
+  sets?: number;
+
+  /** Work interval in seconds. */
+  work_seconds?: number;
 };
 
   /** A stored template's slug: from the workout bank (list_workout_templates) or a session you prescribed this athlete before. Use `session` for anything new. */
@@ -1481,7 +1515,7 @@ export interface SaveTrainingPlanParams {
   /** What the phase is for, one sentence (the skeleton's text when laid out from one). */
   purpose?: string;
 
-  /** {purpose: weight} over the workout purposes this phase draws sessions from: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility | uphill | downhill. */
+  /** {purpose: weight} over the workout purposes this phase draws sessions from: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility | uphill | downhill | anaerobic_capacity | race_prep. */
   session_mix?: Record<string, any>;
 
   /** The catalogue skeleton this phase was laid out from, when one was. */
@@ -1635,8 +1669,14 @@ export interface SaveTrainingPlanParams {
   /** Values filling the template's ranges (list_workout_templates shows ranges and defaults). */
   template_params?: {
 
+  /** preset | ftp | critical_power | map | threshold_pace | critical_speed | vvo2max | threshold_heart_rate | max_heart_rate | heart_rate_reserve | rpe */
+  anchor?: string;
+
   /** Session duration in minutes, for a continuous template. */
   duration_minutes?: number;
+
+  /** fixed | best_sustainable. */
+  pacing?: string;
 
   /** Repetitions per set. */
   reps?: number;
@@ -1644,12 +1684,18 @@ export interface SaveTrainingPlanParams {
   /** Recovery interval in seconds. */
   rest_seconds?: number;
 
+  /** Rest between sets, seconds. */
+  set_rest_seconds?: number;
+
   /** Sets, when the template has them. */
   sets?: number;
 
   /** Work interval in seconds. */
   work_seconds?: number;
 };
+
+  /** A family's preset key; omit steps and the save builds them. */
+  template_preset?: string;
 
   /** The catalogue template this day instantiates (a list_workout_templates slug). Give it for every quality session built from the bank. */
   template_slug?: string;

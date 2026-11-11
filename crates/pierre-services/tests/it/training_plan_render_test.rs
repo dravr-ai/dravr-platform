@@ -107,6 +107,8 @@ fn week(start: &str, focus: &str) -> PlanWeek {
                 template_slug: None,
                 template_params: None,
                 template_source: None,
+                template_preset: None,
+                envelope: None,
             },
             PlannedDay {
                 date: start.to_owned(), // same-day is fine for render tests
@@ -119,6 +121,8 @@ fn week(start: &str, focus: &str) -> PlanWeek {
                 template_slug: None,
                 template_params: None,
                 template_source: None,
+                template_preset: None,
+                envelope: None,
             },
         ],
         status: WeekStatus::Active,
@@ -387,6 +391,8 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
         PlannedDay {
             date: "2026-08-28".to_owned(),
@@ -399,6 +405,8 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         },
     ];
 

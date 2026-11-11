@@ -300,11 +300,15 @@ jobs:
       # fat 113 MB (ceiling 115, run 42080359585), thin 139 MB, so
       # 139 x 115/113 = 141. Re-scaled on 2026-11-06 from main's fat 114 MB
       # (runs 42323514435, 42316877305) and thin 141 MB: 141 x 115/114 = 142.
+      # Re-scaled on 2026-11-11 from one commit's pair (27a5f46ad, the
+      # workout-family landing): fat 115 MB passing its ceiling (run
+      # 43079527898) and thin 143 MB (run 43079527897), so 143 x 115/115 =
+      # 143. The shipped ceiling did not move; main's fat binary sits on it.
       # Move both ceilings together.
       - name: Check the server binary size (thin release)
         run: |
           BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
-          MAX_SIZE_MB=142
+          MAX_SIZE_MB=143
           WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
           echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
           if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
