@@ -224,6 +224,9 @@ pub enum DraftPublishOutcome {
 /// route call; the caller has run the coaching gates for `target` in
 /// `group_id`.
 ///
+/// LIMITATION(registre#1492): `publish_draft_live` never pushes the published plan to the
+/// athlete's chosen calendar; the coach asks for `push_training_plan` as a second step.
+///
 /// # Errors
 ///
 /// The errors of [`publish_coach_draft`].
