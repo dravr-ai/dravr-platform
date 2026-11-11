@@ -15,10 +15,9 @@
 //! it, so its freshness stays the last push the ingest recorded.
 //!
 //! The window also serves the history a usr/pwd session of the same provider
-//! stored under its mirror's key (`sciotte_garmin` beside `garmin`): the
-//! grant is the one ongoing source (carnet#1386), so what the session read
-//! before it stopped keeps being served after it dies, merged with the pushes
-//! so one workout recorded by both is one session.
+//! stored under its mirror's key (`sciotte_garmin` beside `garmin`,
+//! `backend_resolver::history_keys`), merged with the pushes so one workout
+//! recorded by both is one session.
 
 use std::sync::Arc;
 
@@ -38,12 +37,11 @@ use crate::runtime::ToolRuntime;
 /// the user's reads of it resolve to.
 ///
 /// The resolution matters because a caller may name the user-facing
-/// provider: `garmin` resolves to the Garmin API backend for an athlete who
-/// holds its grant, whatever credential connection (`sciotte_garmin`) stands
-/// beside it, and to that connection, read on request, for an athlete who
-/// holds no grant (carnet#1386, `backend_resolver::oauth_grant`). The
-/// resolver is consulted only for a push-only slug, so no other provider's
-/// read pays for it.
+/// provider: `garmin` resolves to the athlete's usr/pwd session
+/// (`sciotte_garmin`) whenever one that is not revoked is held, and to the
+/// Garmin API backend for an athlete whose live grant serves alone
+/// (carnet#1494, `backend_resolver::read_plan`). The resolver is consulted
+/// only for a push-only slug, so no other provider's read pays for it.
 pub(super) async fn reads_pushed_store(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -60,10 +58,9 @@ pub(super) async fn reads_pushed_store(
 /// Whether `connection` is a usr/pwd session beside a grant that serves its
 /// provider (`backend_resolver::session_beside_grant`).
 ///
-/// Judged in the tenant the connection lives in. Such a session serves nothing (carnet#1386), so
-/// no walk of the athlete's connections reads it: the grant's own connection
-/// is read instead, and a Garmin grant's window carries what the session
-/// stored ([`pushed_window`]). A row whose tenant does not parse is not one.
+/// Judged in the tenant the connection lives in. A row whose tenant does not
+/// parse is not one. Read only by the fallback serve's stored-history answer
+/// (`fallback::beside_grant_rows`).
 pub(crate) async fn connection_beside_grant(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -83,23 +80,50 @@ pub(crate) async fn connection_beside_grant(
     }
 }
 
-/// The backend a read naming `provider_slug` is served by.
+/// Whether `connection` is an OAuth grant standing beside a usr/pwd session
+/// of its provider that is not revoked
+/// (`backend_resolver::grant_beside_session`), judged in the tenant the
+/// connection lives in.
 ///
-/// The slug itself, unless it is a mirror routing resolves away from itself
-/// — a usr/pwd session beside a Garmin grant
-/// (`backend_resolver::resolve_backend`) — which is read, flagged, cached and
-/// judged as the grant it stands beside.
-/// Keying the read on the session instead re-armed the grant from the
-/// session's read and wrote the grant's pushes under the session's key.
+/// The session is then the provider's primary (carnet#1494), so a walk of
+/// the athlete's connections reads the session and passes over the grant:
+/// the API is never read beside the scrape, and a grant flagged behind a
+/// serving session asks nothing of the athlete. A row whose tenant does not
+/// parse is not one.
+pub(crate) async fn connection_grant_beside_session(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    connection: &ProviderConnection,
+) -> bool {
+    match TenantId::parse_str(&connection.tenant_id) {
+        Ok(tenant) => {
+            backend_resolver::grant_beside_session(
+                runtime.repos(),
+                user_id,
+                tenant,
+                &connection.provider,
+            )
+            .await
+        }
+        Err(_) => false,
+    }
+}
+
+/// The backend a read naming `provider_slug` is served by: the slug's
+/// primary (`backend_resolver::resolve_backend`).
+///
+/// A grant slug maps to its pair's primary — the athlete's session whenever
+/// one that is not revoked is held (carnet#1494) — so the read is flagged,
+/// cached and judged as the backend that actually answers it. A mirror and
+/// a provider with no mirror are themselves. Keying a read on a name the
+/// resolver then routes elsewhere re-armed one backend from another's read
+/// and wrote one backend's rows under the other's key.
 pub(crate) async fn serving_slug(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant: Option<TenantId>,
 ) -> String {
-    if !backend_resolver::is_mirror_backend(provider_slug) {
-        return provider_slug.to_owned();
-    }
     backend_resolver::resolve_backend(runtime.repos(), user_id, tenant, provider_slug).await
 }
 

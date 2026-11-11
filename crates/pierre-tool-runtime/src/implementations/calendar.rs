@@ -11,8 +11,9 @@ use pierre_core::models::{
     ConnectionType, ProviderConnection, RelativeIntensity, TenantId, WorkoutStep,
 };
 use pierre_mcp_schema::PropertySchema;
-use pierre_providers::backend_resolver::{self, resolve_backend};
+use pierre_providers::backend_resolver::{self, write_backend};
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
 use pierre_services::plan_calendar_push::{
     calendar_read_target, chosen_calendar, connected_calendars, named_calendar,
@@ -257,9 +258,17 @@ pub(super) async fn calendar_target(
 ) -> AppResult<CalendarResolution> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
-        Some(name) => {
-            Some(resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await)
-        }
+        Some(name) => Some(
+            write_backend(
+                context.resources.repos(),
+                registry,
+                user_id,
+                tenant_id,
+                name,
+                ProviderCapabilities::CALENDAR_WRITE,
+            )
+            .await,
+        ),
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;
@@ -455,8 +464,15 @@ pub(super) async fn calendar_to_record(
     which: CalendarConnections,
 ) -> AppResult<CalendarToRecord> {
     let registry = context.resources.provider_registry();
-    let requested =
-        resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await;
+    let requested = write_backend(
+        context.resources.repos(),
+        registry,
+        user_id,
+        tenant_id,
+        name,
+        ProviderCapabilities::CALENDAR_WRITE,
+    )
+    .await;
     let rows = connections(context, tenant_id, user_id).await?;
     let backends = backends_among(registry, &rows, which);
     let backend = named_calendar(registry, &backends, &requested)?;
@@ -529,8 +545,12 @@ pub(super) async fn calendar_ledger_target(
     })
 }
 
-/// Build the athlete's authenticated provider for the calendar `backend`, or
-/// the refusal an athlete who has not connected it gets.
+/// Build the athlete's authenticated provider for exactly the calendar
+/// `backend`, or the refusal an athlete who has not connected it gets.
+///
+/// The backend was chosen by capability ([`write_backend`]), so it is
+/// authenticated as named: resolving it again would send a Garmin workout to
+/// the session that serves the athlete's reads (carnet#1494).
 pub(super) async fn calendar_provider(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
@@ -539,7 +559,7 @@ pub(super) async fn calendar_provider(
 ) -> AppResult<Box<dyn FitnessProvider>> {
     let tenant_str = tenant_id.to_string();
     AuthService::new(context.resources.clone())
-        .create_authenticated_provider(backend, user_id, Some(tenant_str.as_str()))
+        .create_exact_provider(backend, user_id, Some(tenant_str.as_str()))
         .await
         .map_err(|resp| {
             AppError::invalid_input(resp.error.unwrap_or_else(|| {

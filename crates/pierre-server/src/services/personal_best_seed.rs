@@ -173,8 +173,12 @@ pub async fn run_personal_best_seed_pass(
     Ok(report)
 }
 
-/// The athlete's authenticated Strava provider, or `None` (logged) when
-/// their connection cannot produce one.
+/// The athlete's authenticated Strava grant, or `None` (logged) when their
+/// connection cannot produce one.
+///
+/// The grant itself, never the session the athlete's reads serve first: the
+/// seed walks the API's best efforts, and must never start a scrape
+/// (carnet#1494).
 pub async fn strava_provider(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -182,7 +186,7 @@ pub async fn strava_provider(
 ) -> Option<Box<dyn FitnessProvider>> {
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
     match AuthService::new(runtime)
-        .create_authenticated_provider(oauth_providers::STRAVA, user_id, Some(tenant_id))
+        .create_exact_provider(oauth_providers::STRAVA, user_id, Some(tenant_id))
         .await
     {
         Ok(provider) => Some(provider),

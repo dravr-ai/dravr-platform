@@ -20,13 +20,14 @@ use pierre_core::constants::oauth::providers::companion_keys;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::BackfillJobState;
 use pierre_mcp_transport::OAuthCallbackResponse;
-use pierre_providers::backend_resolver::{self, OAuthGrant};
+use pierre_providers::backend_resolver;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
 
-/// The history of `card` for `user_id`, whose grant for it reads `grant`.
+/// The history of `card` for `user_id`, whose own grant serves it first when
+/// `grant_serves` ([`crate::card_backend::grant_serves`]).
 ///
 /// Read in this order, the first that holds:
 /// 1. a one-time import of the card's sign-in is owed: `importing`;
@@ -38,14 +39,15 @@ use crate::AuthRoutesContext;
 ///    connected, so they never stand for what came before it.
 ///
 /// A card whose provider is not push-fed, or that no grant of the user's
-/// serves, reads `not_applicable`. `archive_source` is the provider's own
+/// serves first (a session beside it reads its own history), reads
+/// `not_applicable`. `archive_source` is the provider's own
 /// export source among those this server offers, whatever the state.
 pub(crate) async fn card_history(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
     card: &str,
-    grant: OAuthGrant,
+    grant_serves: bool,
 ) -> HistoryStatus {
     let user_facing = backend_resolver::user_facing_name(card);
     let archive_source = companion_keys(user_facing)
@@ -56,7 +58,7 @@ pub(crate) async fn card_history(
     let (Some(tenant), Some(sign_in), true) = (
         tenant_id.map(TenantId::from_uuid),
         sign_in,
-        grant.serves() && backend_resolver::pushed_backend_for(user_facing) == Some(user_facing),
+        grant_serves && backend_resolver::pushed_backend_for(user_facing) == Some(user_facing),
     ) else {
         return HistoryStatus {
             state: HistoryState::NotApplicable,

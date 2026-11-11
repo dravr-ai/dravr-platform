@@ -32,7 +32,7 @@ use pierre_services::personal_bests::is_measured_sport;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner, WebhookTarget};
-use pierre_tool_runtime::activity_fetch::fetch_provider_head;
+use pierre_tool_runtime::activity_fetch::read_exact_backend;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
@@ -484,8 +484,10 @@ pub(super) async fn notify_owner(
 /// Fetch the recent activities of the user whose Strava athlete id a webhook
 /// named.
 ///
-/// Goes through [`fetch_provider_head`]: it authenticates the OAuth provider
-/// (refreshing the token when needed), fetches the window that opens
+/// Goes through [`read_exact_backend`]: it authenticates the Strava grant
+/// itself (refreshing the token when needed), never the session the
+/// athlete's reads serve first, so a webhook never starts a scrape
+/// (carnet#1494). It fetches the window that opens
 /// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event, and writes the rows
 /// through to the activity cache with the freshness mark. A successful fetch
 /// stamps `last_sync`; the athlete is notified only when the window held at
@@ -519,7 +521,7 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
         offset: None,
     };
 
-    match fetch_provider_head(&runtime, "strava", user_id, &tenant_id, &params).await {
+    match read_exact_backend(&runtime, "strava", user_id, &tenant_id, &params).await {
         Ok(activities) => {
             land_strava_fetch(resources, event, user_id, &tenant_id, &activities).await;
         }

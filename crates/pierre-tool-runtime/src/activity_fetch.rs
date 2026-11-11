@@ -55,7 +55,7 @@ pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
 pub use fallback::{serve_without_primary, FallbackServe};
-pub(crate) use pushed::connection_beside_grant;
+pub(crate) use pushed::{connection_beside_grant, connection_grant_beside_session};
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
@@ -165,7 +165,7 @@ async fn fold_other_connections(
         )
         .await;
         if canonical == primary_backend
-            || connection_beside_grant(&context.resources, context.user_id, conn).await
+            || connection_grant_beside_session(&context.resources, context.user_id, conn).await
         {
             continue;
         }
@@ -539,9 +539,9 @@ pub struct HistoricalServe {
 /// session already flagged is served from the cache without a read
 /// ([`reauth_retry::flagged_session`]) until a reconnect or a claimed retry.
 ///
-/// A usr/pwd session named beside a Garmin grant is read as that grant
-/// (`pushed::serving_slug`, carnet#1386): its flag, cache and verdict are the
-/// grant's, never the session's.
+/// A grant named beside the athlete's session is read as that session
+/// (`pushed::serving_slug`, carnet#1494): its flag, cache and verdict are the
+/// session's, never the grant's.
 pub async fn fetch_provider_activities(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -621,9 +621,10 @@ pub async fn fetch_provider_activities(
 /// A read the provider answered with a list it did not reject also re-arms a
 /// connection flagged `needs_reauth` ([`rearm_after_live_read`](sync_verdict::rearm_after_live_read)), for every
 /// caller alike: the credential that just served is the one the flag doubted.
-/// A usr/pwd session named beside a Garmin grant is read as that grant
-/// (`pushed::serving_slug`), so it never re-arms the grant or writes under the
-/// session's key.
+/// A grant named beside the athlete's session is read as that session
+/// (`pushed::serving_slug`), so it never re-arms one backend from the other's
+/// read or writes under the other's key. A read that must reach the named
+/// backend exactly is [`read_exact_backend`].
 ///
 /// # Errors
 ///
@@ -654,6 +655,52 @@ pub async fn fetch_provider_head(
         user_id,
         tenant_id,
         params,
+        Routing::Resolved,
+    ))
+    .await?;
+    Ok(ai_scope::filter_activities(
+        runtime.provider_registry().as_ref(),
+        head,
+    ))
+}
+
+/// How a head read picks the backend it authenticates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Routing {
+    /// The backend the athlete's read plan serves the named slug by
+    /// (`backend_resolver::resolve_backend`).
+    Resolved,
+    /// Exactly the named backend, with its own token row.
+    Exact,
+}
+
+/// [`fetch_provider_head`] of exactly `backend`, never the backend the
+/// athlete's read plan serves first: judged, recorded and written through
+/// under `backend` alone.
+///
+/// For a read a provider's own event asks of the credential it names: a
+/// Strava webhook and the first read of a connection just made reach the
+/// grant, so a pushed event never starts a scrape of the session beside it
+/// (carnet#1494). A push-only backend answers with its pushed window, as it
+/// does on every read.
+///
+/// # Errors
+///
+/// As [`fetch_provider_head`].
+pub async fn read_exact_backend(
+    runtime: &Arc<dyn ToolRuntime>,
+    backend: &str,
+    user_id: Uuid,
+    tenant_id: &str,
+    params: &ActivityQueryParams,
+) -> AppResult<Vec<Activity>> {
+    let head = ai_scope::unfiltered(fetch_and_persist_head(
+        runtime,
+        backend,
+        user_id,
+        tenant_id,
+        params,
+        Routing::Exact,
     ))
     .await?;
     Ok(ai_scope::filter_activities(
@@ -716,12 +763,18 @@ async fn fetch_and_persist_head(
     user_id: Uuid,
     tenant_id: &str,
     params: &ActivityQueryParams,
+    routing: Routing,
 ) -> AppResult<Vec<Activity>> {
     let tenant = TenantId::parse_str(tenant_id).ok();
-    if reads_pushed_store(runtime, provider_slug, user_id, tenant).await {
+    let pushed = match routing {
+        Routing::Resolved => reads_pushed_store(runtime, provider_slug, user_id, tenant).await,
+        Routing::Exact => runtime.provider_registry().is_push_only(provider_slug),
+    };
+    if pushed {
         return pushed_window(runtime, provider_slug, user_id, tenant, params).await;
     }
-    let read = read_provider_head(runtime, provider_slug, user_id, tenant_id, params).await;
+    let read =
+        read_provider_head(runtime, provider_slug, user_id, tenant_id, params, routing).await;
     if let Some(tenant) = tenant {
         record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
     }
@@ -933,8 +986,8 @@ pub async fn serve_stale_activities(
 /// `after_ts` is a Unix timestamp (seconds) lower bound; `limit_per_provider`
 /// caps how many activities are pulled from each provider. Providers that
 /// fail to authenticate or fetch are skipped (logged at `warn`) rather than
-/// failing the whole call, and so is a usr/pwd session beside a grant that
-/// serves its provider (`pushed::connection_beside_grant`).
+/// failing the whole call, and so is a grant beside a usr/pwd session of its
+/// provider (`pushed::connection_grant_beside_session`): the session is read.
 pub async fn fetch_recent_activities_all_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -958,9 +1011,10 @@ pub async fn fetch_recent_activities_all_providers(
 
     let mut all = Vec::new();
     for connection in &connections {
-        // A usr/pwd session beside a grant serves nothing: the grant's own
-        // connection reads its window, the session's history included.
-        if connection_beside_grant(runtime, user_id, connection).await {
+        // A grant beside a session is the session's fallback: the session's
+        // own connection reads the window, the grant's stored rows included
+        // (`backend_resolver::history_keys`).
+        if connection_grant_beside_session(runtime, user_id, connection).await {
             continue;
         }
         if let Some(activities) =

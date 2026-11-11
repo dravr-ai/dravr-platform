@@ -735,7 +735,7 @@ async fn fetch_backfill_activities(
         BackfillRead::Session => {
             executor
                 .auth_service
-                .create_session_provider(&job.provider_name, job.user_id, tenant)
+                .create_exact_provider(&job.provider_name, job.user_id, tenant)
                 .await
         }
     };

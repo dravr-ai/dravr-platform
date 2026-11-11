@@ -546,11 +546,12 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         // session row exists — the chat pipeline answers it with a minted
         // hosted link, and an MCP client gets the structured reconnect code.
         //
-        // Strava's OAuth backend is the default one, so a sciotte-Strava user
-        // may still authorize OAuth here, after which `resolve_backend` routes
-        // them to the API and the mirror goes dormant.
+        // Strava's API reads on request, so its connect follows the
+        // operator's connect order below (`strava_signs_in_first`): the OAuth
+        // minted here while the order puts it first stands behind a session
+        // the athlete signs in later as its fallback.
         if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
-            if backend_resolver::mirror_is_default(provider) {
+            if !backend_resolver::api_reads_on_request(provider) {
                 info!(
                     user_id = %user_uuid,
                     provider = provider,

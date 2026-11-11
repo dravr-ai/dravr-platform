@@ -12,7 +12,7 @@
 //! before it spawns, leased while it runs, resumed by the sweep if its
 //! instance dies — that differs in three ways:
 //!
-//! - it reads the session itself ([`crate::protocol::AuthService::create_session_provider`]),
+//! - it reads the session itself ([`crate::protocol::AuthService::create_exact_provider`]),
 //!   never the grant routing would pick, and stores under the session's key,
 //!   which the grant's window serves ([`pierre_providers::backend_resolver::history_keys`]);
 //! - it asks for the whole account ([`WHOLE_ACCOUNT_AFTER`]), so the

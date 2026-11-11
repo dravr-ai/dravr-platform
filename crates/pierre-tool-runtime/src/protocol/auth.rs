@@ -327,15 +327,18 @@ impl AuthService {
     /// The provider for exactly `backend`, authenticated with its own token
     /// row: no resolution to the backend that serves the user's reads.
     ///
-    /// For the one read that must reach a session routing never serves: the
-    /// one-time history import a usr/pwd sign-in beside a Garmin grant runs
-    /// (carnet#1386). [`Self::create_authenticated_provider`] would hand it
-    /// the grant's push window, which holds none of that history.
+    /// For a read or write that must reach the backend it names whatever the
+    /// athlete's read plan (`backend_resolver::read_plan`) serves first: a
+    /// Strava webhook's and a first sync's read of the grant, which must never
+    /// start a scrape (carnet#1494), a calendar write already chosen by
+    /// capability, and the one-time history import of a usr/pwd session
+    /// (carnet#1386). Governed like
+    /// [`Self::create_authenticated_provider`].
     ///
     /// # Errors
     /// Returns a boxed `UniversalResponse` error if the backend is unsupported
     /// or its token is missing or unusable.
-    pub async fn create_session_provider(
+    pub async fn create_exact_provider(
         &self,
         backend: &str,
         user_id: Uuid,
@@ -380,9 +383,8 @@ impl AuthService {
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
         // Resolve the user-facing provider to the backend that actually
-        // serves the request (OAuth or sciotte mirror). A sciotte row in
-        // the DB wins over OAuth, even when its session is stale — the
-        // user's stated preference is to keep using the mirror.
+        // serves the request: the athlete's session first, even when it is
+        // flagged, so its read raises the hosted sign-in (carnet#1494).
         let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
         let effective_provider = backend_resolver::resolve_backend(
             self.resources.repos(),

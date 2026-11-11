@@ -29,7 +29,8 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_providers::backend_resolver::resolve_backend;
+use pierre_providers::backend_resolver::write_backend;
+use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
 use pierre_services::plan_calendar_push::{chosen_calendar, connected_calendars, named_calendar};
 use serde::{Deserialize, Serialize};
@@ -143,11 +144,13 @@ async fn put_calendar(
 ) -> AppResult<Json<CalendarChoiceBody>> {
     let tenant_id = active_tenant(&auth)?;
     let registry = resources.fitness.provider_registry.as_ref();
-    let requested = resolve_backend(
+    let requested = write_backend(
         &resources.common.repos,
+        registry,
         auth.user_id,
-        Some(tenant_id),
+        tenant_id,
         update.provider.trim(),
+        ProviderCapabilities::CALENDAR_WRITE,
     )
     .await;
     let owned = own_backends(&resources, tenant_id, auth.user_id).await?;

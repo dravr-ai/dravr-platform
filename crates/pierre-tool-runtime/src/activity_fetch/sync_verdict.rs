@@ -30,7 +30,7 @@ use tracing::field::Empty;
 use tracing::{error, info, instrument, warn, Span};
 use uuid::Uuid;
 
-use super::{before_bounds_a_closed_window, cached_window_bounds, read_cached_window};
+use super::{before_bounds_a_closed_window, cached_window_bounds, read_cached_window, Routing};
 use crate::protocol::auth::AuthService;
 use crate::protocol::types::provider_auth_failure;
 use crate::runtime::ToolRuntime;
@@ -137,24 +137,35 @@ impl HeadVerdict {
     }
 }
 
-/// Authenticate the provider and read `params` live, judging whether the
-/// answer counts as a sync ([`judge_live_read`]). Records nothing and writes
-/// nothing.
+/// Authenticate the provider, through the athlete's read plan or exactly as
+/// named (`routing`), and read `params` live, judging whether the answer
+/// counts as a sync ([`judge_live_read`]). Records nothing and writes nothing.
 pub(super) async fn read_provider_head(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant_id: &str,
     params: &ActivityQueryParams,
+    routing: Routing,
 ) -> AppResult<HeadRead> {
     let auth_service = AuthService::new(Arc::clone(runtime));
     // Taken before the credential is read, so a reconnect that lands while
     // the fetch is in flight is newer than any failure it reports.
     let attempt_started_at = Utc::now();
-    let provider = auth_service
-        .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
-        .await
-        .map_err(|response| provider_auth_failure(provider_slug, &response))?;
+    let authenticated = match routing {
+        Routing::Resolved => {
+            auth_service
+                .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
+                .await
+        }
+        Routing::Exact => {
+            auth_service
+                .create_exact_provider(provider_slug, user_id, Some(tenant_id))
+                .await
+        }
+    };
+    let provider =
+        authenticated.map_err(|response| provider_auth_failure(provider_slug, &response))?;
     judge_live_read(
         runtime,
         LiveRead {

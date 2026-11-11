@@ -39,9 +39,11 @@
 //! ## Strava and Wahoo
 //!
 //! A provider the health sync does not backfill has landed nothing at connect.
-//! Its activity list is read once ([`fetch_provider_head`], which writes the
-//! read through to the cache the post's turn then answers from), and the post
-//! follows only when that read lands activities.
+//! Its activity list is read once, through exactly the backend just connected
+//! ([`read_exact_backend`], which writes the read through to the cache the
+//! post's turn then answers from), and the post follows only when that read
+//! lands activities. A grant connected beside a session is read itself, never
+//! the session the athlete's reads serve first (carnet#1494).
 //!
 //! ## The history Home needs
 //!
@@ -68,7 +70,7 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::global_registry;
 use pierre_routes_auth::{FirstSyncHook, CONNECT_RECENT_DAYS};
 use pierre_services::provider_refresh::token_tenant;
-use pierre_tool_runtime::activity_fetch::fetch_provider_head;
+use pierre_tool_runtime::activity_fetch::read_exact_backend;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -366,7 +368,7 @@ async fn first_read_landed(
         limit: Some(FIRST_READ_LIMIT),
         offset: None,
     };
-    match fetch_provider_head(&runtime, provider, user_id, &tenant_id.to_string(), &params).await {
+    match read_exact_backend(&runtime, provider, user_id, &tenant_id.to_string(), &params).await {
         Ok(activities) if !activities.is_empty() => true,
         Ok(_) => {
             info!(

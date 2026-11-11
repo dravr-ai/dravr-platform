@@ -82,8 +82,9 @@ use pierre_core::models::{
 use pierre_core::untrusted::{display_line, fence_athlete_text, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::parse_plan_date;
-use pierre_providers::backend_resolver::{resolve_backend, user_facing_name};
+use pierre_providers::backend_resolver::{user_facing_name, write_backend};
 use pierre_providers::core::planned_workouts_unsupported;
+use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::{CoreFitnessProvider, ProviderRegistry};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_platform::coach_platform;
@@ -454,8 +455,9 @@ impl CalendarReader {
         }
     }
 
-    /// The athlete's own provider for `backend`, their coach's link included
-    /// when that is how they read it; else how the read of it ends.
+    /// The athlete's own provider for exactly `backend`, chosen by its
+    /// planned-workouts capability, their coach's link included when that is
+    /// how they read it; else how the read of it ends.
     async fn own_provider(
         &self,
         backend: &str,
@@ -463,7 +465,7 @@ impl CalendarReader {
         let response = match self
             .executor
             .auth_service
-            .create_authenticated_provider(backend, self.user_id, Some(&self.tenant.to_string()))
+            .create_exact_provider(backend, self.user_id, Some(&self.tenant.to_string()))
             .await
         {
             Ok(provider) => return Ok(provider),
@@ -871,7 +873,9 @@ fn string_arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-/// The backend `requested` names for `user_id`'s calendar in `tenant`.
+/// The backend `requested` names for `user_id`'s calendar in `tenant`: the
+/// backend of the athlete's read plan that keeps a planned calendar
+/// ([`write_backend`]).
 ///
 /// # Errors
 ///
@@ -884,8 +888,15 @@ async fn named_planned_backend(
     requested: &str,
 ) -> AppResult<String> {
     let registry = context.resources.provider_registry();
-    let backend =
-        resolve_backend(context.resources.repos(), user_id, Some(tenant), requested).await;
+    let backend = write_backend(
+        context.resources.repos(),
+        registry,
+        user_id,
+        tenant,
+        requested,
+        ProviderCapabilities::PLANNED_WORKOUTS,
+    )
+    .await;
     if has_planned_calendar(registry, &backend) {
         Ok(backend)
     } else {

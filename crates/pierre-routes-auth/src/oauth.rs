@@ -651,7 +651,7 @@ pub(crate) async fn compute_providers_status(
         // then is the only way in.
         if backend_resolver::mirror_backend_for(provider_name).is_some_and(|mirror| {
             registry.get_descriptor(mirror).is_some()
-                || backend_resolver::mirror_is_default(provider_name)
+                || !backend_resolver::api_reads_on_request(provider_name)
         }) {
             continue;
         }
@@ -663,9 +663,9 @@ pub(crate) async fn compute_providers_status(
             // Determine connection status from the provider_connections table,
             // coalescing the card's two possible backends (see `card_is_connected`).
             let connected = card_is_connected(provider_name, &connected_providers);
-            // The backend behind a connected card and its grant's state, by the
-            // rule reads route by (carnet#1302, `card_backend`).
-            let (connected_backend, grant) = card_backend::card_backend(
+            // The backend behind a connected card and the athlete's read plan,
+            // the rule reads route by (carnet#1302, `card_backend`).
+            let (connected_backend, plan) = card_backend::card_backend(
                 resources,
                 user_id,
                 tenant_id,
@@ -675,6 +675,7 @@ pub(crate) async fn compute_providers_status(
             .await;
             let needs_reauth =
                 card_backend::reauth_flag(connected_backend.as_deref(), &reauth_providers);
+            let grant_serves = card_backend::grant_serves(provider_name, plan.as_ref());
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {
@@ -692,7 +693,7 @@ pub(crate) async fn compute_providers_status(
             let capabilities = capability_names(caps);
 
             let (recommended_backend, seats_left) =
-                card_seats.recommendation(provider_name, grant.serves());
+                card_seats.recommendation(provider_name, grant_serves);
             // Asked only of a usr/pwd-only Garmin card, so the grant lookup
             // runs for that card alone.
             let migration = if connected_backend.as_deref() == Some(oauth_providers::SCIOTTE_GARMIN)
@@ -734,7 +735,8 @@ pub(crate) async fn compute_providers_status(
                 ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),
-                history: card_history(resources, user_id, tenant_id, provider_name, grant).await,
+                history: card_history(resources, user_id, tenant_id, provider_name, grant_serves)
+                    .await,
             });
         }
     }
