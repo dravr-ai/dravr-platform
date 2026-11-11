@@ -64,6 +64,7 @@ use dashmap::DashMap;
 use pierre_core::constants::rate_limits;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::repositories::{ProviderConnectionRepository, UsageCounterRepository};
+use serde_json::Value;
 #[cfg(any(
     feature = "provider-coros",
     feature = "provider-garmin",
@@ -164,6 +165,41 @@ pub async fn in_background<F: Future>(work: F) -> F::Output {
 #[must_use]
 pub fn is_background() -> bool {
     BACKGROUND.try_with(|()| ()).is_ok()
+}
+
+/// The `details` key [`RequestBudget::admit`] sets on its refusal: the
+/// request was refused here and never sent.
+const REFUSED_BEFORE_SEND_DETAIL: &str = "refused_before_send";
+
+/// Whether `error` is this limiter's refusal ([`RequestBudget::admit`]),
+/// refused before anything was sent, as opposed to the provider's own `429`,
+/// which shares its [`ErrorCode::ExternalRateLimited`].
+///
+/// The limiter logs and pages its own refusal ("Provider request budget
+/// spent"), so a caller that met one has nothing to add to that page.
+#[must_use]
+pub fn refused_before_send(error: &AppError) -> bool {
+    error.code == ErrorCode::ExternalRateLimited
+        && error
+            .details
+            .as_ref()
+            .and_then(|details| details.get(REFUSED_BEFORE_SEND_DETAIL))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
+/// The limiter's refusal of a request to `provider`, retryable after
+/// `retry_after`, marked [`refused_before_send`].
+fn budget_refusal(provider: &str, retry_after: Duration) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::ExternalRateLimited,
+        format!("{provider} request budget is spent for now"),
+    )
+    .with_retry_after(retry_after.as_secs());
+    if let Some(Value::Object(details)) = error.details.as_deref_mut() {
+        details.insert(REFUSED_BEFORE_SEND_DETAIL.to_owned(), Value::Bool(true));
+    }
+    error
 }
 
 /// The period label of the `window` bucket that holds `now`.
@@ -719,11 +755,9 @@ impl RequestBudget {
     pub async fn admit(&self, provider: &str) -> AppResult<()> {
         match self.limiter.acquire_for(provider, &self.holder).await {
             Ok(RateLimitStatus::Allowed) => Ok(()),
-            Ok(RateLimitStatus::Exceeded { retry_after }) => Err(AppError::new(
-                ErrorCode::ExternalRateLimited,
-                format!("{provider} request budget is spent for now"),
-            )
-            .with_retry_after(retry_after.as_secs())),
+            Ok(RateLimitStatus::Exceeded { retry_after }) => {
+                Err(budget_refusal(provider, retry_after))
+            }
             Err(e) if is_background() => Err(e),
             Err(e) => {
                 error!(provider, app = self.holder.app(), error = %e, "provider request budget could not be counted; the request is sent uncounted");
