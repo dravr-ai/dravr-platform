@@ -35,6 +35,8 @@ mod athlete;
 pub mod calibration;
 /// How often the coach checks in with an athlete on its own (carnet#831).
 pub mod check_in;
+/// Whether a served activity window is the whole truth for the window asked.
+pub mod coverage;
 /// A member's provider read through their group coach's session: the
 /// `delegated_connections` row and its lifecycle vocabulary.
 pub mod delegated_connection;

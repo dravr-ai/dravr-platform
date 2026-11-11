@@ -40,7 +40,8 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use super::capability_reask::{
-    reask_while_unavailable, reask_with_verified_data, reask_without_data,
+    reask_over_partial_window, reask_while_unavailable, reask_with_verified_data,
+    reask_without_data,
 };
 use super::capability_subject::{
     apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
@@ -228,6 +229,13 @@ pub async fn apply_capability_recovery(
         return;
     }
 
+    // The window was read; what it lacks cannot be fetched in this turn. The
+    // re-ask says what the covered dates support, and no more.
+    if matches!(trigger, RecoveryTrigger::CountOverPartialWindow) {
+        reask_over_partial_window(&deps, result).await;
+        return;
+    }
+
     // An ask about a roster peer is adjudicated with THAT peer's data. The
     // requester's own activities answer only an ask about the requester.
     let claimed_failure = matches!(trigger, RecoveryTrigger::ClaimedFailure);
@@ -395,6 +403,14 @@ enum RecoveryTrigger {
     /// data ask — yet it is the strongest available signal that the model's
     /// grounding is wrong and needs re-fetching (registre#202).
     DisputedClaims,
+    /// A window this turn read was incomplete — a cached slice served while
+    /// the live read ran on, or a read that stopped at its row cap — and the
+    /// reply states figures. Structural, like the others: the replay of
+    /// 2026-11-09 stated 43 trail runs since 2020 from a 151-row cached
+    /// window, then 599 from the 2,000 rows the read stopped at, both as fact
+    /// (carnet#1481). The re-ask keeps what the covered dates support and
+    /// drops the counts and totals for the period asked.
+    CountOverPartialWindow,
 }
 
 impl RecoveryTrigger {
@@ -406,6 +422,7 @@ impl RecoveryTrigger {
             Self::DegenerateReply => "degenerate_reply",
             Self::UnverifiedPeerClaim => "unverified_peer_claim",
             Self::DisputedClaims => "disputed_claims",
+            Self::CountOverPartialWindow => "count_over_partial_window",
         }
     }
 }
@@ -554,6 +571,11 @@ fn recovery_trigger(
         && !peers_named_in_reply(deps, input, result).is_empty()
     {
         return Some(RecoveryTrigger::UnverifiedPeerClaim);
+    }
+    // A partial window this turn read, and figures in the reply: whatever
+    // they count, they count a slice, not the period asked.
+    if result.window_incomplete && result.content.bytes().any(|b| b.is_ascii_digit()) {
+        return Some(RecoveryTrigger::CountOverPartialWindow);
     }
     // Nothing was fetched and nothing was injected: whatever this reply says,
     // it stands on no evidence from this turn.

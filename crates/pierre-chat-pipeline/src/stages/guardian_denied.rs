@@ -169,6 +169,7 @@ mod tests {
             write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: None,
+            window_incomplete: false,
             guardian_denied: denied,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),

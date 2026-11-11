@@ -112,6 +112,8 @@ pub mod headless_stream;
 #[cfg(feature = "tools-data")]
 pub mod history_import;
 pub mod implementations;
+/// The incomplete-window signal and its per-turn store (carnet#1481).
+pub mod incomplete_window;
 /// The gate streamed reply text crosses on its way to the turn sink: canary
 /// and `<tool_call>` filtering, and the retraction of text that is not the reply
 #[cfg(feature = "client-chat")]

@@ -22,6 +22,7 @@ use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
 use tracing::info;
 
+use crate::incomplete_window::incomplete_window_in_payload;
 use crate::prompt_projection;
 use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 use crate::reply_budget::REPLY_BUDGET_KEY;
@@ -303,6 +304,15 @@ pub fn extract_activity_list(responses: &[FunctionResponse]) -> Option<String> {
     None
 }
 
+/// Whether a `get_activities` result this round served an incomplete window
+/// (`coverage.complete` false): a count stated from it is not a fact.
+#[must_use]
+pub fn incomplete_window_in_responses(responses: &[FunctionResponse]) -> bool {
+    responses
+        .iter()
+        .any(|resp| incomplete_window_in_payload(&resp.name, &resp.response))
+}
+
 /// First served-without-a-provider signal across a round of tool responses.
 ///
 /// The sidecar itself is read by [`offer_in_payload`], which the headless loop's
@@ -361,7 +371,44 @@ pub fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
 mod tests {
     use serde_json::json;
 
-    use super::athlete_notes;
+    use pierre_llm::FunctionResponse;
+
+    use super::{athlete_notes, incomplete_window_in_responses};
+
+    fn response(name: &str, complete: Option<bool>) -> FunctionResponse {
+        let mut payload = json!({ "activity_list": "1. …" });
+        if let Some(complete) = complete {
+            payload["coverage"] = json!({
+                "complete": complete,
+                "incomplete_reason": "read_capped",
+                "window_total": 43
+            });
+        }
+        FunctionResponse {
+            name: name.to_owned(),
+            response: payload,
+        }
+    }
+
+    /// Only a `get_activities` window that says it is incomplete counts.
+    #[test]
+    fn an_incomplete_window_is_seen_and_a_complete_one_is_not() {
+        assert!(
+            incomplete_window_in_responses(&[
+                response("get_activities", Some(true)),
+                response("get_activities", Some(false)),
+            ]),
+            "bug: one incomplete window in the round must be seen"
+        );
+        assert!(
+            !incomplete_window_in_responses(&[
+                response("get_activities", Some(true)),
+                response("get_activities", None),
+                response("get_stats", Some(false)),
+            ]),
+            "bug: complete, coverage-less or other tools' windows are not incomplete"
+        );
+    }
 
     /// The prefetch keeps the prose list alone, so what the athlete wrote
     /// rides beside it, fenced as the serializer left it, one line a session.

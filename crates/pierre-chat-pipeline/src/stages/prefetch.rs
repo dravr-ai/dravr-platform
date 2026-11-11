@@ -537,6 +537,17 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
             } else {
                 format!("{list}\n\n{}", notes.join("\n"))
             };
+            // A window the read could not complete says so beside the list:
+            // kept to the prose alone, it read as the athlete's whole history.
+            if let Some(note) = value
+                .get("coverage")
+                .filter(|c| c.get("complete").and_then(serde_json::Value::as_bool) == Some(false))
+                .and_then(|c| c.get("note"))
+                .and_then(serde_json::Value::as_str)
+            {
+                text.push_str("\n\n");
+                text.push_str(note);
+            }
             // What the athlete wrote on these sessions, fenced: the
             // athlete-visible list never carries it, so it rides here.
             let athlete = athlete_notes(&value);

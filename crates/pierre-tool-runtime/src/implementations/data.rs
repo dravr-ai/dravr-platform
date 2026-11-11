@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{RefreshConfig, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, error, field, info, warn, Span};
@@ -62,7 +63,7 @@ use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
     historical_window_read_limit, pagination_has_more, response_cache_eligible, window_fetch_limit,
-    PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -447,6 +448,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     weather_provider: weather_provider.clone(),
                     user_timezone: user_timezone.clone(),
                     locale: user_locale.clone(),
+                    asked: AskedWindow { after, before },
                     detail: CachedDetail {
                         repos: context.resources.repos(),
                         tenant_id,
@@ -748,6 +750,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 tenant_id,
                                 params: query_params.clone(),
                                 attempt_started_at,
+                                conversation_id: context.conversation_id.clone(),
                             };
                             let budget = RefreshConfig::default().wait_for_refresh_timeout();
                             match read_live_window_within_budget(
@@ -1065,6 +1068,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_total: Some(window_total),
                 window_span,
                 window_totals: Some(window_totals),
+                asked: AskedWindow { after, before },
+                completeness: stood_in.as_ref().map_or(
+                    if provider_filled_page {
+                        Completeness::Incomplete(IncompleteReason::ReadCapped)
+                    } else {
+                        Completeness::Complete
+                    },
+                    PrimaryStandIn::completeness,
+                ),
                 merge_report: Some(&merge_report),
             });
 

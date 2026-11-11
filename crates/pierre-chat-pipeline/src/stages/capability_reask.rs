@@ -88,6 +88,35 @@ pub(super) async fn reask_without_data(
     .await;
 }
 
+/// The instruction a reply that counted over a partial window is re-asked with.
+const PARTIAL_WINDOW_REASK_INSTRUCTION: &str = "An activity window you read this turn is \
+     INCOMPLETE (its coverage says complete: false); its note says why. Your draft above may \
+     state figures for the period the athlete asked about. Replace it with your reply to the \
+     athlete's last message: say which dates the data you read covers, give counts or totals \
+     only for those dates and say they cover only those dates, never state a count, a total or \
+     \"nothing before\" for the whole period asked, and say the rest is not loaded (still \
+     loading, when the note says the live read is running).";
+
+/// Re-ask a reply that stated figures over an incomplete window, so it
+/// frames them as covering only the dates read (carnet#1481).
+pub(super) async fn reask_over_partial_window(
+    deps: &CapabilityRecoveryDeps<'_>,
+    result: &mut ToolLoopResult,
+) {
+    info!("capability_recovery: figures stated over an incomplete window; re-asking");
+    let payload = json!({
+        "error": "The activity window read this turn is incomplete; counts over the period asked are not known.",
+    });
+    reask_with(
+        deps,
+        payload,
+        PARTIAL_WINDOW_REASK_INSTRUCTION,
+        ClaimPolicy::Refuted,
+        result,
+    )
+    .await;
+}
+
 /// Whether a re-ask may say the athlete's data cannot be read.
 #[derive(Clone, Copy)]
 enum ClaimPolicy {

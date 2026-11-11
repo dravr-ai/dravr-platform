@@ -119,6 +119,7 @@ pub(crate) fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoop
         write_attempted: false,
         pending_provider_auth_required: blank.map(str::to_owned),
         served_without_provider: served.map(str::to_owned),
+        window_incomplete: false,
         guardian_denied: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),

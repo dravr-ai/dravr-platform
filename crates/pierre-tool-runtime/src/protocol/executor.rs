@@ -30,7 +30,6 @@ use crate::protocol::provider_offer::{
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::ReadSubject;
-use crate::reconnect::offer_in_payload;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
@@ -58,6 +57,7 @@ use uuid::Uuid;
 
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
+mod turn_signals;
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -933,15 +933,12 @@ impl UniversalExecutor {
         // for it, and most turns prefetch, so it would ask an athlete with one
         // dead connection to reconnect on every message.
         if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
-            if let Some(slug) = universal
-                .result
-                .as_ref()
-                .and_then(|payload| offer_in_payload(&tool_name, payload))
-            {
-                self.resources
-                    .reconnect_offers()
-                    .record_offer(&turn_key, slug);
-            }
+            turn_signals::record(
+                &*self.resources,
+                &turn_key,
+                &tool_name,
+                universal.result.as_ref(),
+            );
         }
 
         self.record_dispatch(DispatchRecord {

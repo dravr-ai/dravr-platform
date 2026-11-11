@@ -37,6 +37,9 @@ pub struct OwnedLiveRead {
     pub params: ActivityQueryParams,
     /// When the attempt began, before the credential was read.
     pub attempt_started_at: DateTime<Utc>,
+    /// The conversation that asked, when a chat turn did: a read the turn
+    /// stops waiting for posts its answer there once it lands.
+    pub conversation_id: Option<String>,
 }
 
 /// How a budgeted live read ended for the turn that asked for it.
@@ -97,6 +100,15 @@ pub async fn read_live_window_within_budget(
         read.tenant_id,
         read.params.clone(),
     );
+    let follow_up = read
+        .conversation_id
+        .clone()
+        .map(|conversation_id| FollowUp {
+            runtime: Arc::clone(runtime),
+            conversation_id,
+            tenant_id,
+            after_ts: params.after.unwrap_or(0),
+        });
     let mut task = spawn_read(Arc::clone(runtime), provider, read);
     if let Ok(joined) = timeout(budget, &mut task).await {
         return answered(runtime, joined);
@@ -110,7 +122,7 @@ pub async fn read_live_window_within_budget(
             budget_secs = budget.as_secs(),
             "live activity read outlived the turn's budget; answering from the cached window while it finishes"
         );
-        observe_detached(task, user_id, provider_slug);
+        observe_detached_read(task, user_id, provider_slug, follow_up);
         return BudgetedRead::Cached(cached);
     }
     answered(runtime, task.await)
@@ -188,6 +200,66 @@ fn answered(runtime: &Arc<dyn ToolRuntime>, joined: Result<ReadOutput, JoinError
             provider: None,
         },
     }
+}
+
+/// Where a detached read reports once it lands: the conversation whose turn
+/// stopped waiting for it.
+struct FollowUp {
+    /// Shared with the turn: the detached task outlives it and reaches the
+    /// backfill notifier through it.
+    runtime: Arc<dyn ToolRuntime>,
+    conversation_id: String,
+    tenant_id: TenantId,
+    after_ts: i64,
+}
+
+/// Watch a live read the turn stopped waiting for: a panic in it is logged,
+/// and a read that lands answers the conversation that asked, through the
+/// backfill notifier's re-ask (carnet#1481). The turn told the athlete the
+/// window was incomplete; this delivers the rest.
+fn observe_detached_read(
+    task: JoinHandle<ReadOutput>,
+    user_id: Uuid,
+    provider: String,
+    follow_up: Option<FollowUp>,
+) {
+    tokio::spawn(async move {
+        let landed = match task.await {
+            Ok(Some((Ok(head), _))) => Some(head.activities.len()),
+            Ok(_) => None,
+            Err(join_error) => {
+                warn!(
+                    user_id = %user_id,
+                    provider = %provider,
+                    error = %join_error,
+                    "detached live activity read failed"
+                );
+                None
+            }
+        };
+        let (Some(count), Some(follow_up)) = (landed, follow_up) else {
+            return;
+        };
+        let Some(notifier) = follow_up.runtime.backfill_notifier() else {
+            return;
+        };
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            activities = count,
+            "detached live activity read landed; answering the conversation that asked"
+        );
+        notifier
+            .push_backfill_complete(
+                user_id,
+                follow_up.tenant_id,
+                &follow_up.conversation_id,
+                &provider,
+                follow_up.after_ts,
+                count,
+            )
+            .await;
+    });
 }
 
 /// Watch a read the turn stopped waiting for, so a panic in it is logged

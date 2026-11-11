@@ -45,8 +45,8 @@ use crate::tool_loop_io::{
 use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
-    extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
-    render_tool_payload_for_prompt,
+    extract_activity_list, format_tool_results_as_text, incomplete_window_in_responses,
+    reconnect_offer_in_responses, render_tool_payload_for_prompt,
 };
 use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
@@ -130,6 +130,7 @@ pub(crate) async fn run_api_tool_loop(
                 // A window a sibling connection served for a dead primary. Read
                 // before every short-circuit below so the offer survives whichever
                 // exit the round takes.
+                tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
                 if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
                     tally.served_without_provider = Some(provider);
                 }
@@ -240,6 +241,7 @@ pub(crate) async fn run_api_tool_loop(
             // Ran-only, as above.
             tally.tools_called.extend(executed);
             // Served-without-a-provider offer, as in the structured branch above.
+            tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
             if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
                 tally.served_without_provider = Some(provider);
             }
@@ -434,6 +436,7 @@ pub async fn run_cli_tool_loop(
         tally.tools_called.extend(executed);
 
         // Served-without-a-provider offer, as in the api loop.
+        tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
         if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
             tally.served_without_provider = Some(provider);
         }

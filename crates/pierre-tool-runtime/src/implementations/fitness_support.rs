@@ -28,7 +28,9 @@ use crate::implementations::activity_detail_promotion::{
 };
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::data_helpers::{activity_coverage_note, pagination_has_more};
+use crate::implementations::data_helpers::{
+    activity_coverage_note, pagination_has_more, AskedWindow,
+};
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
 use chrono::{DateTime, Utc};
@@ -42,6 +44,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::parse_zone;
 use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
+use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{
     resolve_sport_type, sport_matches_family, Activity, SportType, TenantId,
 };
@@ -449,6 +452,8 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub locale: String,
     /// What the hit details, from the stored details alone.
     pub detail: CachedDetail<'a>,
+    /// The window the call asked for.
+    pub asked: AskedWindow,
 }
 
 /// Where a cached list's recent window finds its stored details.
@@ -574,6 +579,14 @@ pub(crate) async fn try_get_cached_activities(
             window_total: Some(window_total),
             window_span,
             window_totals: Some(window_totals),
+            asked: params.asked,
+            // The whole window was stored; only a window that filled the
+            // provider's page at fetch time may hold older rows.
+            completeness: if window_total >= params.fetch_limit {
+                Completeness::Incomplete(IncompleteReason::ReadCapped)
+            } else {
+                Completeness::Complete
+            },
             // The slice was merged before it was cached; the grouping that
             // produced it is not stored with it, so no merge note is emitted.
             merge_report: None,
@@ -858,6 +871,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// on the `coverage` sidecar, so totals and comparisons read the whole
     /// window rather than the shown slice. `None` adds nothing.
     pub window_totals: Option<WindowTotals>,
+    /// The window the call asked for.
+    pub asked: AskedWindow,
+    /// Whether the served window is the whole truth for the ask.
+    pub completeness: Completeness,
     /// What the session merge collapsed to produce `activities`: every group of
     /// recordings folded into one session and the fields each session took from
     /// another recording. `None` when no merge report travels with the slice.
@@ -888,6 +905,8 @@ pub(crate) fn build_activities_success_response(
         window_total,
         window_span,
         window_totals,
+        asked,
+        completeness,
         merge_report,
     } = params;
 
@@ -979,7 +998,13 @@ pub(crate) fn build_activities_success_response(
     // the LLM frames "N total in this window, showing the most recent M"
     // instead of anchoring on the oldest shown activity. LLM-facing (tool
     // result, not the input schema) → no SDK/contremaitre/locale drift.
-    payload.coverage = activity_coverage_note(window_total, activities_len, window_span.as_ref());
+    payload.coverage = activity_coverage_note(
+        window_total,
+        activities_len,
+        window_span.as_ref(),
+        asked,
+        completeness,
+    );
     if let (Some(Value::Object(coverage)), Some(totals)) =
         (payload.coverage.as_mut(), window_totals)
     {

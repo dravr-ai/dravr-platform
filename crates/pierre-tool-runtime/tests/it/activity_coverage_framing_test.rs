@@ -11,11 +11,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use chrono::{TimeZone, Utc};
+use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::activity_fetch::{activity_date_span, activity_window_totals};
 use pierre_tool_runtime::implementations::data_helpers::{
     activity_coverage_note, historical_backfill_fetch_limit, pagination_has_more,
-    window_fetch_limit, HISTORICAL_WINDOW_READ_LIMIT,
+    window_fetch_limit, AskedWindow, HISTORICAL_WINDOW_READ_LIMIT,
 };
 
 fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
@@ -36,8 +37,14 @@ fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
 #[test]
 fn coverage_note_present_when_window_exceeds_returned() {
     let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
-    let note = activity_coverage_note(Some(552), 200, Some(&span))
-        .expect("a truncated window must emit a coverage note");
+    let note = activity_coverage_note(
+        Some(552),
+        200,
+        Some(&span),
+        AskedWindow::default(),
+        Completeness::Complete,
+    )
+    .expect("a truncated window must emit a coverage note");
 
     assert_eq!(note["window_total"], 552);
     assert_eq!(note["returned"], 200);
@@ -68,22 +75,49 @@ fn coverage_note_present_when_window_exceeds_returned() {
 fn coverage_note_absent_when_whole_window_returned() {
     let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
     // returned == total → nothing was hidden, so no framing.
-    assert!(activity_coverage_note(Some(200), 200, Some(&span)).is_none());
+    assert!(activity_coverage_note(
+        Some(200),
+        200,
+        Some(&span),
+        AskedWindow::default(),
+        Completeness::Complete
+    )
+    .is_none());
     // returned > total can't happen, but treat it as "nothing hidden" too.
-    assert!(activity_coverage_note(Some(150), 200, Some(&span)).is_none());
+    assert!(activity_coverage_note(
+        Some(150),
+        200,
+        Some(&span),
+        AskedWindow::default(),
+        Completeness::Complete
+    )
+    .is_none());
 }
 
 #[test]
 fn coverage_note_absent_when_window_total_unknown() {
     let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
     // The cached-snapshot path passes None — no coverage sidecar.
-    assert!(activity_coverage_note(None, 200, Some(&span)).is_none());
+    assert!(activity_coverage_note(
+        None,
+        200,
+        Some(&span),
+        AskedWindow::default(),
+        Completeness::Complete
+    )
+    .is_none());
 }
 
 #[test]
 fn coverage_note_is_count_only_without_a_span() {
-    let note = activity_coverage_note(Some(552), 200, None)
-        .expect("a truncated window still emits a count-only note");
+    let note = activity_coverage_note(
+        Some(552),
+        200,
+        None,
+        AskedWindow::default(),
+        Completeness::Complete,
+    )
+    .expect("a truncated window still emits a count-only note");
     assert_eq!(note["window_total"], 552);
     assert_eq!(note["returned"], 200);
     assert!(
@@ -104,8 +138,14 @@ fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
     // A window that fills HISTORICAL_WINDOW_READ_LIMIT was truncated by the
     // durable read cap, so window_total is a LOWER BOUND, not the true total.
     let span = ("2019-01-01".to_owned(), "2024-12-28".to_owned());
-    let note = activity_coverage_note(Some(HISTORICAL_WINDOW_READ_LIMIT), 200, Some(&span))
-        .expect("a capped, truncated window must emit a coverage note");
+    let note = activity_coverage_note(
+        Some(HISTORICAL_WINDOW_READ_LIMIT),
+        200,
+        Some(&span),
+        AskedWindow::default(),
+        Completeness::Complete,
+    )
+    .expect("a capped, truncated window must emit a coverage note");
 
     // The numeric key stays the exact figure read; only the prose hedges.
     assert_eq!(note["window_total"], HISTORICAL_WINDOW_READ_LIMIT);
@@ -120,8 +160,14 @@ fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
 #[test]
 fn coverage_note_count_only_is_lower_bound_when_read_is_capped() {
     // Same lower-bound framing on the span-less (count-only) branch.
-    let note = activity_coverage_note(Some(HISTORICAL_WINDOW_READ_LIMIT), 200, None)
-        .expect("a capped, truncated window still emits a count-only note");
+    let note = activity_coverage_note(
+        Some(HISTORICAL_WINDOW_READ_LIMIT),
+        200,
+        None,
+        AskedWindow::default(),
+        Completeness::Complete,
+    )
+    .expect("a capped, truncated window still emits a count-only note");
     let text = note["note"].as_str().unwrap();
     let lower_bound = format!("at least {HISTORICAL_WINDOW_READ_LIMIT}");
     assert!(
@@ -238,4 +284,54 @@ fn window_totals_sum_the_whole_window() {
             "elevation_gain_m": 1500.0,
         })
     );
+}
+
+/// The replay's Q3: a 151-row cached window served while the live read ran
+/// on, for a question back to 2020. It must say it is incomplete, and why.
+#[test]
+fn a_window_served_while_the_live_read_runs_is_incomplete() {
+    let span = ("2026-07-21".to_owned(), "2026-11-09".to_owned());
+    let note = activity_coverage_note(
+        Some(43),
+        43,
+        Some(&span),
+        AskedWindow {
+            after: Some(1_577_836_800),
+            before: None,
+        },
+        Completeness::Incomplete(IncompleteReason::LiveReadRunning),
+    )
+    .expect("bug: an incomplete window always carries coverage");
+    assert_eq!(note["complete"], false, "bug: {note}");
+    assert_eq!(
+        note["incomplete_reason"], "live_read_running",
+        "bug: {note}"
+    );
+    assert_eq!(note["asked_from"], "2020-01-01", "bug: {note}");
+    assert!(
+        note["note"]
+            .as_str()
+            .unwrap()
+            .contains("Do not state a count"),
+        "bug: the note must forbid stating counts: {note}"
+    );
+}
+
+/// A complete window that answers a dated ask says so.
+#[test]
+fn a_complete_dated_window_says_complete() {
+    let span = ("2020-01-03".to_owned(), "2026-11-09".to_owned());
+    let note = activity_coverage_note(
+        Some(639),
+        400,
+        Some(&span),
+        AskedWindow {
+            after: Some(1_577_836_800),
+            before: None,
+        },
+        Completeness::Complete,
+    )
+    .expect("bug: a truncated window carries coverage");
+    assert_eq!(note["complete"], true, "bug: {note}");
+    assert!(note.get("incomplete_reason").is_none(), "bug: {note}");
 }
