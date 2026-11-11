@@ -3020,6 +3020,8 @@
       "reauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. Reconnect {0} from your settings, then ask me again.",
       "reauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} here so I can see everything:\n\n{1}",
       "reauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} from your settings so I can see everything.",
+      "reauth_fallback_served": "One note: {0} is still syncing for now, but your {0} sign-in has expired. Sign in to {0} again here to keep it that way:\n\n{1}",
+      "reauth_fallback_served_no_link": "One note: {0} is still syncing for now, but your {0} sign-in has expired. Sign in to {0} again from your settings to keep it that way.",
       "reauth_oauth_required": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
       "reauth_oauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_oauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",

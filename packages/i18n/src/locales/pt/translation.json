@@ -3020,6 +3020,8 @@
       "reauth_required_no_link": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente o {0} nas definições e volta a perguntar-me.",
       "reauth_served": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} aqui para eu ver tudo:\n\n{1}",
       "reauth_served_no_link": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} nas definições para eu ver tudo.",
+      "reauth_fallback_served": "Uma nota: o {0} continua a sincronizar por agora, mas a tua sessão no {0} expirou. Inicia sessão novamente no {0} aqui para continuar assim:\n\n{1}",
+      "reauth_fallback_served_no_link": "Uma nota: o {0} continua a sincronizar por agora, mas a tua sessão no {0} expirou. Inicia sessão novamente no {0} nas definições para continuar assim.",
       "reauth_oauth_required": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. O {0} liga-se agora através do início de sessão oficial: liga-o aqui (ligação válida durante 1 hora):\n\n{1}\n\nDepois de ligado, pergunta-me outra vez.",
       "reauth_oauth_required_no_link": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. O {0} liga-se agora através do início de sessão oficial. Abre Ligações no Dravr, escolhe Ligar o {0} e depois pergunta-me outra vez.",
       "reauth_oauth_served": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. O {0} liga-se agora através do início de sessão oficial: liga-o aqui (ligação válida durante 1 hora):\n\n{1}\n\nDepois de ligado, pergunta-me outra vez.",
