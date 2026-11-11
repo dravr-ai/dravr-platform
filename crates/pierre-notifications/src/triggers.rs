@@ -28,9 +28,10 @@
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
+use std::time::Duration;
 
 use pierre_core::models::NotificationScreen;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -74,11 +75,20 @@ fn spawn_dispatch(service: Arc<NotificationService>, mut dispatch: EventDispatch
 /// The conversation `conversation_id` names, which the clients open as that
 /// thread.
 fn conversation_route(conversation_id: &str) -> Value {
-    json!({
-        "screen": NotificationScreen::Coach.as_str(),
-        "action": "chat",
-        "id": conversation_id,
-    })
+    Value::Object(conversation_route_fields(conversation_id))
+}
+
+/// The fields of [`conversation_route`]: what every notification opening
+/// that thread carries in its `data`, and what marks them read together.
+pub(crate) fn conversation_route_fields(conversation_id: &str) -> Map<String, Value> {
+    let mut fields = Map::new();
+    fields.insert(
+        "screen".to_owned(),
+        Value::from(NotificationScreen::Coach.as_str()),
+    );
+    fields.insert("action".to_owned(), Value::from("chat"));
+    fields.insert("id".to_owned(), Value::from(conversation_id));
+    fields
 }
 
 /// Where an insight the agent computed opens: the conversation it was computed
@@ -220,6 +230,14 @@ pub fn trigger_fitness_improvement(
 // ============================================================================
 // Agent Triggers (bypass frequency cap)
 // ============================================================================
+
+/// How long an agent's in-app reply may sit unread before
+/// [`trigger_agent_message`] is raised for it.
+///
+/// Both apps advance the thread's read marker the moment a reply lands on a
+/// thread the athlete is looking at; a reply still unread once this has
+/// passed was not seen, and is the one worth a push.
+pub const UNSEEN_REPLY_GRACE: Duration = Duration::from_secs(5);
 
 /// Trigger notification when an agent sends a message to an athlete.
 pub fn trigger_agent_message(

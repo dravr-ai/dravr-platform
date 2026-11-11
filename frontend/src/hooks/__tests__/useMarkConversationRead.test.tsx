@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the read-marker hook — marks on open when unread, on every newest-message change, only while visible
-// ABOUTME: Mocks chatApi and reads the optimistic zeroing straight out of the conversations cache
+// ABOUTME: Mocks chatApi, reads the optimistic zeroing out of the cache; the bell refetches with the list
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -152,6 +152,33 @@ describe('useMarkConversationRead', () => {
 
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.chat.conversations() }),
+    );
+  });
+
+  it('marks the first reply of a new thread, whatever the cached row says', async () => {
+    const client = newClient();
+    // The row the list cached when the thread was created: nothing unread yet.
+    await primeList(client, [conversation({ id: 'conv-1', unread_count: 0, message_count: 0 })]);
+    const { rerender } = renderHook(
+      ({ latest }: { latest: string | null }) => useMarkConversationRead('conv-1', latest),
+      { wrapper: wrapperFor(client), initialProps: { latest: null as string | null } },
+    );
+
+    // The agent's reply to the athlete's first message lands on screen.
+    rerender({ latest: 'm1' });
+
+    await waitFor(() => expect(markConversationRead).toHaveBeenCalledWith('conv-1'));
+  });
+
+  it('refetches the bell once the marker settles: the thread\'s notifications were read', async () => {
+    const client = newClient();
+    await primeList(client, [conversation({ id: 'conv-1', unread_count: 2 })]);
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    renderHook(() => useMarkConversationRead('conv-1', 'm2'), { wrapper: wrapperFor(client) });
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
     );
   });
 

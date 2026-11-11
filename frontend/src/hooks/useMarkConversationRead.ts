@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { invalidateNotificationReads } from '@pierre/ui-logic';
 import { chatApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { cachedConversations, patchCachedConversation } from './useConversationList';
@@ -59,11 +60,20 @@ export function useMarkConversationRead(
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      // Reading the thread marked its notifications read on the server.
+      void invalidateNotificationReads(queryClient);
     },
   });
 
   useEffect(() => {
-    if (!conversationId || !latestMessageId || !visible) return;
+    if (!conversationId) return;
+    // A thread with nothing in it yet counts as opened: its first message —
+    // the reply to a turn the athlete just sent — is new, and marks.
+    if (!latestMessageId) {
+      lastMarked.current = `${conversationId}:`;
+      return;
+    }
+    if (!visible) return;
     const key = `${conversationId}:${latestMessageId}`;
     if (lastMarked.current === key) return;
 

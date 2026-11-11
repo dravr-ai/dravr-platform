@@ -1,5 +1,5 @@
-// ABOUTME: Drives a real in-app turn in an agent's thread over HTTP and reads the notification it raised
-// ABOUTME: The notification names the agent that answered and opens that thread — never the thread's own title
+// ABOUTME: Drives real in-app turns in an agent's thread over HTTP and reads the notifications they raise
+// ABOUTME: Names the agent, opens the thread; raised only for a reply left unread, cleared once the thread is read
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,6 +14,13 @@
 //! It names that agent the way the recipient's chat does: the sentence around
 //! the name renders in their stored language, so the name reads from the same
 //! one, through the `agent_translations` overlay.
+//!
+//! It is raised only for a reply the athlete did not see. Every in-app reply
+//! used to raise one, so each question asked from the open thread left a
+//! "message from your agent" row and a push behind it; the inbox filled with
+//! answers already on screen. The notification now waits
+//! [`UNSEEN_REPLY_GRACE`] and is raised only while the reply is still unread,
+//! and reading the thread marks read every notification that opens it.
 
 #![cfg(feature = "client-notifications")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -24,6 +31,7 @@ use crate::common;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures_util::stream;
+use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
@@ -37,6 +45,7 @@ use pierre_llm::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_notifications::models::Notification;
+use pierre_notifications::triggers::UNSEEN_REPLY_GRACE;
 use pierre_notifications::TenantId as CommereTenantId;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
@@ -45,7 +54,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 use uuid::Uuid;
 
 /// The model's answer; its words do not matter here.
@@ -124,29 +133,42 @@ async fn agent_notifications(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<Notification> {
-    let service = resources
+    // The notification waits out the grace before it is raised.
+    let deadline = Instant::now() + UNSEEN_REPLY_GRACE + SETTLE;
+    loop {
+        let rows = coach_rows(resources, user_id, tenant_id).await;
+        if !rows.is_empty() || Instant::now() >= deadline {
+            return rows;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Time past [`UNSEEN_REPLY_GRACE`] for the check and its dispatch to land.
+const SETTLE: Duration = Duration::from_secs(3);
+
+/// The `coach` notifications the athlete holds right now, read or not.
+async fn coach_rows(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<Notification> {
+    resources
         .common
         .notification_service
         .as_ref()
-        .expect("the server boots with its notification service");
-    for _ in 0..40 {
-        let (rows, _, _) = service
-            .list_notifications(
-                user_id,
-                CommereTenantId(tenant_id.as_uuid()),
-                10,
-                0,
-                Some("coach"),
-                false,
-            )
-            .await
-            .unwrap();
-        if !rows.is_empty() {
-            return rows;
-        }
-        sleep(Duration::from_millis(50)).await;
-    }
-    Vec::new()
+        .expect("the server boots with its notification service")
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            10,
+            0,
+            Some("coach"),
+            false,
+        )
+        .await
+        .unwrap()
+        .0
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -322,8 +344,9 @@ async fn translated_agent(resources: &ServerContext, owner: Uuid, tenant_id: Ten
     agent_id
 }
 
-/// Open a thread with `thread` as its creation body and send it one turn.
-async fn turn_in_new_thread(base_url: &str, token: &str, thread: Value) {
+/// Open a thread with `thread` as its creation body and send it one turn,
+/// returning the thread's id.
+async fn turn_in_new_thread(base_url: &str, token: &str, thread: Value) -> String {
     let response = Client::new()
         .post(format!("{base_url}/api/chat/conversations"))
         .header(AUTHORIZATION, format!("Bearer {token}"))
@@ -334,12 +357,9 @@ async fn turn_in_new_thread(base_url: &str, token: &str, thread: Value) {
         .expect("create conversation");
     assert!(response.status().is_success(), "{}", response.status());
     let created: Value = response.json().await.expect("conversation json");
-    send_turn(
-        base_url,
-        token,
-        created["id"].as_str().expect("conversation id"),
-    )
-    .await;
+    let conversation_id = created["id"].as_str().expect("conversation id").to_owned();
+    send_turn(base_url, token, &conversation_id).await;
+    conversation_id
 }
 
 /// Send one turn to an existing thread.
@@ -564,4 +584,185 @@ async fn a_group_member_reads_the_groups_agent_in_their_own_language() {
         format!("{FRENCH_TITLE} t'a envoyé un message"),
         "the member reads their own language's title"
     );
+}
+
+/// An athlete who is looking at the thread: the reply lands on screen, their
+/// app advances the read marker, and nothing is raised — no inbox row and no
+/// push for an answer they are reading.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_read_within_the_grace_raises_nothing() {
+    let resources: Arc<ServerContext> =
+        common::create_test_server_resources_with_llm(Arc::new(FixedReplyProvider))
+            .await
+            .expect("server resources");
+    let base_url = serve_chat(&resources).await;
+    let (user, token) =
+        common::create_test_tenant_with_provider(&resources, "agent-notice-seen@example.com")
+            .await
+            .expect("create user + token + provider");
+    let tenant_id = tenant_of(&resources, &user).await;
+    let agent_id = translated_agent(&resources, user.id, tenant_id).await;
+
+    let conversation_id = turn_in_new_thread(
+        &base_url,
+        &token,
+        json!({ "title": THREAD_TITLE, "model": "mock-model", "agent_id": agent_id }),
+    )
+    .await;
+    let marked = Client::new()
+        .post(format!(
+            "{base_url}/api/chat/conversations/{conversation_id}/read"
+        ))
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .expect("POST read");
+    assert_eq!(marked.status().as_u16(), 204, "the marker advances");
+
+    sleep(UNSEEN_REPLY_GRACE + SETTLE).await;
+    let rows = coach_rows(&resources, user.id, tenant_id).await;
+    assert!(
+        rows.is_empty(),
+        "a reply already read raises nothing: {rows:?}"
+    );
+}
+
+/// Reading a thread marks read the notifications that open it, and only
+/// those: another thread's reply stays unread in the inbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn reading_the_thread_marks_its_notifications_read() {
+    let resources: Arc<ServerContext> =
+        common::create_test_server_resources_with_llm(Arc::new(FixedReplyProvider))
+            .await
+            .expect("server resources");
+    let base_url = serve_chat(&resources).await;
+    let (user, token) =
+        common::create_test_tenant_with_provider(&resources, "agent-notice-clear@example.com")
+            .await
+            .expect("create user + token + provider");
+    let tenant_id = tenant_of(&resources, &user).await;
+    let agent_id = translated_agent(&resources, user.id, tenant_id).await;
+    let thread = json!({ "title": THREAD_TITLE, "model": "mock-model", "agent_id": agent_id });
+
+    let read_thread = turn_in_new_thread(&base_url, &token, thread.clone()).await;
+    let other_thread = turn_in_new_thread(&base_url, &token, thread).await;
+    let deadline = Instant::now() + UNSEEN_REPLY_GRACE + SETTLE;
+    let mut rows = coach_rows(&resources, user.id, tenant_id).await;
+    while rows.len() < 2 && Instant::now() < deadline {
+        sleep(Duration::from_millis(100)).await;
+        rows = coach_rows(&resources, user.id, tenant_id).await;
+    }
+    assert_eq!(
+        rows.len(),
+        2,
+        "two replies nobody read, two notifications: {rows:?}"
+    );
+    assert!(rows.iter().all(|row| row.read_at.is_none()));
+
+    let opened = Client::new()
+        .get(format!(
+            "{base_url}/api/chat/conversations/{read_thread}/messages"
+        ))
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .expect("GET messages");
+    assert!(opened.status().is_success(), "{}", opened.status());
+
+    let opens = |row: &Notification, id: &str| {
+        row.data
+            .as_ref()
+            .and_then(|data| data.get("id"))
+            .and_then(Value::as_str)
+            == Some(id)
+    };
+    let rows = coach_rows(&resources, user.id, tenant_id).await;
+    let read = rows
+        .iter()
+        .find(|row| opens(row, &read_thread))
+        .expect("the read thread's row");
+    let other = rows
+        .iter()
+        .find(|row| opens(row, &other_thread))
+        .expect("the other thread's row");
+    assert!(
+        read.read_at.is_some(),
+        "opening the thread reads its notification"
+    );
+    assert!(
+        other.read_at.is_none(),
+        "another thread's notification stays unread"
+    );
+}
+
+/// A stored API key for `user_id`, and the full key a caller presents.
+async fn stored_api_key(resources: &ServerContext, user_id: Uuid) -> String {
+    let data = ApiKeyManager::new().generate_api_key(false);
+    let key = ApiKey {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        name: "script".to_owned(),
+        key_prefix: data.key_prefix,
+        key_hash: data.key_hash,
+        description: None,
+        tier: ApiKeyTier::Starter,
+        rate_limit_requests: 1_000,
+        rate_limit_window_seconds: 3_600,
+        is_active: true,
+        last_used_at: None,
+        expires_at: None,
+        created_at: Utc::now(),
+    };
+    resources.common.repos.api_keys.create(&key).await.unwrap();
+    data.full_key
+}
+
+/// A caller holding one of the athlete's API keys reads the reply in its own
+/// response and never moves the read marker: it is not the athlete away from
+/// the app, and raises nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_api_key_turn_raises_nothing() {
+    let resources: Arc<ServerContext> =
+        common::create_test_server_resources_with_llm(Arc::new(FixedReplyProvider))
+            .await
+            .expect("server resources");
+    let base_url = serve_chat(&resources).await;
+    let (user, token) =
+        common::create_test_tenant_with_provider(&resources, "agent-notice-key@example.com")
+            .await
+            .expect("create user + token + provider");
+    let tenant_id = tenant_of(&resources, &user).await;
+    let agent_id = translated_agent(&resources, user.id, tenant_id).await;
+    let api_key = stored_api_key(&resources, user.id).await;
+
+    let created: Value = Client::new()
+        .post(format!("{base_url}/api/chat/conversations"))
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&json!({ "title": THREAD_TITLE, "model": "mock-model", "agent_id": agent_id }))
+        .send()
+        .await
+        .expect("create conversation")
+        .json()
+        .await
+        .expect("conversation json");
+    let conversation_id = created["id"].as_str().expect("id");
+    // An API key is presented as the whole header, not as a bearer token.
+    let response = Client::new()
+        .post(format!(
+            "{base_url}/api/chat/conversations/{conversation_id}/messages"
+        ))
+        .header(AUTHORIZATION, api_key)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&json!({ "content": GENERAL_QUESTION }))
+        .send()
+        .await
+        .expect("POST send_message");
+    assert!(response.status().is_success(), "{}", response.status());
+    let turn: Value = response.json().await.expect("turn json");
+    assert_eq!(turn["assistant"]["message"]["content"], REPLY, "{turn}");
+
+    sleep(UNSEEN_REPLY_GRACE + SETTLE).await;
+    let rows = coach_rows(&resources, user.id, tenant_id).await;
+    assert!(rows.is_empty(), "an API-key turn raises nothing: {rows:?}");
 }

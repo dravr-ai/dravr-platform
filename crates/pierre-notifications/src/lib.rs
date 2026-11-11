@@ -291,6 +291,25 @@ impl NotificationService {
         }
     }
 
+    /// Mark read every unread notification that opens `conversation_id` — an
+    /// agent's message, an insight computed there — once the user has read
+    /// the thread itself. Returns how many were marked.
+    ///
+    /// # Errors
+    ///
+    /// When the store refuses the update.
+    pub async fn mark_conversation_notifications_read(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) -> CommereResult<u64> {
+        let route = triggers::conversation_route_fields(conversation_id);
+        self.inner
+            .mark_notifications_read_matching(user_id, tenant_id, &route)
+            .await
+    }
+
     /// Attach the sink that delivers accepted notifications to a user's linked
     /// chat channels.
     #[must_use]
