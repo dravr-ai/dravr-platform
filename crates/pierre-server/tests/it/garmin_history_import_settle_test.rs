@@ -207,9 +207,10 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_import() {
 
 /// The scraper fails the import's read once: the job stays owed for the
 /// resume sweep and the session stays for it — nothing is retired or marked
-/// incomplete on a hiccup — and the card reads `importing` meanwhile.
+/// incomplete on a hiccup — and the session it keeps serves the card first
+/// meanwhile (carnet#1494), which then reads its own history.
 #[tokio::test]
-async fn a_transient_failure_keeps_the_session_and_the_card_reads_importing() {
+async fn a_transient_failure_keeps_the_session_serving_the_card() {
     let switch = ScraperSwitch::default();
     switch.fail_next.store(true, Ordering::SeqCst);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
@@ -242,8 +243,8 @@ async fn a_transient_failure_keeps_the_session_and_the_card_reads_importing() {
     );
     assert_eq!(
         garmin_history(&resources, &token).await["state"],
-        "importing",
-        "bug: the card reads importing while the job is owed"
+        "not_applicable",
+        "bug: the session kept beside the grant serves the card, whose history is its own"
     );
 }
 

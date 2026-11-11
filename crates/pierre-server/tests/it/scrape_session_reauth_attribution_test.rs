@@ -236,31 +236,37 @@ impl Fixture {
     }
 }
 
-/// Beside a Garmin grant the session serves nothing (carnet#1386): a read
-/// naming either Garmin backend goes to the grant, the dead session is never
-/// signed in to, and neither connection is flagged by a read that never
-/// reached it.
+/// Beside a Garmin grant the session still serves first (carnet#1494): a read
+/// naming either Garmin backend reaches the dead session once, flags it, and
+/// leaves the grant behind it untouched; once flagged the session is not
+/// signed in to again.
 #[tokio::test]
-async fn a_dead_session_beside_a_garmin_grant_is_never_read() {
+async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant() {
     let f = fixture("attribution", true).await;
 
     f.read(oauth_providers::GARMIN).await;
-    f.read(oauth_providers::SCIOTTE_GARMIN).await;
-
     assert_eq!(
         f.scraper.reads(),
-        0,
-        "bug: the session beside the grant must never be signed in to"
+        1,
+        "bug: the session serving first must be the one read"
+    );
+    assert_eq!(
+        f.status(oauth_providers::SCIOTTE_GARMIN).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the session that refused must be the one flagged"
     );
     assert_eq!(
         f.status(oauth_providers::GARMIN).await,
         ConnectionStatus::Active,
         "bug: the Garmin grant was fine and must stay active"
     );
+
+    f.read(oauth_providers::SCIOTTE_GARMIN).await;
+    f.read(oauth_providers::GARMIN).await;
     assert_eq!(
-        f.status(oauth_providers::SCIOTTE_GARMIN).await,
-        ConnectionStatus::Active,
-        "a read that never reached the session says nothing about it"
+        f.scraper.reads(),
+        1,
+        "bug: a flagged session must not be signed in to again"
     );
 }
 

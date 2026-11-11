@@ -133,11 +133,13 @@ async fn a_detector_connected_and_used_last_does_not_answer_activity_reads() {
         "a heart-rate detector must not be primary for activities over a recording source"
     );
 
+    // Holding no Strava credential, the compute reads Strava through its
+    // mirror, the athlete's way in (carnet#1494).
     let backends = athlete.compute_backends().await;
     assert!(
         backends
             .iter()
-            .any(|b| b.slug == "strava" && !b.requires_reauth),
+            .any(|b| b.slug == "sciotte" && !b.requires_reauth),
         "training-history computes read the healthy recording source: {backends:?}"
     );
 }
@@ -178,8 +180,9 @@ async fn a_dead_recorder_yields_to_the_healthy_recorder_not_the_newer_detector()
     assert!(
         backends
             .iter()
-            .any(|b| b.slug == "strava" && b.requires_reauth),
-        "the lapsed Strava is still read, and marked for its reconnect: {backends:?}"
+            .any(|b| b.slug == "sciotte" && b.requires_reauth),
+        "the lapsed Strava is still read through its mirror, and marked for its reconnect: \
+         {backends:?}"
     );
     assert!(
         backends

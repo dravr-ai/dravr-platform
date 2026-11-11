@@ -65,9 +65,11 @@ use pierre_core::models::{ReauthMark, TenantId};
 use pierre_notifications::models::{NotificationCategory, TransportPolicy as PushTransportPolicy};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId};
-use pierre_providers::backend_resolver::{backend_pair_for, session_beside_grant};
 #[cfg(feature = "client-notifications")]
-use pierre_providers::backend_resolver::{brand_name, user_facing_name};
+use pierre_providers::backend_resolver::brand_name;
+use pierre_providers::backend_resolver::{
+    backend_pair_for, is_mirror_backend, session_beside_grant, user_facing_name,
+};
 #[cfg(feature = "client-notifications")]
 use pierre_services::locale::resolve_user_locale;
 #[cfg(feature = "client-notifications")]
@@ -389,7 +391,11 @@ pub(crate) fn refused_backend(error: &AppError, provider_slug: &str) -> Option<S
 /// [`flag_needs_reauth`] for the connection `refused` an attempt found dead,
 /// recording `reason` and when the attempt began.
 ///
-/// A flip that cannot be written is logged: the caller serves what it holds
+/// A mirror the athlete holds no connection for stands for the connection
+/// of its pair they do hold: a read of a grant with no usable token goes to
+/// the mirror's sign-in (`backend_resolver::read_plan`, carnet#1494), and the
+/// grant's own row is the one that must read as needing the reconnect. A
+/// flip that cannot be written is logged: the caller serves what it holds
 /// either way.
 pub(crate) async fn flag_refused(
     runtime: &Arc<dyn ToolRuntime>,
@@ -399,7 +405,7 @@ pub(crate) async fn flag_refused(
     reason: &str,
     attempt_started_at: DateTime<Utc>,
 ) {
-    if let Err(e) = flag_needs_reauth(
+    let flagged = match flag_needs_reauth(
         runtime,
         user_id,
         tenant_id,
@@ -409,6 +415,19 @@ pub(crate) async fn flag_refused(
     )
     .await
     {
+        Ok((ReauthMark::NoConnection, _)) if is_mirror_backend(refused) => flag_needs_reauth(
+            runtime,
+            user_id,
+            tenant_id,
+            user_facing_name(refused),
+            reason,
+            attempt_started_at,
+        )
+        .await
+        .map(|_| ()),
+        other => other.map(|_| ()),
+    };
+    if let Err(e) = flagged {
         warn!(
             user_id = %user_id,
             provider = %refused,

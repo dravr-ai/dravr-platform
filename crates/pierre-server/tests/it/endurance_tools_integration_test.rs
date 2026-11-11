@@ -400,7 +400,8 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     // Out-of-range window is clamped, not rejected; the underlying provider
     // call still fails (no token) — we just confirm the clamp didn't panic
     // and the failure is the reconnect signal for the connected provider,
-    // which the chat pipeline turns into a reconnect link.
+    // which the chat pipeline turns into a reconnect link: holding no Strava
+    // credential, Strava's hosted sign-in, its mirror (carnet#1494).
     let err = executor
         .execute_tool(make_request(
             "export_latest_snapshot",
@@ -411,7 +412,7 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
         .await
         .expect_err("provider auth still required");
     match err {
-        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(provider, "strava"),
+        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(provider, "sciotte"),
         other => panic!("export_latest_snapshot: expected ProviderAuthRequired, got {other:?}"),
     }
     Ok(())

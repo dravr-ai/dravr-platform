@@ -382,8 +382,10 @@ async fn test_connect_strava_tool() -> Result<()> {
         .execute_tool(request)
         .await
         .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
+    // Holding no Strava credential, the athlete is sent to Strava's hosted
+    // sign-in, its mirror (carnet#1494).
     assert!(
-        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "sciotte"),
         "unexpected error shape: {err:?}"
     );
 

@@ -292,6 +292,35 @@ async fn has_token_row(
     )
 }
 
+/// Whether the user holds a token row for `backend` in this tenant, for the
+/// read plan. A row that cannot be read (a store failure, a ciphertext that
+/// does not decrypt) counts as held: routing the athlete away from it would
+/// read a store failure as a missing credential and send them to reconnect
+/// an intact connection.
+async fn token_row_held(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    match repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, backend)
+        .await
+    {
+        Ok(row) => row.is_some(),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = backend,
+                error = %e,
+                "could not read the token row; routing as though it is held"
+            );
+            true
+        }
+    }
+}
+
 /// Whether the user holds any activity under the cache `key` in this tenant.
 ///
 /// Read from the rows themselves. A store that cannot be read counts as
@@ -449,9 +478,10 @@ struct PairHalves {
 }
 
 impl PairHalves {
-    /// Read the session `mirror` and the grant `grant`. A connection list
-    /// that cannot be read counts every held row as live: the athlete keeps
-    /// the credential they hold rather than lose it to a guess.
+    /// Read the session `mirror` and the grant `grant`. A token row or a
+    /// connection list that cannot be read counts as held and live: the
+    /// athlete keeps the credential they hold rather than lose it to a guess,
+    /// and the read that follows reports what it finds.
     async fn read(
         repos: &RepositoryRegistry,
         user_id: Uuid,
@@ -459,8 +489,8 @@ impl PairHalves {
         grant: &str,
         mirror: &str,
     ) -> Self {
-        let session_held = has_token_row(repos, user_id, tenant_id, mirror).await;
-        let grant_held = has_token_row(repos, user_id, tenant_id, grant).await;
+        let session_held = token_row_held(repos, user_id, tenant_id, mirror).await;
+        let grant_held = token_row_held(repos, user_id, tenant_id, grant).await;
         let connections = if session_held || grant_held {
             repos
                 .provider_connections
@@ -852,9 +882,18 @@ mod tests {
             connection(oauth_providers::STRAVA, ConnectionStatus::Revoked),
             connection(oauth_providers::GARMIN, ConnectionStatus::Active),
         ];
-        assert_eq!(half(true, &connections, oauth_providers::SCIOTTE), Half::Flagged);
-        assert_eq!(half(true, &connections, oauth_providers::STRAVA), Half::Revoked);
-        assert_eq!(half(true, &connections, oauth_providers::GARMIN), Half::Live);
+        assert_eq!(
+            half(true, &connections, oauth_providers::SCIOTTE),
+            Half::Flagged
+        );
+        assert_eq!(
+            half(true, &connections, oauth_providers::STRAVA),
+            Half::Revoked
+        );
+        assert_eq!(
+            half(true, &connections, oauth_providers::GARMIN),
+            Half::Live
+        );
         assert_eq!(
             half(true, &connections, oauth_providers::SCIOTTE_GARMIN),
             Half::Live,
@@ -887,8 +926,14 @@ mod tests {
                 "bug: {provider}'s API reads nothing on request"
             );
         }
-        assert_eq!(sync_backend(oauth_providers::STRAVA), oauth_providers::STRAVA);
-        assert_eq!(sync_backend(oauth_providers::SCIOTTE), oauth_providers::STRAVA);
+        assert_eq!(
+            sync_backend(oauth_providers::STRAVA),
+            oauth_providers::STRAVA
+        );
+        assert_eq!(
+            sync_backend(oauth_providers::SCIOTTE),
+            oauth_providers::STRAVA
+        );
         assert_eq!(
             sync_backend(oauth_providers::GARMIN),
             oauth_providers::SCIOTTE_GARMIN

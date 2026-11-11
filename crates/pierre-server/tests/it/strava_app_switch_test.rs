@@ -1868,9 +1868,11 @@ async fn a_transient_refresh_of_a_refused_grant_still_asks_for_a_reconnect() {
             .await
             .err()
             .expect("no provider over a refused grant");
+        // A dead grant alone reads through Strava's mirror, so the turn's
+        // reconnect is the hosted sign-in (carnet#1494).
         assert_eq!(
             auth_required_provider(&refused).as_deref(),
-            Some("strava"),
+            Some("sciotte"),
             "HTTP {status}: the turn becomes the reconnect link"
         );
         let text = refused.error.unwrap_or_default();
