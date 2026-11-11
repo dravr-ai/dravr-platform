@@ -185,6 +185,44 @@ pub fn mint_link_token(
     mint_link_token_with_ttl(args, admin_jwt_secret, PROVIDER_LINK_TOKEN_TTL_MINUTES)
 }
 
+/// Mint the hosted sign-in URL that reconnects or connects `target` for one
+/// athlete: [`HOSTED_SIGNIN_PATH`] under `base_url`, carrying a one-time
+/// link-token ([`mint_link_token`]) minted for `channel`.
+///
+/// `target` is the name the athlete knows the provider by (`strava`,
+/// `garmin`, `trainingpeaks`, `coros`). The one builder every reconnect
+/// surface mints through: the chat reply, the linked-chat notice and the
+/// OAuth start a dead grant is turned back from (carnet#1494).
+///
+/// # Errors
+///
+/// Returns an error if the link-token cannot be encoded.
+pub fn mint_hosted_signin_url(
+    base_url: &str,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    target: &str,
+    channel: &str,
+    admin_jwt_secret: &str,
+) -> AppResult<String> {
+    let token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id,
+            provider: "sciotte",
+            target,
+            channel,
+            channel_thread: None,
+        },
+        admin_jwt_secret,
+    )?;
+    Ok(format!(
+        "{}{HOSTED_SIGNIN_PATH}?token={}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(&token)
+    ))
+}
+
 /// Mint a link-token with an explicit TTL — the scope-appropriate TTL is chosen
 /// by the public mint fns ([`mint_link_token`] = 24h nonce-burned reauth,
 /// [`mint_connect_link_token`] = 1h reusable connect).

@@ -36,7 +36,6 @@ use crate::health_backfill::spawn_health_backfill;
 use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
-use crate::sciotte_grant_gate::require_garmin_grant;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
@@ -367,6 +366,7 @@ async fn store_sciotte_session(
     .await?;
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
+    replace_dead_grant(resources, user_id, TenantId::from_uuid(tenant_id), provider_name).await;
     warm_from_session(
         resources,
         user_id,
@@ -378,6 +378,61 @@ async fn store_sciotte_session(
     .await;
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
+}
+
+/// Delete the dead OAuth grant a sign-in of `backend` just replaced, keeping
+/// everything it fetched (carnet#1494, JF's directive 3).
+///
+/// A grant whose refresh the provider refused reconnects only through this
+/// hosted sign-in, and the session now serves the provider, so the grant's
+/// token row and its connection row go. Nothing is revoked upstream and no
+/// data is purged: the activities and wellness it stored stay the athlete's.
+/// A live grant beside the session is left alone, as the session's fallback.
+/// A delete that fails is logged; the session serves either way, and the dead
+/// grant is never elected while its connection needs a reconnect.
+async fn replace_dead_grant(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) {
+    let Some(grant) =
+        backend_resolver::flagged_grant(&resources.repos, user_id, tenant_id, backend).await
+    else {
+        return;
+    };
+    let deleted = match resources
+        .repos
+        .oauth_tokens
+        .delete_token(user_id, tenant_id, grant)
+        .await
+    {
+        Ok(()) => {
+            resources
+                .repos
+                .provider_connections
+                .remove_connection(user_id, tenant_id, grant)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+    match deleted {
+        Ok(()) => info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            grant,
+            backend,
+            "Sign-in over a dead grant: the grant's token and connection are deleted, its data kept"
+        ),
+        Err(e) => warn!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            grant,
+            backend,
+            error = %e,
+            "Sign-in over a dead grant: the grant's rows could not be deleted; the session serves"
+        ),
+    }
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -937,10 +992,7 @@ pub(crate) async fn handle_sciotte_login(
         request.tos_consent,
     )
     .await?;
-    // A new usr/pwd-only Garmin connection is refused while a seat is free
-    // on Garmin's OAuth, whatever client sent it (carnet#1454).
     let backend = SciotteTarget::from_target_param(target).provider_name();
-    require_garmin_grant(&resources, user_id, TenantId::from_uuid(tenant_id), backend).await?;
 
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would

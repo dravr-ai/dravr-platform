@@ -1,5 +1,5 @@
 // ABOUTME: Seat accounting for Dravr's Garmin Developer Program client, capped per client id
-// ABOUTME: Counts the users whose live Garmin grant the server-level client signs, and the one rule for moving off usr/pwd
+// ABOUTME: Counts the users whose live Garmin grant the server-level client signs, and refuses an OAuth start with none left
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,26 +18,19 @@
 //! [`ProviderConnectionRepository::count_server_level_grants`], the count that
 //! sizes a provider app's request budget by the athletes who granted it.
 //!
-//! Garmin connects through its OAuth only while a seat is free
-//! (carnet#1454): [`garmin_oauth_required`] is the one rule every surface
-//! reads, so the card's move to Garmin's official connection, the refusal of
-//! a new usr/pwd sign-in and the reconnect notice's link agree. With the pool
-//! full, an athlete with no grant connects and reconnects by usr/pwd as
-//! before, until a seat frees. The operator's connect order
-//! ([`crate::connect_order`]) can put the usr/pwd sign-in first instead: no
-//! one is then asked to move to the OAuth, whatever the seats (carnet#1472).
+//! A connect offers Garmin's OAuth only while a seat is free: under the
+//! operator's OAuth-first order ([`crate::connect_order`]), and as the
+//! fallback of a sign-in that fails while the sign-in goes first.
 
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::TenantId;
 use pierre_database::backends::{OAuthTokenRepository, ProviderConnectionRepository};
-use pierre_database::repositories::SystemSettingsRepository;
 use serde_json::{json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::config::oauth::OAuthConfig;
-use crate::connect_order::{connect_order, ConnectOrder};
 
 /// Seat capacity of the server's Garmin client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,64 +73,6 @@ pub async fn garmin_seat_summary(
         total: server.garmin_seat_cap(),
         used,
     })
-}
-
-/// Whether an athlete must connect Garmin through its OAuth rather than by usr/pwd.
-///
-/// Given the `seats_left` on the server's Garmin client, whether they already
-/// hold a Garmin grant (`grant_held`), and the operator's Garmin connect
-/// `order`.
-///
-/// True only while Garmin's OAuth goes first and a seat is free for an
-/// athlete with no grant: they are
-/// offered Garmin's official connection, a new usr/pwd sign-in is refused,
-/// and a dead usr/pwd session's notice points to the OAuth. A grant holder is
-/// on the OAuth already. With no seat left, the usr/pwd connection stays the
-/// way in until one frees, and with the sign-in first it is the way in
-/// whatever the seats. The one predicate to change if that rule does.
-#[must_use]
-pub fn garmin_oauth_required(seats_left: u32, grant_held: bool, order: ConnectOrder) -> bool {
-    order == ConnectOrder::OAuthFirst && !grant_held && seats_left > 0
-}
-
-/// [`garmin_oauth_required`] for `user_id` in `tenant_id`, read from the store.
-///
-/// Whether they hold a Garmin token row, the seats left under `server`, and
-/// the Garmin connect order in `settings`.
-///
-/// A seat count that fails, or a server with no Garmin client, reads as no
-/// seat, and a grant lookup that fails as a grant held: either answers
-/// `false`, which keeps the usr/pwd connection the athlete has rather than
-/// sending them into an OAuth flow that may not finish.
-pub async fn garmin_oauth_required_for(
-    tokens: &dyn OAuthTokenRepository,
-    grants: &dyn ProviderConnectionRepository,
-    settings: &dyn SystemSettingsRepository,
-    server: &OAuthConfig,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> bool {
-    let grant_held = !matches!(
-        tokens
-            .get_token(user_id, tenant_id, oauth_providers::GARMIN)
-            .await,
-        Ok(None)
-    );
-    if grant_held {
-        return false;
-    }
-    let order = connect_order(settings, oauth_providers::GARMIN).await;
-    if order == ConnectOrder::SignInFirst {
-        return false;
-    }
-    let seats_left = match garmin_seat_summary(grants, server).await {
-        Ok(summary) => summary.left(),
-        Err(e) => {
-            debug!(error = %e, "Garmin seats could not be counted; usr/pwd stays the way in");
-            0
-        }
-    };
-    garmin_oauth_required(seats_left, grant_held, order)
 }
 
 /// `details.reason` of a Garmin OAuth start refused for want of a seat, and
@@ -212,76 +147,9 @@ pub fn is_no_seat_refusal(error: &AppError) -> bool {
         == Some(NO_SEAT_REASON)
 }
 
-/// Whether `user_id` holds a usr/pwd Garmin connection of their own in
-/// `tenant_id`: the session's token row, or a connection row they made
-/// themselves. A delegated row is a coach's account, not theirs.
-///
-/// # Errors
-///
-/// The store's error when either lookup fails. Each caller maps it to the
-/// answer that keeps the usr/pwd way in: the sign-in gate counts it as held
-/// (nothing is refused), the reconnect counts it as not held (the ordinary
-/// sign-in link is sent, not a move to the OAuth).
-pub async fn holds_own_usr_pwd_garmin_connection(
-    tokens: &dyn OAuthTokenRepository,
-    grants: &dyn ProviderConnectionRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> AppResult<bool> {
-    if tokens
-        .get_token(user_id, tenant_id, oauth_providers::SCIOTTE_GARMIN)
-        .await?
-        .is_some()
-    {
-        return Ok(true);
-    }
-    Ok(grants
-        .get_for_user(user_id, Some(tenant_id))
-        .await?
-        .iter()
-        .any(|c| {
-            c.provider == oauth_providers::SCIOTTE_GARMIN
-                && c.connection_type != ConnectionType::Delegated
-        }))
-}
-
-/// Whether the athlete reconnects `backend` through Garmin's OAuth rather
-/// than its usr/pwd sign-in.
-///
-/// True for a `sciotte_garmin` session of their own
-/// ([`holds_own_usr_pwd_garmin_connection`]) while
-/// [`garmin_oauth_required_for`] holds for them. Every reconnect surface (the
-/// chat reply, the app push, the detached chat notice) reads this one rule.
-///
-/// A store that cannot be read answers `false`: the ordinary sign-in keeps
-/// the way in the athlete has.
-pub async fn reconnects_through_garmin_oauth(
-    tokens: &dyn OAuthTokenRepository,
-    grants: &dyn ProviderConnectionRepository,
-    settings: &dyn SystemSettingsRepository,
-    server: &OAuthConfig,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    if backend != oauth_providers::SCIOTTE_GARMIN {
-        return false;
-    }
-    match holds_own_usr_pwd_garmin_connection(tokens, grants, user_id, tenant_id).await {
-        Ok(true) => {}
-        Ok(false) => return false,
-        Err(e) => {
-            warn!(user_id = %user_id, error = %e, "Garmin connection lookup failed; the reconnect is the ordinary sign-in");
-            return false;
-        }
-    }
-    garmin_oauth_required_for(tokens, grants, settings, server, user_id, tenant_id).await
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{garmin_oauth_required, is_no_seat_refusal, GarminSeatSummary, NO_SEAT_REASON};
-    use crate::connect_order::ConnectOrder;
+    use super::{is_no_seat_refusal, GarminSeatSummary, NO_SEAT_REASON};
     use pierre_core::errors::AppError;
     use serde_json::json;
 
@@ -291,44 +159,12 @@ mod tests {
         seat.details = Some(Box::new(json!({ "reason": NO_SEAT_REASON })));
         assert!(is_no_seat_refusal(&seat), "bug: the seat refusal");
         let mut other = AppError::resource_unavailable("busy");
-        other.details = Some(Box::new(json!({ "reason": "oauth_required" })));
+        other.details = Some(Box::new(json!({ "reason": "busy" })));
         assert!(!is_no_seat_refusal(&other), "bug: another reason");
         assert!(
             !is_no_seat_refusal(&AppError::invalid_input("bad")),
             "bug: no details is no refusal"
         );
-    }
-
-    #[test]
-    fn oauth_is_required_only_while_a_seat_is_free_for_an_athlete_with_no_grant() {
-        assert!(
-            garmin_oauth_required(3, false, ConnectOrder::OAuthFirst),
-            "bug: a free seat moves a usr/pwd-only athlete to the OAuth"
-        );
-        assert!(
-            !garmin_oauth_required(0, false, ConnectOrder::OAuthFirst),
-            "bug: a full pool keeps the usr/pwd connection the way in"
-        );
-        assert!(
-            !garmin_oauth_required(3, true, ConnectOrder::OAuthFirst),
-            "bug: a grant holder is on the OAuth already"
-        );
-        assert!(
-            !garmin_oauth_required(0, true, ConnectOrder::OAuthFirst),
-            "bug: a grant holder is never asked to move"
-        );
-    }
-
-    /// With the sign-in first (carnet#1472), no one is sent to the OAuth,
-    /// whatever the seats.
-    #[test]
-    fn oauth_is_never_required_while_the_sign_in_goes_first() {
-        for (seats, grant) in [(3, false), (0, false), (3, true)] {
-            assert!(
-                !garmin_oauth_required(seats, grant, ConnectOrder::SignInFirst),
-                "bug: the sign-in-first order sent a connection ({seats} seats, grant {grant}) to the OAuth"
-            );
-        }
     }
 
     #[test]

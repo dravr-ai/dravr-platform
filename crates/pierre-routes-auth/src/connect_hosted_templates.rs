@@ -18,7 +18,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL, KEY_HOSTED_COMMON_LINKED_FROM,
     KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
     KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
     KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_USERNAME_LABEL,
     KEY_HOSTED_COMMON_VERIFYING_CODE, KEY_HOSTED_ERROR_INVALID_LINK,
     KEY_HOSTED_PICKER_DATA_AVAILABLE, KEY_HOSTED_PICKER_HISTORY_COPYING,
@@ -28,7 +28,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_PICKER_TAG_AUTHORIZE, KEY_HOSTED_PICKER_TAG_CONNECTED,
     KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD, KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD,
     KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING, KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE,
-    KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY, KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL,
+    KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY,
     KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD, KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
@@ -40,7 +40,6 @@ use crate::sciotte::{
     CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
     SIGN_IN_UNAVAILABLE_REASON,
 };
-use crate::sciotte_grant_gate::OAUTH_REQUIRED_REASON;
 use crate::sciotte_hosted_templates;
 
 const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
@@ -84,7 +83,6 @@ pub(crate) fn render_connect_page(
         "tagImportHistory": strings.get(KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY),
         "tagHistoryImporting": strings.get(KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING),
         "tagHistoryIncomplete": strings.get(KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE),
-        "tagMoveToOfficial": strings.get(KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL),
         "importExportLink": strings.get(KEY_HOSTED_PICKER_IMPORT_EXPORT_LINK),
         "historySignInNote": strings.get(KEY_HOSTED_PICKER_HISTORY_SIGN_IN_NOTE),
         "historyCopying": strings.get(KEY_HOSTED_PICKER_HISTORY_COPYING),
@@ -100,7 +98,6 @@ pub(crate) fn render_connect_page(
         "signInUnavailable": strings.get(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE),
         "signInChallenged": strings.get(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED),
         "signInExpired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_EXPIRED),
-        "signInOauthRequired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED),
         "linkExpired": strings.get(KEY_HOSTED_ERROR_INVALID_LINK),
         "stravaFallback": strings.get(KEY_HOSTED_PICKER_STRAVA_FALLBACK),
         "signInIncomplete": strings.get(KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE),
@@ -127,7 +124,6 @@ pub(crate) fn render_connect_page(
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
     .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
     .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
-    .replace("{{OAUTH_REQUIRED_REASON}}", OAUTH_REQUIRED_REASON)
     .replace("{{SIGN_IN_UNAVAILABLE_REASON}}", SIGN_IN_UNAVAILABLE_REASON)
     // The JSON goes in last so an escaped token/channel can never close the
     // script context before it.

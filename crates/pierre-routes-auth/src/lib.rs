@@ -109,8 +109,6 @@ mod sciotte;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_cancel;
 #[cfg(feature = "provider-sciotte")]
-mod sciotte_grant_gate;
-#[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted_templates;

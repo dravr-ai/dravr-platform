@@ -34,10 +34,12 @@
 //! athlete's own preferences, quiet hours, the daily cap) is suppressed in
 //! chat as well, as the fan-out would have been.
 //!
-//! The push is worded from the catalogue in the athlete's locale. A dead
-//! usr/pwd Garmin session that served the athlete alone, while a seat is free
-//! on Garmin's OAuth ([`reconnects_through_oauth`]), is told to move to
-//! Garmin's official connection instead of signing in again (carnet#1454).
+//! The push is worded from the catalogue in the athlete's locale. Every
+//! reconnect goes through the provider's hosted sign-in, a dead OAuth grant's
+//! included (`backend_resolver::reconnect_target`, carnet#1494). A session
+//! that dies while its live grant keeps the provider syncing is told so, in
+//! the chat half's wording; a grant that dies beside a signed-in session is
+//! never surfaced, since the session serves the provider.
 //!
 //! [`flag_needs_reauth`] is the flip plus the notice, for the paths that flag
 //! through [`ProviderConnectionRepository::mark_needs_reauth`]. The OAuth
@@ -49,14 +51,11 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use pierre_auth::connect_order::{sign_in_falls_back_to_oauth, strava_order_and_seats};
-use pierre_auth::garmin_seats::reconnects_through_garmin_oauth;
+use pierre_auth::connect_order::{order_and_seats, sign_in_falls_back_to_oauth};
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::reauth_strings::{
-    KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_BODY, KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_TITLE,
     KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
 };
-use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-notifications")]
 use pierre_core::models::NotificationScreen;
@@ -68,7 +67,7 @@ use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId 
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::brand_name;
 use pierre_providers::backend_resolver::{
-    backend_pair_for, is_mirror_backend, session_beside_grant, user_facing_name,
+    backend_pair_for, grant_beside_session, is_mirror_backend, reconnect_target, user_facing_name,
 };
 #[cfg(feature = "client-notifications")]
 use pierre_services::locale::resolve_user_locale;
@@ -103,21 +102,24 @@ pub struct ReauthNotice {
 /// doc describes. Best-effort: every failure is logged and the flag stands
 /// either way.
 ///
-/// A usr/pwd session beside a grant that serves its provider
-/// ([`session_beside_grant`]) is never surfaced: the grant is the ongoing
-/// source, so its session dying asks nothing of the athlete. Nothing is
-/// claimed or sent for it; its flag stands (carnet#1386).
+/// A dead OAuth grant beside a session that is not revoked
+/// ([`grant_beside_session`]) is never surfaced: the session serves its
+/// provider, and the grant is replaced at the athlete's next sign-in. Nothing
+/// is claimed or sent for it; its flag stands, and it is never elected while
+/// it does (carnet#1494). A session that dies beside a live grant is told,
+/// once: the grant keeps the provider syncing for now, and the chat half says
+/// so.
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> ReauthNotice {
-    if session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await {
+    if grant_beside_session(runtime.repos(), user_id, tenant_id, provider).await {
         info!(
             user_id = %user_id,
             provider = %provider,
-            "Reconnect notice: the session stands beside a serving grant; nothing sent"
+            "Reconnect notice: the grant stands beside a signed-in session; nothing sent"
         );
         return ReauthNotice::default();
     }
@@ -148,68 +150,91 @@ pub async fn notify_needs_reauth(
     }
 }
 
-/// Whether the athlete reconnects `backend` through its provider's OAuth
-/// rather than its usr/pwd sign-in (carnet#1454).
+/// Whether a sign-in hand-off is a new connection that can fall back to its
+/// provider's OAuth.
 ///
-/// True for a `sciotte_garmin` session the athlete made themselves (never a
-/// coach's delegated one) while they hold no Garmin grant in this tenant and
-/// a seat is free on the server's Garmin client while its OAuth goes first
-/// (carnet#1472) — the one rule
-/// [`reconnects_through_garmin_oauth`] reads. With the pool full, or for any
-/// other backend, the reconnect is the ordinary one.
-pub async fn reconnects_through_oauth(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    reconnects_through_garmin_oauth(
-        runtime.repos().oauth_tokens.as_ref(),
-        runtime.repos().provider_connections.as_ref(),
-        runtime.repos().system_settings.as_ref(),
-        &runtime.config().oauth,
-        user_id,
-        tenant_id,
-        backend,
-    )
-    .await
-}
-
-/// Whether a sign-in hand-off is a new Strava connection that can fall back.
-///
-/// True for the Strava mirror `backend` when the athlete holds neither a
-/// Strava grant nor a Strava session in `tenant_id` and the operator's order
-/// puts the sign-in first while a seat is free ([`sign_in_falls_back_to_oauth`],
-/// carnet#1477). Its link is then the connect picker, which carries that
-/// fallback; the bare sign-in page does not.
+/// True for a mirror `backend` when the athlete holds neither half of its
+/// pair in `tenant_id` and the operator's order for its provider puts the
+/// sign-in first while a seat is free on the provider's OAuth
+/// ([`sign_in_falls_back_to_oauth`], carnet#1477). Its link is then the
+/// connect picker, which carries that fallback; the bare sign-in page does
+/// not. A provider with no OAuth Pierre can call has no seat, so it never
+/// does (directive 5: the order applies to every provider).
 ///
 /// A lookup that fails reads as a connection held, so the athlete keeps the
 /// sign-in link they had.
-pub async fn new_strava_sign_in_falls_back(
+pub async fn new_sign_in_falls_back(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
 ) -> bool {
-    if backend != oauth_providers::SCIOTTE {
+    if !is_mirror_backend(backend) {
         return false;
     }
     let repos = runtime.repos();
-    for held in [oauth_providers::STRAVA, oauth_providers::SCIOTTE] {
+    for held in backend_pair_for(backend) {
         if !matches!(
-            repos.oauth_tokens.get_token(user_id, tenant_id, held).await,
+            repos.oauth_tokens.get_token(user_id, tenant_id, &held).await,
             Ok(None)
         ) {
             return false;
         }
     }
-    let (order, seats) = strava_order_and_seats(
+    let (order, seats) = order_and_seats(
         repos.system_settings.as_ref(),
         repos.oauth_tokens.as_ref(),
+        repos.provider_connections.as_ref(),
         &runtime.config().oauth,
+        user_facing_name(backend),
     )
     .await;
     sign_in_falls_back_to_oauth(order, seats)
+}
+
+/// Tell an athlete whose OAuth grant of `grant` was just withdrawn (a seat
+/// reclaim, the provider's own revocation) to reconnect through the hosted
+/// sign-in, when no session of that provider serves them.
+///
+/// The withdrawal deleted the grant's connection, so there is no
+/// `needs_reauth` row to claim: the withdrawal is the claim, and its caller
+/// sends this once, for the grant it actually removed (carnet#1494). The
+/// notice is the ordinary one, app half and chat half, with the hosted
+/// sign-in link. A grant beside a session that is not revoked asks nothing
+/// of the athlete, whose session keeps serving, and a backend that is no
+/// mirrored provider's grant is never told here. A chat send that fails is
+/// queued as any reconnect notice is, guarded on a connection that no longer
+/// exists, so it is not retried.
+pub async fn notify_grant_withdrawn(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    grant: &str,
+) -> ReauthNotice {
+    if is_mirror_backend(grant) || reconnect_target(grant).is_none() {
+        return ReauthNotice::default();
+    }
+    if grant_beside_session(runtime.repos(), user_id, tenant_id, grant).await {
+        info!(
+            user_id = %user_id,
+            provider = %grant,
+            "Withdrawn grant: a signed-in session serves the provider; nothing sent"
+        );
+        return ReauthNotice::default();
+    }
+    #[cfg(feature = "client-notifications")]
+    let suppressed = suppressed_in_app(runtime, user_id, tenant_id, grant).await;
+    #[cfg(not(feature = "client-notifications"))]
+    let suppressed = false;
+    let chat_channels = if suppressed {
+        0
+    } else {
+        send_chat_half(runtime, user_id, tenant_id, grant).await
+    };
+    ReauthNotice {
+        claimed: true,
+        chat_channels,
+    }
 }
 
 /// Claim the connection's one notice for its current `needs_reauth`
@@ -334,18 +359,6 @@ async fn suppressed_in_app(
     // slug (`sciotte_trainingpeaks`) is internal.
     let brand = brand_name(runtime.provider_registry(), provider)
         .unwrap_or_else(|| user_facing_name(provider));
-    let (title_key, body_key) =
-        if reconnects_through_oauth(runtime, user_id, tenant_id, provider).await {
-            (
-                KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_TITLE,
-                KEY_NOTIFICATION_PROVIDER_OAUTH_REQUIRED_BODY,
-            )
-        } else {
-            (
-                KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
-                KEY_NOTIFICATION_PROVIDER_REAUTH_BODY,
-            )
-        };
     let locale = resolve_user_locale(runtime.repos().users.as_ref(), user_id).await;
     let strings = runtime.messaging_strings_registry();
     let request = DispatchRequest {
@@ -353,8 +366,8 @@ async fn suppressed_in_app(
         tenant_id: CommTenantId(tenant_id.as_uuid()),
         category: NotificationCategory::System,
         notification_type: "provider_needs_reauth".to_owned(),
-        title: strings.render(title_key, &locale, &[brand]),
-        body: strings.render(body_key, &locale, &[brand]),
+        title: strings.render(KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE, &locale, &[brand]),
+        body: strings.render(KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, &locale, &[brand]),
         data: Some(JsonValue::Object(data)),
         image_url: None,
         actions: None,

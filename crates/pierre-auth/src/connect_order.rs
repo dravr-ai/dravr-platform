@@ -1,34 +1,36 @@
-// ABOUTME: The operator's per-provider connect order for Strava and Garmin: their OAuth first, or the account sign-in first
+// ABOUTME: The operator's per-provider connect order: the account sign-in first (the default), or the provider's OAuth first
 // ABOUTME: Read from system_settings on every decision, so `pierre-cli settings connect-order` flips it with no deploy
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Which way a new Strava or Garmin connection goes first (carnet#1472).
+//! Which way a new connection of a provider goes first (carnet#1472,
+//! carnet#1494).
 //!
-//! Both providers can be connected two ways: their own OAuth, capped in
-//! seats, and the account sign-in (the usr/pwd mirror). By default a new
-//! connection goes through the OAuth while a seat is free and signs in once
-//! the seats are gone ([`ConnectOrder::OAuthFirst`]). The operator can flip a
-//! provider to [`ConnectOrder::SignInFirst`]: a new connection then signs
-//! in, whatever the seats, and the OAuth stays open to anyone who starts it.
+//! Every provider with an account sign-in (the usr/pwd mirror) carries an
+//! order. By default a new connection signs in with the account, whatever
+//! the seats, and the provider's OAuth, where it has one, stays open to
+//! anyone who starts it and is the fallback of a sign-in that fails
+//! unexpectedly ([`ConnectOrder::SignInFirst`]). The order is the operator's
+//! kill switch: flipped to [`ConnectOrder::OAuthFirst`], a new connection
+//! goes through the provider's OAuth while a seat is free and signs in once
+//! the seats are gone. A provider with no OAuth Pierre can call
+//! (TrainingPeaks, COROS) has no seat, so it signs in under either order.
 //!
-//! The order decides new connections only. An athlete already served by a
-//! grant keeps reconnecting through it, and nothing is re-routed or asked to
-//! move when the order flips.
+//! The order decides new connections only. A dead grant reconnects through
+//! the hosted sign-in whatever the order, and nothing is re-routed when the
+//! order flips.
 
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::backends::OAuthTokenRepository;
-use pierre_database::database::system_settings::{
-    SETTING_CONNECT_ORDER_GARMIN, SETTING_CONNECT_ORDER_STRAVA,
-};
+use pierre_database::backends::{OAuthTokenRepository, ProviderConnectionRepository};
+use pierre_database::database::system_settings::SETTING_CONNECT_ORDER_PREFIX;
 use pierre_database::repositories::SystemSettingsRepository;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::config::oauth::OAuthConfig;
-use crate::strava_pool;
+use crate::{garmin_seats, strava_pool};
 
 /// Which way a new connection of one provider goes first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,25 +64,35 @@ impl ConnectOrder {
     }
 }
 
-/// The providers whose connect order the operator sets, by their OAuth key.
-pub const CONNECT_ORDER_PROVIDERS: [&str; 2] = [oauth_providers::STRAVA, oauth_providers::GARMIN];
+/// The providers whose connect order the operator sets.
+///
+/// Every provider with an account sign-in, by the name the athlete knows it
+/// under: the hosted sign-in targets
+/// (`pierre_providers::backend_resolver::hosted_login_targets`).
+pub const CONNECT_ORDER_PROVIDERS: [&str; 4] = [
+    oauth_providers::STRAVA,
+    oauth_providers::GARMIN,
+    oauth_providers::TRAININGPEAKS,
+    oauth_providers::COROS,
+];
+
+/// The order in force when the operator stored none, or none that reads.
+const DEFAULT_ORDER: ConnectOrder = ConnectOrder::SignInFirst;
 
 /// The `system_settings` key holding `provider`'s order, or `None` for a
 /// provider with no order to set.
-fn setting_key(provider: &str) -> Option<&'static str> {
-    match provider {
-        oauth_providers::STRAVA => Some(SETTING_CONNECT_ORDER_STRAVA),
-        oauth_providers::GARMIN => Some(SETTING_CONNECT_ORDER_GARMIN),
-        _ => None,
-    }
+fn setting_key(provider: &str) -> Option<String> {
+    CONNECT_ORDER_PROVIDERS
+        .contains(&provider)
+        .then(|| format!("{SETTING_CONNECT_ORDER_PREFIX}{provider}"))
 }
 
 /// The order a new `provider` connection follows right now.
 ///
-/// Never fails: a row that cannot be read reads as
-/// [`ConnectOrder::OAuthFirst`], the order the product had before the
-/// setting existed, as everything [`read_connect_order`] maps to it does.
-/// For the connect surfaces, which must answer whatever the store does.
+/// Never fails: a row that cannot be read reads as the default,
+/// [`ConnectOrder::SignInFirst`], as everything [`read_connect_order`] maps
+/// to it does. For the connect surfaces, which must answer whatever the
+/// store does.
 pub async fn connect_order(
     settings: &dyn SystemSettingsRepository,
     provider: &str,
@@ -88,18 +100,18 @@ pub async fn connect_order(
     read_connect_order(settings, provider)
         .await
         .unwrap_or_else(|e| {
-            warn!(provider, error = %e, "connect order could not be read; using oauth_first");
-            ConnectOrder::OAuthFirst
+            warn!(provider, error = %e, "connect order could not be read; using sign_in_first");
+            DEFAULT_ORDER
         })
 }
 
 /// The order a new `provider` connection follows, or the store's error.
 ///
 /// An absent row and one holding neither form read as
-/// [`ConnectOrder::OAuthFirst`], which is what is in force then, and so
-/// does any provider outside [`CONNECT_ORDER_PROVIDERS`], which none of the
-/// connect surfaces consults. For the operator's read, where a failed read
-/// must not be shown as the default.
+/// [`ConnectOrder::SignInFirst`], which is what is in force then, and so
+/// does any provider outside [`CONNECT_ORDER_PROVIDERS`], which has no
+/// account sign-in to put first or last. For the operator's read, where a
+/// failed read must not be shown as the default.
 ///
 /// # Errors
 ///
@@ -109,17 +121,17 @@ pub async fn read_connect_order(
     provider: &str,
 ) -> AppResult<ConnectOrder> {
     let Some(key) = setting_key(provider) else {
-        return Ok(ConnectOrder::OAuthFirst);
+        return Ok(DEFAULT_ORDER);
     };
-    let Some(setting) = settings.get_setting(key).await? else {
-        return Ok(ConnectOrder::OAuthFirst);
+    let Some(setting) = settings.get_setting(&key).await? else {
+        return Ok(DEFAULT_ORDER);
     };
     Ok(ConnectOrder::parse(&setting.value).unwrap_or_else(|| {
         warn!(
-            setting = key,
-            "connect order is neither oauth_first nor sign_in_first; using oauth_first"
+            setting = %key,
+            "connect order is neither oauth_first nor sign_in_first; using sign_in_first"
         );
-        ConnectOrder::OAuthFirst
+        DEFAULT_ORDER
     }))
 }
 
@@ -140,7 +152,7 @@ pub async fn set_connect_order(
             CONNECT_ORDER_PROVIDERS.join(", ")
         ))
     })?;
-    settings.set_setting(key, order.as_str()).await
+    settings.set_setting(&key, order.as_str()).await
 }
 
 /// Whether a NEW connection goes through the provider's OAuth.
@@ -162,23 +174,33 @@ pub fn sign_in_falls_back_to_oauth(order: ConnectOrder, seats_left: u32) -> bool
     order == ConnectOrder::SignInFirst && seats_left > 0
 }
 
-/// Strava's connect order and the seats left on its OAuth pool, read once.
+/// `provider`'s connect order and the seats left on its OAuth, read once.
 ///
-/// A seat count that fails reads as none left, as the provider card reads
-/// it, so nothing is sent into an OAuth that cannot finish.
-pub async fn strava_order_and_seats(
+/// Strava's seats are its OAuth pool's, Garmin's its Developer Program
+/// client's; a provider with no OAuth Pierre can call has none. A seat count
+/// that fails reads as none left, as the provider card reads it, so nothing
+/// is sent into an OAuth that cannot finish.
+pub async fn order_and_seats(
     settings: &dyn SystemSettingsRepository,
     tokens: &dyn OAuthTokenRepository,
+    grants: &dyn ProviderConnectionRepository,
     server: &OAuthConfig,
+    provider: &str,
 ) -> (ConnectOrder, u32) {
-    let order = connect_order(settings, oauth_providers::STRAVA).await;
-    let seats = match strava_pool::strava_seat_summary(tokens, server).await {
-        Ok(summary) => summary.left(),
-        Err(e) => {
-            debug!(error = %e, "Strava seats could not be counted; reading as none left");
-            0
-        }
-    };
+    let order = connect_order(settings, provider).await;
+    let seats = match provider {
+        oauth_providers::STRAVA => strava_pool::strava_seat_summary(tokens, server)
+            .await
+            .map(|summary| summary.left()),
+        oauth_providers::GARMIN => garmin_seats::garmin_seat_summary(grants, server)
+            .await
+            .map(|summary| summary.left()),
+        _ => Ok(0),
+    }
+    .unwrap_or_else(|e| {
+        debug!(provider, error = %e, "OAuth seats could not be counted; reading as none left");
+        0
+    });
     (order, seats)
 }
 
@@ -214,7 +236,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_read_is_an_error_to_the_operator_and_oauth_first_to_a_connection() {
+    async fn a_failed_read_is_an_error_to_the_operator_and_sign_in_first_to_a_connection() {
         let down = OneRowStore(Err(()));
         assert!(
             read_connect_order(&down, oauth_providers::STRAVA)
@@ -224,18 +246,18 @@ mod tests {
         );
         assert_eq!(
             connect_order(&down, oauth_providers::STRAVA).await,
-            ConnectOrder::OAuthFirst,
+            ConnectOrder::SignInFirst,
             "bug: a failed read leaves a connection with no order"
         );
     }
 
     #[tokio::test]
-    async fn the_stored_order_is_read_and_an_absent_or_unknown_row_reads_oauth_first() {
+    async fn the_stored_order_is_read_and_an_absent_or_unknown_row_reads_sign_in_first() {
         for (row, expected) in [
             (Some("sign_in_first"), ConnectOrder::SignInFirst),
             (Some("oauth_first"), ConnectOrder::OAuthFirst),
-            (Some("sciotte_first"), ConnectOrder::OAuthFirst),
-            (None, ConnectOrder::OAuthFirst),
+            (Some("sciotte_first"), ConnectOrder::SignInFirst),
+            (None, ConnectOrder::SignInFirst),
         ] {
             assert_eq!(
                 read_connect_order(&OneRowStore(Ok(row)), oauth_providers::GARMIN)
@@ -268,15 +290,25 @@ mod tests {
         );
     }
 
+    /// Every provider with an account sign-in carries its own order (JF's
+    /// directive 5), under a key of its own; the existing Strava and Garmin
+    /// rows keep their keys.
     #[test]
-    fn only_strava_and_garmin_carry_an_order_each_under_its_own_key() {
-        let strava = setting_key(oauth_providers::STRAVA);
-        let garmin = setting_key(oauth_providers::GARMIN);
-        assert!(
-            strava.is_some() && garmin.is_some(),
-            "bug: an operator-ordered provider has no setting"
+    fn every_provider_with_a_sign_in_carries_an_order_each_under_its_own_key() {
+        let keys: Vec<String> = CONNECT_ORDER_PROVIDERS
+            .iter()
+            .filter_map(|provider| setting_key(provider))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "connect_order_strava",
+                "connect_order_garmin",
+                "connect_order_trainingpeaks",
+                "connect_order_coros",
+            ],
+            "bug: a provider with a sign-in has no order, or one flip moves another provider"
         );
-        assert_ne!(strava, garmin, "bug: one flip would move both providers");
         assert_eq!(
             setting_key(oauth_providers::WHOOP),
             None,

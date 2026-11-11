@@ -31,6 +31,7 @@ use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
+use pierre_services::user_removal::ProviderDisconnector;
 use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner, WebhookTarget};
 use pierre_tool_runtime::activity_fetch::read_exact_backend;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -41,6 +42,7 @@ use crate::routes::garmin_webhook;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
 #[cfg(feature = "provider-wahoo")]
 use crate::routes::wahoo_webhook::wahoo_event;
+use crate::services::grant_withdrawal::GrantWithdrawal;
 use crate::services::personal_best_seed::strava_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
@@ -597,11 +599,12 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
 ///
 /// Strava's API agreement makes the athlete's consent withdrawal a deletion
 /// obligation, and the deauthorization event is how Strava says it happened.
-/// The owner is disconnected through the same chokepoint as their own
-/// disconnect, with [`DisconnectReason::ProviderRevoked`]: the grant is
-/// already gone, so nothing is sent upstream, and the token, the connection
+/// The owner's grant is disconnected through the same chokepoint as their
+/// own disconnect, with [`DisconnectReason::ProviderRevoked`]: the grant is
+/// already gone, so nothing is sent upstream, and its token, its connection
 /// and every row Strava contributed are deleted, with the purge's attestation
-/// row. A failure is logged at ERROR, since it leaves data the athlete
+/// row. Their sign-in session, if they hold one, keeps serving them; an
+/// athlete the grant served alone is told to sign in again ([`GrantWithdrawal`]). A failure is logged at ERROR, since it leaves data the athlete
 /// withdrew.
 async fn disconnect_deauthorized_strava_owner(
     resources: &Arc<ServerContext>,
@@ -621,20 +624,22 @@ async fn disconnect_deauthorized_strava_owner(
         );
         return;
     };
-    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
-    match service
-        .disconnect_provider(
-            user_id,
-            "strava",
-            Some(tenant.as_uuid()),
-            DisconnectReason::ProviderRevoked,
-        )
+    // The grant alone goes: a sign-in session of the athlete's keeps serving
+    // them, and an athlete the grant served alone is told to sign in again
+    // (carnet#1494).
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+    let withdrawal = GrantWithdrawal::new(
+        OAuthService::new(resources.data(), Arc::clone(&resources.common.config)),
+        runtime,
+    );
+    match withdrawal
+        .disconnect(user_id, "strava", tenant, DisconnectReason::ProviderRevoked)
         .await
     {
         Ok(_) => info!(
             user_id = %user_id,
             tenant_id = %tenant,
-            "Strava deauthorization: the athlete is disconnected and their Strava data deleted"
+            "Strava deauthorization: the athlete's Strava grant is disconnected and its data deleted"
         ),
         Err(e) => error!(
             user_id = %user_id,

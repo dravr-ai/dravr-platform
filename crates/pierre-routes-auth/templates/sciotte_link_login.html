@@ -134,9 +134,6 @@
                 loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
-                // `details.reason` of a usr/pwd sign-in refused because the
-                // provider now connects through its own OAuth.
-                oauthRequiredReason: "{{OAUTH_REQUIRED_REASON}}",
                 // The strings the script sets, in the athlete's locale.
                 strings: {{STRINGS_JSON}},
             };
@@ -210,7 +207,6 @@
                 if (failure.status === 401) return S.linkExpired;
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
                 if (failure.reason === CONFIG.loginChallengeReason) return S.signInChallenged;
-                if (failure.reason === CONFIG.oauthRequiredReason) return S.signInOauthRequired;
                 return S.signInUnavailable;
             }
             function showFailure(failure) {

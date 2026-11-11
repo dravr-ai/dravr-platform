@@ -576,16 +576,6 @@ impl fmt::Debug for OAuthAuthorizationResponse {
     }
 }
 
-/// The move a provider card asks of an athlete whose connection the
-/// provider's own OAuth replaces (carnet#1454).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderMigration {
-    /// Connect through the provider's official OAuth: the card is served by
-    /// a usr/pwd session alone, and a seat is free.
-    OauthRequired,
-}
-
 /// Where a provider card's history stands (carnet#1386).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -662,13 +652,6 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
-    /// The move the card asks of an athlete connected by usr/pwd alone
-    /// (carnet#1454): [`ProviderMigration::OauthRequired`] on the Garmin card
-    /// of an athlete whose own usr/pwd session serves it, with no Garmin
-    /// grant, while a seat is free on Garmin's OAuth client. They keep their
-    /// session until they move. Absent otherwise.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub migration: Option<ProviderMigration>,
     /// How the connection behind a connected card was made, as
     /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
     /// `"oauth"` for a provider authorization, `"manual"` for a pasted

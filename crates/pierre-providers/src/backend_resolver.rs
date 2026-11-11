@@ -131,6 +131,19 @@ pub fn hosted_login_target(backend: &str) -> Option<&'static str> {
         .map(|(provider, _)| *provider)
 }
 
+/// The hosted sign-in `target` an athlete reconnects `provider` through, or
+/// `None` for a provider with no mirror, which reconnects through its own
+/// authorization (WHOOP, Intervals.icu).
+///
+/// The one link rule of every reconnect (carnet#1494): a dead Strava or
+/// Garmin grant reconnects through its mirror's hosted sign-in, never its
+/// OAuth, as a dead session does. Accepts either half of a pair: both name
+/// one target.
+#[must_use]
+pub fn reconnect_target(provider: &str) -> Option<&'static str> {
+    mirror_backend_for(user_facing_name(provider)).and_then(hosted_login_target)
+}
+
 /// The hosted-login targets, in table order — for a refusal that names them.
 #[must_use]
 pub fn hosted_login_targets() -> Vec<&'static str> {
@@ -630,6 +643,72 @@ pub async fn grant_beside_session(
             .signed_in()
 }
 
+/// The live OAuth grant that keeps `backend` syncing when `backend` is the
+/// athlete's session for its provider, else `None`.
+///
+/// It is the session's [`read_plan`] fallback: a session that is not revoked
+/// serves first, and a live grant answers when it cannot. A session that
+/// dies with such a grant beside it is still told, once, that the provider
+/// keeps syncing for now and that a fresh sign-in keeps it that way
+/// (carnet#1494). `None` for a grant, a provider with no mirror, and a
+/// session with no live grant beside it.
+pub async fn fallback_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Option<String> {
+    if !is_mirror_backend(backend) {
+        return None;
+    }
+    let plan = read_plan(repos, user_id, tenant_id, backend).await;
+    if plan.primary == backend {
+        plan.fallback
+    } else {
+        None
+    }
+}
+
+/// The OAuth grant of `provider`'s pair when the athlete holds it dead in
+/// this tenant (its connection `needs_reauth`: a refused refresh), else
+/// `None`.
+///
+/// A dead grant reconnects only through its mirror's hosted sign-in
+/// ([`reconnect_target`]), and a sign-in over it replaces it (carnet#1494).
+/// `None` for a provider whose OAuth backend never serves beside its mirror,
+/// for a live or absent grant, and when the store cannot be read: nothing is
+/// rerouted or deleted on a guess. Accepts either half of a pair.
+pub async fn flagged_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Option<&'static str> {
+    let user_facing = user_facing_name(provider);
+    mirror_backend_for(user_facing)?;
+    let grant = OAUTH_SERVED
+        .iter()
+        .copied()
+        .find(|served| *served == user_facing)?;
+    if !has_token_row(repos, user_id, tenant_id, grant).await {
+        return None;
+    }
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .inspect_err(|e| {
+            warn!(
+                user_id = %user_id,
+                provider = grant,
+                error = %e,
+                "could not read the connection statuses; the grant reads as live"
+            );
+        })
+        .ok()?;
+    (half(true, &connections, grant) == Half::Flagged).then_some(grant)
+}
+
 /// Resolve a user-facing provider name to the backend that should actually
 /// serve the request: its [`read_plan`]'s primary.
 ///
@@ -818,6 +897,7 @@ pub async fn coalesced_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_auth::connect_order::CONNECT_ORDER_PROVIDERS;
     use pierre_core::models::ConnectionType;
 
     /// A session's window serves its grant's key too, a Garmin grant's
@@ -990,6 +1070,42 @@ mod tests {
         assert!(
             !is_mirror_backend(oauth_providers::GARMIN),
             "bug: the Garmin grant is no mirror"
+        );
+    }
+
+    /// A dead grant reconnects through its mirror's hosted sign-in, as a dead
+    /// session does; a provider with no mirror through its own authorization.
+    #[test]
+    fn every_half_of_a_pair_reconnects_through_its_mirrors_sign_in() {
+        for (provider, target) in [
+            (oauth_providers::STRAVA, "strava"),
+            (oauth_providers::SCIOTTE, "strava"),
+            (oauth_providers::GARMIN, "garmin"),
+            (oauth_providers::SCIOTTE_GARMIN, "garmin"),
+            (oauth_providers::TRAININGPEAKS, "trainingpeaks"),
+            (oauth_providers::SCIOTTE_COROS, "coros"),
+        ] {
+            assert_eq!(
+                reconnect_target(provider),
+                Some(target),
+                "bug: {provider} reconnects through another sign-in"
+            );
+        }
+        assert_eq!(
+            reconnect_target(oauth_providers::WHOOP),
+            None,
+            "bug: a provider with no mirror is sent to a sign-in it has none of"
+        );
+    }
+
+    /// The connect order is set for every provider with an account sign-in
+    /// (directive 5), and for nothing else: the two lists are one table.
+    #[test]
+    fn every_hosted_sign_in_carries_a_connect_order() {
+        assert_eq!(
+            hosted_login_targets(),
+            CONNECT_ORDER_PROVIDERS,
+            "bug: a provider with a sign-in carries no connect order, or one without carries one"
         );
     }
 }

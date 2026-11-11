@@ -33,8 +33,8 @@ const SIGNUP_PATH: &str = "/admin/settings/signup";
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SettingsCommand {
-    /// Which way a new Strava or Garmin connection goes first: OAuth or the
-    /// account sign-in (super-admin)
+    /// Which way a new connection of a provider goes first: the account
+    /// sign-in or its OAuth (super-admin)
     ConnectOrder {
         /// Verb to run against the connect order
         #[command(subcommand)]

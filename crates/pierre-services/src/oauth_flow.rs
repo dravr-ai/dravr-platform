@@ -19,7 +19,7 @@ use crate::analytics::cache_user_email;
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use crate::import_tombstones::{refused_tombstone_id, TOMBSTONED_ERROR_CODE};
-use crate::provider_revocation;
+use crate::provider_revocation::{self, DisconnectReason};
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::OAuthProviderConfig;
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
@@ -79,6 +79,30 @@ pub struct OAuthService {
     /// Crate-visible for the `provider_revocation` companion module.
     pub(crate) data: DataContext,
     config: Arc<ServerConfig>,
+}
+
+/// The backends a disconnect of `provider` for `reason` clears.
+///
+/// The athlete's own disconnect and an operator's clear the whole coalesced
+/// pair, not just the resolved backend: the card the user acted on may be
+/// served by either half, and the clients name it differently, so the
+/// pairing belongs here rather than in each of them (see `backend_pair_for`
+/// for why resolution alone is not enough).
+///
+/// A seat reclaim and the provider's own revocation withdraw one grant, not
+/// the athlete's whole connection, so they clear the backend they name and
+/// nothing beside it: the athlete's sign-in session of the same provider
+/// keeps serving them (carnet#1494). A revocation still deletes what that
+/// grant contributed, as the provider's terms require.
+fn disconnected_backends(provider: &str, reason: DisconnectReason) -> Vec<String> {
+    match reason {
+        DisconnectReason::Athlete | DisconnectReason::Operator => {
+            backend_resolver::backend_pair_for(provider)
+        }
+        DisconnectReason::SeatReclaim | DisconnectReason::ProviderRevoked => {
+            vec![provider.to_owned()]
+        }
+    }
 }
 
 impl OAuthService {
@@ -608,7 +632,7 @@ impl OAuthService {
         user_id: uuid::Uuid,
         provider: &str,
         active_tenant_id: Option<uuid::Uuid>,
-        reason: provider_revocation::DisconnectReason,
+        reason: DisconnectReason,
     ) -> AppResult<provider_revocation::RevocationOutcome> {
         debug!(
             "Processing OAuth provider disconnect for user {} provider {}",
@@ -623,13 +647,8 @@ impl OAuthService {
             AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
         })?;
 
-        // Clear the whole coalesced pair, not just the resolved backend: the
-        // card the user acted on may be served by either half, and the clients
-        // name it differently, so the pairing belongs here rather than in each
-        // of them. See `backend_pair_for` for why resolution alone is not
-        // enough.
         let user_facing = backend_resolver::user_facing_name(provider).to_owned();
-        let backends = backend_resolver::backend_pair_for(provider);
+        let backends = disconnected_backends(provider, reason);
 
         let mut outcomes = Vec::with_capacity(backends.len());
         for backend in &backends {
@@ -1038,5 +1057,32 @@ pub fn categorize_oauth_error(error: &AppError) -> (&'static str, Option<&'stati
             "OAuth authorization failed",
             Some("An unexpected error occurred during the OAuth authorization process."),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::constants::oauth::providers as oauth_providers;
+
+    use super::{disconnected_backends, DisconnectReason};
+
+    /// The athlete's disconnect clears the pair; a reclaim or a revocation
+    /// withdraws the grant it names and keeps the session (carnet#1494).
+    #[test]
+    fn only_the_athlete_or_an_operator_clears_the_whole_pair() {
+        for reason in [DisconnectReason::Athlete, DisconnectReason::Operator] {
+            assert_eq!(
+                disconnected_backends(oauth_providers::STRAVA, reason),
+                [oauth_providers::STRAVA, oauth_providers::SCIOTTE],
+                "bug: a {reason:?} disconnect leaves half the card connected"
+            );
+        }
+        for reason in [DisconnectReason::SeatReclaim, DisconnectReason::ProviderRevoked] {
+            assert_eq!(
+                disconnected_backends(oauth_providers::STRAVA, reason),
+                [oauth_providers::STRAVA],
+                "bug: a {reason:?} disconnect takes the athlete's session with the grant"
+            );
+        }
     }
 }

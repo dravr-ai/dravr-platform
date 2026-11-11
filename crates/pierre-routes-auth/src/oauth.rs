@@ -61,8 +61,14 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_middleware::provider_link_token::mint_hosted_signin_url;
 use pierre_services::locale::resolve_user_locale;
 use uuid::Uuid;
+
+/// The channel a sign-in minted by the web app's OAuth start names.
+const WEB_CHANNEL: &str = "web_chat";
+/// The channel a sign-in minted by the mobile app's OAuth start names.
+const MOBILE_CHANNEL: &str = "mobile_chat";
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -692,23 +698,10 @@ pub(crate) async fn compute_providers_status(
 
             let capabilities = capability_names(caps);
 
+            // A reconnect signs in through the mirror, whatever the order
+            // and the seats (carnet#1494).
             let (recommended_backend, seats_left) =
-                card_seats.recommendation(provider_name, grant_serves);
-            // Asked only of a usr/pwd-only Garmin card, so the grant lookup
-            // runs for that card alone.
-            let migration = if connected_backend.as_deref() == Some(oauth_providers::SCIOTTE_GARMIN)
-            {
-                card_backend::card_migration(
-                    provider_name,
-                    connected_backend.as_deref(),
-                    connection_type.as_deref(),
-                    card_seats.garmin_left(),
-                    card_backend::garmin_grant_held(resources, user_id, tenant_id).await,
-                    card_seats.garmin_order(),
-                )
-            } else {
-                None
-            };
+                card_seats.recommendation(provider_name, connected && needs_reauth);
 
             let (own_app_required, oauth_callback_url) =
                 own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
@@ -722,7 +715,6 @@ pub(crate) async fn compute_providers_status(
                 requires_oauth,
                 connected,
                 connected_backend,
-                migration,
                 connection_type,
                 needs_reauth,
                 capabilities,
@@ -814,6 +806,48 @@ pub(crate) async fn require_oauth_start_notice(
     .await
 }
 
+/// The hosted sign-in an OAuth start of `provider` is turned to, when the
+/// athlete's grant of it is dead in `tenant_id`; `None` otherwise.
+///
+/// A dead grant reconnects only through its mirror's hosted sign-in
+/// (carnet#1494), whatever client asks for the OAuth: a shipped mobile build
+/// and the web card both still start it for a grant they read as connected.
+/// The start answers with the sign-in in the authorization's place, so no
+/// client needs to change; the link-token is minted for `channel`.
+///
+/// # Errors
+/// The mint's error when the link-token cannot be encoded.
+pub(crate) async fn dead_grant_sign_in_url(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    channel: &str,
+) -> Result<Option<String>, AppError> {
+    let Some(grant) =
+        backend_resolver::flagged_grant(&resources.repos, user_id, tenant_id, provider).await
+    else {
+        return Ok(None);
+    };
+    let Some(target) = backend_resolver::reconnect_target(grant) else {
+        return Ok(None);
+    };
+    info!(
+        user_id = %user_id,
+        provider = %provider,
+        "OAuth start of a dead grant: answering with the hosted sign-in"
+    );
+    mint_hosted_signin_url(
+        &resources.config.base_url,
+        user_id,
+        tenant_id.as_uuid(),
+        target,
+        channel,
+        &resources.admin_jwt_secret,
+    )
+    .map(Some)
+}
+
 /// Handle mobile OAuth initiation
 ///
 /// Returns OAuth URL in JSON format for mobile apps to use with in-app browsers.
@@ -861,6 +895,21 @@ pub(crate) async fn handle_mobile_oauth_init(
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    // A dead grant is answered in the same shape, its sign-in in the
+    // authorization's place: a shipped build opens whatever URL it is given.
+    if let Some(sign_in) =
+        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, MOBILE_CHANNEL).await?
+    {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "authorization_url": sign_in,
+                "provider": provider,
+                "message": format!("Sign in to reconnect your {provider} account")
+            })),
+        )
+            .into_response());
+    }
     let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
     require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
@@ -967,6 +1016,11 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     span.record("tenant_id", field::display(&tenant_id));
 
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
+    if let Some(sign_in) =
+        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, WEB_CHANNEL).await?
+    {
+        return Ok((StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response());
+    }
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
         .await?;
     // A tab opened for Garmin's consent page lands back on the app's OAuth
