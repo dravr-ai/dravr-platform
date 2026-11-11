@@ -66,6 +66,7 @@ use secrecy::SecretString;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
+use tokio::time::{sleep, timeout};
 use tracing::Level;
 use uuid::Uuid;
 
@@ -1428,7 +1429,7 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
         conversation_id: None,
     };
 
-    let outcome = tokio::time::timeout(
+    let outcome = timeout(
         StdDuration::from_secs(5),
         read_live_window_within_budget(&runtime, session, read, StdDuration::from_millis(200)),
     )
@@ -1445,9 +1446,9 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
     );
 
     gate.notify_one();
-    let landed = tokio::time::timeout(StdDuration::from_secs(10), async {
+    let landed = timeout(StdDuration::from_secs(10), async {
         while !pair.synced("strava").await {
-            tokio::time::sleep(StdDuration::from_millis(20)).await;
+            sleep(StdDuration::from_millis(20)).await;
         }
     })
     .await;

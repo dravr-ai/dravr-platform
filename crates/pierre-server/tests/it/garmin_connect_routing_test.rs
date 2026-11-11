@@ -30,6 +30,9 @@ use crate::helpers::sciotte_mock::{seed_scrape_session, spawn_mock_scraper_with_
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use axum::http::StatusCode;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
@@ -1298,16 +1301,52 @@ async fn a_read_naming_the_session_beside_a_flagged_grant_is_the_grants() {
     );
 }
 
-/// A dead Garmin grant with a usr/pwd session row beside it keeps serving
-/// what the athlete holds (carnet#1386): with no other provider to stand in,
-/// the turn answers through that session row from the grant's stored window,
-/// the session's imported history merged in, rather than a bare reconnect. A
-/// grant with no session row beside it gets the reconnect every dead primary
-/// gets.
+/// A scraper stand-in whose activity list fails with a `500`: the session
+/// authenticates, and its read fails.
+async fn scraper_failing_its_list() -> String {
+    let app = Router::new()
+        .route(
+            "/auth/import-session",
+            post(|| async { Json(json!({ "session_id": "garmin-dual-session" })) }),
+        )
+        .route(
+            "/api/activities",
+            get(|| async {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "the browser closed under the read" })),
+                )
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+/// A dead Garmin grant beside a usr/pwd session is no stand-in: the session
+/// is the primary (carnet#1494), and when its read fails the session's own
+/// window answers, which carries what the grant stored
+/// (`backend_resolver::history_keys`) merged with the session's rows. The
+/// dead grant is never read.
 #[tokio::test]
 async fn a_dead_garmin_grant_still_serves_the_stored_history() {
-    let resources = common::create_test_server_resources().await.unwrap();
+    let scraper = scraper_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&scraper);
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-dead-grant@example.com").await;
+    seed_scrape_session(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
     mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = ToolContext::new()
@@ -1326,6 +1365,10 @@ async fn a_dead_garmin_grant_still_serves_the_stored_history() {
         listed_ids(&payload),
         ["20123456789", "18000000001"],
         "bug: the dead grant's stored history must still be served: {payload}"
+    );
+    assert!(
+        payload.get("reconnect_required").is_none(),
+        "the session stands, so nothing is reconnected: {payload}"
     );
 }
 

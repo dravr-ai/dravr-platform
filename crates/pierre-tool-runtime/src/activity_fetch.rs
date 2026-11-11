@@ -537,8 +537,10 @@ pub struct HistoricalServe {
 /// that, the Home refresh that met a dead session said nothing, recorded no
 /// pause, and scraped the dead session again on every Home load. The flag
 /// names the connection that refused (`reauth_notice::refused_backend`), and a
-/// session already flagged is served from the cache without a read
-/// ([`reauth_retry::flagged_session`]) until a reconnect or a claimed retry.
+/// session already flagged is not read ([`reauth_retry::flagged_session`])
+/// until a reconnect or a claimed retry: the live grant behind it serves in
+/// its place (`fallback::grant_window`, carnet#1494), and only without one
+/// does the cache.
 ///
 /// A grant named beside the athlete's session is read as that session
 /// (`pushed::serving_slug`, carnet#1494): its flag, cache and verdict are the

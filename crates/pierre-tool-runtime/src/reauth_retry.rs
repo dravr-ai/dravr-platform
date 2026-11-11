@@ -29,9 +29,11 @@
 //! Every other on-demand read leaves a flagged session alone
 //! ([`flagged_session`]): a chat turn's list read, a Home page's burst of
 //! route reads. Each scraper call on a dead session is a headless sign-in
-//! attempt that fails the same way, so those reads serve the cache and answer
-//! the reconnect instead. The Home retry claims its attempt first and runs
-//! inside [`claimed_retry`], which is what lets its read through.
+//! attempt that fails the same way, so those reads go to the live OAuth grant
+//! behind the session when one stands there (carnet#1494), and otherwise
+//! serve the cache and answer the reconnect. The Home retry claims its
+//! attempt first and runs inside [`claimed_retry`], which is what lets its
+//! read through.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -63,7 +65,8 @@ pub async fn claimed_retry<F: Future>(work: F) -> F::Output {
 ///
 /// `Some(backend)` when `provider` resolves to a mirror backend
 /// ([`resolve_backend`]) whose connection in `tenant_id` is `needs_reauth`
-/// (or revoked), outside a [`claimed_retry`]: the caller answers the
+/// (or revoked), outside a [`claimed_retry`]: the caller reads the live
+/// grant behind `backend` when one stands there, and otherwise answers the
 /// reconnect, naming `backend`, without calling the scraper. Only a reconnect
 /// (which re-registers the connection as active) or a claimed retry the
 /// session serves clears the flag. A connection list that cannot be read
