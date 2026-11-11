@@ -85,9 +85,6 @@ pub struct PresetSummary {
     pub key: String,
     /// Display name.
     pub name: String,
-    /// What it is for, in one line.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
     /// The lowest readiness level it may be scheduled at.
     pub readiness_min: ReadinessLevel,
     /// Whether it counts against the hard-session cap.

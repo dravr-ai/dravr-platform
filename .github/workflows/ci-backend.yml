@@ -1618,10 +1618,22 @@ jobs:
           # inside the band), and scripts/ci/architectural-validation.sh
           # fails on it instead.
           #
+          # 118 on 2026-11-11: the parametric workout families (carnet#1465,
+          # carnet#1466, a founder-approved plan) ship a kernel layer (the
+          # dravr-cageux v0.48.0 generator, envelope check and coordinates)
+          # and a compiled-in catalogue of eight families. Main read 115MB
+          # with the kernel (2a07cd6ad, run 43092257893) and 116MB once the
+          # catalogue pin moved (0ac092b63, run 43092547116), with no new
+          # dependency in the lockfile. The 115 ceiling had no headroom left
+          # for it: main had read exactly 115MB since 0604a0a11 (run
+          # 42911050100, 2026-11-10). Phil chose about 1.5MB of headroom over
+          # the binary as measured (116 to 117 MiB) rather than a one-MB
+          # ratchet that the next change of any size would red.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (141), so a branch push that skips this job
+          # scaled to that build (145), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=115
+          MAX_SIZE_MB=118
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

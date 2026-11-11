@@ -34,8 +34,9 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use chrono::{DateTime, Utc};
 use dravr_contremaitre::training;
 use pierre_core::models::periodization::{
-    Flavour, Generated, InstanceRequest, PhaseKind, SelectionTable, SkeletonTemplate,
-    UnresolvedReference, WorkoutFilter, WorkoutPurpose, WorkoutTemplate,
+    Flavour, Generated, InputDimension, InstanceRequest, PhaseKind, SelectionRow, SelectionTable,
+    SkeletonTemplate, SportFamily, SportMix, UnresolvedReference, WorkoutFilter, WorkoutPurpose,
+    WorkoutTemplate,
 };
 use pierre_core::models::SportType;
 use tracing::error;
@@ -432,7 +433,10 @@ impl TrainingCatalogueRegistry {
     ///   workout carries — the kernel's `unresolved_purposes` walks, each
     ///   answered by one [`WorkoutFilter`] match over the loaded bank, so a
     ///   purpose named for a phase needs a carrier that fits that phase
-    ///   (and the sport, for an open-water skeleton).
+    ///   (and the sport, for an open-water skeleton). A flavour is walked
+    ///   again for each sport family the selection table lets it be applied
+    ///   to, its non-strength purposes needing a carrier of that sport; those
+    ///   reports read `<purpose> for <family>`.
     ///
     /// Sorted by `(owner, key, reference)` so two runs over the same
     /// catalogue report the same list.
@@ -467,6 +471,11 @@ impl TrainingCatalogueRegistry {
                 bank.iter().any(|w| filter.matches(w))
             };
 
+        let selection = guard.values().find_map(|e| match &e.item {
+            CatalogueItem::Selection(table) => Some(&**table),
+            _ => None,
+        });
+
         for entry in guard.values() {
             match &entry.item {
                 CatalogueItem::Flavour(flavour) => {
@@ -475,6 +484,26 @@ impl TrainingCatalogueRegistry {
                         flavour
                             .unresolved_purposes(&|phase, purpose| carried(phase, purpose, None)),
                     );
+                    // Per sport the flavour can be applied to (carnet#1465): a run
+                    // template alone does not answer for a cyclist's endurance day.
+                    // Strength purposes are carried by the gym sport for every sport,
+                    // so they stay sport-blind.
+                    for family in flavour_sports(&flavour.id, selection) {
+                        let sport = family.sport();
+                        out.extend(
+                            flavour
+                                .unresolved_purposes(&|phase, purpose| {
+                                    purpose.is_strength()
+                                        || carried(phase, purpose, Some(sport.clone()))
+                                })
+                                .into_iter()
+                                .map(|mut unresolved| {
+                                    unresolved.reference =
+                                        format!("{} for {family}", unresolved.reference);
+                                    unresolved
+                                }),
+                        );
+                    }
                 }
                 CatalogueItem::Skeleton(skeleton) => {
                     out.extend(skeleton.unresolved_references(evidence_exists));
@@ -613,10 +642,48 @@ pub fn session_view(family: &WorkoutTemplate, generated: Generated) -> WorkoutTe
     view
 }
 
+/// The sport families a flavour can be applied to, read from the selection
+/// table: the bike when a cycling or triathlon row exists that does not
+/// exclude it, the run when a running or triathlon row does. With no such
+/// row (no table, or a table without a sport-mix dimension), both.
+///
+/// LIMITATION(registre#1498): `flavour_sports` never returns `SportFamily::Swim`;
+/// no swim form carries the quality purposes, so swim coverage is sport-blind.
+fn flavour_sports(id: &str, selection: Option<&SelectionTable>) -> Vec<SportFamily> {
+    let rows: Vec<&SelectionRow> = selection
+        .map(|table| {
+            table
+                .rows
+                .iter()
+                .filter(|row| row.input == InputDimension::SportMix)
+                .collect()
+        })
+        .unwrap_or_default();
+    let admits = |mixes: [SportMix; 2]| {
+        let matching: Vec<&SelectionRow> = rows
+            .iter()
+            .copied()
+            .filter(|row| mixes.iter().any(|mix| row.value == mix.as_str()))
+            .collect();
+        matching.is_empty()
+            || matching
+                .iter()
+                .any(|row| !row.exclude.iter().any(|exclusion| exclusion.id == id))
+    };
+    let mut sports = Vec::new();
+    if admits([SportMix::Cycling, SportMix::Triathlon]) {
+        sports.push(SportFamily::Ride);
+    }
+    if admits([SportMix::Running, SportMix::Triathlon]) {
+        sports.push(SportFamily::Run);
+    }
+    sports
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_core::models::periodization::ReadinessLevel;
+    use pierre_core::models::periodization::{EvidenceTier, FlavourExclusion, ReadinessLevel};
 
     /// A two-preset family whose slugs no catalogue file carries, so the
     /// compiled-in bank cannot answer for it.
@@ -762,5 +829,63 @@ cycle = [
         let family = registry.workout("fixture_vo2max_short").unwrap();
         assert_eq!(family.name, "VO2max — short intervals");
         assert_eq!(family.fit.readiness_min, ReadinessLevel::P2);
+    }
+
+    /// A sport-mix row excluding `excluded`.
+    fn sport_mix_row(mix: SportMix, excluded: &[&str]) -> SelectionRow {
+        SelectionRow {
+            input: InputDimension::SportMix,
+            value: mix.as_str().to_owned(),
+            prefer: Vec::new(),
+            exclude: excluded
+                .iter()
+                .map(|id| FlavourExclusion {
+                    id: (*id).to_owned(),
+                    reason: "fixture".to_owned(),
+                })
+                .collect(),
+            tier: EvidenceTier::Grey,
+            evidence_refs: Vec::new(),
+            note: None,
+        }
+    }
+
+    #[test]
+    fn a_flavour_reaches_each_sport_a_sport_mix_row_leaves_it() {
+        assert_eq!(
+            flavour_sports("any", None),
+            [SportFamily::Ride, SportFamily::Run],
+            "with no table, nothing rules a sport out"
+        );
+        let table = SelectionTable {
+            rows: vec![
+                sport_mix_row(SportMix::Cycling, &["trail", "cycling_out"]),
+                sport_mix_row(SportMix::Triathlon, &["trail"]),
+                sport_mix_row(SportMix::Running, &["road_out"]),
+            ],
+        };
+        assert_eq!(
+            flavour_sports("trail", Some(&table)),
+            [SportFamily::Run],
+            "excluded by every row that puts an athlete on the bike"
+        );
+        assert_eq!(
+            flavour_sports("cycling_out", Some(&table)),
+            [SportFamily::Ride, SportFamily::Run],
+            "the triathlon row still applies it to the bike"
+        );
+        assert_eq!(
+            flavour_sports("road_out", Some(&table)),
+            [SportFamily::Ride, SportFamily::Run],
+            "the triathlon row still applies it to the run"
+        );
+        let no_cycling_rows = SelectionTable {
+            rows: vec![sport_mix_row(SportMix::Running, &["trail"])],
+        };
+        assert_eq!(
+            flavour_sports("trail", Some(&no_cycling_rows)),
+            [SportFamily::Ride],
+            "a sport no row speaks to stays admitted; the running row rules the run out"
+        );
     }
 }

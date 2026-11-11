@@ -22760,13 +22760,6 @@
               "readiness_min": {
                 "$ref": "#/$defs/ReadinessLevel",
                 "description": "The lowest readiness level it may be scheduled at."
-              },
-              "summary": {
-                "description": "What it is for, in one line.",
-                "type": [
-                  "string",
-                  "null"
-                ]
               }
             },
             "required": [

@@ -27,44 +27,41 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::SportType;
 
-/// The 37 workout slugs: the 33 of the Phase 1 bank (spec §9) and the four
-/// trail sessions the ultra-trail flavour names.
-const WORKOUT_SLUGS: [&str; 37] = [
-    "back_to_back_long",
-    "billat_30_30",
+/// The 34 workout files: eight parametric families (2026-11-09 research
+/// note, decision D5) and the single-session files outside them.
+const WORKOUT_SLUGS: [&str; 34] = [
     "brick",
     "complex_training",
     "core_mobility",
     "double_threshold_day",
     "downhill_repeats",
     "endurance",
-    "hill_sprints",
-    "long_run_z2",
+    "endurance_long",
+    "neuromuscular",
     "over_under",
     "plyo_basic",
     "race_pace_long",
-    "recovery_30min",
+    "race_prep",
+    "recovery",
     "repeated_sprint",
     "simulation",
     "sprint_interval",
     "strength_aa",
     "strength_maint",
     "strength_max",
-    "strides",
-    "sweet_spot_2x20",
+    "sweet_spot",
     "swim_css",
     "swim_dryland",
     "swim_usrpt",
     "tempo",
-    "tempo_progression",
     "threshold_4x8",
     "threshold_short",
     "trail_race_simulation",
     "uphill_power_hike",
     "vo2_5x3",
-    "vo2max_30_15",
     "vo2max_4x8",
     "vo2max_hills",
+    "vo2max_short",
     "vo2max_tmax",
     "vo2max_varied",
 ];
@@ -99,8 +96,8 @@ const SKELETON_IDS: [&str; 12] = [
     "ultra",
 ];
 
-/// Files the seed carries: 10 + 12 + 37 + the selection table.
-const SEED_FILE_COUNT: usize = 60;
+/// Files the seed carries: 10 + 12 + 34 + the selection table.
+const SEED_FILE_COUNT: usize = 57;
 
 /// The pinned table for one file shape: `(stem, text)` per file.
 fn table(kind: CatalogueKind) -> &'static [(&'static str, &'static str)] {
@@ -146,7 +143,7 @@ fn the_seed_carries_the_whole_catalogue() {
     let stats = registry.stats();
     assert_eq!(stats.flavours, 10, "{stats}");
     assert_eq!(stats.skeletons, 12, "{stats}");
-    assert_eq!(stats.workouts, 37, "{stats}");
+    assert_eq!(stats.workouts, 34, "{stats}");
     assert!(stats.selection_rows >= 43, "{stats}");
     assert_eq!(stats.compiled_in_count, SEED_FILE_COUNT, "{stats}");
     assert_eq!(stats.contremaitre_count, 0, "{stats}");
@@ -426,7 +423,7 @@ fn update_overlays_and_remove_reverts_to_the_compiled_in_entry() {
     let stats = registry.stats();
     assert_eq!(
         (stats.workouts, stats.contremaitre_count),
-        (37, 1),
+        (34, 1),
         "{stats}"
     );
 
@@ -462,11 +459,19 @@ fn a_slug_with_no_seed_is_dropped_on_remove() {
         CatalogueItem::Workout(Box::new(extra)),
         "x".to_owned(),
     );
-    assert_eq!(registry.stats().workouts, 38);
+    assert_eq!(
+        registry.stats().workouts,
+        35,
+        "the overlay adds one entry to the seeded bank"
+    );
     assert!(registry.workout("endurance_hot_fix").is_some());
     assert!(registry.remove(CatalogueKind::Workout, "endurance_hot_fix"));
     assert!(registry.workout("endurance_hot_fix").is_none());
-    assert_eq!(registry.stats().workouts, 37);
+    assert_eq!(
+        registry.stats().workouts,
+        34,
+        "removing a slug with no seed leaves the seeded bank"
+    );
     assert!(!registry.remove(CatalogueKind::Workout, "endurance_hot_fix"));
 }
 
@@ -640,7 +645,7 @@ fn the_open_water_skeleton_is_carried_by_swim_templates() {
 const CATALOGUE_EVIDENCE_REFS: [(&str, usize); 4] = [
     ("flavour ", 42),
     ("skeleton ", 171),
-    ("workout ", 70),
+    ("workout ", 75),
     ("selection table", 73),
 ];
 
@@ -809,5 +814,136 @@ fn the_ironman_skeleton_pins_its_base_to_pyramidal() {
         Some(FlavourFamily::Pyramidal),
         "the long-course base is pyramidal whatever the season flavour: {:?}",
         base.flavour_override
+    );
+}
+
+// ============================================================================
+// Parametric families (carnet#1465)
+// ============================================================================
+
+/// Every slug a family absorbed, with the family, preset and sport it
+/// resolves to. Saved plan days and prescriptions name these.
+const ABSORBED_SLUGS: [(&str, &str, &str, SportType); 11] = [
+    ("recovery_30min", "recovery", "rec_easy", SportType::Run),
+    (
+        "long_run_z2",
+        "endurance_long",
+        "long_steady",
+        SportType::Run,
+    ),
+    (
+        "back_to_back_long",
+        "endurance_long",
+        "b2b_long",
+        SportType::Run,
+    ),
+    (
+        "tempo_progression",
+        "tempo",
+        "tempo_progression",
+        SportType::Run,
+    ),
+    ("sweet_spot_2x20", "sweet_spot", "ss_2x20", SportType::Ride),
+    ("strides", "neuromuscular", "strides", SportType::Run),
+    (
+        "hill_sprints",
+        "neuromuscular",
+        "hill_sprints",
+        SportType::Run,
+    ),
+    ("vo2max_30_15", "vo2max_short", "30_15", SportType::Ride),
+    ("billat_30_30", "vo2max_short", "30_30", SportType::Run),
+    ("endurance", "endurance", "end_steady", SportType::Run),
+    ("tempo", "tempo", "tempo_steady", SportType::Run),
+];
+
+#[test]
+fn every_absorbed_slug_still_resolves_to_its_preset() {
+    let registry = TrainingCatalogueRegistry::new();
+    for (slug, family, preset, sport) in ABSORBED_SLUGS {
+        let resolved = registry
+            .resolve_workout(slug)
+            .unwrap_or_else(|| panic!("{slug} resolves"));
+        assert_eq!(resolved.template.slug, family, "{slug}");
+        let view = registry
+            .workout(slug)
+            .unwrap_or_else(|| panic!("{slug} has a view"));
+        assert!(
+            !view.structure.is_empty(),
+            "{slug} reaches a caller as steps"
+        );
+        assert_eq!(view.sport, sport, "{slug} keeps its old file's sport");
+        // A slug that is the family's own names its default preset.
+        let resolved_preset = match resolved.request.preset.as_deref() {
+            Some(key) => resolved.template.resolve_preset(key).map(|(p, _)| p),
+            None => resolved.template.default_preset(),
+        }
+        .unwrap_or_else(|| panic!("{slug} names a preset"));
+        assert_eq!(resolved_preset.key, preset, "{slug}");
+    }
+}
+
+#[test]
+fn a_legacy_slug_hands_back_the_session_its_file_described() {
+    let registry = TrainingCatalogueRegistry::new();
+    // vo2max_30_15: three series of 13 × 30/15 with 3 min between, on the bike.
+    let session = registry.workout("vo2max_30_15").expect("resolves");
+    assert_eq!(
+        session.sport,
+        SportType::Ride,
+        "the alias pins the ride form its file was written for"
+    );
+    let work = session.structure.iter().filter(|s| s.repeat == 13).count();
+    assert_eq!(work, 6, "three series of a work and a float step");
+    assert_eq!(
+        session
+            .structure
+            .iter()
+            .filter(|s| s.label == "Between sets")
+            .count(),
+        2,
+        "three series are separated by two rests"
+    );
+}
+
+#[test]
+fn a_flavour_is_checked_for_each_sport_it_can_be_applied_to() {
+    let keys = evidence_keys();
+    let resolves =
+        |category: &str, slug: &str| keys.contains(&(category.to_owned(), slug.to_owned()));
+    let registry = TrainingCatalogueRegistry::new();
+    // The negative control for the per-sport check: make the only endurance
+    // carrier a run-only session, the shape the bank had before the families.
+    let mut run_only = registry
+        .resolve_workout("endurance")
+        .expect("seeded")
+        .template;
+    run_only.presets.clear();
+    run_only.aliases.clear();
+    run_only.constraints.clear();
+    run_only.sport = SportType::Run;
+    run_only.sport_variants = vec![SportType::Run];
+    registry.update(
+        CatalogueKind::Workout,
+        "endurance",
+        CatalogueItem::Workout(Box::new(run_only)),
+        "run-only".to_owned(),
+    );
+    let unresolved = registry.unresolved_references(&resolves);
+    assert!(
+        unresolved
+            .iter()
+            .any(|u| u.reference == "endurance for ride"),
+        "a cyclist's endurance rung with no ride carrier is reported: {unresolved:#?}"
+    );
+    assert!(
+        !unresolved.iter().any(|u| u.reference.ends_with("for run")),
+        "the run side is still carried: {unresolved:#?}"
+    );
+    assert!(
+        !unresolved
+            .iter()
+            .any(|u| u.owner.contains("pyramidal-ultra-trail") && u.reference.ends_with("for ride")),
+        "the trail flavour is never applied to the bike: {unresolved:#?}"
     );
 }

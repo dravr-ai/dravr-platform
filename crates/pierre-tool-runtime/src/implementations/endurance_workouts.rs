@@ -792,6 +792,13 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 }
 
                 let prescription_id = Uuid::new_v4();
+                // The slug the call named: a legacy slug a family absorbed
+                // stays the prescription's own, and still resolves to the
+                // same preset; an authored session names its stored slug.
+                let prescribed_slug = args
+                    .get("template_slug")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| template.slug.clone(), str::to_owned);
                 let session = PlannedSession::from_template(
                     &template,
                     date,
@@ -871,7 +878,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     tenant_id: tenant_id.as_uuid(),
                     user_id,
                     agent_id: agent,
-                    template_slug: Some(template.slug.clone()),
+                    template_slug: Some(prescribed_slug.clone()),
                     sport: template.sport.clone(),
                     prescribed_for_date: date,
                     provider: target.clone(),
@@ -922,7 +929,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                         replaced_prescription_id: previous
                             .as_ref()
                             .map(|(prev, _)| prev.id),
-                        template_slug: template.slug.clone(),
+                        template_slug: prescribed_slug,
                         name: template.name.clone(),
                         duration_minutes: template.duration_minutes,
                         scheduled_for: date.format("%Y-%m-%d").to_string(),

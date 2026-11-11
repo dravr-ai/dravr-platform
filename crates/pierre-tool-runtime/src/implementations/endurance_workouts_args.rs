@@ -173,7 +173,6 @@ fn preset_summaries(template: &WorkoutTemplate) -> Vec<PresetSummary> {
             PresetSummary {
                 key: preset.key.clone(),
                 name: preset.name.clone(),
-                summary: preset.summary.clone(),
                 readiness_min: fit.readiness_min,
                 counts_as_quality: fit.counts_as_quality,
                 badges: preset
