@@ -103,6 +103,21 @@ describe('useMarkConversationRead', () => {
     expect(markConversationRead).not.toHaveBeenCalled();
   });
 
+  it('leaves the marker alone when a read thread opens through its loading render', async () => {
+    const client = newClient();
+    await primeList(client, [conversation({ id: 'conv-1', unread_count: 0 })]);
+
+    const { rerender } = renderHook(
+      ({ latest }: { latest: string | null }) => useMarkConversationRead('conv-1', latest),
+      { wrapper: wrapperFor(client), initialProps: { latest: null as string | null } },
+    );
+    // The messages resolve: an open, and nothing is unread.
+    rerender({ latest: 'm2' });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(markConversationRead).not.toHaveBeenCalled();
+  });
+
   it('marks again when the newest message changes, even with nothing unread cached', async () => {
     const client = newClient();
     await primeList(client, [conversation({ id: 'conv-1', unread_count: 0 })]);

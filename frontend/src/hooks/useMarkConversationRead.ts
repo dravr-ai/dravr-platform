@@ -67,10 +67,13 @@ export function useMarkConversationRead(
 
   useEffect(() => {
     if (!conversationId) return;
-    // A thread with nothing in it yet counts as opened: its first message —
-    // the reply to a turn the athlete just sent — is new, and marks.
     if (!latestMessageId) {
-      lastMarked.current = `${conversationId}:`;
+      // A thread with nothing in it yet counts as opened: its first message —
+      // the reply to a turn the athlete just sent — is new, and marks. A
+      // thread whose messages are still loading is not one: its open waits
+      // for them and is skipped when nothing is unread.
+      const row = cachedConversations(queryClient).find((c) => c.id === conversationId);
+      if ((row?.message_count ?? 0) === 0) lastMarked.current = `${conversationId}:`;
       return;
     }
     if (!visible) return;

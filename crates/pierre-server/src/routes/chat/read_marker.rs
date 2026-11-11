@@ -14,6 +14,8 @@ use axum::{
 };
 use serde::Deserialize;
 #[cfg(feature = "client-notifications")]
+use tracing::warn;
+#[cfg(feature = "client-notifications")]
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -98,7 +100,7 @@ pub(super) async fn clear_thread_notifications(
         )
         .await
     {
-        tracing::warn!(
+        warn!(
             conversation_id = %conversation_id,
             error = %e,
             "the thread's notifications could not be marked read"

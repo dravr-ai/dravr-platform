@@ -48,7 +48,7 @@ use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers::{self as notification_triggers, UNSEEN_REPLY_GRACE};
 #[cfg(feature = "client-notifications")]
-use tokio::time::sleep;
+use tokio::time;
 
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
@@ -697,6 +697,7 @@ fn terminal_events(outcome: Result<TurnResponse, AppError>) -> Vec<pipeline::Tur
 /// of it needs.
 #[cfg(feature = "client-notifications")]
 struct UnseenReply {
+    /// Shared with the spawned grace check, which outlives the request.
     resources: Arc<ServerContext>,
     transport: Transport,
     /// The agent the reply spoke as; `None` when no agent answered — a
@@ -723,12 +724,12 @@ struct UnseenReply {
 /// tracked by the shutdown drain; when the drain gives up, the check runs at
 /// once instead of being dropped.
 #[cfg(feature = "client-notifications")]
-fn notify_unseen_reply(reply: UnseenReply) {
-    if !matches!(reply.transport, Transport::WebApp | Transport::MobileApp) {
+fn notify_unseen_reply(mut reply: UnseenReply) {
+    if !reply.transport.is_app_session() {
         return;
     }
     let (Some(agent_name), Some(service)) = (
-        reply.answered_by.clone(),
+        reply.answered_by.take(),
         reply.resources.common.notification_service.clone(),
     ) else {
         return;
@@ -737,7 +738,7 @@ fn notify_unseen_reply(reply: UnseenReply) {
     let drain = turns.drain_token();
     turns.spawn(async move {
         tokio::select! {
-            () = sleep(UNSEEN_REPLY_GRACE) => {}
+            () = time::sleep(UNSEEN_REPLY_GRACE) => {}
             () = drain.cancelled() => {}
         }
         let seen = reply

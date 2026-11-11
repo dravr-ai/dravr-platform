@@ -741,7 +741,7 @@ async fn coaching_turn_over(
 }
 
 #[tokio::test]
-async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
+async fn an_app_turn_leaves_its_reply_unread_until_the_app_shows_it() {
     let (fx, conv, reply) = coaching_turn_over(Transport::WebApp, "web").await;
 
     // The author's own message is read; the reply waits for the app to put it
@@ -777,7 +777,10 @@ async fn a_messaging_turn_reads_its_reply_for_its_author() {
     let (fx, conv, _) = coaching_turn_over(Transport::Messaging, "telegram").await;
 
     let owner_row = row(&fx, &fx.owner_auth, &conv.id).await;
-    assert_eq!(owner_row.message_count, 2);
+    assert_eq!(
+        owner_row.message_count, 2,
+        "the turn stored the message and its reply"
+    );
     assert_eq!(owner_row.unread_count, 0, "the author's own turn is read");
 }
 

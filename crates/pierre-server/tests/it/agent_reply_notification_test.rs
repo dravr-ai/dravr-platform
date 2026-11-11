@@ -15,12 +15,11 @@
 //! the name renders in their stored language, so the name reads from the same
 //! one, through the `agent_translations` overlay.
 //!
-//! It is raised only for a reply the athlete did not see. Every in-app reply
-//! used to raise one, so each question asked from the open thread left a
-//! "message from your agent" row and a push behind it; the inbox filled with
-//! answers already on screen. The notification now waits
-//! [`UNSEEN_REPLY_GRACE`] and is raised only while the reply is still unread,
-//! and reading the thread marks read every notification that opens it.
+//! It is raised only for a reply the athlete did not see: a question asked
+//! from the open thread is answered on screen, and a "message from your agent"
+//! row and push for that answer would only fill the inbox. The notification
+//! waits [`UNSEEN_REPLY_GRACE`] and is raised only while the reply is still
+//! unread, and reading the thread marks read every notification that opens it.
 
 #![cfg(feature = "client-notifications")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -657,7 +656,10 @@ async fn reading_the_thread_marks_its_notifications_read() {
         2,
         "two replies nobody read, two notifications: {rows:?}"
     );
-    assert!(rows.iter().all(|row| row.read_at.is_none()));
+    assert!(
+        rows.iter().all(|row| row.read_at.is_none()),
+        "nothing has read either thread yet: {rows:?}"
+    );
 
     let opened = Client::new()
         .get(format!(

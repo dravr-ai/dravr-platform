@@ -28,9 +28,12 @@
 //! Both message writers also fan the row out to the group's shared room
 //! transcript (`group_transcript_entries`) when the conversation is
 //! group-bound, so every surface's group turns land in one queryable,
-//! consent-gated room view — and both advance the participant's read
-//! marker past the row they wrote, so an athlete's own turn never counts
-//! as unread for them. One rule for web, mobile and messaging.
+//! consent-gated room view. The user-message writer advances the
+//! participant's read marker past their own row, so an athlete's own message
+//! never counts as unread for them, on every surface. The reply writer does
+//! the same on a messaging channel, where the reply is read as it is
+//! delivered, and leaves it to Dravr's own apps, which advance the marker
+//! once the reply is on screen ([`app_reports_reading`]).
 //!
 //! A reply the platform posted on its own initiative ([`TurnOrigin::Platform`])
 //! is the exception to both: nobody was in front of it when it landed, so it
@@ -88,10 +91,7 @@ async fn advance_read_marker(
 /// reply written outside any turn — a stop or a failure notice, which the
 /// athlete triggered from the thread — declares none.
 fn app_reports_reading() -> bool {
-    matches!(
-        ai_scope::declared_transport(),
-        Some(Transport::WebApp | Transport::MobileApp)
-    )
+    ai_scope::declared_transport().is_some_and(Transport::is_app_session)
 }
 
 /// Fan a just-persisted user/assistant row out to the group's shared room
