@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
@@ -96,6 +96,10 @@ pub struct HeadRead {
     pub activities: Vec<Activity>,
     /// The judgement of that answer.
     pub verdict: HeadVerdict,
+    /// The pair's OAuth grant that answered in place of the session the read
+    /// was for, after the session's own read fell back ([`falls_back`],
+    /// carnet#1494); `None` when the backend read answered itself.
+    pub served_by_grant: Option<String>,
 }
 
 /// Whether a live list read counts as a sync.
@@ -119,7 +123,7 @@ pub enum HeadVerdict {
 
 impl HeadVerdict {
     /// The verdict's name on the provider read's span.
-    const fn label(self) -> &'static str {
+    pub(super) const fn label(self) -> &'static str {
         match self {
             Self::Complete => "complete",
             Self::Incomplete => "incomplete",
@@ -140,49 +144,42 @@ impl HeadVerdict {
 /// Authenticate the provider, through the athlete's read plan or exactly as
 /// named (`routing`), and read `params` live, judging whether the answer
 /// counts as a sync ([`judge_live_read`]). Records nothing and writes nothing.
+///
+/// `attempt_started_at` is taken by the caller before the credential is
+/// read, so a reconnect that lands while the fetch is in flight is newer than
+/// any failure it reports.
 pub(super) async fn read_provider_head(
     runtime: &Arc<dyn ToolRuntime>,
-    provider_slug: &str,
-    user_id: Uuid,
-    tenant_id: &str,
-    params: &ActivityQueryParams,
+    live: LiveRead<'_>,
     routing: Routing,
 ) -> AppResult<HeadRead> {
+    let LiveRead {
+        provider_slug,
+        user_id,
+        tenant_id,
+        ..
+    } = live;
     let auth_service = AuthService::new(Arc::clone(runtime));
-    // Taken before the credential is read, so a reconnect that lands while
-    // the fetch is in flight is newer than any failure it reports.
-    let attempt_started_at = Utc::now();
     let authenticated = match routing {
         Routing::Resolved => {
             auth_service
-                .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
+                .create_authenticated_provider(provider_slug, user_id, tenant_id)
                 .await
         }
         Routing::Exact => {
             auth_service
-                .create_exact_provider(provider_slug, user_id, Some(tenant_id))
+                .create_exact_provider(provider_slug, user_id, tenant_id)
                 .await
         }
     };
     let provider =
         authenticated.map_err(|response| provider_auth_failure(provider_slug, &response))?;
-    judge_live_read(
-        runtime,
-        LiveRead {
-            provider_slug,
-            user_id,
-            tenant_id: Some(tenant_id),
-            params,
-            attempt_started_at,
-        },
-        provider.as_ref(),
-    )
-    .await
+    judge_live_read(runtime, live, provider.as_ref()).await
 }
 
 /// One live list read, before it is made: whose, of which provider, for
 /// which window, and when the attempt began.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct LiveRead<'a> {
     /// The provider key the athlete's connection and cache rows use.
     pub provider_slug: &'a str,
@@ -317,6 +314,7 @@ pub async fn judge_live_read(
     Ok(HeadRead {
         activities,
         verdict,
+        served_by_grant: None,
     })
 }
 
@@ -394,22 +392,82 @@ pub async fn record_head_outcome(
     params: &ActivityQueryParams,
     read: &AppResult<HeadRead>,
 ) {
+    if record_head_attempt(runtime, user_id, tenant, provider_slug, params, read).await {
+        log_head_failure(read, user_id, provider_slug);
+    }
+}
+
+/// [`record_head_outcome`] without its log line: records the attempt as
+/// that function does, and says whether it recorded a failed read whose log
+/// ([`log_head_failure`]) the caller still owes.
+///
+/// For a read with a fallback behind it: the session's failure is recorded
+/// under the session at once, and paged only once it is known that its
+/// grant did not answer in its place (`fallback::serve_head`).
+pub(super) async fn record_head_attempt(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: TenantId,
+    provider_slug: &str,
+    params: &ActivityQueryParams,
+    read: &AppResult<HeadRead>,
+) -> bool {
     let failure = match read {
         Ok(head) => head.verdict.failure(),
         Err(e) if e.provider_auth_required_provider().is_some() => None,
         Err(_) => Some(ActivityFetchFailure::FetchError),
     };
     let Some(failure) = failure else {
-        return;
+        return false;
     };
     if !covers_list_head(params, Utc::now().timestamp()) {
-        return;
+        return false;
     }
     if deferred_in_background(read, user_id, provider_slug) {
-        return;
+        return false;
     }
-    log_head_failure(read, user_id, provider_slug);
     record_sync_failure(runtime, user_id, tenant, provider_slug, failure).await;
+    true
+}
+
+/// Whether a head read of an athlete's session hands the read to the OAuth
+/// grant standing behind it (`backend_resolver::read_plan`, carnet#1494).
+///
+/// It does for every read the session did not vouch for: a capture that
+/// never reached its head ([`HeadVerdict::Incomplete`]), an empty answer the
+/// cache contradicts ([`HeadVerdict::EmptyOverCached`]), and every failure
+/// [`error_falls_back`] does not hold back.
+#[must_use]
+pub(crate) fn falls_back(read: &AppResult<HeadRead>) -> bool {
+    match read {
+        Ok(head) => head.verdict != HeadVerdict::Complete,
+        Err(e) => error_falls_back(e),
+    }
+}
+
+/// Whether a failed read hands the read to the pair's grant: every failure
+/// does — a 5xx, a transport error, a shed, a wedge, a timeout, a dead
+/// session — except three that the grant cannot answer differently or must
+/// not be asked about.
+///
+/// - A coach account's refused own calendar ([`is_coach_account_refusal`]):
+///   the account's standing state, not an error.
+/// - Work nobody waits on, held to its share of the budget
+///   ([`deferred_in_background`]): the share is doing its job, and a read of
+///   the grant would spend the budget the share protects (carnet#1491).
+/// - The limiter's own refusal ([`refused_before_send`]): the budget is
+///   spent, and its alert is the page.
+#[must_use]
+pub(crate) fn error_falls_back(error: &AppError) -> bool {
+    !(is_coach_account_refusal(error)
+        || refused_before_send(error)
+        || held_to_background_share(error))
+}
+
+/// Whether `error` is a rate-limit refusal of work nobody waits on
+/// ([`is_background`]).
+fn held_to_background_share(error: &AppError) -> bool {
+    error.code == ErrorCode::ExternalRateLimited && is_background()
 }
 
 /// Log a head read [`record_head_outcome`] records as failed, at the level
@@ -419,7 +477,7 @@ pub async fn record_head_outcome(
 ///
 /// The message is the dedup key of the error layer (target plus its first
 /// 80 characters), so it stays constant and the specifics ride as fields.
-fn log_head_failure(read: &AppResult<HeadRead>, user_id: Uuid, provider_slug: &str) {
+pub(super) fn log_head_failure(read: &AppResult<HeadRead>, user_id: Uuid, provider_slug: &str) {
     let cause = match read {
         Err(e) => e.to_string(),
         Ok(head) => head.verdict.label().to_owned(),
@@ -464,7 +522,7 @@ fn deferred_in_background(read: &AppResult<HeadRead>, user_id: Uuid, provider_sl
     let Err(e) = read else {
         return false;
     };
-    if e.code != ErrorCode::ExternalRateLimited || !is_background() {
+    if !held_to_background_share(e) {
         return false;
     }
     info!(
@@ -728,5 +786,61 @@ async fn rearm_after_live_read(
             error = %e,
             "connection re-arm after a live read failed; its status is left as it was"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::errors::{AppError, ErrorCode};
+    use pierre_providers::request_budget::in_background;
+    use pierre_providers::sciotte_error::coach_account_error;
+    use serde_json::json;
+
+    use super::{error_falls_back, falls_back, HeadRead, HeadVerdict};
+
+    fn head(verdict: HeadVerdict) -> HeadRead {
+        HeadRead {
+            activities: Vec::new(),
+            verdict,
+            served_by_grant: None,
+        }
+    }
+
+    /// The limiter's refusal, as `RequestBudget::admit` marks it.
+    fn budget_refusal() -> AppError {
+        let mut error = AppError::new(ErrorCode::ExternalRateLimited, "strava budget spent");
+        error.details = Some(Box::new(json!({ "refused_before_send": true })));
+        error
+    }
+
+    /// Every read the session did not vouch for goes to its grant.
+    #[test]
+    fn a_read_the_session_did_not_vouch_for_falls_back() {
+        assert!(!falls_back(&Ok(head(HeadVerdict::Complete))));
+        assert!(falls_back(&Ok(head(HeadVerdict::Incomplete))));
+        assert!(falls_back(&Ok(head(HeadVerdict::EmptyOverCached {
+            cached: 3
+        }))));
+        for error in [
+            AppError::external_service("sciotte", "500 from the scraper"),
+            AppError::new(ErrorCode::ExternalServiceUnavailable, "the browser wedged"),
+            AppError::resource_unavailable("the scraper shed the read").with_retry_after(30),
+            AppError::provider_auth_required("sciotte"),
+            AppError::internal("unexpected answer"),
+            AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava"),
+        ] {
+            assert!(error_falls_back(&error), "{error}");
+            assert!(falls_back(&Err(error)));
+        }
+    }
+
+    /// The three refusals the grant cannot answer differently stay where they are.
+    #[tokio::test]
+    async fn a_coach_refusal_a_background_deferral_and_a_spent_budget_never_fall_back() {
+        assert!(!error_falls_back(&coach_account_error("a coach account")));
+        assert!(!error_falls_back(&budget_refusal()));
+        let provider_429 = AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava");
+        assert!(error_falls_back(&provider_429));
+        assert!(!in_background(async { error_falls_back(&provider_429) }).await);
     }
 }

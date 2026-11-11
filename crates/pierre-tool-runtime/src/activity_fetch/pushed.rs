@@ -55,31 +55,6 @@ pub(super) async fn reads_pushed_store(
         == provider_slug
 }
 
-/// Whether `connection` is a usr/pwd session beside a grant that serves its
-/// provider (`backend_resolver::session_beside_grant`).
-///
-/// Judged in the tenant the connection lives in. A row whose tenant does not
-/// parse is not one. Read only by the fallback serve's stored-history answer
-/// (`fallback::beside_grant_rows`).
-pub(crate) async fn connection_beside_grant(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    connection: &ProviderConnection,
-) -> bool {
-    match TenantId::parse_str(&connection.tenant_id) {
-        Ok(tenant) => {
-            backend_resolver::session_beside_grant(
-                runtime.repos(),
-                user_id,
-                tenant,
-                &connection.provider,
-            )
-            .await
-        }
-        Err(_) => false,
-    }
-}
-
 /// Whether `connection` is an OAuth grant standing beside a usr/pwd session
 /// of its provider that is not revoked
 /// (`backend_resolver::grant_beside_session`), judged in the tenant the
@@ -196,6 +171,7 @@ pub(super) async fn pushed_head(
     Ok(HeadRead {
         activities: ai_scope::filter_activities(runtime.provider_registry().as_ref(), activities),
         verdict: HeadVerdict::Complete,
+        served_by_grant: None,
     })
 }
 

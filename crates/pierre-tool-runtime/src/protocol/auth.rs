@@ -5,14 +5,17 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::context::scoped_read_subject;
+use crate::protocol::auth::grant_by_id::GrantByIdFallback;
 use crate::protocol::token_writeback::persist_refreshed_token;
-use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
+use crate::protocol::types::{
+    provider_auth_failure, UniversalResponse, META_AUTH_REQUIRED_PROVIDER,
+};
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
-use pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS;
-use pierre_core::errors::AppError;
+use pierre_core::constants::oauth_providers::{self, USER_PROVIDED_PROVIDERS};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
 use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
@@ -29,6 +32,8 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+/// A Strava session's by-id reads, retried once through its Strava grant
+mod grant_by_id;
 /// One refresh at a time per connection, shared by its concurrent callers
 mod single_flight;
 /// The refresh of a stored token: descriptor-driven, single-flight, compare-and-swap
@@ -393,8 +398,63 @@ impl AuthService {
             requested_provider,
         )
         .await;
-        self.authenticate_backend(&effective_provider, requested_provider, user_id, tenant_id)
+        let provider = self
+            .authenticate_backend(&effective_provider, requested_provider, user_id, tenant_id)
+            .await?;
+        // The Strava session's by-id reads fall back to the Strava grant
+        // standing behind it (carnet#1494); the ids are Strava's on both.
+        let (Some(tenant), Some(tenant_id)) = (tenant_id_parsed, tenant_id) else {
+            return Ok(provider);
+        };
+        Ok(
+            match self.by_id_grant(&effective_provider, user_id, tenant).await {
+                Some(grant) => GrantByIdFallback::wrap(
+                    provider,
+                    Self::new(Arc::clone(&self.resources)),
+                    &grant,
+                    user_id,
+                    tenant_id,
+                ),
+                None => provider,
+            },
+        )
+    }
+
+    /// The grant a by-id read of `session` falls back to: the Strava grant
+    /// standing live behind the athlete's Strava session
+    /// (`backend_resolver::read_plan`), whose ids are the session's. `None`
+    /// for every other backend: Garmin's grant is push-only and reads no
+    /// activity by id.
+    async fn by_id_grant(&self, session: &str, user_id: Uuid, tenant: TenantId) -> Option<String> {
+        if session != oauth_providers::SCIOTTE {
+            return None;
+        }
+        backend_resolver::read_plan(self.resources.repos(), user_id, tenant, session)
             .await
+            .fallback
+            .filter(|grant| grant == oauth_providers::STRAVA)
+    }
+
+    /// The provider a by-id read of the flagged session `session` is made
+    /// through instead of the session (carnet#1494): its by-id grant
+    /// ([`Self::by_id_grant`]), authenticated exactly with its own token
+    /// row. `None` when no such grant stands behind it.
+    ///
+    /// # Errors
+    /// Returns the grant's authentication failure, as
+    /// [`provider_auth_failure`] reads it.
+    pub async fn create_by_id_grant_provider(
+        &self,
+        session: &str,
+        user_id: Uuid,
+        tenant: TenantId,
+    ) -> Option<AppResult<Box<dyn CoreFitnessProvider>>> {
+        let grant = self.by_id_grant(session, user_id, tenant).await?;
+        Some(
+            self.create_exact_provider(&grant, user_id, Some(&tenant.to_string()))
+                .await
+                .map_err(|response| provider_auth_failure(&grant, &response)),
+        )
     }
 
     /// Authenticate the provider for `provider_name`, the backend already

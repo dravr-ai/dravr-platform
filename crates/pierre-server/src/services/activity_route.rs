@@ -103,6 +103,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_tool_runtime::activity_detail_store;
+use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::reauth_retry::flagged_session;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -816,13 +817,18 @@ async fn read_streams(
 ) -> AppResult<ActivityRouteOutcome> {
     // A session already flagged for a reconnect is not signed in to again:
     // every read of a Home page's burst would fail the same way, each a
-    // headless sign-in attempt on the scraper.
-    if let Some(backend) = flagged_session(runtime, user_id, tenant_id, cached.provider).await {
-        return Err(AppError::provider_auth_required(backend));
-    }
+    // headless sign-in attempt on the scraper. The Strava grant behind it
+    // reads the activity in its place (carnet#1494).
     let tenant = tenant_id.to_string();
-    let provider =
-        configured_provider(runtime, user_id, cached.provider, Some(tenant.as_str())).await?;
+    let provider = match flagged_session(runtime, user_id, tenant_id, cached.provider).await {
+        Some(backend) => AuthService::new(Arc::clone(runtime))
+            .create_by_id_grant_provider(&backend, user_id, tenant_id)
+            .await
+            .ok_or_else(|| AppError::provider_auth_required(backend))??,
+        None => {
+            configured_provider(runtime, user_id, cached.provider, Some(tenant.as_str())).await?
+        }
+    };
     if !provider.serves_activity_streams() {
         return Ok(Err(RouteMiss::Settled(RouteTrackError::NoGps)));
     }

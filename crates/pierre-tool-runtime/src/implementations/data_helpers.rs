@@ -25,10 +25,16 @@ use pierre_formatters::OutputFormat;
 #[cfg(feature = "tools-data")]
 use pierre_providers::backend_resolver;
 use pierre_providers::backend_resolver::user_facing_name;
+#[cfg(feature = "tools-data")]
+use pierre_providers::core::ActivityQueryParams;
+#[cfg(feature = "tools-data")]
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
 use uuid::Uuid;
 
-use crate::activity_fetch::StaleReason;
+#[cfg(feature = "tools-data")]
+use crate::activity_fetch::{grant_window, serve_without_primary};
+use crate::activity_fetch::{FallbackServe, StaleReason};
 #[cfg(feature = "tools-data")]
 use crate::context::ToolExecutionContext;
 use crate::runtime::ToolRuntime;
@@ -314,11 +320,34 @@ pub fn provider_stale_note(display_name: &str) -> Value {
     })
 }
 
-/// Why the elected provider's window was not its own live read, keyed by that
-/// provider's backend: the athlete's other connections served it, or its own
-/// cached window did.
+/// Build the `provider_unavailable` sidecar for a window the provider's own
+/// OAuth grant served in place of the athlete's usr/pwd session
+/// (carnet#1494).
+///
+/// Nothing is missing: the grant is the same provider, read through its API,
+/// and it vouched for the window. The note says so, so the agent neither
+/// treats the window as partial nor asks for a reconnect; the session's own
+/// sign-in, when it died, is asked for by the reconnect notice, not here.
+#[must_use]
+pub fn provider_served_by_grant_note(display_name: &str) -> Value {
+    json!({
+        "provider": display_name,
+        "note": format!(
+            "{display_name} could not be read through the athlete's sign-in just now, so the activities above came from its API connection instead: they are current and complete, and the connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
+        ),
+    })
+}
+
+/// Why the elected provider's window was not its own live read, keyed by
+/// that provider's backend.
+///
+/// Its grant served it in its session's place, the athlete's other
+/// connections served it, or its own cached window did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrimaryStandIn {
+    /// Its session could not answer and the provider's own OAuth grant
+    /// served the window in its place (carnet#1494).
+    ServedByGrant(String),
     /// Its grant or session is dead: the athlete must reconnect it.
     Dead(String),
     /// It could not answer just now, and its connection stands.
@@ -330,8 +359,9 @@ pub enum PrimaryStandIn {
 }
 
 impl PrimaryStandIn {
-    /// Whether the elected provider's own cache answered the window, which
-    /// counts as that connection serving the athlete.
+    /// Whether the elected provider itself answered the window — its own
+    /// cache, or its grant in its session's place — which counts as that
+    /// connection serving the athlete.
     ///
     /// `CaptureFreshness::last_used_at` promises "live fetch or cache
     /// alike", and the active-athlete sweep selects on it. Touching only a
@@ -340,8 +370,8 @@ impl PrimaryStandIn {
     /// days while chat served him daily (carnet#1278). A sibling's answer
     /// (`Dead`, `Unreachable`) is still not the primary's serve.
     #[must_use]
-    pub const fn served_from_own_cache(&self) -> bool {
-        matches!(self, Self::Stale(..))
+    pub const fn served_by_the_provider(&self) -> bool {
+        matches!(self, Self::Stale(..) | Self::ServedByGrant(_))
     }
 
     /// The sidecar the served window carries for it, and the key it rides
@@ -350,6 +380,11 @@ impl PrimaryStandIn {
     #[must_use]
     pub fn caveat(&self) -> (&'static str, Value) {
         let (key, mut note, reason) = match self {
+            Self::ServedByGrant(backend) => (
+                "provider_unavailable",
+                provider_served_by_grant_note(user_facing_name(backend)),
+                "grant",
+            ),
             Self::Dead(backend) => (
                 "reconnect_required",
                 provider_reconnect_note(user_facing_name(backend), backend),
@@ -372,18 +407,31 @@ impl PrimaryStandIn {
         (key, note)
     }
 
-    /// How complete a window this stand-in served is: a read past the
-    /// turn's budget is still running; any other stand-in is the provider
-    /// unavailable.
+    /// How complete a window this stand-in served is, or `None` when the
+    /// stand-in says nothing about it: a grant that served in its session's
+    /// place vouched for the window. A read past the turn's budget is still
+    /// running; any other stand-in is the provider unavailable.
     #[must_use]
-    pub const fn completeness(&self) -> Completeness {
+    pub const fn completeness(&self) -> Option<Completeness> {
         match self {
+            Self::ServedByGrant(_) => None,
             Self::Stale(_, StaleReason::Timeout) => {
-                Completeness::Incomplete(IncompleteReason::LiveReadRunning)
+                Some(Completeness::Incomplete(IncompleteReason::LiveReadRunning))
             }
-            Self::Dead(_) | Self::Unreachable(_) | Self::Stale(..) => {
-                Completeness::Incomplete(IncompleteReason::ProviderUnavailable)
-            }
+            Self::Dead(_) | Self::Unreachable(_) | Self::Stale(..) => Some(
+                Completeness::Incomplete(IncompleteReason::ProviderUnavailable),
+            ),
+        }
+    }
+
+    /// The stand-in for a window [`serve_in_place`] served: the grant's, when
+    /// it answered first, else `otherwise`.
+    #[must_use]
+    pub fn of_fallback(fallback: &FallbackServe, primary: &str, otherwise: Self) -> Self {
+        if fallback.served_by_grant.is_some() {
+            Self::ServedByGrant(primary.to_owned())
+        } else {
+            otherwise
         }
     }
 
@@ -391,9 +439,49 @@ impl PrimaryStandIn {
     #[must_use]
     pub fn backend(&self) -> &str {
         match self {
-            Self::Dead(backend) | Self::Unreachable(backend) | Self::Stale(backend, _) => backend,
+            Self::ServedByGrant(backend)
+            | Self::Dead(backend)
+            | Self::Unreachable(backend)
+            | Self::Stale(backend, _) => backend,
         }
     }
+}
+
+/// The window served in place of a primary that cannot answer: for a read
+/// pinned to the provider, its grant alone ([`grant_window`]: the same
+/// provider, so the pin still holds), else the grant first and the athlete's
+/// other connections after it ([`serve_without_primary`]). `None` when
+/// nothing served a row.
+#[cfg(feature = "tools-data")]
+pub(super) async fn serve_in_place(
+    context: &ToolExecutionContext,
+    primary: &str,
+    pinned: bool,
+    is_historical: bool,
+    params: &ActivityQueryParams,
+) -> Option<FallbackServe> {
+    if !pinned {
+        return serve_without_primary(context, primary, is_historical, params).await;
+    }
+    let tenant = TenantId::from_uuid(context.tenant_id?);
+    let (grant, rows) = Box::pin(grant_window(
+        &context.resources,
+        primary,
+        context.user_id,
+        tenant,
+        params,
+    ))
+    .await?;
+    if rows.is_empty() {
+        return None;
+    }
+    let (activities, merge_report) = merge_duplicates(rows, &DedupConfig::from_env());
+    Some(FallbackServe {
+        activities,
+        merge_report,
+        served_by: vec![user_facing_name(&grant).to_owned()],
+        served_by_grant: Some(grant),
+    })
 }
 
 /// Put a stand-in's caveat on a served window's payload.

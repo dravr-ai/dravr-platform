@@ -85,6 +85,12 @@ type ReadOutput = Option<(AppResult<HeadRead>, Box<dyn CoreFitnessProvider>)>;
 /// written through exactly as an inline read would be. With nothing cached
 /// there is nothing better to say, so the turn keeps waiting for the read.
 ///
+/// The fallback to the grant behind the athlete's session runs inside the
+/// read ([`read_live_window`], carnet#1494), so it shares the read's budget:
+/// past it, the cached window answers and a session that then fails falls
+/// back in the detached read. A turn never reads both backends inline past
+/// its budget.
+///
 /// The provider-terms and AI-consent gates are task-locals of the turn, and a
 /// spawned task does not inherit them: the detached read runs unfiltered, as a
 /// cache write does, and what it answers is filtered here, back in the turn.

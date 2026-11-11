@@ -54,8 +54,9 @@ pub mod uploads;
 pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
+pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
-pub(crate) use pushed::{connection_beside_grant, connection_grant_beside_session};
+pub(crate) use pushed::connection_grant_beside_session;
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
@@ -557,10 +558,30 @@ pub async fn fetch_provider_activities(
             .await
             .is_some()
         {
+            // The grant behind a flagged session serves; only without one does the cache.
+            if let Some((_, rows)) = Box::pin(grant_window(
+                runtime,
+                provider_slug,
+                user_id,
+                tenant,
+                params,
+            ))
+            .await
+            {
+                return Some(rows);
+            }
             return serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await;
         }
     }
-    match fetch_provider_head(runtime, provider_slug, user_id, tenant_id, params).await {
+    match Box::pin(fetch_provider_head(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    ))
+    .await
+    {
         Ok(activities) => Some(activities),
         Err(e) => {
             // The connection that refused is the backend the error names, so a
@@ -737,20 +758,17 @@ pub async fn read_live_window(
         return pushed_head(runtime, provider.name(), user_id, tenant, params).await;
     }
     let read = ai_scope::unfiltered(judge_live_read(runtime, live, provider)).await;
-    if let Some(tenant) = tenant {
-        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
-    }
-    let mut head = read?;
-    if let (HeadVerdict::Complete, Some(tenant)) = (&head.verdict, tenant) {
-        write_through_served_window(
-            runtime,
-            user_id,
-            &tenant,
-            provider_slug,
-            params,
-            &head.activities,
-        )
-        .await;
+    let Some(tenant) = tenant else {
+        let mut head = read?;
+        head.activities =
+            ai_scope::filter_activities(runtime.provider_registry().as_ref(), head.activities);
+        return Ok(head);
+    };
+    // A session read that falls back is answered by its grant (carnet#1494).
+    let mut head = Box::pin(fallback::serve_head(runtime, live, tenant, read)).await?;
+    let key = fallback::write_key(runtime, provider_slug, &head);
+    if let (HeadVerdict::Complete, Some(key)) = (&head.verdict, key) {
+        write_through_served_window(runtime, user_id, &tenant, key, params, &head.activities).await;
     }
     head.activities =
         ai_scope::filter_activities(runtime.provider_registry().as_ref(), head.activities);
@@ -773,12 +791,25 @@ async fn fetch_and_persist_head(
     if pushed {
         return pushed_window(runtime, provider_slug, user_id, tenant, params).await;
     }
-    let read =
-        read_provider_head(runtime, provider_slug, user_id, tenant_id, params, routing).await;
-    if let Some(tenant) = tenant {
-        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
-    }
-    let head = read?;
+    let live = LiveRead {
+        provider_slug,
+        user_id,
+        tenant_id: Some(tenant_id),
+        params,
+        attempt_started_at: Utc::now(),
+    };
+    let read = read_provider_head(runtime, live, routing).await;
+    // A session read that falls back is answered by its grant (carnet#1494).
+    let head = match (tenant, routing) {
+        (Some(tenant), Routing::Resolved) => {
+            Box::pin(fallback::serve_head(runtime, live, tenant, read)).await
+        }
+        (Some(tenant), Routing::Exact) => {
+            record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
+            read
+        }
+        (None, _) => read,
+    }?;
     if let HeadVerdict::EmptyOverCached { cached } = head.verdict {
         return Err(AppError::external_service(
             provider_slug,
@@ -805,13 +836,14 @@ async fn fetch_and_persist_head(
     }
 
     // Warm the stale-while-revalidate cache so the next outage serves these.
-    if let Some(tenant) = tenant {
+    if let (Some(tenant), Some(key)) = (tenant, fallback::write_key(runtime, provider_slug, &head))
+    {
         let auth_service = AuthService::new(Arc::clone(runtime));
         write_through_activity_cache(
             &auth_service,
             user_id,
             tenant,
-            provider_slug,
+            key,
             &head.activities,
             WriteThrough {
                 read: params,
