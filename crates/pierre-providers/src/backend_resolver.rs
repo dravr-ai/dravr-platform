@@ -599,7 +599,7 @@ pub async fn read_plan(
             fallback: (halves.grant == Half::Live).then(|| user_facing.to_owned()),
         };
     }
-    if halves.grant == Half::Live {
+    if halves.grant == Half::Live || !mirror_is_default(user_facing) {
         return ReadPlan::alone(user_facing);
     }
     ReadPlan::alone(mirror)

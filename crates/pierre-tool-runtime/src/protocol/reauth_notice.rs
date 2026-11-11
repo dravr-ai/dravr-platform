@@ -388,11 +388,30 @@ pub(crate) fn refused_backend(error: &AppError, provider_slug: &str) -> Option<S
     Some(if own { named } else { provider_slug.to_owned() })
 }
 
+/// Whether the user holds no token row for the session `mirror` in this
+/// tenant. A row that cannot be read counts as held: a grant is never flagged
+/// on a guess.
+async fn holds_no_session(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    mirror: &str,
+) -> bool {
+    matches!(
+        runtime
+            .repos()
+            .oauth_tokens
+            .get_token(user_id, tenant_id, mirror)
+            .await,
+        Ok(None)
+    )
+}
+
 /// [`flag_needs_reauth`] for the connection `refused` an attempt found dead,
 /// recording `reason` and when the attempt began.
 ///
-/// A mirror the athlete holds no connection for stands for the connection
-/// of its pair they do hold: a read of a grant with no usable token goes to
+/// A mirror the athlete holds neither a connection nor a session for stands
+/// for the connection of its pair they do hold: a read of a grant with no usable token goes to
 /// the mirror's sign-in (`backend_resolver::read_plan`, carnet#1494), and the
 /// grant's own row is the one that must read as needing the reconnect. A
 /// flip that cannot be written is logged: the caller serves what it holds
@@ -415,16 +434,21 @@ pub(crate) async fn flag_refused(
     )
     .await
     {
-        Ok((ReauthMark::NoConnection, _)) if is_mirror_backend(refused) => flag_needs_reauth(
-            runtime,
-            user_id,
-            tenant_id,
-            user_facing_name(refused),
-            reason,
-            attempt_started_at,
-        )
-        .await
-        .map(|_| ()),
+        Ok((ReauthMark::NoConnection, _))
+            if is_mirror_backend(refused)
+                && holds_no_session(runtime, user_id, tenant_id, refused).await =>
+        {
+            flag_needs_reauth(
+                runtime,
+                user_id,
+                tenant_id,
+                user_facing_name(refused),
+                reason,
+                attempt_started_at,
+            )
+            .await
+            .map(|_| ())
+        }
         other => other.map(|_| ()),
     };
     if let Err(e) = flagged {

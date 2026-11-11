@@ -37,8 +37,10 @@ use pierre_core::models::{
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus, ReadPlan};
+use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
+use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
@@ -2642,5 +2644,61 @@ async fn a_strava_session_serves_before_its_grant_whatever_the_cache_holds() {
         backend_resolver::resolve_backend(repos, user_id, Some(tenant_id), oauth_providers::STRAVA)
             .await,
         oauth_providers::SCIOTTE
+    );
+}
+
+/// The rows Strava's API stored before the session became the primary stay
+/// served (carnet#1494): a read of the athlete's Strava, now served by their
+/// session, answers from both keys. The session is flagged, so the read
+/// answers from the cache without a scrape.
+#[tokio::test]
+async fn a_strava_session_read_still_serves_the_rows_the_api_stored() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id) = athlete(&resources, "api-rows@example.com").await;
+    hold(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    flag(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    let api_ride = ActivityBuilder::new(
+        "15000000001",
+        "API Ride",
+        SportType::Ride,
+        Utc::now() - chrono::Duration::days(3),
+        3_600,
+        oauth_providers::STRAVA,
+    )
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities_synced_at(
+            user_id,
+            &tenant_id,
+            oauth_providers::STRAVA,
+            &[api_ride],
+            Utc::now(),
+        )
+        .await
+        .expect("store the API's row");
+
+    let params = ActivityQueryParams {
+        after: Some((Utc::now() - chrono::Duration::days(14)).timestamp()),
+        before: None,
+        limit: Some(10),
+        offset: None,
+    };
+    let rows = fetch_provider_activities(
+        &tool_state(&resources),
+        oauth_providers::STRAVA,
+        user_id,
+        &tenant_id.to_string(),
+        &params,
+    )
+    .await
+    .expect("the session's window answers from the cache");
+    let ids: Vec<String> = rows.iter().map(|a| a.id().to_owned()).collect();
+    assert_eq!(
+        ids,
+        ["15000000001"],
+        "bug: the rows Strava's API stored dropped out of the session's window"
     );
 }
