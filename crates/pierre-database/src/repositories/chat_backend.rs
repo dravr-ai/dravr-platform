@@ -386,9 +386,7 @@ macro_rules! impl_chat_repository {
                     .bind(message_id)
                     .fetch_optional(self.pool())
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to read the read marker: {e}"))
-                    })?;
+                    .map_err(|e| AppError::database(format!("Failed to read marker: {e}")))?;
                 Ok(is_read.unwrap_or(false))
             }
 
