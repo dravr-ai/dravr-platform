@@ -19,7 +19,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useThemeColors } from '../../constants/theme';
-import { Button, StatusDot } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
@@ -46,7 +46,6 @@ import {
   COACH_PLATFORM_PROVIDERS,
   HISTORY_ACTION_KEYS,
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   cardForSlug,
   cardStatus,
   connectPlan,
@@ -174,28 +173,26 @@ export function OnboardingConnectScreen() {
   }, [queryClient, loadStatus]);
 
   /**
-   * Tell the row `cardKey` its connect did not go through, and why when the
-   * server named it (`reason`). When the refusal says the row's plan changed
-   * under the athlete (a seat went or came back), the rows are read again
-   * first, and a row that now signs in opens its sign-in at once when
-   * `signInAllowed` — never after a sign-in the server just refused, which
-   * would only be refused again.
+   * Tell the row `cardKey` its connect did not go through. When the
+   * refusal says the row's plan changed under the athlete (the seat it was
+   * shown went), the rows are read again first, and a row that now signs in
+   * opens its sign-in at once.
    */
   const showRefusal = useCallback(
     async (
       cardKey: string,
-      { reload, signInAllowed, reason }: { reload: boolean; signInAllowed: boolean; reason?: string },
+      { reload }: { reload: boolean },
     ) => {
       if (reload) {
         const served = await loadStatus();
         const card = served.find((p) => p.provider === cardKey);
         const primary = card ? connectPlan(card).primary : null;
-        if (signInAllowed && card && primary?.kind === 'sign_in') {
+        if (card && primary?.kind === 'sign_in') {
           openSignIn(primary.target, card);
           return;
         }
       }
-      setRefusedCard({ card: cardKey, reason });
+      setRefusedCard({ card: cardKey });
     },
     [loadStatus, openSignIn],
   );
@@ -261,7 +258,7 @@ export function OnboardingConnectScreen() {
             if (fallback) {
               openSignInFor(fallback, providers);
             } else if (refusalReturnsToCard(providerId)) {
-              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, signInAllowed: true });
+              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
             } else {
               setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
@@ -287,8 +284,7 @@ export function OnboardingConnectScreen() {
           return;
         }
         if (refusalReturnsToCard(providerId)) {
-          const reason = refusalReason(err);
-          await showRefusal(cardKey, { reload: refusalReloadsCards(reason), signInAllowed: true, reason });
+          await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
           return;
         }
         setConnectError(message);
@@ -372,8 +368,7 @@ export function OnboardingConnectScreen() {
     const isConnected = provider.connected;
     const status = cardStatus(provider);
     // A connected grant whose history is still needed, or whose copy did not
-    // finish, opens the sign-in that copies it (carnet#1472); a row served by
-    // a sign-in alone asks to move to the official connection.
+    // finish, opens the sign-in that copies it (carnet#1472).
     const historySignIn =
       status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
     const exportSource = cardExportSource(provider);
@@ -392,12 +387,10 @@ export function OnboardingConnectScreen() {
             <Text className="text-base text-text-primary">{provider.display_name}</Text>
             <Text
               className="text-sm text-text-secondary mt-0.5"
-              numberOfLines={status === 'migrate' ? 2 : 1}
+              numberOfLines={1}
               testID={`provider-subtitle-${provider.provider}`}
             >
-              {status === 'migrate'
-                ? t('providers.migration.oauthRequired', { provider: provider.display_name })
-                : provider.description}
+              {provider.description}
             </Text>
             {refusedCard?.card === provider.provider && (
               <Text
@@ -407,7 +400,7 @@ export function OnboardingConnectScreen() {
                 accessibilityLiveRegion="polite"
                 testID={`provider-error-${provider.provider}`}
               >
-                {refusedConnectLine(t, refusedCard, provider.display_name)}
+                {refusedConnectLine(t, provider.display_name)}
               </Text>
             )}
             {exportSource && !coachOnly && (
@@ -423,18 +416,6 @@ export function OnboardingConnectScreen() {
           </View>
           {isConnecting ? (
             <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />
-          ) : status === 'migrate' ? (
-            <View className="flex-row items-center gap-2">
-              <StatusDot tone="warning" />
-              <Text
-                className="text-md font-medium text-primary"
-                onPress={() => handleConnect(provider)}
-                accessibilityRole="button"
-                testID={`provider-action-${provider.provider}`}
-              >
-                {t('app.connectProvider', { provider: provider.display_name })}
-              </Text>
-            </View>
           ) : isConnected ? (
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
@@ -578,13 +559,6 @@ export function OnboardingConnectScreen() {
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
-        onOAuthRequired={() => {
-          const target = signIn.target;
-          const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;
-          if (card) {
-            void showRefusal(card.provider, { reload: true, signInAllowed: false, reason: SIGN_IN_OAUTH_REQUIRED });
-          }
-        }}
       />
 
       <IntervalsIcuLinkModal

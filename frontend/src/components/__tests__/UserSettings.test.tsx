@@ -1040,7 +1040,7 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
-    it('reconnects a usr/pwd-only Garmin athlete whose session died through Garmin OAuth while seats remain', async () => {
+    it('reconnects a usr/pwd-only Garmin athlete whose session died through its sign-in, though seats remain', async () => {
       // No grant: the dead session serves the card itself (`connected_backend`).
       getProvidersStatus.mockResolvedValue({
         providers: [{ ...garminCard('oauth', true), connected_backend: 'sciotte_garmin' }],
@@ -1052,9 +1052,9 @@ describe('UserSettings Component', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
     it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
@@ -1181,31 +1181,6 @@ describe('UserSettings Component', () => {
       await userEvent.setup().click(link);
       expect(open).toHaveBeenCalledWith('/import', '_blank');
       expect(assign).not.toHaveBeenCalled();
-    });
-
-    it('moves a sign-in-only Garmin card to Garmin\'s authorization, beside its disconnect', async () => {
-      getProvidersStatus.mockResolvedValue({
-        providers: [
-          {
-            ...card('sciotte_garmin', 'Garmin'),
-            connected: true,
-            connected_backend: 'sciotte_garmin',
-            recommended_backend: 'oauth',
-            migration: 'oauth_required',
-          },
-          card('whoop', 'WHOOP'),
-        ],
-      });
-      await openProviders();
-
-      expect(await screen.findByTestId('provider-migrate-sciotte_garmin')).toHaveTextContent(
-        i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' }),
-      );
-      expect(screen.getByTestId('provider-disconnect-sciotte_garmin')).toBeInTheDocument();
-      await userEvent.setup().click(screen.getByTestId('provider-connect-sciotte_garmin'));
-
-      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin');
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
     it('starts the Strava OAuth when a sign-in-first Strava card\'s sign-in cannot complete (carnet#1477)', async () => {
@@ -1487,7 +1462,7 @@ describe('UserSettings Component', () => {
       });
     });
 
-    it('asks for a reconnect through Garmin OAuth once the Garmin grant itself is flagged', async () => {
+    it('asks for a reconnect through the Garmin sign-in once the Garmin grant itself is flagged (carnet#1494)', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [
           {
@@ -1507,8 +1482,8 @@ describe('UserSettings Component', () => {
       );
       await userEvent.setup().click(screen.getByRole('button', { name: 'Reconnect' }));
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('names a refused grant whose backend no card serves by its capitalised id', async () => {
@@ -1835,7 +1810,7 @@ describe('UserSettings Component', () => {
       expect(disconnectProvider).not.toHaveBeenCalled();
     });
 
-    it('re-auths the backend that already holds the grant without a switch prompt', async () => {
+    it('reconnects a dead grant through the Strava sign-in without a switch prompt (carnet#1494)', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [stravaCard({ connected_backend: 'strava', needs_reauth: true })],
       });
@@ -1848,12 +1823,12 @@ describe('UserSettings Component', () => {
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
       expect(screen.queryByText('Switch Provider')).not.toBeInTheDocument();
-      expect(assign).toHaveBeenCalledTimes(1);
-      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava');
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
     });
 
-    it('reconnects a grant holder through Strava OAuth even with the seats gone: the grant keeps its seat', async () => {
+    it('reconnects a dead grant through the Strava sign-in with the seats gone too, disconnecting nothing', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [stravaCard({ needs_reauth: true, recommended_backend: 'mirror', seats_left: 0 })],
       });
@@ -1865,9 +1840,8 @@ describe('UserSettings Component', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
-      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava');
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
       expect(disconnectProvider).not.toHaveBeenCalled();
     });
   });

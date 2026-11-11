@@ -1,5 +1,5 @@
 // ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its scheme's ink, name, one line, status, action
-// ABOUTME: Each row follows the card's connect plan: connect, reconnect, the move to the official connection, or the sign-in that copies its history
+// ABOUTME: Each row follows the card's connect plan: connect, reconnect, or the sign-in that copies its history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -66,7 +66,6 @@ function historySignInNow(card: ProviderStatus, status: CardStatus): SciotteTarg
 const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'authorize_owed',
   'reconnect',
-  'migrate',
   'history_needed',
   'history_incomplete',
   'connect',
@@ -307,8 +306,8 @@ export default function ProviderConnectionCards({
   // A tap follows what the card shows (`cardStatus`) and how it connects
   // (`connectPlan`): a connected WHOOP that owes its owner authorization asks
   // for the notice; a card still needing its history opens the sign-in that
-  // copies it; any card to connect, reconnect or move to its official
-  // connection follows its plan's primary way in. Connected cards are inert.
+  // copies it; any card to connect or reconnect follows its plan's primary
+  // way in. Connected cards are inert.
   const handleConnect = (provider: ProviderStatus) => {
     const status = cardStatus(provider);
     if (status === 'authorize_owed') {
@@ -386,7 +385,7 @@ export default function ProviderConnectionCards({
         const historyWithoutSignIn = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
         const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
         const refused =
-          refusedCard === provider.provider && (status === 'connect' || status === 'reconnect' || status === 'migrate');
+          refusedCard === provider.provider && (status === 'connect' || status === 'reconnect');
         const name = { provider: provider.display_name };
         const historyHintId = `provider-history-hint-${provider.provider}`;
 
@@ -398,15 +397,15 @@ export default function ProviderConnectionCards({
               disabled={!actionable}
               className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
               data-status={status}
-              // A row offering its history, or the move to the official
-              // connection, is named by what it shows — the provider, its
-              // state and the action's words — so the spoken name carries the
-              // visible label (WCAG 2.5.3); the history hint describes it.
+              // A row offering its history, or a reconnect, is named by what
+              // it shows — the provider, its state and the action's words —
+              // so the spoken name carries the visible label (WCAG 2.5.3);
+              // the history hint describes it.
               aria-describedby={offersHistory ? historyHintId : undefined}
               aria-label={
                 status === 'authorize_owed'
                   ? t('providers.authorizeToKeepSyncing', name)
-                  : offersHistory || status === 'migrate' || status === 'reconnect' || status === 'history_importing' || refused
+                  : offersHistory || status === 'reconnect' || status === 'history_importing' || refused
                   ? undefined
                   : provider.connected
                   ? t('providers.isConnectedAria', name)
@@ -435,11 +434,9 @@ export default function ProviderConnectionCards({
                 <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
                   {offersHistory
                     ? t(historyActionKey(provider))
-                    : status === 'migrate'
-                      ? t('app.connectProvider', name)
-                      : status === 'reconnect'
-                        ? t('app.reconnect')
-                        : t('providers.connect')}
+                    : status === 'reconnect'
+                      ? t('app.reconnect')
+                      : t('providers.connect')}
                 </span>
               )}
               {offersHistory && (
@@ -501,7 +498,6 @@ export default function ProviderConnectionCards({
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSignIn(null);
         }}
-        onPlanChanged={() => void refetch()}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
@@ -587,8 +583,6 @@ function RowStatus({
       return line('bg-warning', t('providers.authorizeToKeepSyncing', name), `provider-authorization-owed-${provider}`);
     case 'reconnect':
       return line('bg-warning', t('providers.reconnectNeeded'), `provider-reconnect-needed-${provider}`);
-    case 'migrate':
-      return line('bg-warning', t('providers.migration.oauthRequired', name), `provider-migrate-${provider}`);
     case 'history_importing':
       return line(null, t(HISTORY_LINE_KEYS.importing, name), `provider-history-importing-${provider}`, true);
     case 'history_needed':

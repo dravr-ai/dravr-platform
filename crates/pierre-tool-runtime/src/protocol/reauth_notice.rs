@@ -154,7 +154,8 @@ pub async fn notify_needs_reauth(
 /// provider's OAuth.
 ///
 /// True for a mirror `backend` when the athlete holds neither half of its
-/// pair in `tenant_id` and the operator's order for its provider puts the
+/// pair in `tenant_id` (no token row, no connection row) and the operator's
+/// order for its provider puts the
 /// sign-in first while a seat is free on the provider's OAuth
 /// ([`sign_in_falls_back_to_oauth`], carnet#1477). Its link is then the
 /// connect picker, which carries that fallback; the bare sign-in page does
@@ -173,13 +174,26 @@ pub async fn new_sign_in_falls_back(
         return false;
     }
     let repos = runtime.repos();
-    for held in backend_pair_for(backend) {
+    let pair = backend_pair_for(backend);
+    for held in &pair {
         if !matches!(
-            repos.oauth_tokens.get_token(user_id, tenant_id, &held).await,
+            repos.oauth_tokens.get_token(user_id, tenant_id, held).await,
             Ok(None)
         ) {
             return false;
         }
+    }
+    let connected = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .map_or(true, |connections| {
+            connections
+                .iter()
+                .any(|connection| pair.contains(&connection.provider))
+        });
+    if connected {
+        return false;
     }
     let (order, seats) = order_and_seats(
         repos.system_settings.as_ref(),

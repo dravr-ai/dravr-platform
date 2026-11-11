@@ -11,13 +11,19 @@ use serde_json::{json, Value};
 
 use crate::guardian_settings_cli_test::{stdout_of, CliHome, ServerStandIn};
 
-/// The server's answer to a read or a flip, Strava on the sign-in first.
+/// The server's answer to a read or a flip: Garmin on the OAuth first, every
+/// other provider on the default sign-in first.
 fn orders_reply() -> Value {
     json!({
         "success": true,
         "message": "ok",
         "data": {
-            "orders": { "garmin": "oauth_first", "strava": "sign_in_first" },
+            "orders": {
+                "coros": "sign_in_first",
+                "garmin": "oauth_first",
+                "strava": "sign_in_first",
+                "trainingpeaks": "sign_in_first",
+            },
             "description": "Which way a NEW connection of each provider goes first."
         }
     })

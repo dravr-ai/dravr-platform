@@ -59,7 +59,7 @@ describe('OAuthCallback', () => {
     expect(screen.getByText('Invalid token')).toBeInTheDocument()
   })
 
-  it.each(['no_seat', 'oauth_required', 'access_denied'])(
+  it.each(['no_seat', 'invalid_scope', 'access_denied'])(
     'words the reason code %s in the app\'s sentence and never prints the code',
     (code) => {
       render(<OAuthCallback provider="garmin" error={code} onClose={vi.fn()} />)

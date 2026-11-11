@@ -9,7 +9,8 @@
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
-// The Garmin card works as the Strava card does: a new connection goes
+// The Garmin card works as the Strava card does: a new connection signs in
+// with usr/pwd by default, and under the operator's OAuth-first order goes
 // through Garmin's OAuth while the Developer Program client has a seat, and
 // through the connection using usr/pwd from Dravr once the pool is full, the
 // count fails or no Garmin client is configured. Which card is listed, its
@@ -38,6 +39,7 @@ use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
+use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_config::environment::{OAuthProviderConfig, ProviderEndpointOverride, ServerConfig};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_seats::GARMIN_SEAT_CAPACITY_DEFAULT;
@@ -187,10 +189,28 @@ fn config_with_garmin_cap(cap: u32) -> ServerConfig {
     config
 }
 
+/// Put Garmin's OAuth first, the operator's kill switch (carnet#1494).
+async fn garmin_oauth_first(resources: &Arc<ServerContext>) {
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        oauth_providers::GARMIN,
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn the_garmin_card_offers_garmin_oauth_while_seats_remain() {
+async fn the_garmin_card_offers_garmin_oauth_while_seats_remain_under_the_oauth_first_order() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (_, user, _) = user_and_tenant(&resources, "garmin-seat-open@example.com").await;
+    let by_default = cards(&resources, &user).await;
+    let garmin = card(&by_default, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        garmin["recommended_backend"], "mirror",
+        "bug: by default a new Garmin connection is sent to the OAuth: {garmin}"
+    );
+    garmin_oauth_first(&resources).await;
 
     let cards = cards(&resources, &user).await;
     let garmin = card(&cards, oauth_providers::SCIOTTE_GARMIN);
@@ -366,9 +386,10 @@ async fn a_server_without_a_garmin_client_offers_the_usr_pwd_connection() {
 }
 
 #[tokio::test]
-async fn the_hosted_picker_starts_garmin_oauth_while_seats_remain() {
+async fn the_hosted_picker_starts_garmin_oauth_while_seats_remain_under_the_oauth_first_order() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, _, tenant) = user_and_tenant(&resources, "garmin-picker@example.com").await;
+    garmin_oauth_first(&resources).await;
 
     let page = picker_page(&resources, user_id, tenant).await;
     let start = page

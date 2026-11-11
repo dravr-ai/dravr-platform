@@ -202,11 +202,10 @@ export type {
 } from './providers';
 
 // What a provider card offers — its connect or reconnect, the sign-in its
-// history needs, the move to the official connection, where a refused grant
-// goes, and the OAuth a failed sign-in falls back to
+// history needs, where a refused grant goes, and the OAuth a failed sign-in
+// falls back to
 export {
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   SIGN_IN_UNAVAILABLE,
   cardForSlug,
   cardStatus,

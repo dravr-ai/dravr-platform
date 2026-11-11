@@ -57,10 +57,7 @@ use pierre_chat_pipeline::{
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
-    KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
-};
-use pierre_contremaitre::reauth_strings::{
-    KEY_PROVIDER_REAUTH_OAUTH_REQUIRED, KEY_PROVIDER_REAUTH_OAUTH_SERVED,
+    KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::errors::AppError;
@@ -1854,13 +1851,12 @@ async fn a_whoop_reconnect_owing_the_owner_authorization_offers_the_hosted_picke
     );
 }
 
-/// A dead usr/pwd Garmin session of the athlete's own, while a seat is free on
-/// Garmin's OAuth, is offered the move: the copy names Garmin's official
-/// connection and the link opens the hosted connect picker, never the usr/pwd
-/// sign-in it would have re-signed (carnet#1454). On a served turn the same
-/// move is appended to the answer.
+/// A dead usr/pwd Garmin session of the athlete's own is offered its hosted
+/// sign-in, whatever the seats on Garmin's OAuth (carnet#1494): the reply is
+/// the ordinary reconnect copy and the link opens the Garmin sign-in. On a
+/// served turn the same sign-in is appended to the answer.
 #[tokio::test]
-async fn a_usr_pwd_only_garmin_reconnect_offers_the_connect_picker_while_a_seat_is_free() {
+async fn a_usr_pwd_only_garmin_reconnect_offers_its_sign_in() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = usr_pwd_garmin_athlete(&resources).await;
 
@@ -1881,24 +1877,23 @@ async fn a_usr_pwd_only_garmin_reconnect_offers_the_connect_picker_while_a_seat_
     assert_eq!(
         result.content,
         MessagingStringsRegistry::new().render(
-            KEY_PROVIDER_REAUTH_OAUTH_REQUIRED,
+            KEY_PROVIDER_REAUTH_REQUIRED,
             "fr",
             &[prompt.display_name.as_str(), prompt.url.as_str()],
         ),
-        "bug: the reply names the move to Garmin's official connection"
+        "bug: the reply is the ordinary reconnect"
     );
-    let target = offer_target(&resources, &prompt.url).await;
-    assert!(
-        !target.contains(HOSTED_SIGNIN_PATH),
-        "bug: a usr/pwd sign-in link would re-sign the session it should move: {target}"
+    let token = token_after(
+        &offer_target(&resources, &prompt.url).await,
+        HOSTED_SIGNIN_PATH,
     );
-    let token = token_after(&target, "/providers/connect");
-    let claims = verify_link_token(&token, RECOVERY_LINK_SECRET, CONNECT_PROVIDER)
-        .expect("a connect-scoped token for the picker");
+    let claims =
+        verify_link_token(&token, RECOVERY_LINK_SECRET, "sciotte").expect("a hosted-login token");
+    assert_eq!(claims.tgt, "garmin", "bug: the Garmin sign-in");
     assert_eq!(
         claims.sub,
         user_id.to_string(),
-        "bug: the picker link is this athlete's"
+        "bug: the sign-in link is this athlete's"
     );
 
     let mut served = loop_result(None, Some("sciotte_garmin"));
@@ -1914,12 +1909,14 @@ async fn a_usr_pwd_only_garmin_reconnect_offers_the_connect_picker_while_a_seat_
     assert_eq!(
         prompt.text,
         MessagingStringsRegistry::new().render(
-            KEY_PROVIDER_REAUTH_OAUTH_SERVED,
+            KEY_PROVIDER_REAUTH_SERVED,
             "fr",
             &[prompt.display_name.as_str(), prompt.url.as_str()],
         ),
-        "bug: the served turn offers the move as well"
+        "bug: the served turn offers the sign-in as well"
     );
-    let target = offer_target(&resources, &prompt.url).await;
-    token_after(&target, "/providers/connect");
+    token_after(
+        &offer_target(&resources, &prompt.url).await,
+        HOSTED_SIGNIN_PATH,
+    );
 }

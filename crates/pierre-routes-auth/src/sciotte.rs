@@ -366,7 +366,13 @@ async fn store_sciotte_session(
     .await?;
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
-    replace_dead_grant(resources, user_id, TenantId::from_uuid(tenant_id), provider_name).await;
+    replace_dead_grant(
+        resources,
+        user_id,
+        TenantId::from_uuid(tenant_id),
+        provider_name,
+    )
+    .await;
     warm_from_session(
         resources,
         user_id,

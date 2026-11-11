@@ -73,9 +73,7 @@ use crate::card_seats::require_garmin_seat;
 use crate::connect_hosted_import::hosted_import_source;
 use crate::connect_hosted_templates;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
-use crate::oauth::{
-    compute_providers_status, dead_grant_sign_in_url, require_oauth_start_notice,
-};
+use crate::oauth::{compute_providers_status, dead_grant_sign_in_url, require_oauth_start_notice};
 use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
 
@@ -493,8 +491,7 @@ pub(crate) async fn handle_connect_oauth_init(
 
     // A dead grant reconnects through its hosted sign-in, never its OAuth
     // (carnet#1494), however the picker was reached.
-    match dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, &claims.channel).await
-    {
+    match dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, &claims.channel).await {
         Ok(Some(sign_in)) => {
             return (StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response();
         }

@@ -360,15 +360,6 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
-   * The move the card asks of an athlete connected by usr/pwd alone:
-   * `'oauth_required'` on the Garmin card of an athlete whose own usr/pwd
-   * session serves it, with no Garmin grant, while a seat is free on Garmin's
-   * OAuth client. The card offers Garmin's official connection; the athlete
-   * keeps their session until they move. Absent otherwise, and always with
-   * the pool full.
-   */
-  migration?: 'oauth_required';
-  /**
    * How the connection behind a connected card was made: `"oauth"` for a
    * provider authorization, `"manual"` for a pasted credential (an
    * Intervals.icu API key), `"delegated"` for a card read through a group

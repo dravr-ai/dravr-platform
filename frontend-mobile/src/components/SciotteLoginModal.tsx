@@ -26,7 +26,6 @@ import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
-import { signInOauthRequiredLine } from '../utils/connectFlow';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
@@ -36,7 +35,6 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
-  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
@@ -77,13 +75,6 @@ interface SciotteLoginModalProps {
    * success says the copy is running.
    */
   historyMode?: boolean;
-  /**
-   * The server refused the sign-in because the provider now connects through
-   * its official authorization (`details.reason` `oauth_required`): the
-   * window stays open and says so, as the web's does, and the caller reads
-   * its cards again, whose plan then leads to that authorization.
-   */
-  onOAuthRequired?: () => void;
   /**
    * The card's account sign-in goes first with an OAuth seat free
    * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
@@ -230,7 +221,6 @@ export function SciotteLoginModal({
   target,
   consentRequired = false,
   historyMode = false,
-  onOAuthRequired,
   onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
@@ -354,7 +344,6 @@ export function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(platformName);
       }
-      if (reason === SIGN_IN_OAUTH_REQUIRED) return signInOauthRequiredLine(t, platformName);
       return describeApiError(err, { t, fallbackKey });
     },
     [platformName, t]
@@ -410,11 +399,10 @@ export function SciotteLoginModal({
       }
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
-      if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onOAuthRequired, onFallBackToOAuth, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onFallBackToOAuth, refusalMessage, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(

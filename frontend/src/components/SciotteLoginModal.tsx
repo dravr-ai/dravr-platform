@@ -21,9 +21,7 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
-  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
-  refusalReloadsCards,
   providerGlyphInk,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
@@ -59,13 +57,6 @@ interface SciotteLoginModalProps {
    */
   historyMode?: boolean;
   /**
-   * The server refused the sign-in because the card now connects another way
-   * (`oauth_required`: a Garmin seat is free, so a new connection goes
-   * through Garmin's authorization): the caller reads its cards again so the
-   * next tap follows the new plan.
-   */
-  onPlanChanged?: () => void;
-  /**
    * The card's account sign-in goes first with an OAuth seat free
    * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
    * provider stops at a challenge, hands over to the provider's OAuth through
@@ -91,7 +82,6 @@ export default function SciotteLoginModal({
   target = 'strava',
   consentRequired = false,
   historyMode = false,
-  onPlanChanged,
   onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
@@ -174,9 +164,6 @@ export default function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(providerLabel);
       }
-      if (reason === SIGN_IN_OAUTH_REQUIRED) {
-        return t('hosted.common.signInOauthRequired').split('{0}').join(providerLabel);
-      }
       return describeApiError(err, { online, t, fallbackKey });
     },
     [online, providerLabel, t]
@@ -243,12 +230,11 @@ export default function SciotteLoginModal({
         }
         setError(refusalMessage(err, 'auth.loginFailed'));
         setPhase('error');
-        if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onPlanChanged, onFallBackToOAuth, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onFallBackToOAuth, refusalMessage, t]
   );
 
   // What a refused continuation tells the user.

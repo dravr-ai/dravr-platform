@@ -1077,7 +1077,10 @@ mod tests {
                 "bug: a {reason:?} disconnect leaves half the card connected"
             );
         }
-        for reason in [DisconnectReason::SeatReclaim, DisconnectReason::ProviderRevoked] {
+        for reason in [
+            DisconnectReason::SeatReclaim,
+            DisconnectReason::ProviderRevoked,
+        ] {
             assert_eq!(
                 disconnected_backends(oauth_providers::STRAVA, reason),
                 [oauth_providers::STRAVA],

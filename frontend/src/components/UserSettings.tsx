@@ -1697,7 +1697,6 @@ Authorization: Bearer <your-token-here>`}
           refetchProviders();
           setSignIn(null);
         }}
-        onPlanChanged={() => void refetchProviders()}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}

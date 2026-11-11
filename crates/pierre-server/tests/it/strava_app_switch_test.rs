@@ -1471,7 +1471,9 @@ async fn a_provider_built_for_a_pool_token_refreshes_under_its_own_app() {
 
 /// The mobile app's authorize route names the app the seat rules pick and
 /// pins it on the state it stores, so the callback spends the code under that
-/// app's client.
+/// app's client. A new connection is the one that starts it: a dead grant's
+/// start answers with the hosted sign-in instead (carnet#1494,
+/// `sciotte_first_reconnect_test`).
 #[tokio::test]
 async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
     let (base, mock) = mock_strava().await;
@@ -1482,9 +1484,7 @@ async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
         .upsert_strava_pool_app("910022", POOL_SECRET, 5, Some("pool-v"))
         .await
         .unwrap();
-    let (user_id, tenant) = athlete(&resources, "mobile-reconnect").await;
-    connect(repos, user_id, tenant, None).await;
-    kill(repos, user_id, tenant).await;
+    let (user_id, tenant) = athlete(&resources, "mobile-connect").await;
     fill_env_app(repos).await;
     let user = repos.users.get_global(user_id).await.unwrap().unwrap();
     let jwt = resources

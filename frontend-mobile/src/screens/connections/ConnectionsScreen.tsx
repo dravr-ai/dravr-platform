@@ -37,7 +37,6 @@ import {
   HISTORY_IMPORTING_REFRESH_MS,
   HISTORY_LINE_KEYS,
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   cardForSlug,
   cardHistoryState,
   cardStatus,
@@ -138,27 +137,25 @@ export function ConnectionsScreen() {
   }, [t]);
 
   /**
-   * Tell the row `cardKey` its connect did not go through, and why when the
-   * server named it (`reason`). When the refusal says the row's plan changed
-   * under the athlete (a seat went or came back), the rows are read again
-   * first, and a row that now signs in opens its sign-in at once when
-   * `signInAllowed` — never after a sign-in the server just refused, which
-   * would only be refused again.
+   * Tell the row `cardKey` its connect did not go through. When the
+   * refusal says the row's plan changed under the athlete (the seat it was
+   * shown went), the rows are read again first, and a row that now signs in
+   * opens its sign-in at once.
    */
   const showRefusal = async (
     cardKey: string,
-    { reload, signInAllowed, reason }: { reload: boolean; signInAllowed: boolean; reason?: string },
+    { reload }: { reload: boolean },
   ) => {
     if (reload) {
       const served = await loadConnectionStatus({ quiet: true });
       const card = served.find((p) => p.provider === cardKey);
       const primary = card ? connectPlan(card).primary : null;
-      if (signInAllowed && card && primary?.kind === 'sign_in') {
+      if (card && primary?.kind === 'sign_in') {
         signIn.open(primary.target, card);
         return;
       }
     }
-    setRefusedCard({ card: cardKey, reason });
+    setRefusedCard({ card: cardKey });
   };
 
   useEffect(() => {
@@ -266,7 +263,7 @@ export function ConnectionsScreen() {
           if (fallback) {
             signIn.openFor(fallback, providers);
           } else if (refusalReturnsToCard(providerId)) {
-            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, signInAllowed: true });
+            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
           } else {
             Alert.alert(t('app.connectionFailed'), t('app.failedToConnectReason', { reason: error }));
           }
@@ -294,8 +291,7 @@ export function ConnectionsScreen() {
       }
       if (refusalReturnsToCard(providerId)) {
         console.error('Failed to start the OAuth flow:', err);
-        const reason = refusalReason(err);
-        await showRefusal(cardKey, { reload: refusalReloadsCards(reason), signInAllowed: true, reason });
+        await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
         return;
       }
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
@@ -485,8 +481,6 @@ export function ConnectionsScreen() {
         coach: delegation.coach_display_name,
         group: delegation.group_name,
       });
-    } else if (status === 'migrate') {
-      subtitle = t('providers.migration.oauthRequired', { provider: provider.display_name });
     } else if (provider.account_role === 'coach') {
       subtitle = t('humanCoach.trainingpeaksAccountHint');
     }
@@ -513,15 +507,6 @@ export function ConnectionsScreen() {
         <>
           <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
           {canConnect && action(t('app.reconnect'), reconnect)}
-        </>
-      );
-    } else if (status === 'migrate') {
-      // Served by a sign-in alone while a seat of the official connection is
-      // free: the row moves it there, through the provider's authorization.
-      trailing = (
-        <>
-          <StatusDot tone="warning" />
-          {action(t('app.connectProvider', { provider: provider.display_name }), reconnect)}
         </>
       );
     } else if (isConnected) {
@@ -560,7 +545,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: needsReauth || owesAuthorization || status === 'migrate',
+                    canReconnect: needsReauth || owesAuthorization,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
@@ -621,7 +606,7 @@ export function ConnectionsScreen() {
                 accessibilityLiveRegion="polite"
                 testID={`provider-error-${id}`}
               >
-                {refusedConnectLine(t, refusedCard, provider.display_name)}
+                {refusedConnectLine(t, provider.display_name)}
               </Text>
             )}
             {exportSource && (
@@ -726,13 +711,6 @@ export function ConnectionsScreen() {
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
-        onOAuthRequired={() => {
-          const target = signIn.target;
-          const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;
-          if (card) {
-            void showRefusal(card.provider, { reload: true, signInAllowed: false, reason: SIGN_IN_OAUTH_REQUIRED });
-          }
-        }}
       />
 
       <IntervalsIcuLinkModal

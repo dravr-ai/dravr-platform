@@ -1143,11 +1143,12 @@ async fn hold_garmin_grant(resources: &Arc<ServerContext>, user_id: Uuid, tenant
     register_connection(resources, user_id, tenant_id, oauth_providers::GARMIN).await;
 }
 
-/// A usr/pwd-only Garmin card is asked to move to Garmin's OAuth while a seat
-/// is free (`migrate`), and asked nothing once the pool is full
-/// (carnet#1454).
+/// A usr/pwd-only Garmin card is connected and asks nothing, though a seat is
+/// free; a dead Garmin grant's card is offered as its sign-in, with no OAuth
+/// to fall back to: a dead grant reconnects only through the hosted sign-in
+/// (carnet#1494).
 #[tokio::test]
-async fn picker_asks_a_usr_pwd_only_garmin_card_to_move_only_while_a_seat_is_free() {
+async fn picker_offers_a_dead_garmin_grant_its_sign_in_and_asks_a_session_nothing() {
     let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
     register_connection(
         &resources,
@@ -1158,81 +1159,78 @@ async fn picker_asks_a_usr_pwd_only_garmin_card_to_move_only_while_a_seat_is_fre
     .await;
     let card = garmin_picker_card(&resources, user_id, tenant_id).await;
     assert_eq!(card["connected"], true, "{card}");
-    assert_eq!(
-        card["migrate"], true,
-        "bug: a seat is free, so the usr/pwd-only card is asked to move: {card}"
+    assert!(
+        card.get("migrate").is_none(),
+        "bug: a move is asked: {card}"
     );
 
-    let mut full = common::test_server_config();
-    full.oauth.garmin_seat_cap = Some(1);
-    let (resources, user_id, tenant_id) = setup_with(full).await;
-    let (holder, _holder_user, holder_tenant) = common::create_test_user_with_plan(
-        &resources.agent.database,
-        &format!("garmin-seat-holder-{}@example.com", Uuid::new_v4()),
-        "starter",
-    )
-    .await
-    .unwrap();
-    hold_garmin_grant(&resources, holder, holder_tenant).await;
-    register_connection(
-        &resources,
-        user_id,
-        tenant_id,
-        oauth_providers::SCIOTTE_GARMIN,
-    )
-    .await;
+    let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
+    hold_garmin_grant(&resources, user_id, tenant_id).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            oauth_providers::GARMIN,
+            Some("refresh_refused"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
     let card = garmin_picker_card(&resources, user_id, tenant_id).await;
-    assert_eq!(card["connected"], true, "{card}");
     assert_eq!(
-        card["migrate"], false,
-        "bug: with the pool full the usr/pwd connection stays the way in: {card}"
+        card["connected"], false,
+        "bug: a dead grant's card cannot be picked: {card}"
+    );
+    assert_eq!(
+        card["kind"], "credentials",
+        "bug: a dead grant's card is not its sign-in: {card}"
+    );
+    assert_eq!(
+        card["oauth_fallback"], false,
+        "bug: a dead grant's sign-in falls back to its OAuth: {card}"
     );
 }
 
-/// With Garmin's sign-in first and a seat free, the picker's Garmin card is
-/// the credential sign-in and carries `oauth_fallback`, so a sign-in that
-/// cannot complete starts Garmin's OAuth (carnet#1477). With OAuth first the
-/// card is the OAuth and needs no fallback, and with the pool full there is no
-/// OAuth to fall back to.
+/// By default (the sign-in first) and with a seat free, the picker's Garmin
+/// card is the credential sign-in and carries `oauth_fallback`, so a sign-in
+/// that cannot complete starts Garmin's OAuth (carnet#1477). With the OAuth
+/// first the card is the OAuth and needs no fallback, and with the pool full
+/// there is no OAuth to fall back to.
 #[tokio::test]
 async fn a_sign_in_first_card_falls_back_to_its_oauth_only_while_a_seat_is_free() {
     let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
     let card = garmin_picker_card(&resources, user_id, tenant_id).await;
     assert_eq!(
-        card["kind"], "oauth",
-        "precondition: OAuth first with a seat free: {card}"
-    );
-    assert_eq!(
-        card["oauth_fallback"], false,
-        "bug: an OAuth card carries a sign-in fallback: {card}"
-    );
-
-    set_connect_order(
-        resources.common.repos.system_settings.as_ref(),
-        oauth_providers::GARMIN,
-        ConnectOrder::SignInFirst,
-    )
-    .await
-    .unwrap();
-    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
-    assert_eq!(
         card["kind"], "credentials",
-        "the sign-in goes first: {card}"
+        "the sign-in goes first by default: {card}"
     );
     assert_eq!(
         card["oauth_fallback"], true,
         "bug: a sign-in-first card with a seat free cannot fall back to Garmin's OAuth: {card}"
     );
 
-    let (resources, user_id, tenant_id) =
-        setup_with(common::test_server_config_usr_pwd_garmin()).await;
     set_connect_order(
         resources.common.repos.system_settings.as_ref(),
         oauth_providers::GARMIN,
-        ConnectOrder::SignInFirst,
+        ConnectOrder::OAuthFirst,
     )
     .await
     .unwrap();
+    let card = garmin_picker_card(&resources, user_id, tenant_id).await;
+    assert_eq!(
+        card["kind"], "oauth",
+        "OAuth first with a seat free: {card}"
+    );
+    assert_eq!(
+        card["oauth_fallback"], false,
+        "bug: an OAuth card carries a sign-in fallback: {card}"
+    );
+
+    let (resources, user_id, tenant_id) =
+        setup_with(common::test_server_config_usr_pwd_garmin()).await;
     let card = garmin_picker_card(&resources, user_id, tenant_id).await;
     assert_eq!(
         card["oauth_fallback"], false,
@@ -1240,9 +1238,9 @@ async fn a_sign_in_first_card_falls_back_to_its_oauth_only_while_a_seat_is_free(
     );
 }
 
-/// The Strava card follows the same rule (carnet#1477): OAuth first it is the
-/// OAuth with no fallback; with the sign-in first and Strava seats free its
-/// sign-in falls back to the Strava OAuth.
+/// The Strava card follows the same rule (carnet#1477): by default its
+/// sign-in goes first and falls back to the Strava OAuth while seats are
+/// free; with the OAuth first it is the OAuth with no fallback.
 #[tokio::test]
 async fn a_sign_in_first_strava_card_falls_back_to_the_strava_oauth() {
     let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
@@ -1258,34 +1256,34 @@ async fn a_sign_in_first_strava_card_falls_back_to_the_strava_oauth() {
     };
     let card = strava(resources.clone()).await;
     assert_eq!(
-        card["kind"], "oauth",
-        "precondition: OAuth first with a seat free: {card}"
-    );
-    assert_eq!(
-        card["oauth_fallback"], false,
-        "bug: an OAuth card carries a sign-in fallback: {card}"
-    );
-
-    set_connect_order(
-        resources.common.repos.system_settings.as_ref(),
-        oauth_providers::STRAVA,
-        ConnectOrder::SignInFirst,
-    )
-    .await
-    .unwrap();
-    let card = strava(resources.clone()).await;
-    assert_eq!(
         card["kind"], "credentials",
-        "the sign-in goes first: {card}"
+        "the sign-in goes first by default: {card}"
     );
     assert_eq!(
         card["oauth_fallback"], true,
         "bug: a sign-in-first Strava card with a seat free cannot fall back to the Strava OAuth: {card}"
     );
+
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        oauth_providers::STRAVA,
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
+    let card = strava(resources.clone()).await;
+    assert_eq!(
+        card["kind"], "oauth",
+        "OAuth first with a seat free: {card}"
+    );
+    assert_eq!(
+        card["oauth_fallback"], false,
+        "bug: an OAuth card carries a sign-in fallback: {card}"
+    );
 }
 
 /// A Garmin grant whose history the usr/pwd session copied reads `imported`
-/// on the picker, and is asked no move.
+/// on the picker.
 #[tokio::test]
 async fn picker_reads_an_imported_garmin_history_on_a_grant() {
     let (resources, user_id, tenant_id) = setup_with(common::test_server_config()).await;
@@ -1318,7 +1316,6 @@ async fn picker_reads_an_imported_garmin_history_on_a_grant() {
         card["history_state"], "imported",
         "bug: what the session copied is the history: {card}"
     );
-    assert_eq!(card["migrate"], false, "a grant holder has moved: {card}");
 }
 
 /// A fresh Garmin grant holds no history yet: its card reads `needed` with the

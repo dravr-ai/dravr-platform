@@ -46,7 +46,7 @@ use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
 };
 use pierre_tool_runtime::protocol::auth::AuthService;
-use pierre_tool_runtime::protocol::reauth_notice::new_strava_sign_in_falls_back;
+use pierre_tool_runtime::protocol::reauth_notice::new_sign_in_falls_back;
 use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 
 /// The reconciliation statement of migration 20260714000001, run here verbatim.
@@ -92,6 +92,22 @@ async fn seed_token(
         .upsert_token(&token)
         .await
         .expect("upsert test token");
+}
+
+/// Register `provider`'s connection row, as a connect does.
+async fn seed_connection(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, provider, &ConnectionType::OAuth, None)
+        .await
+        .expect("register test connection");
 }
 
 async fn user_primary_tenant(resources: &Arc<ServerContext>, user_id: Uuid) -> TenantId {
@@ -987,19 +1003,17 @@ async fn connect_provider_hands_garmin_to_the_hosted_login() {
     assert_hosted_login_handoff(&with_row, "garmin", oauth_providers::SCIOTTE_GARMIN);
 }
 
-/// With the operator's Strava order on the sign-in first (carnet#1477), the
-/// chat connects Strava the way its card does: the hosted sign-in, never an
-/// OAuth URL. An athlete who already holds a Strava grant re-signs it through
-/// the OAuth, and with the order back on OAuth first the hand-off stops.
+/// By default the chat connects Strava the way its card does: the hosted
+/// sign-in, never an OAuth URL (carnet#1494), for a new athlete and for one
+/// whose Strava grant died, whose reconnect is the sign-in whatever the
+/// order. With the order flipped to OAuth first, a new athlete gets the OAuth
+/// again.
 #[tokio::test]
-async fn connect_provider_follows_a_sign_in_first_strava_order() {
+async fn connect_provider_follows_the_strava_order_and_reconnects_by_sign_in() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     let settings = resources.common.repos.system_settings.as_ref();
-    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::SignInFirst)
-        .await
-        .unwrap();
 
     let tool = ConnectProviderTool;
     let state = tool_state(&resources);
@@ -1009,22 +1023,32 @@ async fn connect_provider_follows_a_sign_in_first_strava_order() {
     let new_athlete = tool.execute(&state, &ctx, strava.clone()).await;
     assert_hosted_login_handoff(&new_athlete, "strava", oauth_providers::SCIOTTE);
 
+    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::OAuthFirst)
+        .await
+        .unwrap();
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
-    let grant_holder = structured(&tool.execute(&state, &ctx, strava.clone()).await).clone();
-    assert_ne!(
-        grant_holder.get("error_code").and_then(Value::as_str),
-        Some("provider_auth_required"),
-        "bug: a Strava grant holder was sent to the sign-in instead of re-signing their grant: {grant_holder:?}"
-    );
+    seed_connection(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            oauth_providers::STRAVA,
+            Some("refresh_refused"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let dead_grant = tool.execute(&state, &ctx, strava.clone()).await;
+    assert_hosted_login_handoff(&dead_grant, "strava", oauth_providers::SCIOTTE);
 
     let (other, _) =
         common::create_test_user_with_email(&resources.agent.database, "oauth-first@example.com")
             .await
             .unwrap();
     let other_tenant = user_primary_tenant(&resources, other).await;
-    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::OAuthFirst)
-        .await
-        .unwrap();
     let oauth_first = structured(
         &tool
             .execute(&state, &tool_context(other, other_tenant), strava)
@@ -1038,38 +1062,46 @@ async fn connect_provider_follows_a_sign_in_first_strava_order() {
     );
 }
 
-/// The chat's link for the Strava sign-in hand-off is the connect picker,
-/// whose card carries the OAuth fallback, only for a NEW Strava connection
-/// with the sign-in first and a seat free (carnet#1477): an athlete with a
-/// Strava session or grant keeps the sign-in link, and with OAuth first there
-/// is nothing to fall back from.
+/// The chat's link for a sign-in hand-off is the connect picker, whose card
+/// carries the OAuth fallback, only for a NEW connection with the sign-in
+/// first and a seat free (carnet#1477, every provider since carnet#1494): an
+/// athlete with a session or grant keeps the sign-in link, a provider with no
+/// OAuth has nothing to fall back to, and with OAuth first there is nothing
+/// to fall back from.
 #[tokio::test]
-async fn a_new_strava_sign_in_falls_back_only_with_the_sign_in_first_and_no_connection() {
+async fn a_new_sign_in_falls_back_only_with_the_sign_in_first_and_no_connection() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     let state = tool_state(&resources);
     let falls_back =
-        || new_strava_sign_in_falls_back(&state, user_id, tenant_id, oauth_providers::SCIOTTE);
+        || new_sign_in_falls_back(&state, user_id, tenant_id, oauth_providers::SCIOTTE);
 
-    assert!(
-        !falls_back().await,
-        "bug: OAuth first offers a sign-in fallback"
-    );
-
-    let settings = resources.common.repos.system_settings.as_ref();
-    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::SignInFirst)
-        .await
-        .unwrap();
     assert!(
         falls_back().await,
         "bug: a new sign-in-first Strava connection gets no fallback link"
     );
+    for no_oauth in [
+        oauth_providers::SCIOTTE_COROS,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    ] {
+        assert!(
+            !new_sign_in_falls_back(&state, user_id, tenant_id, no_oauth).await,
+            "bug: {no_oauth} has no OAuth to fall back to"
+        );
+    }
+
+    let settings = resources.common.repos.system_settings.as_ref();
+    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::OAuthFirst)
+        .await
+        .unwrap();
     assert!(
-        !new_strava_sign_in_falls_back(&state, user_id, tenant_id, oauth_providers::SCIOTTE_COROS)
-            .await,
-        "bug: COROS has no OAuth to fall back to"
+        !falls_back().await,
+        "bug: OAuth first offers a sign-in fallback"
     );
+    set_connect_order(settings, oauth_providers::STRAVA, ConnectOrder::SignInFirst)
+        .await
+        .unwrap();
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
     assert!(
@@ -1085,9 +1117,16 @@ async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // A sciotte-Strava user authorizing OAuth: with the operator's order on
-    // OAuth first (the default kill switch), the connector mints an OAuth URL
-    // instead of steering them back to the mirror flow, and the grant it
-    // mints stands behind the session as its fallback (carnet#1494).
+    // OAuth first (the kill switch), the connector mints an OAuth URL instead
+    // of steering them back to the mirror flow, and the grant it mints stands
+    // behind the session as its fallback (carnet#1494).
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        oauth_providers::STRAVA,
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = ConnectProviderTool;

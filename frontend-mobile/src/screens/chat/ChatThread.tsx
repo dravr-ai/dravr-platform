@@ -686,7 +686,6 @@ export function ChatThread({
           }}
           target={signIn.target}
           consentRequired={signIn.consentRequired}
-          onOAuthRequired={() => void providerStatus.refreshAfterLink()}
           onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         />
       )}
