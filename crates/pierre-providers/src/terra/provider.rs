@@ -31,6 +31,7 @@ use crate::core::{
 };
 use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
+use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{CursorPage, PaginationParams};
@@ -264,6 +265,20 @@ impl Default for TerraProvider {
 pub struct TerraDescriptor;
 
 impl ProviderDescriptor for TerraDescriptor {
+    /// The activity summary Terra relays from the athlete's device.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::AVERAGE_HEART_RATE
+                .union(F::MAX_HEART_RATE)
+                .union(F::CALORIES)
+                .union(F::AVERAGE_POWER)
+                .union(F::NORMALIZED_POWER)
+                .union(F::AVERAGE_CADENCE),
+            detail_only: F::empty(),
+            streams: S::empty(),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "terra"
     }

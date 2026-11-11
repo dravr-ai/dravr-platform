@@ -55,6 +55,9 @@ use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
 mod activity_times;
 mod factory;
+/// The field dictionary guard for the four scraped targets.
+#[cfg(test)]
+mod field_guard;
 mod rotation;
 
 pub use factory::{

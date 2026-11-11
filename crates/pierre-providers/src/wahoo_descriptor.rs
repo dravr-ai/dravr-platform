@@ -10,6 +10,7 @@ use pierre_core::constants::oauth::{
 };
 use pierre_core::transport::TransportPolicy;
 
+use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
 use crate::provider_terms;
 use crate::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
@@ -27,6 +28,28 @@ use crate::spi::{
 pub struct WahooDescriptor;
 
 impl ProviderDescriptor for WahooDescriptor {
+    /// A workout's summary on every row; its FIT file's samples on a detail
+    /// read, never its GPS track. Wahoo's workout carries no
+    /// description or notes.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::AVERAGE_HEART_RATE
+                .union(F::AVERAGE_POWER)
+                .union(F::NORMALIZED_POWER)
+                .union(F::MOVING_TIME)
+                .union(F::AVERAGE_CADENCE)
+                .union(F::CALORIES)
+                .union(F::SPORT_TYPE_DETAIL),
+            detail_only: F::empty(),
+            streams: S::TIME
+                .union(S::HEART_RATE)
+                .union(S::POWER)
+                .union(S::SPEED)
+                .union(S::ALTITUDE)
+                .union(S::DISTANCE),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "wahoo"
     }

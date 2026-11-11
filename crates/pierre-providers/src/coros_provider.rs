@@ -683,3 +683,36 @@ impl ProviderFactory for CorosProviderFactory {
         &[oauth_providers::COROS]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CorosProvider, CorosWorkout};
+    use crate::field_support::assert_mapper_fills;
+    use crate::spi::{CorosDescriptor, ProviderDescriptor};
+
+    #[test]
+    fn the_coros_mapper_fills_what_its_descriptor_declares() {
+        let workout: CorosWorkout = serde_json::from_value(serde_json::json!({
+            "id": "c1",
+            "name": "Tempo",
+            "start_time": "2026-10-07T14:00:00Z",
+            "end_time": "2026-10-07T15:00:00Z",
+            "duration": 3_600,
+            "sport_type": 100,
+            "distance": 12_000.0,
+            "calories": 780,
+            "avg_heart_rate": 151,
+            "max_heart_rate": 178,
+            "avg_cadence": 176,
+            "avg_power": 260
+        }))
+        .unwrap();
+        let activity = CorosProvider::convert_workout(&workout).unwrap();
+        assert_mapper_fills(
+            "coros",
+            CorosDescriptor.activity_fields(),
+            &activity,
+            &activity,
+        );
+    }
+}
