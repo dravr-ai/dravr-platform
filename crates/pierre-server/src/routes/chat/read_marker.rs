@@ -13,9 +13,15 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+#[cfg(feature = "client-notifications")]
+use tracing::warn;
+#[cfg(feature = "client-notifications")]
+use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
+#[cfg(feature = "client-notifications")]
+use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 
 use super::common::get_tenant_id;
@@ -64,8 +70,42 @@ pub(super) async fn mark_read(
     if !marked {
         return Err(AppError::not_found("Conversation not found"));
     }
+    #[cfg(feature = "client-notifications")]
+    clear_thread_notifications(&resources, auth.user_id, tenant_id, &conversation_id).await;
 
     Ok((StatusCode::NO_CONTENT, ()).into_response())
+}
+
+/// Mark read the caller's notifications that open `conversation_id`, now
+/// that they have read the thread itself: the inbox keeps no "message from
+/// your agent" for a reply already on screen.
+///
+/// Best-effort, as the read marker is: a row left unread costs one stale
+/// badge, which the inbox's own mark-read clears.
+#[cfg(feature = "client-notifications")]
+pub(super) async fn clear_thread_notifications(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    conversation_id: &str,
+) {
+    let Some(service) = resources.common.notification_service.as_ref() else {
+        return;
+    };
+    if let Err(e) = service
+        .mark_conversation_notifications_read(
+            user_id,
+            pierre_notifications::TenantId(tenant_id.as_uuid()),
+            conversation_id,
+        )
+        .await
+    {
+        warn!(
+            conversation_id = %conversation_id,
+            error = %e,
+            "the thread's notifications could not be marked read"
+        );
+    }
 }
 
 /// Clear the caller's read marker — mark the thread unread.

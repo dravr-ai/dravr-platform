@@ -372,6 +372,24 @@ macro_rules! impl_chat_repository {
                 Ok(true)
             }
 
+            async fn has_read_message(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                message_id: &str,
+            ) -> AppResult<bool> {
+                let is_read: Option<bool> = sqlx::query_scalar(MESSAGE_READ_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind(message_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to read marker: {e}")))?;
+                Ok(is_read.unwrap_or(false))
+            }
+
             async fn clear_conversation_read_marker(
                 &self,
                 conversation_id: &str,

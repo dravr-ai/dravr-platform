@@ -229,6 +229,17 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         up_to_message_id: Option<&str>,
     ) -> AppResult<bool>;
+    /// Whether `user_id`'s read marker on the conversation covers message
+    /// `message_id` — the same rule the list's unread badge counts by.
+    /// `false` when the caller is not a participant or the message is not in
+    /// this conversation.
+    async fn has_read_message(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        message_id: &str,
+    ) -> AppResult<bool>;
     /// Clear `user_id`'s read marker — "mark unread": every `user`/`assistant`
     /// row counts as unread again. Returns `false` when the caller is not a
     /// participant.
@@ -722,6 +733,15 @@ macro_rules! message_columns {
 }
 pub(crate) use message_columns;
 
+/// Whether message `m` is unread for participant `p`: written after their read
+/// marker, or they have never read the thread. The one definition of unread,
+/// shared by the list's badge and the single-message check.
+macro_rules! message_unread {
+    () => {
+        "(p.last_read_at IS NULL OR m.created_at > p.last_read_at)"
+    };
+}
+
 /// The membership predicate every participant-scoped read shares: the
 /// caller has a participant row on the conversation in the conversation's
 /// tenant, and the conversation is either in the caller's tenant or a
@@ -798,7 +818,8 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
 /// row names its group by: their display name and email come back for the
 /// row parser to apply the roster naming rule to, so a page of athlete
 /// threads costs no read per row.
-pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
+pub(crate) const LIST_CONVERSATIONS_SQL: &str = concat!(
+    r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id, c.archived_at,
            c.personal, c.subject_user_id, c.subject_group_id,
@@ -810,7 +831,9 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
-               AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)) AS unread_count,
+               AND ",
+    message_unread!(),
+    r") AS unread_count,
            (SELECT SUBSTR(m.content, 1, $5) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
@@ -840,7 +863,8 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
         WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
       ))
     ORDER BY c.updated_at DESC, c.id DESC
-    LIMIT $3 OFFSET $4";
+    LIMIT $3 OFFSET $4",
+);
 
 /// The participant's total — the same membership and readability predicates
 /// as the page.
@@ -870,6 +894,21 @@ pub(crate) const READ_TARGET_SQL: &str = concat!(
      ) AS target \
      FROM conversation_participants p \
      JOIN chat_conversations c ON c.id = p.conversation_id \
+     WHERE p.conversation_id = $1 AND ",
+    participant_scope!()
+);
+
+/// Whether participant `$2` has read message `$4` of conversation `$1`.
+///
+/// No row when the caller is not a participant or the message is not in this
+/// conversation; the caller reads either as unread.
+pub(crate) const MESSAGE_READ_SQL: &str = concat!(
+    "SELECT NOT ",
+    message_unread!(),
+    " AS is_read \
+     FROM conversation_participants p \
+     JOIN chat_conversations c ON c.id = p.conversation_id \
+     JOIN chat_messages m ON m.conversation_id = p.conversation_id AND m.id = $4 \
      WHERE p.conversation_id = $1 AND ",
     participant_scope!()
 );

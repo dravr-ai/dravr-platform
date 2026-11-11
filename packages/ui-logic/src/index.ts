@@ -181,7 +181,11 @@ export {
   createPrivateLaneHooks,
   privateSendFailureText,
 } from './privateLaneHooks';
-export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
+export {
+  type UnreadCountPolling,
+  createNotificationHooks,
+  invalidateNotificationReads,
+} from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).

@@ -1419,8 +1419,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.8.0#cab0115dd8b40d55f3ab4c3f99ac30116881714e"
+version = "0.9.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.9.0#50984907fac6e6cf7a2c5ded844491067c45c180"
 dependencies = [
  "async-trait",
  "chrono",

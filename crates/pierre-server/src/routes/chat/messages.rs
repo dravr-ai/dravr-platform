@@ -41,6 +41,8 @@ use super::dto::{
     preview_text, resolve_stored_blocks, AwaitingReply, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, TopicResponse, TopicsListResponse,
 };
+#[cfg(feature = "client-notifications")]
+use super::read_marker::clear_thread_notifications;
 use super::room_quote::quote_reading;
 
 /// Messages served when the caller names no window size.
@@ -142,6 +144,8 @@ pub(super) async fn get_messages(
 
     if before.is_none() {
         mark_read(chat, &conversation_id, &user_id_str, tenant_id).await;
+        #[cfg(feature = "client-notifications")]
+        clear_thread_notifications(&resources, auth.user_id, tenant_id, &conversation_id).await;
     }
 
     // The caller's own thumbs up/down feedback for this conversation, so the

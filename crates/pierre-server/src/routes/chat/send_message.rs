@@ -46,7 +46,9 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
-use pierre_notifications::triggers as notification_triggers;
+use pierre_notifications::triggers::{self as notification_triggers, UNSEEN_REPLY_GRACE};
+#[cfg(feature = "client-notifications")]
+use tokio::time;
 
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
@@ -375,13 +377,17 @@ impl TurnEgress {
         match served {
             ServedTurn::Pipeline(envelope) => {
                 #[cfg(feature = "client-notifications")]
-                notify_agent_response(
-                    &self.resources,
-                    envelope.answered_by.as_deref(),
-                    self.user_id,
-                    self.tenant_id,
-                    &self.conversation.id,
-                );
+                if envelope.posted {
+                    notify_unseen_reply(UnseenReply {
+                        resources: Arc::clone(&self.resources),
+                        transport: self.transport,
+                        answered_by: envelope.answered_by.clone(),
+                        user_id: self.user_id,
+                        tenant_id: self.tenant_id,
+                        conversation_id: self.conversation.id.clone(),
+                        message_id: envelope.assistant.message.id.clone(),
+                    });
+                }
                 let mut response = TurnResponse::from_envelope(*envelope, execution_time_ms);
                 // The one quote a send shows is the one this request verified
                 // under the thread's coaching gates, which its row now holds.
@@ -687,28 +693,85 @@ fn terminal_events(outcome: Result<TurnResponse, AppError>) -> Vec<pipeline::Tur
     events
 }
 
-/// Fire-and-forget notification when an agent answers a turn, naming that
-/// agent. Sends nothing when no agent answered — a thread with none bound, or
-/// a reply the platform wrote itself.
+/// An agent's reply the athlete may not have seen, and what notifying them
+/// of it needs.
 #[cfg(feature = "client-notifications")]
-fn notify_agent_response(
-    resources: &Arc<ServerContext>,
-    answered_by: Option<&str>,
+struct UnseenReply {
+    /// Shared with the spawned grace check, which outlives the request.
+    resources: Arc<ServerContext>,
+    transport: Transport,
+    /// The agent the reply spoke as; `None` when no agent answered — a
+    /// thread with none bound, or a reply the platform wrote itself.
+    answered_by: Option<String>,
     user_id: Uuid,
     tenant_id: TenantId,
-    conversation_id: &str,
-) {
-    let (Some(agent_name), Some(service)) = (answered_by, &resources.common.notification_service)
-    else {
+    conversation_id: String,
+    /// The stored assistant row.
+    message_id: String,
+}
+
+/// Raise the agent-message notification for a reply the athlete did not see.
+///
+/// A reply lands on the athlete's screen when they are looking at the
+/// thread, and both apps then advance the read marker past it: notifying
+/// them of it is one more inbox row and push for every question they ask.
+/// So this waits [`UNSEEN_REPLY_GRACE`] and notifies only while the reply is
+/// still unread — the athlete left the thread, hid the tab or locked the
+/// phone before it arrived.
+///
+/// A caller outside Dravr's apps — an API key — read the reply in its own
+/// response and never moves the marker, so it is never notified. The wait is
+/// tracked by the shutdown drain; when the drain gives up, the check runs at
+/// once instead of being dropped.
+#[cfg(feature = "client-notifications")]
+fn notify_unseen_reply(mut reply: UnseenReply) {
+    if !reply.transport.is_app_session() {
+        return;
+    }
+    let (Some(agent_name), Some(service)) = (
+        reply.answered_by.take(),
+        reply.resources.common.notification_service.clone(),
+    ) else {
         return;
     };
-    notification_triggers::trigger_agent_message(
-        service,
-        user_id,
-        pierre_notifications::TenantId(tenant_id.as_uuid()),
-        conversation_id,
-        agent_name,
-    );
+    let turns = Arc::clone(&reply.resources.common.turns);
+    let drain = turns.drain_token();
+    turns.spawn(async move {
+        tokio::select! {
+            () = time::sleep(UNSEEN_REPLY_GRACE) => {}
+            () = drain.cancelled() => {}
+        }
+        let seen = reply
+            .resources
+            .common
+            .repos
+            .chat
+            .has_read_message(
+                &reply.conversation_id,
+                &reply.user_id.to_string(),
+                reply.tenant_id,
+                &reply.message_id,
+            )
+            .await;
+        match seen {
+            Ok(true) => return,
+            Ok(false) => {}
+            // Unknown is treated as unseen: a missed reply costs the athlete
+            // more than one extra notification.
+            Err(e) => warn!(
+                conversation_id = %reply.conversation_id,
+                error = %e,
+                "could not read the read marker; notifying of the reply"
+            ),
+        }
+        notification_triggers::trigger_agent_message(
+            &service,
+            reply.user_id,
+            pierre_notifications::TenantId(reply.tenant_id.as_uuid()),
+            &reply.conversation_id,
+            &agent_name,
+        );
+    });
 }
 
 #[cfg(test)]

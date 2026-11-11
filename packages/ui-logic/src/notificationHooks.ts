@@ -5,7 +5,7 @@
 // ABOUTME: Bound to each client's notifications API; only the unread-badge poll differs between the clients
 
 import { useCallback } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { NotificationsApi } from '@pierre/api-client';
 import type {
@@ -40,6 +40,22 @@ const PREFERENCES_STALE_MS = 5 * 60_000;
 const FEED_PREFIX = ['notifications-feed'] as const;
 
 /**
+ * Refetch what shows a notification's read state: the feed in every
+ * category and the bell's unread count. A prefix match on `all` reaches
+ * neither — the key tree is flat, with dashed sentinels — so each is named.
+ *
+ * Called after a mark-read in the inbox, and after a thread is read: the
+ * server marks read the notifications that open that thread.
+ */
+export async function invalidateNotificationReads(queryClient: QueryClient): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
+    queryClient.invalidateQueries({ queryKey: FEED_PREFIX }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
+  ]);
+}
+
+/**
  * Build the notification hooks over one client's notifications API.
  *
  * Each client binds this once, in its own `hooks/useNotifications`, with its
@@ -59,13 +75,7 @@ export function createNotificationHooks(
       staleTime: FEED_STALE_MS,
     });
 
-    const invalidate = useCallback(async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
-        queryClient.invalidateQueries({ queryKey: FEED_PREFIX }),
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
-      ]);
-    }, [queryClient]);
+    const invalidate = useCallback(() => invalidateNotificationReads(queryClient), [queryClient]);
 
     return {
       notifications: query.data?.data ?? [],
@@ -112,9 +122,7 @@ export function createNotificationHooks(
     // feed and the badge showing a notification the athlete just read.
     const invalidateAll = useCallback(async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
-        queryClient.invalidateQueries({ queryKey: FEED_PREFIX }),
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
+        invalidateNotificationReads(queryClient),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.preferences() }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.devices() }),
       ]);

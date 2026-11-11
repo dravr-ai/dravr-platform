@@ -28,9 +28,12 @@
 //! Both message writers also fan the row out to the group's shared room
 //! transcript (`group_transcript_entries`) when the conversation is
 //! group-bound, so every surface's group turns land in one queryable,
-//! consent-gated room view — and both advance the participant's read
-//! marker past the row they wrote, so an athlete's own turn never counts
-//! as unread for them. One rule for web, mobile and messaging.
+//! consent-gated room view. The user-message writer advances the
+//! participant's read marker past their own row, so an athlete's own message
+//! never counts as unread for them, on every surface. The reply writer does
+//! the same on a messaging channel, where the reply is read as it is
+//! delivered, and leaves it to Dravr's own apps, which advance the marker
+//! once the reply is on screen ([`app_reports_reading`]).
 //!
 //! A reply the platform posted on its own initiative ([`TurnOrigin::Platform`])
 //! is the exception to both: nobody was in front of it when it landed, so it
@@ -38,7 +41,7 @@
 //! own coaching, never a room's.
 
 use pierre_core::models::AddMessageParams;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
@@ -77,6 +80,18 @@ async fn advance_read_marker(
             warn!(error = %e, conversation_id, "read marker could not advance after the turn");
         }
     }
+}
+
+/// Whether the turn is served to one of Dravr's own apps, which advance the
+/// read marker themselves when a reply is on the athlete's screen: both the
+/// web and the mobile thread mark it read as it lands while the athlete looks
+/// at it, and not while the tab is hidden or the phone locked.
+///
+/// Read from the transport the turn declared ([`ai_scope::serve_over`]). A
+/// reply written outside any turn — a stop or a failure notice, which the
+/// athlete triggered from the thread — declares none.
+fn app_reports_reading() -> bool {
+    ai_scope::declared_transport().is_some_and(Transport::is_app_session)
 }
 
 /// Fan a just-persisted user/assistant row out to the group's shared room
@@ -393,9 +408,13 @@ fn since_last_divider(history: &mut Vec<MessageRecord>) {
 /// persisted message record and updated conversation so the caller can
 /// observe `updated_at` / `summary` fields that moved as a result.
 ///
-/// A reply to something the athlete sent advances their read marker past
-/// itself, since they are in front of it, and a group-bound conversation fans
-/// it out to the shared room transcript, attributed to the member it answered.
+/// A reply to something the athlete sent is fanned out, in a group-bound
+/// conversation, to the shared room transcript, attributed to the member it
+/// answered. It also advances their read marker past itself — they are in
+/// front of it — except on Dravr's own apps: there the athlete may have left
+/// the thread before the reply landed, and the app advances the marker itself
+/// once the reply is on screen ([`app_reports_reading`]). The marker is then
+/// what tells an unseen reply, which notifies them, from one they read.
 /// A reply the platform posted on its own initiative (`origin` is
 /// [`TurnOrigin::Platform`]) does neither: the athlete has not seen it, so it
 /// stays unread and badges the conversation, and it is their own coaching,
@@ -414,7 +433,7 @@ pub async fn persist_assistant_response(
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
     let message = database.add_message(params).await?;
     let answers_the_athlete = origin == TurnOrigin::Athlete;
-    if answers_the_athlete {
+    if answers_the_athlete && !app_reports_reading() {
         advance_read_marker(
             database,
             params.conversation_id,

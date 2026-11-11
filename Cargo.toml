@@ -37,7 +37,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9
 dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.16.3", default-features = false }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.8.0" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.9.0" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
