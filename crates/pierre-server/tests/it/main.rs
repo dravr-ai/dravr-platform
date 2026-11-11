@@ -647,6 +647,7 @@ mod provider_connection_last_used_test;
 mod provider_connection_status_test;
 mod provider_data_purge_test;
 mod provider_error_filter_test;
+mod provider_field_support_test;
 mod provider_helpers_test;
 mod provider_last_used_touched_on_serve_test;
 mod provider_link_token_test;

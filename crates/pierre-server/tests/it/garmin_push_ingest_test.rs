@@ -50,8 +50,10 @@ use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
+use pierre_providers::spi::{GarminDescriptor, ProviderDescriptor};
 use pierre_providers::upload_provider::file_sha256;
 use pierre_routes_auth::AuthRoutes;
+use pierre_test_support::activity_fields::missing;
 use pierre_test_support::fit::{power as fit_power, FitWorkout};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use serde_json::{json, Value};
@@ -2563,5 +2565,86 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     assert_eq!(
         card["needs_reauth"], true,
         "bug: the card must ask for a reconnect once the grant is dead: {card}"
+    );
+}
+
+/// Every field the Garmin descriptor declares reaches what Dravr stores
+/// (carnet#1494, the field dictionary): the summary's readings on the row an
+/// `activities` push lands, and the samples, laps and the power derived from
+/// them once the activity's `activityDetails` arrive.
+#[tokio::test]
+async fn pushed_activities_fill_every_field_the_garmin_descriptor_declares() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+    let summary = |id: &str| {
+        let mut summary = activity(id, "Tempo", start, 600);
+        summary["maxHeartRateInBeatsPerMinute"] = json!(171);
+        summary["averageBikeCadenceInRoundsPerMinute"] = json!(88);
+        summary["activeKilocalories"] = json!(410);
+        summary
+    };
+    push(&resources, "activities", json!([summary("960001")])).await;
+
+    let samples: Vec<Value> = (0..60_u32)
+        .map(|second| {
+            json!({
+                "startTimeInSeconds": start + i64::from(second),
+                "heartRate": 140,
+                "powerInWatts": fit_power(second),
+                "bikeCadenceInRPM": 88,
+                "speedMetersPerSecond": 8.0,
+                "elevationInMeters": 44.0,
+                "airTemperatureCelcius": 11.0,
+                "totalDistanceInMeters": f64::from(second) * 8.0,
+                "latitudeInDegree": 45.5,
+                "longitudeInDegree": -73.6,
+            })
+        })
+        .collect();
+    let details = json!([{
+        "userId": GARMIN_USER,
+        "summaryId": "960002-detail",
+        "activityId": 960_002,
+        "summary": summary("960002"),
+        "samples": samples,
+        "laps": [{ "startTimeInSeconds": start }, { "startTimeInSeconds": start + 300 }],
+    }]);
+    push(&resources, "activityDetails", details).await;
+
+    let cached = cached_garmin(&resources, user_id, &tenant_id).await;
+    let stored = |id: &str| {
+        cached
+            .iter()
+            .find(|activity| activity.id() == id)
+            .unwrap_or_else(|| panic!("{id} is stored: {cached:?}"))
+            .clone()
+    };
+    let streams = resources
+        .common
+        .repos
+        .activity_streams
+        .get_activity_streams(&tenant_id, user_id, "garmin", "960002")
+        .await
+        .unwrap()
+        .expect("the samples are stored");
+    let mut detailed = serde_json::to_value(stored("960002")).unwrap();
+    detailed["time_series_data"] = serde_json::to_value(streams).unwrap();
+    let detailed: Activity = serde_json::from_value(detailed).unwrap();
+
+    let declared = GarminDescriptor.activity_fields();
+    let on_list = missing(&stored("960001"), &declared.list.names(), &[]);
+    assert!(
+        on_list.is_empty(),
+        "bug: Garmin declares {on_list:?} on a pushed summary, and the push left them out"
+    );
+    let on_detail = missing(
+        &detailed,
+        &declared.supplied().names(),
+        &declared.streams.names(),
+    );
+    assert!(
+        on_detail.is_empty(),
+        "bug: Garmin declares {on_detail:?}, and its pushed details left them out"
     );
 }

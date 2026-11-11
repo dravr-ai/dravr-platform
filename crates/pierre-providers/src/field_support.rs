@@ -28,7 +28,10 @@
 use crate::backend_resolver::{
     activity_origin, hosted_login_target, is_mirror_backend, mirror_backend_for, user_facing_name,
 };
+#[cfg(test)]
+use crate::models::Activity;
 use crate::registry::ProviderRegistry;
+use crate::spi::ProviderDescriptor;
 
 bitflags::bitflags! {
     /// Activity fields a backend can supply, beyond the identity, time and
@@ -282,7 +285,8 @@ impl FieldSupport {
 ///
 /// `provider` may also name a mirror backend (`sciotte_garmin`); it reads as
 /// the provider it mirrors. A mode is present only when a registered
-/// descriptor serves activities in it: Strava and Garmin have both, an API
+/// descriptor serves activities in it and declares what it supplies (an
+/// imported archive declares nothing, so it has no dictionary): Strava and Garmin have both, an API
 /// provider (Intervals.icu, Wahoo) has its API alone, and TrainingPeaks its
 /// mirror alone. `None` when neither mode is registered for activities — an
 /// unknown name, or a provider that serves none (sleep only).
@@ -303,7 +307,8 @@ pub fn field_support(
         registry
             .get_descriptor(backend)
             .filter(|descriptor| descriptor.capabilities().supports_activities())
-            .map(|descriptor| descriptor.activity_fields())
+            .map(ProviderDescriptor::activity_fields)
+            .filter(|fields| !fields.is_empty())
     };
     let mirror = mirror_backend_for(user_facing).and_then(declared);
     let oauth = declared(user_facing);
@@ -334,8 +339,8 @@ pub fn field_support(
 pub(crate) fn assert_mapper_fills(
     backend: &str,
     declared: ActivityFieldSupport,
-    list_row: &crate::models::Activity,
-    detailed: &crate::models::Activity,
+    list_row: &Activity,
+    detailed: &Activity,
 ) {
     use pierre_test_support::activity_fields::missing;
 

@@ -435,8 +435,8 @@ mod tests {
         let flagged = mapped(flagged);
         assert_eq!(flagged.trainer(), Some(true), "bug: trainer flag dropped");
         assert_eq!(flagged.commute(), Some(true), "bug: commute flag dropped");
-        let bare = mapped(base);
-        assert_eq!(bare.trainer(), None, "bug: trainer flag invented");
-        assert_eq!(bare.commute(), None, "bug: commute flag invented");
+        let unflagged = mapped(base);
+        assert_eq!(unflagged.trainer(), None, "bug: trainer flag invented");
+        assert_eq!(unflagged.commute(), None, "bug: commute flag invented");
     }
 }

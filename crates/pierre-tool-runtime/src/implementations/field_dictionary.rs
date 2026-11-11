@@ -45,9 +45,11 @@ impl From<ActivityFieldSupport> for ModeFields {
     }
 }
 
-/// A provider's field dictionary: what each way of reading it supplies. A
-/// field neither mode lists is never supplied, so its absence on a row means
-/// "not available from this connection", never zero or "did not happen".
+/// A provider's field dictionary: what each way of reading it supplies.
+///
+/// A field neither mode lists is never supplied, so its absence on a row
+/// means "not available from this connection", never zero or "did not
+/// happen".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct FieldDictionary {
     /// The mode serving the athlete: `mirror` (read by signing in as the

@@ -12,7 +12,7 @@
 use serde_json::{json, Value};
 
 use super::{convert_activity, SciotteActivity, SciotteTarget};
-use crate::field_support::assert_mapper_fills;
+use crate::field_support::{assert_mapper_fills, ActivityFieldSupport};
 use crate::spi::{
     ProviderDescriptor, SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
     SciotteTrainingPeaksDescriptor,
@@ -63,7 +63,7 @@ fn laps_and_splits() -> Value {
 fn check(
     target: SciotteTarget,
     backend: &str,
-    declared: crate::field_support::ActivityFieldSupport,
+    declared: ActivityFieldSupport,
     list: &Value,
     detail: &Value,
 ) {
