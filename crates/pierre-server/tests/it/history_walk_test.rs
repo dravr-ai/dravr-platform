@@ -430,7 +430,7 @@ pub(crate) async fn notification_types(
 
 /// The activity ids the Garmin grant's stored window serves the athlete,
 /// from 2010 on: its pushes and what the session beside it walked
-/// (`backend_resolver::history_keys`).
+/// (`history_store_keys`).
 async fn served_ids(
     resources: &Arc<ServerContext>,
     user_id: Uuid,

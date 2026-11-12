@@ -21,9 +21,11 @@
 //! A live read of the provider is not ordered here: it follows the athlete's
 //! read plan ([`pierre_providers::backend_resolver::read_plan`], carnet#1494),
 //! the session first and a live grant its fallback on an unexpected error.
-//! What either half stored is served from both
-//! ([`pierre_providers::backend_resolver::history_keys`]), so the rows a walk
-//! lands under the session and under the grant read as one history.
+//! What either half stored is served from both ([`history_store_keys`]), so
+//! the rows a walk lands under the session and under the grant read as one
+//! history.
+
+use std::iter;
 
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -82,6 +84,34 @@ pub fn history_sources_for(provider: &str) -> Vec<(&str, HistorySourceRole)> {
         sources.push((user_facing, grant_role(user_facing)));
     }
     sources
+}
+
+/// The activity-cache keys a read of `backend`'s own window serves: its own
+/// key first, then every other source of its provider's history
+/// ([`history_sources_for`]).
+///
+/// Rows of every key are one window: the readers merge every recording of a
+/// workout into one session, so what the session walked, what the grant
+/// stored and what Garmin pushed read as one history (carnet#1494,
+/// carnet#1482, carnet#1386). A backend that is not one of its provider's
+/// history sources (COROS or TrainingPeaks named by their OAuth slug, which
+/// never serves beside the session) has its one key. The athlete's own
+/// uploads ([`companion_keys`](pierre_core::constants::oauth::providers::companion_keys))
+/// are not among them: those are served by their own path.
+#[must_use]
+pub fn history_store_keys(backend: &str) -> Vec<&str> {
+    let sources = history_sources_for(backend);
+    if !sources.iter().any(|(source, _)| *source == backend) {
+        return vec![backend];
+    }
+    iter::once(backend)
+        .chain(
+            sources
+                .into_iter()
+                .map(|(source, _)| source)
+                .filter(|source| *source != backend),
+        )
+        .collect()
 }
 
 /// How an OAuth backend delivers: pushed (Garmin) or paged on request.
@@ -209,5 +239,45 @@ mod tests {
             !HistorySourceRole::Pushed.walks(),
             "bug: a push holds nothing from before the grant, so no walk reads it"
         );
+    }
+
+    /// A session's window serves its grant's key too, a grant's window
+    /// serves its session's, and every other backend has one key
+    /// (carnet#1494, carnet#1482, carnet#1386).
+    #[test]
+    fn each_half_of_a_pair_serves_the_other_halfs_rows() {
+        assert_eq!(
+            history_store_keys(oauth_providers::SCIOTTE),
+            vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
+            "bug: the Strava session's window drops the rows the API stored"
+        );
+        assert_eq!(
+            history_store_keys(oauth_providers::SCIOTTE_GARMIN),
+            vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
+            "bug: the Garmin session's window drops the grant's pushes"
+        );
+        assert_eq!(
+            history_store_keys(oauth_providers::GARMIN),
+            vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
+            "bug: a Garmin grant's window drops the history its session imported"
+        );
+        assert_eq!(
+            history_store_keys(oauth_providers::STRAVA),
+            vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE],
+            "bug: a Strava grant's window drops the history its session walked"
+        );
+        for single in [
+            oauth_providers::COROS,
+            oauth_providers::SCIOTTE_COROS,
+            oauth_providers::TRAININGPEAKS,
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            oauth_providers::WHOOP,
+        ] {
+            assert_eq!(
+                history_store_keys(single),
+                vec![single],
+                "bug: {single} has no grant beside it and one key"
+            );
+        }
     }
 }

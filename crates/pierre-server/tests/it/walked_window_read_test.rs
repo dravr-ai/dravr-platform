@@ -15,7 +15,7 @@
 // and an old window is history, so it keeps the walk's order even while the
 // grant is alive (carnet#1482): a covered old window is answered from the
 // store without one request to the API, serving the session's rows beside
-// the grant's (`backend_resolver::history_keys`), a ride recorded under both
+// the grant's (`history_store_keys`), a ride recorded under both
 // keys once; an old window no walk covered goes to the session's background
 // backfill, never inline to the API.
 //
@@ -569,7 +569,7 @@ async fn a_window_the_session_walked_is_served_to_the_grant_from_the_store() {
 }
 
 /// The grant's stored window serves the rows the session stored beside its
-/// own (`history_keys(strava)`), and a ride recorded under both keys is one
+/// own (`history_store_keys(strava)`), and a ride recorded under both keys is one
 /// session.
 #[tokio::test]
 async fn a_stored_strava_window_serves_the_session_rows_and_merges_twins() {

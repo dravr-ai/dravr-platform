@@ -76,7 +76,7 @@ pub struct TrainingHistoryResult {
     pub days: Vec<TrainingHistoryDay>,
     /// Each service a session in the window came from, with the last day it
     /// delivered one there. Empty when no session in the window is readable.
-    pub sources: Vec<HistorySource>,
+    pub sources: Vec<DeliveringService>,
     /// The consecutive days ending on `to` whose form fell in deep fatigue,
     /// oldest first. Empty when `to` has no row or its form is not deep
     /// fatigue. A run describes accumulated fatigue relative to fitness, not
@@ -94,7 +94,7 @@ pub struct TrainingHistoryResult {
 
 /// A service the rows' sessions came from.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct HistorySource {
+pub struct DeliveringService {
     /// The service's key, as `connect_provider` takes it.
     pub provider: String,
     /// The service as the athlete knows it.
@@ -126,7 +126,7 @@ async fn delivering_services(
     user_id: Uuid,
     from: NaiveDate,
     to: NaiveDate,
-) -> AppResult<Vec<HistorySource>> {
+) -> AppResult<Vec<DeliveringService>> {
     let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
     let start = (from - Duration::days(1))
         .and_time(NaiveTime::MIN)
@@ -149,9 +149,9 @@ async fn delivering_services(
             .and_modify(|latest| *latest = (*latest).max(day))
             .or_insert(day);
     }
-    let mut sources: Vec<HistorySource> = last
+    let mut sources: Vec<DeliveringService> = last
         .into_iter()
-        .map(|(provider, day)| HistorySource {
+        .map(|(provider, day)| DeliveringService {
             brand: resources
                 .provider_registry()
                 .get_display_name(&provider)

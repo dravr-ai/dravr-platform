@@ -16,7 +16,7 @@
 //!
 //! The window also serves the history a usr/pwd session of the same provider
 //! stored under its mirror's key (`sciotte_garmin` beside `garmin`,
-//! `backend_resolver::history_keys`), merged with the pushes so one workout
+//! `training_history_read::history_store_keys`), merged with the pushes so one workout
 //! recorded by both is one session.
 
 use std::sync::Arc;

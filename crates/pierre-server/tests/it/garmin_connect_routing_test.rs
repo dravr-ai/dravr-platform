@@ -847,7 +847,7 @@ async fn store_under(
 
 /// A grant holder whose session the carnet#1386 import retired keeps the
 /// history it imported: their Garmin read serves what the session stored
-/// under its mirror key beside what Garmin pushed (`history_keys(garmin)`,
+/// under its mirror key beside what Garmin pushed (`history_store_keys(garmin)`,
 /// kept by carnet#1494). A workout both recorded is one session, the API's
 /// copy standing for it; nothing calls Garmin or the scraper.
 #[tokio::test]
@@ -1350,7 +1350,7 @@ async fn scraper_failing_its_list() -> String {
 /// A dead Garmin grant beside a usr/pwd session is no stand-in: the session
 /// is the primary (carnet#1494), and when its read fails the session's own
 /// window answers, which carries what the grant stored
-/// (`backend_resolver::history_keys`) merged with the session's rows. The
+/// (`history_store_keys`) merged with the session's rows. The
 /// dead grant is never read.
 #[tokio::test]
 async fn a_dead_garmin_grant_still_serves_the_stored_history() {

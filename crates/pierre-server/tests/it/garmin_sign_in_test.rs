@@ -679,7 +679,7 @@ async fn a_grant_holders_sign_in_keeps_the_session_as_the_primary() {
 /// An athlete whose session the retired one-time import (carnet#1386)
 /// already retired holds a Garmin grant alone, and the rows that session
 /// stored under its key. The grant's window still serves them
-/// (`history_keys(garmin)`), merged with what the grant pushed, and the card
+/// (`history_store_keys(garmin)`), merged with what the grant pushed, and the card
 /// reads that history as imported.
 #[tokio::test]
 async fn the_history_a_retired_session_stored_is_still_served_through_the_grant() {

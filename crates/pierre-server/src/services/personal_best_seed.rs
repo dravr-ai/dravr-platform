@@ -53,7 +53,7 @@ use std::time::Duration;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_providers::backend_resolver::history_keys;
+use pierre_services::training_history_read::history_store_keys;
 use pierre_providers::core::FitnessProvider;
 use pierre_services::periodic::spawn_periodic;
 use pierre_services::personal_bests::{seed_stream_sources, SeedPause, SeedProgress};
@@ -160,7 +160,7 @@ async fn seed_provider_pass(
     source: &str,
     report: &mut SeedPassReport,
 ) -> AppResult<()> {
-    let keys = history_keys(source);
+    let keys = history_store_keys(source);
     let paired = keys.iter().copied().find(|key| *key != source);
     let candidates = resources
         .common

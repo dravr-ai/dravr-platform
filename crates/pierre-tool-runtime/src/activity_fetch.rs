@@ -34,6 +34,7 @@ use crate::reauth_retry;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
+use pierre_services::training_history_read::history_store_keys;
 use serde_json::Value;
 
 /// A live list read that answers its turn inside the refresh budget; it runs
@@ -828,7 +829,7 @@ pub(crate) async fn read_cached_window(
 /// at most `limit`.
 ///
 /// Its own key, and the other half of its pair's too
-/// ([`backend_resolver::history_keys`]): what a usr/pwd session walked
+/// ([`history_store_keys`]): what a usr/pwd session walked
 /// beside a grant, and what the grant stored beside a session, every
 /// recording of one workout merged into one session. A dead Garmin grant
 /// keeps serving what the session stored, as a live one does (carnet#1386).
@@ -841,7 +842,7 @@ pub(super) async fn cached_history(
     limit: i64,
 ) -> AppResult<Vec<Activity>> {
     let cache = &runtime.repos().activity_cache;
-    let keys = backend_resolver::history_keys(provider_slug);
+    let keys = history_store_keys(provider_slug);
     if let [key] = keys.as_slice() {
         return cache
             .get_cached_activities(user_id, &tenant, Some(key), start, end, limit)
@@ -953,7 +954,7 @@ pub async fn fetch_recent_activities_all_providers(
     for connection in &connections {
         // A grant beside a session is the session's fallback: the session's
         // own connection reads the window, the grant's stored rows included
-        // (`backend_resolver::history_keys`).
+        // (`history_store_keys`).
         if connection_grant_beside_session(runtime, user_id, connection).await {
             continue;
         }

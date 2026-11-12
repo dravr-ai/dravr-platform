@@ -12,7 +12,7 @@ use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_database::repositories::{historical_depth_covered, BackfillJobKind, BackfillJobState};
-use pierre_providers::backend_resolver;
+use pierre_services::training_history_read::history_store_keys;
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -247,7 +247,7 @@ async fn history_walk_owed(
     tenant_id: TenantId,
 ) -> bool {
     let jobs = &runtime.repos().activity_backfill_jobs;
-    for key in backend_resolver::history_keys(provider_slug) {
+    for key in history_store_keys(provider_slug) {
         match jobs
             .backfill_job_state(user_id, tenant_id, key, BackfillJobKind::HistoryWalk)
             .await
@@ -266,7 +266,7 @@ async fn history_walk_owed(
 }
 
 /// Whether a walk or a backfill under any of `provider_slug`'s history keys
-/// ([`backend_resolver::history_keys`]) reached `after_ts`, each record
+/// ([`history_store_keys`]) reached `after_ts`, each record
 /// judged at its own key's current capture ([`historical_depth_covered`]).
 /// A record that cannot be read counts as absent.
 async fn history_depth_covered(
@@ -277,7 +277,7 @@ async fn history_depth_covered(
     after_ts: i64,
 ) -> bool {
     let cache = &runtime.repos().activity_cache;
-    for key in backend_resolver::history_keys(provider_slug) {
+    for key in history_store_keys(provider_slug) {
         let coverage = match cache.get_backfill_coverage(user_id, &tenant_id, key).await {
             Ok(coverage) => coverage,
             Err(e) => {

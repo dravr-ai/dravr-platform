@@ -20,7 +20,7 @@
 //!   they set without telling anything. It lists nothing at the provider: it
 //!   waits until a history walk (carnet#1482) copied the whole history into
 //!   the activity store, then pages the store by `before` under every key the
-//!   provider's history is held under ([`history_keys`]), so a Strava history
+//!   provider's history is held under ([`history_store_keys`]), so a Strava history
 //!   walked through the usr/pwd session is read under `sciotte` as well as
 //!   `strava`, each workout once. Streams are not in the store, so each past
 //!   run still costs one samples request at the provider. The walk runs
@@ -77,7 +77,7 @@
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
-use pierre_providers::backend_resolver::{activity_origin, history_keys};
+use pierre_providers::backend_resolver::activity_origin;
 use pierre_providers::field_support::StreamChannels;
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::ProviderDescriptor;
@@ -107,7 +107,7 @@ use uuid::Uuid;
 use crate::notification_text::{
     PR_DISTANCE_10K, PR_DISTANCE_5K, PR_DISTANCE_HALF_MARATHON, PR_DISTANCE_MARATHON,
 };
-use crate::training_history_read::{history_sources_for, HistorySourceRole};
+use crate::training_history_read::{history_sources_for, history_store_keys, HistorySourceRole};
 
 /// The catalogue code of each standard distance, index-aligned with
 /// [`STANDARD_RUNNING_DISTANCES_METERS`]; the array length ties the two.
@@ -479,7 +479,7 @@ impl PersonalBests {
     ///
     /// `provider` is the backend [`seed_stream_source`] names. Nothing is
     /// listed at it: until a history walk under one of its history keys
-    /// ([`history_keys`]) ended, the seed waits
+    /// ([`history_store_keys`]) ended, the seed waits
     /// ([`SeedProgress::AwaitingHistory`]); after, each page is read from the
     /// store under every one of those keys. One samples request per run, each
     /// admitted [`in_background`] against the background share of the signing
@@ -524,7 +524,7 @@ impl PersonalBests {
         if seed.completed_at.is_some() {
             return Ok(SeedProgress::Complete);
         }
-        let keys = history_keys(provider_name);
+        let keys = history_store_keys(provider_name);
         if !self.history_walked(user_id, tenant_id, &keys).await? {
             info!(%user_id, provider = provider_name, "best-effort seed waits for the history walk");
             return Ok(SeedProgress::AwaitingHistory);

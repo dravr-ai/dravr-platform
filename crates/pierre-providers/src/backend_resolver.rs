@@ -368,37 +368,6 @@ pub async fn holds_activities(
     )
 }
 
-/// The activity-cache keys a read of `backend`'s own window serves, its own
-/// key first.
-///
-/// - A mirror whose provider's OAuth backend serves it beside the mirror
-///   (`sciotte`, `sciotte_garmin`) serves its grant's key too: the rows the
-///   API stored before the session became the primary (carnet#1494) stay
-///   served, and the pushes a live Garmin grant keeps storing merge into the
-///   session's window.
-/// - An OAuth backend that serves beside its mirror (`strava`, `garmin`)
-///   serves its mirror's key too: a history walk reads the session first
-///   even while the grant is alive (carnet#1482), so what the session walked
-///   stays served when the grant serves alone, and what a usr/pwd session
-///   imported before a Garmin grant retired it does too (carnet#1386).
-/// - Every other backend has its one key.
-///
-/// Rows of both keys are one window: the readers merge every recording of a
-/// workout into one session. The athlete's own uploads
-/// ([`companion_keys`](oauth_providers::companion_keys)) are not among them:
-/// those are served by their own path.
-#[must_use]
-pub fn history_keys(backend: &str) -> Vec<&str> {
-    let other = if is_mirror_backend(backend) {
-        Some(user_facing_name(backend)).filter(|grant| oauth_serves(grant))
-    } else if oauth_serves(backend) {
-        mirror_backend_for(backend)
-    } else {
-        None
-    };
-    iter::once(backend).chain(other).collect()
-}
-
 /// What one half of a mirror pair (the session or the grant) amounts to for
 /// an athlete in a tenant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -908,45 +877,6 @@ mod tests {
     use pierre_auth::connect_order::CONNECT_ORDER_PROVIDERS;
     use pierre_core::models::ConnectionType;
 
-    /// A session's window serves its grant's key too, a grant's window
-    /// serves its session's, and every other backend has one key
-    /// (carnet#1494, carnet#1482, carnet#1386).
-    #[test]
-    fn each_half_of_a_pair_serves_the_other_halfs_rows() {
-        assert_eq!(
-            history_keys(oauth_providers::SCIOTTE),
-            vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
-            "bug: the Strava session's window drops the rows the API stored"
-        );
-        assert_eq!(
-            history_keys(oauth_providers::SCIOTTE_GARMIN),
-            vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
-            "bug: the Garmin session's window drops the grant's pushes"
-        );
-        assert_eq!(
-            history_keys(oauth_providers::GARMIN),
-            vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
-            "bug: a Garmin grant's window drops the history its session imported"
-        );
-        assert_eq!(
-            history_keys(oauth_providers::STRAVA),
-            vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE],
-            "bug: a Strava grant's window drops the history its session walked"
-        );
-        for single in [
-            oauth_providers::COROS,
-            oauth_providers::SCIOTTE_COROS,
-            oauth_providers::SCIOTTE_TRAININGPEAKS,
-            oauth_providers::WHOOP,
-        ] {
-            assert_eq!(
-                history_keys(single),
-                vec![single],
-                "bug: {single} has no grant beside it and one key"
-            );
-        }
-    }
-
     /// A held row's half reads its connection's status; a row with no
     /// connection was never flagged, and no row is absent whatever a stray
     /// connection says.
@@ -1047,14 +977,6 @@ mod tests {
             pushed_backend_for(oauth_providers::SCIOTTE_COROS),
             None,
             "bug: COROS has no push-fed grant"
-        );
-        assert!(
-            history_keys(oauth_providers::GARMIN).contains(&oauth_providers::SCIOTTE_GARMIN),
-            "bug: a Garmin grant's window serves its session's copy"
-        );
-        assert!(
-            history_keys(oauth_providers::STRAVA).contains(&oauth_providers::SCIOTTE),
-            "bug: a Strava grant's window serves what its session walked"
         );
     }
 

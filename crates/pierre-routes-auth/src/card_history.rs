@@ -78,8 +78,8 @@ async fn history_state(
     sign_in: &str,
     grant_key: &str,
 ) -> HistoryState {
-    let history_keys = iter::once(sign_in).chain(companion_keys(grant_key).iter().copied());
-    for key in history_keys {
+    let keys = iter::once(sign_in).chain(companion_keys(grant_key).iter().copied());
+    for key in keys {
         if backend_resolver::holds_activities(&resources.repos, user_id, tenant, key).await {
             return HistoryState::Imported;
         }

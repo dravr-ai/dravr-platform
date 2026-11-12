@@ -41,6 +41,7 @@ use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus, Rea
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
+use pierre_services::training_history_read::history_store_keys;
 use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
@@ -2508,25 +2509,25 @@ async fn only_a_grant_beside_a_session_stands_aside() {
 /// walked (carnet#1482) or imported (carnet#1386), and every other backend
 /// has one key.
 #[test]
-fn history_keys_serve_both_halves_of_a_pair_from_the_session() {
+fn history_store_keys_serve_both_halves_of_a_pair_from_the_session() {
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE),
+        history_store_keys(oauth_providers::SCIOTTE),
         vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA]
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE_GARMIN),
+        history_store_keys(oauth_providers::SCIOTTE_GARMIN),
         vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN]
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::GARMIN),
+        history_store_keys(oauth_providers::GARMIN),
         vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN]
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::STRAVA),
+        history_store_keys(oauth_providers::STRAVA),
         vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE]
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE_COROS),
+        history_store_keys(oauth_providers::SCIOTTE_COROS),
         vec![oauth_providers::SCIOTTE_COROS]
     );
 }
