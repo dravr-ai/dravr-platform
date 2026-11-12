@@ -25,7 +25,7 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
+use crate::activity_fetch::{connection_grant_beside_session, CACHED_ACTIVITY_LOOKBACK_DAYS};
 use crate::group_fitness::fetch_and_merge_all_providers;
 use crate::protocol::AuthService;
 use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
@@ -38,22 +38,34 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 /// decides whether a refresh runs first.
 const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
 
-/// Get all connected provider names for a user.
+/// The providers a member's snapshot reads, in connection order, or an empty
+/// vec if none is connected.
 ///
-/// Returns provider names in connection order, or empty vec if none connected.
+/// A grant beside a usr/pwd session of its provider
+/// ([`connection_grant_beside_session`]) is passed over: its name resolves to
+/// the session (carnet#1494), so reading it too would scrape the session a
+/// second time and write the scraped rows under the grant's key. The
+/// session's own read serves the grant's stored rows
+/// (`backend_resolver::history_keys`).
 async fn get_connected_providers(
-    data: &DataContext,
+    runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Vec<String> {
-    data.repos()
+    let connections = runtime
+        .data()
+        .repos()
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
         .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|c| c.provider)
-        .collect()
+        .unwrap_or_default();
+    let mut providers = Vec::with_capacity(connections.len());
+    for connection in connections {
+        if !connection_grant_beside_session(runtime, user_id, &connection).await {
+            providers.push(connection.provider);
+        }
+    }
+    providers
 }
 
 /// Resolve a member's connected providers and fetch activities using the merge strategy.
@@ -73,7 +85,7 @@ pub(crate) async fn fetch_member_activities(
     tenant_id: TenantId,
 ) -> (Vec<Activity>, bool) {
     let data = runtime.data();
-    let providers = get_connected_providers(&data, user_id, tenant_id).await;
+    let providers = get_connected_providers(runtime, user_id, tenant_id).await;
     if providers.is_empty() {
         info!(
             user_id = %user_id,

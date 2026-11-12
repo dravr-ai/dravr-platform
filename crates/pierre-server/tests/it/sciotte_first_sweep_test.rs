@@ -12,7 +12,8 @@
 // A Strava athlete holding both a usr/pwd session (`sciotte`) and an OAuth
 // grant (`strava`) is read through the session; the grant only answers when
 // the session cannot. The sweep therefore refreshes the session and passes
-// over the grant, so the API is never read beside the scrape. A session read
+// over the grant, so the API is never read beside the scrape, and a group
+// snapshot walks the athlete's connections the same way. A session read
 // that fails falls back to the grant, and that fallback read is still held
 // to the background share of the signing app's budget (carnet#1491). The
 // Strava webhook and the connect-time first read name the grant exactly:
@@ -55,6 +56,7 @@ use pierre_routes_auth::FirstSyncHook;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, ConnectionRefresh, RefreshOutcome, SweepBudget, SweepSelection,
 };
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
 use serde_json::json;
@@ -433,5 +435,54 @@ async fn a_first_read_of_the_grant_never_starts_a_scrape() {
         w.scraper.reads(),
         0,
         "bug: a first read of the grant started a scrape of the session"
+    );
+}
+
+/// A group snapshot of a member holding both walks the session alone: the
+/// grant's name resolves to the session, so reading it too scraped the
+/// session twice and wrote the scraped rows under the grant's key. The
+/// session is scraped once, Strava's API is never read, and nothing is
+/// cached under `strava`.
+#[tokio::test]
+async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the_grant() {
+    let w = world().await;
+    let (user_id, tenant) = athlete_with_both(&w.resources).await;
+    let runtime: Arc<dyn ToolRuntime> = w.resources.clone();
+
+    let snapshots = fetch_member_snapshots(&runtime, &[user_id], tenant).await;
+
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(
+        snapshots[0].recent_activities.len(),
+        1,
+        "the scraped ride reaches the snapshot once: {:?}",
+        snapshots[0].recent_activities
+    );
+    assert_eq!(
+        w.scraper.reads(),
+        1,
+        "bug: the snapshot scraped the session once per half of the pair"
+    );
+    assert_eq!(
+        w.strava.reads(),
+        0,
+        "bug: the snapshot read Strava's API beside the scrape"
+    );
+    let cache = &w.resources.common.repos.activity_cache;
+    assert!(
+        cache
+            .latest_activity_sync(user_id, &tenant, "sciotte")
+            .await
+            .unwrap()
+            .is_some(),
+        "the session's rows are written under the session"
+    );
+    assert!(
+        cache
+            .latest_activity_sync(user_id, &tenant, "strava")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: scraped rows were written under the grant's key"
     );
 }
