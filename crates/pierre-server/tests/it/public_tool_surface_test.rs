@@ -605,7 +605,8 @@ async fn a_short_upload_history_explains_its_empty_training_history() {
     assert_eq!(answer["result"]["isError"], false, "{answer}");
     let result = &answer["result"]["structuredContent"];
     assert_eq!(result["days"], json!([]), "{answer}");
-    let note = result["coverage_note"].as_str().expect("the reason");
+    assert_eq!(result["coverage"]["complete"], false, "{answer}");
+    let note = result["coverage"]["note"].as_str().expect("the reason");
     assert!(note.contains("Stored history only reaches back"), "{note}");
 }
 
@@ -634,5 +635,6 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
             .is_some_and(|days| !days.is_empty()),
         "{answer}"
     );
-    assert!(result["coverage_note"].is_null(), "{answer}");
+    assert_eq!(result["coverage"]["complete"], true, "{answer}");
+    assert!(result["coverage"]["note"].is_null(), "{answer}");
 }

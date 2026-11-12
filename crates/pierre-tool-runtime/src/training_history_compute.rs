@@ -42,15 +42,18 @@ use uuid::Uuid;
 
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::coverage::{Coverage, Pending};
 use pierre_core::models::{DailyTrainingState, TenantId};
+use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
+pub use pierre_services::training_history_read::TrainingHistoryRead;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backends, user_timezone, validate_window, ComputeBackend, HistoryHandles,
+    resolve_compute_backends, series_coverage, user_timezone, validate_window, walk_source,
+    ComputeBackend, HistoryHandles,
 };
-pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
 #[cfg(feature = "tools-data")]
 use crate::activity_backfill::history_walk::start_history_walk;
@@ -93,15 +96,16 @@ fn history_handles<'a>(
 pub struct TrainingHistoryComputed {
     /// First day the caller asked for.
     pub requested_from: NaiveDate,
-    /// First day actually computed. Equals `requested_from` when coverage is
-    /// [`HistoryCoverage::Complete`].
+    /// First day actually computed. Equals `requested_from` when the
+    /// coverage is complete.
     pub from: NaiveDate,
     /// Last day of the window, inclusive.
     pub to: NaiveDate,
     /// Daily rows written.
     pub rows_upserted: usize,
-    /// How much of the ask the stored history supported.
-    pub coverage: HistoryCoverage,
+    /// How much of the ask the stored history supported, and the history
+    /// walk still owed for the missing depth ([`Coverage::pending`]).
+    pub coverage: Coverage,
     /// Whether a history walk was started for the missing depth. `false`
     /// when coverage was complete, or when every connection's walk is
     /// already owed, running or ended ([`start_history_walk`]).
@@ -118,7 +122,7 @@ impl TrainingHistoryComputed {
     /// Whether every day the caller asked for was stood behind.
     #[must_use]
     pub const fn is_complete(&self) -> bool {
-        matches!(self.coverage, HistoryCoverage::Complete)
+        self.coverage.is_complete()
     }
 }
 
@@ -222,13 +226,17 @@ async fn compute_and_persist_unfiltered(
     };
 
     let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
+    let stored = Some((oldest_stored, trustworthy_from));
     let complete = trustworthy_from <= from;
     // With rows in hand every connection is asked for its missing depth, a
     // lapsed one included: its capture surfaces the reauth itself, and stale
     // history beats no answer.
-    let capture_requested = !complete
-        && ask == DepthAsk::Capture
-        && request_captures(resources, tenant_id, user_id, backends.iter()).await;
+    let walks = if !complete && ask == DepthAsk::Capture {
+        request_walks(resources, tenant_id, user_id, backends.iter()).await
+    } else {
+        WalkAsk::default()
+    };
+    let capture_requested = walks.started;
 
     // Declining to write is not enough: the rollup is upsert-only, so any row an
     // earlier path left in the un-warmable span stays readable and reads as
@@ -260,7 +268,7 @@ async fn compute_and_persist_unfiltered(
             from: trustworthy_from,
             to,
             rows_upserted: 0,
-            coverage: HistoryCoverage::Partial { trustworthy_from },
+            coverage: walks.pending_on(series_coverage(from, to, stored, 0)),
             capture_requested,
             rows_cleared,
         });
@@ -296,11 +304,7 @@ async fn compute_and_persist_unfiltered(
         from: trustworthy_from,
         to,
         rows_upserted,
-        coverage: if complete {
-            HistoryCoverage::Complete
-        } else {
-            HistoryCoverage::Partial { trustworthy_from }
-        },
+        coverage: walks.pending_on(series_coverage(from, to, stored, rows_upserted)),
         capture_requested,
         rows_cleared,
     })
@@ -327,6 +331,31 @@ pub async fn read_history_from_cache(
         user_id,
         from,
         to,
+    )
+    .await
+}
+
+/// How much of `[from, to]` the stored history stands behind, for `returned`
+/// rows of the persisted rollup: the runtime's binding of
+/// [`history_read::stored_history_coverage`].
+///
+/// # Errors
+///
+/// Returns [`AppError`] when the window is invalid or a repository read fails.
+pub async fn stored_history_coverage(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    window: (NaiveDate, NaiveDate),
+    returned: usize,
+) -> AppResult<Coverage> {
+    let config = resources.cageux_config();
+    history_read::stored_history_coverage(
+        history_handles(resources, &config),
+        tenant_id,
+        user_id,
+        window,
+        returned,
     )
     .await
 }
@@ -368,8 +397,12 @@ async fn empty_cache_outcome(
             return Err(AppError::provider_auth_required(&lapsed.slug));
         }
     }
-    let capture_requested = ask == DepthAsk::Capture
-        && request_captures(resources, tenant_id, user_id, live.into_iter()).await;
+    let walks = if ask == DepthAsk::Capture {
+        request_walks(resources, tenant_id, user_id, live.into_iter()).await
+    } else {
+        WalkAsk::default()
+    };
+    let capture_requested = walks.started;
     // Nothing stored means nothing vouched for anywhere in the ask, so the whole
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
@@ -389,7 +422,7 @@ async fn empty_cache_outcome(
         from,
         to,
         rows_upserted: 0,
-        coverage: HistoryCoverage::NoStoredActivities,
+        coverage: walks.pending_on(series_coverage(from, to, None, 0)),
         capture_requested,
         rows_cleared,
     })
@@ -419,25 +452,134 @@ async fn clear_unvouched_span(
         .await
 }
 
-/// Ask each of `backends` for a walk of its history; whether any new walk
-/// was started.
+/// What asking the athlete's connections for their history walks came to.
+#[derive(Debug, Default)]
+struct WalkAsk {
+    /// The walk still owed for the missing depth, as the ledger reads it.
+    pending: Option<Pending>,
+    /// Whether any new walk was started.
+    started: bool,
+}
+
+impl WalkAsk {
+    /// `coverage` with the walk still owed for it.
+    fn pending_on(&self, coverage: Coverage) -> Coverage {
+        Coverage {
+            pending: self.pending,
+            ..coverage
+        }
+    }
+}
+
+/// Ask each of `backends` for a walk of its history, and read the walk still
+/// owed for the missing depth.
 ///
 /// One walk per connection: the history is every provider's, so the depth
-/// missing from it may sit behind any of them. A connection whose walk
-/// already reached the end of the history is not walked again: it holds all
-/// there is ([`start_history_walk`]).
-async fn request_captures<'a>(
+/// missing from it may sit behind any of them. Each walk is read under the
+/// key it is recorded under, its source's ([`walk_source`]), never the
+/// connection's own slug. A source already walking is reported, with its
+/// progress, as [`Pending::HistoryWalkRunning`]; one whose walk reached the
+/// end of the history is not walked again: it holds all there is
+/// ([`start_history_walk`]). Any other, never walked or ended before its
+/// floor, is asked for a walk, and a started one is
+/// [`Pending::HistoryNotWalked`] until it records a step. A connection with
+/// no source to walk (uploads, a push) owes nothing.
+async fn request_walks<'a>(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     backends: impl Iterator<Item = &'a ComputeBackend>,
-) -> bool {
+) -> WalkAsk {
+    let repos = resources.repos();
+    let mut running: Vec<JobProgress> = Vec::new();
     let mut started = false;
     // Uploads are not fetched from anywhere: no walk can deepen them.
     for backend in backends.filter(|backend| backend.capturable) {
-        started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
+        let Some(source) = walk_source(repos, user_id, tenant_id, &backend.slug).await else {
+            continue;
+        };
+        let jobs = &repos.activity_backfill_jobs;
+        let kind = BackfillJobKind::HistoryWalk;
+        match jobs
+            .backfill_job_state(user_id, tenant_id, &source.backend, kind)
+            .await
+        {
+            Ok(Some(BackfillJobState::Owed)) => {
+                match jobs
+                    .job_progress(user_id, tenant_id, &source.backend, kind)
+                    .await
+                {
+                    Ok(progress) => running.push(progress.unwrap_or_default()),
+                    Err(e) => warn!(
+                        user_id = %user_id,
+                        backend = %source.backend,
+                        error = %e,
+                        "training history: the walk's progress could not be read"
+                    ),
+                }
+            }
+            Ok(Some(BackfillJobState::Walked)) => {}
+            Ok(None | Some(BackfillJobState::Incomplete)) => {
+                started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
+            }
+            Err(e) => warn!(
+                user_id = %user_id,
+                backend = %source.backend,
+                error = %e,
+                "training history: the walk ledger could not be read"
+            ),
+        }
     }
-    started
+    let pending = running
+        .into_iter()
+        .max_by_key(months_left)
+        .map(|progress| walk_running(&progress))
+        .or_else(|| started.then_some(Pending::HistoryNotWalked));
+    WalkAsk { pending, started }
+}
+
+/// Months a walk has left, the longest when its floor is not known yet: the
+/// walk the window waits longest on is the one it reports.
+fn months_left(progress: &JobProgress) -> i64 {
+    progress
+        .months_total
+        .map_or(i64::MAX, |total| total.saturating_sub(progress.months_done))
+}
+
+/// A running walk's [`Pending`] from its recorded progress. Its
+/// `secs_per_unit` is the seconds one walked month took, so the ETA is the
+/// months left at that pace ([`Pending::running`]).
+fn walk_running(progress: &JobProgress) -> Pending {
+    let months = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
+    Pending::running(
+        months(progress.months_done),
+        progress.months_total.map(months),
+        progress.secs_per_unit,
+    )
+}
+
+/// The history walk still owed for the athlete's stored history, asking a
+/// walk of every connection that never had one
+/// ([`Pending::HistoryNotWalked`]).
+///
+/// The read side of [`compute_and_persist_history`]'s ask: a read of the
+/// persisted rollup that finds the window short of history reads and asks
+/// the same walks the compute would.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when the athlete's connections cannot be read.
+pub async fn history_walk_pending(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<Pending>> {
+    let backends = resolve_compute_backends(resources.repos(), tenant_id, user_id).await?;
+    Ok(
+        request_walks(resources, tenant_id, user_id, backends.iter())
+            .await
+            .pending,
+    )
 }
 
 /// Ask for a walk of `backend`'s history ([`start_history_walk`]), from the
@@ -643,7 +785,7 @@ pub async fn rewarm_default_window(
             from,
             to,
             rows_upserted: 0,
-            coverage: HistoryCoverage::NoStoredActivities,
+            coverage: series_coverage(from, to, None, 0),
             capture_requested: false,
             rows_cleared,
         });

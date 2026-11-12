@@ -837,6 +837,7 @@ mod tools_engine_test;
 mod training_catalogue_sync_test;
 mod training_catalogue_test;
 mod training_history_from_cache_test;
+mod training_history_pending_test;
 mod training_history_repo_test;
 mod training_load_multi_provider_test;
 mod training_load_test;
