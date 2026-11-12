@@ -328,7 +328,7 @@ pub async fn notify_grant_withdrawn(
             info!(
                 user_id = %user_id,
                 provider = %grant,
-                "Withdrawn grant: a signed-in session serves the provider; nothing sent"
+                "Withdrawn grant: the session beside it was signed in or already told; nothing sent"
             );
             return ReauthNotice::default();
         }

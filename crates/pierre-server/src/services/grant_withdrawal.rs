@@ -81,7 +81,7 @@ impl ProviderDisconnector for GrantWithdrawal {
                 reason = reason.as_str(),
                 told = notice.claimed,
                 chat_channels = notice.chat_channels,
-                "Grant withdrawn: the reconnect notice of a grant-only athlete"
+                "Grant withdrawn: the reconnect notice beside its session, if any"
             );
         }
         self.service
