@@ -1,5 +1,5 @@
 // ABOUTME: What a background activity job does when it finds its provider session dead
-// ABOUTME: Flag the connection, tell the athlete once, answer the conversation that asked — never for a history import's session
+// ABOUTME: Flag the connection, tell the athlete once, answer the conversation that asked — never for a walk-only session
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::{ReauthMark, TenantId};
-use pierre_providers::backend_resolver::{session_beside_grant, session_imports_history};
+use pierre_providers::backend_resolver::session_beside_grant;
+use pierre_services::training_history_read::walk_only_session;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -18,7 +19,7 @@ use crate::runtime::ToolRuntime;
 
 /// Reason recorded on a connection a backfill flags: the word the capture
 /// sweep writes for the same condition, so `last_error` reads one way.
-const SESSION_EXPIRED: &str = "session_expired";
+pub(super) const SESSION_EXPIRED: &str = "session_expired";
 
 /// React to a backfill that found `job`'s provider session dead: flag the
 /// connection, tell the athlete once, and answer the conversation that asked.
@@ -63,7 +64,7 @@ pub async fn backfill_session_expired(
     pierre_conversation_id: Option<&str>,
     attempt_started_at: DateTime<Utc>,
 ) {
-    if history_session_expired(runtime, user_id, tenant_id, provider).await {
+    if walk_only_session_expired(runtime, user_id, tenant_id, provider).await {
         return;
     }
     let notice = match flag_needs_reauth(
@@ -104,22 +105,21 @@ pub async fn backfill_session_expired(
         .await;
 }
 
-/// Whether the dead `provider` session is a history import's, which is
-/// retired when its import ends, recorded as not finished
-/// (`HistoryImport::settle`): no flag on it, no notice, no answer
-/// (carnet#1386).
-async fn history_session_expired(
+/// Whether the dead `provider` session is one only history walks read
+/// ([`walk_only_session`]). A walk that finds it dead ends incomplete on its
+/// own row: no flag on it, no notice, no answer.
+async fn walk_only_session_expired(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> bool {
-    let history = session_imports_history(runtime.repos(), user_id, tenant_id, provider).await;
-    if history {
+    let walk_only = walk_only_session(runtime.repos(), user_id, tenant_id, provider).await;
+    if walk_only {
         info!(
             provider = %provider,
-            "Activity backfill: the history session expired; its import ends incomplete, silently"
+            "Activity backfill: a walk-only session expired; nothing to flag"
         );
     }
-    history
+    walk_only
 }

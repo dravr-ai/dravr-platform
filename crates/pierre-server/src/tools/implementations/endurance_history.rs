@@ -110,14 +110,14 @@ pub struct DeepFatigueMorning {
     pub tsb_pct_of_ctl: Option<f64>,
 }
 
-/// Sessions read for [`history_sources`]: a window of daily rows holds far
+/// Sessions read for [`delivering_services`]: a window of daily rows holds far
 /// fewer, and only the newest of each service counts.
 const SOURCE_READ_LIMIT: i64 = 500;
 
 /// The services the window's sessions came from, newest delivery first, as
 /// the call may read them: a provider whose terms or the athlete's consent
 /// keep its sessions from the reader is not named.
-async fn history_sources(
+async fn delivering_services(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -481,7 +481,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 })
                 .collect();
             let deep_fatigue_mornings = deep_fatigue_run(&days, to);
-            let sources = history_sources(&context.resources, tenant_id, user_id, from, to).await?;
+            let sources =
+                delivering_services(&context.resources, tenant_id, user_id, from, to).await?;
 
             ok_typed(
                 "get_training_history",

@@ -24,6 +24,7 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -108,6 +109,23 @@ impl<'a> BackfillCompletion<'a> {
     }
 }
 
+/// A history walk that reached the end of the athlete's history
+/// ([`BackfillNotifier::push_history_walk_complete`]). No conversation asked
+/// for it: a connection or a first sync did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryWalkCompletion<'a> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The backend that was walked.
+    pub provider: &'a str,
+    /// The start of the oldest activity the walked key holds.
+    pub oldest: DateTime<Utc>,
+    /// The activities the whole walk wrote, every step's.
+    pub activity_count: usize,
+}
+
 /// Best-effort sink that pushes a "your historical backfill finished" notice
 /// back to the messaging channel that triggered it.
 ///
@@ -137,6 +155,14 @@ pub trait BackfillNotifier: Send + Sync {
     /// one-line note that its data landed instead of an answer to a question
     /// the athlete has moved on from.
     async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>);
+
+    /// Tell the athlete a history walk no conversation asked for reached the
+    /// end of their history ([`HistoryWalkCompletion`]): one short message in
+    /// their personal thread naming the oldest year it reached and how many
+    /// activities it brought in. Sent once per `(user, provider, oldest
+    /// activity)` across replicas. Best-effort — implementations swallow and
+    /// log their own failures.
+    async fn push_history_walk_complete(&self, completion: HistoryWalkCompletion<'_>);
 
     /// Answer the conversation behind `pierre_conversation_id` that
     /// `provider`'s session expired and must be reconnected — a localized

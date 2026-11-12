@@ -242,6 +242,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
         months_walked: 36,
         rows_landed: 10,
         secs_per_unit: Some(4.5),
+        floor: None,
     };
 
     assert!(
@@ -322,6 +323,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
                     months_walked: 36,
                     rows_landed: 5,
                     secs_per_unit: None,
+                    floor: None,
                 },
             )
             .await

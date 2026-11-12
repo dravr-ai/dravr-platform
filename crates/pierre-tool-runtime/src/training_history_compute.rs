@@ -43,25 +43,17 @@ use uuid::Uuid;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DailyTrainingState, TenantId};
-#[cfg(feature = "tools-data")]
-use pierre_database::repositories::BackfillJobKind;
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
-#[cfg(feature = "tools-data")]
-use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backends, user_timezone, validate_window, ComputeBackend, HistorySources,
+    resolve_compute_backends, user_timezone, validate_window, ComputeBackend, HistoryHandles,
 };
 pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::{
-    provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob,
-};
-#[cfg(feature = "tools-data")]
-use crate::implementations::data_helpers::historical_backfill_fetch_limit;
+use crate::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
 use crate::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
@@ -85,11 +77,11 @@ enum DepthAsk {
 
 /// The runtime's handles a history read needs, borrowed from `resources` and
 /// the configuration snapshot `config` the caller holds for the read.
-fn history_sources<'a>(
+fn history_handles<'a>(
     resources: &'a Arc<dyn ToolRuntime>,
     config: &'a IntelligenceConfig<true>,
-) -> HistorySources<'a> {
-    HistorySources {
+) -> HistoryHandles<'a> {
+    HistoryHandles {
         repos: resources.repos(),
         terms: resources.provider_registry().as_ref(),
         algorithms: &config.algorithms,
@@ -110,9 +102,9 @@ pub struct TrainingHistoryComputed {
     pub rows_upserted: usize,
     /// How much of the ask the stored history supported.
     pub coverage: HistoryCoverage,
-    /// Whether a background capture was asked for the missing depth. `false`
-    /// when coverage was complete, or when a capture for this
-    /// `(user, provider)` was already in flight.
+    /// Whether a history walk was started for the missing depth. `false`
+    /// when coverage was complete, or when every connection's walk is
+    /// already owed, running or ended ([`WalkTrigger::DepthMissing`]).
     pub capture_requested: bool,
     /// Rows removed because this run could not stand behind them.
     ///
@@ -215,7 +207,7 @@ async fn compute_and_persist_unfiltered(
     validate_window(from, to)?;
 
     let config = resources.cageux_config();
-    let sources = history_sources(resources, &config);
+    let sources = history_handles(resources, &config);
     let backends = resolve_compute_backends(resources.repos(), tenant_id, user_id).await?;
     if backends.is_empty() {
         return Err(AppError::no_provider_connected());
@@ -226,16 +218,7 @@ async fn compute_and_persist_unfiltered(
     let warmup = window.warmup;
 
     let Some(oldest_stored) = window.oldest_stored else {
-        return empty_cache_outcome(
-            resources,
-            tenant_id,
-            user_id,
-            backends,
-            (from, to),
-            warmup,
-            ask,
-        )
-        .await;
+        return empty_cache_outcome(resources, tenant_id, user_id, backends, (from, to), ask).await;
     };
 
     let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
@@ -245,14 +228,7 @@ async fn compute_and_persist_unfiltered(
     // history beats no answer.
     let capture_requested = !complete
         && ask == DepthAsk::Capture
-        && request_captures(
-            resources,
-            tenant_id,
-            user_id,
-            backends.iter(),
-            from - Duration::days(warmup),
-        )
-        .await;
+        && request_captures(resources, tenant_id, user_id, backends.iter()).await;
 
     // Declining to write is not enough: the rollup is upsert-only, so any row an
     // earlier path left in the un-warmable span stays readable and reads as
@@ -346,7 +322,7 @@ pub async fn read_history_from_cache(
 ) -> AppResult<TrainingHistoryRead> {
     let config = resources.cageux_config();
     history_read::read_history_from_cache(
-        history_sources(resources, &config),
+        history_handles(resources, &config),
         tenant_id,
         user_id,
         from,
@@ -374,7 +350,6 @@ async fn empty_cache_outcome(
     user_id: Uuid,
     backends: &[ComputeBackend],
     (from, to): (NaiveDate, NaiveDate),
-    warmup: i64,
     ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     // Nothing stored AND every session has lapsed: each capture would fail on
@@ -394,14 +369,7 @@ async fn empty_cache_outcome(
         }
     }
     let capture_requested = ask == DepthAsk::Capture
-        && request_captures(
-            resources,
-            tenant_id,
-            user_id,
-            live.into_iter(),
-            from - Duration::days(warmup),
-        )
-        .await;
+        && request_captures(resources, tenant_id, user_id, live.into_iter()).await;
     // Nothing stored means nothing vouched for anywhere in the ask, so the whole
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
@@ -451,38 +419,36 @@ async fn clear_unvouched_span(
         .await
 }
 
-/// Ask the capture rail to page each of `backends` back to `floor`; whether
-/// any new job was started.
+/// Ask each of `backends` for a walk of its history; whether any new walk
+/// was started.
 ///
-/// One capture per connection: the history is every provider's, so the depth
-/// missing from it may sit behind any of them.
+/// One walk per connection: the history is every provider's, so the depth
+/// missing from it may sit behind any of them. A connection whose walk
+/// already reached the end of the history is not walked again: it holds all
+/// there is ([`WalkTrigger::DepthMissing`]).
 async fn request_captures<'a>(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     backends: impl Iterator<Item = &'a ComputeBackend>,
-    floor: NaiveDate,
 ) -> bool {
     let mut started = false;
-    // Uploads are not fetched from anywhere: no capture can deepen them.
+    // Uploads are not fetched from anywhere: no walk can deepen them.
     for backend in backends.filter(|backend| backend.capturable) {
-        started |= request_capture(resources, tenant_id, user_id, &backend.slug, floor).await;
+        started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
     }
     started
 }
 
-/// Ask the capture rail to page the provider back to `floor`.
+/// Ask for a walk of `backend`'s history ([`start_history_walk`]), from the
+/// first live source of the provider. Returns whether a new walk was
+/// started.
 ///
-/// Rides the rail `get_activities` already uses, so a capture for this
-/// `(user, provider)` is deduplicated against one already in flight and its
-/// completion notice reaches the conversation that asked. Returns whether a new
-/// job was started.
-///
-/// The rail lives behind `tools-data`, alongside the `get_activities` tool that
-/// is the other half of the capture story. Reading the cache, computing the
-/// series and reporting its coverage need none of that, so the module is not
-/// gated with it — only this call is. Without the rail compiled in there is no
-/// capture to start and [`TrainingHistoryComputed::capture_requested`] is
+/// The walk lives behind `tools-data`, alongside the `get_activities` tool
+/// that is the other half of the capture story. Reading the cache, computing
+/// the series and reporting its coverage need none of that, so the module is
+/// not gated with it — only this call is. Without the rail compiled in there
+/// is no walk to start and [`TrainingHistoryComputed::capture_requested`] is
 /// `false`, which is what happened: nothing was asked for.
 #[cfg(feature = "tools-data")]
 async fn request_capture(
@@ -490,40 +456,19 @@ async fn request_capture(
     tenant_id: TenantId,
     user_id: Uuid,
     backend: &str,
-    floor: NaiveDate,
 ) -> bool {
-    let after = floor
-        .and_hms_opt(0, 0, 0)
-        .map(|dt| dt.and_utc().timestamp());
-    spawn_activity_backfill(ActivityBackfillJob {
-        resources: resources.clone(),
+    start_history_walk(
+        resources,
         user_id,
         tenant_id,
-        tenant_id_str: provider_tenant_id_str(tenant_id),
-        provider_name: backend.to_owned(),
-        // Paged to the floor, as the `get_activities` capture asks: with no
-        // limit a provider reads its default page (Strava 30, Wahoo 50), which
-        // never reaches the floor, and the coverage that run records claims a
-        // depth it never read (carnet#1478).
-        query_params: ActivityQueryParams {
-            after,
-            limit: Some(historical_backfill_fetch_limit()),
-            ..ActivityQueryParams::default()
-        },
-        // This compute is reached from the tools, the HTTP route and the
-        // recomputes an upload or a threshold change runs; none of them owns a
-        // conversation to push to.
-        // The rail's completion notice is driven by the fetch that has one.
-        pierre_conversation_id: None,
-        kind: BackfillJobKind::Backfill,
-        turn_id: None,
-        asked_message_id: None,
-    })
+        backend,
+        WalkTrigger::DepthMissing,
+    )
     .await
 }
 
-/// No capture rail in this build, so no capture is started. Answers as a
-/// ready future so the callers await it exactly as they await the rail.
+/// No walk rail in this build, so no walk is started. Answers as a ready
+/// future so the callers await it exactly as they await the rail.
 ///
 /// See the `tools-data` sibling above for why the module is not gated wholesale.
 #[cfg(not(feature = "tools-data"))]
@@ -532,7 +477,6 @@ fn request_capture(
     _tenant_id: TenantId,
     _user_id: Uuid,
     _backend: &str,
-    _floor: NaiveDate,
 ) -> Ready<bool> {
     ready(false)
 }
@@ -572,7 +516,7 @@ pub async fn history_rows_for_model(
 ) -> AppResult<Vec<DailyTrainingState>> {
     let config = resources.cageux_config();
     history_read::history_rows_for_model(
-        history_sources(resources, &config),
+        history_handles(resources, &config),
         tenant_id,
         user_id,
         from,

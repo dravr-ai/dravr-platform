@@ -89,6 +89,20 @@ pub struct JobProgressStep {
     pub rows_landed: i64,
     /// Seconds per month this step measured; `None` keeps the stored one.
     pub secs_per_unit: Option<f64>,
+    /// The floor the job learned on this step — the oldest instant it reads
+    /// to (unix seconds, the row's new `after_ts`) and the months from its
+    /// start down to it ([`JobProgress::months_total`]); `None` keeps both.
+    pub floor: Option<JobFloor>,
+}
+
+/// Where a walk's history ends, once a step has learned it: a Strava
+/// account's creation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobFloor {
+    /// The oldest instant the job reads to (unix seconds).
+    pub after_ts: i64,
+    /// Months from the job's start down to `after_ts`.
+    pub months_total: i64,
 }
 
 /// One backfill owed: the window that was asked for and where its finished
@@ -180,10 +194,16 @@ pub enum BackfillJobState {
     /// kept to say so ([`ActivityBackfillJobRepository::end_backfill_job_incomplete`]):
     /// a history walk whose session expired mid-copy.
     Incomplete,
+    /// A history walk reached the end of the athlete's history, and its row
+    /// was kept to say so ([`ActivityBackfillJobRepository::end_history_walk`]).
+    Walked,
 }
 
 /// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
 const OUTCOME_INCOMPLETE: &str = "incomplete";
+
+/// The `outcome` an ended row carries in [`BackfillJobState::Walked`].
+const OUTCOME_WALKED: &str = "walked";
 
 /// Which rows a resume sweep may take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +292,16 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// holds the row.
     async fn record_job_progress(&self, lease: &JobLease, step: JobProgressStep)
         -> AppResult<bool>;
+
+    /// A history walk's last step landed: add `step` to the row's progress
+    /// and keep the row, released, as [`BackfillJobState::Walked`] — never
+    /// claimed or reaped again. Returns the progress the row ended on, or
+    /// `None` when this lease no longer holds the row.
+    async fn end_history_walk(
+        &self,
+        lease: &JobLease,
+        step: JobProgressStep,
+    ) -> AppResult<Option<JobProgress>>;
 
     /// How far the `kind` job for `(user_id, provider)` in `tenant_id` has
     /// got, owed or ended, or `None` when the ledger holds no such row.
@@ -415,9 +445,20 @@ pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfil
 /// step, below where this one reached.
 pub(crate) const RECORD_JOB_PROGRESS_SQL: &str = "UPDATE activity_backfill_jobs \
      SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
-         secs_per_unit = COALESCE($6, secs_per_unit), \
+         secs_per_unit = COALESCE($6, secs_per_unit), after_ts = COALESCE($7, after_ts), \
+         months_total = COALESCE($8, months_total), \
          attempts = 0, leased_until_ms = 0, lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Adds a walk's last step to the progress and keeps the row, released, as
+/// walked.
+pub(crate) const END_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
+         secs_per_unit = COALESCE($6, secs_per_unit), after_ts = COALESCE($7, after_ts), \
+         months_total = COALESCE($8, months_total), outcome = $9, \
+         leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
+     RETURNING months_total, months_done, rows_landed, secs_per_unit";
 
 pub(crate) const JOB_PROGRESS_SQL: &str =
     "SELECT months_total, months_done, rows_landed, secs_per_unit FROM activity_backfill_jobs \
@@ -431,6 +472,7 @@ pub(crate) fn backfill_job_state_of(outcome: Option<&str>) -> AppResult<Backfill
     match outcome {
         None => Ok(BackfillJobState::Owed),
         Some(OUTCOME_INCOMPLETE) => Ok(BackfillJobState::Incomplete),
+        Some(OUTCOME_WALKED) => Ok(BackfillJobState::Walked),
         Some(other) => Err(AppError::database(format!(
             "activity_backfill_jobs outcome is not one this build knows: {other}"
         ))),
@@ -440,6 +482,11 @@ pub(crate) fn backfill_job_state_of(outcome: Option<&str>) -> AppResult<Backfill
 /// The `outcome` [`BackfillJobState::Incomplete`] is stored as.
 pub(crate) const fn incomplete_outcome() -> &'static str {
     OUTCOME_INCOMPLETE
+}
+
+/// The `outcome` [`BackfillJobState::Walked`] is stored as.
+pub(crate) const fn walked_outcome() -> &'static str {
+    OUTCOME_WALKED
 }
 
 fn column_error(name: &str, e: &sqlx::Error) -> AppError {
@@ -708,12 +755,35 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(step.months_walked)
                     .bind(step.rows_landed)
                     .bind(step.secs_per_unit)
+                    .bind(step.floor.map(|floor| floor.after_ts))
+                    .bind(step.floor.map(|floor| floor.months_total))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to record backfill job progress: {e}"))
                     })?;
                 Ok(recorded.rows_affected() == 1)
+            }
+
+            async fn end_history_walk(
+                &self,
+                lease: &JobLease,
+                step: JobProgressStep,
+            ) -> AppResult<Option<JobProgress>> {
+                let row = sqlx::query(END_HISTORY_WALK_SQL)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
+                    .bind(step.before_ts)
+                    .bind(step.months_walked)
+                    .bind(step.rows_landed)
+                    .bind(step.secs_per_unit)
+                    .bind(step.floor.map(|floor| floor.after_ts))
+                    .bind(step.floor.map(|floor| floor.months_total))
+                    .bind(walked_outcome())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to end history walk: {e}")))?;
+                row.as_ref().map(job_progress_from_row).transpose()
             }
 
             async fn job_progress(

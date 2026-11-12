@@ -93,9 +93,9 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
         if resume_recorded_backfill(job, lease.clone(), attempts) {
             resumed += 1;
         } else {
-            // A run for the pair is in flight here. Waiting on it must not
-            // spend the job's attempts, or the sweep reaps it before that run
-            // ends.
+            // A run of the job's kind for the pair is in flight here, the
+            // ask's own spawn still running, say. Waiting on it must not spend
+            // the job's attempts, or the sweep reaps it before that run ends.
             release_claim(ledger.as_ref(), &lease).await;
         }
     }
@@ -130,7 +130,10 @@ async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms:
 /// The row kept the backend the ask resolved to; resolving again from the
 /// user-facing name is what the ask itself did, so an athlete who
 /// reconnected through a different backend since is served by the one they
-/// hold now rather than a dead session.
+/// hold now rather than a dead session. A history walk's row keeps the
+/// source it names: the walk reads the source its own order chose
+/// (`history_source_order`, carnet#1482), which the live-read plan a
+/// resolution reads does not follow.
 async fn job_from_row(
     resources: &Arc<dyn ToolRuntime>,
     row: ActivityBackfillJobRow,

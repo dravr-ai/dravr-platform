@@ -94,7 +94,8 @@ pub fn mirror_backend_for(user_facing: &str) -> Option<&'static str> {
 const OAUTH_SERVED: [&str; 2] = [oauth_providers::STRAVA, oauth_providers::GARMIN];
 
 /// Whether `provider`'s own OAuth backend serves it beside its mirror.
-fn oauth_serves(provider: &str) -> bool {
+#[must_use]
+pub fn oauth_serves(provider: &str) -> bool {
     OAUTH_SERVED.contains(&provider)
 }
 

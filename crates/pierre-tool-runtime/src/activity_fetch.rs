@@ -34,6 +34,7 @@ use crate::reauth_retry;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
+use pierre_services::training_history_read::history_read_keys;
 use serde_json::{json, Value};
 
 /// A live list read that answers its turn inside the refresh budget; it runs
@@ -821,10 +822,10 @@ pub(crate) async fn read_cached_window(
 /// Every stored row a read of `provider_slug`'s window serves, newest first,
 /// at most `limit`.
 ///
-/// Its own key, and for a push-fed grant the history its usr/pwd session
-/// imported too ([`backend_resolver::history_keys`]), every recording of one
-/// workout merged into one session. A dead Garmin grant keeps serving what
-/// the session stored, as a live one does (carnet#1386).
+/// Its own key, and for a grant the history its usr/pwd session walked too
+/// ([`history_read_keys`]), every recording of one workout merged into one
+/// session. A dead Garmin grant keeps serving what the session stored, as a
+/// live one does (carnet#1386).
 pub(super) async fn cached_history(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -834,7 +835,7 @@ pub(super) async fn cached_history(
     limit: i64,
 ) -> AppResult<Vec<Activity>> {
     let cache = &runtime.repos().activity_cache;
-    let keys = backend_resolver::history_keys(provider_slug);
+    let keys = history_read_keys(provider_slug);
     if let [key] = keys.as_slice() {
         return cache
             .get_cached_activities(user_id, &tenant, Some(key), start, end, limit)

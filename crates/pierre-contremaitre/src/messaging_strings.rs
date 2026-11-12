@@ -376,6 +376,13 @@ pub const KEY_BACKFILL_READY: &str = "messaging.backfill.ready";
 /// placeholders.
 pub const KEY_LIVE_READ_OVERTAKEN: &str = "messaging.live_read.overtaken";
 
+/// Key: a history walk reached the end of the athlete's history.
+///
+/// The one message a walk no conversation asked for posts in the athlete's
+/// personal thread. `{0}` is the oldest year it reached, `{1}` the
+/// activities it brought in.
+pub const KEY_HISTORY_WALK_COMPLETE: &str = "messaging.history_walk.complete";
+
 /// Key: header line for the backfill completion notice that pushes the list.
 ///
 /// Sits above the actual activity list (not just a nudge). `{0}` = count of

@@ -49,6 +49,7 @@ use pierre_tool_runtime::training_history_compute::{
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
+use crate::helpers::sciotte_mock::seed_scrape_session;
 
 /// The backend the seeded rows are written under. A scrape mirror, because that
 /// is the class whose live fetch is expensive enough to have caused the outage.
@@ -90,6 +91,8 @@ async fn fixture() -> Fixture {
         .register_connection(user_id, tenant, BACKEND, &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // A session for it, so a missing depth has a live source to walk.
+    seed_scrape_session(&resources, user_id, tenant, BACKEND, "history-session").await;
 
     // Real physiology so TSS is HR-derived and the resulting CTL is non-zero —
     // a series of zeros would pass a row-count assertion while proving nothing.

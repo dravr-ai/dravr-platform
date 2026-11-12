@@ -380,6 +380,8 @@ mod health_sync_connected_users_test;
 mod health_sync_tools_integration_test;
 mod heart_rate_series_tool_test;
 mod help_menu_card_test;
+mod history_walk_settle_test;
+mod history_walk_test;
 mod home_sync_truth_e2e_test;
 mod hosted_import_test;
 mod http_api_integration_test;

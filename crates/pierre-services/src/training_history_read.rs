@@ -58,6 +58,14 @@ use pierre_providers::{ai_scope, backend_resolver};
 use std::fmt;
 use uuid::Uuid;
 
+/// The one order the backends holding a provider's history come in
+mod source_order;
+
+pub use source_order::{
+    history_read_keys, history_source_order, history_sources_for, walk_only_session, walk_source,
+    HistorySource, HistorySourceRole,
+};
+
 /// Read limit for a single deterministic read of a historical window from the
 /// durable activity cache.
 ///
@@ -81,7 +89,7 @@ const CACHE_READ_EDGE_SLACK_DAYS: i64 = 2;
 /// What a history read needs: the stored data, the provider terms that govern
 /// what a model may see of it, and the algorithm configuration it is scored by.
 #[derive(Clone, Copy)]
-pub struct HistorySources<'a> {
+pub struct HistoryHandles<'a> {
     /// The repositories the activities, thresholds and rollup are read from.
     pub repos: &'a RepositoryRegistry,
     /// Each provider's terms (the provider registry).
@@ -90,9 +98,9 @@ pub struct HistorySources<'a> {
     pub algorithms: &'a AlgorithmConfig,
 }
 
-impl fmt::Debug for HistorySources<'_> {
+impl fmt::Debug for HistoryHandles<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HistorySources")
+        f.debug_struct("HistoryHandles")
             .field("repos", &self.repos)
             .field("algorithms", &self.algorithms)
             .finish_non_exhaustive()
@@ -162,7 +170,7 @@ pub async fn user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> AppResu
 ///
 /// Returns [`AppError`] when the window is invalid or a repository read fails.
 pub async fn read_history_from_cache(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -239,7 +247,7 @@ pub async fn fetch_history_rows(
 ///
 /// Returns an error when the window is inverted or a read fails.
 pub async fn history_rows_for_model(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -315,7 +323,7 @@ pub struct StoredWindow {
 ///
 /// Returns [`AppError`] when a repository read fails.
 pub async fn load_stored_window(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     backends: Vec<ComputeBackend>,
@@ -329,12 +337,12 @@ pub async fn load_stored_window(
     let zone = resolve_zone(timezone.as_deref());
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
-    // One copy of each workout per key the backends' reads serve: a Garmin
-    // grant's window carries its usr/pwd session's key too
-    // (`backend_resolver::history_keys`), so both copies still fit the cap.
+    // One copy of each workout per key the backends' reads serve: a grant's
+    // window carries its usr/pwd session's key too ([`history_read_keys`]),
+    // so both copies still fit the cap.
     let stored_keys: usize = backends
         .iter()
-        .map(|backend| backend_resolver::history_keys(&backend.slug).len())
+        .map(|backend| history_read_keys(&backend.slug).len())
         .sum();
     let read = read_cached_window(
         sources,
@@ -406,7 +414,7 @@ pub fn first_vouched_day(from: NaiveDate, oldest_stored: NaiveDate, warmup: i64)
 ///
 /// Returns [`AppError`] when the thresholds read or the compute fails.
 pub async fn compute_states(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     window: &StoredWindow,
@@ -536,7 +544,7 @@ struct CachedRead {
 /// Read every provider's stored recordings covering `[start, to]`, newest
 /// first, making room for one copy of each workout per connection.
 async fn read_cached_window(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     connections: usize,
@@ -787,8 +795,8 @@ pub(crate) mod tests {
         }
     }
 
-    fn sources<'a>(fx: &'a Athlete, algorithms: &'a AlgorithmConfig) -> HistorySources<'a> {
-        HistorySources {
+    fn sources<'a>(fx: &'a Athlete, algorithms: &'a AlgorithmConfig) -> HistoryHandles<'a> {
+        HistoryHandles {
             repos: fx.db.repositories(),
             terms: &NolioTerms,
             algorithms,

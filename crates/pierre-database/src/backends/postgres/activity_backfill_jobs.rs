@@ -13,11 +13,11 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::activity_backfill_jobs::{
     backfill_job_from_row, backfill_job_state_of, claim_backfill_jobs_sql,
     impl_activity_backfill_job_repository, incomplete_outcome, job_progress_from_row,
-    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind,
-    BackfillJobState, JobProgress, JobProgressStep, BACKFILL_JOB_STATE_SQL, END_BACKFILL_JOB_SQL,
-    FINISH_BACKFILL_JOB_SQL, JOB_PROGRESS_SQL, REAP_EXHAUSTED_BACKFILL_JOBS_SQL,
-    RECORD_BACKFILL_JOB_SQL, RECORD_JOB_PROGRESS_SQL, RECORD_LIVE_READ_SQL,
-    RELEASE_BACKFILL_JOB_CLAIM_SQL, RENEW_BACKFILL_JOB_LEASE_SQL,
+    walked_outcome, ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim,
+    BackfillJobKind, BackfillJobState, JobProgress, JobProgressStep, BACKFILL_JOB_STATE_SQL,
+    END_BACKFILL_JOB_SQL, END_HISTORY_WALK_SQL, FINISH_BACKFILL_JOB_SQL, JOB_PROGRESS_SQL,
+    REAP_EXHAUSTED_BACKFILL_JOBS_SQL, RECORD_BACKFILL_JOB_SQL, RECORD_JOB_PROGRESS_SQL,
+    RECORD_LIVE_READ_SQL, RELEASE_BACKFILL_JOB_CLAIM_SQL, RENEW_BACKFILL_JOB_LEASE_SQL,
 };
 use crate::repositories::memory_extraction_jobs::JobLease;
 

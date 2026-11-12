@@ -68,8 +68,8 @@ use crate::training_history_compute::{
 };
 use pierre_providers::ai_scope;
 
-use crate::history_import::HistoryImport;
-
+/// A history walk: the athlete's whole history paged into the store
+pub mod history_walk;
 /// A chat turn's live list read as a durable job
 pub mod live_read;
 /// What a job does when it finds its provider session dead
@@ -210,8 +210,8 @@ pub struct ActivityBackfillJob {
     /// conversation, which get no push.
     pub pierre_conversation_id: Option<String>,
     /// What the job is for. [`BackfillJobKind::HistoryWalk`] is set only by
-    /// the walk's own ask ([`crate::history_import::start_history_import`])
-    /// and kept on the job row, so a job is never taken for a walk because of
+    /// the walk's own ask ([`history_walk::start_history_walk`]) and kept on
+    /// the job row, so a job is never taken for a walk because of
     /// which rows happen to stand beside it when it runs.
     pub kind: BackfillJobKind,
     /// The chat turn that asked a [`BackfillJobKind::LiveRead`]; `None` for
@@ -347,12 +347,8 @@ pub(crate) fn resume_recorded_backfill(
 
 /// The task every job runs in: holds the in-flight key for the life of the
 /// run and, when the job is on file, its row. What runs is the job's kind:
-/// a live read ([`live_read`]), or a backfill.
-///
-/// A job naming a usr/pwd session beside a push-fed grant is that session's
-/// one-time history import ([`HistoryImport`]): it reads the session itself,
-/// and its end, whatever it is, retires the session (carnet#1386).
-/// A job neither a conversation nor a turn waits on runs [`in_background`],
+/// a live read ([`live_read`]), a history walk ([`history_walk`]), or a
+/// backfill. A job neither a conversation nor a turn waits on runs [`in_background`],
 /// leaving the head reads athletes wait on the rest of each window
 /// (carnet#1478).
 fn spawn_backfill_run(
@@ -365,9 +361,8 @@ fn spawn_backfill_run(
     let run = async move {
         match job.kind {
             BackfillJobKind::LiveRead => live_read::run_live_read(&job, recorded, handoff).await,
-            BackfillJobKind::Backfill | BackfillJobKind::HistoryWalk => {
-                run_backfill(&job, recorded).await;
-            }
+            BackfillJobKind::HistoryWalk => history_walk::run_history_walk(&job, recorded).await,
+            BackfillJobKind::Backfill => run_backfill(&job, recorded).await,
         }
         release_in_flight(&key);
     };
@@ -378,16 +373,12 @@ fn spawn_backfill_run(
     }
 }
 
-/// Run a backfill, or a history walk's import, and settle its row.
+/// Run a backfill, and settle its row when it is on file.
 async fn run_backfill(job: &ActivityBackfillJob, recorded: Option<(JobLease, i64)>) {
-    let import = HistoryImport::of(job).await;
     if let Some((row_id, attempts)) = recorded {
-        run_recorded_backfill(job, &row_id, attempts, import.as_ref()).await;
+        run_recorded_backfill(job, &row_id, attempts).await;
     } else {
-        let outcome = run_activity_backfill(job, BackfillRead::of(import.as_ref())).await;
-        if let Some(import) = &import {
-            import.settle(job, None, &outcome).await;
-        }
+        run_activity_backfill(job).await;
     }
 }
 
@@ -457,23 +448,12 @@ fn job_row(job: &ActivityBackfillJob) -> ActivityBackfillJobRow {
 }
 
 /// Run a recorded job under its row: renew the lease while the run is alive,
-/// then settle the row on the outcome. A history import keeps its lease
-/// through its settlement too, which reads the session's wellness before it
-/// retires the session: the sweep must not take the row meanwhile.
-async fn run_recorded_backfill(
-    job: &ActivityBackfillJob,
-    row_id: &JobLease,
-    attempts: i64,
-    import: Option<&HistoryImport>,
-) -> BackfillRunOutcome {
+/// then settle the row on the outcome.
+async fn run_recorded_backfill(job: &ActivityBackfillJob, row_id: &JobLease, attempts: i64) {
     let renewal = keep_backfill_lease(job, row_id);
-    let outcome = run_activity_backfill(job, BackfillRead::of(import)).await;
-    match import {
-        Some(import) => import.settle(job, Some((row_id, attempts)), &outcome).await,
-        None => settle_backfill_job(job, row_id, attempts, &outcome).await,
-    }
+    let outcome = run_activity_backfill(job).await;
+    settle_backfill_job(job, row_id, attempts, &outcome).await;
     drop(renewal);
-    outcome
 }
 
 /// What the run's outcome does to its row: finished on an outcome the
@@ -488,9 +468,7 @@ async fn settle_backfill_job(
     outcome: &BackfillRunOutcome,
 ) {
     match outcome {
-        BackfillRunOutcome::Completed
-        | BackfillRunOutcome::Filled { .. }
-        | BackfillRunOutcome::AuthRequired => {
+        BackfillRunOutcome::Completed | BackfillRunOutcome::AuthRequired => {
             remove_backfill_job(job, row_id, "finished").await;
         }
         BackfillRunOutcome::Failed if attempts >= MAX_BACKFILL_ATTEMPTS => {
@@ -599,27 +577,6 @@ const IN_FLIGHT_WAIT_POLL: StdDuration = StdDuration::from_millis(500);
 /// task forever.
 const IN_FLIGHT_WAIT_CAP: StdDuration = StdDuration::from_mins(8);
 
-/// Which provider a run reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackfillRead {
-    /// The backend that serves the user's reads, as every ask resolves it.
-    Resolved,
-    /// Exactly the backend the job names: a history import's session, which
-    /// routing never serves ([`HistoryImport`]).
-    Session,
-}
-
-impl BackfillRead {
-    /// How a run reads, for a job that is `import` or is not one.
-    const fn of(import: Option<&HistoryImport>) -> Self {
-        if import.is_some() {
-            Self::Session
-        } else {
-            Self::Resolved
-        }
-    }
-}
-
 /// Terminal outcome of one backfill run.
 ///
 /// The detached spawn path settles its job row on it — finished for the two
@@ -631,15 +588,6 @@ pub(crate) enum BackfillRunOutcome {
     /// The window was fetched and durably persisted — or the provider holds
     /// nothing in it. Either way the durable cache now holds the answer.
     Completed,
-    /// A history import's page filled its fetch limit: the rows landed, and
-    /// the account holds more below `oldest_ts`, the oldest activity this
-    /// page reached. Only a session read ([`BackfillRead::Session`]) ends so.
-    Filled {
-        /// The oldest activity start this page reached (unix seconds).
-        oldest_ts: i64,
-        /// How many activities this page wrote.
-        landed: usize,
-    },
     /// The provider session lapsed mid-run; the user must reconnect.
     AuthRequired,
     /// Transient failure — nothing persisted; a retry re-runs the window.
@@ -678,7 +626,7 @@ async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOu
         sleep(IN_FLIGHT_WAIT_POLL).await;
         waited += IN_FLIGHT_WAIT_POLL;
     }
-    let outcome = run_activity_backfill(&job, BackfillRead::Resolved).await;
+    let outcome = run_activity_backfill(&job).await;
     IN_FLIGHT_BACKFILLS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -718,7 +666,7 @@ pub(crate) async fn backfill_inline_and_serve(
     match run_activity_backfill_inline(job).await {
         BackfillRunOutcome::AuthRequired => return InlineHistoricalServe::AuthRequired,
         BackfillRunOutcome::Failed => return InlineHistoricalServe::Failed,
-        BackfillRunOutcome::Completed | BackfillRunOutcome::Filled { .. } => {}
+        BackfillRunOutcome::Completed => {}
     }
     let window = read_cached_window(
         &resources,
@@ -793,23 +741,12 @@ fn capture_with_head(
 async fn fetch_backfill_activities(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
-    read: BackfillRead,
 ) -> BackfillFetch {
     let tenant = job.tenant_id_str.as_deref();
-    let authenticated = match read {
-        BackfillRead::Resolved => {
-            executor
-                .auth_service
-                .create_authenticated_provider(&job.provider_name, job.user_id, tenant)
-                .await
-        }
-        BackfillRead::Session => {
-            executor
-                .auth_service
-                .create_session_provider(&job.provider_name, job.user_id, tenant)
-                .await
-        }
-    };
+    let authenticated = executor
+        .auth_service
+        .create_authenticated_provider(&job.provider_name, job.user_id, tenant)
+        .await;
     let provider = match authenticated {
         Ok(provider) => provider,
         Err(response) => {
@@ -928,10 +865,7 @@ async fn record_backfill_coverage(
         chat_triggered = job.pierre_conversation_id.is_some(),
     )
 )]
-async fn run_activity_backfill(
-    job: &ActivityBackfillJob,
-    read: BackfillRead,
-) -> BackfillRunOutcome {
+async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome {
     // Bound explicitly, not inherited: this path is reached from a detached
     // `tokio::spawn`, which a task-local does not cross. The job runs the
     // athlete's own backfill, so it carries the self grant.
@@ -940,17 +874,13 @@ async fn run_activity_backfill(
     // Taken before the fetch reads the session: a reconnect that lands during
     // a long scrape is newer than the failure the scrape reports.
     let attempt_started_at = Utc::now();
-    let activities = match fetch_backfill_activities(job, &executor, read).await {
+    let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => {
             // The provider session expired mid-backfill. This detached path is
             // otherwise silent, so nudge the user to reconnect on the channel
             // that asked instead of leaving them on a perpetual "ask again".
-            // A history import's session is not the athlete's connection: its
-            // end is settled without a word (`HistoryImport::settle`).
-            if read == BackfillRead::Resolved {
-                notify_backfill_reauth(job, attempt_started_at).await;
-            }
+            notify_backfill_reauth(job, attempt_started_at).await;
             return BackfillRunOutcome::AuthRequired;
         }
         BackfillFetch::Failed => return BackfillRunOutcome::Failed,
@@ -970,7 +900,12 @@ async fn run_activity_backfill(
     // A failed/partial write that still stamped coverage would leave the gate
     // believing the window is complete while the rows are missing — it would then
     // serve the stale slice and never self-heal (the "2022 stuck at 46" class).
-    let Some(activity_count) = persist_backfill_activities(job, &executor, &activities, read).await
+    let write = WriteThrough {
+        read: &job.query_params,
+        announces_sessions: true,
+    };
+    let Some(activity_count) =
+        persist_backfill_activities(job, &executor, &activities, write).await
     else {
         return BackfillRunOutcome::Failed;
     };
@@ -994,40 +929,9 @@ async fn run_activity_backfill(
         "Activity backfill: wrote historical activities to durable cache"
     );
 
-    // A history import tells no conversation: the card shows how it went.
-    if read == BackfillRead::Resolved {
-        notify_backfill_complete(job, activity_count).await;
-    }
+    notify_backfill_complete(job, activity_count).await;
     warm_training_history(job).await;
-    if read == BackfillRead::Session {
-        if let Some(oldest_ts) = filled_page(job, &activities, fetched_count) {
-            return BackfillRunOutcome::Filled {
-                oldest_ts,
-                landed: activity_count,
-            };
-        }
-    }
     BackfillRunOutcome::Completed
-}
-
-/// The oldest activity start a run reached when it filled its fetch limit:
-/// the provider then holds more below it. `None` for a run that read fewer,
-/// or whose page reached nothing older than the `before` it was read under,
-/// which a next page would only read again.
-fn filled_page(
-    job: &ActivityBackfillJob,
-    activities: &[Activity],
-    fetched_count: usize,
-) -> Option<i64> {
-    let limit = job.query_params.limit?;
-    if fetched_count < limit {
-        return None;
-    }
-    let oldest = activities
-        .iter()
-        .map(|activity| activity.start_date().timestamp())
-        .min()?;
-    (job.query_params.before.is_none_or(|before| oldest < before)).then_some(oldest)
 }
 
 /// Recompute the athlete's daily training-state rollup now that deeper rows
@@ -1074,9 +978,9 @@ async fn warm_default_window(job: &ActivityBackfillJob) -> AppResult<TrainingHis
     compute_history_after_capture(&job.resources, job.tenant_id, job.user_id, from, to).await
 }
 
-/// Write the scraped historical activities through to the durable cache and
-/// return the net distinct rows persisted (deduped by `activity_id`), or `None`
-/// when the write-through fails. A failed/partial write must not let the caller
+/// Write the scraped historical activities through to the durable cache as
+/// `write` says, and return the net distinct rows persisted (deduped by
+/// `activity_id`), or `None` when the write-through fails. A failed/partial write must not let the caller
 /// record coverage — recording it would leave the gate believing the window is
 /// complete while the rows are missing (the "2022 stuck at 46" class), so the
 /// caller bails on `None` and the next ask re-backfills the window.
@@ -1084,7 +988,7 @@ async fn persist_backfill_activities(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
     activities: &[Activity],
-    read: BackfillRead,
+    write: WriteThrough<'_>,
 ) -> Option<usize> {
     let Some(persisted) = write_through_activity_cache(
         &executor.auth_service,
@@ -1092,11 +996,7 @@ async fn persist_backfill_activities(
         job.tenant_id,
         &job.provider_name,
         activities,
-        WriteThrough {
-            read: &job.query_params,
-            // A history import copies the past: it lands no new session.
-            announces_sessions: read == BackfillRead::Resolved,
-        },
+        write,
     )
     .await
     else {
