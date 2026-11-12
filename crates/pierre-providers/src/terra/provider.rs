@@ -32,7 +32,7 @@ use crate::core::{
 use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
 use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
-use crate::models::StatsCoverage;
+use crate::models::coverage::WindowScope;
 use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -251,7 +251,7 @@ impl FitnessProvider for TerraProvider {
         let activities = self.cached()?.all().await?;
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 }

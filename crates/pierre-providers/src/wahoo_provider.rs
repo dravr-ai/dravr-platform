@@ -39,8 +39,8 @@ use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::fit_decode::decode_bounded;
 use crate::http_client;
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{
     Activity, ActivityBuilder, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind,
     Stats, TimeSeriesData,
@@ -863,7 +863,7 @@ impl FitnessProvider for WahooProvider {
             .await?;
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 

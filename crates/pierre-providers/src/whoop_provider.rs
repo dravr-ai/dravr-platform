@@ -23,8 +23,8 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::activity::utc_offset_seconds_if_civil;
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -578,7 +578,7 @@ impl FitnessProvider for WhoopProvider {
 
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 }

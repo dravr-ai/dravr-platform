@@ -106,7 +106,7 @@ use crate::intervals_icu_self_report::{
 };
 use crate::intervals_icu_settings::thresholds_from_settings;
 use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
-use crate::models::StatsCoverage;
+use crate::models::coverage::WindowScope;
 use crate::models::{
     Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout,
     ProviderThresholds, SportType, Stats, TimeSeriesData,
@@ -1052,14 +1052,14 @@ impl FitnessProvider for IntervalsIcuProvider {
         let activities = self.list_activities(oldest, newest, MAX_PAGE_LIMIT).await?;
         // The rollup spans the lookback window, unless the listing hit its
         // page cap first: then only that many of the most recent count.
-        let coverage = if activities.len() < MAX_PAGE_LIMIT {
-            StatsCoverage::Window {
+        let scope = if activities.len() < MAX_PAGE_LIMIT {
+            WindowScope::LastDays {
                 days: u32::try_from(DEFAULT_LOOKBACK_DAYS).unwrap_or(u32::MAX),
             }
         } else {
-            StatsCoverage::recent(&activities)
+            WindowScope::RecentActivities
         };
-        Ok(Stats::summed_over(&activities, coverage))
+        Ok(Stats::summed_over(&activities, scope))
     }
 
     // Every category: this is the reconcile's view of the calendar, and the

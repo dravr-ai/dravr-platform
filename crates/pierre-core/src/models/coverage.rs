@@ -260,6 +260,18 @@ impl Coverage {
         }
     }
 
+    /// A provider's aggregate over the athlete's whole history, of `total`
+    /// activities.
+    #[must_use]
+    pub fn lifetime(total: u64) -> Self {
+        Self::complete(CoverageWindow {
+            scope: WindowScope::Lifetime,
+            total: Some(total),
+            returned: total,
+            ..CoverageWindow::default()
+        })
+    }
+
     /// Whether the window is complete.
     #[must_use]
     pub const fn is_complete(&self) -> bool {

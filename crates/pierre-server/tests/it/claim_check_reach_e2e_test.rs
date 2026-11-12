@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use pierre_core::models::StatsCoverage;
+use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -240,7 +240,7 @@ impl FitnessProvider for OpenRunner {
             total_distance: 21_100.0,
             total_duration: 6_300,
             total_elevation_gain: 0.0,
-            coverage: StatsCoverage::Lifetime,
+            coverage: Coverage::lifetime(1),
             year_to_date: None,
         })
     }

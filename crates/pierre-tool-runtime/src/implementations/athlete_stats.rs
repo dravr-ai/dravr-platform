@@ -291,10 +291,11 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
         answers_with::<Formatted<GetStatsResult>>(task_capable(tool_definition(
             "get_stats",
             "Aggregated activity totals from a connected provider. Read `coverage` before quoting \
-             any total_*: `coverage.kind` is `lifetime` (ALL-TIME), `recent_activities` (only \
-             the `coverage.count` most recent activities, oldest at `coverage.oldest`; e.g. \
-             Wahoo, WHOOP) or `window` (only the last `coverage.days` days). Report a \
-             `recent_activities` or `window` total as that sample or window ('your last N \
+             any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), \
+             `recent_activities` (only the `coverage.window.total` most recent activities, \
+             oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the \
+             last `coverage.window.scope.days` days). Report a \
+             `recent_activities` or `last_days` total as that sample or window ('your last N \
              workouts since <date>', 'the last N days'), never as lifetime, all-time, career or \
              total-ever. `year_to_date` (Strava) holds \
              CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other \

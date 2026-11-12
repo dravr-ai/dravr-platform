@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use pierre_core::models::StatsCoverage;
+use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -207,7 +207,7 @@ impl FitnessProvider for Relay {
             total_distance: 9_876_000.0,
             total_duration: 1_234_567,
             total_elevation_gain: 54_321.0,
-            coverage: StatsCoverage::Lifetime,
+            coverage: Coverage::lifetime(412),
             year_to_date: None,
         })
     }
@@ -2074,7 +2074,7 @@ mod scraped {
                 total_distance: 20_000.0,
                 total_duration: 5_400,
                 total_elevation_gain: 300.0,
-                coverage: StatsCoverage::Lifetime,
+                coverage: Coverage::lifetime(2),
                 year_to_date: None,
             })
         }

@@ -79,10 +79,10 @@ use crate::constants::oauth::{
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind, Stats, StatsCoverage,
-    TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -630,7 +630,7 @@ impl FitnessProvider for GarminProvider {
         let activities = self.cached()?.all().await?;
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 
@@ -1173,17 +1173,22 @@ mod tests {
             "bug: elevation sum {}",
             stats.total_elevation_gain
         );
-        match stats.coverage {
-            StatsCoverage::RecentActivities { count, oldest } => {
-                assert_eq!(count, 2, "bug: coverage counts the pushed rows");
-                assert_eq!(
-                    oldest.map(|at| at.timestamp()),
-                    Some(seeded.ride_start.timestamp()),
-                    "bug: coverage starts at the oldest pushed row"
-                );
-            }
-            other => panic!("pushed totals are not a lifetime: {other:?}"),
-        }
+        let window = &stats.coverage.window;
+        assert_eq!(
+            window.scope,
+            WindowScope::RecentActivities,
+            "pushed totals are not a lifetime: {window:?}"
+        );
+        assert_eq!(
+            window.total,
+            Some(2),
+            "bug: coverage counts the pushed rows"
+        );
+        assert_eq!(
+            window.oldest,
+            Some(seeded.ride_start.date_naive()),
+            "bug: coverage starts at the oldest pushed row"
+        );
     }
 
     /// Every activity this provider serves carries the source the Garmin
