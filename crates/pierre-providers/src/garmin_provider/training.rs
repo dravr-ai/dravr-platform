@@ -29,9 +29,10 @@
 
 use std::fmt;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use tracing::info;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::periodization::ThresholdBasis;
@@ -366,13 +367,70 @@ pub(super) fn schedule_body(workout_id: i64, date: NaiveDate, schedule_id: Optio
     body
 }
 
-/// A workout as Garmin returns it: only its ids are read.
+/// A workout as Garmin returns it: its ids, the provider and source it is
+/// filed under, and Garmin's own stamps on it. Everything past the ids is
+/// kept as the JSON Garmin sent, so a field of an unexpected type never makes
+/// the workout unreadable to the update that needs its ids.
 #[derive(Debug, Deserialize)]
 pub(super) struct StoredWorkout {
     #[serde(rename = "workoutId")]
     pub(super) workout_id: i64,
     #[serde(rename = "ownerId", default)]
     pub(super) owner_id: Option<i64>,
+    #[serde(rename = "workoutProvider", default)]
+    provider: Option<Value>,
+    #[serde(rename = "workoutSourceId", default)]
+    source_id: Option<Value>,
+    #[serde(rename = "createdDate", default)]
+    created_date: Option<Value>,
+    #[serde(rename = "updatedDate", default)]
+    updated_date: Option<Value>,
+}
+
+impl StoredWorkout {
+    /// Whether Dravr wrote this workout: Garmin files it under
+    /// [`WORKOUT_PROVIDER`] as both its provider and its source, as it does
+    /// every workout [`workout_body`] sends. A workout the athlete or another
+    /// app made carries neither.
+    pub(super) fn is_dravrs(&self) -> bool {
+        let dravr = |field: Option<&Value>| field.and_then(Value::as_str) == Some(WORKOUT_PROVIDER);
+        dravr(self.provider.as_ref()) && dravr(self.source_id.as_ref())
+    }
+
+    /// Log Garmin's stamps on this workout beside the instant Dravr saw them,
+    /// `seen` naming the call that returned it (carnet#1389).
+    ///
+    /// Garmin documents `createdDate` and `updatedDate` without a zone. A
+    /// stamp logged on a workout Dravr has just created or updated, against
+    /// `observed_at`, shows which zone Garmin writes them in; the same stamps
+    /// on a later read show whether an edit in Garmin Connect moved them.
+    /// Nothing here is the athlete's: ids, Garmin's stamps, and the
+    /// provider and source names the workout is filed under.
+    pub(super) fn log_stamps(&self, seen: &'static str) {
+        let raw =
+            |field: Option<&Value>| field.map_or_else(|| "absent".to_owned(), Value::to_string);
+        info!(
+            provider = "garmin",
+            seen,
+            workout_id = self.workout_id,
+            created_date = %raw(self.created_date.as_ref()),
+            updated_date = %raw(self.updated_date.as_ref()),
+            workout_provider = %raw(self.provider.as_ref()),
+            workout_source_id = %raw(self.source_id.as_ref()),
+            observed_at = %Utc::now().to_rfc3339(),
+            "Garmin workout stamps"
+        );
+    }
+
+    /// Log the stamps on the workout Garmin answered an update with. Garmin
+    /// may answer with the workout it now holds, or with nothing; an answer
+    /// that is not a workout logs nothing.
+    pub(super) fn log_update_answer(answer: Option<&str>) {
+        let updated = answer.and_then(|text| serde_json::from_str::<Self>(text).ok());
+        if let Some(updated) = updated {
+            updated.log_stamps("updated");
+        }
+    }
 }
 
 /// One schedule of the athlete's calendar.
@@ -626,10 +684,9 @@ mod tests {
 
     #[test]
     fn an_update_carries_the_id_and_owner_garmin_gave_the_workout() {
-        let stored = StoredWorkout {
-            workout_id: 41,
-            owner_id: Some(9_000),
-        };
+        let stored: StoredWorkout =
+            serde_json::from_value(json!({"workoutId": 41, "ownerId": 9_000}))
+                .unwrap_or_else(|e| panic!("stored workout: {e}"));
         let body = updated_workout_body(&loaded_session(), &stored)
             .unwrap_or_else(|e| panic!("update body: {e}"));
         assert_eq!(body["workoutId"], 41);

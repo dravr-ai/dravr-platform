@@ -654,14 +654,14 @@ pub trait FitnessProvider: Send + Sync {
 
     // ── Training-calendar writes ─────────────────────────────────────────
     //
-    // The four methods below are the whole write surface a provider with a
-    // training calendar offers. They default to an unsupported-capability
-    // error: the read-side providers (Strava, WHOOP, the scraped mirrors) have
-    // no planned-workout write API and inherit the defaults; Intervals.icu,
-    // Wahoo and Garmin (its Training API) override all four, and a future
-    // calendar provider (TrainingPeaks) implements the same four. The
-    // reconciler in `pierre_services::plan_calendar_push` is written against
-    // these alone.
+    // The methods below are the whole surface a provider with a training
+    // calendar offers: a key, a listing, a detail read, and three writes. The
+    // listing and the writes default to an unsupported-capability error: the
+    // read-side providers (Strava, WHOOP, the scraped mirrors) have no
+    // planned-workout write API and inherit the defaults; Intervals.icu, Wahoo
+    // and Garmin (its Training API) override them, and a future calendar
+    // provider (TrainingPeaks) implements the same set. The reconciler in
+    // `pierre_services::plan_calendar_push` is written against these alone.
 
     /// The key this provider's calendar stores for the entry Dravr keys
     /// `external_id` — what a reconcile compares a listed event's
@@ -669,7 +669,10 @@ pub trait FitnessProvider: Send + Sync {
     ///
     /// Dravr's own key by default. A provider whose terms give it rights over
     /// whatever Dravr writes into it (Wahoo) stores an opaque derivative
-    /// instead, since Dravr's key names the athlete's user id.
+    /// instead, since Dravr's key names the athlete's user id. A provider
+    /// whose calendar keeps no per-entry key at all (Garmin) answers the one
+    /// tag it files every entry of Dravr's under: the same value for every
+    /// key, which the reconcile pairs with a lost key by the entry's date.
     fn calendar_key(&self, external_id: &str) -> String {
         external_id.to_owned()
     }
@@ -687,6 +690,21 @@ pub trait FitnessProvider: Send + Sync {
             "{} does not expose a training calendar",
             self.name()
         )))
+    }
+
+    /// `event` as [`Self::list_calendar_events`] listed it, with what the
+    /// listing left out — its `external_id` and `updated_at` — read from the
+    /// entry itself.
+    ///
+    /// The default returns `event` unchanged and calls nothing: a listing that
+    /// already carries both (Intervals.icu, Wahoo) has nothing to add. A
+    /// provider whose listing names identity only overrides this with one
+    /// read of the entry; the reconciler calls it only for an entry it is
+    /// about to update and for a listed entry that might be one its ledger
+    /// lost, on a date the push writes, so the reads are paid on the dates a
+    /// push writes, never across the window it lists.
+    async fn calendar_event_detail(&self, event: CalendarEventRef) -> AppResult<CalendarEventRef> {
+        Ok(event)
     }
 
     /// Create one calendar entry. Returns the provider-side event id.

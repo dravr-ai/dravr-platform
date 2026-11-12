@@ -199,6 +199,11 @@ impl FitnessProvider for AiGovernedProvider {
         self.inner.list_calendar_events(from, to).await
     }
 
+    async fn calendar_event_detail(&self, event: CalendarEventRef) -> AppResult<CalendarEventRef> {
+        self.untagged_read()?;
+        self.inner.calendar_event_detail(event).await
+    }
+
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
         self.inner.push_planned_session(session).await
     }

@@ -189,8 +189,9 @@ bitflags::bitflags! {
         /// `ProviderFactory::delegated_reads`. The coach's credential may be
         /// an OAuth grant or an API key (`CredentialKind`).
         const COACH_ROSTER = 0b0000_0001_0000_0000;
-        /// Provider writes its training calendar — `list_calendar_events`,
-        /// `push_planned_session`, `update_planned_session` and
+        /// Provider writes its training calendar — `list_calendar_events`
+        /// (with `calendar_event_detail` when its listing names identity
+        /// only), `push_planned_session`, `update_planned_session` and
         /// `delete_planned_sessions` on `FitnessProvider` — so the plan push
         /// and `prescribe_workout` can target it.
         ///

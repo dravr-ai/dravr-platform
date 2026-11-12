@@ -158,6 +158,7 @@ mod build_features_test;
 mod byo_chat_provider_test;
 mod cache_memory_test;
 mod caching_provider_test;
+mod calendar_detail_reconcile_test;
 mod calendar_target_test;
 mod calibrate_command_test;
 mod calibration_facts_test;
