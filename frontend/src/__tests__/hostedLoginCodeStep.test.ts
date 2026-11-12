@@ -3,7 +3,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback
+// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback and follow-on
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -455,3 +455,82 @@ describe('connect_hosted — a sign-in-first card falls back to its OAuth (carne
     expect(view.navigations).toEqual([]);
   });
 });
+
+describe('a Garmin sign-in goes on to its grant (carnet#1494)', () => {
+  /** The Garmin card as the picker serves it; `connected` and `oauth_owed` as the server sets them. */
+  const garminCard = (connected: boolean, owed: boolean) => [
+    {
+      provider: 'sciotte_garmin',
+      display_name: 'Garmin',
+      description: '',
+      connected,
+      history_state: 'not_applicable',
+      history_sign_in: false,
+      kind: 'credentials',
+      target: 'garmin',
+      consent_required: false,
+      login_identifier: 'email_or_username',
+      oauth_fallback: false,
+      ...(owed ? { oauth_owed: 'garmin' } : {}),
+    },
+  ];
+  const GARMIN_OAUTH_INIT = '/api/providers/connect/oauth-init/garmin?token=link-token';
+
+  function submit(view: ReturnType<typeof open>) {
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+  }
+
+  it("the picker starts Garmin's authorization when the sign-in names it", async () => {
+    const view = open(
+      'connect_hosted',
+      {
+        [LOGIN]: [
+          { status: 200, body: { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } } },
+        ],
+      },
+      garminCard(false, false),
+    );
+    (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+    submit(view);
+
+    await vi.waitFor(() => expect(view.navigations).toEqual([GARMIN_OAUTH_INIT]));
+    expect(view.visible('phase-success')).toBe(false);
+  });
+
+  it('the picker keeps a connected card that owes its grant pickable, and starts it', () => {
+    const view = open('connect_hosted', {}, garminCard(true, true));
+    const card = view.document.querySelector('.provider-card') as HTMLButtonElement;
+    expect(card.disabled).toBe(false);
+    expect(card.textContent).toContain(text('hosted.picker.tagAuthorize'));
+    card.click();
+    expect(view.navigations).toEqual([GARMIN_OAUTH_INIT]);
+  });
+
+  it('the picker leaves a connected card that owes nothing inert', () => {
+    const view = open('connect_hosted', {}, garminCard(true, false));
+    expect((view.document.querySelector('.provider-card') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("the hosted sign-in goes to the grant's authorization URL its answer carries", async () => {
+    const url = 'https://connect.garmin.test/oauth2Confirm?client_id=dravr';
+    const view = open('sciotte_link_login', {
+      [LOGIN]: [
+        {
+          status: 200,
+          body: {
+            status: 'connected',
+            provider: 'sciotte_garmin',
+            oauth_follow_on: { provider: 'garmin', authorization_url: url },
+          },
+        },
+      ],
+    });
+    submit(view);
+
+    await vi.waitFor(() => expect(view.navigations).toEqual([url]));
+    expect(view.visible('phase-success')).toBe(false);
+  });
+});
+

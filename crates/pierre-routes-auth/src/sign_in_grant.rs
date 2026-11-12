@@ -53,14 +53,17 @@ pub(crate) struct OAuthFollowOn {
     authorization_url: Option<String>,
 }
 
-/// The `connected` answer to a sign-in of `backend` that stored its session,
-/// with the authorization it is followed by ([`oauth_follow_on`]).
+/// The `connected` answer to a sign-in of `backend`, with the authorization
+/// it is followed by ([`oauth_follow_on`]). `short_circuit` when a session
+/// stored moments ago answered it without a new login: a sign-in repeated
+/// after its grant's authorization was left unfinished still goes on to it.
 pub(crate) async fn connected_response(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     backend: &str,
     link: Option<&LinkContext>,
+    short_circuit: bool,
 ) -> Response {
     let follow_on = oauth_follow_on(
         resources,
@@ -78,12 +81,15 @@ pub(crate) async fn connected_response(
             "Sign-in completed; its grant's authorization follows"
         );
     }
-    Json(serde_json::json!({
+    let mut answer = serde_json::json!({
         "status": "connected",
         "provider": backend,
         "oauth_follow_on": follow_on,
-    }))
-    .into_response()
+    });
+    if short_circuit {
+        answer["short_circuit"] = serde_json::Value::Bool(true);
+    }
+    Json(answer).into_response()
 }
 
 /// The authorization a completed sign-in of `backend` is followed by: the

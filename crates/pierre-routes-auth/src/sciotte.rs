@@ -385,7 +385,7 @@ async fn store_sciotte_session(
         provider_name,
     );
 
-    Ok(connected_response(resources, user_id, tenant_id, provider_name, link).await)
+    Ok(connected_response(resources, user_id, tenant_id, provider_name, link, false).await)
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -950,7 +950,11 @@ pub(crate) async fn handle_sciotte_login(
     // switching away from. The lookups are by this caller's (user, tenant,
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
-        StoredSessionUse::Reused(response) => return Ok(response),
+        StoredSessionUse::Reused => {
+            let link = link_context.as_ref();
+            let reused = connected_response(&resources, user_id, tenant_id, provider, link, true);
+            return Ok(reused.await);
+        }
         StoredSessionUse::SignIn { prior_session } => prior_session,
     };
 
