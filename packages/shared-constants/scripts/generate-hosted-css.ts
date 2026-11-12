@@ -803,11 +803,12 @@ ${glyphRules}
 .client {
   color: rgb(var(--color-on-surface));
   font-weight: 600;
-  word-break: break-all;
+  /* Breaks only a name too long for the line (a metadata URL), never a word that fits. */
+  overflow-wrap: anywhere;
 }
 
 .scopes {
-  margin-bottom: 24px;
+  margin: 16px 0 24px;
   padding: 16px;
   border: 1px solid var(--ghost-border);
   border-radius: 8px;
@@ -828,7 +829,7 @@ ${glyphRules}
 
 .scopes li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 4px 0;
   color: rgb(var(--color-on-surface));
@@ -837,10 +838,28 @@ ${glyphRules}
 .scopes li::before {
   content: '';
   flex-shrink: 0;
+  /* Centred on the first line of a scope that wraps: (23px line - 8px dot) / 2. */
+  margin-top: 7.5px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: rgb(var(--color-primary));
+}
+
+/* What the athlete consents to, in the words the law asks for: body text,
+   not the footer's fine print, and apart from the buttons below. */
+.disclosures {
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.disclosure {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.disclosure + .disclosure {
+  margin-top: 12px;
 }
 
 .greeting {

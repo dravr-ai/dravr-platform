@@ -165,7 +165,7 @@ pub(super) fn trust_line(trust: &ClientTrust, text: &ConsentText<'_>) -> String 
 /// What the data is, and that it is wellness information.
 pub(super) fn health_line(client_label: &str, text: &ConsentText<'_>) -> String {
     format!(
-        r#"<p class="fineprint">{}</p>"#,
+        r#"<p class="disclosure">{}</p>"#,
         text.html(KEY_CONSENT_HEALTH, &[&client_span(client_label)]),
     )
 }
@@ -195,14 +195,14 @@ pub(super) fn outside_quebec_line(
         ),
         ClientTrust::Unverified { .. } => text.html(KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN, &[&client]),
     };
-    format!(r#"<p class="fineprint">{line}</p>"#)
+    format!(r#"<p class="disclosure">{line}</p>"#)
 }
 
 /// Law 25 s.12: health data is sensitive, so consent is expressly asked for,
 /// in words apart from the scope list, naming the button that gives it.
 pub(super) fn express_consent_line(client_label: &str, text: &ConsentText<'_>) -> String {
     format!(
-        r#"<p class="fineprint">{}</p>"#,
+        r#"<p class="disclosure">{}</p>"#,
         text.html(
             KEY_CONSENT_EXPRESS,
             &[

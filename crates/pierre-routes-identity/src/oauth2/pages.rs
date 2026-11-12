@@ -464,7 +464,7 @@ fn first_party_only_line(sources: &[&str], client: &str, text: &ConsentText<'_>)
         )
     };
     format!(
-        r#"<p class="fineprint">{}</p>"#,
+        r#"<p class="disclosure">{}</p>"#,
         text.html(KEY_CONSENT_FIRST_PARTY_ONLY, &[&named, client]),
     )
 }
