@@ -72,7 +72,7 @@ fn assert_landed(landed: &Landed) {
 }
 
 #[tokio::test]
-async fn kinds_are_renamed_made_not_null_and_joined_to_the_unique_key() {
+async fn kinds_join_the_unique_key_after_the_import_rows_are_deleted() {
     let database = create_test_db_url().await.unwrap();
     #[cfg(feature = "postgresql")]
     if database.url.starts_with("postgres") {

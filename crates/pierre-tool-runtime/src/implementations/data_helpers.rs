@@ -22,7 +22,6 @@ use serde_json::{json, Value};
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
-#[cfg(feature = "tools-data")]
 use pierre_providers::backend_resolver::user_facing_name;
 #[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;

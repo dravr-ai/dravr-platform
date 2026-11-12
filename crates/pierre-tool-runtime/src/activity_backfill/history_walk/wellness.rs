@@ -46,7 +46,7 @@ pub(super) async fn copy_before_grant(job: &ActivityBackfillJob) -> bool {
         &job.provider_name,
     )
     .await;
-    if !behind.is_some_and(|grant| pushed_backend_for(&grant) == Some(grant.as_str())) {
+    if behind.is_none_or(|grant| pushed_backend_for(&grant) != Some(grant.as_str())) {
         return true;
     }
     let Some(orchestrator) = job.resources.sync_orchestrator() else {
