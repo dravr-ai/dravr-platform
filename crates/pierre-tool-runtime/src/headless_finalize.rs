@@ -15,6 +15,7 @@ use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
 use tracing::{info, warn};
 
+use crate::envelope_notices::merge_notice_days;
 use crate::guardian::HeadlessBlock;
 use crate::tool_execution::{headless_turn_key, parse_lenient_tool_call_blocks, run_cli_tool_loop};
 use crate::tool_loop_io::{observed_tool_name, GuardianDenial, ToolLoopParams, ToolLoopResult};
@@ -164,6 +165,7 @@ pub async fn finalize_headless_turn(
         // Stamped by the chokepoint under this turn's key like the offer
         // above; taken by `settle_turn_signals` below.
         window_incomplete: false,
+        envelope_days: Vec::new(),
         // #10: a block that fired at the platform chokepoint during the ACP
         // subprocess's tool calls is recovered from the shared Guardian store by
         // `settle_turn_signals` below, so the headless path surfaces the same
@@ -217,6 +219,10 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
         result.served_without_provider = result.served_without_provider.take().or(Some(offer));
     }
     result.window_incomplete |= resources.incomplete_windows().take(&turn_key);
+    merge_notice_days(
+        &mut result.envelope_days,
+        resources.envelope_notices().take(&turn_key),
+    );
     let turns = resources.guardian_turns();
     result.write_attempted |= turns.write_attempted(&turn_key);
     if let Some(HeadlessBlock { tool_name, reason }) = turns.take_block(&turn_key) {

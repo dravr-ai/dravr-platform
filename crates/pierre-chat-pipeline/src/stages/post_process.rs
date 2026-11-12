@@ -27,6 +27,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
+use super::envelope_notice::{envelope_notice_block, NoticeReader};
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
@@ -41,6 +42,7 @@ use super::verification::{
 use super::{viz_blocks, viz_route};
 #[cfg(feature = "tools-verification")]
 use pierre_llm::stage::LlmStage;
+use pierre_tool_runtime::envelope_notices::NoticeDay;
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
 /// caller can persist the assistant message first and then link any
@@ -104,6 +106,9 @@ pub(crate) struct PostProcessInputs<'a> {
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
     pub tools_called: &'a [String],
+    /// The sessions this turn's writes found outside their family's evidence
+    /// envelope, which the reply carries as a platform-written notice.
+    pub envelope_days: &'a [NoticeDay],
     /// Whether this turn stands on evidence gathered for it — a tool ran, or
     /// the prefetch injected an activity block.
     ///
@@ -356,6 +361,7 @@ pub(crate) async fn post_process_assistant_reply(
         prompt_guard,
         profile,
         tools_called,
+        envelope_days,
         turn_was_grounded,
         roster_data_read,
         active_model,
@@ -533,6 +539,25 @@ pub(crate) async fn post_process_assistant_reply(
     // tool stored — never from the reply's text, so nothing above could have
     // rewritten it and no marker positions it: the card sits beside the prose.
     let content_blocks = match plan_block_for_turn(ctx, input, conv, profile, tools_called).await {
+        Some(block) => append_block(content_blocks, block),
+        None => content_blocks,
+    };
+
+    // Stage 15.8: the envelope notice. What the envelope check found on this
+    // turn's sessions, in the platform's own sentences, beside the plan card:
+    // the model can explain a warning, but nothing it wrote can drop it.
+    // A coach's thread about one athlete reads the athlete's anchors as theirs.
+    let reader = if conv.subject().is_some() {
+        NoticeReader::Coach
+    } else {
+        NoticeReader::Athlete
+    };
+    let content_blocks = match envelope_notice_block(
+        &ctx.messaging_strings_registry,
+        locale,
+        reader,
+        envelope_days,
+    ) {
         Some(block) => append_block(content_blocks, block),
         None => content_blocks,
     };

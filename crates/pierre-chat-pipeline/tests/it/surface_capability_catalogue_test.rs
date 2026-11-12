@@ -58,6 +58,7 @@ fn in_app_renders_every_block_except_the_rasterised_chart() {
             "prose",
             "activity_list",
             "workout_plan",
+            "envelope_notice",
             "scene",
             "verdicts",
             "reconnect",
@@ -132,10 +133,10 @@ fn every_block_kind_names_itself_once() {
         .iter()
         .map(|kind| kind.as_str())
         .collect();
-    assert_eq!(tokens.len(), 9);
+    assert_eq!(tokens.len(), 10);
     tokens.sort_unstable();
     tokens.dedup();
-    assert_eq!(tokens.len(), 9, "two kinds share a wire token");
+    assert_eq!(tokens.len(), 10, "two kinds share a wire token");
 }
 
 #[test]

@@ -310,21 +310,25 @@ impl<'a> NotificationTextRenderer<'a> {
         km.and_then(Value::as_f64).map_or_else(String::new, |km| {
             format!(
                 "{} {}",
-                self.decimal(self.units.distance_from_km(km)),
+                decimal(self.units.distance_from_km(km), self.locale),
                 self.units.distance_symbol()
             )
         })
     }
+}
 
-    /// A one-decimal number in this locale's notation: English writes
-    /// `211.4`, and every other supported locale writes `211,4`.
-    fn decimal(&self, number: f64) -> String {
-        let text = format!("{number:.1}");
-        if self.locale.starts_with("en") {
-            text
-        } else {
-            text.replace('.', ",")
-        }
+/// A one-decimal number in `locale`'s notation.
+///
+/// English writes `211.4`, and every other supported locale writes `211,4`.
+/// Shared by this renderer and the chat envelope notice, so the two never
+/// disagree on the separator.
+#[must_use]
+pub fn decimal(number: f64, locale: &str) -> String {
+    let text = format!("{number:.1}");
+    if locale.starts_with("en") {
+        text
+    } else {
+        text.replace('.', ",")
     }
 }
 

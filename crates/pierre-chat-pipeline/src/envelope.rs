@@ -35,7 +35,7 @@
 use std::fmt;
 use std::fmt::Write as _;
 
-use pierre_core::models::{ConversationTurnId, ACTIONS_BLOCK_TYPE};
+use pierre_core::models::{ConversationTurnId, ACTIONS_BLOCK_TYPE, ENVELOPE_NOTICE_BLOCK_TYPE};
 use pierre_core::narration::IdentityLeakMatch;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::TokenUsage;
@@ -183,6 +183,17 @@ pub enum ReplyBlock {
         /// surfaces that show the prompt as text beside the control.
         text: String,
     },
+    /// What the warn-only envelope check found on this turn's sessions, in the
+    /// platform's own translated sentences: a heading, then one line per
+    /// session (carnet#1495). The model can explain a warning but never drop
+    /// or soften it.
+    EnvelopeNotice {
+        /// The notice's heading.
+        heading: String,
+        /// One line per session: its day, what was found, a relabel and the
+        /// anchor its targets sit on.
+        lines: Vec<String>,
+    },
     /// A platform-level notice about the turn that is not coaching.
     Notice {
         /// What the notice is about.
@@ -239,6 +250,10 @@ impl fmt::Debug for ReplyBlock {
                 .field("url", &"[REDACTED]")
                 .field("text", &"[REDACTED]")
                 .finish(),
+            Self::EnvelopeNotice { heading: _, lines } => f
+                .debug_struct("EnvelopeNotice")
+                .field("lines", &lines.len())
+                .finish(),
             Self::Notice { kind } => f.debug_struct("Notice").field("kind", kind).finish(),
         }
     }
@@ -273,16 +288,19 @@ pub enum ReplyBlockKind {
     Actions,
     /// [`ReplyBlock::Reconnect`].
     Reconnect,
+    /// [`ReplyBlock::EnvelopeNotice`].
+    EnvelopeNotice,
     /// [`ReplyBlock::Notice`].
     Notice,
 }
 
 impl ReplyBlockKind {
     /// Every kind, in the order [`build_envelope`] lays a reply out.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Prose,
         Self::ActivityList,
         Self::WorkoutPlan,
+        Self::EnvelopeNotice,
         Self::Scene,
         Self::SceneImage,
         Self::Verdicts,
@@ -307,6 +325,7 @@ impl ReplyBlockKind {
             Self::Verdicts => "verdicts",
             Self::Actions => "actions",
             Self::Reconnect => "reconnect",
+            Self::EnvelopeNotice => "envelope_notice",
             Self::Notice => "notice",
         }
     }
@@ -325,6 +344,7 @@ impl ReplyBlock {
             Self::Verdicts { .. } => ReplyBlockKind::Verdicts,
             Self::Actions { .. } => ReplyBlockKind::Actions,
             Self::Reconnect { .. } => ReplyBlockKind::Reconnect,
+            Self::EnvelopeNotice { .. } => ReplyBlockKind::EnvelopeNotice,
             Self::Notice { .. } => ReplyBlockKind::Notice,
         }
     }
@@ -659,8 +679,11 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         answered_by,
     } = state;
 
-    let (stored_plan, scene_specs) =
-        split_stored_blocks(assistant_message.content_blocks.as_deref());
+    let StoredBlocks {
+        plan: stored_plan,
+        notice: stored_notice,
+        scenes: scene_specs,
+    } = split_stored_blocks(assistant_message.content_blocks.as_deref());
 
     let mut blocks = Vec::new();
 
@@ -679,6 +702,10 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
     ) {
         append_paragraph(&mut prose, &prompt.text);
     }
+    let notice_renders = render.renders(ReplyBlockKind::EnvelopeNotice);
+    if let (Some(notice), false) = (stored_notice.as_ref(), notice_renders) {
+        append_paragraph(&mut prose, &notice.as_text());
+    }
     let prose = prose.trim();
     if !prose.is_empty() {
         blocks.push(ReplyBlock::Prose {
@@ -694,6 +721,10 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         (stored_plan, render.renders(ReplyBlockKind::WorkoutPlan))
     {
         blocks.push(ReplyBlock::WorkoutPlan { plan, coach_draft });
+    }
+
+    if let (Some(StoredNotice { heading, lines }), true) = (stored_notice, notice_renders) {
+        blocks.push(ReplyBlock::EnvelopeNotice { heading, lines });
     }
 
     push_scene_blocks(&mut blocks, render, scene_specs, scene_images);
@@ -857,17 +888,20 @@ fn push_actions(
 /// A plan entry from a coach's thread about one athlete carries `subject` and
 /// `draft` beside its `plan`; both travel on with it. An entry whose fields
 /// do not read as that pair carries neither, and the card shows no draft.
-fn split_stored_blocks(stored: Option<&str>) -> (Option<StoredPlan>, Option<String>) {
+fn split_stored_blocks(stored: Option<&str>) -> StoredBlocks {
     let Some(raw) = stored else {
-        return (None, None);
+        return StoredBlocks::default();
     };
     let Ok(entries) = serde_json::from_str::<Vec<Value>>(raw) else {
-        return (None, None);
+        return StoredBlocks::default();
     };
     let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
-    let (plans, scenes): (Vec<Value>, Vec<Value>) = entries
+    let (notices, rest): (Vec<Value>, Vec<Value>) = entries
         .into_iter()
         .filter(|entry| block_type(entry).as_deref() != Some(ACTIONS_BLOCK_TYPE))
+        .partition(|entry| block_type(entry).as_deref() == Some(ENVELOPE_NOTICE_BLOCK_TYPE));
+    let (plans, scenes): (Vec<Value>, Vec<Value>) = rest
+        .into_iter()
         .partition(|entry| block_type(entry).as_deref() == Some(WORKOUT_PLAN_BLOCK_TYPE));
     let plan = plans.into_iter().next().and_then(|entry| {
         let plan = serde_json::to_string(entry.get("plan")?).ok()?;
@@ -878,12 +912,63 @@ fn split_stored_blocks(stored: Option<&str>) -> (Option<StoredPlan>, Option<Stri
         };
         Some(StoredPlan { plan, coach_draft })
     });
+    let notice = notices.first().and_then(StoredNotice::from_entry);
     let scenes = if scenes.is_empty() {
         None
     } else {
         serde_json::to_string(&scenes).ok()
     };
-    (plan, scenes)
+    StoredBlocks {
+        plan,
+        notice,
+        scenes,
+    }
+}
+
+/// A stored `content_blocks` array, split by what each entry becomes.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct StoredBlocks {
+    /// The plan card.
+    plan: Option<StoredPlan>,
+    /// The envelope notice.
+    notice: Option<StoredNotice>,
+    /// Every visual spec, as the JSON array text the scene renderer reads.
+    scenes: Option<String>,
+}
+
+/// The envelope-notice entry of a stored `content_blocks` array.
+#[derive(Debug, PartialEq, Eq)]
+struct StoredNotice {
+    /// The heading.
+    heading: String,
+    /// One line per session.
+    lines: Vec<String>,
+}
+
+impl StoredNotice {
+    /// The notice a stored entry holds; `None` when it carries no heading or
+    /// no line.
+    fn from_entry(entry: &Value) -> Option<Self> {
+        let heading = entry.get("heading")?.as_str()?.to_owned();
+        let lines: Vec<String> = entry
+            .get("lines")?
+            .as_array()?
+            .iter()
+            .filter_map(|line| line.as_str().map(str::to_owned))
+            .collect();
+        (!heading.is_empty() && !lines.is_empty()).then_some(Self { heading, lines })
+    }
+
+    /// The notice as prose, for a surface with no block for it: the heading,
+    /// then each session on its own line.
+    fn as_text(&self) -> String {
+        let mut text = self.heading.clone();
+        for line in &self.lines {
+            text.push('\n');
+            text.push_str(line);
+        }
+        text
+    }
 }
 
 /// The plan entry of a stored `content_blocks` array.
@@ -991,6 +1076,36 @@ mod tests {
         );
     }
 
+    /// The envelope notice stored beside a chart is the platform's text: read
+    /// apart, never as a scene, and folded as its heading over its lines
+    /// (carnet#1495). An entry with no line reads as no notice.
+    #[test]
+    fn a_stored_envelope_notice_is_read_apart_from_the_charts() {
+        let stored = serde_json::json!([
+            { "type": "line", "title": "Load" },
+            { "type": "envelope_notice", "heading": "Saved as written:", "lines": ["2026-07-14 mar: one.", "2026-07-16 jeu: two."] }
+        ])
+        .to_string();
+        let StoredBlocks { notice, scenes, .. } = split_stored_blocks(Some(&stored));
+        let notice = notice.expect("the notice entry");
+        assert_eq!(
+            notice.as_text(),
+            "Saved as written:\n2026-07-14 mar: one.\n2026-07-16 jeu: two.",
+            "bug: folded as its heading over one line per session"
+        );
+        let scenes: Vec<Value> = serde_json::from_str(&scenes.expect("the chart")).unwrap();
+        assert_eq!(scenes.len(), 1, "bug: the notice is no chart");
+
+        let empty =
+            serde_json::json!([{ "type": "envelope_notice", "heading": "Saved:", "lines": [] }])
+                .to_string();
+        assert_eq!(
+            split_stored_blocks(Some(&empty)),
+            StoredBlocks::default(),
+            "bug: an entry with no line is no notice"
+        );
+    }
+
     /// A reply's stored controls are drawn from the live turn's actions, so
     /// the stored actions entry beside a chart is neither a scene nor a plan
     /// (carnet#830).
@@ -1004,7 +1119,12 @@ mod tests {
             ] }
         ])
         .to_string();
-        let (plan, scenes) = split_stored_blocks(Some(&stored));
+        let StoredBlocks {
+            plan,
+            notice,
+            scenes,
+        } = split_stored_blocks(Some(&stored));
+        assert_eq!(notice, None, "bug: an actions entry is no envelope notice");
         assert_eq!(
             plan,
             Some(StoredPlan {
@@ -1020,7 +1140,11 @@ mod tests {
 
         let only_actions =
             serde_json::json!([{ "type": "actions", "title": null, "actions": [] }]).to_string();
-        assert_eq!(split_stored_blocks(Some(&only_actions)), (None, None));
+        assert_eq!(
+            split_stored_blocks(Some(&only_actions)),
+            StoredBlocks::default(),
+            "bug: a stored actions entry alone is neither a plan, a notice nor a scene"
+        );
     }
 
     /// A card stored in a coach's athlete thread hands its `subject` and
@@ -1040,7 +1164,7 @@ mod tests {
                 entry.extend(extra);
             }
             split_stored_blocks(Some(&Value::Array(vec![entry]).to_string()))
-                .0
+                .plan
                 .expect("the plan entry")
         };
         let subject = serde_json::json!({ "user_id": athlete, "display_name": "Mira" });

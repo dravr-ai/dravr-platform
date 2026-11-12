@@ -32,6 +32,7 @@ use pierre_core::tokens::join_prompt_text;
 use tracing::info;
 
 use crate::cli_loop::cli_loop_call;
+use crate::envelope_notices::{envelope_in_responses, merge_notice_days};
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::TurnKey;
 use crate::headless_finalize::settle_turn_signals;
@@ -131,6 +132,10 @@ pub(crate) async fn run_api_tool_loop(
                 // before every short-circuit below so the offer survives whichever
                 // exit the round takes.
                 tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
+                merge_notice_days(
+                    &mut tally.envelope_days,
+                    envelope_in_responses(&function_responses),
+                );
                 if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
                     tally.served_without_provider = Some(provider);
                 }
@@ -242,6 +247,10 @@ pub(crate) async fn run_api_tool_loop(
             tally.tools_called.extend(executed);
             // Served-without-a-provider offer, as in the structured branch above.
             tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
+            merge_notice_days(
+                &mut tally.envelope_days,
+                envelope_in_responses(&function_responses),
+            );
             if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
                 tally.served_without_provider = Some(provider);
             }
@@ -437,6 +446,10 @@ pub async fn run_cli_tool_loop(
 
         // Served-without-a-provider offer, as in the api loop.
         tally.window_incomplete |= incomplete_window_in_responses(&function_responses);
+        merge_notice_days(
+            &mut tally.envelope_days,
+            envelope_in_responses(&function_responses),
+        );
         if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
             tally.served_without_provider = Some(provider);
         }

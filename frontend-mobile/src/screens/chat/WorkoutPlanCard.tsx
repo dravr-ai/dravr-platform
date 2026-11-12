@@ -219,6 +219,11 @@ export function DayRow({ day }: { day: PlanDay }) {
             </Text>
           </Text>
         )}
+        {day.outside_evidence ? (
+          <View className="mt-1 self-start rounded-full bg-warning/15 px-3 py-1">
+            <Text className="text-xs font-medium text-on-warning-container">{t('plan.card.envelope.badge')}</Text>
+          </View>
+        ) : null}
         {steps.length > 0 ? (
           <Text className="text-sm text-text-secondary mt-0.5">
             <Text className="font-semibold text-text-primary">{t('plan.card.steps')}</Text>{' '}

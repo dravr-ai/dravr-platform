@@ -18044,6 +18044,26 @@
               }
             ]
           },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
+          },
           "SportMix": {
             "description": "The sports the athlete trains (python `VOCAB[\"sport_mix\"]`).",
             "oneOf": [
@@ -18141,6 +18161,17 @@
               "own_conversions": {
                 "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
                 "type": "boolean"
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The sport family the session is in: a speed anchor reads as pace per\nkilometre on the run and per 100 m in the pool. Absent on an anchor\nstored before the field existed, which still has to decode: a plan\nweek is read whole."
               },
               "value": {
                 "description": "The value: watts, metres per second, or beats per minute.",
@@ -26116,6 +26147,26 @@
               }
             ]
           },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
+          },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
             "oneOf": [
@@ -26361,6 +26412,17 @@
               "own_conversions": {
                 "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
                 "type": "boolean"
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The sport family the session is in: a speed anchor reads as pace per\nkilometre on the run and per 100 m in the pool. Absent on an anchor\nstored before the field existed, which still has to decode: a plan\nweek is read whole."
               },
               "value": {
                 "description": "The value: watts, metres per second, or beats per minute.",
@@ -27387,6 +27449,26 @@
               }
             ]
           },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
+          },
           "TargetAnchor": {
             "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
             "properties": {
@@ -27439,6 +27521,17 @@
               "own_conversions": {
                 "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
                 "type": "boolean"
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The sport family the session is in: a speed anchor reads as pace per\nkilometre on the run and per 100 m in the pool. Absent on an anchor\nstored before the field existed, which still has to decode: a plan\nweek is read whole."
               },
               "value": {
                 "description": "The value: watts, metres per second, or beats per minute.",
@@ -30454,6 +30547,26 @@
               }
             ]
           },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
+          },
           "TargetAnchor": {
             "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
             "properties": {
@@ -30506,6 +30619,17 @@
               "own_conversions": {
                 "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
                 "type": "boolean"
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The sport family the session is in: a speed anchor reads as pace per\nkilometre on the run and per 100 m in the pool. Absent on an anchor\nstored before the field existed, which still has to decode: a plan\nweek is read whole."
               },
               "value": {
                 "description": "The value: watts, metres per second, or beats per minute.",

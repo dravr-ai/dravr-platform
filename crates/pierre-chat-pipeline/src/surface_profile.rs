@@ -178,6 +178,10 @@ pub struct BlockSupport {
     /// A provider reconnect prompt renders as a dedicated call-to-action
     /// element rather than as a link in the reply prose.
     pub reconnect_cta: bool,
+    /// The envelope notice renders as its own panel beside the plan card.
+    /// When false it is folded into the reply prose, so it reaches the
+    /// athlete either way (carnet#1495).
+    pub envelope_notice_card: bool,
 }
 
 /// Whether a surface can carry a reply *before* the turn has finished.
@@ -260,6 +264,7 @@ impl RenderCapabilities {
             ReplyBlockKind::Verdicts => self.blocks.verdict_chips,
             ReplyBlockKind::Actions => self.blocks.action_buttons,
             ReplyBlockKind::Reconnect => self.blocks.reconnect_cta,
+            ReplyBlockKind::EnvelopeNotice => self.blocks.envelope_notice_card,
         }
     }
 
@@ -441,6 +446,7 @@ const fn in_app_capabilities() -> RenderCapabilities {
             verdict_chips: true,
             action_buttons: true,
             reconnect_cta: true,
+            envelope_notice_card: true,
         },
         interactive: true,
         // The in-app transport carries frames: the chat route answers an
@@ -481,6 +487,8 @@ const fn messaging_capabilities(transport: MessagingTransportCaps) -> RenderCapa
             // native button where cards render, as an autolinked line where
             // they do not.
             reconnect_cta: true,
+            // No panel: the notice is folded into the reply text.
+            envelope_notice_card: false,
         },
         interactive: transport.renders_cards_natively,
         // Webhook delivery is one message per turn; there is no partial send

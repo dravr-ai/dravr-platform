@@ -30,6 +30,7 @@ use pierre_core::llm::is_llm_provider_fault;
 use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use uuid::Uuid;
 
+use crate::envelope_notices::{merge_notice_days, NoticeDay};
 use crate::protocol::UniversalExecutor;
 use crate::registry::ToolRegistry;
 use crate::tool_loop_telemetry::accumulate_optional;
@@ -232,6 +233,11 @@ pub struct ToolLoopResult {
     /// `coverage.complete` false): a count or total the reply states from it
     /// is not a fact, and capability recovery re-asks a reply that states one.
     pub window_incomplete: bool,
+    /// The sessions this turn's plan saves, publishes and prescriptions found
+    /// outside their family's evidence envelope, in the order written; a day
+    /// written twice keeps its latest report. The chat pipeline renders them
+    /// itself under the reply (carnet#1495).
+    pub envelope_days: Vec<NoticeDay>,
     /// The first tool the runtime Guardian blocked this turn (`enforce` mode).
     /// The chat pipeline detects this and short-circuits with a localized reply
     /// saying what went through before the block. `None` when nothing was denied.
@@ -270,6 +276,8 @@ pub(crate) struct ToolLoopTally {
     pub served_without_provider: Option<String>,
     /// Whether a window read this turn was incomplete.
     pub window_incomplete: bool,
+    /// Sessions with envelope findings this turn's writes reported.
+    pub envelope_days: Vec<NoticeDay>,
     /// Provider warnings seen so far, deduplicated in first-seen order.
     pub provider_warnings: Vec<String>,
 }
@@ -302,6 +310,7 @@ impl ToolLoopTally {
             pending_provider_auth_required: Some(provider),
             served_without_provider: self.served_without_provider,
             window_incomplete: self.window_incomplete,
+            envelope_days: self.envelope_days,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -325,6 +334,7 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             window_incomplete: self.window_incomplete,
+            envelope_days: self.envelope_days,
             guardian_denied: Some(denial),
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -349,6 +359,7 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             window_incomplete: self.window_incomplete,
+            envelope_days: self.envelope_days,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -368,6 +379,7 @@ impl ToolLoopTally {
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
             window_incomplete: self.window_incomplete,
+            envelope_days: self.envelope_days,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -441,6 +453,11 @@ impl ToolLoopResult {
                 .served_without_provider
                 .or(prior.served_without_provider),
             window_incomplete: prior.window_incomplete || self.window_incomplete,
+            envelope_days: {
+                let mut days = prior.envelope_days;
+                merge_notice_days(&mut days, self.envelope_days);
+                days
+            },
             provider_warnings,
             ..self
         }
@@ -597,6 +614,7 @@ mod tests {
             tools_called: tools.iter().map(|t| (*t).to_owned()).collect(),
             served_without_provider: None,
             window_incomplete: false,
+            envelope_days: Vec::new(),
             provider_warnings: vec![warning.to_owned()],
         }
     }
@@ -616,6 +634,7 @@ mod tests {
             pending_provider_auth_required: None,
             served_without_provider: None,
             window_incomplete: false,
+            envelope_days: Vec::new(),
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),

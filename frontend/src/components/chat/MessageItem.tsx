@@ -54,6 +54,7 @@ import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import MessageBubble from './MessageBubble';
 import { PrivateReplyTag } from './PrivateLane';
@@ -468,6 +469,11 @@ const MessageItem = memo(function MessageItem({
             </a>
           </div>
         );
+
+      // What the envelope check found on this turn's sessions, in the
+      // platform's own sentences beside the plan card (carnet#1495).
+      case 'envelope_notice':
+        return <EnvelopeNotice key={key} heading={block.heading} lines={block.lines} />;
 
       // A quota notice is a fact about the turn, not about the message: the
       // conversation's usage banner shows it once, above the transcript.

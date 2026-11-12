@@ -68,6 +68,7 @@ import PrivateLaneDivider from './PrivateLaneDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
@@ -782,6 +783,11 @@ export function MessageList({
             </Text>
           </TouchableOpacity>
         );
+
+      // What the envelope check found on this turn's sessions, in the
+      // platform's own sentences beside the plan card (carnet#1495).
+      case 'envelope_notice':
+        return <EnvelopeNotice key={key} heading={block.heading} lines={block.lines} />;
 
       // A quota notice is a fact about the turn, not about the message: the
       // usage banner below the transcript shows it once.

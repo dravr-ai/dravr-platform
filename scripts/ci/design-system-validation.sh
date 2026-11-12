@@ -71,7 +71,9 @@ BASELINE_MOBILE_CARD_SITES=9
 # (carnet#708) — a dot, the same `full` step.
 # 30: the plan card's draft badge in a coach's plan thread (carnet#1069) — a
 # badge, the web's `.badge-warning` drawn on the phone.
-BASELINE_MOBILE_ROUNDED_FULL=30
+# 31: the plan card's per-day "Outside the evidence" badge (carnet#1495) — a
+# badge, the web's `.badge-warning` drawn on the phone like the draft badge.
+BASELINE_MOBILE_ROUNDED_FULL=31
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

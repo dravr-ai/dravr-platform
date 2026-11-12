@@ -162,6 +162,11 @@ export function DayRow({ day }: { day: PlanDay }) {
                 {meta.join(' · ')}
               </span>
             )}
+            {day.outside_evidence && (
+              <span className="ml-2 badge-warning">
+                {t('plan.card.envelope.badge')}
+              </span>
+            )}
           </>
         )}
         {steps.length > 0 && (

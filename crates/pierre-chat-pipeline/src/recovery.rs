@@ -232,6 +232,8 @@ pub(crate) async fn run_recovery_and_post_process(
     // simultaneous immutable borrow of a sibling field does not survive being
     // packed into the struct literal. A handful of tool names per turn.
     let tools_called = result.tools_called.clone();
+    // Taken, not cloned: post-processing is the notice's only reader.
+    let envelope_days = mem::take(&mut result.envelope_days);
 
     let post_processed = stages::post_process::post_process_assistant_reply(
         stages::post_process::PostProcessInputs {
@@ -242,6 +244,7 @@ pub(crate) async fn run_recovery_and_post_process(
             prompt_guard,
             profile,
             tools_called: &tools_called,
+            envelope_days: &envelope_days,
             // A tool ran, or the prefetch put an activity block in the prompt.
             // Either way the reply has evidence behind it and may cite it.
             turn_was_grounded: !tools_called.is_empty()

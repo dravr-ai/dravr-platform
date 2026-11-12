@@ -199,6 +199,20 @@ const BLOCK_CASES: Record<string, { blocks: ReplyBlock[]; shows: () => void }> =
     ],
     shows: () => expect(screen.getByRole('button', { name: 'Seuil 3x10' })).toBeInTheDocument(),
   },
+  envelope_notice: {
+    blocks: [
+      { type: 'prose', text: 'I kept your 20/40 as you wrote it.' },
+      {
+        type: 'envelope_notice',
+        heading: 'Saved as written, outside what the evidence supports:',
+        lines: ['2026-07-14 Tue: The average of work and float is about 72% of maximal aerobic intensity, below 80%.'],
+      },
+    ],
+    shows: () => {
+      expect(screen.getByRole('note', { name: /outside what the evidence supports/ })).toBeInTheDocument();
+      expect(screen.getByText(/about 72% of maximal aerobic intensity/)).toBeInTheDocument();
+    },
+  },
   notice: {
     blocks: [
       { type: 'prose', text: 'Here is your week.' },

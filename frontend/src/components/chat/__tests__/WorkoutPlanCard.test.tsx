@@ -179,6 +179,21 @@ describe('WorkoutPlanCard', () => {
     expect(screen.queryByText(/g\/h/)).not.toBeInTheDocument();
   });
 
+  // carnet#1495: the envelope check's mark sits on the day it measured, and
+  // on no other.
+  it('marks only the day the envelope check found outside the evidence', () => {
+    const marked = plan();
+    marked.weeks[0].days[0] = { ...marked.weeks[0].days[0], outside_evidence: true };
+    render(<WorkoutPlanCard plan={marked} />);
+
+    expect(screen.getAllByText('Outside the evidence')).toHaveLength(1);
+  });
+
+  it('marks no day when the envelope check found nothing', () => {
+    render(<WorkoutPlanCard plan={plan()} />);
+    expect(screen.queryByText('Outside the evidence')).not.toBeInTheDocument();
+  });
+
   it('shows the other races the athlete named', () => {
     render(<WorkoutPlanCard plan={plan()} />);
     expect(screen.getByText(/Also racing/)).toBeInTheDocument();

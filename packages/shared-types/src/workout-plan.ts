@@ -98,6 +98,11 @@ export interface PlanDay {
   fueling_withheld?: PlanFuelingWithheld;
   template_slug?: string;
   template_source?: PlanTemplateSource;
+  /**
+   * The envelope check found the session outside its family's evidence. The
+   * reply that saved it carried the notice saying why.
+   */
+  outside_evidence?: boolean;
 }
 
 export interface PlanWeek {

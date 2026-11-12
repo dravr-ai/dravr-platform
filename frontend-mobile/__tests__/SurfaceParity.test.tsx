@@ -142,6 +142,20 @@ const BLOCK_CASES: Record<string, { blocks: ReplyBlock[]; shows: (view: RenderRe
       expect(onActionClick).toHaveBeenCalledWith(SESSION, 'room');
     },
   },
+  envelope_notice: {
+    blocks: [
+      { type: 'prose', text: 'I kept your 20/40 as you wrote it.' },
+      {
+        type: 'envelope_notice',
+        heading: 'Saved as written, outside what the evidence supports:',
+        lines: ['2026-07-14 Tue: The average of work and float is about 72% of maximal aerobic intensity, below 80%.'],
+      },
+    ],
+    shows: (view) => {
+      expect(view.getByText('Saved as written, outside what the evidence supports:')).toBeTruthy();
+      expect(view.getByText(/about 72% of maximal aerobic intensity/)).toBeTruthy();
+    },
+  },
   notice: {
     blocks: [
       { type: 'prose', text: 'Here is your week.' },

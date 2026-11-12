@@ -191,6 +191,11 @@ pub struct DayCard {
     /// Which tier the template came from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_source: Option<TemplateSource>,
+    /// Whether the envelope check found the session outside its family's
+    /// evidence, as stored with the day: the card marks it, and the reply that
+    /// saved it carried the notice saying why (carnet#1495). Absent when not.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub outside_evidence: bool,
 }
 
 impl PlanCard {
@@ -408,6 +413,10 @@ fn day_card(day: &PlannedDay, fueling: &FuelingDisclosure) -> DayCard {
         fueling_withheld,
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
+        outside_evidence: day
+            .envelope
+            .as_ref()
+            .is_some_and(|envelope| !envelope.findings.is_empty()),
     }
 }
 
@@ -714,6 +723,53 @@ mod tests {
                 ("2026-09-21", true)
             ]
         );
+    }
+
+    /// A day the envelope check found something on is marked on its card; a
+    /// day it found nothing on, or never measured, carries no mark at all
+    /// (carnet#1495).
+    #[test]
+    fn only_a_day_with_an_envelope_finding_is_marked_outside_the_evidence() {
+        let day = |envelope: serde_json::Value| -> PlannedDay {
+            serde_json::from_value(serde_json::json!({
+                "date": "2026-07-14", "sport": "ride", "workout": "20/40",
+                "template_slug": "vo2max_short", "envelope": envelope
+            }))
+            .expect("a stored day")
+        };
+        let fueling = FuelingDisclosure::from_gate(None);
+        let finding = serde_json::json!({
+            "code": "cycle_mean_floor", "action": "warn", "message": "English, for the model."
+        });
+
+        let outside = day_card(&day(serde_json::json!({ "findings": [finding] })), &fueling);
+        assert!(
+            outside.outside_evidence,
+            "bug: a stored finding marks the day"
+        );
+        assert_eq!(
+            serde_json::to_value(&outside).unwrap()["outside_evidence"],
+            true,
+            "bug: the mark reaches the wire"
+        );
+
+        for clean in [
+            serde_json::json!({ "findings": [] }),
+            serde_json::Value::Null,
+        ] {
+            let card = day_card(&day(clean), &fueling);
+            assert!(
+                !card.outside_evidence,
+                "bug: a day with no finding is not marked"
+            );
+            assert!(
+                serde_json::to_value(&card)
+                    .unwrap()
+                    .get("outside_evidence")
+                    .is_none(),
+                "bug: an unmarked day carries no key"
+            );
+        }
     }
 
     #[test]

@@ -98,6 +98,7 @@ export type {
   ConversationParticipant,
   ConversationParticipantRole,
   ConversationParticipantsResponse,
+  EnvelopeNotice,
   Message,
   MessageActions,
   MessageRole,

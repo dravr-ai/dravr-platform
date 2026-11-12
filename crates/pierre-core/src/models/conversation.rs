@@ -553,6 +553,13 @@ pub const DIVIDER_FINISH_REASON: &str = "divider";
 /// `chat_messages.content_blocks`, beside the visual specs (`chart`, `table`).
 pub const ACTIONS_BLOCK_TYPE: &str = "actions";
 
+/// The `type` discriminator of a reply's stored envelope notice.
+///
+/// The entry sits in `chat_messages.content_blocks` beside the visual specs:
+/// the platform's own text about what the envelope check found on the turn's
+/// sessions, never a chart (carnet#1495).
+pub const ENVELOPE_NOTICE_BLOCK_TYPE: &str = "envelope_notice";
+
 /// One control persisted with a command reply.
 ///
 /// Same wire vocabulary as a messaging card action and the in-app

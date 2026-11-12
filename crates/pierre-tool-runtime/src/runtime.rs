@@ -27,6 +27,7 @@ use async_trait::async_trait;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
+use crate::envelope_notices::EnvelopeNotices;
 use crate::guardian::{Guardian, GuardianTurns};
 use crate::incomplete_window::IncompleteWindows;
 use crate::reconnect::ReconnectOffers;
@@ -225,6 +226,16 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// The one provider data purge: the tables, then the live store's
     /// records of the provider (carnet#1482).
     fn provider_purge(&self) -> &Arc<dyn ProviderPurge>;
+
+    /// The process-wide store of the envelope findings one headless turn's
+    /// writes reported (carnet#1495). Shared for the reason
+    /// [`Self::reconnect_offers`] is: the headless loop's tools run on the
+    /// tool-host surface's own executor.
+    fn envelope_notices(&self) -> &Arc<EnvelopeNotices> {
+        static NOTICES: LazyLock<Arc<EnvelopeNotices>> =
+            LazyLock::new(|| Arc::new(EnvelopeNotices::new()));
+        &NOTICES
+    }
 
     /// The process-wide store of the turns that read an incomplete activity
     /// window. Shared across every dispatch path for the same reason

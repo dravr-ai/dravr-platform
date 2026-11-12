@@ -134,6 +134,7 @@ pub(super) async fn get_messages(
                 scene_blocks: blocks.scene_blocks,
                 finish_reason: m.finish_reason,
                 actions: blocks.actions,
+                envelope_notice: blocks.envelope_notice,
                 channel_type: m.channel_type,
                 quote,
                 created_at: m.created_at,

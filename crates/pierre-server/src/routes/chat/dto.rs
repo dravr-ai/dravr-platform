@@ -10,7 +10,8 @@ use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
-    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
+    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE,
+    ENVELOPE_NOTICE_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
 };
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
@@ -26,6 +27,8 @@ pub(super) struct StoredBlocks {
     pub scene_blocks: Option<String>,
     /// The controls a persisted command reply carried.
     pub actions: Option<MessageActionsResponse>,
+    /// The envelope notice the reply carried.
+    pub envelope_notice: Option<EnvelopeNoticeResponse>,
 }
 
 /// Resolve a stored `content_blocks` column into what a client renders.
@@ -59,9 +62,17 @@ pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> Store
                 .is_some_and(|kind| is_turn_marker_block(&kind) || kind == ROOM_QUOTE_BLOCK_TYPE)
         })
         .partition(|entry| block_type(entry).as_deref() == Some(ACTIONS_BLOCK_TYPE));
+    // The envelope notice is the platform's text, not a chart: photograveur
+    // must never be handed it, and the client draws it from its own field.
+    let (notices, specs): (Vec<Value>, Vec<Value>) = specs
+        .into_iter()
+        .partition(|entry| block_type(entry).as_deref() == Some(ENVELOPE_NOTICE_BLOCK_TYPE));
     StoredBlocks {
         scene_blocks: resolve_visual_specs(&specs, locale),
         actions: actions.into_iter().find_map(decode_actions_entry),
+        envelope_notice: notices
+            .into_iter()
+            .find_map(|entry| serde_json::from_value::<EnvelopeNoticeResponse>(entry).ok()),
     }
 }
 
@@ -609,6 +620,16 @@ impl From<ClientInputSource> for InputSource {
     }
 }
 
+/// What the envelope check found on a reply's sessions, as the platform wrote
+/// it: a heading and one line per session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvelopeNoticeResponse {
+    /// The notice's heading.
+    pub heading: String,
+    /// One line per session.
+    pub lines: Vec<String>,
+}
+
 /// Response for a message
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageResponse {
@@ -642,6 +663,10 @@ pub struct MessageResponse {
     /// ride the block list instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions: Option<MessageActionsResponse>,
+    /// The envelope notice a reply carried (carnet#1495), so a reload draws
+    /// it again. Absent on a live turn, whose notice rides the block list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_notice: Option<EnvelopeNoticeResponse>,
     /// The channel the turn that wrote this row came over (`web`, `mobile`,
     /// `telegram`, …). The personal thread is shared with the athlete's
     /// messaging DM, so a client tags the rows that came from a messaging app.

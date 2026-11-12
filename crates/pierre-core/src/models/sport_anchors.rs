@@ -216,6 +216,12 @@ impl SportAnchorName {
 /// 285 W from intervals.icu"), with how far to trust it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TargetAnchor {
+    /// The sport family the session is in: a speed anchor reads as pace per
+    /// kilometre on the run and per 100 m in the pool. Absent on an anchor
+    /// stored before the field existed, which still has to decode: a plan
+    /// week is read whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sport: Option<SportFamily>,
     /// Which anchor the targets are a percentage of.
     pub anchor: SportAnchorName,
     /// Its value with range, origin, day, method and confidence.
@@ -252,6 +258,7 @@ pub fn target_anchor(
                 _ => None,
             })?;
     Some(TargetAnchor {
+        sport: Some(family),
         anchor: name,
         value: name.get(held)?.clone(),
         own_conversions: !held.ratios().defaults_only,
@@ -700,6 +707,23 @@ mod tests {
             repeat_group: None,
             note: None,
         }
+    }
+
+    #[test]
+    fn an_anchor_stored_before_it_named_its_sport_still_decodes() -> TestResult {
+        // The shape the per-sport anchors release stored in days_json: a plan
+        // week is decoded whole, so one undecodable day would cost the week.
+        let stored = serde_json::json!({
+            "anchor": "ftp", "value": 285.0, "origin": "athlete",
+            "confidence": "low", "own_conversions": false
+        });
+        let anchor: TargetAnchor = serde_json::from_value(stored)?;
+        assert_eq!(
+            anchor.sport, None,
+            "bug: a missing sport must read as unknown"
+        );
+        assert_eq!(anchor.anchor, SportAnchorName::Ftp);
+        Ok(())
     }
 
     #[test]

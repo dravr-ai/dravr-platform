@@ -103,6 +103,67 @@ pub fn guardian_action_title_key(tool_name: &str) -> String {
     format!("messaging.guardian.action_title.{tool_name}")
 }
 
+// ── Envelope notice (carnet#1495) ─────────────────────────────────────────
+//
+// What the warn-only envelope check found on this turn's sessions, written by
+// the platform under the reply from these fixed sentences, so the model can
+// explain a warning but never drop or soften it.
+
+/// The notice's heading: the session was saved as written, outside what the
+/// evidence supports.
+pub const KEY_ENVELOPE_HEADING: &str = "messaging.envelope.heading";
+
+/// One session's line: `{0}` its day, `{1}` the sentences about it.
+pub const KEY_ENVELOPE_DAY: &str = "messaging.envelope.day";
+
+/// The relabel sentence: `{0}` the purpose label the session now counts as.
+pub const KEY_ENVELOPE_RELABELLED: &str = "messaging.envelope.relabelled";
+
+/// The anchor sentence: `{0}` its label, `{1}` its value, `{2}` its source.
+pub const KEY_ENVELOPE_ANCHOR: &str = "messaging.envelope.anchor";
+
+/// A low-confidence anchor with no range: `{0}` its value with its unit.
+pub const KEY_ENVELOPE_ANCHOR_ESTIMATE: &str = "messaging.envelope.anchor_estimate";
+
+/// A low-confidence anchor's range: `{0}` its low end, `{1}` its high end and
+/// unit.
+pub const KEY_ENVELOPE_ANCHOR_RANGE: &str = "messaging.envelope.anchor_range";
+
+/// The source of an anchor the athlete set themselves.
+pub const KEY_ENVELOPE_SOURCE_OWN: &str = "messaging.envelope.source_own";
+
+/// The source of an anchor the athlete set, in a coach's thread about them.
+pub const KEY_ENVELOPE_SOURCE_ATHLETE: &str = "messaging.envelope.source_athlete";
+
+/// The source of an anchor someone else produced: `{0}` who.
+pub const KEY_ENVELOPE_SOURCE_FROM: &str = "messaging.envelope.source_from";
+
+/// The key of the sentence for one envelope finding code (`{0}` measured,
+/// `{1}` bound where the finding carries them).
+#[must_use]
+pub fn envelope_finding_key(code: &str) -> String {
+    format!("messaging.envelope.finding.{code}")
+}
+
+/// The key of the sentence for a stated preset value outside its range, by
+/// the parameter it names (`{0}` the value, `{1}` the bound).
+#[must_use]
+pub fn envelope_param_key(param: &str) -> String {
+    format!("messaging.envelope.param.{param}")
+}
+
+/// The key of the label a relabelled session's purpose is named by.
+#[must_use]
+pub fn envelope_purpose_key(purpose: &str) -> String {
+    format!("messaging.envelope.purpose.{purpose}")
+}
+
+/// The key of the label of a stored anchor.
+#[must_use]
+pub fn envelope_anchor_label_key(anchor: &str) -> String {
+    format!("messaging.envelope.anchor_label.{anchor}")
+}
+
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";
 

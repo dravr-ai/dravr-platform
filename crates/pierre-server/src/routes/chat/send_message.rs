@@ -496,6 +496,7 @@ fn unpersisted_message(role: &str, content: String, created_at: String) -> Messa
         scene_blocks: None,
         finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
         actions: None,
+        envelope_notice: None,
         channel_type: None,
         quote: None,
         created_at,
