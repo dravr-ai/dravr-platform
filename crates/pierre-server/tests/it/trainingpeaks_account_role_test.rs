@@ -518,6 +518,24 @@ async fn a_coach_login_is_granted_the_roster_off_the_request(
         0,
         "the workouts misfiled under a coach account are deleted"
     );
+    let purges = resources
+        .common
+        .repos
+        .provider_data
+        .list_provider_data_purges(oauth_providers::SCIOTTE_TRAININGPEAKS, 10)
+        .await
+        .unwrap();
+    let coach_text = coach.to_string();
+    let attested: Vec<&str> = purges
+        .iter()
+        .filter(|purge| purge.user_id.as_deref() == Some(coach_text.as_str()))
+        .map(|purge| purge.reason.as_str())
+        .collect();
+    assert_eq!(
+        attested,
+        ["misfiled_activities"],
+        "the deletion goes through the provider purge, attested once"
+    );
     assert_eq!(
         calls_to(calls, "/api/activities", COACH_SESSION),
         0,
@@ -851,7 +869,8 @@ async fn read_profile(
     tenant: TenantId,
     profile: &AthleteProfile,
 ) -> AccountReading {
-    record_trainingpeaks_profile(&resources.common.repos, user, tenant, profile)
+    let purge = resources.common.provider_purge.as_ref();
+    record_trainingpeaks_profile(&resources.common.repos, purge, user, tenant, profile)
         .await
         .unwrap()
 }

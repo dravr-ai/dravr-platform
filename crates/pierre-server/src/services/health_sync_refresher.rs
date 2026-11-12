@@ -191,6 +191,7 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
             registry: &ctx.fitness.provider_registry,
             cache: &ctx.common.cache,
             notifications,
+            purge: &ctx.common.provider_purge,
         };
         Ok(delegated_wellness_credentials(services, member, provider).await)
     }

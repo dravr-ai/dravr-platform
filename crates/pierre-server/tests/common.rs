@@ -25,6 +25,7 @@
 use anyhow::Result;
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::store::ActivityRecordStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
@@ -1106,6 +1107,32 @@ pub(crate) async fn create_test_server_resources_with_blobs(
     .await
 }
 
+/// A test context on `config` whose live provider reads are kept in
+/// `records`, so a test reads back what the activity store holds beside the
+/// cache it projects.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_config_and_records(
+    config: ServerConfig,
+    records: Arc<dyn ActivityRecordStore>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        Some(config),
+        None,
+        ContextParts {
+            live_records: Some(records),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]
@@ -1118,6 +1145,9 @@ struct ContextParts {
     archive_imports: Option<ArchiveImports>,
     /// Where uploaded files are kept, in place of the imports' blob store.
     blobs: Option<BlobChoice>,
+    /// The record store live provider reads are kept in, in place of a
+    /// memory store of the context's own.
+    live_records: Option<Arc<dyn ActivityRecordStore>>,
 }
 
 async fn create_test_server_resources_over(
@@ -1133,6 +1163,7 @@ async fn create_test_server_resources_over(
         billing_provider,
         archive_imports,
         blobs,
+        live_records,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
     // imports the context keeps them in a memory store of its own, since no
@@ -1182,6 +1213,7 @@ async fn create_test_server_resources_over(
                 billing_provider,
                 turn_runner,
                 archive_imports,
+                live_records,
                 blobs,
             },
         )

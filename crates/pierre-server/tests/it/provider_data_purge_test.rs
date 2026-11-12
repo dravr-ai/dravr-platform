@@ -1,5 +1,5 @@
 // ABOUTME: carnet#539/#725 — a disconnect deletes every row the provider contributed for that user in that tenant
-// ABOUTME: The termination purge spans tenants; every purge leaves an attestation row; a cache TTL evicts old copies
+// ABOUTME: The termination purge spans tenants; every purge leaves an attestation row; the retention sweep expires old wellness
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -64,14 +64,12 @@ use pierre_database::repositories::{
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::provider_terms::NOLIO_CACHE_TTL;
 use pierre_routes_admin::handlers::provider_data::{
     handle_list_provider_data_purges, handle_purge_provider_data,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_services::provider_cache_sweeper::sweep_provider_caches;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::Value;
@@ -1003,9 +1001,10 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
     assert_removed(&whoop_left, 3, 2);
 }
 
-/// The admin context the operator route runs under.
+/// The admin context the operator route runs under, purging through the
+/// server's provider data purge as the composition root wires it.
 fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
-    Arc::new(AdminApiContext::new(AdminApiContextInit {
+    let mut context = AdminApiContext::new(AdminApiContextInit {
         database: resources.agent.database.clone(),
         repos: resources.common.repos.clone(),
         jwt_secret: "test_admin_jwt_secret_for_provider_purge".to_owned(),
@@ -1023,7 +1022,9 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
         training_catalogue_registry: Arc::new(TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
         app_behavior: resources.common.config.app_behavior.clone(),
-    }))
+    });
+    context.provider_purge = Some(Arc::clone(&resources.common.provider_purge));
+    Arc::new(context)
 }
 
 /// A stored admin token, so the audit row its purge writes has a token to
@@ -1224,46 +1225,35 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
     assert!(audited[0].success);
 }
 
-/// Tables a cache expiry evicts one row from per seeded scope, the sync state
-/// describing them included. `activity_backfill_jobs` is apart, as above.
-const ONE_ROW_EXPIRED_TABLES: [&str; 11] = [
+/// Tables a wellness expiry removes one row from per seeded scope, the
+/// health sync's cursors included.
+const ONE_ROW_EXPIRED_TABLES: [&str; 5] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "daily_activity",
-    "cached_activities",
-    "activity_route_tracks",
-    "activity_streams",
     "sync_state",
-    "activity_fetch_freshness",
-    "activity_fetch_failures",
-    "activity_backfill_coverage",
 ];
 
-/// The declared Nolio cap, applied to the fixture's WHOOP rows: the sweep
-/// reads a provider's cap from the registry in production, where WHOOP
-/// declares none.
-fn whoop_under_nolio_cap() -> [(&'static str, StdDuration); 1] {
-    [("whoop", NOLIO_CACHE_TTL)]
+/// A seven-day retention's cutoff, `days_later` after the fixture was
+/// written: what the retention sweep passes for a provider set to seven days.
+fn seven_day_cutoff(days_later: i64) -> DateTime<Utc> {
+    Utc::now() + Duration::days(days_later) - Duration::days(7)
 }
 
 #[tokio::test]
-async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
+async fn a_seven_day_retention_keeps_a_six_day_old_wellness_copy() {
     let world = world().await;
     let repos = world.repos();
 
-    let swept = sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(6),
-    )
-    .await
-    .unwrap();
+    let expiry = repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(6))
+        .await
+        .unwrap();
 
-    assert_eq!(swept.len(), 1);
-    assert_eq!(swept[0].0, "whoop");
-    assert_eq!(swept[0].1.scopes, 0, "{:?}", swept[0].1);
-    assert_eq!(swept[0].1.evicted.total(), 0, "{:?}", swept[0].1);
+    assert_eq!(expiry.scopes, 0, "{expiry:?}");
+    assert_eq!(expiry.evicted.total(), 0, "{expiry:?}");
     assert_eq!(
         sleep_sources(&world, world.athlete).await,
         ["garmin", "whoop"]
@@ -1279,28 +1269,29 @@ async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
 }
 
 #[tokio::test]
-async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state() {
+async fn a_seven_day_retention_expires_an_eight_day_old_wellness_copy_and_its_cursors() {
     let world = world().await;
     let repos = world.repos();
     let (athlete, tenant) = world.athlete;
 
-    let swept = sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(8),
-    )
-    .await
-    .unwrap();
+    let expiry = repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(8))
+        .await
+        .unwrap();
 
-    let expiry = &swept[0].1;
     assert_eq!(expiry.scopes, 4, "every WHOOP scope held an expired copy");
     for table in ONE_ROW_EXPIRED_TABLES {
         assert_eq!(expiry.evicted.removed_from(table), 4, "{table}: {expiry:?}");
     }
     assert_eq!(expiry.evicted.removed_from("data_point_series"), 8);
-    assert_eq!(expiry.evicted.removed_from("activity_backfill_jobs"), 3);
+    assert_eq!(
+        expiry.evicted.removed_from("cached_activities"),
+        0,
+        "activities expire in the activity store, never here: {expiry:?}"
+    );
 
-    // The athlete's Garmin copies carry no cap and stay.
+    // The athlete's Garmin copies are another provider's and stay.
     assert_eq!(sleep_sources(&world, world.athlete).await, ["garmin"]);
     for other in [world.teammate, world.stranger, world.athlete_elsewhere] {
         let got = sleep_sources(&world, other).await;
@@ -1313,33 +1304,27 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         .unwrap()
         .is_none());
 
-    // What the expiry leaves is derived or descriptive, not a copy: the
-    // device row, the activity thread link and the
-    // personal-best rows. A disconnect still takes them.
+    // The provider's activities, the sync state describing them and the
+    // device row stay: a disconnect still takes them, and no wellness.
     let rest = repos
         .provider_data
         .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
-    assert_eq!(
-        rest.rows_removed
-            .keys()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        [
-            "activity_conversations",
-            "best_effort_scans",
-            "data_sources",
-            "personal_best_efforts",
-            "personal_best_seeds",
-        ],
-        "{rest:?}"
-    );
-    assert_eq!(
-        rest.total(),
-        5,
-        "bug: the five shared rows are all that stay: {rest:?}"
-    );
+    for kept in [
+        "cached_activities",
+        "activity_fetch_freshness",
+        "data_sources",
+    ] {
+        assert!(rest.removed_from(kept) > 0, "{kept} was kept: {rest:?}");
+    }
+    for expired in ONE_ROW_EXPIRED_TABLES
+        .iter()
+        .copied()
+        .chain(["data_point_series"])
+    {
+        assert_eq!(rest.removed_from(expired), 0, "{expired}: {rest:?}");
+    }
 
     let recorded = repos
         .provider_data
@@ -1352,7 +1337,7 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         .count();
     assert_eq!(
         expired, 4,
-        "one attestation row per evicted scope: {recorded:?}"
+        "one attestation row per expired scope: {recorded:?}"
     );
 }
 
@@ -1397,7 +1382,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
 
     let expiry = repos
         .provider_data
-        .expire_provider_cache("whoop", between)
+        .expire_provider_wellness("whoop", between)
         .await
         .unwrap();
 
@@ -1513,17 +1498,15 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         held
     };
 
-    sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(8),
-    )
-    .await
-    .unwrap();
+    repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(8))
+        .await
+        .unwrap();
     assert_eq!(
         still_held().await,
         ["uploaded-1", "archived-1"],
-        "cache expiry"
+        "wellness expiry"
     );
 
     let purged = repos
@@ -1532,9 +1515,9 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         .await
         .unwrap();
     assert_eq!(
-        purged.rows_removed.get("activity_streams"),
-        None,
-        "{purged:?}"
+        purged.removed_from("activity_streams"),
+        1,
+        "only the samples WHOOP pushed: {purged:?}"
     );
     assert_eq!(
         still_held().await,

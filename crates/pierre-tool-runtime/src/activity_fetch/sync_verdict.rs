@@ -497,10 +497,12 @@ async fn judge_empty_answer(
     HeadVerdict::EmptyOverCached { cached }
 }
 
-/// Evict the provider's cached activities in the window `params` read, which a
-/// believed empty answer says the provider no longer holds. `false` when the
-/// eviction failed: the answer then stays a failed read, since writing it
-/// through would stamp fresh a cache that still serves the rows.
+/// Evict the provider's activities in the window `params` read, which a
+/// believed empty answer says the provider no longer holds, through the
+/// activity store: its records go with the cached rows, so a store that kept
+/// them never serves them again. `false` when the eviction failed: the answer
+/// then stays a failed read, since writing it through would stamp fresh a
+/// cache that still serves the rows; the next read retries it.
 async fn evict_window(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -511,9 +513,8 @@ async fn evict_window(
 ) -> bool {
     let (start, end) = cached_window_bounds(params, now);
     match runtime
-        .repos()
-        .activity_cache
-        .delete_cached_activities_between(user_id, &tenant, provider_slug, start, end)
+        .live_activities()
+        .discard_between(user_id, tenant, provider_slug, start, end)
         .await
     {
         Ok(evicted) => {

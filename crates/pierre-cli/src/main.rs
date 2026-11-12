@@ -224,6 +224,12 @@ enum Command {
         action: ApiKeyCommand,
     },
 
+    /// The activity store on a remote server (adopting the activity cache)
+    Barrage {
+        #[command(subcommand)]
+        action: commands::barrage::BarrageCommand,
+    },
+
     /// Provider-wide operations on a remote server (the termination purge)
     Provider {
         #[command(subcommand)]
@@ -894,6 +900,10 @@ async fn main() -> Result<()> {
     if let Command::Provider { action } = cli.command {
         return commands::provider_data::dispatch(action).await;
     }
+    // `barrage adopt-cache` writes a deployed server's activity store.
+    if let Command::Barrage { action } = cli.command {
+        return commands::barrage::dispatch(action).await;
+    }
     // `deletion` reads and clears the deletion ledger over the admin API.
     if let Command::Deletion { action } = cli.command {
         return commands::deletion::dispatch(action).await;
@@ -1007,6 +1017,7 @@ async fn main() -> Result<()> {
             Command::Deletion { .. } => {
                 unreachable!("Deletion is handled in the early return above")
             }
+            Command::Barrage { .. } => unreachable!("Barrage is handled in the early return above"),
             Command::Audit { .. } => unreachable!("Audit is handled in the early return above"),
             Command::User { action } => match action {
                 UserCommand::Create {

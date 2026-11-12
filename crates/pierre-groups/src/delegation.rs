@@ -36,7 +36,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
 use pierre_database::repositories::{
     CoachingGroupRepository, DelegatedConnectionRepository, ProviderConnectionRepository,
-    ProviderDataRepository, PurgeReason,
+    ProviderPurge, PurgeReason,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::user_facing_name;
@@ -51,8 +51,9 @@ pub struct DelegationStore {
     /// registered.
     connections: Arc<dyn ProviderConnectionRepository>,
     /// Deletes what was read through the coach's session and filed under the
-    /// member: activities, health rows and the sync state describing them.
-    provider_data: Arc<dyn ProviderDataRepository>,
+    /// member: activities, health rows and the sync state describing them,
+    /// and the activity store's records of them.
+    purge: Arc<dyn ProviderPurge>,
     /// The groups and memberships a link's standing is read from.
     groups: Arc<dyn CoachingGroupRepository>,
 }
@@ -77,13 +78,14 @@ pub enum UnbackedLink {
 }
 
 impl DelegationStore {
-    /// A store over the registry's repositories.
+    /// A store over the registry's repositories, releasing a link's data
+    /// through `purge`.
     #[must_use]
-    pub fn new(repos: &RepositoryRegistry) -> Self {
+    pub fn new(repos: &RepositoryRegistry, purge: Arc<dyn ProviderPurge>) -> Self {
         Self {
             links: Arc::clone(&repos.delegated_connections),
             connections: Arc::clone(&repos.provider_connections),
-            provider_data: Arc::clone(&repos.provider_data),
+            purge,
             groups: Arc::clone(&repos.groups),
         }
     }
@@ -357,7 +359,7 @@ impl DelegationStore {
                 .remove_delegated_connection(member, member_tenant, provider)
                 .await?;
             let purge = self
-                .provider_data
+                .purge
                 .purge_user_provider_data(member, &member_tenant, provider, PurgeReason::LinkEnded)
                 .await?;
             info!(

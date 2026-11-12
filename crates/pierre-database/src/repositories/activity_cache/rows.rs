@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 use super::super::activity_route_tracks::joined_route_outcome;
 use super::{
     ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage, CachedActivityRow,
-    CaptureFreshness,
+    CaptureFreshness, StoredActivityRow,
 };
 
 /// Later of the row-derived sync signal and the fetch-freshness mark.
@@ -101,6 +101,31 @@ where
     fill_missing(&mut activity, json_object(&detail_json, "detail_json")?);
     serde_json::from_value::<Activity>(Value::Object(activity))
         .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))
+}
+
+/// Read a [`StoredActivityRow`] out of one row of
+/// [`GET_STORED_ACTIVITY_ROWS_SQL`](super::sql::GET_STORED_ACTIVITY_ROWS_SQL):
+/// the list copy as stored, no detail filled in.
+///
+/// # Errors
+/// Returns a database error when a column is missing or `data_json` does not
+/// hold an `Activity`.
+pub(crate) fn stored_activity_from_row<R>(row: &R) -> AppResult<StoredActivityRow>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let data_json: String = row
+        .try_get("data_json")
+        .map_err(|e| AppError::database(format!("activity col data_json: {e}")))?;
+    let activity = serde_json::from_str::<Activity>(&data_json)
+        .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))?;
+    Ok(StoredActivityRow {
+        activity,
+        synced_at: timestamp_column(row, "synced_at")?,
+    })
 }
 
 /// One stored JSON column parsed as an object.

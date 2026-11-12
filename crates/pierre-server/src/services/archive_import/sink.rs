@@ -44,11 +44,15 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dravr_barrage::cageux::models::TimeSeriesData;
 use dravr_barrage::{
-    ActivityId, ActivityRecord, BarrageError, ProjectionSink, Scope, SourceKey, WellnessRecords,
+    ActivityId, ActivityRecord, BarrageError, ProjectionSink, RetractReason, Scope, SourceKey,
+    WellnessRecords,
 };
-use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, StreamOrigin};
+use pierre_database::RepositoryRegistry;
+use pierre_services::activity_cache_sink::{
+    project_cached_activities, projection_error, retract_activities, scope_ids, LiveCacheSink,
+};
 use pierre_services::wellness_store::{IntradaySeries, WellnessStore, WellnessWriteMode};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
@@ -56,14 +60,21 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::activity_upload::after_stored_activities_changed;
-use crate::services::gear_ledger::{attribute_imported_gear, release_activity_gear, ImportedGear};
+use crate::services::gear_ledger::{attribute_imported_gear, ImportedGear};
 
 /// The `source` a data source carries for series an archive import wrote.
 const ARCHIVE_SOURCE_MARKER: &str = "archive";
 
 /// Projects barrage's chunks into the platform's stores.
+///
+/// A live source's records project into the activity cache alone, through
+/// the live ingest's own sink ([`LiveCacheSink`]), which this one hands them
+/// to. An archive's project its samples, best efforts and gear too, and need
+/// the server.
 pub struct CachedActivitiesSink {
+    repos: Arc<RepositoryRegistry>,
     resources: Arc<ServerContext>,
+    live: LiveCacheSink,
 }
 
 impl fmt::Debug for CachedActivitiesSink {
@@ -74,14 +85,21 @@ impl fmt::Debug for CachedActivitiesSink {
 }
 
 impl CachedActivitiesSink {
-    /// A sink over `resources`' stores.
+    /// A sink over `resources`' stores, for every source.
     #[must_use]
-    pub const fn new(resources: Arc<ServerContext>) -> Self {
-        Self { resources }
+    pub fn new(resources: Arc<ServerContext>) -> Self {
+        let repos = Arc::clone(&resources.common.repos);
+        Self {
+            live: LiveCacheSink::new(Arc::clone(&repos)),
+            repos,
+            resources,
+        }
     }
 
-    fn runtime(&self) -> Arc<dyn ToolRuntime> {
-        Arc::<ServerContext>::clone(&self.resources)
+    /// Tell the stored-activity readers what changed.
+    async fn activities_changed(&self, tenant_id: TenantId, user_id: Uuid) {
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.resources);
+        after_stored_activities_changed(&runtime, tenant_id, user_id).await;
     }
 }
 
@@ -102,16 +120,6 @@ impl Filing<'_> {
     }
 }
 
-/// The platform's ids for `scope`.
-fn ids(scope: &Scope) -> (TenantId, Uuid) {
-    (TenantId::from_uuid(scope.tenant_id.0), scope.user_id.0)
-}
-
-/// A platform error as the projection error barrage retries the step on.
-fn projection(error: &AppError) -> BarrageError {
-    BarrageError::Projection(error.to_string())
-}
-
 #[async_trait]
 impl ProjectionSink for CachedActivitiesSink {
     async fn project(
@@ -124,8 +132,11 @@ impl ProjectionSink for CachedActivitiesSink {
         if rows.is_empty() {
             return Ok(());
         }
-        let (tenant_id, user_id) = ids(scope);
-        let repos = &self.resources.common.repos;
+        if !source.is_archive() {
+            return self.live.project(scope, source, rows, series).await;
+        }
+        let (tenant_id, user_id) = scope_ids(scope);
+        let repos = &self.repos;
         let synced_at = Utc::now();
         for (row, samples) in rows.iter().zip(series) {
             let Some(samples) = samples else {
@@ -145,20 +156,11 @@ impl ProjectionSink for CachedActivitiesSink {
                     synced_at,
                 })
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         let activities: Vec<Activity> = rows.iter().map(|row| row.activity.clone()).collect();
-        repos
-            .activity_cache
-            .upsert_activities_synced_at(
-                user_id,
-                &tenant_id,
-                source.as_str(),
-                &activities,
-                synced_at,
-            )
-            .await
-            .map_err(|e| projection(&e))?;
+        project_cached_activities(repos, tenant_id, user_id, source, &activities, synced_at)
+            .await?;
         // Best efforts are measured where the health sync is built in, as
         // the seed of a connected athlete's are.
         #[cfg(feature = "health-sync")]
@@ -178,8 +180,8 @@ impl ProjectionSink for CachedActivitiesSink {
             .collect();
         attribute_imported_gear(repos, user_id, &tenant_id, source.as_str(), &gear)
             .await
-            .map_err(|e| projection(&e))?;
-        after_stored_activities_changed(&self.runtime(), tenant_id, user_id).await;
+            .map_err(|e| projection_error(&e))?;
+        self.activities_changed(tenant_id, user_id).await;
         Ok(())
     }
 
@@ -192,8 +194,8 @@ impl ProjectionSink for CachedActivitiesSink {
         if wellness.is_empty() {
             return Ok(());
         }
-        let (tenant_id, user_id) = ids(scope);
-        let repos = &self.resources.common.repos;
+        let (tenant_id, user_id) = scope_ids(scope);
+        let repos = &self.repos;
         let key = source.as_str();
         let user = user_id.to_string();
         let data_source = DataSource {
@@ -210,7 +212,7 @@ impl ProjectionSink for CachedActivitiesSink {
         let source_id = store
             .record_data_source(&tenant_id, &data_source)
             .await
-            .map_err(|e| projection(&e))?;
+            .map_err(|e| projection_error(&e))?;
         let own = Filing {
             user: &user,
             data_source_id: &source_id,
@@ -228,7 +230,7 @@ impl ProjectionSink for CachedActivitiesSink {
             writes
                 .sleep(tenant_id, &night, synced_at)
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         for day in &wellness.recovery {
             let mut day = day.clone();
@@ -245,7 +247,7 @@ impl ProjectionSink for CachedActivitiesSink {
                     synced_at,
                 )
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         for day in &wellness.body {
             let mut day = day.clone();
@@ -262,7 +264,7 @@ impl ProjectionSink for CachedActivitiesSink {
                     synced_at,
                 )
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         for day in &wellness.daily_activity {
             let mut day = day.clone();
@@ -279,7 +281,7 @@ impl ProjectionSink for CachedActivitiesSink {
                     synced_at,
                 )
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         // SDNN keeps its own series: a day's HRV is read as rMSSD.
         store
@@ -293,7 +295,7 @@ impl ProjectionSink for CachedActivitiesSink {
                 ),
             )
             .await
-            .map_err(|e| projection(&e))?;
+            .map_err(|e| projection_error(&e))?;
         writes.report();
         info!(
             %user_id,
@@ -309,11 +311,17 @@ impl ProjectionSink for CachedActivitiesSink {
         scope: &Scope,
         source: SourceKey,
         ids_to_retract: Option<&[ActivityId]>,
+        reason: RetractReason,
     ) -> Result<(), BarrageError> {
-        let (tenant_id, user_id) = ids(scope);
-        let repos = &self.resources.common.repos;
+        let (tenant_id, user_id) = scope_ids(scope);
+        let repos = &self.repos;
         let key = source.as_str();
         match ids_to_retract {
+            // A live source's records stop being served as the live sink
+            // stops serving them.
+            None if !source.is_archive() => {
+                self.live.retract(scope, source, None, reason).await?;
+            }
             None => {
                 let purge = repos
                     .provider_data
@@ -324,35 +332,21 @@ impl ProjectionSink for CachedActivitiesSink {
                         PurgeReason::AthleteDeletedImport,
                     )
                     .await
-                    .map_err(|e| projection(&e))?;
+                    .map_err(|e| projection_error(&e))?;
                 // A provider purge spares samples it did not push; an imported
                 // source's go with the source.
                 let samples = repos
                     .activity_streams
                     .delete_provider_activity_streams(&tenant_id, user_id, key)
                     .await
-                    .map_err(|e| projection(&e))?;
+                    .map_err(|e| projection_error(&e))?;
                 info!(%user_id, source = key, removed = purge.total(), samples, "imported history retracted");
             }
             Some(activity_ids) => {
-                for id in activity_ids {
-                    release_activity_gear(repos, user_id, &tenant_id, key, id.as_str())
-                        .await
-                        .map_err(|e| projection(&e))?;
-                    repos
-                        .activity_cache
-                        .delete_cached_activity(user_id, &tenant_id, key, id.as_str())
-                        .await
-                        .map_err(|e| projection(&e))?;
-                    repos
-                        .activity_streams
-                        .delete_activity_streams(&tenant_id, user_id, key, id.as_str())
-                        .await
-                        .map_err(|e| projection(&e))?;
-                }
+                retract_activities(repos, scope, source, activity_ids, reason).await?;
             }
         }
-        after_stored_activities_changed(&self.runtime(), tenant_id, user_id).await;
+        self.activities_changed(tenant_id, user_id).await;
         Ok(())
     }
 }
@@ -381,7 +375,7 @@ impl CachedActivitiesSink {
             bests
                 .record_run(user_id, tenant_id, activity, Some(samples), false)
                 .await
-                .map_err(|e| projection(&e))?;
+                .map_err(|e| projection_error(&e))?;
         }
         Ok(())
     }

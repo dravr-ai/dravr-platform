@@ -20,6 +20,8 @@ pub mod admin_scope;
 pub mod api_keys;
 /// The admin audit trail, read newest first (carnet#1391).
 pub mod audit_trail;
+/// Adopting the activity cache into the activity store (carnet#1482).
+pub mod barrage;
 pub mod claim_verdicts;
 pub mod coach_access;
 /// The per-provider connect order: Strava and Garmin, OAuth first or the account sign-in first.

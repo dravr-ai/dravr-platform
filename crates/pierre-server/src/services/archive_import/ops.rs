@@ -25,13 +25,19 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::store::{ImportIssue, ImportJob, NewImportJob, PageReq};
 use dravr_barrage::{
-    ActivityId, BarrageError, FailureCode, ImportId, Importer, JobStatus, Scope, SourceKey,
-    StepOutcome,
+    ActivityId, ActivityRecord, BarrageError, FailureCode, ImportId, Importer, JobStatus, Scope,
+    SourceKey, StepOutcome,
 };
 use futures_util::stream;
+use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{ActivityGearKey, TenantId};
+use pierre_database::repositories::CachedActivityRow;
 use pierre_providers::fit_decode::ImportDecodeGate;
+use pierre_services::gear_release::{
+    row_key, workout_twins, WORKOUT_ROW_LIMIT, WORKOUT_WINDOW_HOURS,
+};
+use pierre_services::live_activities::LiveActivityStore;
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -483,6 +489,18 @@ pub async fn delete_history(
 /// Delete one imported activity, its samples and, when no other activity
 /// keeps it, its original. Whether one was deleted.
 ///
+/// The athlete deleted the workout, not one source's copy of it: every live
+/// provider's copy of the same session (the Strava API's read of the ride the
+/// export also holds) is erased through the activity store first
+/// ([`LiveActivityStore::erase`]), so no later sync serves it again. Copies
+/// are paired as the gear ledger pairs them
+/// ([`workout_twins`](pierre_services::gear_release::workout_twins)). Another
+/// archive's copy is not a live source's and stays; it goes with its own
+/// delete.
+///
+/// The twins go before the imported copy, which is the one their pairing is
+/// found from: a failure part-way leaves it in place for the retry.
+///
 /// # Errors
 ///
 /// When imports are not available here, the id is not one, or a store fails.
@@ -494,10 +512,82 @@ pub async fn delete_activity(
 ) -> AppResult<bool> {
     let wiring = wiring(resources)?;
     let id = ActivityId::parse(activity_id).map_err(barrage)?;
+    let Some(record) = wiring
+        .stores
+        .records
+        .get(scope, source, &id)
+        .await
+        .map_err(barrage)?
+    else {
+        return Ok(false);
+    };
+    let tenant_id = TenantId::from_uuid(scope.tenant_id.0);
+    let user_id = scope.user_id.0;
+    let live = resources.common.live_activities.as_ref();
+    for twin in live_twins(resources, live, &tenant_id, user_id, source, &record).await? {
+        live.erase(user_id, tenant_id, &twin.provider, &twin.activity_id)
+            .await?;
+    }
     importer(resources, wiring)
         .delete_one(scope, source, &id)
         .await
         .map_err(barrage)
+}
+
+/// The live providers' cached copies of `record`'s workout: the rows around
+/// its start, the imported copy among them, paired into workouts.
+async fn live_twins(
+    resources: &ServerContext,
+    live: &dyn LiveActivityStore,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    source: SourceKey,
+    record: &ActivityRecord,
+) -> AppResult<Vec<ActivityGearKey>> {
+    let start = record.activity.start_date();
+    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let mut rows = resources
+        .common
+        .repos
+        .activity_cache
+        .get_cached_activity_rows(
+            user_id,
+            tenant_id,
+            start - window,
+            start + window,
+            WORKOUT_ROW_LIMIT,
+        )
+        .await?;
+    let imported = ActivityGearKey {
+        provider: source.as_str().to_owned(),
+        activity_id: record.activity.id().to_owned(),
+    };
+    // The record is the copy being deleted: paired from it even when its
+    // projection is not cached.
+    if !rows.iter().any(|row| row_key(row) == imported) {
+        rows.push(CachedActivityRow {
+            provider: imported.provider.clone(),
+            activity: record.activity.clone(),
+            route: None,
+            detail_read: false,
+        });
+    }
+    // A cached id the store cannot name is left as the window's discard
+    // leaves one: logged, so the imported copy can still be deleted. An
+    // uploaded copy is the athlete's own file, deleted only through the
+    // upload's delete, which removes the file with it: erasing it here would
+    // strand the file and refuse the same upload later.
+    Ok(workout_twins(&rows, &imported)
+        .into_iter()
+        .filter(|twin| twin.provider != UPLOAD && live.keeps(&twin.provider))
+        .filter(|twin| match ActivityId::try_from(twin.activity_id.clone()) {
+            Ok(_) => true,
+            Err(e) => {
+                warn!(%user_id, provider = %twin.provider, activity_id = %twin.activity_id, error = %e, "twin of a deleted import the store cannot name; left in the cache");
+                false
+            }
+        })
+        .collect())
 }
 
 /// Run one step of an import, and name the step that follows it.

@@ -40,12 +40,14 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
+use pierre_services::live_activities::LiveActivityStore;
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -216,6 +218,13 @@ pub trait ToolRuntime: Send + Sync + 'static {
             LazyLock::new(|| Arc::new(ReconnectOffers::new()));
         &OFFERS
     }
+
+    /// The one write path of every live provider read (carnet#1482).
+    fn live_activities(&self) -> &Arc<dyn LiveActivityStore>;
+
+    /// The one provider data purge: the tables, then the live store's
+    /// records of the provider (carnet#1482).
+    fn provider_purge(&self) -> &Arc<dyn ProviderPurge>;
 
     /// The process-wide store of the turns that read an incomplete activity
     /// window. Shared across every dispatch path for the same reason

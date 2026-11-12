@@ -74,6 +74,8 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
+use pierre_services::barrage_live_store::live_store;
+use pierre_services::provider_purge::ProviderPurgeService;
 
 /// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
 #[cfg(feature = "client-messaging")]
@@ -226,6 +228,9 @@ impl ServerContext {
         });
         let database_arc = Arc::new(database);
         let repos = Arc::clone(database_arc.repositories());
+        // One live store, and the one purge over it every disconnect takes.
+        let live_activities = live_store(options.live_records, &repos);
+        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         // The binary passes the deployment's blob store; a context built
         // without one keeps blobs in memory over an in-memory database and
         // has none over any other, where uploads are refused.
@@ -380,7 +385,7 @@ impl ServerContext {
         #[cfg(feature = "tools-groups")]
         let group_service = Arc::new(pierre_groups::GroupService::new(
             repos.groups.clone(),
-            Arc::new(DelegationStore::new(&repos)),
+            Arc::new(DelegationStore::new(&repos, Arc::clone(&provider_purge))),
             tier_strategy_for("professional"),
             Arc::new(AthleteBilling::new(
                 Arc::clone(&repos.groups),
@@ -593,6 +598,8 @@ impl ServerContext {
                 .turn_runner
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             archive_imports,
+            live_activities,
+            provider_purge,
             originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),

@@ -7,6 +7,7 @@
 use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
 use chrono::Utc;
+use pierre_config::activity_retention::register_activity_retention;
 use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
     register_garmin_provider, register_group_permissions, register_llm_pricing,
@@ -274,6 +275,9 @@ impl AdminConfigService {
 
         // Three-zone cuts the compliance rail places bands with — see pierre_config::tid_cuts
         register_tid_cuts(&mut defs);
+
+        // Provider data retention, one default plus per-provider days — see pierre_config::activity_retention
+        register_activity_retention(&mut defs);
 
         defs
     }

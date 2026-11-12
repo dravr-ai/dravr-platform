@@ -669,7 +669,7 @@ async fn deactivating_the_group_ends_its_links_and_reactivating_revives_none() {
 async fn a_link_its_group_no_longer_backs_ends_for_what_broke() {
     let w = world().await;
     let repos = &w.res.common.repos;
-    let store = DelegationStore::new(repos);
+    let store = DelegationStore::new(repos, Arc::clone(&w.res.common.provider_purge));
 
     // Each relation broken by its bare write, as if no lifecycle hook ran.
     let archived = w.group("Archived").await;

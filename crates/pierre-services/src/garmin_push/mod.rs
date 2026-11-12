@@ -83,12 +83,14 @@ use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DataSource, DeviceType, TenantId};
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::live_activities::LiveActivityStore;
 use crate::webhook_owner::{resolve_webhook_owner, WebhookTarget};
 use crate::wellness_store::WellnessStore;
 
@@ -365,6 +367,10 @@ impl BatchOutcome {
 /// One owner's records of a batch, and what writing them needs.
 pub(crate) struct OwnerBatch<'a> {
     pub repos: &'a RepositoryRegistry,
+    /// The one write path of the activities pushed.
+    pub live: &'a dyn LiveActivityStore,
+    /// Deletes what the athlete stopped sharing, the store's records with it.
+    pub purge: &'a dyn ProviderPurge,
     pub host: &'a dyn GarminPushHost,
     pub owner: GarminOwner,
     pub received_at: DateTime<Utc>,
@@ -416,6 +422,8 @@ pub(crate) fn records_as<T: DeserializeOwned>(
 /// is then retried whole, which every write tolerates.
 pub async fn ingest_batch(
     repos: &RepositoryRegistry,
+    live: &dyn LiveActivityStore,
+    purge: &dyn ProviderPurge,
     host: &dyn GarminPushHost,
     kind: SummaryType,
     records: Vec<Value>,
@@ -441,12 +449,16 @@ pub async fn ingest_batch(
         }
         let batch = OwnerBatch {
             repos,
+            live,
+            purge,
             host,
             owner,
             received_at,
         };
         let mut written = write_owner_records(&batch, kind, records).await?;
-        if written.stored > 0 && !consent::still_shares(repos, owner, &garmin_user, kind).await? {
+        if written.stored > 0
+            && !consent::still_shares(repos, purge, owner, &garmin_user, kind).await?
+        {
             written.skipped += written.stored;
             written.stored = 0;
         }

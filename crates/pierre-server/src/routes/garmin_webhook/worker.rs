@@ -215,7 +215,16 @@ async fn run(resources: &Arc<ServerContext>, row: &GarminPushInboxRow) -> AppRes
     let host = ServerHost {
         resources: Arc::clone(resources),
     };
-    ingest_batch(&resources.common.repos, &host, kind, records, received_at).await
+    ingest_batch(
+        &resources.common.repos,
+        resources.common.live_activities.as_ref(),
+        resources.common.provider_purge.as_ref(),
+        &host,
+        kind,
+        records,
+        received_at,
+    )
+    .await
 }
 
 /// One sweep: give up on exhausted rows, run the rows whose lease lapsed,

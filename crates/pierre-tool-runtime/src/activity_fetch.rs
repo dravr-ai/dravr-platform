@@ -13,7 +13,6 @@
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
@@ -76,43 +75,13 @@ const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
 /// Cap on stale rows served from cache when a live fetch fails.
 const STALE_FALLBACK_LIMIT: i64 = 500;
 
-/// Default retention + read window (days) for the provider-agnostic activity
-/// cache when `PIERRE_ACTIVITY_CACHE_RETENTION_DAYS` is unset.
+/// How far back a read of the cached activities looks, in days: the
+/// lookback of the stale fallback, the group snapshot and Home's views.
 ///
-/// Sized so a cached read covers the training-load default window *and its
-/// CTL warm-up*: `DEFAULT_BACKFILL_DAYS` (90) plus `warmup_days(42)` (72) is
-/// 162 days, and `AthleteMetrics` asks for a 180-day lookback. At the previous
-/// 90 both were silently truncated — the compute got a series warmed from a
-/// zero seed and the snapshot's `form` was read off a half-warmed curve.
-///
-/// This covers the default 90-day training-history window plus its 72-day CTL
-/// warm-up, not every window `compute_and_persist_history` accepts —
-/// `MAX_BACKFILL_DAYS` is 365, which would need 437 days retained. A deeper ask
-/// is answered as partial coverage and re-requests a capture.
-///
-/// The prune in `write_through_activity_cache` is keyed per `(user, tenant)`
-/// across all providers, so a later narrow writer reclaims a deep backfill's
-/// rows back to this floor. `prune_and_realign_coverage` raises the coverage
-/// floors in the same breath, so the historical gate re-fetches instead of
-/// serving a cache the prune has emptied.
-const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 180;
-
-/// Resolve the activity-cache retention window (days) from the environment,
-/// falling back to [`DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS`].
-///
-/// This is both the
-/// prune cutoff applied after a write-through and the lookback used when
-/// reading cached rows, so widening it deepens the cache into a historical
-/// store (e.g. to keep a backfilled season) at the cost of more rows retained.
-/// Non-positive or unparseable values fall back to the default.
-#[must_use]
-pub fn activity_cache_retention_days() -> i64 {
-    env::var("PIERRE_ACTIVITY_CACHE_RETENTION_DAYS")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .filter(|days| *days > 0)
-        .unwrap_or(DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS)
-}
+/// A reading window, not retention: rows are kept by the activity store's
+/// one retention policy (carnet#1482), and nothing deletes a row for being
+/// older than this.
+pub const CACHED_ACTIVITY_LOOKBACK_DAYS: i64 = 180;
 
 /// Fold the athlete's OTHER connected providers into a primary fetch, then
 /// merge every recording of one workout into a single session.
@@ -792,7 +761,6 @@ async fn fetch_and_persist_head(
             provider_slug,
             &head.activities,
             WriteThrough {
-                retention_days: activity_cache_retention_days(),
                 read: params,
                 announces_sessions: true,
             },

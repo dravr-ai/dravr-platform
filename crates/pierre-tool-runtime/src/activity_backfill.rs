@@ -57,9 +57,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
-use crate::activity_fetch::{
-    activity_cache_retention_days, read_cached_window, serve_historical_window,
-};
+use crate::activity_fetch::{read_cached_window, serve_historical_window};
 use crate::protocol::reauth_notice::{flag_needs_reauth, ReauthNotice};
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
@@ -75,10 +73,6 @@ use crate::history_import::HistoryImport;
 /// Default age (days) past which an activity request is served via background
 /// backfill instead of an inline provider scrape.
 const DEFAULT_HISTORICAL_BACKFILL_THRESHOLD_DAYS: i64 = 90;
-
-/// Extra days added to a backfill's prune window so the season it just fetched
-/// is not immediately garbage-collected by its own write-through.
-const BACKFILL_RETENTION_MARGIN_DAYS: i64 = 7;
 
 /// Reason recorded on a connection a backfill flags: the word the capture
 /// sweep writes for the same condition, so `last_error` reads one way.
@@ -109,19 +103,6 @@ pub fn is_historical_backfill_window(after_ts: i64) -> bool {
         .is_some_and(|after| {
             after < Utc::now() - Duration::days(historical_backfill_threshold_days())
         })
-}
-
-/// Prune window (days) for a backfill write: deep enough to span from the
-/// requested `after` to now (plus a margin) so the fetched season isn't pruned
-/// by its own write-through. Falls back to the configured retention when no
-/// `after` is set.
-fn backfill_retention_days(after: Option<i64>) -> i64 {
-    let base = activity_cache_retention_days();
-    let Some(after_dt) = after.and_then(|ts| Utc.timestamp_opt(ts, 0).single()) else {
-        return base;
-    };
-    let span = (Utc::now() - after_dt).num_days() + BACKFILL_RETENTION_MARGIN_DAYS;
-    base.max(span)
 }
 
 /// The depth a completed backfill may claim as covered, in unix seconds.
@@ -914,19 +895,11 @@ async fn run_activity_backfill(
     }
 
     let fetched_count = activities.len();
-    let retention_days = backfill_retention_days(job.query_params.after);
     // Persist BEFORE recording coverage, and only proceed when the write lands.
     // A failed/partial write that still stamped coverage would leave the gate
     // believing the window is complete while the rows are missing — it would then
     // serve the stale slice and never self-heal (the "2022 stuck at 46" class).
-    let Some(activity_count) = persist_backfill_activities(
-        job,
-        &executor,
-        &activities,
-        (fetched_count, retention_days),
-        read,
-    )
-    .await
+    let Some(activity_count) = persist_backfill_activities(job, &executor, &activities, read).await
     else {
         return BackfillRunOutcome::Failed;
     };
@@ -942,7 +915,6 @@ async fn run_activity_backfill(
         provider = %job.provider_name,
         count = activity_count,
         fetched_count,
-        retention_days,
         // Whether this backfill was chat-triggered, so the later completion-push
         // phase's behaviour is observable. The conversation id itself is an
         // internal identifier (already logged on the chat dispatch path); here we
@@ -1038,7 +1010,6 @@ async fn persist_backfill_activities(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
     activities: &[Activity],
-    (fetched_count, retention_days): (usize, i64),
     read: BackfillRead,
 ) -> Option<usize> {
     let Some(persisted) = write_through_activity_cache(
@@ -1048,7 +1019,6 @@ async fn persist_backfill_activities(
         &job.provider_name,
         activities,
         WriteThrough {
-            retention_days,
             read: &job.query_params,
             // A history import copies the past: it lands no new session.
             announces_sessions: read == BackfillRead::Resolved,
@@ -1059,7 +1029,7 @@ async fn persist_backfill_activities(
         warn!(
             user_id = %job.user_id,
             provider = %job.provider_name,
-            fetched_count,
+            fetched_count = activities.len(),
             "Activity backfill: durable write-through failed; not recording coverage so the gate re-backfills"
         );
         return None;
@@ -1067,7 +1037,7 @@ async fn persist_backfill_activities(
     // The persisted count is the NET DISTINCT rows actually stored (deduped by
     // `activity_id`), below `fetched_count` when the feed repeats an id in the
     // batch — the honest figure the user sees.
-    Some(usize::try_from(persisted).unwrap_or(fetched_count))
+    Some(usize::try_from(persisted).unwrap_or(activities.len()))
 }
 
 /// React to a backfill that found `job`'s provider session dead: flag the

@@ -20,6 +20,8 @@
 //! Terms §4 on revocation — immediate is stronger than either ceiling and
 //! simpler than a sweeper).
 
+use std::sync::Arc;
+
 use chrono::{Duration, Utc};
 use dravr_sciotte::client::{ClientError, SciotteClient, SessionRemoval};
 use dravr_sciotte::models::AuthSession;
@@ -505,7 +507,8 @@ async fn stored_session_id(
 /// Delete every row `backend` contributed for the user under `tenant_id`.
 ///
 /// That is their sleep, recovery and body metrics, time-series points, cached
-/// activities and the sync state describing them, in one transaction.
+/// activities and the sync state describing them, in one transaction, then
+/// the activity store's records of the provider ([`DataContext::provider_purge`]).
 ///
 /// Health rows have no retention pruning to fall back on, so a purge that
 /// fails is an error the disconnect reports rather than a warning it
@@ -529,7 +532,7 @@ pub async fn purge_provider_data(
     backend: &str,
     reason: PurgeReason,
 ) -> AppResult<()> {
-    let provider_data = &data.repos().provider_data;
+    let provider_data = data.provider_purge()?;
     let purge = if backend == oauth_providers::GARMIN {
         provider_data
             .purge_user_provider_source_data(
@@ -1004,7 +1007,7 @@ async fn end_delegated_connections(
     tenant_id: TenantId,
     backend: &str,
 ) -> AppResult<()> {
-    let store = DelegationStore::new(data.repos());
+    let store = DelegationStore::new(data.repos(), Arc::clone(data.provider_purge()?));
     store
         .end_confirmed_for_member(
             user_id,

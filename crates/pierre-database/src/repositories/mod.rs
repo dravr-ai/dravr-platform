@@ -171,6 +171,8 @@ pub mod prescribed_workouts;
 pub mod provider_connections;
 /// Deleting every row one provider contributed, per user on disconnect or platform-wide on termination.
 pub mod provider_data;
+/// The provider data purge every caller makes: the tables and the activity store
+pub mod provider_purge;
 /// `PushedDataRepository`: newest-receipt-wins writes for data a provider pushes.
 pub mod pushed_data;
 /// Repository traits for recipe persistence.
@@ -344,6 +346,7 @@ pub use platform_post_claims::PlatformPostClaimRepository;
 pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use provider_data::*;
+pub use provider_purge::ProviderPurge;
 pub use pushed_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;

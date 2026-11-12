@@ -144,6 +144,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -179,6 +180,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

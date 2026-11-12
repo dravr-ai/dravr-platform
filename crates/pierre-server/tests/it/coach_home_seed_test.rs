@@ -16,10 +16,15 @@
 #[cfg(feature = "tools-groups")]
 mod coach_home_seed_tests {
     use std::collections::BTreeSet;
+    use std::sync::Arc;
 
     use chrono::{Duration, Utc};
+    use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use pierre_core::models::{Activity, TenantId};
+    use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_seeders::coach_home::{run, SeedArgs};
+    use pierre_services::barrage_live_store::live_store;
+    use pierre_services::live_activities::LiveActivityStore;
     use serde_json::Value;
     use uuid::Uuid;
 
@@ -33,6 +38,15 @@ mod coach_home_seed_tests {
             coach_email: COACH.to_owned(),
             model: Some("seed-model".to_owned()),
         }
+    }
+
+    /// The activity store the seeder keeps its sessions in: barrage, over a
+    /// record store of the test's own, projecting into `res`' cache.
+    fn store(res: &Arc<ServerContext>) -> Arc<dyn LiveActivityStore> {
+        live_store(
+            Some(Arc::new(MemoryActivityRecordStore::new())),
+            &res.common.repos,
+        )
     }
 
     fn strings<'a>(page: &'a Value, pick: impl Fn(&'a Value) -> Vec<&'a str>) -> BTreeSet<&'a str> {
@@ -49,7 +63,8 @@ mod coach_home_seed_tests {
         let res = create_test_server_resources().await.unwrap();
         let coach = person(&res, COACH, "Alice Coach").await;
         let repos = &res.common.repos;
-        run(args(), repos).await.unwrap();
+        let live = store(&res);
+        run(args(), repos, live.as_ref()).await.unwrap();
 
         let (status, page) = get(&router(&res), "/api/coach/roster?limit=100", &coach.auth).await;
         assert_eq!(status, 200, "{page:#}");
@@ -167,11 +182,12 @@ mod coach_home_seed_tests {
                 .await
                 .unwrap()
                 .unwrap();
+            let tenant_id = TenantId::from_uuid(Uuid::parse_str(&tenant).unwrap());
             let cached = repos
                 .activity_cache
                 .get_cached_activities(
                     user_id,
-                    &TenantId::from_uuid(Uuid::parse_str(&tenant).unwrap()),
+                    &tenant_id,
                     Some("strava"),
                     now - Duration::days(90),
                     now,
@@ -180,6 +196,14 @@ mod coach_home_seed_tests {
                 .await
                 .unwrap();
             assert_eq!(cached.len(), 56, "one row per seeded session");
+            // The cache is the activity store's projection: the store keeps
+            // each session as a sync through the fixture would, so its
+            // retention and a disconnect's purge reach the warmed rows.
+            assert_eq!(
+                live.held(user_id, tenant_id, "strava").await.unwrap(),
+                56,
+                "the activity store holds every seeded session"
+            );
             assert!(
                 cached.iter().all(|a| a.id().parse::<u64>().is_ok()),
                 "keyed as the fixture serves them: {:?}",
@@ -213,7 +237,7 @@ mod coach_home_seed_tests {
         }
 
         // A rerun leaves the coach as they are.
-        run(args(), repos).await.unwrap();
+        run(args(), repos, live.as_ref()).await.unwrap();
         let (_, again) = get(&router(&res), "/api/coach/roster?limit=100", &coach.auth).await;
         assert_eq!(again["scope"]["roster_members"], 45);
         assert_eq!(again["groups"].as_array().unwrap().len(), 3);
@@ -223,7 +247,7 @@ mod coach_home_seed_tests {
     async fn a_coach_the_seeder_creates_is_a_roster_manager_not_an_admin() {
         let res = create_test_server_resources().await.unwrap();
         let repos = &res.common.repos;
-        run(args(), repos).await.unwrap();
+        run(args(), repos, store(&res).as_ref()).await.unwrap();
 
         let coach = repos.users.get_by_email_required(COACH).await.unwrap();
         assert!(

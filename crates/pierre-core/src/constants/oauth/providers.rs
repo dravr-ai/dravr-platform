@@ -491,12 +491,15 @@ pub const WHOOP_ARCHIVE: &str = "whoop_archive";
 /// above every device's copy of the same reading for the fields it sets.
 pub const ATHLETE: &str = "athlete";
 
-/// Every key whose cached activities the athlete brought in themselves, rather
-/// than a connection fetched: each is read locally, never pruned by a provider
-/// sync, and survives every provider disconnect.
+/// Every key whose cached activities the athlete brought in themselves.
+///
+/// Rather than a connection fetched: each is read locally, never expired by
+/// the retention policy, and survives every provider disconnect.
 ///
 /// Every SQL statement that names user-provided keys lists exactly these, a
-/// rule `activity_cache::sql`'s tests hold the literals to.
+/// rule `activity_cache::sql`'s tests hold the literals to. The list is
+/// dravr-barrage's archive sources plus its upload source, which
+/// `pierre_services::retention_policy`'s tests pin it to.
 pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
     UPLOAD,
     STRAVA_ARCHIVE,

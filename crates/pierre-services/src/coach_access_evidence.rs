@@ -29,6 +29,7 @@
 use pierre_core::constants::oauth_providers::INTERVALS_ICU;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CoachAccessRequest, RosterAccess, TenantId};
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_email::templates::CoachAccessOrigin;
 use pierre_providers::delegation::CoachRoster;
@@ -181,6 +182,7 @@ pub(crate) async fn file_request_after_live_read(
 /// error.
 pub async fn probe_intervals_icu_roster(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     registry: &ProviderRegistry,
     user_id: Uuid,
     tenant: TenantId,
@@ -203,6 +205,7 @@ pub async fn probe_intervals_icu_roster(
     };
     let read = RosterRead {
         repos,
+        purge,
         registry,
         coach_user_id: user_id,
         coach_tenant: tenant,

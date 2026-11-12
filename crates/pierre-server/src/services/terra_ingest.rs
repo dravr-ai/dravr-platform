@@ -1,4 +1,4 @@
-// ABOUTME: Stores what one Terra webhook event carried: activities through the activity cache, wellness through the store
+// ABOUTME: Stores what one Terra webhook event carried: activities through the activity store, wellness through its store
 // ABOUTME: The records are filed for the athlete the Terra connection belongs to, under the provider key `terra`
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,9 +11,9 @@
 //! every other ingress writes, and nowhere else (Athlete Data Consolidation,
 //! S10):
 //!
-//! - activities through the one `cached_activities` writer, under the key
-//!   `terra`, synced at the event's receipt, which `TerraProvider` (a
-//!   push-only provider) reads back;
+//! - activities through the activity store ([`LiveActivityStore`]), under
+//!   the key `terra`, received at the event's receipt, which serves them as
+//!   the cached rows `TerraProvider` (a push-only provider) reads back;
 //! - nights, recovery days, body days and daily activity totals through the
 //!   [`WellnessStore`], filed under the data source of the service Terra
 //!   relayed them from, so the precedence rank reads them as that service's,
@@ -33,6 +33,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{DataSource, DeviceType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::terra::TerraRecords;
+use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
 use uuid::Uuid;
 
@@ -52,31 +53,30 @@ pub struct TerraStored {
 }
 
 /// Store `records`, received at `received_at`, for the athlete `user_id` in
-/// `tenant_id`. `relayed_from` is the service Terra relayed them from, as
-/// the payload names it (`GARMIN`, `OURA`, ...).
+/// `tenant_id`, the activities through `live`.
+///
+/// `relayed_from` is the service Terra relayed them from, as the payload
+/// names it (`GARMIN`, `OURA`, ...).
 ///
 /// # Errors
 ///
 /// The first repository error; what was written before it stays.
 pub async fn store_terra_records(
     repos: &RepositoryRegistry,
+    live: &dyn LiveActivityStore,
     (tenant_id, user_id): (TenantId, Uuid),
     relayed_from: Option<&str>,
     records: &TerraRecords,
     received_at: DateTime<Utc>,
 ) -> AppResult<TerraStored> {
     let mut stored = TerraStored::default();
-    if !records.activities.is_empty() {
-        stored.activities = repos
-            .activity_cache
-            .upsert_activities_synced_at(
-                user_id,
-                &tenant_id,
-                TERRA,
-                &records.activities,
-                received_at,
-            )
-            .await?;
+    for activity in &records.activities {
+        if live
+            .ingest_received(user_id, tenant_id, TERRA, activity, received_at)
+            .await?
+        {
+            stored.activities += 1;
+        }
     }
     if records.nights.is_empty()
         && records.recovery.is_empty()

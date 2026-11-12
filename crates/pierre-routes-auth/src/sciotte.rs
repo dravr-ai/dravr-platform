@@ -20,9 +20,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::require_notice_accepted;
-use pierre_services::scrape_session::{
-    persist_sciotte_session, ScrapeSessionInstaller, StoredSession,
-};
+use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -43,7 +41,7 @@ use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims, CONNECT_PROVIDER,
@@ -359,6 +357,7 @@ async fn store_sciotte_session(
 ) -> Result<Response, AppError> {
     let stored = persist_sciotte_session(
         &resources.repos,
+        resources.data.provider_purge()?,
         &resources.cache,
         user_id,
         TenantId::from_uuid(tenant_id),
@@ -392,7 +391,7 @@ async fn store_sciotte_session(
 /// grant, with no flag from the client, and runs the session's one-time
 /// history import instead — its activities, then its wellness, then the
 /// session's retirement (carnet#1386).
-async fn warm_from_session(
+pub(crate) async fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -446,40 +445,6 @@ async fn warm_from_session(
     );
     #[cfg(not(feature = "health-sync"))]
     drop(prefetch);
-}
-
-/// The super admin clone's install: the same store and warm-up as a login,
-/// with no `provider.connected` event, since a super admin copying a session
-/// onto a test account is not an athlete connecting and must not count as one.
-#[async_trait::async_trait]
-impl ScrapeSessionInstaller for AuthRoutesContext {
-    async fn install_session(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        backend: &str,
-        session: &AuthSession,
-    ) -> AppResult<()> {
-        let stored = persist_sciotte_session(
-            &self.repos,
-            &self.cache,
-            user_id,
-            tenant_id,
-            session,
-            backend,
-        )
-        .await?;
-        warm_from_session(
-            self,
-            user_id,
-            tenant_id.as_uuid(),
-            session,
-            &stored,
-            backend,
-        )
-        .await;
-        Ok(())
-    }
 }
 
 /// Which step of a sign-in produced the outcome being answered.

@@ -27,10 +27,11 @@ use crate::auth::middleware::admin_auth_middleware;
 use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
-    admin_rate_limit_override, admin_scope, api_keys, audit_trail, claim_verdicts, coach_access,
-    connect_order, deletion_ledger, device_auth, device_web, engagement, feature_flags,
-    guardian_config, harness_config, memory_worker, new_users, provider_clone, provider_data,
-    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
+    admin_rate_limit_override, admin_scope, api_keys, audit_trail, barrage, claim_verdicts,
+    coach_access, connect_order, deletion_ledger, device_auth, device_web, engagement,
+    feature_flags, guardian_config, harness_config, memory_worker, new_users, provider_clone,
+    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
+    website,
 };
 
 /// Admin routes implementation (Axum).
@@ -516,6 +517,13 @@ impl AdminRoutes {
                 "/admin/settings/connect-order",
                 get(connect_order::handle_get_connect_order)
                     .put(connect_order::handle_set_connect_order),
+            )
+            // Adopt the activity cache into the activity store, once per
+            // environment after deploy (carnet#1482). Super-admin only
+            // inside the handler.
+            .route(
+                "/admin/barrage/adopt-cache",
+                post(barrage::handle_adopt_cache),
             )
             .with_state(context)
     }

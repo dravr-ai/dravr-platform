@@ -7,10 +7,11 @@
 //! Activity file uploads (carnet#818).
 //!
 //! An athlete uploads the `.fit` file of a completed workout. Each session in
-//! it becomes an activity read like a provider's: it is written to the
+//! it becomes an activity read like a provider's: it is served from the
 //! activity cache under the [`UPLOAD`] key, so Home's recent list, the week
 //! strip and calendar, the weekly volume and the agent's activity reads all
-//! see it. Each kept session's per-sample series is decoded once, here, and
+//! see it, through the activity store every provider's activities are kept
+//! in (`pierre_services::live_activities`). Each kept session's per-sample series is decoded once, here, and
 //! written to the one per-activity sample store (`activity_streams`,
 //! `origin = 'upload'`, the file's SHA-256 as `source_ref`, carnet#1219), which
 //! the series and route reads answer from
@@ -31,7 +32,8 @@
 //! copies, which every reader merges into one session.
 //!
 //! The athlete can delete an uploaded activity, as Strava and intervals.icu
-//! let them ([`delete_uploaded_activity`]): its cached row and its samples go,
+//! let them ([`delete_uploaded_activity`]): its cached row, its stored copy
+//! and its samples go,
 //! its shoe attribution goes or moves to another copy of the workout, and the
 //! file goes with the last of its sessions. An upload or a deletion is a moment the
 //! stored activities change, so either one drops the agent's cached lists and
@@ -57,8 +59,6 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
 use tracing::{info, warn};
 use uuid::Uuid;
-
-use crate::services::gear_ledger::release_activity_gear;
 
 /// The largest file accepted: an eight-hour ride recorded every second is a
 /// few megabytes, so anything past this is not one workout's file.
@@ -176,9 +176,9 @@ pub async fn upload_activity_file(
         synced_at,
     )
     .await?;
-    repos
-        .activity_cache
-        .upsert_activities_synced_at(user_id, &tenant_id, UPLOAD, &stored, synced_at)
+    runtime
+        .live_activities()
+        .ingest(user_id, tenant_id, UPLOAD, &stored, synced_at)
         .await?;
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(
@@ -198,8 +198,12 @@ pub async fn upload_activity_file(
 /// Delete one of the athlete's uploaded activities, and the file it came from
 /// once none of that file's activities is left.
 ///
-/// The pair of shoes it was attributed to lets it go first, or hands it to
-/// another copy of the same workout ([`release_activity_gear`]).
+/// It goes through the activity store ([`LiveActivityStore::discard`](pierre_services::live_activities::LiveActivityStore::discard)),
+/// which drops its record without refusing the file later, since the athlete
+/// may upload it again (carnet#1482). The store's retraction lets the pair of
+/// shoes it was attributed to go first, or hands it to another copy of the
+/// same workout, and a release that fails stops the delete before the row
+/// and its samples go, so the athlete's retry finds both in place.
 ///
 /// Scoped to the athlete and the tenant: an id they did not upload here —
 /// another athlete's, or a provider's activity — is not found.
@@ -218,13 +222,19 @@ pub async fn delete_uploaded_activity(
 ) -> AppResult<()> {
     let not_found = || AppError::not_found(format!("uploaded activity {activity_id}"));
     let (sha, _) = parse_upload_activity_id(activity_id).ok_or_else(not_found)?;
-    let repos = runtime.repos();
-    release_activity_gear(repos, user_id, &tenant_id, UPLOAD, activity_id).await?;
-    let removed = repos
+    // A row the cache served before the store kept uploads is not the
+    // store's, and is deleted all the same: it counts as removed too.
+    let cached = runtime
+        .repos()
         .activity_cache
-        .delete_cached_activity(user_id, &tenant_id, UPLOAD, activity_id)
+        .get_cached_activity(user_id, &tenant_id, UPLOAD, activity_id)
+        .await?
+        .is_some();
+    let held = runtime
+        .live_activities()
+        .discard(user_id, tenant_id, UPLOAD, activity_id)
         .await?;
-    if removed == 0 {
+    if !(cached || held) {
         // A delete that failed part-way removed the activity and left its
         // file: the retry finishes deleting the file, then answers done.
         if finish_file_delete(runtime, &tenant_id, user_id, sha).await? {
@@ -233,10 +243,6 @@ pub async fn delete_uploaded_activity(
         }
         return Err(not_found());
     }
-    repos
-        .activity_streams
-        .delete_activity_streams(&tenant_id, user_id, UPLOAD, activity_id)
-        .await?;
     let file_deleted = finish_file_delete(runtime, &tenant_id, user_id, sha).await?;
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(

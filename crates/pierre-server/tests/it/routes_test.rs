@@ -179,6 +179,7 @@ async fn test_register_user() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -338,6 +339,7 @@ async fn test_register_duplicate_user() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

@@ -590,6 +590,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -820,6 +821,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -924,6 +926,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1016,6 +1019,7 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1114,6 +1118,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1235,6 +1240,7 @@ async fn test_multitenant_server_config() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

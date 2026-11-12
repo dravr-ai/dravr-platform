@@ -327,6 +327,7 @@ async fn test_oauth_flow_through_mcp() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -641,6 +642,7 @@ async fn test_oauth_callback_error_handling() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -951,6 +953,7 @@ async fn test_oauth_state_csrf_protection() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1117,6 +1120,7 @@ async fn test_connection_status_tracking() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

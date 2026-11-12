@@ -13,7 +13,7 @@ use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
+use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::{active_tenant, served_rows, workouts};
@@ -65,7 +65,7 @@ pub(super) async fn get_training_volume(
             VolumeCoverage::From(monday_of(day) + Duration::weeks(1))
         })
     } else {
-        let since = now - Duration::days(activity_cache_retention_days());
+        let since = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
         let older = served_rows(
             &resources,
             repos

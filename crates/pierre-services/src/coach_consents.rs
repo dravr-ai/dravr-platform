@@ -55,13 +55,14 @@
 //! wellness, and both apps say so beside the consent.
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
 use pierre_core::transport::Transport;
-use pierre_database::repositories::{CoachingGroupRepository, PurgeReason};
+use pierre_database::repositories::{CoachingGroupRepository, ProviderPurge, PurgeReason};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
@@ -332,6 +333,7 @@ const fn keep(change: Option<bool>, offered: bool) -> Option<bool> {
 /// is no longer a live member of `group`, or a repository error.
 pub async fn set_coach_consents(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     registry: &ProviderRegistry,
     group: &CoachingGroup,
     member: Uuid,
@@ -358,7 +360,7 @@ pub async fn set_coach_consents(
         "Coach consents set"
     );
     if change.wellness_read == Some(false) {
-        purge_member_wellness(repos, group, member).await?;
+        purge_member_wellness(repos, purge.as_ref(), group, member).await?;
     }
     Ok(updated)
 }
@@ -375,6 +377,7 @@ pub async fn set_coach_consents(
 /// keep, whatever the link synced before it.
 async fn purge_member_wellness(
     repos: &RepositoryRegistry,
+    purger: &dyn ProviderPurge,
     group: &CoachingGroup,
     member: Uuid,
 ) -> AppResult<()> {
@@ -398,8 +401,7 @@ async fn purge_member_wellness(
             );
             continue;
         }
-        let purge = repos
-            .provider_data
+        let purge = purger
             .purge_user_provider_wellness(
                 member,
                 &tenant,

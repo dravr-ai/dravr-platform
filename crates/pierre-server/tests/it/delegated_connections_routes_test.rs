@@ -1244,6 +1244,7 @@ async fn a_roster_drop_ends_the_link_and_tells_both_sides(w: &World) {
     let link = confirmed_by_m2(w).await;
     let ended = end_off_roster(
         &w.res.common.repos,
+        &w.res.common.provider_purge,
         w.res.common.notification_service.as_ref(),
         w.m2.id,
         w.m2.tenant,

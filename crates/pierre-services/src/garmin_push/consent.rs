@@ -23,7 +23,7 @@
 
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
-use pierre_database::repositories::PurgeReason;
+use pierre_database::repositories::{ProviderPurge, PurgeReason};
 use pierre_database::RepositoryRegistry;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -99,6 +99,7 @@ pub(super) async fn shares(
 /// before this read did not see those rows.
 pub(super) async fn still_shares(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     owner: GarminOwner,
     garmin_user: &str,
     kind: SummaryType,
@@ -114,11 +115,11 @@ pub(super) async fn still_shares(
     } else {
         PurgeReason::ProviderRevoked
     };
-    let purge = purge_kind(repos, owner, grant, reason).await?;
+    let rows_removed = purge_kind(purge, owner, grant, reason).await?;
     info!(
         user_id = %owner.user_id,
         summary_type = kind.key(),
-        rows_removed = purge,
+        rows_removed,
         "Garmin push landed while the athlete withdrew it; what it wrote is purged"
     );
     Ok(false)
@@ -128,14 +129,13 @@ pub(super) async fn still_shares(
 /// or the wellness filed under its API data source. Returns the rows
 /// removed.
 async fn purge_kind(
-    repos: &RepositoryRegistry,
+    purger: &dyn ProviderPurge,
     owner: GarminOwner,
     grant: &str,
     reason: PurgeReason,
 ) -> AppResult<u64> {
     let purge = if grant == GRANT_HEALTH_EXPORT {
-        repos
-            .provider_data
+        purger
             .purge_user_provider_source_wellness(
                 owner.user_id,
                 &owner.tenant_id,
@@ -145,8 +145,7 @@ async fn purge_kind(
             )
             .await?
     } else {
-        repos
-            .provider_data
+        purger
             .purge_user_provider_activities(owner.user_id, &owner.tenant_id, GARMIN, reason)
             .await?
     };
@@ -200,7 +199,7 @@ pub(super) async fn permissions_changed(
             continue;
         }
         let rows_removed =
-            purge_kind(repos, owner, grant, PurgeReason::PermissionWithdrawn).await?;
+            purge_kind(batch.purge, owner, grant, PurgeReason::PermissionWithdrawn).await?;
         info!(
             user_id = %owner.user_id,
             permission = grant,

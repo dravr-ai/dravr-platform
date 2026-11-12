@@ -410,6 +410,77 @@ async fn deleting_an_upload_deletes_its_samples() {
     );
 }
 
+/// An upload is kept in the activity store every provider's activities are
+/// kept in, and served from the cache its readers read (carnet#1482): the
+/// store, not only the cache, holds it.
+#[tokio::test]
+async fn an_upload_is_kept_in_the_activity_store_and_served_from_the_cache() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources).await;
+    let id = upload(&resources, &athlete, &ride_file()).await;
+
+    let cache = &resources.common.repos.activity_cache;
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, UPLOAD, &id)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the upload is not served from the cache"
+    );
+    let held = resources
+        .common
+        .live_activities
+        .discard(athlete.user_id, athlete.tenant, UPLOAD, &id)
+        .await
+        .unwrap();
+    assert!(held, "bug: the activity store does not hold the upload");
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, UPLOAD, &id)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: the discarded upload is still served"
+    );
+}
+
+/// Deleting an upload drops the activity store's copy without refusing the
+/// file: the athlete can upload the same file again, and it is kept and
+/// served again.
+#[tokio::test]
+async fn a_deleted_upload_can_be_uploaded_again() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources).await;
+    let file = ride_file();
+    let id = upload(&resources, &athlete, &file).await;
+
+    delete_uploaded_activity(&runtime(&resources), athlete.tenant, athlete.user_id, &id)
+        .await
+        .unwrap();
+    let held = resources
+        .common
+        .live_activities
+        .discard(athlete.user_id, athlete.tenant, UPLOAD, &id)
+        .await
+        .unwrap();
+    assert!(!held, "bug: the deleted upload's stored copy was kept");
+
+    let again = upload(&resources, &athlete, &file).await;
+    assert_eq!(again, id, "the same file names the same activity");
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, UPLOAD, &id)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the re-uploaded file is not served"
+    );
+}
+
 #[tokio::test]
 async fn another_athletes_samples_are_never_read() {
     let resources = common::create_test_server_resources().await.unwrap();

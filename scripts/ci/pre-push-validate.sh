@@ -897,6 +897,21 @@ if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
 fi
 echo ""
 
+# Tier 1 runs check-activity-writers.sh inside architectural-validation.sh;
+# an edit to the gate itself also runs its self-test, which plants a direct
+# cache writer and a by-date prune and expects both to fail (carnet#1482).
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^scripts/ci/check-activity-writers(\.test)?\.sh$'; then
+    echo "Tier 1o-writers: activity writers gate self-test"
+    echo "-------------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-activity-writers.test.sh"; then
+        echo ""
+        echo "FAIL: the activity writers gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

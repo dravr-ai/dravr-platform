@@ -58,6 +58,7 @@ use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus,
     ProviderAccountRole, RosterAccess, RosterAthlete, TenantId, User, UserOAuthToken,
 };
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_notifications::triggers::{self, LinkPlatform};
@@ -116,6 +117,9 @@ pub struct DelegationServices<'a> {
     pub cache: &'a Cache,
     /// Tells the other side of a step; `None` tells no one.
     pub notifications: Option<&'a Arc<NotificationService>>,
+    /// Deletes what an ended link read, from the tables and the activity
+    /// store.
+    pub purge: &'a Arc<dyn ProviderPurge>,
 }
 
 /// The name a person reads for another user: their display name, else their
@@ -182,6 +186,7 @@ pub async fn coach_roster(
     let athletes = platform
         .read_roster(RosterRead {
             repos,
+            purge: services.purge.as_ref(),
             registry: services.registry,
             coach_user_id,
             coach_tenant,
@@ -191,6 +196,7 @@ pub async fn coach_roster(
         .await?;
     end_off_coach_roster(
         repos,
+        services.purge,
         services.notifications,
         platform,
         coach_user_id,
@@ -662,6 +668,7 @@ pub async fn confirm(
         repos,
         registry,
         notifications,
+        purge,
         ..
     } = services;
     require_app_for_grant(requested.grants_any())?;
@@ -690,9 +697,9 @@ pub async fn confirm(
     // the confirm asks only for what this link offers.
     let requested = requested.within(link_offer(registry, link));
     if requested.grants_any() {
-        set_coach_consents(repos, registry, group, member, requested).await?;
+        set_coach_consents(repos, purge, registry, group, member, requested).await?;
     }
-    supersede_other_proposals(repos, &confirmed).await?;
+    supersede_other_proposals(repos, purge, &confirmed).await?;
 
     repos
         .provider_connections
@@ -724,10 +731,11 @@ pub async fn confirm(
 /// they read it through one link at a time.
 async fn supersede_other_proposals(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     confirmed: &DelegatedConnection,
 ) -> AppResult<()> {
     let member = confirmed.member_user_id;
-    let store = DelegationStore::new(repos);
+    let store = DelegationStore::new(repos, Arc::clone(purge));
     for other in repos
         .delegated_connections
         .list_live_for_member(member)
@@ -767,11 +775,12 @@ async fn supersede_other_proposals(
 /// delegated connection cannot be removed.
 pub async fn supersede_delegated_link(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     member_user_id: Uuid,
     tenant: TenantId,
     backend: &str,
 ) -> AppResult<()> {
-    let ended = DelegationStore::new(repos)
+    let ended = DelegationStore::new(repos, Arc::clone(purge))
         .end_confirmed_for_member(
             member_user_id,
             tenant,
@@ -803,6 +812,7 @@ pub async fn supersede_delegated_link(
 /// error.
 pub async fn end(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     notifications: Option<&Arc<NotificationService>>,
     group: &CoachingGroup,
     link: &DelegatedConnection,
@@ -818,7 +828,7 @@ pub async fn end(
             return Err(AppError::not_found("Live link"));
         }
     };
-    let ended = DelegationStore::new(repos)
+    let ended = DelegationStore::new(repos, Arc::clone(purge))
         .end_one(link.id, caller, Some(caller), reason)
         .await?
         .ok_or_else(|| AppError::not_found("Live link"))?;
@@ -850,12 +860,13 @@ pub async fn end(
 /// delegated connection cannot be removed.
 pub async fn end_off_roster(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     notifications: Option<&Arc<NotificationService>>,
     member_user_id: Uuid,
     member_tenant: TenantId,
     provider: &str,
 ) -> AppResult<Vec<DelegatedConnection>> {
-    let ended = DelegationStore::new(repos)
+    let ended = DelegationStore::new(repos, Arc::clone(purge))
         .end_confirmed_for_member(
             member_user_id,
             member_tenant,
@@ -878,6 +889,7 @@ pub async fn end_off_roster(
 /// member from being linked again.
 async fn end_off_coach_roster(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     notifications: Option<&Arc<NotificationService>>,
     platform: &dyn CoachPlatform,
     coach_user_id: Uuid,
@@ -885,7 +897,7 @@ async fn end_off_coach_roster(
     roster: &[RosterAthlete],
 ) -> AppResult<()> {
     let listed: Vec<&str> = roster.iter().map(|athlete| athlete.id.as_str()).collect();
-    let ended = DelegationStore::new(repos)
+    let ended = DelegationStore::new(repos, Arc::clone(purge))
         .end_off_coach_roster(coach_user_id, coach_tenant, platform.backend(), &listed)
         .await?;
     for link in &ended {

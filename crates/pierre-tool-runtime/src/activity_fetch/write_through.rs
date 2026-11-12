@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::core::ActivityQueryParams;
@@ -27,13 +27,10 @@ use super::sync_verdict::covers_list_head;
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
 
-/// How a write-through lands: the retention its prune keeps, and the read
-/// the rows came from, which decides whether they count as a sync.
+/// How a write-through lands: the read the rows came from, which decides
+/// whether they count as a sync.
 #[derive(Debug)]
 pub struct WriteThrough<'a> {
-    /// The per-transaction prune window: after the upsert, rows older than
-    /// `now - retention_days` are garbage-collected.
-    pub retention_days: i64,
     /// The window the provider was read for.
     pub read: &'a ActivityQueryParams,
     /// Whether a new training session among the rows delivers the athlete's
@@ -47,13 +44,8 @@ pub struct WriteThrough<'a> {
 /// the next outage serves these rows stale-while-revalidate. Shared with the
 /// group snapshot builder through the `activity_cache` repo.
 ///
-/// `retention_days` is the per-transaction prune window: after the upsert,
-/// rows older than `now - retention_days` are garbage-collected. Recent-fetch
-/// callers pass [`activity_cache_retention_days`](crate::activity_fetch::activity_cache_retention_days) (the deployment default);
-/// a historical backfill passes a deeper window so the season it just wrote is
-/// not immediately pruned. Pruning is keyed by `(user_id, tenant_id)` across
-/// all providers, so the retention floor for durable history is whatever the
-/// *widest-window* writer uses.
+/// The rows are kept in the activity store, whose one retention policy
+/// decides when they go (carnet#1482); this write deletes nothing.
 ///
 /// Only a read of the provider's list head ([`covers_list_head`]) is a sync:
 /// its rows are stamped now and the fetch-freshness mark moves. A read that
@@ -97,27 +89,20 @@ pub(crate) async fn write_through_activity_cache(
         activities,
     )
     .await?;
-    let persisted = match cache
-        .upsert_activities_synced_at(user_id, &tenant_id, provider, activities, stamp.synced_at)
+    // Kept in the activity store, which projects into the cache; its one
+    // retention policy, not this write, decides when a row goes (carnet#1482).
+    let persisted = match auth_service
+        .runtime()
+        .live_activities()
+        .ingest(user_id, tenant_id, provider, activities, stamp.synced_at)
         .await
     {
-        Ok(count) => count,
+        Ok(ingest) => ingest.stored,
         Err(e) => {
             info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
             return None;
         }
     };
-    // A push-only provider's rows are the only copy there will ever be: the
-    // provider pushes each activity once. Its reads never write through, and
-    // retention must not reach them if one ever did.
-    if !auth_service
-        .runtime()
-        .provider_registry()
-        .is_push_only(provider)
-    {
-        let cutoff = Utc::now() - Duration::days(write.retention_days);
-        prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
-    }
     if stamp.is_sync {
         stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
     }
@@ -197,64 +182,6 @@ fn stamp_after_head_lookup<E>(
         synced_at: head.or(vouched).unwrap_or(now).min(now),
         is_sync: false,
     })
-}
-
-/// Prune `provider`'s rows below `cutoff`, then raise any coverage floor the
-/// prune just falsified.
-///
-/// The two writes belong together: a prune that removed rows has deleted
-/// exactly what a deeper coverage record vouches for, and a claim left standing
-/// makes the historical gate serve the now-shallow cache as a complete window
-/// without calling a provider. Best-effort throughout — retention is not worth
-/// failing a fetch over, and a clamp that fails costs one stale claim, which
-/// the next prune retries.
-async fn prune_and_realign_coverage(
-    cache: &dyn ActivityCacheRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    cutoff: DateTime<Utc>,
-) {
-    match cache
-        .prune_activities_before(user_id, &tenant_id, provider, cutoff)
-        .await
-    {
-        Ok(0) => {}
-        Ok(pruned) => {
-            realign_coverage_floor(cache, user_id, tenant_id, provider, cutoff, pruned).await;
-        }
-        Err(e) => {
-            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
-        }
-    }
-}
-
-/// Raise coverage floors the prune just falsified. Best-effort: a failed clamp
-/// costs one stale claim, which the next prune retries.
-async fn realign_coverage_floor(
-    cache: &dyn ActivityCacheRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    cutoff: DateTime<Utc>,
-    pruned: u64,
-) {
-    match cache
-        .clamp_backfill_coverage(user_id, &tenant_id, provider, cutoff)
-        .await
-    {
-        Ok(0) => {}
-        Ok(clamped) => info!(
-            user_id = %user_id,
-            provider = %provider,
-            pruned,
-            clamped,
-            "Activity cache: prune raised backfill coverage floors"
-        ),
-        Err(e) => {
-            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: coverage clamp failed");
-        }
-    }
 }
 
 /// Record that this fetch happened, independent of how many rows it returned.
@@ -342,10 +269,11 @@ pub async fn write_through_served_window(
     }
     #[cfg(feature = "client-notifications")]
     let landed = lands_a_session(runtime, user_id, tenant_id, provider_slug, activities).await;
-    let upserted = cache
-        .upsert_activities_synced_at(
+    let upserted = runtime
+        .live_activities()
+        .ingest(
             user_id,
-            tenant_id,
+            *tenant_id,
             provider_slug,
             activities,
             stamp.synced_at,

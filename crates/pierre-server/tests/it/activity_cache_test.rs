@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the provider-agnostic activity cache repository
-// ABOUTME: Exercises upsert (idempotent), range + provider-filtered reads, freshness, and retention pruning
+// ABOUTME: Exercises upsert (idempotent), range + provider-filtered reads, freshness, and tenant isolation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,9 @@
 //!  2. `get_cached_activities` returns rows in `[start, end]` newest-first and
 //!     honours the optional provider filter.
 //!  3. `latest_activity_sync` reports a timestamp once data is cached.
-//!  4. `prune_activities_before` enforces retention.
+//!
+//! Retention is not the cache's: the activity store's sweep expires what
+//! the `activity_retention.*` policy says (`retention_sweep_test`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -117,19 +119,6 @@ async fn activity_cache_upsert_read_filter_prune_round_trip() {
         .await
         .unwrap();
     assert_eq!(all.len(), 3);
-
-    // 7. Retention prune removes rows older than the cutoff (drops s2 @3d).
-    let cutoff = Utc::now() - Duration::days(2) - Duration::hours(12);
-    let removed = repo
-        .prune_activities_before(user_id, &tenant_id, "strava", cutoff)
-        .await
-        .unwrap();
-    assert_eq!(removed, 1);
-    let remaining = repo
-        .get_cached_activities(user_id, &tenant_id, None, window_start, now, 100)
-        .await
-        .unwrap();
-    assert_eq!(remaining.len(), 2);
 }
 
 #[tokio::test]

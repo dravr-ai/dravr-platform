@@ -58,6 +58,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, RacePriority};
 use pierre_middleware::mask_email;
+use pierre_services::live_activities::LiveActivityStore;
 use tracing::info;
 use uuid::Uuid;
 
@@ -248,13 +249,19 @@ pub struct SeedArgs {
     pub model: Option<String>,
 }
 
-/// Seed the coach's three groups and their 45 athletes.
+/// Seed the coach's three groups and their 45 athletes, their sessions kept
+/// in the activity store `live`, which warms the cache with them.
 ///
 /// # Errors
 ///
 /// Returns a configuration error when no model was resolved or the password
-/// cannot be hashed, or the repository error from any write.
-pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
+/// cannot be hashed, the repository error from any write, or the activity
+/// store's when it does not keep every session.
+pub async fn run(
+    args: SeedArgs,
+    repos: &RepositoryRegistry,
+    live: &dyn LiveActivityStore,
+) -> AppResult<()> {
     let model = args.model.ok_or_else(|| {
         AppError::config(
             "No model for the seeded replies: pass --model, or configure the LLM provider the \
@@ -279,6 +286,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         let group = &groups[index % groups.len()];
         let seeded = Seeded {
             repos,
+            live,
             athlete: &athlete,
             group_id: group.id,
             coach: &coach,
@@ -377,6 +385,7 @@ async fn athlete_account(
 /// One athlete being seeded into one of the coach's groups.
 struct Seeded<'a> {
     repos: &'a RepositoryRegistry,
+    live: &'a dyn LiveActivityStore,
     athlete: &'a Account,
     group_id: Uuid,
     coach: &'a Account,
@@ -474,7 +483,9 @@ impl Seeded<'_> {
     }
 
     /// The sessions the dev fixture serves, the Strava connection and token
-    /// it reads them through, and the activity cache warmed with them.
+    /// it reads them through, and the activity cache warmed with them: kept
+    /// in the activity store, as a sync through the fixture would keep them,
+    /// which projects them into the cache.
     async fn seed_sessions(&self, sessions: &[(i64, u64)]) -> AppResult<()> {
         let tenant = self.athlete.tenant.as_uuid();
         let mut cached: Vec<Activity> = Vec::with_capacity(sessions.len());
@@ -515,10 +526,25 @@ impl Seeded<'_> {
                 .await?;
         }
         register_provider_connection(self.repos, self.athlete.id, tenant, PROVIDER).await?;
-        self.repos
-            .activity_cache
-            .upsert_activities(self.athlete.id, &self.athlete.tenant, PROVIDER, &cached)
+        let kept = self
+            .live
+            .ingest(
+                self.athlete.id,
+                self.athlete.tenant,
+                PROVIDER,
+                &cached,
+                Utc::now(),
+            )
             .await?;
+        // A session the store refused would leave the athlete's history
+        // short with nothing failing: the seed stops instead.
+        if kept.stored != u64::try_from(cached.len()).unwrap_or(u64::MAX) {
+            return Err(AppError::internal(format!(
+                "the activity store kept {} of {} seeded sessions",
+                kept.stored,
+                cached.len()
+            )));
+        }
         Ok(())
     }
 

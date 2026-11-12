@@ -33,6 +33,8 @@ pub mod advice_capture;
 pub mod api_key_cleanup;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
 pub mod archetype_aggregation;
+/// Adopting the activity cache into the activity store, once per environment (carnet#1482)
+pub mod cache_adoption;
 /// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
@@ -169,6 +171,21 @@ pub mod default_agent;
 /// (carnet#1097).
 pub mod team_rules;
 
+/// The one write path of every provider's activities: kept in the activity store (carnet#1482)
+pub mod live_activities;
+
+/// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
+pub mod barrage_live_store;
+
+/// The activity store's projection into the activity cache: the cache's one writer (carnet#1482)
+pub mod activity_cache_sink;
+
+/// A deleted activity's gear released, and the workout merge the gear ledger reads (carnet#711)
+pub mod gear_release;
+
+/// The one provider data purge: the tables and the activity store's live records (carnet#1482)
+pub mod provider_purge;
+
 /// Garmin push ingest: each stored batch's records written to Dravr's stores (carnet#1155)
 pub mod garmin_push;
 
@@ -301,8 +318,11 @@ mod oauth_state_redeem;
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
-/// Cache TTL sweep: evicts provider data held past the cap its terms declare
-pub mod provider_cache_sweeper;
+/// The one retention policy of provider data, from `activity_retention.*` runtime config
+pub mod retention_policy;
+
+/// The hourly retention sweep: provider activities in barrage, wellness in the platform's tables
+pub mod retention_sweep;
 
 /// The Firebase identity deletion outbox: settles each attempt, sweeps the rest
 pub mod firebase_identity_outbox;

@@ -343,6 +343,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -843,6 +844,7 @@ async fn test_input_validation() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

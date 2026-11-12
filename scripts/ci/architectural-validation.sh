@@ -1748,6 +1748,16 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: every provider's activities reach cached_activities only through
+# the activity store's sink, and nothing prunes the cache by date behind the
+# store's one retention policy (carnet#1482).
+if [ -f "$SCRIPT_DIR/check-activity-writers.sh" ]; then
+    bash "$SCRIPT_DIR/check-activity-writers.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-activity-writers.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true

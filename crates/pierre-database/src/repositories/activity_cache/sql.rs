@@ -34,12 +34,6 @@ pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
         data_json = EXCLUDED.data_json
     WHERE cached_activities.synced_at <= EXCLUDED.synced_at";
 
-/// Rewrite one cached activity's content (`$5`) by the table's uniqueness
-/// key, leaving its receipt (`synced_at`) and its detail as they stand.
-pub(crate) const AMEND_CACHED_ACTIVITY_SQL: &str = r"
-    UPDATE cached_activities SET data_json = $5
-    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
-
 /// Store what a detail read of one cached activity found, on the row its
 /// list read wrote, by the table's uniqueness key, with the instant it is
 /// read again (`$6`, NULL when it stands). A row the user does not hold in
@@ -147,38 +141,31 @@ pub(crate) const COUNT_BY_PROVIDER_SQL: &str = r"
     GROUP BY provider
     ORDER BY provider";
 
+/// How many cached activities each user holds under each key in a tenant.
+pub(crate) const COUNT_BY_USER_AND_PROVIDER_SQL: &str = r"
+    SELECT user_id, provider, COUNT(*) AS n
+    FROM cached_activities
+    WHERE tenant_id = $1
+    GROUP BY user_id, provider
+    ORDER BY user_id, provider";
+
+/// Every row a user holds under one key in a tenant, as stored, oldest
+/// sync first: the list copy without its detail read, and its stamp.
+pub(crate) const GET_STORED_ACTIVITY_ROWS_SQL: &str = r"
+    SELECT data_json, synced_at
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+    ORDER BY synced_at, activity_id";
+
 /// Delete one cached activity, by the table's uniqueness key.
 pub(crate) const DELETE_CACHED_ACTIVITY_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
 
-/// Delete one provider's cached activities for a user that started within a
-/// window, both ends included — the window [`GET_CACHED_ACTIVITIES_SQL`]
-/// reads.
-pub(crate) const DELETE_CACHED_ACTIVITIES_BETWEEN_SQL: &str = r"
-    DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-      AND start_date >= $4 AND start_date <= $5";
-
 /// Delete every cached activity one provider contributed for a user.
 pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
-
-/// Delete one provider's cached activities for a user that started before a
-/// cutoff: `$1` user id, `$2` tenant id, `$3` cutoff, `$4` provider.
-///
-/// Scoped to the provider whose write-through runs it, so a sync of one
-/// provider never deletes another's rows. A push-only provider's rows (the
-/// Garmin API's) are the only copy Dravr will ever get, since the provider
-/// pushes each activity once, and no write-through ever runs for it; the
-/// rows the athlete brought in themselves (an uploaded file's, an imported
-/// archive's: `pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS`)
-/// are the record itself and are refused here even when named.
-pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
-    DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider = $4
-      AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///
@@ -256,25 +243,6 @@ macro_rules! latest_fetch_failure_sql {
     };
 }
 pub(crate) use latest_fetch_failure_sql;
-
-/// Raise one provider's coverage floor below a cutoff and clear its feed-end
-/// flag: the prune that falsified it is scoped to that provider.
-/// `hit_feed_end` is BOOLEAN on Postgres and an INTEGER 0/1 on `SQLite`,
-/// which reads the `FALSE` keyword as 0.
-macro_rules! clamp_backfill_coverage_sql {
-    ($uuid:literal) => {
-        concat!(
-            "UPDATE activity_backfill_coverage \
-             SET oldest_reached_ts = $1, hit_feed_end = FALSE, updated_at = $2 \
-             WHERE user_id = $3",
-            $uuid,
-            " AND tenant_id = $4",
-            $uuid,
-            " AND provider = $5 AND oldest_reached_ts < $1"
-        )
-    };
-}
-pub(crate) use clamp_backfill_coverage_sql;
 
 /// Record how deep a backfill reached; overwrites any prior row.
 macro_rules! upsert_backfill_coverage_sql {
@@ -378,7 +346,6 @@ mod tests {
         for (name, sql) in [
             ("LATEST_ANY_SYNC_SQL", LATEST_ANY_SYNC_SQL),
             ("HELD_USER_PROVIDED_SQL", HELD_USER_PROVIDED_SQL),
-            ("PRUNE_ACTIVITIES_SQL", PRUNE_ACTIVITIES_SQL),
         ] {
             assert_eq!(
                 listed_keys(sql),

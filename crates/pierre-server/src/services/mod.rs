@@ -148,6 +148,9 @@ pub mod commitment_refresher;
 /// Assembles and starts the Strava seat reclaimer (carnet#505).
 pub mod seat_reclaim_worker;
 
+/// Assembles and starts the one retention sweep of provider data (carnet#1482).
+pub mod retention_sweep_worker;
+
 /// Per-instance poll that keeps the Guardian and harness policy converged on the database
 pub mod settings_poll;
 

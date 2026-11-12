@@ -29,7 +29,6 @@ use std::{
     collections::HashMap,
     convert::AsRef,
     sync::{Arc, OnceLock},
-    time::Duration,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -681,20 +680,6 @@ impl ProviderRegistry {
         names.sort_unstable();
         names.dedup();
         names
-    }
-
-    /// Every registered provider whose terms cap how long a copy of its data
-    /// may be held, with that cap, sorted by name: what the cache TTL sweep
-    /// enforces.
-    #[must_use]
-    pub fn cache_ttls(&self) -> Vec<(&'static str, Duration)> {
-        let mut ttls: Vec<(&'static str, Duration)> = self
-            .descriptors
-            .iter()
-            .filter_map(|(name, d)| d.cache_ttl().map(|ttl| (*name, ttl)))
-            .collect();
-        ttls.sort_unstable_by_key(|(name, _)| *name);
-        ttls
     }
 
     /// Every registered provider whose terms bar learning from its data for

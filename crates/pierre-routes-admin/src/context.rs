@@ -29,10 +29,12 @@ use pierre_contremaitre::{
     ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
 use pierre_database::backends::factory::Database;
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_groups::GroupService;
 use pierre_services::account_reset::AccountArchiveEraser;
+use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::scrape_session::ScrapeSessionInstaller;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_services::user_removal::ProviderDisconnector;
@@ -92,6 +94,16 @@ pub struct AdminApiContext {
     /// composition root; `None` until wired, in which case the reset refuses
     /// rather than leave them behind).
     pub archive_eraser: Option<Arc<dyn AccountArchiveEraser>>,
+    /// The provider data purge the termination route deletes through: the
+    /// tables and the activity store's records (injected by the composition
+    /// root; `None` until wired, in which case the route refuses rather than
+    /// leave the store's copy behind).
+    pub provider_purge: Option<Arc<dyn ProviderPurge>>,
+    /// The activity store every provider read is kept in, into which the
+    /// cache adoption copies the rows cached before it (injected by the
+    /// composition root; `None` until wired, in which case the adoption
+    /// route refuses).
+    pub live_activities: Option<Arc<dyn LiveActivityStore>>,
     /// The group service, through which an account reset archives the groups
     /// the account owns when asked to (injected by the composition root;
     /// `None` until wired, in which case such a reset refuses).
@@ -296,6 +308,8 @@ impl AdminApiContext {
             approval_notifier: None,
             provider_disconnector: None,
             archive_eraser: None,
+            provider_purge: None,
+            live_activities: None,
             group_service: None,
             session_installer: None,
             sign_in_limiter: Arc::new(OAuth2RateLimiter::new(

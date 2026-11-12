@@ -255,7 +255,14 @@ pub(crate) async fn link_intervals_icu_account(
     let tenant = TenantId::from_uuid(tenant_id);
     // The athlete's own key takes the place of a link their group coach read
     // them through.
-    supersede_delegated_link(&resources.repos, user_id, tenant, INTERVALS_ICU).await?;
+    supersede_delegated_link(
+        &resources.repos,
+        resources.data.provider_purge()?,
+        user_id,
+        tenant,
+        INTERVALS_ICU,
+    )
+    .await?;
     resources.repos.oauth_tokens.upsert_token(&token).await?;
     // A roster read through the key this one replaces may name another
     // account's athletes.
@@ -340,11 +347,15 @@ async fn record_reported_sex(
 /// live roster read to file the request.
 fn spawn_coach_access_probe(resources: &AuthRoutesContext, user_id: Uuid, tenant: TenantId) {
     let repos = Arc::clone(&resources.repos);
+    let purge = resources.data.provider_purge().map(Arc::clone);
     let registry = Arc::clone(&resources.provider_registry);
     let email = resources.email_service.clone();
     let config = Arc::clone(&resources.config);
     tokio::spawn(async move {
-        match probe_intervals_icu_roster(&repos, &registry, user_id, tenant).await {
+        let probed = async {
+            probe_intervals_icu_roster(&repos, purge?.as_ref(), &registry, user_id, tenant).await
+        };
+        match probed.await {
             Ok(Some(filed)) => {
                 email_super_admins(
                     &repos,

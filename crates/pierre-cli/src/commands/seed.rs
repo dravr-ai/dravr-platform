@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use clap::Subcommand;
 use pierre_auth::key_management::KeyManager;
+use pierre_config::database::DatabaseUrl;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -33,6 +34,8 @@ use pierre_seeders::trainingpeaks_delegation::{
 use pierre_seeders::verdict_conversation::{
     run as run_verdict_conversation, SeedArgs as VerdictConversationArgs,
 };
+use pierre_services::barrage_live_store::{live_record_store, live_store};
+use pierre_services::live_activities::LiveActivityStore;
 use tracing::info;
 
 use crate::helpers::jwks::initialize_jwks_manager;
@@ -109,10 +112,14 @@ pub(crate) async fn dispatch(action: SeedCommand, database_url: &str) -> AppResu
         }
         // The athletes are dev-fixture Strava athletes, whose token is
         // encrypted; the agent replies' conversations get the configured model.
+        // Their sessions are kept in the activity store the server reads, on
+        // the same database, which warms the cache with them.
         SeedCommand::CoachHome(mut args) => {
             args.model = args.model.or_else(|| LlmChain::from_env().head_model());
-            let repos = keyed_repositories(database_url, "coach-home").await?;
-            run_coach_home(args, &repos).await
+            let database = keyed_database(database_url, "coach-home").await?;
+            let repos = Arc::clone(database.repositories());
+            let live = live_activity_store(&database, database_url, &repos).await?;
+            run_coach_home(args, &repos, live.as_ref()).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
@@ -130,6 +137,13 @@ async fn keyed_repositories(
     database_url: &str,
     seeder: &str,
 ) -> AppResult<Arc<RepositoryRegistry>> {
+    let database = keyed_database(database_url, seeder).await?;
+    Ok(Arc::clone(database.repositories()))
+}
+
+/// The database [`keyed_repositories`] opens, for a seeder that also needs
+/// its pool: the activity store's records live on it.
+async fn keyed_database(database_url: &str, seeder: &str) -> AppResult<Database> {
     info!(
         "Connecting to database for {seeder} seeding (full key init): {}",
         redact_url(database_url)
@@ -143,9 +157,23 @@ async fn keyed_repositories(
     )
     .await?;
     key_manager.complete_initialization(&mut database).await?;
-    let repos = Arc::clone(database.repositories());
-    initialize_jwks_manager(&repos).await?;
-    Ok(repos)
+    initialize_jwks_manager(database.repositories()).await?;
+    Ok(database)
+}
+
+/// The activity store a booting server opens on `database`
+/// (`pierre_services::barrage_live_store`): the same record store, so what a
+/// seeder keeps there the server serves, retains and purges as its own.
+async fn live_activity_store(
+    database: &Database,
+    database_url: &str,
+    repos: &Arc<RepositoryRegistry>,
+) -> AppResult<Arc<dyn LiveActivityStore>> {
+    let url = DatabaseUrl::parse_url(database_url)?;
+    let records = live_record_store(database, &url)
+        .await
+        .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
+    Ok(live_store(Some(records), repos))
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {

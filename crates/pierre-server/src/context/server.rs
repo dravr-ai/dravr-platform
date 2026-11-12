@@ -20,6 +20,7 @@
 use crate::context::{AuthContext, ConfigContext, SecurityContext};
 use crate::mcp::resources::ServerContext;
 use pierre_runtime_context::DataContext;
+use std::sync::Arc;
 
 impl ServerContext {
     /// Extract authentication context (auth manager, middleware, JWT, Firebase).
@@ -43,6 +44,7 @@ impl ServerContext {
             self.common.cache.clone(),
             self.fitness.provider_registry.clone(),
         )
+        .with_provider_purge(Arc::clone(&self.common.provider_purge))
     }
 
     /// Extract configuration context (server config, OAuth, A2A, admin config).

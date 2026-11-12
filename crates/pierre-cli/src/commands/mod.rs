@@ -8,6 +8,8 @@ pub(crate) mod api_key;
 /// `pierre-cli audit`: the admin audit trail of a remote server.
 pub(crate) mod audit;
 pub(crate) mod auth;
+/// `pierre-cli barrage adopt-cache`: the activity cache kept in the activity store.
+pub(crate) mod barrage;
 pub(crate) mod canary;
 pub(crate) mod config;
 /// `pierre-cli settings connect-order`: which way a new Strava or Garmin connection goes first.

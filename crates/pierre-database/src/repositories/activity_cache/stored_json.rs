@@ -40,13 +40,13 @@ pub(crate) fn stored_activity_json(activity: &Activity) -> AppResult<String> {
 /// The `Activity` key that holds the laps a read fills in from beside the row.
 const LAPS_KEY: &str = "laps";
 
-/// The `data_json` an amend of a cached row writes: [`stored_activity_json`]
+/// The `data_json` of an amended summary: [`stored_activity_json`]
 /// without the laps a read filled in from beside the row, which stand where
 /// they are stored and are not the summary's to carry.
 ///
 /// # Errors
 /// As [`stored_activity_json`].
-pub(crate) fn amended_activity_json(activity: &Activity) -> AppResult<String> {
+fn amended_activity_json(activity: &Activity) -> AppResult<String> {
     let mut value: Value = serde_json::from_str(&stored_activity_json(activity)?)
         .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))?;
     if let Value::Object(object) = &mut value {
@@ -54,6 +54,20 @@ pub(crate) fn amended_activity_json(activity: &Activity) -> AppResult<String> {
     }
     serde_json::to_string(&value)
         .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))
+}
+
+/// `activity` as an amend stores it: its summary alone, read back.
+///
+/// It is what [`amended_activity_json`] writes into the row. A read of a
+/// cached row folds in the laps stored beside it, and an amendment of that
+/// read hands its result to the activity store, whose record is the summary
+/// too; the laps stay where they are stored.
+///
+/// # Errors
+/// As [`stored_activity_json`], or when the summary does not read back.
+pub fn amended_summary(activity: &Activity) -> AppResult<Activity> {
+    serde_json::from_str(&amended_activity_json(activity)?)
+        .map_err(|e| AppError::database(format!("Failed to read the amended summary: {e}")))
 }
 
 #[cfg(test)]

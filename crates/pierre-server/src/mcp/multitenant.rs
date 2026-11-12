@@ -486,6 +486,11 @@ impl ProviderToolRouter {
             // with the same body the deleted-account sweep runs.
             admin_context.archive_eraser =
                 Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
+            // The termination purge deletes the activity store's records too.
+            admin_context.provider_purge = Some(Arc::clone(&resources.common.provider_purge));
+            // The cache adoption copies the rows cached before every read
+            // went through the activity store into that same store.
+            admin_context.live_activities = Some(Arc::clone(&resources.common.live_activities));
             // An account reset asked to delete the groups the account owns
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));

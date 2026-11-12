@@ -1,4 +1,4 @@
-// ABOUTME: The ordered DELETE statements every provider-data purge and cache expiry runs
+// ABOUTME: The ordered DELETE statements every provider-data purge and retention expiry runs
 // ABOUTME: One table per entry, children before the data sources they reference; both engines share them
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -237,7 +237,7 @@ pub(crate) const USER_SYNC_CURSORS_SQL: (&str, &str) = (
 );
 
 /// The sync state describing a user's provider rows, deleted after them by a
-/// purge and by a cache expiry, binding `$1` user id, `$2` tenant id and `$3`
+/// purge, binding `$1` user id, `$2` tenant id and `$3`
 /// provider. Left behind, it would tell the next read that a cache emptied of
 /// those rows is fresh and fully backfilled, and nothing would read them
 /// again.
@@ -283,18 +283,29 @@ pub(crate) const USER_ACTIVITY_SYNC_STATE_SQL: [(&str, &str); 4] = [
     USER_SYNC_STATE_SQL[4],
 ];
 
-/// A user's copies of a provider's data held past a cache TTL, in order:
+/// One expired activity's route read, binding `$1` user id, `$2` tenant id,
+/// `$3` provider and `$4` the activity id: the activity store expires the
+/// activity itself, and its route goes with it, as the cache expiry's did.
+pub(crate) const USER_EXPIRED_ROUTE_TRACK_SQL: (&str, &str) = (
+    "activity_route_tracks",
+    concat!(
+        "DELETE FROM activity_route_tracks WHERE ",
+        user_rows!(),
+        " AND activity_id = $4"
+    ),
+);
+
+/// A user's wellness copies of a provider held past its retention, in order:
 /// `(table, statement)`, each binding `$1` user id, `$2` tenant id, `$3`
 /// provider and `$4` the cutoff instant.
 ///
 /// A copy's age is when it was last written from the provider: `synced_at`,
-/// which every writer refreshes on each re-sync, and `created_at` on a route,
-/// which its upsert refreshes the same way. A point stored before
+/// which every writer refreshes on each re-sync. A point stored before
 /// `data_point_series` had a sync time cannot show its age and counts as
-/// expired. Rows computed from the provider's data rather than copied from
-/// it (personal bests, the record of which runs were measured) are derived content, not cached copies,
-/// and stay: a disconnect deletes them, and their provenance is carnet#769's.
-pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 8] = [
+/// expired. The provider's activities are not here: the activity store
+/// (dravr-barrage) expires them under the same policy, by when each was last
+/// read, and retracts what it expires from the cache.
+pub(crate) const USER_EXPIRED_WELLNESS_SQL: [(&str, &str); 5] = [
     (
         "data_point_series",
         concat!(
@@ -335,50 +346,21 @@ pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 8] = [
             " AND synced_at < $4"
         ),
     ),
-    (
-        "cached_activities",
-        concat!(
-            "DELETE FROM cached_activities WHERE ",
-            user_rows!(),
-            " AND synced_at < $4"
-        ),
-    ),
-    (
-        "activity_route_tracks",
-        concat!(
-            "DELETE FROM activity_route_tracks WHERE ",
-            user_rows!(),
-            " AND created_at < $4"
-        ),
-    ),
-    (
-        "activity_streams",
-        concat!(
-            "DELETE FROM activity_streams WHERE ",
-            user_rows_cast!(),
-            " AND ",
-            pushed_streams!(),
-            " AND synced_at < $4"
-        ),
-    ),
 ];
 
-/// Every `(user_id, tenant_id)` holding a copy of `$1`'s data written before
-/// `$2`, across the tables [`USER_EXPIRED_ROWS_SQL`] expires from.
+/// Every `(user_id, tenant_id)` holding a wellness copy of `$1`'s data
+/// written before `$2`, across the tables [`USER_EXPIRED_WELLNESS_SQL`]
+/// expires from.
 ///
 /// ISOLATION EXEMPTION: this read spans every tenant on purpose. It serves
-/// the cache TTL sweep, a system worker that enforces a provider's retention
-/// cap wherever its data is held, and returns only ids; every delete it leads
-/// to is scoped to one user in one tenant.
-pub(crate) const EXPIRED_SCOPES_SQL: &str = "\
+/// the retention sweep, a system worker that enforces the retention policy
+/// wherever a provider's data is held, and returns only ids; every delete it
+/// leads to is scoped to one user in one tenant.
+pub(crate) const EXPIRED_WELLNESS_SCOPES_SQL: &str = "\
     SELECT user_id, tenant_id FROM sleep_sessions WHERE provider = $1 AND synced_at < $2 \
     UNION SELECT user_id, tenant_id FROM recovery_metrics WHERE provider = $1 AND synced_at < $2 \
     UNION SELECT user_id, tenant_id FROM health_snapshots WHERE provider = $1 AND synced_at < $2 \
     UNION SELECT user_id, tenant_id FROM daily_activity WHERE provider = $1 AND synced_at < $2 \
-    UNION SELECT user_id, tenant_id FROM cached_activities WHERE provider = $1 AND synced_at < $2 \
-    UNION SELECT user_id, tenant_id FROM activity_route_tracks WHERE provider = $1 AND created_at < $2 \
-    UNION SELECT CAST(user_id AS TEXT), tenant_id FROM activity_streams \
-        WHERE provider = $1 AND origin = 'push' AND synced_at < $2 \
     UNION SELECT ds.user_id, ds.tenant_id FROM data_sources ds \
         JOIN data_point_series p ON p.data_source_id = ds.id \
         WHERE ds.provider = $1 AND (p.synced_at IS NULL OR p.synced_at < $2)";

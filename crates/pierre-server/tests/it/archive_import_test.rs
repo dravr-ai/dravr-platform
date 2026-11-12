@@ -13,8 +13,10 @@
 //! provider reads and the deletion paths are the production ones.
 
 use crate::common;
+use crate::retention_sweep_test::configure;
 
 use std::io::{Cursor, Write};
+use std::slice;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -30,6 +32,7 @@ use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobSto
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Scope, SourceKey};
 use futures_util::stream::{self, BoxStream, StreamExt};
+use pierre_config::activity_retention::{DEFAULT_DAYS_KEY, PROVIDER_DAYS_KEY};
 use pierre_core::constants::oauth_providers::{
     APPLE_HEALTH_ARCHIVE, COROS, COROS_ARCHIVE, GARMIN_ARCHIVE, STRAVA, STRAVA_ARCHIVE, WHOOP,
     WHOOP_ARCHIVE,
@@ -39,6 +42,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::DeletionActor;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::imports::import_routes;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 use pierre_mcp_server::services::archive_import::fetch::{ExportFetcher, LinkCheck, LinkRefusal};
@@ -46,6 +50,7 @@ use pierre_mcp_server::services::archive_import::link::{link_digest, open, seal}
 use pierre_mcp_server::services::archive_import::runner::ImportRunner;
 use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
 use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
+use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
@@ -669,6 +674,186 @@ async fn deleting_the_imported_history_removes_rows_samples_and_records() {
     );
 }
 
+/// `DELETE /api/me/activities/{provider}/{id}` as the athlete's own session.
+async fn delete_own_activity(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    provider: &str,
+    id: &str,
+) -> StatusCode {
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/me/activities/{provider}/{id}"))
+        .header("authorization", format!("Bearer {}", athlete.token))
+        .body(Body::empty())
+        .expect("a request");
+    athlete_home_routes()
+        .with_state(Arc::clone(resources))
+        .oneshot(request)
+        .await
+        .expect("the router answers")
+        .status()
+}
+
+/// Deleting an imported ride deletes the workout, not one source's copy: the
+/// Strava API's read of the same ride is erased with it, and the next sync of
+/// Strava, still listing the ride, does not bring it back. A Strava ride of
+/// another day stays.
+#[tokio::test]
+async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() {
+    let start = ten_days_ago();
+    let (imports, _) = imports_serving(one_ride_export("4242", start, 600));
+    let resources = common::create_test_server_resources_with_archive_imports(imports)
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "archive-twin-delete").await;
+    import_export(&resources, &athlete).await;
+    let cache = &resources.common.repos.activity_cache;
+    let imported = cache
+        .get_cached_activity(athlete.user_id, &athlete.tenant, STRAVA_ARCHIVE, "4242")
+        .await
+        .expect("the cache reads")
+        .expect("test setup: the imported ride is cached");
+    let strava_copy = ActivityBuilder::new(
+        "4242",
+        "Evening Ride",
+        SportType::Ride,
+        imported.start_date(),
+        imported.duration_seconds(),
+        STRAVA,
+    )
+    .distance_meters_opt(imported.distance_meters())
+    .build();
+    let other_day = ActivityBuilder::new(
+        "5151",
+        "Another ride",
+        SportType::Ride,
+        start + Duration::days(3),
+        1_800,
+        STRAVA,
+    )
+    .build();
+    let read = [strava_copy, other_day];
+    let live = &resources.common.live_activities;
+    let synced = live
+        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .await
+        .expect("the sync is kept");
+    assert_eq!(synced.stored, 2, "test setup: both Strava rides are held");
+
+    let status = delete_own_activity(&resources, &athlete, STRAVA_ARCHIVE, "4242").await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "bug: the delete was refused"
+    );
+
+    let resynced = live
+        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .await
+        .expect("the sync is kept");
+    assert_eq!(
+        resynced.stored, 1,
+        "bug: the next sync kept the Strava copy of the deleted ride, got {resynced:?}"
+    );
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, STRAVA, "4242")
+            .await
+            .expect("the cache reads")
+            .is_none(),
+        "bug: the Strava copy of the deleted ride is still served"
+    );
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, STRAVA_ARCHIVE, "4242")
+            .await
+            .expect("the cache reads")
+            .is_none(),
+        "the imported ride is gone"
+    );
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, STRAVA, "5151")
+            .await
+            .expect("the cache reads")
+            .is_some(),
+        "bug: a Strava ride of another day was erased with it"
+    );
+}
+
+/// An uploaded copy of the deleted import's workout is the athlete's own file:
+/// it goes only through the upload's own delete, which removes the file too,
+/// so the import's delete leaves it served and uploadable again.
+#[tokio::test]
+async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout() {
+    let start = ten_days_ago();
+    let (imports, _) = imports_serving(one_ride_export("4343", start, 600));
+    let resources = common::create_test_server_resources_with_archive_imports(imports)
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "archive-upload-twin").await;
+    import_export(&resources, &athlete).await;
+    let cache = &resources.common.repos.activity_cache;
+    let imported = cache
+        .get_cached_activity(athlete.user_id, &athlete.tenant, STRAVA_ARCHIVE, "4343")
+        .await
+        .expect("the cache reads")
+        .expect("test setup: the imported ride is cached");
+    let uploaded = ActivityBuilder::new(
+        "upload-4343",
+        "Evening Ride",
+        SportType::Ride,
+        imported.start_date(),
+        imported.duration_seconds(),
+        "upload",
+    )
+    .distance_meters_opt(imported.distance_meters())
+    .build();
+    let live = &resources.common.live_activities;
+    let kept = live
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            "upload",
+            slice::from_ref(&uploaded),
+            Utc::now(),
+        )
+        .await
+        .expect("the upload is kept");
+    assert_eq!(kept.stored, 1, "test setup: the upload is held");
+
+    let status = delete_own_activity(&resources, &athlete, STRAVA_ARCHIVE, "4343").await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "bug: the delete was refused"
+    );
+
+    assert!(
+        cache
+            .get_cached_activity(athlete.user_id, &athlete.tenant, "upload", "upload-4343")
+            .await
+            .expect("the cache reads")
+            .is_some(),
+        "bug: the import's delete erased the athlete's uploaded copy"
+    );
+    let again = live
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            "upload",
+            slice::from_ref(&uploaded),
+            Utc::now(),
+        )
+        .await
+        .expect("the upload is kept");
+    assert_eq!(
+        again.stored, 1,
+        "bug: the same upload is refused after the import's delete"
+    );
+}
+
 #[tokio::test]
 async fn a_second_import_of_a_source_waits_for_the_first() {
     let (imports, _) = imports_serving(strava_export());
@@ -959,6 +1144,23 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
         .put_upload(&athlete.tenant, athlete.user_id, &sha, Bytes::from(upload))
         .await
         .expect("the upload is kept");
+    // A provider read the activity store kept: it goes with the account
+    // whether imports run here or not.
+    let live = &resources.common.live_activities;
+    let ride = ActivityBuilder::new(
+        "7001",
+        "Morning ride",
+        SportType::Ride,
+        ten_days_ago(),
+        3_600,
+        STRAVA,
+    )
+    .build();
+    let kept = live
+        .ingest(athlete.user_id, athlete.tenant, STRAVA, &[ride], Utc::now())
+        .await
+        .expect("the read is kept");
+    assert_eq!(kept.stored, 1, "test setup: the store holds the read");
 
     let removal = remove_user(
         &resources.common.repos,
@@ -976,6 +1178,13 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
         .expect("bug: the erasure must run where uploads are kept, imports or not");
     assert_eq!(erased, 1, "the account queued by its delete is erased");
     assert_eq!(
+        live.held(athlete.user_id, athlete.tenant, STRAVA)
+            .await
+            .expect("the store reads"),
+        0,
+        "bug: the deleted account's provider reads are left in the activity store"
+    );
+    assert_eq!(
         erase_deleted_accounts(&resources)
             .await
             .expect("the sweep runs"),
@@ -985,25 +1194,49 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
 }
 
 #[tokio::test]
-async fn imported_rows_are_never_pruned_by_a_provider_sync() {
-    let (imports, _) = imports_serving(strava_export());
+async fn imported_rows_are_never_expired_by_retention() {
+    let (imports, stores) = imports_serving(strava_export());
     let resources = common::create_test_server_resources_with_archive_imports(imports)
         .await
         .expect("a server context");
-    let athlete = seed_athlete(&resources, "archive-prune").await;
+    let athlete = seed_athlete(&resources, "archive-retention").await;
     import_export(&resources, &athlete).await;
+    let imported = || async {
+        resources
+            .common
+            .repos
+            .activity_cache
+            .count_by_provider(athlete.user_id, &athlete.tenant)
+            .await
+            .expect("the cache counts")
+            .into_iter()
+            .find(|(key, _)| key == STRAVA_ARCHIVE)
+            .map_or(0, |(_, count)| count)
+    };
+    let before = imported().await;
+    assert!(before > 0, "the export is imported");
 
-    let pruned = resources
-        .common
-        .repos
-        .activity_cache
-        .prune_activities_before(athlete.user_id, &athlete.tenant, STRAVA_ARCHIVE, Utc::now())
+    // The shortest retention the policy can say, for every source and for
+    // the archive's own key, a year after the import.
+    configure(
+        &resources,
+        &[
+            (DEFAULT_DAYS_KEY, json!(1)),
+            (PROVIDER_DAYS_KEY, json!(r#"{"strava_archive":1}"#)),
+        ],
+    )
+    .await;
+    let pass = retention_sweeper(&resources, Arc::clone(&stores.records))
+        .expect("the test server carries the admin config service")
+        .run(Utc::now() + Duration::days(365))
         .await
-        .expect("the prune runs");
+        .expect("the sweep runs");
 
+    assert!(pass.activities.is_empty(), "{pass:?}");
     assert_eq!(
-        pruned, 0,
-        "the athlete's own copy is the record, never a cache to prune"
+        imported().await,
+        before,
+        "the athlete's own copy is the record, never a cache retention expires"
     );
 }
 
@@ -1132,7 +1365,7 @@ async fn the_web_apps_own_session_manages_imports() {
 /// the source and with the account.
 #[tokio::test]
 async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
-    use dravr_barrage::{HrvSdnnReading, ProjectionSink, WellnessRecords};
+    use dravr_barrage::{HrvSdnnReading, ProjectionSink, RetractReason, WellnessRecords};
     use dravr_riviere::{SeriesType, TimeRange};
     use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
     use pierre_providers::ai_scope;
@@ -1229,9 +1462,14 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         "bug: a read of rMSSD serves SDNN"
     );
 
-    sink.retract(&scope, SourceKey::AppleHealthArchive, None)
-        .await
-        .unwrap();
+    sink.retract(
+        &scope,
+        SourceKey::AppleHealthArchive,
+        None,
+        RetractReason::SourceDeleted,
+    )
+    .await
+    .unwrap();
     assert!(
         read(SeriesType::HrvSdnn).await.is_empty(),
         "bug: the readings outlive their source"

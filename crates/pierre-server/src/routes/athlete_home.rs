@@ -138,7 +138,7 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
-use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_head};
+use pierre_tool_runtime::activity_fetch::{refresh_head, CACHED_ACTIVITY_LOOKBACK_DAYS};
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -612,7 +612,7 @@ async fn recent_workouts(
     first_read: i64,
     sport: Option<&str>,
 ) -> AppResult<Vec<HomeActivity>> {
-    let since = now - Duration::days(activity_cache_retention_days());
+    let since = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let mut read = first_read.max(1);
     loop {
         let rows = resources

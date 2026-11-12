@@ -21,6 +21,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::retention_sweep_test::configure;
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,8 +38,11 @@ use dravr_barrage::blob::{
 };
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::parse::fit::FitFileError;
+use dravr_barrage::store::memory::MemoryActivityRecordStore;
+use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope};
 use futures_util::stream::BoxStream;
+use pierre_config::activity_retention::{DEFAULT_DAYS_KEY, PROVIDER_DAYS_KEY};
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -47,6 +51,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
+use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
@@ -397,20 +402,37 @@ async fn an_upload_is_its_uploaders_alone_in_the_tenant_it_was_made_in() {
 }
 
 #[tokio::test]
-async fn the_retention_prune_keeps_an_uploaded_workout() {
-    let resources = common::create_test_server_resources().await.unwrap();
-    let athlete = seed_athlete(&resources, "upload-prune").await;
+async fn retention_never_expires_an_uploaded_workout() {
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let resources = common::create_test_server_resources_with_config_and_records(
+        common::test_server_config(),
+        Arc::clone(&records),
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "upload-retention").await;
     let row = uploaded_ride(&resources, &athlete).await;
 
-    let pruned = resources
-        .common
-        .repos
-        .activity_cache
-        .prune_activities_before(athlete.user_id, &athlete.tenant, "upload", Utc::now())
+    // The shortest retention the policy can say, for every source and for
+    // the upload's own key, a year after the upload.
+    configure(
+        &resources,
+        &[
+            (DEFAULT_DAYS_KEY, json!(1)),
+            (PROVIDER_DAYS_KEY, json!(r#"{"upload":1}"#)),
+        ],
+    )
+    .await;
+    let pass = retention_sweeper(&resources, records)
+        .expect("the test server carries the admin config service")
+        .run(Utc::now() + Duration::days(365))
         .await
         .unwrap();
 
-    assert_eq!(pruned, 0, "an upload is the record, not a copy to refetch");
+    assert!(
+        pass.activities.is_empty(),
+        "bug: an upload is the record, not a copy to refetch: {pass:?}"
+    );
     let kept = resources
         .common
         .repos

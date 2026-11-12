@@ -319,12 +319,12 @@ fn old_run(id: &str, provider: &str, age_days: i64) -> Activity {
     .build()
 }
 
-/// The retention prune a write-through runs is the written provider's own: a
-/// Strava (usr/pwd) sync deletes its own rows past retention, never the
-/// Garmin API's. Garmin pushes each activity once, so a Garmin row the prune
-/// took would be gone for good.
+/// A write-through prunes nothing: retention is the one sweep's, by
+/// provider, and it starts at no expiry. A Strava (usr/pwd) sync keeps its
+/// own old rows and never touches the Garmin API's; Garmin pushes each
+/// activity once, so a Garmin row a write took would be gone for good.
 #[tokio::test]
-async fn a_strava_write_through_leaves_an_old_garmin_api_row_alone() {
+async fn a_strava_write_through_prunes_no_old_row() {
     let (_head_complete, scraper_url) = scraper_head_flag().await;
     let resources = create_test_server_resources_with_sciotte(&scraper_url)
         .await
@@ -377,8 +377,8 @@ async fn a_strava_write_through_leaves_an_old_garmin_api_row_alone() {
         "the write-through landed"
     );
     assert!(
-        !held("sciotte", "strava-old").await,
-        "the written provider's own rows past retention are pruned"
+        held("sciotte", "strava-old").await,
+        "bug: a write-through pruned the written provider's own old row"
     );
     assert!(
         held("garmin", "garmin-old").await,

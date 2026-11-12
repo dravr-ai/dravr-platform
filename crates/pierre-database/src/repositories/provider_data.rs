@@ -1,5 +1,5 @@
 // ABOUTME: Deletes every row one provider contributed: for one user in one tenant, or across every tenant
-// ABOUTME: One transaction per purge, each with its attestation row; a cache TTL evicts expired copies the same way
+// ABOUTME: One transaction per purge, each with its attestation row; the retention sweep expires wellness the same way
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -62,11 +62,17 @@
 //! would name a user the same transaction deletes: it records the counts on
 //! its deletion receipt instead (`super::account_deletion`).
 //!
-//! A provider whose terms cap how long a copy may be held declares a cache
-//! TTL on its descriptor, and [`ProviderDataRepository::expire_provider_cache`]
-//! evicts the copies written before it, with the sync state that described
-//! them, so the next read fetches them again rather than trusting a coverage
-//! mark over an emptied cache.
+//! The one retention policy (`activity_retention.*`, carnet#1482) reaches the
+//! provider's wellness through
+//! [`ProviderDataRepository::expire_provider_wellness`], which deletes the
+//! copies last synced before the policy's cutoff, with the health sync's
+//! cursors over them, so the next sync reads them again rather than trusting
+//! a cursor over an emptied history. The provider's activities expire in the
+//! activity store (dravr-barrage) under the same policy.
+//!
+//! A caller purges through [`super::ProviderPurge`], not this repository:
+//! the activity store keeps a record of each activity a live provider served,
+//! and that port deletes it with the rows (carnet#1482).
 //!
 //! Rows derived from a provider's data without naming it are out of reach
 //! here: `training_history` rollups and `user_facts` carry no provider column,
@@ -84,10 +90,10 @@ use uuid::Uuid;
 mod statements;
 
 pub(crate) use statements::{
-    EXPIRED_SCOPES_SQL, INSERT_PURGE_RECORD_SQL, LIST_PURGE_RECORDS_SQL, PROVIDER_PURGE_SQL,
-    USER_ACTIVITY_ROWS_SQL, USER_ACTIVITY_SYNC_STATE_SQL, USER_EXPIRED_ROWS_SQL,
-    USER_SOURCE_WELLNESS_ROWS_SQL, USER_SYNC_CURSORS_SQL, USER_SYNC_STATE_SQL,
-    USER_WELLNESS_ROWS_SQL,
+    EXPIRED_WELLNESS_SCOPES_SQL, INSERT_PURGE_RECORD_SQL, LIST_PURGE_RECORDS_SQL,
+    PROVIDER_PURGE_SQL, USER_ACTIVITY_ROWS_SQL, USER_ACTIVITY_SYNC_STATE_SQL,
+    USER_EXPIRED_ROUTE_TRACK_SQL, USER_EXPIRED_WELLNESS_SQL, USER_SOURCE_WELLNESS_ROWS_SQL,
+    USER_SYNC_CURSORS_SQL, USER_SYNC_STATE_SQL, USER_WELLNESS_ROWS_SQL,
 };
 
 /// What a purge deleted: rows removed per table. A table the purge found
@@ -144,10 +150,15 @@ pub enum PurgeReason {
     PermissionWithdrawn,
     /// The operator's whole-provider purge, on termination of access.
     Termination,
-    /// The provider's cache TTL passed for those copies.
+    /// The retention policy's days passed since those copies were last read
+    /// from the provider (`activity_retention.*`).
     CacheExpired,
     /// The athlete deleted a history they imported from their own export.
     AthleteDeletedImport,
+    /// The activities were another athlete's, filed under the user's account
+    /// by a read that misread whose they were (a `TrainingPeaks` coach
+    /// account read before sciotte 0.14).
+    MisfiledActivities,
 }
 
 impl PurgeReason {
@@ -165,6 +176,7 @@ impl PurgeReason {
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
             Self::AthleteDeletedImport => "athlete_deleted_import",
+            Self::MisfiledActivities => "misfiled_activities",
         }
     }
 }
@@ -192,12 +204,13 @@ pub struct ProviderDataPurgeRecord {
     pub purged_at: DateTime<Utc>,
 }
 
-/// What one cache TTL sweep of a provider evicted.
+/// What one retention pass over a provider's wellness expired.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct ProviderCacheExpiry {
+pub struct ProviderWellnessExpiry {
     /// How many `(user, tenant)` scopes held an expired copy.
     pub scopes: u64,
-    /// Rows evicted per table across those scopes, sync state included.
+    /// Rows expired per table across those scopes, the sync's cursors
+    /// included.
     pub evicted: ProviderDataPurge,
 }
 
@@ -305,20 +318,42 @@ pub trait ProviderDataRepository: Send + Sync {
     /// then.
     async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge>;
 
-    /// Evict every copy of `provider`'s data written before `cutoff`, scope
-    /// by scope: in each `(user, tenant)` holding one, the expired rows and
-    /// the sync state describing that provider go in one transaction with
-    /// its attestation row, so the next read fetches what was evicted again
-    /// instead of trusting a coverage mark over an emptied cache.
+    /// Expire every wellness copy of `provider`'s data last synced before
+    /// `cutoff`, scope by scope: in each `(user, tenant)` holding one, the
+    /// expired rows and the health sync's cursors over that provider go in
+    /// one transaction with its `cache_expired` attestation row, so the next
+    /// sync reads what expired again instead of trusting a cursor over an
+    /// emptied history. Activities are not touched: the activity store
+    /// expires them.
     ///
     /// # Errors
     /// Returns a database error when the scopes cannot be read or a scope's
-    /// eviction fails; scopes already evicted stay evicted.
-    async fn expire_provider_cache(
+    /// expiry fails; scopes already expired stay expired.
+    async fn expire_provider_wellness(
         &self,
         provider: &str,
         cutoff: DateTime<Utc>,
-    ) -> AppResult<ProviderCacheExpiry>;
+    ) -> AppResult<ProviderWellnessExpiry>;
+
+    /// Settle the retention expiry of `activity_ids`, the user's `provider`
+    /// activities the activity store (dravr-barrage) expired and stopped
+    /// serving: each one's route read goes, the sync state describing the
+    /// provider's activities is reset (fetch freshness, fetch failures,
+    /// backfill coverage and jobs), and one `cache_expired` attestation row
+    /// counts the expired activities, in one transaction. Left behind, the
+    /// sync state would tell the next read that a window emptied by the
+    /// expiry is fresh and fully backfilled, and nothing would read it again.
+    ///
+    /// # Errors
+    /// Returns a database error when any statement fails; nothing is deleted
+    /// and nothing recorded then.
+    async fn expire_provider_activities(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity_ids: &[&str],
+    ) -> AppResult<ProviderDataPurge>;
 
     /// The newest `limit` attestation rows for `provider`, across every
     /// tenant.
@@ -586,22 +621,22 @@ macro_rules! impl_provider_data_repository {
                 Ok(purge)
             }
 
-            async fn expire_provider_cache(
+            async fn expire_provider_wellness(
                 &self,
                 provider: &str,
                 cutoff: DateTime<Utc>,
-            ) -> AppResult<ProviderCacheExpiry> {
-                let scopes = sqlx::query(EXPIRED_SCOPES_SQL)
+            ) -> AppResult<ProviderWellnessExpiry> {
+                let scopes = sqlx::query(EXPIRED_WELLNESS_SCOPES_SQL)
                     .bind(provider)
                     .bind(cutoff)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!(
-                            "Failed to find expired {provider} cache copies: {e}"
+                            "Failed to find expired {provider} wellness copies: {e}"
                         ))
                     })?;
-                let mut expiry = ProviderCacheExpiry::default();
+                let mut expiry = ProviderWellnessExpiry::default();
                 for row in scopes {
                     let user: String = sqlx::Row::try_get(&row, "user_id").map_err(|e| {
                         AppError::database(format!("expired scope col user_id: {e}"))
@@ -610,10 +645,10 @@ macro_rules! impl_provider_data_repository {
                         AppError::database(format!("expired scope col tenant_id: {e}"))
                     })?;
                     let mut tx = self.pool().begin().await.map_err(|e| {
-                        AppError::database(format!("Failed to begin the cache expiry: {e}"))
+                        AppError::database(format!("Failed to begin the wellness expiry: {e}"))
                     })?;
                     let mut evicted = ProviderDataPurge::default();
-                    for (table, statement) in USER_EXPIRED_ROWS_SQL {
+                    for (table, statement) in USER_EXPIRED_WELLNESS_SQL {
                         let removed = sqlx::query(statement)
                             .bind(&user)
                             .bind(&tenant)
@@ -629,21 +664,20 @@ macro_rules! impl_provider_data_repository {
                             .rows_affected();
                         evicted.record(table, removed);
                     }
-                    for (table, statement) in USER_SYNC_STATE_SQL {
-                        let removed = sqlx::query(statement)
-                            .bind(&user)
-                            .bind(&tenant)
-                            .bind(provider)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(|e| {
-                                AppError::database(format!(
-                                    "Failed to reset {provider} sync state in {table}: {e}"
-                                ))
-                            })?
-                            .rows_affected();
-                        evicted.record(table, removed);
-                    }
+                    let (table, statement) = USER_SYNC_CURSORS_SQL;
+                    let removed = sqlx::query(statement)
+                        .bind(&user)
+                        .bind(&tenant)
+                        .bind(provider)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to reset {provider} sync cursors in {table}: {e}"
+                            ))
+                        })?
+                        .rows_affected();
+                    evicted.record(table, removed);
                     insert_purge_record!(
                         tx,
                         Some(&tenant),
@@ -653,7 +687,7 @@ macro_rules! impl_provider_data_repository {
                         evicted.total()
                     )?;
                     tx.commit().await.map_err(|e| {
-                        AppError::database(format!("Failed to commit the cache expiry: {e}"))
+                        AppError::database(format!("Failed to commit the wellness expiry: {e}"))
                     })?;
                     expiry.scopes += 1;
                     for (table, removed) in evicted.rows_removed {
@@ -661,6 +695,66 @@ macro_rules! impl_provider_data_repository {
                     }
                 }
                 Ok(expiry)
+            }
+
+            async fn expire_provider_activities(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity_ids: &[&str],
+            ) -> AppResult<ProviderDataPurge> {
+                let user = user_id.to_string();
+                let tenant = tenant_id.to_string();
+                let mut tx = self.pool().begin().await.map_err(|e| {
+                    AppError::database(format!("Failed to begin the activity expiry: {e}"))
+                })?;
+                let mut expired = ProviderDataPurge::default();
+                let (table, statement) = USER_EXPIRED_ROUTE_TRACK_SQL;
+                let mut routes = 0_u64;
+                for activity_id in activity_ids {
+                    routes += sqlx::query(statement)
+                        .bind(&user)
+                        .bind(&tenant)
+                        .bind(provider)
+                        .bind(*activity_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to expire {provider} rows from {table}: {e}"
+                            ))
+                        })?
+                        .rows_affected();
+                }
+                expired.record(table, routes);
+                for (table, statement) in USER_ACTIVITY_SYNC_STATE_SQL {
+                    let removed = sqlx::query(statement)
+                        .bind(&user)
+                        .bind(&tenant)
+                        .bind(provider)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to reset {provider} sync state in {table}: {e}"
+                            ))
+                        })?
+                        .rows_affected();
+                    expired.record(table, removed);
+                }
+                insert_purge_record!(
+                    tx,
+                    Some(&tenant),
+                    Some(&user),
+                    provider,
+                    PurgeReason::CacheExpired,
+                    u64::try_from(activity_ids.len()).unwrap_or(u64::MAX)
+                )?;
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to commit the activity expiry: {e}"))
+                })?;
+                Ok(expired)
             }
 
             async fn list_provider_data_purges(

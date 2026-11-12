@@ -233,6 +233,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

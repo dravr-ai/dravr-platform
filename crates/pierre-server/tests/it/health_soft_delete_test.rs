@@ -933,34 +933,6 @@ async fn an_activity_synced_earlier_than_the_stored_copy_leaves_it_standing() {
         .unwrap()
         .expect("the row is stored");
     assert_eq!(stored.name(), "Final title", "the later copy stands");
-
-    let amended = ride("Amended title");
-    assert!(
-        cache
-            .amend_activity(user_id, &tenant, "garmin", &amended)
-            .await
-            .unwrap(),
-        "an amend rewrites the standing row's content"
-    );
-    let stored = cache
-        .get_cached_activity(user_id, &tenant, "garmin", "pushed-1")
-        .await
-        .unwrap()
-        .expect("the row is stored");
-    assert_eq!(
-        stored.name(),
-        "Amended title",
-        "the amend's title is the stored one"
-    );
-    assert_eq!(
-        cache
-            .latest_activity_sync(user_id, &tenant, "garmin")
-            .await
-            .unwrap()
-            .map(|at| at.timestamp()),
-        Some(later.timestamp()),
-        "an amend leaves the row's receipt as it stands"
-    );
 }
 
 /// Apply the DECISION 2 migration, whole, to whichever engine the test

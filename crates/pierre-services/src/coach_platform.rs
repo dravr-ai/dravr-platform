@@ -41,6 +41,7 @@ use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE_TRAININGPEAKS};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ProviderAccountRole, RosterAthlete, TenantId, UserOAuthToken};
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::user_facing_name;
@@ -67,6 +68,8 @@ use crate::trainingpeaks_accounts::{
 pub struct RosterRead<'a> {
     /// Repositories the read records what it learns in.
     pub repos: &'a RepositoryRegistry,
+    /// The provider purge the read deletes misfiled activities through.
+    pub purge: &'a dyn ProviderPurge,
     /// Builds the provider an API-backed platform reads through.
     pub registry: &'a ProviderRegistry,
     /// The coach whose roster is read.
@@ -187,6 +190,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
             (false, _) => {
                 record_trainingpeaks_profile(
                     read.repos,
+                    read.purge,
                     read.coach_user_id,
                     read.coach_tenant,
                     &profile,

@@ -24,6 +24,7 @@
 use crate::common;
 use secrecy::SecretString;
 
+use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -647,6 +648,174 @@ async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
         "the other rides stay"
     );
     assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 1);
+}
+
+/// An activity deleted on Strava is erased from the activity store, not only
+/// evicted from the cache: a later read of Strava that still lists it — a
+/// list page cached upstream, a backfill racing the delete — is refused, so
+/// the deleted ride never comes back. The athlete's other rides are read in
+/// as before.
+#[tokio::test]
+#[serial]
+async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    let ride = |id: &str, hours_ago: i64| {
+        ActivityBuilder::new(
+            id,
+            "Morning ride",
+            SportType::Ride,
+            Utc::now() - chrono::Duration::hours(hours_ago),
+            3_600,
+            "strava",
+        )
+        .build()
+    };
+    let live = &resources.common.live_activities;
+    let read = [ride("9001", 5), ride("9002", 30)];
+    let first = live
+        .ingest(user_id, tenant_id, "strava", &read, Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(first.stored, 2, "bug: both rides kept, got {first:?}");
+    assert_eq!(
+        cached_strava_rows(&resources, user_id, &tenant_id).await,
+        2,
+        "test setup: both rides are cached"
+    );
+
+    let status = post_event(
+        &resources,
+        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
+    await_spawned_turns(&resources).await;
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0, "nothing is fetched");
+
+    let again = live
+        .ingest(user_id, tenant_id, "strava", &read, Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        again.stored, 1,
+        "bug: the deleted ride was kept again, got {again:?}"
+    );
+    let cache = &resources.common.repos.activity_cache;
+    assert!(
+        cache
+            .get_cached_activity(user_id, &tenant_id, "strava", "9001")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a read after the delete served the deleted ride again"
+    );
+    assert!(
+        cache
+            .get_cached_activity(user_id, &tenant_id, "strava", "9002")
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the other ride was not read in"
+    );
+}
+
+/// A ride the cache served before the activity store held Strava's reads is
+/// erased all the same: a later read of it is refused.
+#[tokio::test]
+#[serial]
+async fn delete_aspect_erases_a_ride_only_the_cache_held() {
+    let (api_base, _mock) = mock_strava().await;
+    let resources = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    let ride = ActivityBuilder::new(
+        "9001",
+        "Morning ride",
+        SportType::Ride,
+        Utc::now() - chrono::Duration::hours(5),
+        3_600,
+        "strava",
+    )
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, "strava", slice::from_ref(&ride))
+        .await
+        .unwrap();
+
+    let status = post_event(
+        &resources,
+        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
+    await_spawned_turns(&resources).await;
+
+    let again = resources
+        .common
+        .live_activities
+        .ingest(user_id, tenant_id, "strava", &[ride], Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(again.stored, 0, "bug: the deleted ride was kept again");
+    assert_eq!(
+        cached_strava_rows(&resources, user_id, &tenant_id).await,
+        0,
+        "bug: a read after the delete served the deleted ride again"
+    );
+}
+
+/// A delete that arrives before any read of the ride — the webhook outran
+/// the sync that would have stored it — is remembered all the same: the read
+/// that follows, still listing the ride, is refused, so it never appears.
+#[tokio::test]
+#[serial]
+async fn delete_aspect_before_any_read_still_refuses_the_ride_later() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    assert_eq!(
+        cached_strava_rows(&resources, user_id, &tenant_id).await,
+        0,
+        "test setup: nothing of the ride is held"
+    );
+
+    let status = post_event(
+        &resources,
+        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
+    await_spawned_turns(&resources).await;
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0, "nothing is fetched");
+
+    let ride = ActivityBuilder::new(
+        "9001",
+        "Morning ride",
+        SportType::Ride,
+        Utc::now() - chrono::Duration::hours(5),
+        3_600,
+        "strava",
+    )
+    .build();
+    let later = resources
+        .common
+        .live_activities
+        .ingest(user_id, tenant_id, "strava", &[ride], Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        later.stored, 0,
+        "bug: a ride deleted before it was ever read was kept by the read after"
+    );
+    assert_eq!(
+        cached_strava_rows(&resources, user_id, &tenant_id).await,
+        0,
+        "bug: a ride deleted before it was ever read is served"
+    );
 }
 
 /// A run deleted on Strava takes its distance off the pair of shoes it was

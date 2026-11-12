@@ -124,6 +124,7 @@ pub use crate::services::coaching_workers::start_coaching_workers;
 #[cfg(feature = "health-sync")]
 pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::precedence_recompute::start_precedence_recompute;
+pub use crate::services::retention_sweep_worker::start_retention_sweep_worker;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
 pub use crate::services::settings_poll::{
     settings_poll_interval, start_settings_poll, SettingsPollTargets,
@@ -137,7 +138,6 @@ pub use pierre_services::messaging_outbound::start_outbound_worker;
 pub use pierre_services::messaging_seed;
 pub use pierre_services::oauth2_client_sweeper::start_oauth2_client_sweeper;
 pub use pierre_services::oauth_launch_sweeper::start_oauth_launch_sweeper;
-pub use pierre_services::provider_cache_sweeper::start_provider_cache_sweeper;
 pub use pierre_services::short_link_sweeper::start_short_link_sweeper;
 #[cfg(feature = "client-messaging")]
 pub use services::discord_gateway::start_discord_gateway;

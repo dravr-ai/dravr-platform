@@ -25,7 +25,7 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::activity_cache_retention_days;
+use crate::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use crate::group_fitness::fetch_and_merge_all_providers;
 use crate::protocol::AuthService;
 use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
@@ -84,7 +84,7 @@ pub(crate) async fn fetch_member_activities(
     }
 
     let now = Utc::now();
-    let window_start = now - Duration::days(activity_cache_retention_days());
+    let window_start = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let read_limit = i64::try_from(
         runtime
             .config()
@@ -165,7 +165,7 @@ async fn refresh_stale_cache(
     let completed = revalidate_within_budget(runtime, providers.to_vec(), user_id, tenant_id).await;
 
     let data = runtime.data();
-    let window_start = now - Duration::days(activity_cache_retention_days());
+    let window_start = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let read_limit = i64::try_from(
         runtime
             .config()

@@ -18,6 +18,7 @@
 
 use clap::{error::ErrorKind, Parser};
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::store::ActivityRecordStore;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
@@ -65,6 +66,7 @@ use pierre_mcp_server::services::archive_import::ArchiveImports;
 use pierre_mcp_server::services::originals::blob_store_from_env;
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
+use pierre_services::barrage_live_store::live_record_store;
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info, warn};
 
@@ -514,6 +516,11 @@ async fn create_server(
     // After the platform's own migrations (the database is open) and before
     // any request: on Postgres the barrage schema migrates here.
     let (blobs, archive_imports) = select_original_stores(&database, &config.database.url).await;
+    // Every live provider read is kept here; without it no read can be
+    // stored, so the boot stops rather than run on a store it cannot keep.
+    let live_records = live_record_store(&database, &config.database.url)
+        .await
+        .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
 
     let resources_instance = ServerContext::new(
         database,
@@ -532,12 +539,13 @@ async fn create_server(
             billing_provider,
             turn_runner,
             archive_imports: Some(archive_imports),
+            live_records: Some(Arc::clone(&live_records)),
             blobs: Some(blobs),
         },
     )
     .await?;
 
-    let resources = spawn_background_workers(resources_instance);
+    let resources = spawn_background_workers(resources_instance, live_records);
 
     server_lifecycle::notify_started();
 
@@ -579,7 +587,10 @@ async fn select_original_stores(
     (blobs, archive_imports)
 }
 
-fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
+fn spawn_background_workers(
+    resources_instance: ServerContext,
+    live_records: Arc<dyn ActivityRecordStore>,
+) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
     // Install the platform post on the backfill-completion notifier now that
@@ -685,17 +696,13 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
-    // Start the provider cache TTL sweeper (carnet#725): an hourly pass that
-    // evicts every copy of a provider's data held past the cap its terms
-    // declare on its descriptor (Strava: 30 days, carnet#950). Not started
-    // when no registered provider declares one.
+    // Start the one retention sweep (carnet#1482, D8): an hourly pass that
+    // expires provider activities in the activity store and provider wellness
+    // in the platform's tables, under the policy `pierre-cli config set
+    // activity_retention.*` holds. Both start unset, so nothing expires (D9).
     {
-        use pierre_mcp_server::start_provider_cache_sweeper;
-        start_provider_cache_sweeper(
-            Arc::clone(&resources.common.repos.provider_data),
-            resources.data().provider_registry().cache_ttls(),
-            Arc::clone(&resources.common.repos.worker_runs),
-        );
+        use pierre_mcp_server::start_retention_sweep_worker;
+        start_retention_sweep_worker(&resources, live_records);
     }
 
     // Start the Firebase identity deletion sweeper (carnet#798): retries, with

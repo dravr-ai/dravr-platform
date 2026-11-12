@@ -90,6 +90,7 @@ async fn create_test_auth_routes() -> Result<AuthService> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -317,6 +318,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -610,6 +612,7 @@ async fn test_user_login_success() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -904,6 +907,7 @@ async fn test_token_refresh_success() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1164,6 +1168,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1682,6 +1687,7 @@ async fn test_complete_auth_flow() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -2002,6 +2008,7 @@ async fn test_concurrent_logins() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

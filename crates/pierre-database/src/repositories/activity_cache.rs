@@ -7,8 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, GearRef, Lap, SegmentEffort, Split, TenantId};
-use serde::{Deserialize, Serialize};
+use pierre_core::models::{Activity, TenantId};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -34,8 +33,8 @@ pub struct BackfillCoverage {
     pub hit_feed_end: bool,
     /// Which generation of the provider's capture wrote the rows this record
     /// vouches for (`pierre_core::constants::provider_capture`). Set by a
-    /// completed backfill and left alone by the retention clamp, so it names
-    /// the capture that produced the rows, not the last write to the record.
+    /// completed backfill and by nothing else, so it names the capture that
+    /// produced the rows, not the last write to the record.
     /// A value below the provider's current version means those rows predate a
     /// capture fix and the window must be re-captured rather than served.
     pub capture_version: u32,
@@ -57,12 +56,9 @@ pub struct BackfillCoverage {
 /// by the old capture.
 ///
 /// The record is kept honest at the source rather than second-guessed here: a
-/// prune raises every coverage floor it just falsified
-/// (`prune_and_realign_coverage`), so a claim can no longer outlive the rows it
-/// vouches for. Comparing against the retention default instead would misjudge
-/// exactly the caches worth trusting — a deep backfill widens its own retention
-/// via `backfill_retention_days`, so its rows legitimately sit below the
-/// default floor.
+/// retention expiry of a provider's activities deletes that provider's record
+/// (`ProviderDataRepository::expire_provider_activities`), so a claim can no
+/// longer outlive the rows it vouches for.
 #[must_use]
 pub fn historical_depth_covered(
     coverage: Option<BackfillCoverage>,
@@ -104,141 +100,6 @@ pub struct CaptureFreshness {
     pub last_fetch_at: Option<DateTime<Utc>>,
 }
 
-/// Why an activity fetch did not count as a sync.
-///
-/// Only a provider answer that vouches for its list moves freshness. Each
-/// of these leaves freshness where it was and is recorded instead, so the
-/// head stays stale — the next load refreshes it again — and Home can say
-/// the attempt failed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityFetchFailure {
-    /// The provider could not be reached or refused the read: a transport
-    /// error, a scrape error, a timeout.
-    FetchError,
-    /// The provider answered, but said its capture never read the list head
-    /// (`head_complete: false`), so the newest activities may be missing.
-    HeadIncomplete,
-    /// The provider answered with no activities for a window the cache holds
-    /// activities in. Activities do not vanish from a provider between two
-    /// reads, so an empty answer over them is a failed read presented as
-    /// success, not an honest zero.
-    EmptyOverCached,
-}
-
-impl ActivityFetchFailure {
-    /// The slug the stored row carries.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::FetchError => "fetch_error",
-            Self::HeadIncomplete => "head_incomplete",
-            Self::EmptyOverCached => "empty_over_cached",
-        }
-    }
-
-    /// The failure a stored slug names, or `None` for a slug this build does
-    /// not write.
-    #[must_use]
-    pub fn from_slug(slug: &str) -> Option<Self> {
-        match slug {
-            "fetch_error" => Some(Self::FetchError),
-            "head_incomplete" => Some(Self::HeadIncomplete),
-            "empty_over_cached" => Some(Self::EmptyOverCached),
-            _ => None,
-        }
-    }
-}
-
-/// The last recorded fetch of a provider that did not count as a sync.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActivityFetchFailureRecord {
-    /// When it happened.
-    pub failed_at: DateTime<Utc>,
-    /// Why it did not count as a sync.
-    pub failure: ActivityFetchFailure,
-    /// How many fetches in a row had failed when it was recorded: counted
-    /// from the provider's last good fetch, so the first failure after a
-    /// sync is `1`.
-    pub consecutive: u32,
-    /// How many of those, ending with this one, failed for this same
-    /// reason: `1` when the one before it failed otherwise or was a sync.
-    pub streak: u32,
-    /// When the first failure of that streak happened; `failed_at` itself
-    /// for a streak of one.
-    pub streak_started_at: DateTime<Utc>,
-}
-
-/// What a detail read of an activity found that its list read never carries.
-///
-/// A provider serves splits, laps, the athlete's description, the recording
-/// device and the segment efforts only on a detail read, while every list
-/// write-through replaces the cached activity whole. Stored beside the list
-/// copy ([`ActivityCacheRepository::store_activity_detail`]), never inside
-/// it, and read back into every cached activity whose list copy lacks them:
-/// a detail read once is served from here from then on. The keys are the
-/// [`Activity`] fields they fill, under the same names.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ActivityDetail {
-    /// The provider's uniform distance buckets, in order.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub splits: Option<Vec<Split>>,
-    /// The laps the athlete or the workout marked, in order.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub laps: Option<Vec<Lap>>,
-    /// The athlete's own description of the activity. Untrusted text.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// The device that recorded the activity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device_name: Option<String>,
-    /// The segment efforts the activity holds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub segment_efforts: Option<Vec<SegmentEffort>>,
-    /// The gear the activity was recorded with.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gear: Option<GearRef>,
-    /// The athlete's private note. The athlete's alone: readers other than
-    /// the athlete strip it before serializing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub private_note: Option<String>,
-}
-
-impl ActivityDetail {
-    /// The detail-only fields a detailed read of `activity` carried. A read
-    /// that carried none of them yields an empty detail ([`Self::is_empty`]):
-    /// stored, it fills nothing, and it answers the row only until its
-    /// recheck instant ([`ActivityCacheRepository::store_activity_detail`]).
-    #[must_use]
-    pub fn from_activity(activity: &Activity) -> Self {
-        Self {
-            splits: activity.splits().cloned(),
-            laps: activity.laps().cloned(),
-            description: activity
-                .description()
-                .filter(|text| !text.trim().is_empty())
-                .map(str::to_owned),
-            device_name: activity.device_name().map(str::to_owned),
-            segment_efforts: activity.segment_efforts().cloned(),
-            gear: activity.gear().cloned(),
-            private_note: activity.private_note().map(str::to_owned),
-        }
-    }
-
-    /// Whether the read carried none of the detail-only fields: an activity
-    /// that has none reads this way, and so does one whose provider served it
-    /// without them because the request carrying them failed.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.splits.is_none()
-            && self.laps.is_none()
-            && self.description.is_none()
-            && self.device_name.is_none()
-            && self.segment_efforts.is_none()
-            && self.gear.is_none()
-            && self.private_note.is_none()
-    }
-}
-
 /// A cached activity with the provider key its row is stored under and what
 /// its stored route read settled.
 ///
@@ -261,6 +122,27 @@ pub struct CachedActivityRow {
     /// splits or laps always does, one that carried neither until its recheck
     /// instant.
     pub detail_read: bool,
+}
+
+/// How many cached activities one user holds under one key in a tenant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedKeyCount {
+    /// The user.
+    pub user_id: Uuid,
+    /// The provider key the rows are stored under.
+    pub provider: String,
+    /// How many rows.
+    pub rows: u64,
+}
+
+/// A cached activity as its row stores it — the list copy, without the
+/// detail read stored beside it — with the row's sync stamp.
+#[derive(Debug, Clone)]
+pub struct StoredActivityRow {
+    /// The activity the row's `data_json` holds.
+    pub activity: Activity,
+    /// The row's `synced_at`.
+    pub synced_at: DateTime<Utc>,
 }
 
 /// Persistence for activities fetched from any provider, enabling
@@ -375,22 +257,6 @@ pub trait ActivityCacheRepository: Send + Sync {
         recheck_at: Option<DateTime<Utc>>,
     ) -> AppResult<bool>;
 
-    /// Rewrite the content of `activity`'s cached row under `provider`,
-    /// leaving the row's receipt (`synced_at`) and stored detail as they
-    /// stand. A figure derived from data stored after the row's own write —
-    /// a pushed ride's power, from its samples — belongs on whichever summary
-    /// stands, including one received after the data it was derived from,
-    /// which [`Self::upsert_activities_synced_at`] would refuse to overwrite.
-    /// The row's samples and laps stand beside it, so the content written
-    /// carries neither. Returns whether a row was there.
-    async fn amend_activity(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-        activity: &Activity,
-    ) -> AppResult<bool>;
-
     /// Delete one cached activity the athlete deleted on its provider.
     ///
     /// A row the provider no longer holds must not outlive it: the Home list
@@ -404,18 +270,6 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
         activity_id: &str,
-    ) -> AppResult<u64>;
-
-    /// Delete one provider's cached activities for a user that started
-    /// within `[start, end]`: the rows a list read of that window vouched the
-    /// provider no longer holds. Returns the number of rows removed.
-    async fn delete_cached_activities_between(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
     ) -> AppResult<u64>;
 
     /// Delete every cached activity a provider contributed for a user.
@@ -488,6 +342,25 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
     ) -> AppResult<Vec<(String, i64)>>;
 
+    /// How many cached activities each user of `tenant_id` holds under each
+    /// key, ordered by user then key: what an operator adopting the cache
+    /// into the activity store walks and checks it against.
+    async fn count_by_user_and_provider(
+        &self,
+        tenant_id: &TenantId,
+    ) -> AppResult<Vec<CachedKeyCount>>;
+
+    /// Every cached activity the user holds in `tenant_id` under `provider`,
+    /// as its row stores it, oldest sync first: the rows exactly as the
+    /// writes that stored them left them, for a copy into the activity store
+    /// that keeps each row's stamp.
+    async fn get_stored_activity_rows(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<StoredActivityRow>>;
+
     /// Record that a provider activity fetch completed successfully at
     /// `fetched_at`, whether or not it returned any activities.
     ///
@@ -533,18 +406,6 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<ActivityFetchFailureRecord>>;
 
-    /// Delete a user's cached activities under `provider` whose `start_date`
-    /// is older than `cutoff` (retention pruning, run by that provider's
-    /// write-through). Another provider's rows are never touched, and an
-    /// upload's never at all. Returns the number of rows removed.
-    async fn prune_activities_before(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-        cutoff: DateTime<Utc>,
-    ) -> AppResult<u64>;
-
     /// Record how deep a completed backfill reached for `(tenant, user,
     /// provider)`, and which capture version produced its rows. Overwrites any
     /// prior row. Within one capture version coverage only deepens, because a
@@ -560,29 +421,6 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         coverage: BackfillCoverage,
     ) -> AppResult<()>;
-
-    /// Raise every coverage floor for `(tenant, user)` that claims to reach
-    /// below `cutoff`, across all providers. Returns the number of rows moved.
-    ///
-    /// Coverage records what a backfill FETCHED; the prune decides what is
-    /// still STORED, and the two drift apart: one narrow write-through of
-    /// `provider` prunes a deep backfill's rows ([`Self::prune_activities_before`],
-    /// scoped to that provider) while the coverage row goes on naming the
-    /// depth it once reached, and the
-    /// historical gate serves that shallow cache as a complete window without
-    /// calling a provider. Clamping at the moment of the prune keeps the claim
-    /// true: a floor is only ever raised to what survived.
-    ///
-    /// `hit_feed_end` is cleared with it. That flag means the provider reported
-    /// its feed exhausted — a statement about upstream, not about what the
-    /// cache kept — so it must not go on excusing a depth the prune removed.
-    async fn clamp_backfill_coverage(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-        cutoff: DateTime<Utc>,
-    ) -> AppResult<u64>;
 
     /// Read the recorded backfill coverage for `(tenant, user, provider)`, or
     /// `None` when no deep backfill has run for this athlete+provider yet.
@@ -614,6 +452,8 @@ pub trait ActivityCacheRepository: Send + Sync {
     async fn capture_freshness_snapshot(&self, limit: i64) -> AppResult<Vec<CaptureFreshness>>;
 }
 
+/// What the cache records beside an activity: a failed fetch, a detail read
+mod records;
 /// Decoding a cache row of either backend into the types the trait returns
 pub(crate) mod rows;
 /// The statements both backends run, shared or cast per engine
@@ -621,10 +461,13 @@ pub(crate) mod sql;
 /// The `data_json` a row stores: the activity without its samples
 pub(crate) mod stored_json;
 
+pub use records::{ActivityDetail, ActivityFetchFailure, ActivityFetchFailureRecord};
 pub(crate) use rows::{
     activity_from_row, backfill_coverage_from_row, cached_activity_row_from_row,
-    capture_freshness_from_row, fetch_failure_from_row, later, provider_column, timestamp_column,
+    capture_freshness_from_row, fetch_failure_from_row, later, provider_column,
+    stored_activity_from_row, timestamp_column,
 };
+pub use stored_json::amended_summary;
 
 /// String form of an activity's sport type for the indexed column.
 ///
@@ -885,6 +728,51 @@ macro_rules! impl_activity_cache_repository {
                     })
             }
 
+            async fn count_by_user_and_provider(
+                &self,
+                tenant_id: &TenantId,
+            ) -> AppResult<Vec<CachedKeyCount>> {
+                let rows =
+                    sqlx::query_as::<_, (String, String, i64)>(COUNT_BY_USER_AND_PROVIDER_SQL)
+                        .bind(tenant_id.to_string())
+                        .fetch_all(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to count cached activities: {e}"))
+                        })?;
+                rows.into_iter()
+                    .map(|(user_id, provider, rows)| {
+                        Ok(CachedKeyCount {
+                            user_id: Uuid::parse_str(&user_id).map_err(|e| {
+                                AppError::database(format!(
+                                    "cached activity user_id {user_id}: {e}"
+                                ))
+                            })?,
+                            provider,
+                            rows: u64::try_from(rows).unwrap_or(0),
+                        })
+                    })
+                    .collect()
+            }
+
+            async fn get_stored_activity_rows(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<Vec<StoredActivityRow>> {
+                let rows = sqlx::query(GET_STORED_ACTIVITY_ROWS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read stored activity rows: {e}"))
+                    })?;
+                rows.iter().map(stored_activity_from_row).collect()
+            }
+
             async fn record_activity_fetch(
                 &self,
                 user_id: Uuid,
@@ -974,27 +862,6 @@ macro_rules! impl_activity_cache_repository {
                 Ok(result.rows_affected() > 0)
             }
 
-            async fn amend_activity(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-                activity: &Activity,
-            ) -> AppResult<bool> {
-                let data_json = amended_activity_json(activity)?;
-                let amended = sqlx::query(AMEND_CACHED_ACTIVITY_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .bind(activity.id())
-                    .bind(&data_json)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to amend activity: {e}")))?
-                    .rows_affected();
-                Ok(amended > 0)
-            }
-
             async fn delete_cached_activity(
                 &self,
                 user_id: Uuid,
@@ -1015,28 +882,6 @@ macro_rules! impl_activity_cache_repository {
                 Ok(result.rows_affected())
             }
 
-            async fn delete_cached_activities_between(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
-            ) -> AppResult<u64> {
-                let result = sqlx::query(DELETE_CACHED_ACTIVITIES_BETWEEN_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .bind(start)
-                    .bind(end)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete cached activities: {e}"))
-                    })?;
-                Ok(result.rows_affected())
-            }
-
             async fn delete_provider_activities(
                 &self,
                 user_id: Uuid,
@@ -1053,47 +898,6 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!(
                             "Failed to delete provider cached activities: {e}"
                         ))
-                    })?;
-                Ok(result.rows_affected())
-            }
-
-            async fn prune_activities_before(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-                cutoff: DateTime<Utc>,
-            ) -> AppResult<u64> {
-                let result = sqlx::query(PRUNE_ACTIVITIES_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(cutoff)
-                    .bind(provider)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to prune cached activities: {e}"))
-                    })?;
-                Ok(result.rows_affected())
-            }
-
-            async fn clamp_backfill_coverage(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-                cutoff: DateTime<Utc>,
-            ) -> AppResult<u64> {
-                let result = sqlx::query(clamp_backfill_coverage_sql!($uuid))
-                    .bind(cutoff.timestamp())
-                    .bind(Utc::now())
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to clamp backfill coverage: {e}"))
                     })?;
                 Ok(result.rows_affected())
             }

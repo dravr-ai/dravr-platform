@@ -30,8 +30,8 @@ use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::activity_fetch::connection_beside_grant;
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
-use crate::activity_fetch::{activity_cache_retention_days, connection_beside_grant};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
@@ -183,7 +183,6 @@ async fn persist_fetched(
             provider_name,
             &fetched.activities,
             WriteThrough {
-                retention_days: activity_cache_retention_days(),
                 read: params,
                 announces_sessions: true,
             },

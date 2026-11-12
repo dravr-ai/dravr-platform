@@ -7,8 +7,9 @@
 //! Activity pushes.
 //!
 //! Where these write is the contract `GarminProvider` reads from
-//! (`pierre_providers::garmin_provider`): the summary is one cached row under
-//! `garmin`, its laps go beside it through `store_activity_detail`, its
+//! (`pierre_providers::garmin_provider`): the summary is kept through the
+//! activity store (`crate::live_activities`), which serves it as one cached
+//! row under `garmin`; its laps go beside it through `store_activity_detail`, its
 //! samples to `activity_streams`, and every push records the fetch at its
 //! receipt time.
 //!
@@ -30,11 +31,9 @@
 //! activity's file, or — for a summary that arrives without either, as a
 //! re-send after them does — the samples already stored. Samples that land
 //! after a newer summary (a retried details batch, a file) amend the standing
-//! row in place (`amend_activity`) rather than going through the receipt
+//! row in place (`LiveActivityStore::amend`) rather than going through the receipt
 //! guard that would refuse them, so a ride never keeps its samples and loses
 //! its power.
-
-use std::slice;
 
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
@@ -75,21 +74,20 @@ async fn record_push(batch: &OwnerBatch<'_>) -> AppResult<()> {
         .await
 }
 
-/// Upsert `activity` as the owner's Garmin row, synced at the receipt,
-/// unless a later push of it already landed. Returns whether it was written.
+/// Keep `activity` as the owner's Garmin activity, received at the batch's
+/// receipt, through the activity store, unless a later push of it already
+/// landed. Returns whether it was kept.
 async fn upsert(batch: &OwnerBatch<'_>, activity: &Activity) -> AppResult<bool> {
-    let written = batch
-        .repos
-        .activity_cache
-        .upsert_activities_synced_at(
+    batch
+        .live
+        .ingest_received(
             batch.owner.user_id,
-            &batch.owner.tenant_id,
+            batch.owner.tenant_id,
             GARMIN,
-            slice::from_ref(activity),
+            activity,
             batch.received_at,
         )
-        .await?;
-    Ok(written > 0)
+        .await
 }
 
 /// Store an activity's samples in the one sample store, as pushed, received
@@ -432,10 +430,10 @@ async fn store_file(batch: &OwnerBatch<'_>, activity_id: &str, bytes: Vec<u8>) -
     drop_kept().await
 }
 
-/// Give the owner's standing cached activity `activity_id` the power of
-/// `streams`, leaving its receipt as it is: its own push carried no samples
-/// (a summary never does), so the power is the samples' to add whenever they
-/// land.
+/// Give the owner's standing activity `activity_id`, its store record and its
+/// cached row alike, the power of `streams`, leaving its receipt as it is:
+/// its own push carried no samples (a summary never does), so the power is
+/// the samples' to add whenever they land.
 async fn amend_power(
     batch: &OwnerBatch<'_>,
     activity_id: &str,
@@ -456,14 +454,8 @@ async fn amend_power(
     };
     let amended = with_power(activity, streams)?;
     batch
-        .repos
-        .activity_cache
-        .amend_activity(
-            batch.owner.user_id,
-            &batch.owner.tenant_id,
-            GARMIN,
-            &amended,
-        )
+        .live
+        .amend(batch.owner.user_id, batch.owner.tenant_id, GARMIN, &amended)
         .await
         .map(|_| ())
 }

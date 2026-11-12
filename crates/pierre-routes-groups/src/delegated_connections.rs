@@ -310,6 +310,7 @@ impl DelegatedConnectionRoutes {
             registry: ToolRuntime::provider_registry(resources.as_ref()),
             cache: ToolRuntime::cache(resources.as_ref()),
             notifications: GroupsCtx::notification_service(resources.as_ref()),
+            purge: ToolRuntime::provider_purge(resources.as_ref()),
         }
     }
 
@@ -739,6 +740,7 @@ impl DelegatedConnectionRoutes {
         let registry = ToolRuntime::provider_registry(resources.as_ref());
         let updated = set_coach_consents(
             repos,
+            ToolRuntime::provider_purge(resources.as_ref()),
             registry,
             &group,
             auth.user_id,
@@ -821,6 +823,7 @@ impl DelegatedConnectionRoutes {
 
         end(
             repos,
+            ToolRuntime::provider_purge(resources.as_ref()),
             GroupsCtx::notification_service(resources.as_ref()),
             &group,
             &link,

@@ -93,7 +93,6 @@ use pierre_core::constants::oauth::{
 };
 use pierre_core::transport::TransportPolicy;
 use std::fmt;
-use std::time::Duration;
 
 #[cfg(feature = "provider-intervals-icu")]
 use crate::intervals_icu_provider::{
@@ -438,14 +437,6 @@ pub trait ProviderDescriptor: Send + Sync {
         None
     }
 
-    /// How long a copy of this provider's data may be held before it must be
-    /// fetched again, or `None` when its terms set no cap (the default). The
-    /// cache TTL sweep evicts every copy older than this; the declared caps
-    /// live in [`crate::provider_terms`].
-    fn cache_ttl(&self) -> Option<Duration> {
-        None
-    }
-
     /// Whether this provider's terms bar using its data to improve Dravr's AI
     /// for other athletes: the cross-athlete priors the archetype aggregation
     /// learns from every athlete's playbooks. `false` unless a provider's
@@ -623,10 +614,6 @@ impl ProviderDescriptor for StravaDescriptor {
 
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::STRAVA_TRANSPORT
-    }
-
-    fn cache_ttl(&self) -> Option<Duration> {
-        Some(provider_terms::STRAVA_CACHE_TTL)
     }
 }
 
@@ -926,11 +913,6 @@ impl ProviderDescriptor for SciotteDescriptor {
     /// This backend reads strava.com, so what it serves is Strava data.
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::STRAVA_TRANSPORT
-    }
-
-    /// Strava data, so Strava's cache cap.
-    fn cache_ttl(&self) -> Option<Duration> {
-        Some(provider_terms::STRAVA_CACHE_TTL)
     }
 }
 

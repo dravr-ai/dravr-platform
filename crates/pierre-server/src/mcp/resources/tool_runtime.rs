@@ -15,6 +15,7 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-notifications")]
@@ -24,6 +25,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use pierre_services::group_chat_poster::GroupChatPoster;
+use pierre_services::live_activities::LiveActivityStore;
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_tool_runtime::guardian::Guardian;
@@ -41,6 +43,14 @@ impl ToolRuntime for ServerContext {
 
     fn repos(&self) -> &Arc<RepositoryRegistry> {
         &self.common.repos
+    }
+
+    fn live_activities(&self) -> &Arc<dyn LiveActivityStore> {
+        &self.common.live_activities
+    }
+
+    fn provider_purge(&self) -> &Arc<dyn ProviderPurge> {
+        &self.common.provider_purge
     }
 
     fn cache(&self) -> &Arc<Cache> {

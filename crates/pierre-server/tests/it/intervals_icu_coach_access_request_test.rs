@@ -268,6 +268,7 @@ impl World {
             registry: &self.registry,
             cache: &self.res.common.cache,
             notifications: None,
+            purge: &self.res.common.provider_purge,
         };
         coach_roster(services, platform.as_ref(), who.id, who.tenant, refresh)
             .await
@@ -659,7 +660,8 @@ async fn the_link_probe_reads_nothing_for_a_user_who_could_not_get_a_request() {
     for who in [&earned, &asked] {
         w.connect(who).await;
         w.api.serve(&who.email, vec![coached("i201")]);
-        let filed = probe_intervals_icu_roster(repos, &w.registry, who.id, who.tenant)
+        let purge = w.res.common.provider_purge.as_ref();
+        let filed = probe_intervals_icu_roster(repos, purge, &w.registry, who.id, who.tenant)
             .await
             .unwrap();
         assert_eq!(filed, None, "{}", who.email);

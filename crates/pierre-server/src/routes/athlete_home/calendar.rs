@@ -38,7 +38,7 @@ use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::plan_card::{try_load_plan_weeks_between, WeekCard};
-use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
+use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -112,7 +112,7 @@ pub(super) async fn get_calendar(
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));
     let now = Utc::now();
     let today = clock_date(now, zone);
-    let history_start = history_start(now, zone, activity_cache_retention_days());
+    let history_start = history_start(now, zone, CACHED_ACTIVITY_LOOKBACK_DAYS);
 
     let connections = repos
         .provider_connections

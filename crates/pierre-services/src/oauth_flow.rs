@@ -535,8 +535,14 @@ impl OAuthService {
         // place of a link their group coach read them through, and a roster
         // read through the credential this one replaces is dropped.
         if coach_platform(self.data.provider_registry(), provider).is_some() {
-            supersede_delegated_link(self.data.repos(), user_id, connection_tenant_id, provider)
-                .await?;
+            supersede_delegated_link(
+                self.data.repos(),
+                self.data.provider_purge()?,
+                user_id,
+                connection_tenant_id,
+                provider,
+            )
+            .await?;
             forget_coach_roster(self.data.cache(), user_id, connection_tenant_id, provider).await;
         }
         self.data
