@@ -63,6 +63,15 @@ pub(super) struct ReconnectNotice {
     pub(super) send_by: Option<DateTime<Utc>>,
 }
 
+/// The last instant a reconnect notice whose hosted sign-in link is minted
+/// now may still be sent: the link's expiry less
+/// [`RECONNECT_LINK_MIN_REMAINING_MINUTES`]. Also the bound of a notice whose
+/// link could not be minted, when nothing else ends its retry.
+pub(super) fn hosted_send_by() -> DateTime<Utc> {
+    Utc::now() + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
+        - Duration::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES)
+}
+
 impl ServerBackfillNotifier {
     /// A one-time hosted-login link that reconnects `provider`, minted for
     /// `channel` and shortened to a dot-free `<base>/r/<code>` (the raw JWT's
@@ -84,8 +93,7 @@ impl ServerBackfillNotifier {
         let target = backend_resolver::reconnect_target(provider)?;
         // Taken before the mint, so it is never later than the token's own
         // expiry; the short link is created after the token and outlives it.
-        let send_by = Utc::now() + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
-            - Duration::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES);
+        let send_by = hosted_send_by();
         let full_url = match mint_hosted_signin_url(
             &self.base_url,
             user_id,

@@ -42,7 +42,9 @@ use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PA
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::messaging_outbound::{process_pending_batch, OutboundRetryContext};
-use pierre_tool_runtime::protocol::reauth_notice::{notify_needs_reauth, ReauthNotice};
+use pierre_tool_runtime::protocol::reauth_notice::{
+    notify_grant_withdrawn, notify_needs_reauth, ReauthNotice,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio_util::task::TaskTracker;
@@ -712,4 +714,80 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
     let rows = f.queue().await;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["status"], "dlq");
+}
+
+/// A withdrawn grant's notice whose chat send failed is still retried after
+/// the withdrawal deletes the grant's rows: the athlete is owed the hosted
+/// sign-in whether or not a connection row is left to guard it. Before, the
+/// queued copy was guarded on that connection staying `needs_reauth`, so the
+/// deletion cancelled it and the athlete never heard on that chat.
+#[tokio::test]
+async fn a_withdrawn_grants_refused_chat_is_retried_after_its_rows_are_deleted() {
+    let first = ScriptedChannel::new(ChannelType::WhatsApp, 1, 0);
+    let retry = ScriptedChannel::new(ChannelType::WhatsApp, 0, 0);
+    let f = fixture(
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&first))]),
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&retry))]),
+    )
+    .await;
+    f.connect("strava").await;
+    f.link_chat("whatsapp", "15145550660").await;
+
+    let notice = notify_grant_withdrawn(&f.runtime, f.user_id, f.tenant, "strava").await;
+    assert!(notice.claimed, "the withdrawn grant's notice is claimed");
+    assert_eq!(
+        notice.chat_channels, 0,
+        "the only chat refused the first send"
+    );
+    assert_eq!(f.app_notice_count().await, 1);
+    let queued = f.pending().await;
+    assert_eq!(queued.len(), 1, "the refused chat is queued: {queued:?}");
+    let send_by = chrono::DateTime::parse_from_rfc3339(queued[0]["expires_at"].as_str().unwrap())
+        .unwrap()
+        .with_timezone(&Utc);
+    assert!(
+        send_by - Utc::now() < Duration::hours(24),
+        "the queued copy stops before its link dies: {send_by}"
+    );
+
+    // The withdrawal deletes the grant's rows once its notice is claimed.
+    let repos = f.runtime.repos();
+    repos
+        .oauth_tokens
+        .delete_token(f.user_id, f.tenant, "strava")
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .remove_connection(f.user_id, f.tenant, "strava")
+        .await
+        .unwrap();
+
+    f.run_worker().await;
+    let delivered = retry.raw_delivered.lock().unwrap().clone();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "bug: the withdrawn grant's notice died with its rows: {:?}",
+        f.queue().await
+    );
+    assert_eq!(delivered[0]["to"], "15145550660");
+    let body = delivered[0]["text"].as_str().unwrap();
+    let target = f
+        .runtime
+        .repos()
+        .short_links
+        .resolve_short_link(&short_code(body))
+        .await
+        .unwrap()
+        .expect("the short link still resolves");
+    let token = target
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
+        .map_or_else(
+            || panic!("the link opens the hosted login: {target}"),
+            |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
+        );
+    let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
+    assert_eq!(claims.tgt, "strava", "the hosted sign-in reconnects Strava");
+    assert_eq!(f.app_notice_count().await, 1, "no second app notice");
 }

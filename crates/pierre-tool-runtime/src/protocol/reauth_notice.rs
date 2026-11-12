@@ -26,7 +26,8 @@
 //!   is queued for the messaging outbound retry worker on its own — the app
 //!   half and the channels already reached are not sent again — and retried
 //!   with backoff while the connection is still `needs_reauth` and its link has
-//!   time left to run.
+//!   time left to run; a withdrawn grant's, whose rows are deleted once its
+//!   notice is claimed, for as long as its link has time left to run.
 //!
 //! The app half is dispatched without the platform's chat fan-out, because
 //! the chat half carries the link and a link token has no place in a stored
@@ -85,7 +86,7 @@ use serde_json::Value as JsonValue;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::runtime::ToolRuntime;
+use crate::runtime::{ReauthRetry, ToolRuntime};
 
 /// What one call to [`notify_needs_reauth`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -147,7 +148,14 @@ pub async fn notify_needs_reauth(
     } else {
         NoticeCopy::Reconnect
     };
-    send_claimed_notice(runtime, user_id, tenant_id, provider, copy).await
+    send_claimed_notice(
+        runtime,
+        user_id,
+        tenant_id,
+        provider,
+        (copy, ReauthRetry::WhileFlagged),
+    )
+    .await
 }
 
 /// Which wording a notice carries.
@@ -180,13 +188,14 @@ async fn writes_owed(
 }
 
 /// Claim the connection's one notice and, on the won claim, send it in the
-/// app and on every linked chat, worded as `copy`.
+/// app and on every linked chat, worded as `copy`, a refused chat's copy
+/// retried as `retry` says.
 async fn send_claimed_notice(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-    copy: NoticeCopy,
+    (copy, retry): (NoticeCopy, ReauthRetry),
 ) -> ReauthNotice {
     if !claim_notice(runtime, user_id, tenant_id, provider).await {
         return ReauthNotice::default();
@@ -210,7 +219,7 @@ async fn send_claimed_notice(
         );
         0
     } else {
-        send_chat_half(runtime, user_id, tenant_id, provider).await
+        send_chat_half(runtime, user_id, tenant_id, provider, retry).await
     };
     ReauthNotice {
         claimed: true,
@@ -299,8 +308,10 @@ const GRANT_WITHDRAWN: &str = "grant_withdrawn";
 /// authorization link, while a seat is free on Garmin's client for them to
 /// take ([`garmin_seat_free`]); with none, nothing is sent.
 /// A backend that is no mirrored provider's grant is never told here. A chat
-/// send that fails is queued as any reconnect notice is, guarded on a
-/// connection the withdrawal then deletes, so it is not retried.
+/// send that fails is queued for retry until its link would expire
+/// ([`ReauthRetry::UntilLinkExpires`]), not while the connection stays
+/// flagged: the withdrawal deletes the connection right after the claim, and
+/// the athlete is owed the notice all the same.
 pub async fn notify_grant_withdrawn(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -345,7 +356,14 @@ pub async fn notify_grant_withdrawn(
             return ReauthNotice::default();
         }
     }
-    send_claimed_notice(runtime, user_id, tenant_id, grant, copy).await
+    send_claimed_notice(
+        runtime,
+        user_id,
+        tenant_id,
+        grant,
+        (copy, ReauthRetry::UntilLinkExpires),
+    )
+    .await
 }
 
 /// Whether a seat of the server's Garmin client is free for an athlete
@@ -405,12 +423,13 @@ async fn send_chat_half(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
+    retry: ReauthRetry,
 ) -> usize {
     let Some(notifier) = runtime.backfill_notifier() else {
         return 0;
     };
     let chat_channels = notifier
-        .push_reauth_to_linked_channels(user_id, tenant_id, provider)
+        .push_reauth_to_linked_channels(user_id, tenant_id, provider, retry)
         .await;
     info!(
         user_id = %user_id,

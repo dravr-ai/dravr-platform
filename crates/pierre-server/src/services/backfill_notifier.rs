@@ -68,7 +68,7 @@ use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{BackfillNotifier, ReauthRetry};
 use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -255,15 +255,16 @@ impl ServerBackfillNotifier {
     /// so the entry carries no message row; it is keyed by the link's own
     /// tenant (whose bot holds the chat), its channel and the rendered payload,
     /// which already addresses the recipient. The worker re-sends it with
-    /// backoff while `guard`'s connection is still `needs_reauth`, and never
-    /// after `send_by`, when the link in it would be about to expire.
+    /// backoff while `guard`'s connection is still `needs_reauth` (with no
+    /// guard, whatever the connection's rows), and never after `send_by`,
+    /// when the link in it would be about to expire.
     async fn queue_linked_reauth(
         &self,
         adapter: &dyn MessagingChannel,
         outgoing: &OutgoingMessage,
         target: &LinkedChannelTarget,
         user_id: Uuid,
-        guard: OutboundReauthGuard<'_>,
+        guard: Option<OutboundReauthGuard<'_>>,
         send_by: Option<DateTime<Utc>>,
     ) {
         let channel_str = target.channel_type.to_string();
@@ -278,7 +279,7 @@ impl ServerBackfillNotifier {
                 user_id: Some(&queued_user_id),
                 channel: &channel_str,
                 expires_at: send_by,
-                reauth: Some(guard),
+                reauth: guard,
             },
         )
         .await
@@ -967,6 +968,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        retry: ReauthRetry,
     ) -> usize {
         let mut delivered = 0;
         for target in resolve_linked_targets(self.repos.messaging.as_ref(), user_id).await {
@@ -1003,16 +1005,29 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 }
                 Err(e) => {
                     warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed; queued for retry");
+                    // A withdrawn grant's rows go right after its notice is
+                    // claimed, so its copy is owed until the link expires,
+                    // not only while a connection row stays flagged.
+                    let (guard, send_by) = match retry {
+                        ReauthRetry::WhileFlagged => (
+                            Some(OutboundReauthGuard {
+                                tenant_id,
+                                provider,
+                            }),
+                            notice.send_by,
+                        ),
+                        ReauthRetry::UntilLinkExpires => (
+                            None,
+                            Some(notice.send_by.unwrap_or_else(reconnect::hosted_send_by)),
+                        ),
+                    };
                     self.queue_linked_reauth(
                         adapter.as_ref(),
                         &outgoing,
                         &target,
                         user_id,
-                        OutboundReauthGuard {
-                            tenant_id,
-                            provider,
-                        },
-                        notice.send_by,
+                        guard,
+                        send_by,
                     )
                     .await;
                 }
