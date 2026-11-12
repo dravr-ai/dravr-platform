@@ -32,9 +32,9 @@
 
 use crate::common;
 use crate::garmin_sign_in_test::{
-    athlete, connections, hold_grant, hold_session, reconnect_notices, rows_under, server,
-    server_with_garmin_oauth, session_token_held, sign_in, spawn_switchable_scraper, ScraperSwitch,
-    LIVE_SESSION,
+    athlete, calls_matching, connections, hold_grant, hold_session, reconnect_notices, rows_under,
+    server, server_with_garmin_oauth, session_token_held, sign_in, spawn_switchable_scraper,
+    ScraperSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::reconnect_prompt_on_served_turn_test::{
@@ -651,7 +651,7 @@ async fn a_repeated_garmin_sign_in_still_goes_on_to_its_owed_grant() {
         "bug: the repeated sign-in dropped the grant it owes: {again}"
     );
     assert_eq!(
-        crate::garmin_sign_in_test::calls_matching(&calls, "login").len(),
+        calls_matching(&calls, "login").len(),
         1,
         "the repeat never reaches the service"
     );
