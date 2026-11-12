@@ -3133,6 +3133,8 @@
       "reauth_oauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reauth_oauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
       "reauth_oauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
+      "reauth_grant_writes": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}",
+      "reauth_grant_writes_no_link": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Öffne Verbindungen in Dravr und wähle {0} verbinden.",
       "reconnect_button": "{0} neu verbinden"
     },
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
@@ -3387,6 +3389,10 @@
     "provider_oauth_required": {
       "title": "Wechsle bei {0} zur offiziellen Verbindung",
       "body": "Deine {0}-Anmeldung ist abgelaufen. Verbinde {0} über die offizielle Verbindung, damit deine Daten weiter ankommen."
+    },
+    "provider_grant_writes": {
+      "title": "Neu verbinden, um Workouts zu senden",
+      "body": "Deine {0}-Aktivitäten werden weiter synchronisiert. Verbinde {0} erneut, um Workouts und Kalendereinträge zu senden."
     },
     "provider_reauth": {
       "title": "Erneute Verbindung nötig",

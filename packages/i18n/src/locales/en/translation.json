@@ -3133,6 +3133,8 @@
       "reauth_oauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_oauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
       "reauth_oauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
+      "reauth_grant_writes": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Connect it here (link valid for 1 hour):\n\n{1}",
+      "reauth_grant_writes_no_link": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Open Connections in Dravr and choose Connect {0}.",
       "reconnect_button": "Reconnect {0}"
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
@@ -3387,6 +3389,10 @@
     "provider_oauth_required": {
       "title": "Move {0} to its official connection",
       "body": "Your {0} sign-in expired. Connect {0} through its official connection to keep your data coming."
+    },
+    "provider_grant_writes": {
+      "title": "Reconnect to send workouts",
+      "body": "Your {0} activities still sync. Connect {0} again to send workouts and calendar entries."
     },
     "provider_reauth": {
       "title": "Reconnect needed",

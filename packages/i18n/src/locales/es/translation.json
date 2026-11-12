@@ -3133,6 +3133,8 @@
       "reauth_oauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reauth_oauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial: conéctalo aquí (enlace válido durante 1 hora):\n\n{1}\n\nCuando esté conectado, vuelve a preguntarme.",
       "reauth_oauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
+      "reauth_grant_writes": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Conéctalo aquí (enlace válido durante 1 hora):\n\n{1}",
+      "reauth_grant_writes_no_link": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Abre Conexiones en Dravr y elige Conectar {0}.",
       "reconnect_button": "Volver a conectar {0}"
     },
     "quota_exceeded": "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.",
@@ -3387,6 +3389,10 @@
     "provider_oauth_required": {
       "title": "Pasa {0} a su conexión oficial",
       "body": "Tu sesión de {0} caducó. Conecta {0} mediante su conexión oficial para seguir recibiendo tus datos."
+    },
+    "provider_grant_writes": {
+      "title": "Vuelve a conectar para enviar entrenamientos",
+      "body": "Tus actividades de {0} se siguen sincronizando. Vuelve a conectar {0} para enviar entrenamientos y entradas de calendario."
     },
     "provider_reauth": {
       "title": "Hay que reconectar",

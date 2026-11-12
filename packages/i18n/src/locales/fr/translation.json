@@ -3133,6 +3133,8 @@
       "reauth_oauth_required_no_link": "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. {0} se connecte désormais par sa connexion officielle. Ouvre Connexions dans Dravr, choisis Connecter {0}, puis redemande-moi.",
       "reauth_oauth_served": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. {0} se connecte désormais par sa connexion officielle : connecte-le ici (lien valable 1 heure) :\n\n{1}\n\nUne fois connecté, redemande-moi.",
       "reauth_oauth_served_no_link": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. {0} se connecte désormais par sa connexion officielle. Ouvre Connexions dans Dravr, choisis Connecter {0}, puis redemande-moi.",
+      "reauth_grant_writes": "Petite note : tes activités {0} continuent de se synchroniser, mais pour envoyer des séances et des entrées de calendrier vers {0}, il faut de nouveau ta connexion à {0}. Connecte-le ici (lien valable 1 heure) :\n\n{1}",
+      "reauth_grant_writes_no_link": "Petite note : tes activités {0} continuent de se synchroniser, mais pour envoyer des séances et des entrées de calendrier vers {0}, il faut de nouveau ta connexion à {0}. Ouvre Connexions dans Dravr et choisis Connecter {0}.",
       "reconnect_button": "Reconnecter {0}"
     },
     "quota_exceeded": "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.",
@@ -3387,6 +3389,10 @@
     "provider_oauth_required": {
       "title": "Passe {0} à sa connexion officielle",
       "body": "Ta connexion à {0} a expiré. Connecte {0} par sa connexion officielle pour continuer à recevoir tes données."
+    },
+    "provider_grant_writes": {
+      "title": "Reconnecte-toi pour envoyer tes séances",
+      "body": "Tes activités {0} se synchronisent toujours. Connecte de nouveau {0} pour y envoyer des séances et des entrées de calendrier."
     },
     "provider_reauth": {
       "title": "Reconnexion nécessaire",
