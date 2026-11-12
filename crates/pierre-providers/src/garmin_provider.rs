@@ -1175,19 +1175,13 @@ mod tests {
         );
         let window = &stats.coverage.window;
         assert_eq!(
-            window.scope,
-            WindowScope::RecentActivities,
-            "pushed totals are not a lifetime: {window:?}"
-        );
-        assert_eq!(
-            window.total,
-            Some(2),
-            "bug: coverage counts the pushed rows"
-        );
-        assert_eq!(
-            window.oldest,
-            Some(seeded.ride_start.date_naive()),
-            "bug: coverage starts at the oldest pushed row"
+            (window.scope, window.total, window.oldest),
+            (
+                WindowScope::RecentActivities,
+                Some(2),
+                Some(seeded.ride_start.date_naive())
+            ),
+            "bug: pushed totals are a sample of the pushed rows, from the oldest"
         );
     }
 
