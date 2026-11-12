@@ -486,3 +486,138 @@ async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the
         "bug: scraped rows were written under the grant's key"
     );
 }
+
+/// A coach's read of a group member holding both reads the session alone:
+/// the grant's name resolves to the session, so reading it too scraped the
+/// session a second time and wrote the scraped rows under the grant's key.
+/// The session is scraped once per call, Strava's API is never read, and
+/// nothing is cached under `strava`.
+#[cfg(feature = "tools-groups")]
+#[tokio::test]
+async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_the_grant() {
+    use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
+    use pierre_core::models::groups::{
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    };
+    use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
+
+    let w = world().await;
+    let (peer, peer_tenant) = athlete_with_both(&w.resources).await;
+    let repos = &w.resources.common.repos;
+    let (requester, _user, host_tenant) = common::create_test_user_with_plan(
+        &w.resources.agent.database,
+        &format!("group-reader-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    repos
+        .users
+        .update_display_name(peer, "Raph Both")
+        .await
+        .unwrap();
+    let agent = repos
+        .agents
+        .create_system_agent(
+            requester,
+            host_tenant,
+            &CreateSystemAgentRequest {
+                title: "Group Coach".to_owned(),
+                description: None,
+                system_prompt: "Test prompt".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Global,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let group_id = Uuid::new_v4();
+    let now = Utc::now();
+    repos
+        .groups
+        .create_group(
+            host_tenant,
+            &CoachingGroup {
+                id: group_id,
+                tenant_id: host_tenant.to_string(),
+                name: "Both Squad".to_owned(),
+                description: None,
+                agent_id: agent.to_string(),
+                owner_id: requester,
+                coach_user_id: None,
+                peer_data_sharing: true,
+                respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
+                max_members: 20,
+                is_active: true,
+                channel_type: None,
+                channel_chat_id: None,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .unwrap();
+    for (user_id, tenant, role) in [
+        (requester, host_tenant, GroupRole::Owner),
+        (peer, peer_tenant, GroupRole::Member),
+    ] {
+        repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id,
+                user_id,
+                tenant_id: tenant.to_string(),
+                role,
+                peer_sharing_consent: true,
+                coach_sharing_consent: true,
+                coach_sharing_consent_at: None,
+                coach_consents: CoachConsents::default(),
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+    }
+    let runtime: Arc<dyn ToolRuntime> = w.resources.clone();
+    let ctx = ToolContext::new()
+        .with_user(requester.to_string())
+        .with_tenant(host_tenant.to_string())
+        .with_auth_method("jwt_bearer");
+
+    let response = GetGroupMemberActivitiesTool
+        .execute(&runtime, &ctx, json!({ "member": "raph" }))
+        .await;
+
+    let payload = response
+        .structured_content
+        .expect("the tool answers with structured content");
+    assert!(payload.get("error").is_none(), "{payload}");
+    assert_eq!(payload["count"], 1, "the scraped ride once: {payload}");
+    assert_eq!(
+        w.scraper.reads(),
+        1,
+        "bug: the member read scraped the session once per half of the pair"
+    );
+    assert_eq!(
+        w.strava.reads(),
+        0,
+        "bug: the member read reached Strava's API beside the scrape"
+    );
+    assert!(
+        repos
+            .activity_cache
+            .latest_activity_sync(peer, &peer_tenant, "strava")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: scraped rows were written under the grant's key"
+    );
+}
