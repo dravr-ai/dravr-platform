@@ -34,10 +34,10 @@ use common::{create_test_user_with_email, generate_test_token};
 use futures_util::{SinkExt, StreamExt};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_takeover_link_token, MintTakeoverTokenArgs, TakeoverLink,
     CONNECT_PROVIDER,

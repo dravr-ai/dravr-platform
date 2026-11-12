@@ -78,15 +78,40 @@ mod tests {
         );
     }
 
+    /// The recorded streams a Strava detail read answers, every channel on
+    /// one time axis.
+    fn streams() -> Value {
+        json!({
+            "timestamps": [0, 1],
+            "heart_rate": [128, 131],
+            "power": [190, null],
+            "cadence": [84, 85],
+            "speed": [8.1, 8.3],
+            "altitude": [44.0, 44.2],
+            "temperature": [12.0, 12.0],
+            "gps_coordinates": [[45.5, -73.6], [45.5001, -73.6001]],
+            "distance": [0.0, 8.2]
+        })
+    }
+
     #[test]
     fn the_strava_scrape_fills_what_its_descriptor_declares() {
-        // The list feed carries no sensor reading; the detail page's stat block
-        // and its embedded activity values do.
-        let list = json!({ "suffer_score": 42, "elevation_gain": 300.0 });
+        // The list feed carries the athlete's words and tags and the heart
+        // rate; the detail page's stat block, its embedded activity values
+        // and its streams the rest.
+        let list = json!({
+            "suffer_score": 42,
+            "elevation_gain": 300.0,
+            "average_heart_rate": 141,
+            "moving_time_seconds": 3_300,
+            "description": "Sortie test, vent de face",
+            "workout_type": 11,
+            "commute": false,
+            "trainer": false
+        });
         let detail = with(
             &json!({
                 "elapsed_time_seconds": 3_900,
-                "average_heart_rate": 141,
                 "max_heart_rate": 176,
                 "average_power": 196,
                 "average_cadence": 84,
@@ -94,7 +119,9 @@ mod tests {
                 "device_name": "Garmin Edge 840",
                 "gear_name": "Gravel (2 140 km)",
                 "perceived_exertion": "Moderate",
-                "route": route()
+                "private_note": "Note test: selle à remonter",
+                "route": route(),
+                "streams": streams()
             }),
             &laps_and_splits(),
         );
@@ -105,6 +132,34 @@ mod tests {
             &list,
             &detail,
         );
+    }
+
+    /// The athlete's own words cross from Strava alone: the same keys from
+    /// another target, whose description is no athlete's account (on
+    /// TrainingPeaks, the coach's prescription), are left behind.
+    #[test]
+    fn only_strava_carries_the_athletes_description_and_private_note() {
+        let words = json!({
+            "description": "Texte test",
+            "private_note": "Note test"
+        });
+        let strava = convert_activity(
+            &scraped(SciotteTarget::Strava.scraper_provider_name(), &words),
+            SciotteTarget::Strava,
+        );
+        assert_eq!(strava.description(), Some("Texte test"));
+        assert_eq!(strava.private_note(), Some("Note test"));
+        for target in [
+            SciotteTarget::Garmin,
+            SciotteTarget::TrainingPeaks,
+            SciotteTarget::Coros,
+        ] {
+            let other = convert_activity(&scraped(target.scraper_provider_name(), &words), target);
+            assert!(
+                other.description().is_none() && other.private_note().is_none(),
+                "bug: {target:?}'s text crossed as the athlete's own words"
+            );
+        }
     }
 
     #[test]

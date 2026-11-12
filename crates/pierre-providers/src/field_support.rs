@@ -7,9 +7,10 @@
 //! What each backend supplies of an [`Activity`](crate::models::Activity).
 //!
 //! A provider reached two ways supplies two different sets: Strava's API
-//! carries the description, the workout tag and the trainer and commute flags
-//! that a scrape of Strava's pages does not, and the scrape carries heart rate
-//! on a detail page only. A field a backend never supplies reads, on every row,
+//! carries the normalized power, the route's summary polyline and the finer
+//! sport label that a scrape of Strava's pages does not, and the scrape
+//! carries the private note and the sensor summary on a detail page only. A
+//! field a backend never supplies reads, on every row,
 //! exactly like a field the athlete never recorded: absent. The model that
 //! reads the row cannot tell the two apart, and an absent heart rate read as
 //! "no effort" is a wrong answer.

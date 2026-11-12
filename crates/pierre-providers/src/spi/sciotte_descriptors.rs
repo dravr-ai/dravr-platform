@@ -26,25 +26,31 @@ const ROUTE: S = S::LATLNG.union(S::ALTITUDE);
 pub struct SciotteDescriptor;
 
 impl ProviderDescriptor for SciotteDescriptor {
-    /// What the pinned client scrapes from Strava's pages: list rows carry
-    /// none of these, the detail page the sensor summary, gear, device,
-    /// laps, splits and the athlete's exertion. Strava's description, private
-    /// note, workout tag and trainer and commute flags are not scraped.
+    /// What the pinned client scrapes from Strava's pages (sciotte 2.0): a
+    /// list row carries the athlete's description, the workout tag, the
+    /// trainer and commute flags, the moving time and the average heart
+    /// rate; the detail page adds the private note, the rest of the sensor
+    /// summary, gear, device, laps, splits and the athlete's exertion, and
+    /// the recorded streams on their time axis.
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
-            list: F::empty(),
-            detail_only: F::AVERAGE_HEART_RATE
+            list: F::DESCRIPTION
+                .union(F::WORKOUT_TYPE)
+                .union(F::TRAINER)
+                .union(F::COMMUTE)
+                .union(F::AVERAGE_HEART_RATE)
+                .union(F::MOVING_TIME),
+            detail_only: F::PRIVATE_NOTE
                 .union(F::MAX_HEART_RATE)
                 .union(F::AVERAGE_POWER)
                 .union(F::AVERAGE_CADENCE)
                 .union(F::CALORIES)
-                .union(F::MOVING_TIME)
                 .union(F::GEAR)
                 .union(F::DEVICE)
                 .union(F::LAPS)
                 .union(F::SPLITS)
                 .union(F::PERCEIVED_EXERTION),
-            streams: ROUTE,
+            streams: S::all(),
         }
     }
 

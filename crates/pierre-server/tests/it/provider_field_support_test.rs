@@ -44,9 +44,16 @@ use uuid::Uuid;
 use crate::common;
 use crate::helpers::sciotte_mock::seed_scrape_session;
 
-/// What Strava's API supplies and its scrape does not: the athlete's words,
-/// the workout tag and the trainer and commute flags.
-const API_ONLY: ActivityFields = ActivityFields::DESCRIPTION
+/// What Strava's API supplies and its scrape does not: the normalized power,
+/// the route's summary polyline and the finer sport label.
+const API_ONLY: ActivityFields = ActivityFields::NORMALIZED_POWER
+    .union(ActivityFields::SUMMARY_POLYLINE)
+    .union(ActivityFields::SPORT_TYPE_DETAIL);
+
+/// What the scrape of Strava's pages reads since sciotte 2.0, as the API
+/// does: the athlete's words, the workout tag and the trainer and commute
+/// flags.
+const READ_BOTH_WAYS: ActivityFields = ActivityFields::DESCRIPTION
     .union(ActivityFields::PRIVATE_NOTE)
     .union(ActivityFields::WORKOUT_TYPE)
     .union(ActivityFields::TRAINER)
@@ -82,19 +89,27 @@ fn every_activity_backend_the_registry_builds_declares_its_fields() {
 }
 
 #[test]
-fn strava_is_read_two_ways_and_only_its_api_carries_the_athletes_words_and_flags() {
+fn strava_is_read_two_ways_and_both_carry_the_athletes_words_and_flags() {
     let registry = ProviderRegistry::new();
     let support = field_support(&registry, "strava", Some(FieldMode::Mirror)).unwrap();
     assert_eq!(support.provider, "strava");
     let api = support.oauth.expect("Strava's API serves activities");
     let scrape = support.mirror.expect("Strava's mirror serves activities");
     assert!(
-        api.supplied().contains(API_ONLY),
+        api.supplied().contains(API_ONLY | READ_BOTH_WAYS),
         "the API supplies the description, private note, workout tag and flags"
     );
     assert!(
         scrape.not_supplied().contains(API_ONLY),
         "bug: the pinned scrape is declared to supply a field it never reads"
+    );
+    assert!(
+        scrape.supplied().contains(READ_BOTH_WAYS),
+        "bug: the pinned scrape reads the athlete's words and flags, and does not declare them"
+    );
+    assert!(
+        scrape.detail_only.contains(ActivityFields::PRIVATE_NOTE),
+        "a scraped Strava row carries the private note only once read in detail"
     );
     assert_eq!(support.served(), Some(scrape), "the session serves");
 
@@ -240,8 +255,8 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
         connections[0]["detail_only"]
             .as_array()
             .unwrap()
-            .contains(&json!("average_heart_rate")),
-        "a scraped Strava row carries heart rate only once read in detail"
+            .contains(&json!("max_heart_rate")),
+        "a scraped Strava row carries its maximum heart rate only once read in detail"
     );
 
     let payload = json!({
