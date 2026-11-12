@@ -3393,6 +3393,7 @@
       "scope": {
         "fitnessRead": "ler os seus dados de condição física: atividades e os seus locais, estatísticas, sono, análises e o que disse de si à Dravr, incluindo lesões",
         "fitnessWrite": "criar ou alterar os seus dados de condição física: objetivos, planos e treinos registados",
+        "offlineAccess": "manter-se ligado sem lhe voltar a pedir que inicie sessão, até que o desligue",
         "profileRead": "ler o seu perfil, as suas definições e os serviços que associou",
         "profileWrite": "alterar o seu perfil, as suas definições e os seus serviços associados"
       },

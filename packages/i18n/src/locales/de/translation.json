@@ -3393,6 +3393,7 @@
       "scope": {
         "fitnessRead": "Ihre Fitnessdaten lesen: Aktivitäten und ihre Orte, Statistiken, Schlaf, Analysen und was Sie Dravr über sich erzählt haben, einschließlich Verletzungen",
         "fitnessWrite": "Ihre Fitnessdaten erstellen oder ändern: Ziele, Pläne und erfasste Einheiten",
+        "offlineAccess": "verbunden bleiben, ohne Sie erneut zur Anmeldung aufzufordern, bis Sie die Verbindung trennen",
         "profileRead": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste lesen",
         "profileWrite": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste ändern"
       },

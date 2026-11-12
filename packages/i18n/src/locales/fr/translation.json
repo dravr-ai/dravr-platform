@@ -3393,6 +3393,7 @@
       "scope": {
         "fitnessRead": "lire vos données de conditionnement physique : activités et leurs lieux, statistiques, sommeil, analyses, et ce que vous avez dit de vous à Dravr, y compris vos blessures",
         "fitnessWrite": "créer ou modifier vos données de conditionnement physique : objectifs, plans et entraînements consignés",
+        "offlineAccess": "rester connecté sans vous redemander de vous connecter, jusqu'à ce que vous le déconnectiez",
         "profileRead": "lire votre profil, vos paramètres et les services que vous avez liés",
         "profileWrite": "modifier votre profil, vos paramètres et vos services liés"
       },

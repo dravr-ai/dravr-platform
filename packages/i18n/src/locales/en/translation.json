@@ -3393,6 +3393,7 @@
       "scope": {
         "fitnessRead": "read your fitness data: activities and where they took place, stats, sleep, analytics, and what you told Dravr about yourself, including injuries",
         "fitnessWrite": "create or change your fitness data: goals, plans and logged work",
+        "offlineAccess": "stay connected without asking you to sign in again, until you disconnect it",
         "profileRead": "read your profile, your settings and which services you have linked",
         "profileWrite": "change your profile, your settings and your linked services"
       },

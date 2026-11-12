@@ -3393,6 +3393,7 @@
       "scope": {
         "fitnessRead": "leer sus datos de actividad física: actividades y sus lugares, estadísticas, sueño, análisis y lo que le contó a Dravr sobre usted, incluidas las lesiones",
         "fitnessWrite": "crear o modificar sus datos de actividad física: objetivos, planes y entrenamientos registrados",
+        "offlineAccess": "seguir conectado sin volver a pedirle que inicie sesión, hasta que lo desconecte",
         "profileRead": "leer su perfil, sus ajustes y los servicios que ha vinculado",
         "profileWrite": "modificar su perfil, sus ajustes y sus servicios vinculados"
       },
