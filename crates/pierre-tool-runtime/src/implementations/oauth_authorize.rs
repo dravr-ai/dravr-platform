@@ -122,7 +122,11 @@ pub async fn with_grant_link(
     };
     match mint_oauth_authorize_url(resources, user_id, tenant_id, &grant, None).await {
         Ok((url, _state)) => {
-            info!(user_id = %user_id, provider = %grant, "Write refused for an owed grant; its authorization link offered");
+            info!(
+                user_id = %user_id,
+                provider = %grant,
+                "Write refused for an owed grant; its authorization link offered"
+            );
             refusal.message = format!("{} Authorization link: {url}", refusal.message);
             if let Some(Value::Object(details)) = refusal.details.as_deref_mut() {
                 details.insert("authorization_url".to_owned(), Value::String(url));

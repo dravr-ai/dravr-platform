@@ -120,10 +120,6 @@ pub const KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD: &str =
     "hosted.picker.tagEmailOrUsernamePassword";
 /// Key: "Import my history" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY: &str = "hosted.picker.tagImportHistory";
-/// Key: "Copying history…" No format placeholders.
-pub const KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING: &str = "hosted.picker.tagHistoryImporting";
-/// Key: "Try again" No format placeholders.
-pub const KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE: &str = "hosted.picker.tagHistoryIncomplete";
 /// Key: "`{0}` didn't connect. Try again."
 pub const KEY_HOSTED_PICKER_OAUTH_RETRY: &str = "hosted.picker.oauthRetry";
 /// Key: "Have an export? Import it" No format placeholders.

@@ -604,8 +604,9 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
 /// already gone, so nothing is sent upstream, and its token, its connection
 /// and every row Strava contributed are deleted, with the purge's attestation
 /// row. Their sign-in session, if they hold one, keeps serving them; an
-/// athlete the grant served alone is told to sign in again ([`GrantWithdrawal`]). A failure is logged at ERROR, since it leaves data the athlete
-/// withdrew.
+/// athlete the grant served alone is told to sign in again
+/// ([`GrantWithdrawal`]). A failure is logged at ERROR, since it leaves data
+/// the athlete withdrew.
 async fn disconnect_deauthorized_strava_owner(
     resources: &Arc<ServerContext>,
     event: &StravaWebhookEvent,

@@ -578,7 +578,8 @@ pub fn backfill_placeholder_message(
 /// The live grant a deep historical window of `primary` is read through
 /// instead of the mirror backfill, or `None` when it stays on `primary`.
 ///
-/// A deep window ([`is_historical_backfill_window`](crate::activity_backfill::is_historical_backfill_window))
+/// A deep window
+/// ([`is_historical_backfill_window`](crate::activity_backfill::is_historical_backfill_window))
 /// stays on the API while a grant is alive (carnet#1494): when `primary` is
 /// the athlete's session and their read plan names a live grant behind it
 /// whose API reads history on request (Strava), the window is read inline

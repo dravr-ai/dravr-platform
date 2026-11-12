@@ -618,12 +618,20 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // the tool loop scans for, and `auth_recovery` hands back the
                         // short reconnect link this turn. The link is re-sent on EVERY
                         // such ask until a real reconnect clears the flag via `mark_active`.
-                        let fallback = serve_in_place(&context, &provider_name, provider_pinned, is_historical, &query_params).await;
+                        let fallback = serve_in_place(
+                            &context,
+                            &provider_name,
+                            provider_pinned,
+                            is_historical,
+                            &query_params,
+                        )
+                        .await;
                         let Some(fallback) = fallback else {
                             return Err(AppError::provider_auth_required(provider_name.clone()));
                         };
                         let dead = PrimaryStandIn::Dead(provider_name.clone());
-                        stood_in = Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, dead));
+                        stood_in =
+                            Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, dead));
                         served_by = fallback.served_by;
                         stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
@@ -784,14 +792,19 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             (read, Some(provider))
                         };
                         let live = match read {
-                            Ok(HeadRead { verdict: HeadVerdict::EmptyOverCached { cached }, .. }) => Err(format!(
+                            Ok(HeadRead {
+                                verdict: HeadVerdict::EmptyOverCached { cached },
+                                ..
+                            }) => Err(format!(
                                 "{display_provider} answered with no activities for a window \
                                  the platform holds {cached} of its activities in"
                             )),
                             // Its grant answered in the session's place (carnet#1494).
                             Ok(head) => {
                                 if head.served_by_grant.is_some() {
-                                    stood_in = Some(PrimaryStandIn::ServedByGrant(provider_name.clone()));
+                                    stood_in = Some(PrimaryStandIn::ServedByGrant(
+                                        provider_name.clone(),
+                                    ));
                                 }
                                 Ok(head.activities)
                             }
@@ -844,7 +857,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // and carry why this one is missing as a caveat; only a
                         // total blackout becomes the failure alone.
                         let dead = auth_required_provider(&response);
-                        let fallback = serve_in_place(&context, &provider_name, provider_pinned, is_historical, &query_params).await;
+                        let fallback = serve_in_place(
+                            &context,
+                            &provider_name,
+                            provider_pinned,
+                            is_historical,
+                            &query_params,
+                        )
+                        .await;
                         let Some(fallback) = fallback else {
                             // An auth-shaped creation failure surfaces as the typed
                             // provider_auth_required error: the executor re-raises
@@ -868,7 +888,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             || PrimaryStandIn::Unreachable(provider_name.clone()),
                             PrimaryStandIn::Dead,
                         );
-                        stood_in = Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, missing));
+                        stood_in =
+                            Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, missing));
                         served_by = fallback.served_by;
                         stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
