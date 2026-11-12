@@ -39,6 +39,39 @@ use super::prefetch::{
 };
 use super::turn_clock::inject_turn_clock;
 
+/// The executor this pipeline dispatches a turn's tool calls through: the
+/// turn's own grant (the self grant in Dravr's own surfaces, the token's
+/// scopes when a third party acts for the athlete over A2A), its
+/// conversation, its Guardian turn key and its seat.
+///
+/// One construction for the pipeline's tool loop and for every stage that
+/// calls a tool on the turn's behalf (a route map's track, capability
+/// recovery's fetches), so none of them reads anyone but whom the turn is
+/// about: in a coach's thread about one athlete the seat makes the executor
+/// resolve the thread's athlete, under the coaching gates, for every read
+/// (carnet#1448). The loopback surface a headless runner calls tools through
+/// builds its own in `pierre-server` (`turn_surface`), on the same seat.
+pub(crate) fn turn_executor(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    seat: TurnSeat,
+) -> UniversalExecutor {
+    UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
+        .with_scopes(input.grant.clone())
+        // Bound so a tool that spawns detached work (e.g. a historical
+        // activity backfill) can route a completion notice back to the channel
+        // that triggered it, and so a coach's thread resolves its athlete.
+        .with_conversation_id(input.conversation_id.clone())
+        .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
+        // Guardian turn key = the per-utterance turn_id, so budgets
+        // accumulate across THIS message's ReAct loop and reset next message
+        // (not across the whole conversation).
+        .with_turn_token(input.turn_id.0.to_string())
+        // The coach's seats refuse what they withhold (carnet#742,
+        // carnet#1070) and read the thread's athlete (carnet#1387).
+        .with_seat(seat)
+}
+
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
 ///
 /// Owns pipeline stages 9 through 14: MCP executor construction, agent
@@ -178,25 +211,9 @@ pub(crate) async fn dispatch_llm_with_tools(
     // sender's, unless the sender is coaching — a group from its coach's
     // seat, or one athlete in their thread.
     let sender_is_subject = seat.sender_is_subject();
-    // Stage 9: MCP executor for tool calls. Bind the originating conversation id
-    // so a tool that spawns detached work (e.g. a historical activity backfill)
-    // can route a completion notice back to the channel that triggered it.
+    // Stage 9: MCP executor for tool calls, as the agent answering the turn.
     let executor = Arc::new(
-        UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-            // The turn's own grant: the self grant in Dravr's own surfaces, the
-            // token's scopes when a third party acts for the athlete over A2A.
-            .with_scopes(input.grant.clone())
-            .with_conversation_id(input.conversation_id.clone())
-            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
-            .with_turn_agent(turn_agent_id.map(ToOwned::to_owned))
-            // Guardian turn key = the per-utterance turn_id, so budgets
-            // accumulate across THIS message's ReAct loop and reset next message
-            // (not across the whole conversation). conversation_id stays above,
-            // for routing detached work back to the thread.
-            .with_turn_token(input.turn_id.0.to_string())
-            // The coach's seats refuse what they withhold (carnet#742,
-            // carnet#1070).
-            .with_seat(seat),
+        turn_executor(ctx, input, seat).with_turn_agent(turn_agent_id.map(ToOwned::to_owned)),
     );
 
     // Stage 10: Deterministic activity prefetch driven by agent DataRequirements.

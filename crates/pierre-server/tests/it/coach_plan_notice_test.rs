@@ -49,7 +49,9 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
@@ -378,7 +380,10 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
         .with_auth_method("jwt_bearer");
     let response = serve_over(
         Transport::WebApp,
-        CONVERSATION_ID.scope(conversation, tool.execute(&runtime, &ctx, args)),
+        CONVERSATION_ID.scope(
+            conversation,
+            in_web_turn(res, who.id, who.tenant, tool.execute(&runtime, &ctx, args)),
+        ),
     )
     .await;
     (

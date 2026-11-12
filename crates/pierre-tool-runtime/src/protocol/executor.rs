@@ -744,11 +744,16 @@ impl UniversalExecutor {
         let in_conversation = subject.is_none();
         let member_read = subject.as_ref().map(ReadSubject::athlete);
         let execute = async move {
-            // What the call derives from here on is the athlete's (carnet#1174).
-            if let Some(athlete) = member_read {
-                ai_scope::note_member_read(athlete);
+            // What the call derives from here on is the athlete's (carnet#1174),
+            // and so is every attribution what it serves owes (carnet#1464).
+            match member_read {
+                Some(athlete) => {
+                    ai_scope::note_member_read(athlete);
+                    ai_scope::reading_about(athlete, tool.execute(&self.resources, &ctx, args))
+                        .await
+                }
+                None => tool.execute(&self.resources, &ctx, args).await,
             }
-            tool.execute(&self.resources, &ctx, args).await
         };
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone().filter(|_| in_conversation),

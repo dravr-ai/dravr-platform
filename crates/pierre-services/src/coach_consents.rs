@@ -81,15 +81,16 @@ use crate::delegated_read::{holds_own_connection, holds_own_session, OwnLogins};
 /// `details.reason`.
 const GRANT_NEEDS_APP: &str = "consent_grant_needs_app";
 
-/// The instant `wellness_read` widened to every app the member connects.
+/// The instant `wellness_read` last widened.
 ///
-/// Before it, the consent covered only the wellness a link syncs through the
-/// coach's account (carnet#1387). This is 2026-11-05T18:43:00Z, the minute
-/// the widening landed. A grant stamped before it was given
-/// to the narrower consent, so the member is told of the widening
-/// ([`wellness_notice_due`]).
+/// On 2026-11-05 it widened from the wellness a link syncs through the
+/// coach's account to every app the member connects (carnet#1387). This is
+/// 2026-11-12T16:30:00Z, when the consent copy began naming the AI tools
+/// the coach connects to Dravr as readers too (carnet#1452). A grant
+/// stamped before it was given to a narrower consent, so the member is told
+/// of the widening ([`wellness_notice_due`]).
 const WELLNESS_READ_WIDENED_AT: DateTime<Utc> =
-    DateTime::from_timestamp_nanos(1_793_904_180_000_000_000);
+    DateTime::from_timestamp_nanos(1_794_501_000_000_000_000);
 
 /// Which coach consents are offered: by a member's coach relationship right
 /// now ([`consent_offer`]), or by one link's platform ([`link_offer`]).

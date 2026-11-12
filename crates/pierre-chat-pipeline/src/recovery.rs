@@ -254,6 +254,7 @@ pub(crate) async fn run_recovery_and_post_process(
             ctx,
             input,
             conv,
+            seat,
             agent_ctx,
             prompt_guard,
             profile,

@@ -40,7 +40,9 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::{provider_terms_version, INTERVALS_ICU};
@@ -69,7 +71,7 @@ use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::provider_notice;
 use pierre_test_support::delegation::create_group_agent;
-use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::implementations::endurance_workouts::{
     PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
@@ -718,7 +720,13 @@ impl World {
             .with_user(who.id.to_string())
             .with_tenant(tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let response = tool.execute(&runtime, &ctx, args).await;
+        let response = in_web_turn(
+            &self.res,
+            who.id,
+            tenant,
+            tool.execute(&runtime, &ctx, args),
+        )
+        .await;
         (
             response
                 .structured_content
@@ -1237,6 +1245,17 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
         .scope(
             Some("a-room-the-coachs-tenant-cannot-resolve".to_owned()),
             w.in_app(&PushTrainingPlanTool, push("Alex")),
+        )
+        .await;
+    assert_eq!(reason(&refusal), "group_room", "{refusal}");
+
+    // carnet#1422: a row under the coach's own tenant with no group, on a
+    // turn other people read — a messaging group chat whose binding failed.
+    let shared = w.coach_dm().await;
+    let (refusal, _) = TURN_DIRECT_MESSAGE
+        .scope(
+            Some(false),
+            CONVERSATION_ID.scope(Some(shared), w.in_app(&PushTrainingPlanTool, push("Alex"))),
         )
         .await;
     assert_eq!(reason(&refusal), "group_room", "{refusal}");
@@ -1887,20 +1906,26 @@ impl World {
         tool: &str,
         args: Value,
     ) -> (UniversalResponse, Option<BTreeSet<String>>) {
-        let executor = UniversalToolExecutor::new(self.res.clone())
-            .with_scopes(OAuthScope::self_grant())
-            .with_transport(Transport::WebApp)
-            .with_conversation_id(self.coach_dm().await)
-            .with_conversation_tenant(self.coach.tenant.as_uuid())
-            .with_turn_token(Uuid::new_v4().to_string());
-        let (response, consents) =
-            ai_scope::subject_consents(executor.execute_tool(UniversalRequest {
-                tool_name: tool.to_owned(),
-                parameters: args,
-                user_id: self.coach.id.to_string(),
-                protocol: "test".to_owned(),
-                tenant_id: Some(self.coach.tenant.to_string()),
-            }))
+        let conversation = self.coach_dm().await;
+        // The direct chat's turn is read by the coach alone, as the chat
+        // pipeline scopes it; the executor carries it from its builder.
+        let (response, consents) = TURN_DIRECT_MESSAGE
+            .scope(Some(true), async {
+                let executor = UniversalToolExecutor::new(self.res.clone())
+                    .with_scopes(OAuthScope::self_grant())
+                    .with_transport(Transport::WebApp)
+                    .with_conversation_id(conversation)
+                    .with_conversation_tenant(self.coach.tenant.as_uuid())
+                    .with_turn_token(Uuid::new_v4().to_string());
+                ai_scope::subject_consents(executor.execute_tool(UniversalRequest {
+                    tool_name: tool.to_owned(),
+                    parameters: args,
+                    user_id: self.coach.id.to_string(),
+                    protocol: "test".to_owned(),
+                    tenant_id: Some(self.coach.tenant.to_string()),
+                }))
+                .await
+            })
             .await;
         (
             response.unwrap_or_else(|e| panic!("{tool} raised: {e}")),

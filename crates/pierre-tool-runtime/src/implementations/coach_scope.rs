@@ -59,6 +59,7 @@ use uuid::Uuid;
 use super::calendar::{
     calendar_provider, calendar_target, holds_only_through_a_link, CalendarConnections, PassedOver,
 };
+use super::call_room::CallRoom;
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest, PlanWriter};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
@@ -128,8 +129,9 @@ fn human_coach_writes(context: &ToolExecutionContext, backend: &str) -> ToolResu
 }
 
 /// The refusal for a call made outside the caller's own conversation, if it
-/// was: a group's room, or a conversation that does not resolve as theirs.
-/// `act` says what to do from their own conversation instead.
+/// was: a group's room, a conversation that does not resolve as theirs, or
+/// one other people read ([`room_refusal_in`]). `act` says what to do from
+/// their own conversation instead.
 ///
 /// # Errors
 ///
@@ -155,21 +157,22 @@ pub(super) async fn room_refusal(
 
 /// [`room_refusal`] for a call whose conversation, read under the caller's
 /// own tenant, is `conversation`.
+///
+/// Anything [`CallRoom::of`] does not call private is refused: a group's
+/// room; a conversation the caller's own tenant cannot resolve, which is a
+/// shared room's row under the bot tenant; and a chat with no group on a turn
+/// not marked a direct message, which may be a messaging group chat whose
+/// binding failed (carnet#1422).
 pub(super) fn room_refusal_in(
     context: &ToolExecutionContext,
     conversation: Option<&ConversationRecord>,
     act: &str,
 ) -> Option<ToolResult> {
-    // A conversation the caller's own tenant cannot resolve is a shared
-    // room's row under the bot tenant: refused like a group-bound one.
-    let in_room = context.conversation_id.is_some()
-        && conversation.is_none_or(|conversation| conversation.group_id.is_some());
-    in_room.then(|| {
+    (!CallRoom::of(context, conversation).is_private()).then(|| {
         refusal(
             "group_room",
             &format!(
-                "{act} from your own conversation with Dravr — a group's room is read by every \
-                 member."
+                "{act} from your own conversation with Dravr — a room is read by everyone in it."
             ),
         )
     })

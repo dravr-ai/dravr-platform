@@ -53,7 +53,6 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
-use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
@@ -62,6 +61,7 @@ use pierre_services::coach_roster::{
 };
 use pierre_tools_core::ToolResult;
 
+use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
 use crate::coach_roster::{fetch_page_snapshots, read_snapshot};
 use crate::context::ToolExecutionContext;
@@ -161,63 +161,6 @@ pub struct RosterOverviewResult {
     pub athletes: Vec<RosterOverviewAthlete>,
     /// True when the roster held more athletes than one call lists.
     pub truncated: bool,
-}
-
-/// Where a coach's call was made, as the tools that read their athletes see it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum CallRoom {
-    /// No conversation, or one private to the caller.
-    Private,
-    /// A group's room, read by every member: the group's id.
-    Group(String),
-    /// A conversation confirmed neither private to the caller nor a group's
-    /// room: one that does not resolve for them, which may be any room; a
-    /// chat other people read that no group is bound to — a messaging group
-    /// chat whose binding failed (carnet#1421); or a call that names a
-    /// conversation without saying who reads it. Nothing about an athlete is
-    /// published into it.
-    Unresolved,
-}
-
-/// The room `context`'s conversation is, resolved under the conversation's
-/// own tenant (a shared room's row lives under the bot tenant).
-///
-/// A row with no group is private only on a turn the caller alone reads
-/// ([`ToolExecutionContext::turn_direct_message`] is `Some(true)`): a
-/// messaging group chat keeps no group when its binding fails, and nothing on
-/// its row tells it from a direct message. A call that does not say is not
-/// taken for private, so an executor built outside a turn fails closed.
-///
-/// # Errors
-///
-/// Returns the repository error from the conversation lookup.
-pub(super) async fn call_room(context: &ToolExecutionContext) -> AppResult<CallRoom> {
-    let Some(conversation_id) = context.conversation_id.as_deref() else {
-        return Ok(CallRoom::Private);
-    };
-    let tenant = context
-        .conversation_ref()
-        .map(|(_, tenant)| tenant)
-        .or_else(|| context.tenant_id.map(TenantId::from_uuid));
-    let conversation = match tenant {
-        Some(tenant) => {
-            context
-                .resources
-                .repos()
-                .chat
-                .get_conversation(conversation_id, &context.user_id.to_string(), tenant)
-                .await?
-        }
-        None => None,
-    };
-    Ok(match conversation {
-        None => CallRoom::Unresolved,
-        Some(conversation) => match conversation.group_id {
-            Some(group) => CallRoom::Group(group),
-            None if context.turn_direct_message == Some(true) => CallRoom::Private,
-            None => CallRoom::Unresolved,
-        },
-    })
 }
 
 /// The groups the call covers, or the refusal that explains why it covers none.

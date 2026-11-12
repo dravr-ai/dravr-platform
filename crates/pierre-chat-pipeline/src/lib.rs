@@ -706,6 +706,10 @@ async fn run_turn(
     )
     .await?;
 
+    // The Garmin attribution closing an earlier reply is the platform's, not
+    // something the model says: it never reads it back (carnet#1464).
+    stages::source_attribution::strip_from_history(ctx, &mut history);
+
     // What of the history the turn may read: an external turn in a
     // first-party-only thread, or a coach's athlete thread the gates refuse,
     // reads only its own new message (`history_scope`).
@@ -722,25 +726,32 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, mut llm_messages, source_ids, group_roster, intro, turn_clock) =
-        assemble_prompt_stage(
-            hooks,
-            stages::prompt_assembly::PromptTurn {
-                ctx,
-                input: &input,
-                profile,
-                conv: &conv,
-                standing,
-                switched_off: &switched_off,
-                defer_tools,
-                agent_ctx: agent_ctx.as_ref(),
-                history: &history,
-                onboarding: onboarding_turn.as_ref(),
-                subject_turn,
-                readable_about: &readable_about,
-            },
-        )
-        .await?;
+    let stages::prompt_assembly::AssembledPrompt {
+        prompt_guard,
+        mut llm_messages,
+        source_ids,
+        group_roster,
+        cards_carried,
+        introduction: intro,
+        turn_clock,
+    } = assemble_prompt_stage(
+        hooks,
+        stages::prompt_assembly::PromptTurn {
+            ctx,
+            input: &input,
+            profile,
+            conv: &conv,
+            standing,
+            switched_off: &switched_off,
+            defer_tools,
+            agent_ctx: agent_ctx.as_ref(),
+            history: &history,
+            onboarding: onboarding_turn.as_ref(),
+            subject_turn,
+            readable_about: &readable_about,
+        },
+    )
+    .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
     let stages::tool_dispatch::DispatchedTurn {
@@ -827,7 +838,11 @@ async fn run_turn(
     let persisted_assistant_content = stages::source_attribution::attribute_reply(
         ctx,
         persisted_assistant_content,
-        &stages::source_attribution::owed_attributions(),
+        &stages::source_attribution::owed_attributions(
+            seat,
+            parse_uuid(&input.user_id).ok(),
+            &cards_carried,
+        ),
         stages::source_attribution::model_answered(&result),
         &profile.locale,
     );

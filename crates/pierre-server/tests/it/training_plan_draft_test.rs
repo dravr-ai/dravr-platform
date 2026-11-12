@@ -27,7 +27,9 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use chrono::{Datelike, Days, NaiveDate, Utc};
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs, CapturedEvents};
@@ -213,12 +215,15 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(res);
     let ctx = tool_context(who);
     CONVERSATION_ID
-        .scope(conversation.map(ToOwned::to_owned), async {
-            tool.execute(&runtime, &ctx, args)
-                .await
-                .structured_content
-                .expect("tool result carries structured content")
-        })
+        .scope(
+            conversation.map(ToOwned::to_owned),
+            in_web_turn(res, who.id, who.tenant, async {
+                tool.execute(&runtime, &ctx, args)
+                    .await
+                    .structured_content
+                    .expect("tool result carries structured content")
+            }),
+        )
         .await
 }
 

@@ -1,5 +1,5 @@
 // ABOUTME: The accumulator a derivation stamps its rows from: what it served, what that owes, and whose data it was
-// ABOUTME: Records the group member a read was about, so a row derived from one member is stamped with them (carnet#1174)
+// ABOUTME: Records whose data each read was, so a row or reply derived from one member owes only theirs (carnet#1174, #1464)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,15 @@ tokio::task_local! {
     /// scope: whose data one tool round served (carnet#1174). The `Arc` is
     /// what lets [`reading_members`] read the set back once its scope ends.
     static MEMBERS_READ: Arc<Mutex<BTreeSet<Uuid>>>;
+    /// Whose data the reads inside the innermost [`reading_about`] scope
+    /// serve: the person an attribution noted there is owed on (carnet#1464).
+    static READ_ABOUT: Uuid;
 }
+
+/// One attribution a derivation owes, and whose data owed it: `None` when the
+/// read that served it ran in no [`reading_about`] scope, so whose data it was
+/// is not known.
+type OwedAttribution = (Option<Uuid>, &'static str);
 
 /// Whether a turn, or any other derivation, has served data whose terms keep
 /// it first-party (carnet#769).
@@ -40,8 +48,10 @@ pub struct Provenance {
     served_first_party_only: Arc<AtomicBool>,
     /// The attributions of what was served (`"Garmin"` for Garmin
     /// device-sourced data): what a reply derived from it must say it drew on
-    /// (carnet#521). Shared the same way as the flag.
-    attributions: Arc<Mutex<BTreeSet<&'static str>>>,
+    /// (carnet#521), each with the person whose data owed it (carnet#1464), so
+    /// a reply about one athlete owes only what their data owes. Shared the
+    /// same way as the flag.
+    attributions: Arc<Mutex<BTreeSet<OwedAttribution>>>,
     /// Set once a tool call served the athlete's provider items to the model:
     /// their own data was put in front of whatever this derivation produces.
     /// Read by the chat turn as `chat.answer_delivered`'s `grounded`
@@ -69,10 +79,11 @@ impl Provenance {
         self.served_first_party_only.store(true, Ordering::Release);
     }
 
-    /// Record that data carrying `attribution` was served.
-    pub fn attribute(&self, attribution: &'static str) {
+    /// Record that data carrying `attribution` was served, `owner`'s data
+    /// when whose it was is known.
+    pub fn attribute(&self, owner: Option<Uuid>, attribution: &'static str) {
         if let Ok(mut attributions) = self.attributions.lock() {
-            attributions.insert(attribution);
+            attributions.insert((owner, attribution));
         }
     }
 
@@ -87,13 +98,34 @@ impl Provenance {
         self.served_provider_data.load(Ordering::Acquire)
     }
 
-    /// The attributions of everything served so far.
+    /// The attributions of what was served so far about the people `owed_for`
+    /// accepts, asked with `None` for data whose owner is not known.
     #[must_use]
-    pub fn attributions(&self) -> BTreeSet<&'static str> {
+    pub fn attributions_owed(
+        &self,
+        owed_for: impl Fn(Option<Uuid>) -> bool,
+    ) -> BTreeSet<&'static str> {
+        self.owed()
+            .into_iter()
+            .filter(|(owner, _)| owed_for(*owner))
+            .map(|(_, attribution)| attribution)
+            .collect()
+    }
+
+    /// Every attribution served so far, with whose data owed it.
+    fn owed(&self) -> BTreeSet<OwedAttribution> {
         self.attributions
             .lock()
             .map(|attributions| attributions.clone())
             .unwrap_or_default()
+    }
+
+    /// Hand every attribution this derivation owes to `enclosing`, each on
+    /// the person whose data owed it.
+    pub(super) fn attribute_to(&self, enclosing: &Self) {
+        for (owner, attribution) in self.owed() {
+            enclosing.attribute(owner, attribution);
+        }
     }
 
     /// The policy a row derived from what was served so far is stamped with.
@@ -111,7 +143,7 @@ impl Provenance {
 
     /// Every group member whose data was read so far.
     #[must_use]
-    pub(super) fn members_read(&self) -> BTreeSet<Uuid> {
+    pub fn members_read(&self) -> BTreeSet<Uuid> {
         self.members_read
             .lock()
             .map(|members| members.clone())
@@ -165,6 +197,23 @@ pub fn note_member_read(member: Uuid) {
     });
 }
 
+/// Run `fut` reading `person`'s data: an attribution what it serves owes is
+/// owed on `person` (carnet#1464).
+///
+/// Set where a read's owner is known: the dispatch chokepoint around a read
+/// of a coached athlete, and a group snapshot around each member's. A read in
+/// no such scope owes its attribution on no one in particular, which every
+/// reply derived from it then carries.
+pub async fn reading_about<F: Future>(person: Uuid, fut: F) -> F::Output {
+    READ_ABOUT.scope(person, fut).await
+}
+
+/// Whose data the running read serves, when a [`reading_about`] scope says.
+#[must_use]
+pub(super) fn read_about() -> Option<Uuid> {
+    READ_ABOUT.try_with(|person| *person).ok()
+}
+
 /// The member content derived here so far is about: the one group member the
 /// running derivation read, `None` outside one, or when it read none or
 /// several (carnet#1174).
@@ -176,7 +225,7 @@ pub fn derived_member() -> Option<Uuid> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_scope::{derived, tracking};
+    use crate::ai_scope::{derived, note_attribution, tracking};
 
     // carnet#1174: a round's rows name the members its own calls read, while
     // the turn, which the reply is stamped from, keeps every member read.
@@ -231,6 +280,46 @@ mod tests {
             turn.sole_member(),
             Some(member),
             "a member a nested derivation read is the turn's too"
+        );
+    }
+
+    // carnet#1464: an attribution is owed on the person whose data owed it,
+    // through a nested derivation too; a read whose owner no scope names
+    // owes it on no one in particular.
+    #[tokio::test]
+    async fn each_attribution_is_owed_on_whose_data_owed_it() {
+        let (coach, athlete) = (Uuid::new_v4(), Uuid::new_v4());
+        let turn = Provenance::new();
+        tracking(turn.clone(), async {
+            reading_about(coach, async { note_attribution(Some("Garmin")) }).await;
+            reading_about(athlete, async { note_attribution(Some("Polar")) }).await;
+            let ((), _) = derived(reading_about(athlete, async {
+                note_attribution(Some("Coros"));
+            }))
+            .await;
+            note_attribution(Some("Suunto"));
+        })
+        .await;
+
+        assert_eq!(
+            turn.attributions_owed(|_| true),
+            BTreeSet::from(["Coros", "Garmin", "Polar", "Suunto"]),
+            "the turn keeps every attribution, whoever's data owed it"
+        );
+        assert_eq!(
+            turn.attributions_owed(|owner| owner == Some(athlete)),
+            BTreeSet::from(["Coros", "Polar"]),
+            "the athlete's reads owe theirs alone, a nested derivation's included"
+        );
+        assert_eq!(
+            turn.attributions_owed(|owner| owner == Some(coach)),
+            BTreeSet::from(["Garmin"]),
+            "the coach's read owes its own"
+        );
+        assert_eq!(
+            turn.attributions_owed(|owner| owner.is_none()),
+            BTreeSet::from(["Suunto"]),
+            "a read no scope names is owed on no one in particular"
         );
     }
 

@@ -62,9 +62,10 @@ use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
 use super::athlete_link::ProposeAthleteLinkTool;
+use super::call_room::{call_room, CallRoom};
 use super::coach_scope;
 use super::group_member_plan::GetGroupMemberPlanStatusTool;
-use super::group_roster::{self, CallRoom, GetRosterOverviewTool};
+use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::fetch_provider_activities;
 use crate::context::ToolExecutionContext;
@@ -201,7 +202,7 @@ async fn scan_scope(
     context: &ToolExecutionContext,
     arg_group: Option<&str>,
 ) -> AppResult<Result<ScanScope, ToolResult>> {
-    Ok(match group_roster::call_room(context).await? {
+    Ok(match call_room(context).await? {
         CallRoom::Private => Ok(ScanScope::Private(arg_group.map(str::to_owned))),
         CallRoom::Group(group) => Ok(ScanScope::Room(group)),
         CallRoom::Unresolved => Err(coach_scope::refusal(
@@ -661,6 +662,10 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 // A tenant id that does not parse reads the notice defaults, as
                 // a call made without a tenant does.
                 let tenant = Uuid::parse_str(&conn.tenant_id).unwrap_or_default();
+                // The peer's data: what it owes is owed on them (carnet#1464).
+                // Boxed: the scope would otherwise ride inline in the tool's
+                // own future.
+                let fetch = Box::pin(ai_scope::reading_about(peer_id, fetch));
                 if let Some(fetched) =
                     provider_notice::under_subject_ai_consent(data.repos(), tenant, peer_id, fetch)
                         .await

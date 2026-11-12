@@ -27,6 +27,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::{
     mcp::resources::ServerContext, tools::registry_builtin::register_builtin_tools,
 };
+use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use reqwest::Client;
@@ -488,6 +489,8 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     // operator tools and the tools kept on Dravr's own surfaces.
     let mut schemas = registry.user_visible_schemas();
     first_party_tools::retain_served_over(&registry, &mut schemas, Transport::McpHttp);
+    // The admin coaches no group, so the coach-only tools are not listed to them.
+    coach_listing::retain_for_audience(&registry, &mut schemas, false);
     let in_process: HashSet<String> = schemas.into_iter().map(|s| s.name).collect();
 
     let only_wire: Vec<&String> = wire.difference(&in_process).collect();

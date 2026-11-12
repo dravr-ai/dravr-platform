@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -80,6 +81,52 @@ use crate::setup_timing::record_member_joined;
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 
+/// The member snapshots a group context is built from, and whose cards it
+/// shows.
+///
+/// Every snapshot counts toward the group's active members; of the members
+/// who share with the requester, only those in `shown` get a card, alert or
+/// flag in the prompt, or every one of them when `shown` is `None`. A coach's
+/// room message about one athlete shows that athlete's card alone
+/// (carnet#1464).
+#[derive(Debug, Clone, Copy)]
+pub struct MemberCards<'a> {
+    /// The pre-fetched snapshot of each member.
+    pub snapshots: &'a [MemberFitnessSnapshot],
+    /// The members whose cards are shown; `None` shows every one.
+    pub shown: Option<&'a BTreeSet<Uuid>>,
+}
+
+/// The system prompt [`GroupService::inject_group_context`] built, and the
+/// members whose cards it carries.
+#[derive(Debug, Clone)]
+pub struct InjectedGroupContext {
+    /// The system prompt, with the group context appended when one applies.
+    pub prompt: String,
+    /// The members whose cards the prompt carries: those who share with the
+    /// requester and are shown. Empty when no group context applies. Their
+    /// data reached the model, so the Garmin attribution the reply owes
+    /// includes theirs (carnet#1464).
+    pub cards_carried: BTreeSet<Uuid>,
+}
+
+impl InjectedGroupContext {
+    /// `prompt` unchanged: no group context applies, and no card is carried.
+    const fn unchanged(prompt: String) -> Self {
+        Self {
+            prompt,
+            cards_carried: BTreeSet::new(),
+        }
+    }
+}
+
+impl MemberCards<'_> {
+    /// Whether `member`'s card is shown.
+    fn shows(&self, member: Uuid) -> bool {
+        self.shown.is_none_or(|shown| shown.contains(&member))
+    }
+}
+
 /// Central service for group coaching operations.
 ///
 /// Coordinates strategy traits with the repository to provide group-aware
@@ -142,8 +189,9 @@ impl GroupService {
     /// the system prompt with member summaries, aggregate stats, and
     /// role-appropriate context (admin overview vs individual focus).
     ///
-    /// Returns the original prompt unchanged if no group context applies.
-    /// Fast early return (single DB query) for non-group conversations.
+    /// Returns the original prompt unchanged, carrying no card, if no group
+    /// context applies. Fast early return (single DB query) for non-group
+    /// conversations.
     ///
     /// # Arguments
     /// * `base_system_prompt` — The agent's system prompt (possibly already augmented with provider context)
@@ -151,7 +199,7 @@ impl GroupService {
     /// * `user_id` — The user sending the message
     /// * `tenant_id` — Multi-tenant isolation
     /// * `conversation_group_id` — If already selected, skip disambiguation
-    /// * `member_snapshots` — Pre-fetched fitness data for group members
+    /// * `cards` — Pre-fetched fitness data for group members, and whose cards are shown
     ///
     /// # Errors
     ///
@@ -163,8 +211,8 @@ impl GroupService {
         user_id: Uuid,
         tenant_id: TenantId,
         conversation_group_id: Option<&str>,
-        member_snapshots: &[MemberFitnessSnapshot],
-    ) -> AppResult<String> {
+        cards: MemberCards<'_>,
+    ) -> AppResult<InjectedGroupContext> {
         // Fast path: if conversation already has a group, use it
         let group = if let Some(gid) = conversation_group_id {
             self.repo.get_group(gid, tenant_id).await?
@@ -176,7 +224,11 @@ impl GroupService {
                 .await?;
 
             match groups.len() {
-                0 => return Ok(base_system_prompt.to_owned()),
+                0 => {
+                    return Ok(InjectedGroupContext::unchanged(
+                        base_system_prompt.to_owned(),
+                    ))
+                }
                 1 => Some(groups.into_iter().next().ok_or_else(|| {
                     AppError::internal("group list reported len()==1 but yielded no element")
                 })?),
@@ -189,13 +241,15 @@ impl GroupService {
                         Ask which group context they'd like to use.",
                         names.join(", ")
                     );
-                    return Ok(disambiguation);
+                    return Ok(InjectedGroupContext::unchanged(disambiguation));
                 }
             }
         };
 
         let Some(group) = group else {
-            return Ok(base_system_prompt.to_owned());
+            return Ok(InjectedGroupContext::unchanged(
+                base_system_prompt.to_owned(),
+            ));
         };
 
         // Pull the full member list once: we need both the requester's role
@@ -225,9 +279,10 @@ impl GroupService {
         // even if they haven't opted in to sharing it.
         let summarizer = self.tier.summarization_strategy();
         let sharing_user_ids = Self::visible_member_ids(&group, &members, user_id);
+        let member_snapshots = cards.snapshots;
         let visible_snapshots: Vec<&MemberFitnessSnapshot> = member_snapshots
             .iter()
-            .filter(|s| sharing_user_ids.contains(&s.user_id))
+            .filter(|s| sharing_user_ids.contains(&s.user_id) && cards.shows(s.user_id))
             .collect();
         info!(
             group_id = %group.id,
@@ -239,7 +294,7 @@ impl GroupService {
             visible_count = visible_snapshots.len(),
             "Group context visibility filter applied"
         );
-        let cards: Vec<MemberSummaryCard> = visible_snapshots
+        let summary_cards: Vec<MemberSummaryCard> = visible_snapshots
             .iter()
             .map(|s| summarizer.summarize_member(s))
             .collect();
@@ -256,13 +311,13 @@ impl GroupService {
         let ctx_strategy = select_context_strategy(is_admin);
 
         // Build the context block
-        let my_card = cards.iter().find(|c| c.user_id == user_id);
+        let my_card = summary_cards.iter().find(|c| c.user_id == user_id);
         let context_block = if is_admin {
-            ctx_strategy.build_group_context(&context, &cards)
+            ctx_strategy.build_group_context(&context, &summary_cards)
         } else {
             my_card.map_or_else(
-                || ctx_strategy.build_group_context(&context, &cards),
-                |card| ctx_strategy.build_member_context(card, &context, &cards),
+                || ctx_strategy.build_group_context(&context, &summary_cards),
+                |card| ctx_strategy.build_member_context(card, &context, &summary_cards),
             )
         };
 
@@ -270,7 +325,7 @@ impl GroupService {
             group_id = %group.id,
             member_count = member_count,
             is_admin = is_admin,
-            tokens = summarizer.estimated_tokens(cards.len()),
+            tokens = summarizer.estimated_tokens(summary_cards.len()),
             "Injected group context into system prompt"
         );
 
@@ -286,9 +341,12 @@ impl GroupService {
         // footer, a coach's true "son Strava est à reconnecter" was judged
         // unsupported, and the repair it triggered had the coach retract it.
         let separator = if alerts.is_empty() { "" } else { "\n" };
-        Ok(format!(
-            "{base_system_prompt}{context_block}{alerts}{separator}{GROUP_CONTEXT_FOOTER}\n"
-        ))
+        Ok(InjectedGroupContext {
+            prompt: format!(
+                "{base_system_prompt}{context_block}{alerts}{separator}{GROUP_CONTEXT_FOOTER}\n"
+            ),
+            cards_carried: visible_snapshots.iter().map(|s| s.user_id).collect(),
+        })
     }
 
     // ========================================================================

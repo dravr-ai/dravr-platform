@@ -55,6 +55,7 @@ use pierre_mcp_server::{
 };
 use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
@@ -354,6 +355,36 @@ pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &U
         .auth_manager
         .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
+}
+
+/// Run `call`, a tool call `user` makes in `tenant`, as a turn of Dravr's web
+/// app: the conversation `CONVERSATION_ID` scopes is read by `user` alone
+/// when its row carries no group, as the chat route says it
+/// (`TurnRequest::is_direct_message`). Outside a conversation, or under an
+/// audience the caller already scoped, `call` runs as it is.
+///
+/// A messaging group chat whose binding failed carries no group either, so a
+/// test of that chat scopes its audience itself (carnet#1422).
+pub(crate) async fn in_web_turn<F: Future>(
+    resources: &ServerContext,
+    user: Uuid,
+    tenant: TenantId,
+    call: F,
+) -> F::Output {
+    let stated = TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten();
+    let conversation = CONVERSATION_ID.try_with(Clone::clone).ok().flatten();
+    let (None, Some(conversation)) = (stated, conversation) else {
+        return call.await;
+    };
+    let direct_message = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conversation, &user.to_string(), tenant)
+        .await
+        .unwrap()
+        .is_none_or(|row| row.group_id.is_none());
+    TURN_DIRECT_MESSAGE.scope(Some(direct_message), call).await
 }
 
 /// Mint the credential an MCP or A2A client holds for a test user: an OAuth
