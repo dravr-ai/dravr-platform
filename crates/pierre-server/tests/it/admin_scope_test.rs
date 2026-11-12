@@ -62,14 +62,6 @@ fn endpoints() -> Vec<Endpoint> {
             },
         },
         Endpoint {
-            path: "/api/admin/myth-busting/summary",
-            read: |body| body["verdicts_scanned"].as_i64().unwrap(),
-        },
-        Endpoint {
-            path: "/api/admin/agent-grading/summary",
-            read: |body| body["verdicts_scanned"].as_i64().unwrap(),
-        },
-        Endpoint {
             path: "/api/admin/claim-verdicts",
             read: |body| body["total"].as_i64().unwrap(),
         },
@@ -537,24 +529,24 @@ async fn a_super_admin_picking_one_tenant_reads_that_tenant_alone() {
 async fn reply_sentences_never_cross_to_a_plain_admin() {
     let fx = fixture().await;
     let (_, own) = fx
-        .get("/api/admin/myth-busting/summary", &fx.plain_auth, None)
+        .get("/api/admin/claim-verdicts", &fx.plain_auth, None)
         .await;
-    let quoted = own["recent_claims"].to_string();
+    let quoted = own["verdicts"].to_string();
     assert!(
-        quoted.contains("Home tenant"),
+        quoted.contains(HOME_SENTENCE),
         "bug: own sentence missing: {quoted}"
     );
     assert!(
-        !quoted.contains("Foreign tenant"),
+        !quoted.contains(FOREIGN_SENTENCE),
         "bug: another tenant's sentence reached a plain admin: {quoted}"
     );
 
     let (_, platform) = fx
-        .get("/api/admin/myth-busting/summary", &fx.super_auth, None)
+        .get("/api/admin/claim-verdicts", &fx.super_auth, None)
         .await;
-    let quoted = platform["recent_claims"].to_string();
+    let quoted = platform["verdicts"].to_string();
     assert!(
-        quoted.contains("Home tenant") && quoted.contains("Foreign tenant"),
+        quoted.contains(HOME_SENTENCE) && quoted.contains(FOREIGN_SENTENCE),
         "bug: the platform view must quote both tenants: {quoted}"
     );
 }
@@ -623,8 +615,7 @@ async fn a_plain_user_stays_refused_on_the_console_screens() {
     let fx = fixture().await;
     for path in [
         "/api/admin/memory/worker-metrics",
-        "/api/admin/myth-busting/summary",
-        "/api/admin/agent-grading/summary",
+        "/api/admin/claim-verdicts",
         "/api/admin/analytics/recent-activity",
     ] {
         let (status, _) = fx.get(path, &fx.athlete_auth, None).await;
@@ -763,7 +754,7 @@ async fn a_plain_admin_is_refused_a_user_outside_the_tenant_they_act_in() {
 #[serial]
 async fn reading_another_tenants_sentences_writes_one_audit_row() {
     let fx = fixture().await;
-    let path = "/api/admin/myth-busting/summary";
+    let path = "/api/admin/claim-verdicts";
 
     fx.get(path, &fx.plain_auth, None).await;
     assert!(
@@ -859,12 +850,8 @@ async fn a_verdict_filter_narrows_the_platform_read_as_it_does_a_tenants() {
 #[serial]
 async fn a_refused_read_writes_no_cross_tenant_audit_row() {
     let fx = fixture().await;
-    fx.get(
-        "/api/admin/myth-busting/summary",
-        &fx.plain_auth,
-        Some("all"),
-    )
-    .await;
+    fx.get("/api/admin/claim-verdicts", &fx.plain_auth, Some("all"))
+        .await;
     assert!(
         fx.audit_rows().await.is_empty(),
         "bug: a refused read reached no sentence"
@@ -968,10 +955,10 @@ async fn the_run_ledger_counts_by_outcome_window_and_tenant() {
 #[serial]
 async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
     let fx = fixture().await;
-    let summary = "/api/admin/myth-busting/summary";
+    let list = "/api/admin/claim-verdicts";
 
-    fx.get(summary, &fx.super_auth, None).await;
-    fx.get(summary, &fx.super_auth, None).await;
+    fx.get(list, &fx.super_auth, None).await;
+    fx.get(list, &fx.super_auth, None).await;
     let rows = fx.audit_rows().await;
     assert_eq!(
         rows.len(),
@@ -979,9 +966,9 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
         "bug: a refetch of the same read within the hour flooded the trail"
     );
 
-    fx.get(summary, &fx.super_auth, Some(&fx.foreign.to_string()))
+    fx.get(list, &fx.super_auth, Some(&fx.foreign.to_string()))
         .await;
-    fx.get(summary, &fx.super_auth, Some(&fx.foreign.to_string()))
+    fx.get(list, &fx.super_auth, Some(&fx.foreign.to_string()))
         .await;
     let rows = fx.audit_rows().await;
     assert_eq!(rows.len(), 2, "bug: another scope is another access");
@@ -990,11 +977,18 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
         tenant_scope(fx.foreign)
     );
 
-    fx.get("/api/admin/claim-verdicts", &fx.super_auth, None)
-        .await;
+    fx.get(
+        "/api/admin/claim-verdicts/messages/no-such-message",
+        &fx.super_auth,
+        None,
+    )
+    .await;
     let rows = fx.audit_rows().await;
     assert_eq!(rows.len(), 3, "bug: another screen is another access");
-    assert_eq!(rows[0].metadata["route"], "/api/admin/claim-verdicts");
+    assert_eq!(
+        rows[0].metadata["route"],
+        "/api/admin/claim-verdicts/messages/{message_id}"
+    );
 }
 
 /// Every Engagement figure follows one scope: a plain admin's users, agents

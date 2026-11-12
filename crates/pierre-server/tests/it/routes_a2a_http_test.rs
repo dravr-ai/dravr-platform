@@ -21,8 +21,8 @@ use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_a2a::client::USAGE_HISTORY_DAYS;
 use pierre_config::environment::{
-    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, GuardianSettings,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
 };
 use pierre_core::models::a2a::A2AUsage;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
@@ -725,15 +725,9 @@ async fn a_guardian_denial_reaches_the_client_as_data_beside_the_failure_text() 
     // failure and branch on why. The machine-readable part is additive: the text
     // part stays first and says what it always said.
     common::init_server_config();
-    let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_guardian(GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        }),
-    )
-    .await
-    .expect("server resources");
+    let resources = common::create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
     let (user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-denied@example.com")
         .await
         .expect("seed user + tenant + JWT with active_tenant_id");

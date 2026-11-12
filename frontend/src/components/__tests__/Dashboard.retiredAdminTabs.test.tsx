@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Locks where a bookmark of a retired or unknown tab lands, for an admin and an athlete
-// ABOUTME: #eval-harness opens Claim Verdicts; anything the Dashboard does not draw opens the role's home and rewrites the hash
+// ABOUTME: #eval-harness, #myth-busting and #agent-grading open Claim Verdicts; anything the Dashboard does not draw opens the role's home and rewrites the hash
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
@@ -90,12 +90,15 @@ describe('retired admin tabs', () => {
     viewer.role = 'admin';
   });
 
-  it('opens Claim Verdicts from a bookmarked #eval-harness', async () => {
-    await openAt('#eval-harness');
+  it.each(['#eval-harness', '#myth-busting', '#agent-grading'])(
+    'opens Claim Verdicts from a bookmarked %s',
+    async (hash) => {
+      await openAt(hash);
 
-    expect(await screen.findByTestId('claim-verdicts-tab')).toBeInTheDocument();
-    expect(window.location.hash).toBe('#claim-verdicts');
-  });
+      expect(await screen.findByTestId('claim-verdicts-tab')).toBeInTheDocument();
+      expect(window.location.hash).toBe('#claim-verdicts');
+    },
+  );
 
   it.each(['#agent-followups', '#agent-notes-audit'])(
     'opens the admin default from a bookmarked %s',
@@ -111,10 +114,16 @@ describe('retired admin tabs', () => {
     await openAt('#users');
     await screen.findByTestId('users-tab');
 
-    for (const name of ['shell.navEvalHarness', 'shell.navAgentFollowups', 'shell.navAgentNotesAudit']) {
+    for (const name of [
+      'shell.navEvalHarness',
+      'shell.navAgentFollowups',
+      'shell.navAgentNotesAudit',
+      'shell.navMythBusting',
+      'shell.navAgentGrades',
+    ]) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
-    for (const name of ['Eval Harness', 'Agent Followups', 'Agent Notes Audit']) {
+    for (const name of ['Eval Harness', 'Agent Followups', 'Agent Notes Audit', 'Myth Busting', 'Agent Grades']) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
   });

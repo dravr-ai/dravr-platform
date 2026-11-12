@@ -35,6 +35,7 @@ impl ServerBackfillNotifier {
         if !reconnects_through_garmin_oauth(
             self.repos.oauth_tokens.as_ref(),
             self.repos.provider_connections.as_ref(),
+            self.repos.system_settings.as_ref(),
             &self.oauth,
             user_id,
             tenant_id,

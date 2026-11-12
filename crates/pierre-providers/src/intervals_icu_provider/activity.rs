@@ -48,6 +48,9 @@ pub(super) struct IntervalsIcuActivity {
     timezone: Option<String>,
     #[serde(default)]
     elapsed_time: Option<u64>,
+    /// Seconds moving: `elapsed_time` less the stops intervals.icu removed.
+    #[serde(default)]
+    moving_time: Option<u64>,
     #[serde(default)]
     distance: Option<f64>,
     #[serde(default)]
@@ -122,6 +125,7 @@ pub(super) fn map_activity(
         "intervals_icu".to_owned(),
     )
     .source_opt(source)
+    .moving_time_seconds_opt(raw.moving_time.filter(|seconds| *seconds > 0))
     .device_name_opt(
         raw.device_name
             .map(|name| name.trim().to_owned())
@@ -259,6 +263,28 @@ mod tests {
             activity.start_date(),
             ride_at_21_utc(),
             "bug: the payload's UTC `start_date` must be the start, not the wall clock"
+        );
+    }
+
+    #[test]
+    fn moving_time_sits_beside_the_elapsed_duration() {
+        let activity = mapped(json!({
+            "id": "i9",
+            "type": "Ride",
+            "start_date": "2026-09-20T21:00:00Z",
+            "start_date_local": "2026-09-20T17:00:00",
+            "elapsed_time": 5_400,
+            "moving_time": 4_800,
+        }));
+        assert_eq!(
+            activity.duration_seconds(),
+            5_400,
+            "bug: duration is elapsed time"
+        );
+        assert_eq!(
+            activity.moving_time_seconds(),
+            Some(4_800),
+            "bug: moving time is carried beside it"
         );
     }
 

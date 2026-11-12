@@ -705,17 +705,29 @@ fn ledger_of(deletion: &AccountDeletion, not_deleted: Vec<String>) -> DeletionLe
 /// Evict what this process caches about the deleted user, recording it on
 /// `ledger`: every response cached under their id, and their email.
 async fn evict_after_commit(cache: Option<&Cache>, user_id: Uuid, ledger: &mut DeletionLedger) {
+    let (removed, evicted) = evict_user_caches(cache, user_id).await;
+    ledger.cache_entries_removed = removed;
+    ledger.identity_cache_evicted = evicted;
+}
+
+/// Evict what this process caches about a user whose rows just went (a
+/// delete or a reset): every response cached under their id in every tenant,
+/// and their email held for notify events. Returns the cache entries removed
+/// (`None` when no cache was given or it could not be reached, which is
+/// logged) and whether this process held the email.
+pub(crate) async fn evict_user_caches(cache: Option<&Cache>, user_id: Uuid) -> (Option<u64>, bool) {
+    let mut removed = None;
     if let Some(cache) = cache {
         match cache.invalidate_user(user_id).await {
-            Ok(removed) => ledger.cache_entries_removed = Some(removed),
+            Ok(count) => removed = Some(count),
             Err(e) => warn!(
                 user_id = %user_id,
                 error = %e,
-                "Could not evict the deleted user's cache entries; they expire with their TTL"
+                "Could not evict the user's cache entries; they expire with their TTL"
             ),
         }
     }
-    ledger.identity_cache_evicted = evict_user_email(&user_id.to_string());
+    (removed, evict_user_email(&user_id.to_string()))
 }
 
 /// Raise `provider.disconnected` for each provider the deletion withdrew,
@@ -780,6 +792,15 @@ async fn delete_firebase_identity(
 /// [`BLOCKERS_NAMED`] with a count of the rest.
 #[must_use]
 pub fn blockers_message(blockers: &[UserReference]) -> String {
+    format!(
+        "User cannot be deleted until these are reassigned or removed: {}",
+        name_blockers(blockers)
+    )
+}
+
+/// Each blocking reference as an operator reads it, capped at
+/// [`BLOCKERS_NAMED`] with a count of the rest, joined by `; `.
+pub(crate) fn name_blockers(blockers: &[UserReference]) -> String {
     let mut named: Vec<String> = blockers
         .iter()
         .take(BLOCKERS_NAMED)
@@ -788,8 +809,5 @@ pub fn blockers_message(blockers: &[UserReference]) -> String {
     if blockers.len() > BLOCKERS_NAMED {
         named.push(format!("and {} more", blockers.len() - BLOCKERS_NAMED));
     }
-    format!(
-        "User cannot be deleted until these are reassigned or removed: {}",
-        named.join("; ")
-    )
+    named.join("; ")
 }

@@ -199,7 +199,7 @@ async fn a_withheld_turn_extracts_from_the_athletes_message_alone() {
             fx.withheld_apology().as_str(),
             Some(WITHHELD_REPLY_FINISH_REASON)
         ),
-        "premise: the reply leaked on the ask and on the re-ask, so the turn was withheld"
+        "premise: the reply leaked, so the turn was withheld"
     );
 
     let extraction = fx

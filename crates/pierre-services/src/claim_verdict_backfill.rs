@@ -7,10 +7,10 @@
 //! ClaimVerdict backfill worker.
 //!
 //! Claim verdicts are only written as new agent replies land via
-//! `chat_pipeline::stages::verification::apply_claim_verification`. That leaves Sprint
-//! C14 agent grading starved of statistical power for tenants with
-//! existing history: every agent starts as `Provisional` until the
-//! live stream accumulates 3+ graded verdicts per agent.
+//! `chat_pipeline::stages::verification::apply_claim_verification`. That leaves
+//! a tenant with existing history with no verdict on any reply sent before
+//! the checker went live, so the admin verdict screens see only the replies
+//! since.
 //!
 //! The backfill walks every historical `assistant` message for the
 //! tenant in `(created_at ASC, conversation_id ASC)` order and runs

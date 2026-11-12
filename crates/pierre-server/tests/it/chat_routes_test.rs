@@ -502,7 +502,10 @@ async fn test_create_conversation_refuses_the_thread_past_the_default_cap() {
         "{body}"
     );
 
-    let listed: ConversationListResponse = AxumTestRequest::get("/api/chat/conversations?limit=50")
+    // One row wider than the cap, so a refused thread that was created anyway
+    // shows up as an extra row instead of falling off the page.
+    let page = format!("/api/chat/conversations?limit={}", cap + 1);
+    let listed: ConversationListResponse = AxumTestRequest::get(&page)
         .header("authorization", &auth_token)
         .send(router)
         .await

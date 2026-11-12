@@ -122,9 +122,10 @@ async function setupStoreMocks(
   // Set up base dashboard mocks for regular user
   await setupDashboardMocks(page, { role: 'user' });
 
-  // "Open chat" on the post-install hint opens a topic bound to the agent in
-  // the athlete's one thread (carnet#840), which forges it for an athlete with
-  // none yet.
+  // "Open chat" on the post-install hint, for an athlete with no thread of
+  // their own yet, opens a topic bound to the agent, which forges their
+  // personal thread (carnet#840). One who has a thread gets a new
+  // conversation beside it instead (carnet#1473).
   await page.route('**/api/chat/personal/topics', async (route) => {
     const { agent_id: agentId } = route.request().postDataJSON() as { agent_id?: string };
     await route.fulfill({
@@ -1031,7 +1032,7 @@ test.describe('Agent Store Failures', () => {
 });
 
 test.describe('Agent Store Navigation', () => {
-  test('Open chat on the hint opens a topic bound to the installed agent in the athlete\'s thread and lands on it', async ({ page }) => {
+  test('Open chat on the hint, with no thread yet, opens the athlete\'s personal thread bound to the installed agent and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -1049,13 +1050,65 @@ test.describe('Agent Store Navigation', () => {
     );
     await page.getByTestId('post-install-open-chat').click();
     // Bound to the agent the install put on the team — the listing itself, no
-    // copy — so the server posts the agent's welcome, in the athlete's thread,
-    // never a second one.
+    // copy — so the server posts the agent's welcome. The athlete's first
+    // chat becomes their personal thread.
     expect((await opened).postDataJSON()).toEqual({ agent_id: mockStoreCoaches[0].id });
 
     // The athlete's thread on Home is the route: Discover has no agent list to return to.
     await expect(page).toHaveURL(/#home\/chat\/conv-from-hint$/, { timeout: 10000 });
     await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
+  });
+
+  // carnet#1473: the personal thread keeps its own agent; the new one gets a
+  // conversation of its own.
+  test('Open chat on the hint, with a personal thread, opens a new conversation bound to the installed agent and lands on it', async ({ page }) => {
+    await setupStoreMocks(page, { installed: [] });
+    const personal = {
+      id: 'conv-personal',
+      title: 'Dravr',
+      agent_id: null,
+      group_id: null,
+      personal: true,
+      message_count: 4,
+      unread_count: 0,
+      created_at: '2026-08-20T10:00:00Z',
+      updated_at: '2026-08-20T10:00:00Z',
+    };
+    const created: Array<Record<string, unknown>> = [];
+    const topics: string[] = [];
+    await page.route('**/api/chat/personal/topics', async (route) => {
+      topics.push(route.request().url());
+      await route.fallback();
+    });
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        created.push(body);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...personal, id: 'conv-marathon', personal: false, agent_id: body.agent_id, message_count: 1 }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [personal], total: 1, limit: 50, offset: 0 }),
+      });
+    });
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    await page.getByText('Marathon Training Coach').click();
+    await page.getByRole('button', { name: 'Add Agent' }).click();
+    await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
+
+    await page.getByTestId('post-install-open-chat').click();
+
+    await expect(page).toHaveURL(/#home\/chat\/conv-marathon$/, { timeout: 10000 });
+    expect(created).toEqual([{ agent_id: mockStoreCoaches[0].id }]);
+    expect(topics).toHaveLength(0);
   });
 
   test('the first Edit agent forks the listing on the team, and Remove then removes the copy', async ({ page }) => {

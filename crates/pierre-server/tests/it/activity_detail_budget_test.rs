@@ -1,11 +1,11 @@
-// ABOUTME: Pins that detail auto-promotion is rationed by provider cost, never silently dropped
+// ABOUTME: Pins that detail reads are rationed by provider cost, never silently dropped
 // ABOUTME: A scrape-backed provider enriches the newest few; an API provider still enriches all
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `get_activities` promotes small result sets to detailed by fetching each
-//! activity's detail page. On an HTTP API that is milliseconds per activity;
+//! `get_activities` details the activities of the last fourteen days by
+//! fetching each one's detail page. On an HTTP API that is milliseconds per activity;
 //! on a headless-browser provider it is a full page navigation. A live
 //! 2026-08-12 Telegram turn returned its list in 37s and then spent **3m41s**
 //! scraping 30 detail pages one at a time — 4m37s total for an answer the
@@ -20,9 +20,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_core::config::fitness::{
-    DEFAULT_ACTIVITY_DETAIL_THRESHOLD, EXPENSIVE_DETAIL_PROMOTION_BUDGET,
-};
+use pierre_core::config::fitness::{EXPENSIVE_DETAIL_PROMOTION_BUDGET, EXPLICIT_DETAIL_CAP};
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::ProviderCapabilities;
 
@@ -67,12 +65,12 @@ fn api_providers_keep_unrationed_detail() {
 // Zero would drop detail entirely on scrape providers. Their list page is
 // date-only, so the agent would stop knowing when a session happened and lose
 // HR and laps with it — the shortcut this whole change exists to avoid. A
-// budget at or above the promotion threshold would ration nothing.
+// budget at or above the cheap providers' cap would ration nothing.
 const _: () = assert!(
     EXPENSIVE_DETAIL_PROMOTION_BUDGET > 0,
     "detail must be rationed on expensive providers, never removed"
 );
 const _: () = assert!(
-    EXPENSIVE_DETAIL_PROMOTION_BUDGET < DEFAULT_ACTIVITY_DETAIL_THRESHOLD,
-    "a budget at or above the promotion threshold rations nothing"
+    EXPENSIVE_DETAIL_PROMOTION_BUDGET < EXPLICIT_DETAIL_CAP,
+    "a budget at or above the cheap providers' cap rations nothing"
 );

@@ -161,6 +161,9 @@ pub async fn finalize_headless_turn(
         // reads it on the way past and stamps it under this turn's key; taken
         // from the shared store by `settle_turn_signals` below.
         served_without_provider: None,
+        // Stamped by the chokepoint under this turn's key like the offer
+        // above; taken by `settle_turn_signals` below.
+        window_incomplete: false,
         // #10: a block that fired at the platform chokepoint during the ACP
         // subprocess's tool calls is recovered from the shared Guardian store by
         // `settle_turn_signals` below, so the headless path surfaces the same
@@ -195,6 +198,8 @@ pub async fn finalize_headless_turn(
 ///   It stamps the finish reason too: the reply is about to become the platform's
 ///   text, and the row is replayed by that stamp, so a model's `stop` left on it
 ///   would read back as the agent's own words (carnet#1398).
+/// - Whether a `get_activities` window the turn read was incomplete, so
+///   capability recovery re-asks a reply that counts over it (carnet#1481).
 /// - Whether a consequential call reached the gate under this turn's key, which
 ///   a leg re-run on the chain's tail would otherwise lose along with its list
 ///   of tools.
@@ -211,6 +216,7 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
     if let Some(offer) = resources.reconnect_offers().take_offer(&turn_key) {
         result.served_without_provider = result.served_without_provider.take().or(Some(offer));
     }
+    result.window_incomplete |= resources.incomplete_windows().take(&turn_key);
     let turns = resources.guardian_turns();
     result.write_attempted |= turns.write_attempted(&turn_key);
     if let Some(HeadlessBlock { tool_name, reason }) = turns.take_block(&turn_key) {

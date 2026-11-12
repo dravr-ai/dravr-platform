@@ -81,5 +81,5 @@ pub use messaging_strings::MessagingStringsRegistry;
 pub use registry::PromptRegistry;
 pub use store::PromptStore;
 pub use tool_descriptions::ToolDescriptionRegistry;
-pub use training_catalogue::TrainingCatalogueRegistry;
+pub use training_catalogue::{session_view, ResolvedWorkout, TrainingCatalogueRegistry};
 pub use use_case_catalogue::UseCaseCatalogue;

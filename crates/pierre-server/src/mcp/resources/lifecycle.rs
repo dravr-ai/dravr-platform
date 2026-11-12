@@ -140,7 +140,7 @@ use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
-use pierre_tool_runtime::guardian::{GuardianConfigRegistry, GuardianEnvOverrides};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "client-messaging")]
@@ -280,19 +280,13 @@ impl ServerContext {
             Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
 
         // Load the Guardian policy snapshot from `system_settings.guardian_config`
-        // (defaults ← persisted document ← the GUARDIAN_* overrides startup read
-        // into the config, which win per field).
+        // (the compiled-in caps with the stored document over them).
         // Every dispatch point reads the effective Arc<Guardian> through the
         // ServerContext ToolRuntime override, `PUT /admin/settings/guardian` calls
         // `install` on it after persisting a new document, and
         // `start_settings_poll` keeps every other instance converged on the row.
-        let guardian_config_registry = Arc::new(
-            GuardianConfigRegistry::from_database(
-                &database_arc,
-                GuardianEnvOverrides::from_settings(&config.guardian),
-            )
-            .await,
-        );
+        let guardian_config_registry =
+            Arc::new(GuardianConfigRegistry::from_database(&database_arc).await);
 
         // Create A2A services for agent-to-agent communication
         #[cfg(feature = "protocol-a2a")]

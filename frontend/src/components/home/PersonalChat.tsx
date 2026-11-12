@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Home's conversation: the athlete's own thread in the middle, Today beside it, the other threads behind History
-// ABOUTME: A new chat opens a topic in the personal thread rather than another thread; the thread itself is ChatThread
+// ABOUTME: A new chat is a new conversation beside the personal thread (its first one, the thread itself); the thread is ChatThread
 
 import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { History, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
@@ -26,6 +26,7 @@ import { topicAnchorId } from '../chat/utils';
 import ConversationList from '../dashboard/ConversationList';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { Sheet } from '../ui';
+import { openNewChat } from './openNewChat';
 import type { PersonalToday, TodayActions } from './personalToday';
 
 /** Where the docked Today panel's open or closed state is kept, per browser. */
@@ -72,26 +73,19 @@ export default function PersonalChat({
 }: PersonalChatProps) {
   const queryClient = useQueryClient();
 
-  // On Home a new chat is a new topic inside the athlete's personal thread,
-  // never another thread: a divider the coach reads afresh from, rebound to
-  // the agent they picked. The topic's divider and its agent's welcome are
-  // new rows of a thread that may already be on screen, and the first "+" of
-  // an athlete with no thread yet is what opened it.
-  const openTopic = useCallback<OpenThread>(
-    async (request) => {
-      const opened = await chatApi.openPersonalTopic(request);
-      const id = opened.conversation.id;
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(id) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
-      return { id };
-    },
+  // On Home a new chat is a new conversation beside the athlete's personal
+  // thread, which is left as it was — no divider, no other agent bound to it
+  // (carnet#1473). The first chat of an athlete with no thread yet is what
+  // opens their personal thread.
+  const openChat = useCallback<OpenThread>(
+    async (request) => ({ id: (await openNewChat(queryClient, request)).id }),
     [queryClient],
   );
 
   const thread = useChatThread({
     conversationId: selectedConversation,
     onSelectConversation,
-    openThread: openTopic,
+    openThread: openChat,
   });
   const { history, runComposerAction, startThread, activeConversation } = thread;
   const info = useThreadInfo(selectedConversation);

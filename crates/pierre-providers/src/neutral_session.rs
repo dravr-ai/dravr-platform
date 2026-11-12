@@ -17,6 +17,7 @@
 //!   against a closed vocabulary or off its target, so a step's label or note
 //!   never leaves Dravr.
 
+use dravr_cageux::periodization::{band_coordinates, AnchorRatios, SportFamily, ThresholdBasis};
 use dravr_cageux::zones::COGGAN_POWER_ZONE_UPPER_FRACTIONS;
 
 use crate::models::{PlannedSession, RelativeIntensity, SportType, WorkoutStep};
@@ -190,10 +191,38 @@ impl StepClass {
                 Self::of_zone(*zone)
             }
             Some(RelativeIntensity::SweetSpot) => Self::Tempo,
-            Some(RelativeIntensity::Percent { low, high, .. }) => Self::of_percent(*low, *high),
+            Some(RelativeIntensity::Percent {
+                low,
+                high,
+                threshold:
+                    None | Some(ThresholdBasis::Ftp | ThresholdBasis::HeartRate | ThresholdBasis::Pace),
+            }) => Self::of_percent(*low, *high),
+            Some(
+                intensity @ (RelativeIntensity::Percent { .. } | RelativeIntensity::Lactate { .. }),
+            ) => Self::of_coordinates(*intensity),
             Some(RelativeIntensity::Rpe(range)) => Self::of_rpe(range.max),
             None => Self::Active,
         }
+    }
+
+    /// A band the threshold classes do not read directly — an anchor they do
+    /// not know (CP, CS, MAP, `vVO2max`, `HRmax`, HRR, MMP) or a blood-lactate
+    /// band — placed on the CP or CS line with the kernel's default
+    /// conversions and classed as the same percent of threshold would be. A
+    /// speed basis (CS, `vVO2max`) is read on the CS line, everything else on
+    /// the CP line.
+    fn of_coordinates(intensity: RelativeIntensity) -> Self {
+        let family = match intensity {
+            RelativeIntensity::Percent {
+                threshold: Some(ThresholdBasis::CriticalSpeed | ThresholdBasis::VVo2max),
+                ..
+            } => SportFamily::Run,
+            _ => SportFamily::Ride,
+        };
+        band_coordinates(intensity, family, &AnchorRatios::default())
+            .map_or(Self::Active, |(lo, hi)| {
+                Self::of_percent(lo.round() as u16, hi.round() as u16)
+            })
     }
 }
 
@@ -242,6 +271,23 @@ mod tests {
         assert_eq!(classify("Sweet spot", "sweet spot"), StepClass::Tempo);
         assert_eq!(classify("Strides", "RPE 9"), StepClass::Vo2Max);
         assert_eq!(classify("Easy", "chatty pace"), StepClass::Active);
+    }
+
+    #[test]
+    fn an_anchor_or_lactate_band_is_classed_where_the_kernel_places_it() {
+        let classify = |zone: &str| {
+            let step = step("Work", 5, zone, 1);
+            StepClass::of_step(&step, RelativeIntensity::parse(zone).as_ref())
+        };
+        // CP and CS are the threshold of their line.
+        assert_eq!(classify("100% CP"), StepClass::Threshold);
+        assert_eq!(classify("95-100% CS"), StepClass::Threshold);
+        // 90-95 % of maximum heart rate sits between LT2 and the aerobic
+        // maximum, 108-126 % of CP.
+        assert_eq!(classify("90-95% HRmax"), StepClass::Vo2Max);
+        // 2 and 4 mmol/L are LT1 and CP on the kernel's lactate line.
+        assert_eq!(classify("2.0 mmol/L"), StepClass::Active);
+        assert_eq!(classify("4.0 mmol/L"), StepClass::Threshold);
     }
 
     #[test]

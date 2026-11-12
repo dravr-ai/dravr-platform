@@ -227,6 +227,40 @@ async fn peek_last_agent_reply(
     fallback
 }
 
+/// Single-shot read of the agent's reply inside the probe's own thread.
+///
+/// `conversations.history` lists only top-level messages, so an answer posted
+/// with `thread_ts` set to the probe is invisible to the polls above. That is
+/// the misplacement carnet#1490 guards against: an answer anchored on the
+/// athlete's message instead of where its status placeholder opens lands in a
+/// thread under the probe. Reading the thread on the timeout path names that
+/// case instead of reporting no reply.
+async fn peek_thread_reply(client: &Client, creds: &SlackCreds, probe_ts: &str) -> Option<String> {
+    let raw = client
+        .get("https://slack.com/api/conversations.replies")
+        .bearer_auth(&creds.bot_token)
+        .query(&[
+            ("channel", creds.channel.as_str()),
+            ("ts", probe_ts),
+            ("limit", "20"),
+        ])
+        .send()
+        .await
+        .ok()?;
+    let response: Value = raw.json().await.ok()?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    response
+        .get("messages")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|msg| msg.get("user").and_then(Value::as_str) == Some(creds.coach_user_id.as_str()))
+        .filter_map(|msg| msg.get("text").and_then(Value::as_str))
+        .find(|text| !is_transient_agent_reply(text))
+        .map(str::to_owned)
+}
+
 /// Poll `conversations.history` for a message authored by the agent
 /// bot and posted strictly after `oldest_ts`. Returns the first such
 /// message's text, or `None` on timeout.
@@ -421,6 +455,15 @@ async fn run_probe(probe: &EvalProbe) {
     );
 
     let Some(reply) = wait_for_agent_reply(&client, &creds, &post_ts, REPLY_WAIT_SECS).await else {
+        if let Some(threaded) = peek_thread_reply(&client, &creds, &post_ts).await {
+            panic!(
+                "[{name}] The agent answered in a thread under the probe instead of in the \
+                 channel: {threaded:?}. Slack answers must land where their status \
+                 placeholder does (carnet#1490) — check `answer_reply_to` and whether the \
+                 placeholder post failed in the server log.",
+                name = probe.name,
+            );
+        }
         let last = peek_last_agent_reply(&client, &creds, &post_ts).await;
         // A reply still stuck on the AG-UI placeholder ("thinking…",
         // "réflexion…") means the pipeline ran but the model never finished
@@ -437,11 +480,12 @@ async fn run_probe(probe: &EvalProbe) {
         }
         panic!(
             "[{name}] No non-transient reply from coach bot ({agent}) within {REPLY_WAIT_SECS}s \
-             of post at ts={post_ts}. Last coach message seen: {last:?}. First \
-             thing to check: is SLACK_ALLOWED_BOT_IDS set on the running Pierre \
-             server? It must include the QA driver bot's `bot_id` (from `auth.test`, \
-             not user_id). Without the allow-list, canot drops bot-authored Slack \
-             messages before the pipeline ever sees them.",
+             of post at ts={post_ts}, in the channel or in the probe's thread. Last \
+             coach message seen: {last:?}. Check the server log for the probe's ts \
+             first: no `Slack Socket Mode: received message` line means the message \
+             never reached the pipeline, so SLACK_ALLOWED_BOT_IDS must include the QA \
+             driver bot's `bot_id` (from `auth.test`, not user_id); a received message \
+             with no `messaging response sent` line means the turn itself stalled.",
             name = probe.name,
             agent = creds.coach_user_id,
         );

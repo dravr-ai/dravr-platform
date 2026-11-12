@@ -58,10 +58,28 @@ pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistor
 use crate::activity_backfill::{
     provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob,
 };
+#[cfg(feature = "tools-data")]
+use crate::implementations::data_helpers::historical_backfill_fetch_limit;
 use crate::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
 pub const DEFAULT_BACKFILL_DAYS: i64 = 90;
+
+/// Whether a compute may ask the capture rail for the depth it found missing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DepthAsk {
+    /// Ask: an athlete surface, a tool or the HTTP route wants the window.
+    Capture,
+    /// Never ask: the compute runs because a capture just landed. Its ask
+    /// would start a capture on each of the athlete's other connections, and
+    /// each of those would warm and ask again. On 2026-11-10 that loop ran
+    /// about once a second per provider for one athlete with Strava, Wahoo and
+    /// Intervals.icu connected, and spent the Strava app's daily budget for
+    /// every athlete (carnet#1478). Only a capture constructs it, so it is
+    /// gated with the capture rail.
+    #[cfg(feature = "tools-data")]
+    Withheld,
+}
 
 /// The runtime's handles a history read needs, borrowed from `resources` and
 /// the configuration snapshot `config` the caller holds for the read.
@@ -152,7 +170,35 @@ pub async fn compute_and_persist_history(
     // from every stored row even when a tool triggers it (carnet#723). What a
     // model reads back goes through `history_rows_for_model`.
     ai_scope::unfiltered(compute_and_persist_unfiltered(
-        resources, tenant_id, user_id, from, to,
+        resources,
+        tenant_id,
+        user_id,
+        (from, to),
+        DepthAsk::Capture,
+    ))
+    .await
+}
+
+/// [`compute_and_persist_history`] for the rollup warm a finished capture
+/// runs: the same compute, minus the ask for missing depth ([`DepthAsk::Withheld`]).
+///
+/// # Errors
+///
+/// As [`compute_and_persist_history`].
+#[cfg(feature = "tools-data")]
+pub(crate) async fn compute_history_after_capture(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<TrainingHistoryComputed> {
+    ai_scope::unfiltered(compute_and_persist_unfiltered(
+        resources,
+        tenant_id,
+        user_id,
+        (from, to),
+        DepthAsk::Withheld,
     ))
     .await
 }
@@ -161,8 +207,8 @@ async fn compute_and_persist_unfiltered(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    (from, to): (NaiveDate, NaiveDate),
+    ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     validate_window(from, to)?;
 
@@ -178,8 +224,16 @@ async fn compute_and_persist_unfiltered(
     let warmup = window.warmup;
 
     let Some(oldest_stored) = window.oldest_stored else {
-        return empty_cache_outcome(resources, tenant_id, user_id, backends, from, to, warmup)
-            .await;
+        return empty_cache_outcome(
+            resources,
+            tenant_id,
+            user_id,
+            backends,
+            (from, to),
+            warmup,
+            ask,
+        )
+        .await;
     };
 
     let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
@@ -188,6 +242,7 @@ async fn compute_and_persist_unfiltered(
     // lapsed one included: its capture surfaces the reauth itself, and stale
     // history beats no answer.
     let capture_requested = !complete
+        && ask == DepthAsk::Capture
         && request_captures(
             resources,
             tenant_id,
@@ -316,9 +371,9 @@ async fn empty_cache_outcome(
     tenant_id: TenantId,
     user_id: Uuid,
     backends: &[ComputeBackend],
-    from: NaiveDate,
-    to: NaiveDate,
+    (from, to): (NaiveDate, NaiveDate),
     warmup: i64,
+    ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     // Nothing stored AND every session has lapsed: each capture would fail on
     // auth too, so the honest answer is the reconnect prompt the chat
@@ -336,14 +391,15 @@ async fn empty_cache_outcome(
             return Err(AppError::provider_auth_required(&lapsed.slug));
         }
     }
-    let capture_requested = request_captures(
-        resources,
-        tenant_id,
-        user_id,
-        live.into_iter(),
-        from - Duration::days(warmup),
-    )
-    .await;
+    let capture_requested = ask == DepthAsk::Capture
+        && request_captures(
+            resources,
+            tenant_id,
+            user_id,
+            live.into_iter(),
+            from - Duration::days(warmup),
+        )
+        .await;
     // Nothing stored means nothing vouched for anywhere in the ask, so the whole
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
@@ -443,12 +499,18 @@ async fn request_capture(
         tenant_id,
         tenant_id_str: provider_tenant_id_str(tenant_id),
         provider_name: backend.to_owned(),
+        // Paged to the floor, as the `get_activities` capture asks: with no
+        // limit a provider reads its default page (Strava 30, Wahoo 50), which
+        // never reaches the floor, and the coverage that run records claims a
+        // depth it never read (carnet#1478).
         query_params: ActivityQueryParams {
             after,
+            limit: Some(historical_backfill_fetch_limit()),
             ..ActivityQueryParams::default()
         },
-        // This compute is reached from the tool, the HTTP route and the capture
-        // rail's own warm hook; none of them owns a conversation to push to.
+        // This compute is reached from the tools, the HTTP route and the
+        // recomputes an upload or a threshold change runs; none of them owns a
+        // conversation to push to.
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
         history_import: false,

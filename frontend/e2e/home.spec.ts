@@ -267,6 +267,75 @@ async function mockConversationCreate(page: Page) {
   });
 }
 
+/**
+ * An athlete whose personal thread already holds a conversation, and a server
+ * that creates each new chat as a conversation of its own (carnet#1473): the
+ * list holds the personal thread and every chat created since, newest first,
+ * and each new one's transcript is its agent's welcome alone. Records every
+ * create and every topic opened.
+ */
+async function mockPersonalThreadWithHistory(page: Page) {
+  const personal = {
+    id: 'conv-personal',
+    title: 'Training',
+    agent_id: null,
+    group_id: null,
+    personal: true,
+    created_at: '2026-09-20T10:00:00Z',
+    updated_at: '2026-09-20T10:05:00Z',
+    message_count: 2,
+    unread_count: 0,
+  };
+  const history = [
+    { id: 'msg-old-1', conversation_id: personal.id, role: 'assistant', content: 'How did the long run feel?', created_at: '2026-09-20T10:00:00Z' },
+    { id: 'msg-old-2', conversation_id: personal.id, role: 'user', content: 'Felt strong until 25 km.', created_at: '2026-09-20T10:05:00Z' },
+  ];
+  const created: Array<Record<string, unknown>> = [];
+  const topics: string[] = [];
+  const conversations: Array<Record<string, unknown>> = [personal];
+
+  await page.route('**/api/chat/personal/topics', async (route) => {
+    topics.push(route.request().url());
+    await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+  });
+  await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
+    if (request.method() === 'POST') {
+      created.push((request.postDataJSON() ?? {}) as Record<string, unknown>);
+      const id = `conv-${created.length + 1}`;
+      const row = {
+        ...personal,
+        id,
+        title: `Chat ${created.length}`,
+        personal: false,
+        message_count: 1,
+        created_at: `2026-09-24T1${created.length}:00:00Z`,
+        updated_at: `2026-09-24T1${created.length}:00:00Z`,
+      };
+      conversations.unshift(row);
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(row) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ conversations, total: conversations.length, limit: 50, offset: 0 }),
+    });
+  });
+  await page.route(/\/api\/chat\/conversations\/[^/]+\/messages(\?.*)?$/, async (route, request) => {
+    if (request.method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    const id = new URL(request.url()).pathname.split('/')[4] ?? '';
+    const messages =
+      id === personal.id
+        ? history
+        : [{ id: `msg-welcome-${id}`, conversation_id: id, role: 'assistant', content: `Welcome to ${id}`, created_at: '2026-09-24T12:00:00Z' }];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages }) });
+  });
+  return { created, topics };
+}
+
 /** `GET /api/me/activities/strava/act-4` — the Tempo Tuesday row's view, with its splits. */
 const TEMPO_DETAIL = {
   activity: ACTIVITIES[1],
@@ -610,6 +679,52 @@ test.describe('Athlete Home', () => {
     await page.getByTestId('rail-logo-home').click();
     await expect(page).toHaveURL(/#home$/);
     await expect(page.getByTestId('home-page')).toBeVisible();
+  });
+
+  // carnet#1473: "+" is a new conversation, not a topic in the one personal
+  // thread rebound to another agent — so each "+" is a different page, and
+  // the personal thread is still there, untouched, behind History.
+  test('"+" → New chat opens a different conversation each time, holding only its welcome, and History leads back to the personal thread', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    const traffic = await mockPersonalThreadWithHistory(page);
+    await login(page);
+
+    await expect(page.getByText('How did the long run feel?')).toBeVisible();
+
+    const newChat = async () => {
+      await page.getByTestId('thread-header').getByRole('button', { name: 'New', exact: true }).click();
+      await page
+        .getByRole('menu', { name: 'Start a conversation' })
+        .getByRole('menuitem', { name: 'New chat' })
+        .click();
+    };
+
+    await newChat();
+    await expect(page).toHaveURL(/#home\/chat\/conv-2$/);
+    const rows = page.getByTestId('message-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Welcome to conv-2');
+    await expect(page.getByText('How did the long run feel?')).toHaveCount(0);
+
+    await newChat();
+    await expect(page).toHaveURL(/#home\/chat\/conv-3$/);
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Welcome to conv-3');
+
+    // The personal thread was never touched: no topic, no rebind.
+    expect(traffic.created).toHaveLength(2);
+    expect(traffic.topics).toHaveLength(0);
+
+    // And it is one tap back, behind History, as it was.
+    await page.getByTestId('home-history-button').click();
+    await page
+      .getByRole('dialog', { name: 'History' })
+      .locator('[data-testid="conversation-row"]', { hasText: 'Training' })
+      .click();
+    await expect(page).toHaveURL(/#home\/chat\/conv-personal$/);
+    await expect(page.getByText('How did the long run feel?')).toBeVisible();
+    await expect(page.getByText('Felt strong until 25 km.')).toBeVisible();
   });
 
   test('no plan offers a quiet "Build my plan" link, which drafts the request in Home\'s own conversation', async ({ page }) => {

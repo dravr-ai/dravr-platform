@@ -146,7 +146,7 @@ pub struct VerdictRow {
     pub evidence_strength: String,
     /// Model confidence in the verdict in [0.0, 1.0].
     pub confidence: f32,
-    /// Layer of the myth-busting pipeline that produced this verdict.
+    /// Layer of the claim-verification pipeline that produced this verdict.
     pub layer_fired: String,
     /// Free-form explanation of the verdict, when available.
     pub explanation: Option<String>,

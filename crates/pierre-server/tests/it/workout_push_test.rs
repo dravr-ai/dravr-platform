@@ -666,6 +666,8 @@ fn planned(
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 
@@ -745,8 +747,10 @@ async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id
         request.contains("2026-09-15T00:00:00"),
         "the event must carry the prescribed date; got: {request}"
     );
+    // long_run_z2 is the long-endurance family's `long_steady` preset since
+    // the families absorbed it: the event carries the family and preset name.
     assert!(
-        request.contains("Long Run"),
+        request.contains("Long endurance — Long steady"),
         "the event must carry the workout name; got: {request}"
     );
     assert!(
@@ -757,9 +761,11 @@ async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id
         request.contains("\"moving_time\":5400"),
         "90 minutes as moving_time; got: {request}"
     );
+    // The long_steady run form targets a share of the run's own max heart
+    // rate, which Intervals.icu takes natively as `% HR`.
     assert!(
-        request.contains("Z2 Pace"),
-        "a run's zone step must resolve against pace; got: {request}"
+        request.contains("73-82% HR"),
+        "a run's %HRmax step must go out as Intervals.icu's % HR; got: {request}"
     );
     Ok(())
 }

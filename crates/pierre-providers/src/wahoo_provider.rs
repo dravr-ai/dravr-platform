@@ -126,6 +126,10 @@ pub(crate) struct WahooWorkoutSummary {
     distance_accum: Option<f64>,
     #[serde(default, deserialize_with = "decimal")]
     duration_total_accum: Option<f64>,
+    /// Seconds the workout was running, its pauses excluded: Wahoo's
+    /// moving time beside `duration_total_accum`'s elapsed time.
+    #[serde(default, deserialize_with = "decimal")]
+    duration_active_accum: Option<f64>,
     #[serde(default, deserialize_with = "decimal")]
     heart_rate_avg: Option<f64>,
     #[serde(default, deserialize_with = "decimal")]
@@ -256,6 +260,12 @@ impl WahooWorkout {
             self.started()?,
             duration,
             oauth_providers::WAHOO,
+        )
+        .moving_time_seconds_opt(
+            summary
+                .duration_active_accum
+                .filter(|seconds| *seconds > 0.0)
+                .map(|seconds| utils::conversions::f64_to_u64(seconds.round())),
         )
         .distance_meters_opt(summary.distance_accum)
         .elevation_gain_opt(summary.ascent_accum)
@@ -850,17 +860,10 @@ impl FitnessProvider for WahooProvider {
         let activities = self
             .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
             .await?;
-        Ok(Stats {
-            total_activities: activities.len() as u64,
-            total_distance: activities
-                .iter()
-                .filter_map(Activity::distance_meters)
-                .sum(),
-            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
-            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 
     fn calendar_key(&self, external_id: &str) -> String {
@@ -1086,6 +1089,24 @@ mod tests {
         assert_eq!(
             activity.sport_type(),
             &SportType::Other("wahoo_workout_type_48".to_owned())
+        );
+    }
+
+    #[test]
+    fn active_duration_is_the_moving_time_beside_the_total() {
+        let activity = workout(COMPLETED)
+            .to_activity()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("a completed workout is an activity"));
+        assert_eq!(
+            activity.duration_seconds(),
+            275,
+            "bug: duration is the total, pauses included"
+        );
+        assert_eq!(
+            activity.moving_time_seconds(),
+            Some(179),
+            "bug: the active duration is the moving time"
         );
     }
 }

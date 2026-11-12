@@ -126,8 +126,18 @@ fn retrieval_context_advice_present_iff_summary_mode() {
     // names the envvar knob for narrowing.
     let advice = summary_ctx.advice.as_ref().expect("summary advice present");
     assert!(advice.contains("Summary mode"));
-    assert!(advice.contains("ACTIVITY_DETAIL_THRESHOLD"));
-    assert!(advice.contains("Splits, laps, segment efforts"));
+    assert!(
+        advice.contains("last 14 days"),
+        "bug: the advice names the detail window"
+    );
+    assert!(
+        advice.contains("mode=detailed"),
+        "bug: the advice names how to read older detail"
+    );
+    assert!(
+        advice.contains("splits, laps, segment efforts"),
+        "bug: the advice names what the older rows omit"
+    );
 
     // Detailed mode: no trade-off to surface, no advice.
     assert!(

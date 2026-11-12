@@ -65,7 +65,7 @@ use pierre_services::athlete_state::AthleteState;
 use pierre_services::provider_notice;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::CONVERSATION_ID;
-use pierre_tool_runtime::guardian::{GuardianConfigDocument, GuardianConfigSource};
+use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::implementations::endurance_workouts::{
     PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
 };
@@ -380,6 +380,8 @@ fn planned(date: NaiveDate, workout: &str, minutes: u32) -> PlannedDay {
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 
@@ -1365,13 +1367,13 @@ async fn a_second_push_in_one_turn_is_held_by_the_guardian_budget() {
     w.plan(alex, TransportPolicy::AnyTransport).await;
     w.plan(ben, TransportPolicy::AnyTransport).await;
     // A budget of one, so the second push is the one past it.
-    w.res.fitness.guardian_config_registry.install(
-        GuardianConfigDocument {
+    w.res
+        .fitness
+        .guardian_config_registry
+        .install(GuardianConfigDocument {
             max_destructive_per_turn: Some(1),
             ..GuardianConfigDocument::default()
-        },
-        GuardianConfigSource::AdminUpdate,
-    );
+        });
 
     let runtime: Arc<dyn ToolRuntime> = w.res.clone();
     let executor = UniversalToolExecutor::new(runtime)

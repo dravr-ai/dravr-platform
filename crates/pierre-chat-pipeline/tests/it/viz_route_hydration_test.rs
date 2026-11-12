@@ -515,7 +515,7 @@ fn an_unread_activity_refuses_the_block_rather_than_drawing_an_empty_map() {
 
     assert!(
         reason.contains("14872003941"),
-        "the refusal names the activity so the repair re-ask can act on it: {reason}"
+        "the refusal names the activity, so the logged fault says which line was missing: {reason}"
     );
     assert!(
         block.get("coordinates").is_none(),

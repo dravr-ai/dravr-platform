@@ -42,11 +42,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
-use std::sync::{Arc, OnceLock};
-
-use pierre_contremaitre::PromptRegistry;
-use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
+use std::sync::OnceLock;
 
 use super::viz_route::{hydrate_route, RouteTracks};
 use serde_json::Value;
@@ -147,74 +143,6 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
          that actually ran this turn.\n",
     );
     out
-}
-
-/// Re-ask the model for a reply whose blocks satisfy the schema.
-///
-/// A refused block is the one failure in this stage the athlete feels directly:
-/// they asked for a chart, the prose arrives without one, and nothing in the
-/// reply admits a visual was withheld. Until now the only recourse was to drop
-/// it, which is why a fixable encoding mistake — a comparison written as one
-/// series per athlete instead of one series of two points — cost the chart on
-/// every attempt (2026-08-31).
-///
-/// Bounded to a single re-ask, and fail-open: any error, empty completion, or
-/// repair that still does not validate leaves the original reply untouched. The
-/// caller keeps whatever it already had, so this can only add a chart, never
-/// remove one.
-///
-/// `faults` are the per-block reasons from [`VizExtraction::refusals`], which
-/// name the offending field — a repair prompt carrying the bare `oneOf` refusal
-/// would tell the model nothing it could act on.
-///
-/// The re-ask is an LLM call the turn pays for, so its usage goes to
-/// `recorder` like any other.
-pub async fn repair_refused_blocks(
-    provider: &Arc<ChatProvider>,
-    prompts: &PromptRegistry,
-    reply: &str,
-    faults: &[String],
-    active_model: &str,
-    recorder: Option<&Arc<dyn LlmCallRecorder>>,
-) -> Option<String> {
-    if faults.is_empty() {
-        return None;
-    }
-    let rules = faults
-        .iter()
-        .map(|f| format!("- {f}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    // The instructions are the catalogue's `viz_repair` prompt. They say
-    // preserve-the-language for the same reason the persona repair does:
-    // this editor reads an English instruction and a reply that may be in any
-    // of the five locales, and the turn's language rides on the rewrite.
-    let system = prompts
-        .viz_repair_prompt()
-        .replace("{{RULES}}", &rules)
-        .trim()
-        .to_owned();
-    let request = ChatRequest::new(vec![
-        ChatMessage::system(system),
-        ChatMessage::user(reply.to_owned()),
-    ])
-    .with_temperature(0.2)
-    // Pin the turn's model: on the ACP path a subprocess is pinned at spawn, so
-    // resolving to the env default here would discard the warm subprocess and
-    // pay a cold spawn on every repair.
-    .with_model(active_model);
-
-    match complete_recorded(provider.as_ref(), &request, recorder).await {
-        Ok(resp) if !resp.content.trim().is_empty() => Some(resp.content),
-        Ok(_) => {
-            warn!("viz-blocks: repair re-ask returned an empty reply; keeping the original");
-            None
-        }
-        Err(e) => {
-            warn!(error = %e, "viz-blocks: repair re-ask failed; keeping the original");
-            None
-        }
-    }
 }
 
 /// The lines an arm's own `oneOf` of required-field sets contributes.
@@ -432,9 +360,9 @@ pub struct VizExtraction {
     /// A refusal used to exist only as a WARN line, which meant the reason was
     /// unavailable to anything that could act on it: the athlete asked for a
     /// chart, the block was dropped, and the prose shipped alone with nothing
-    /// able to say what went wrong. Carrying the reasons out lets a caller
-    /// re-ask the model with the actual fault — and lets a test assert the
-    /// fault text rather than merely that extraction failed.
+    /// able to say what went wrong. Carrying the reasons out puts the fault in
+    /// the extraction's WARN — and lets a test assert the fault text rather
+    /// than merely that extraction failed.
     pub refusals: Vec<String>,
 }
 
@@ -460,7 +388,7 @@ impl fmt::Debug for VizExtraction {
 /// `tracks` carries the geometry [`read_route_tracks`] read for this reply. A
 /// `route` block is hydrated from it and refused down the same path as any
 /// other faulty block when the route it names has no drawable line — the
-/// athlete keeps the prose, and the reason travels out for the repair re-ask.
+/// athlete keeps the prose, and the reason travels out in `refusals`.
 ///
 /// It used to be left in place as literal text, on the reasoning that a visible
 /// broken fence is a bug someone reports rather than one that hides. In
@@ -818,7 +746,7 @@ fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, Branch>
 ///
 /// Each entry is `path: message` against the arm named by the block's own
 /// `type`, so "series/0/points: [[\"Toi\", 472.0]] is too short" reaches the log
-/// and the repair prompt instead of the bare `oneOf` refusal. A block whose
+/// instead of the bare `oneOf` refusal. A block whose
 /// `type` matches no arm gets that stated plainly rather than a fault list from
 /// an arm it never claimed.
 ///

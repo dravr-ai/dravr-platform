@@ -21,7 +21,9 @@ use pierre_core::constants::tool_execution::{
 
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
 use crate::constants::strava_seat_reclaim as seat_reclaim;
-use crate::constants::usage_quotas::{DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS};
+use crate::constants::usage_quotas::{
+    DEFAULT_MAX_ACTIVE_CONVERSATIONS, MAX_ACTIVE_CONVERSATIONS_CEILING, UNLIMITED_CONVERSATIONS,
+};
 use crate::database::PostgresPoolConfig;
 use crate::tid_cuts;
 
@@ -1428,7 +1430,7 @@ pub fn register_usage_quotas<S: BuildHasher>(defs: &mut HashMap<String, Paramete
             default_value: serde_json::json!(DEFAULT_MAX_ACTIVE_CONVERSATIONS),
             valid_range: Some(ParameterRange {
                 min: serde_json::json!(UNLIMITED_CONVERSATIONS),
-                max: serde_json::json!(50),
+                max: serde_json::json!(MAX_ACTIVE_CONVERSATIONS_CEILING),
                 step: Some(1.0),
             }),
             enum_options: None,

@@ -26,15 +26,16 @@ use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 
 use common::{
-    create_test_server_resources_with_config, create_test_user, test_server_config_with_guardian,
+    create_test_server_resources, create_test_server_resources_with_no_destructive_budget,
+    create_test_user,
 };
 use embacle_tool_host::{ToolOutcome, ToolSurface};
 use pierre_chat_pipeline::ToolSessionTurn;
-use pierre_config::environment::GuardianSettings;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -85,15 +86,16 @@ fn guardian_error_code(outcome: &ToolOutcome) -> Option<String> {
 
 #[tokio::test]
 async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_writes_per_turn: Some("1".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    resources
+        .fitness
+        .guardian_config_registry
+        .install(GuardianConfigDocument {
+            max_writes_per_turn: Some(1),
+            ..GuardianConfigDocument::default()
+        });
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
@@ -180,15 +182,9 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
 /// can finish its answer.
 #[tokio::test]
 async fn a_denied_call_stops_the_agents_later_writes_in_the_same_turn() {
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");

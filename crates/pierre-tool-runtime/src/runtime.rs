@@ -28,6 +28,7 @@ use pierre_core::models::TenantId;
 use uuid::Uuid;
 
 use crate::guardian::{Guardian, GuardianTurns};
+use crate::incomplete_window::IncompleteWindows;
 use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
@@ -186,13 +187,13 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Tool-selection scoring service.
     fn tool_selection(&self) -> &Arc<ToolSelectionService>;
 
-    /// The effective [`Guardian`] (budget/egress policy) for this
+    /// The effective [`Guardian`] (per-turn budget policy) for this
     /// dispatch: the hot-reloadable
-    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot, built
-    /// over the `GUARDIAN_*` settings the server's configuration captured at
-    /// startup. Because the snapshot can be swapped by an admin update between
-    /// calls, a caller needing a consistent policy across several reads binds
-    /// ONE returned `Arc` locally rather than re-fetching mid-flow.
+    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot of the
+    /// stored `guardian_config` row. Because the snapshot can be swapped by an
+    /// admin update between calls, a caller needing a consistent policy across
+    /// several reads binds ONE returned `Arc` locally rather than re-fetching
+    /// mid-flow.
     fn guardian(&self) -> Arc<Guardian>;
 
     /// The process-wide, tenant-scoped per-turn budget store. Shared
@@ -214,6 +215,17 @@ pub trait ToolRuntime: Send + Sync + 'static {
         static OFFERS: LazyLock<Arc<ReconnectOffers>> =
             LazyLock::new(|| Arc::new(ReconnectOffers::new()));
         &OFFERS
+    }
+
+    /// The process-wide store of the turns that read an incomplete activity
+    /// window. Shared across every dispatch path for the same reason
+    /// [`Self::reconnect_offers`] is: a headless turn's tools run on the
+    /// tool-host surface's own executor, so the mark reaches the loop only
+    /// through a shared store.
+    fn incomplete_windows(&self) -> &Arc<IncompleteWindows> {
+        static WINDOWS: LazyLock<Arc<IncompleteWindows>> =
+            LazyLock::new(|| Arc::new(IncompleteWindows::new()));
+        &WINDOWS
     }
 
     /// Coaches repository (kept as a method because it returns `&dyn`).

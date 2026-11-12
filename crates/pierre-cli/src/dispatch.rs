@@ -17,6 +17,26 @@ use pierre_core::errors::{AppError, AppResult};
 use crate::commands;
 use crate::{AuthCommand, Result, StravaPoolCommand, UserCommand};
 
+/// Whether `action` is a remote user command: one [`dispatch_remote_user`]
+/// serves over the admin API before any database bootstrap. `main`'s
+/// database-backed match names the same variants as unreachable.
+pub(crate) const fn is_remote_user(action: &UserCommand) -> bool {
+    matches!(
+        action,
+        UserCommand::Get { .. }
+            | UserCommand::Set { .. }
+            | UserCommand::Allow { .. }
+            | UserCommand::Disallow { .. }
+            | UserCommand::ListAllowed { .. }
+            | UserCommand::Code { .. }
+            | UserCommand::Disconnect(_)
+            | UserCommand::CloneProvider(_)
+            | UserCommand::Delete(_)
+            | UserCommand::ResetOnboarding(_)
+            | UserCommand::Reset(_)
+    )
+}
+
 /// Dispatch the remote user commands, which never touch the local database.
 ///
 /// # Errors
@@ -134,6 +154,7 @@ pub(crate) async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             )
             .await
         }
+        UserCommand::Reset(args) => commands::user_reset::run(args).await,
         _ => Err(AppError::internal(
             "dispatch_remote_user received a database-backed user command",
         )),

@@ -28,10 +28,11 @@
 //! registry: a package changes on a seed or an approve/unpublish, and a
 //! read that goes to the rows sees every instance's write at once.
 
-use pierre_contremaitre::{EvidenceRegistry, TrainingCatalogueRegistry};
+use pierre_contremaitre::{EvidenceRegistry, ResolvedWorkout, TrainingCatalogueRegistry};
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{
-    Flavour, SelectionTable, SkeletonTemplate, UnresolvedReference, WorkoutFilter, WorkoutTemplate,
+    Flavour, InstanceRequest, SelectionTable, SkeletonTemplate, UnresolvedReference, WorkoutFilter,
+    WorkoutTemplate,
 };
 use pierre_core::models::{Agent, AgentArtefact, ArtefactKind, ParsedArtefact, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -270,6 +271,24 @@ impl<'a> PackagedCatalogue<'a> {
         self.catalogue
             .workout(slug)
             .map(|w| (w, CatalogueTier::Catalogue))
+    }
+
+    /// The template a slug resolves to for generation, with what to generate:
+    /// the package's template as written, else the catalogue's — a family
+    /// with the preset and pinned sport when the slug is one of its legacy
+    /// aliases or preset keys.
+    #[must_use]
+    pub fn resolve_workout(&self, slug: &str) -> Option<(ResolvedWorkout, CatalogueTier)> {
+        if let Some(w) = self.package_workout(slug) {
+            let resolved = ResolvedWorkout {
+                template: w.clone(),
+                request: InstanceRequest::default(),
+            };
+            return Some((resolved, CatalogueTier::Package));
+        }
+        self.catalogue
+            .resolve_workout(slug)
+            .map(|resolved| (resolved, CatalogueTier::Catalogue))
     }
 
     /// Every template the filter admits, package templates first (a package

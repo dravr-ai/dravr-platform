@@ -60,6 +60,8 @@ pub mod activity_backfill;
 /// the module whose job rows it claims.
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill_resume;
+/// The one store of activity detail reads.
+pub mod activity_detail_store;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_fetch;
 /// What a model may see of provider data under each provider's AI policy.
@@ -99,7 +101,7 @@ pub mod group_activity_cache;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
-/// The Guardian: dispatch-time budget/egress guard + the absorbed tenant
+/// The Guardian: dispatch-time per-turn budget guard + the absorbed tenant
 /// tool-disable allowlist, interposed at the universal execution chokepoint.
 pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
@@ -110,6 +112,8 @@ pub mod headless_stream;
 #[cfg(feature = "tools-data")]
 pub mod history_import;
 pub mod implementations;
+/// The incomplete-window signal and its per-turn store (carnet#1481).
+pub mod incomplete_window;
 /// The gate streamed reply text crosses on its way to the turn sink: canary
 /// and `<tool_call>` filtering, and the retraction of text that is not the reply
 #[cfg(feature = "client-chat")]
@@ -137,7 +141,7 @@ pub mod runtime;
 pub mod schema_canonical;
 /// The capability -> OAuth scope derivation and the check the chokepoint reads.
 pub mod scopes;
-/// Guardian security classification: the egress/trust axis every tool declares
+/// Guardian security classification: the blast-radius axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.

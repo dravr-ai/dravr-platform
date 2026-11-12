@@ -43,9 +43,10 @@ use tracing::{info, warn};
 
 use super::capability_recovery::{
     peer_repair_prompt, peers_named_in_reply, reask_reply_is_clean, repair_messages,
-    request_peer_reask, run_verification_fetch, turn_language_directive, verify_peer_claims,
-    CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
+    request_peer_reask, run_verification_fetch, turn_language_directive, CapabilityRecoveryDeps,
+    VerificationOutcome, VERIFICATION_TOOL,
 };
+use super::peer_claim_verifier::verify_peer_claims;
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerGroundingBlock,
     PeerMention, PEER_FETCH_TOOL,
@@ -583,11 +584,6 @@ async fn reask_with_subject_evidence(
 /// `claimed_failure` says the trigger was a capability claim (as opposed to
 /// an ungrounded or degenerate answer); it decides whether a reply that
 /// survives untouched is stamped so it never replays.
-///
-/// The recovery stamp net in `run_recovery_and_post_process` re-checks the
-/// final content after the downstream identity re-ask, so a re-sample over the
-/// pre-recovery messages that reinstates the disproven denial is stamped
-/// before it persists.
 pub(super) async fn apply_subject_recovery(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,

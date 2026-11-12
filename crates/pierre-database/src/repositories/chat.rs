@@ -576,7 +576,8 @@ pub trait ChatRepository: Send + Sync {
     /// about no other athlete, or when another thread already holds the
     /// designation — a race the unique index settles, after which the caller
     /// reads the winner. Designating the thread that already holds it answers
-    /// `Ok(true)`.
+    /// `Ok(false)` too: only the call that made the designation is told it
+    /// did, so an adoption's one-time divider is written once.
     async fn designate_personal_conversation(
         &self,
         conversation_id: &str,

@@ -14,7 +14,7 @@ use anyhow::Result;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_database::repositories::{InsertClaimVerdictParams, VerdictListFilter};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_test_support::db::create_test_db_with_key;
 use tokio::time::sleep;
@@ -28,6 +28,14 @@ async fn fresh_db() -> Result<Database> {
 
 fn tenant() -> TenantId {
     TenantId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap())
+}
+
+/// The newest `limit` verdicts of the tenant, with no axis narrowed.
+fn unfiltered(limit: i64) -> VerdictListFilter {
+    VerdictListFilter {
+        limit,
+        ..VerdictListFilter::default()
+    }
 }
 
 #[tokio::test]
@@ -60,7 +68,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 10)
+        .list_verdicts_filtered(tenant().into(), &unfiltered(10))
         .await?;
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].id, saved.id);
@@ -101,7 +109,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 10)
+        .list_verdicts_filtered(tenant().into(), &unfiltered(10))
         .await?;
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].layer_fired, VerdictLayer::Personalized);
@@ -110,7 +118,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
 }
 
 #[tokio::test]
-async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
+async fn the_recent_scan_returns_newest_first() -> Result<()> {
     let db = fresh_db().await?;
     let repos = db.repositories();
     for (i, status) in [
@@ -145,7 +153,7 @@ async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
 
     let recent = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 10)
+        .list_verdicts_filtered(tenant().into(), &unfiltered(10))
         .await?;
     assert_eq!(recent.len(), 3);
     // Newest first → last inserted is Contradicted.
@@ -182,7 +190,7 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
 
     let all = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 10)
+        .list_verdicts_filtered(tenant().into(), &unfiltered(10))
         .await?;
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].layer_fired, VerdictLayer::Rhetoric);

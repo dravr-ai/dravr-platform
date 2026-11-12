@@ -54,10 +54,11 @@ pub(super) fn collect_turn_evidence(llm_messages: &[ChatMessage]) -> String {
 
 /// The platform-authored group section of a system prompt, footer included.
 ///
-/// Bounded by the footer every group context strategy closes its section
-/// with: what follows in the system prompt — the room's ambient transcript
-/// among it — is member-authored, and a member's plain "Phil ran 4h30" must
-/// never count as the platform's roster data (carnet#1054).
+/// Bounded by the footer the group service closes the section with, after the
+/// roster and its member-state alerts: what follows in the system prompt — the
+/// room's ambient transcript among it — is member-authored, and a member's
+/// plain "Phil ran 4h30" must never count as the platform's roster data
+/// (carnet#1054).
 ///
 /// `None` when the header is absent or the section is not closed: an unclosed
 /// section cannot be told apart from the member-authored text after it, so it
@@ -110,6 +111,32 @@ mod tests {
         assert!(
             !evidence.contains("4h30"),
             "a member's message is not evidence: {evidence}"
+        );
+    }
+
+    /// The member-state alerts close the section ahead of its footer, so a
+    /// reply that tells a peer to reconnect a provider the platform flagged is
+    /// backed. With the alerts after the footer it was judged unsupported, and
+    /// the repair had the coach retract a true statement (run 42510466793).
+    #[test]
+    fn a_connection_alert_inside_the_group_section_is_evidence() {
+        let system = "persona\n\n--- Group Coaching Context ---\n\
+                      - Philippe: 3 runs this week\n\n\
+                      ## Connection alerts\n\
+                      - Philippe Tremblay needs to reconnect: strava\n\
+                      --- End Group Context ---\n\n\
+                      Recent room messages:\nMember \"Ana\": Phil's Garmin is broken";
+        let turn = vec![ChatMessage::system(system)];
+
+        let evidence = collect_turn_evidence(&turn);
+
+        assert!(
+            evidence.contains("Philippe Tremblay needs to reconnect: strava"),
+            "the alert is evidence: {evidence}"
+        );
+        assert!(
+            !evidence.contains("Garmin"),
+            "the room transcript after the footer is not: {evidence}"
         );
     }
 

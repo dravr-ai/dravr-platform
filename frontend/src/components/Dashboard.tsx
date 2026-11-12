@@ -69,8 +69,6 @@ const DRAWN_TABS: ReadonlySet<string> = new Set([
   "memory-worker",
   "audit",
   "impersonation-log",
-  "myth-busting",
-  "agent-grading",
   "prompts",
   "agents",
   "agent-store",
@@ -87,11 +85,15 @@ const DRAWN_TABS: ReadonlySet<string> = new Set([
  * Old names of a tab that moved. Service Tokens and Admin Tokens were one list
  * on two screens (carnet#1444), so a bookmark of the second opens the first.
  * The Eval Harness tab was retired and its verdict calibration panel moved to
- * Claim Verdicts (carnet#1431), so a bookmark of it opens that screen.
+ * Claim Verdicts (carnet#1431), so a bookmark of it opens that screen. Myth
+ * Busting and Agent Grades were rollups of the same verdict rows and were
+ * retired (carnet#1468), so their bookmarks open Claim Verdicts too.
  */
 const MOVED_TABS: ReadonlyMap<string, string> = new Map([
   ["admin-tokens", "connections"],
   ["eval-harness", "claim-verdicts"],
+  ["myth-busting", "claim-verdicts"],
+  ["agent-grading", "claim-verdicts"],
 ]);
 
 /**
@@ -167,8 +169,6 @@ const MemoryExtractionMonitorTab = lazy(
 );
 const ImpersonationLogTab = lazy(() => import("./ImpersonationLogTab"));
 const AuditTrail = lazy(() => import("./AuditTrail"));
-const MythBustingTab = lazy(() => import("./MythBustingTab"));
-const CoachGradingTab = lazy(() => import("./CoachGradingTab"));
 const CoachStoreManagement = lazy(() => import("./CoachStoreManagement"));
 const StoreScreen = lazy(() => import("./StoreScreen"));
 const BillingTab = lazy(() => import("./BillingTab"));
@@ -830,48 +830,6 @@ export default function Dashboard({
               strokeLinejoin="round"
               strokeWidth={2}
               d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6"
-            />
-          </svg>
-        ),
-      },
-      {
-        id: "myth-busting",
-        name: "Myth Busting",
-        section: "Configuration",
-        icon: (
-          <svg
-            className="w-5 h-5"
-            aria-hidden="true"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"
-            />
-          </svg>
-        ),
-      },
-      {
-        id: "agent-grading",
-        name: "Agent Grades",
-        section: "Configuration",
-        icon: (
-          <svg
-            className="w-5 h-5"
-            aria-hidden="true"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.083 12.083 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222"
             />
           </svg>
         ),
@@ -1893,28 +1851,6 @@ export default function Dashboard({
               }
             >
               <ImpersonationLogTab />
-            </Suspense>
-          )}
-          {activeTab === "myth-busting" && (
-            <Suspense
-              fallback={
-                <div className="flex justify-center py-8">
-                  <div className="pierre-spinner"></div>
-                </div>
-              }
-            >
-              <MythBustingTab />
-            </Suspense>
-          )}
-          {activeTab === "agent-grading" && (
-            <Suspense
-              fallback={
-                <div className="flex justify-center py-8">
-                  <div className="pierre-spinner"></div>
-                </div>
-              }
-            >
-              <CoachGradingTab />
             </Suspense>
           )}
           {activeTab === "prompts" && (

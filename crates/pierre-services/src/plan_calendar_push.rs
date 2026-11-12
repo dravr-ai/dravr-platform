@@ -30,6 +30,13 @@
 //! duplicated. Dates before the push date are never created, updated, or
 //! removed — the same rule the provider applies to its own plan changes.
 //!
+//! **Listings that name identity only.** A calendar whose listing carries no
+//! change stamp or key (Garmin's) is read entry by entry through
+//! [`FitnessProvider::calendar_event_detail`], and only where the reconcile
+//! needs it: an entry it is about to update, and an entry no live ledger row
+//! names on the date of a key the ledger lost, until that date's lost keys
+//! are paired. Everywhere else the listing's identity is enough.
+//!
 //! **Failure.** Every provider call is per entry, and every outcome is a ledger
 //! row and a report line. A write that landed is recorded as landed even when
 //! the ledger write after it fails; the next push repairs the rest. The
@@ -50,6 +57,7 @@ use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, Train
 use pierre_providers::ai_scope;
 use pierre_providers::core::FitnessProvider;
 use serde::Serialize;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::plan_fueling::FuelingDisclosure;
@@ -536,7 +544,7 @@ pub async fn push_active_plan(
         desired_entries(params.user_id, &weeks, params.from, &fueling),
         params.week_notes,
     );
-    let live_rows: Vec<PrescribedWorkout> = repos
+    let all_live_rows = repos
         .prescribed_workouts
         .list_live_calendar_events(
             params.tenant,
@@ -544,7 +552,15 @@ pub async fn push_active_plan(
             params.provider,
             Some(params.from),
         )
-        .await?
+        .await?;
+    // Every calendar entry a live row names, whichever path wrote it: none of
+    // them is an entry the ledger lost, so a prescription's entry is never
+    // adopted by a plan day on its date.
+    let claimed: HashSet<String> = all_live_rows
+        .iter()
+        .filter_map(|row| row.provider_event_id.clone())
+        .collect();
+    let live_rows: Vec<PrescribedWorkout> = all_live_rows
         .into_iter()
         .filter(|row| row.source.is_plan())
         .collect();
@@ -568,9 +584,7 @@ pub async fn push_active_plan(
     // What the calendar actually holds in the window, by provider id — and,
     // among those, the entries carrying this athlete's plan keys that the
     // ledger has no live row for (a write that landed while its ledger row
-    // did not). Those are adopted, never duplicated. A calendar stores each
-    // entry under its `calendar_key` — Dravr's key, or the opaque one a
-    // provider derives from it — so the keys are compared in that form.
+    // did not). Those are adopted, never duplicated.
     let observed: HashMap<String, CalendarEventRef> = calendar
         .list_calendar_events(params.from, window_end)
         .await?
@@ -581,21 +595,8 @@ pub async fn push_active_plan(
         .iter()
         .filter_map(|row| row.external_id.clone().map(|key| (key, row.clone())))
         .collect();
-    let plan_prefix = CalendarKey::plan_prefix(params.user_id);
-    let adoptable: HashMap<String, String> = desired
-        .iter()
-        .map(|entry| &entry.session.external_id)
-        .filter(|key| key.starts_with(&plan_prefix) && !live_by_key.contains_key(*key))
-        .map(|key| (calendar.calendar_key(key), key.clone()))
-        .collect();
-    let orphans: HashMap<String, CalendarEventRef> = observed
-        .values()
-        .filter_map(|event| {
-            let key = adoptable.get(event.external_id.as_deref()?)?;
-            Some((key.clone(), event.clone()))
-        })
-        .collect();
-    let edit_slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
+    let lost = LostKeys::of(calendar, params.user_id, &desired, &live_by_key);
+    let orphans = lost.adopt(calendar, &observed, &claimed).await;
 
     let mut wanted: HashSet<String> = HashSet::new();
     for entry in &desired {
@@ -628,27 +629,17 @@ pub async fn push_active_plan(
                     .as_deref()
                     .and_then(|id| observed.get(id).map(|seen| (id.to_owned(), seen)));
                 match known_event {
-                    Some((event_id, seen)) => {
-                        let edited = seen
-                            .updated_at
-                            .is_some_and(|stamp| stamp > row.updated_at + edit_slack);
-                        if edited {
-                            report.skipped.push(SkippedEntry {
-                                external_id: key,
-                                date: entry.session.date,
-                                name: entry.session.name.clone(),
-                                reason: SkipReason::EditedOnProvider,
-                            });
-                            continue;
+                    Some((event_id, seen)) => match known_entry(calendar, row, seen, &hash).await {
+                        KnownEntry::EditedOnProvider => {
+                            report.skipped.push(edited_on_provider(entry));
                         }
-                        if row.payload_hash.as_deref() == Some(hash.as_str()) {
-                            report.unchanged += 1;
-                            continue;
+                        KnownEntry::Unchanged => report.unchanged += 1,
+                        KnownEntry::Changed => {
+                            write
+                                .update(calendar, &event_id, Some(row.id), &mut report)
+                                .await;
                         }
-                        write
-                            .update(calendar, &event_id, Some(row.id), &mut report)
-                            .await;
-                    }
+                    },
                     // The ledger says live but the calendar no longer has it
                     // (the athlete deleted it): the plan still wants the day,
                     // so it is created again and the stale row superseded.
@@ -727,6 +718,168 @@ pub async fn push_active_plan(
     }
 
     Ok(report)
+}
+
+/// What a push does with a wanted entry whose live ledger row names an entry
+/// the calendar still lists.
+enum KnownEntry {
+    /// The athlete changed it on the provider after Dravr wrote it: left alone.
+    EditedOnProvider,
+    /// It already carries this content.
+    Unchanged,
+    /// Its content changed and nobody else touched it: updated in place.
+    Changed,
+}
+
+/// Judge the listed entry `seen` that `row` last wrote, against the content
+/// hash the plan wants now.
+///
+/// An entry changed on the provider after Dravr's write is left alone, even
+/// when its content would not change. One about to be overwritten whose
+/// listing carried no change stamp is read in detail first
+/// ([`FitnessProvider::calendar_event_detail`]), so an edit the athlete made
+/// is still told apart from Dravr's own last write; a read that fails leaves
+/// the update to meet the provider and report its own outcome.
+async fn known_entry(
+    calendar: &dyn FitnessProvider,
+    row: &PrescribedWorkout,
+    seen: &CalendarEventRef,
+    hash: &str,
+) -> KnownEntry {
+    let slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
+    let edited = |event: &CalendarEventRef| {
+        event
+            .updated_at
+            .is_some_and(|stamp| stamp > row.updated_at + slack)
+    };
+    if edited(seen) {
+        return KnownEntry::EditedOnProvider;
+    }
+    if row.payload_hash.as_deref() == Some(hash) {
+        return KnownEntry::Unchanged;
+    }
+    if seen.updated_at.is_none() {
+        match calendar.calendar_event_detail(seen.clone()).await {
+            Ok(detail) if edited(&detail) => return KnownEntry::EditedOnProvider,
+            Ok(_) => {}
+            Err(e) => warn!(
+                provider = calendar.name(),
+                event_id = %seen.provider_event_id,
+                error = %e,
+                "calendar entry detail unread before its update"
+            ),
+        }
+    }
+    KnownEntry::Changed
+}
+
+/// The report line of a wanted entry the athlete changed on the provider
+/// after Dravr wrote it.
+fn edited_on_provider(entry: &DesiredEntry) -> SkippedEntry {
+    SkippedEntry {
+        external_id: entry.session.external_id.clone(),
+        date: entry.session.date,
+        name: entry.session.name.clone(),
+        reason: SkipReason::EditedOnProvider,
+    }
+}
+
+/// The plan keys a push wants that no live ledger row holds, grouped by the
+/// key the calendar stores for them ([`FitnessProvider::calendar_key`]), each
+/// with its date.
+struct LostKeys<'plan> {
+    by_calendar_key: HashMap<String, Vec<(&'plan str, NaiveDate)>>,
+}
+
+impl<'plan> LostKeys<'plan> {
+    fn of(
+        calendar: &dyn FitnessProvider,
+        user_id: Uuid,
+        desired: &'plan [DesiredEntry],
+        live_by_key: &HashMap<String, PrescribedWorkout>,
+    ) -> Self {
+        let plan_prefix = CalendarKey::plan_prefix(user_id);
+        let mut by_calendar_key: HashMap<String, Vec<(&str, NaiveDate)>> = HashMap::new();
+        for entry in desired {
+            let key = entry.session.external_id.as_str();
+            if key.starts_with(&plan_prefix) && !live_by_key.contains_key(key) {
+                by_calendar_key
+                    .entry(calendar.calendar_key(key))
+                    .or_default()
+                    .push((key, entry.session.date));
+            }
+        }
+        Self { by_calendar_key }
+    }
+
+    fn wants_date(&self, date: NaiveDate) -> bool {
+        self.by_calendar_key
+            .values()
+            .flatten()
+            .any(|(_, wanted)| *wanted == date)
+    }
+
+    /// The entries the push adopts, by the plan key each takes over: listed
+    /// entries no live row names (`claimed`) that carry a lost key in the
+    /// calendar's form.
+    ///
+    /// A key the calendar stores once per entry pairs with that entry, on
+    /// whatever day it now sits. A tag the calendar files every Dravr entry
+    /// under pairs with a lost key on the entry's own date. A listed entry
+    /// that carries no key is read in detail only on a date some lost key
+    /// still wants: a date stops being read once its lost keys are paired, so
+    /// a calendar whose listing names identity only spends its reads on the
+    /// dates a write is due anyway, never on its whole window. Entries are
+    /// visited in date then id order, so a re-run pairs the same way.
+    async fn adopt(
+        mut self,
+        calendar: &dyn FitnessProvider,
+        observed: &HashMap<String, CalendarEventRef>,
+        claimed: &HashSet<String>,
+    ) -> HashMap<String, CalendarEventRef> {
+        let mut listed: Vec<&CalendarEventRef> = observed
+            .values()
+            .filter(|event| !claimed.contains(&event.provider_event_id))
+            .collect();
+        listed.sort_by(|a, b| (a.date, &a.provider_event_id).cmp(&(b.date, &b.provider_event_id)));
+        let mut adopted = HashMap::new();
+        for event in listed {
+            let event = if event.external_id.is_some() {
+                event.clone()
+            } else if self.wants_date(event.date) {
+                match calendar.calendar_event_detail(event.clone()).await {
+                    Ok(detail) => detail,
+                    Err(e) => {
+                        warn!(
+                            provider = calendar.name(),
+                            event_id = %event.provider_event_id,
+                            error = %e,
+                            "calendar entry detail unread; it is not adopted"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                continue;
+            };
+            let Some(keys) = event
+                .external_id
+                .as_deref()
+                .and_then(|stored| self.by_calendar_key.get_mut(stored))
+            else {
+                continue;
+            };
+            let at = keys
+                .iter()
+                .position(|(_, date)| *date == event.date)
+                .or_else(|| (keys.len() == 1).then_some(0));
+            if let Some(at) = at {
+                let (key, _) = keys.remove(at);
+                adopted.insert(key.to_owned(), event);
+            }
+        }
+        adopted
+    }
 }
 
 /// The agent a ledger row names for `entry`: the one that wrote the plan week

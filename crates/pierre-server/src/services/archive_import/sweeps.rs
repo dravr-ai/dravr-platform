@@ -24,15 +24,21 @@
 //!   row once both confirm. It runs wherever a blob store is placed, imports
 //!   or not. A failure is kept with its error and tried again later, each
 //!   wait twice the last, up to [`MAX_BACKOFF`].
+//! - **Reset accounts.** An account reset keeps the account live, so it never
+//!   queues here: a pass reaching it later would erase what the athlete
+//!   uploaded or imported after the reset. It runs the same erasure at once,
+//!   before its wipe, through [`ServerArchiveEraser`].
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::{Importer, UserId};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ArchiveErasureRepository, PendingArchiveErasure};
 use pierre_providers::originals::OriginalsStore;
+use pierre_services::account_reset::{AccountArchiveEraser, ArchiveErasure};
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -224,6 +230,48 @@ async fn erase_account(
         .await
         .map_err(|e| e.to_string())?;
     Ok((records, jobs, blobs))
+}
+
+/// The account reset's erasure, run at once for an account that stays live.
+///
+/// It erases what the sweep erases for a deleted account: barrage's records,
+/// jobs, originals and spools in every tenant (where imports run here) and
+/// every file the account uploaded.
+#[derive(Debug)]
+pub struct ServerArchiveEraser {
+    /// The server's shared context, held for its importer wiring and
+    /// originals store; shared with every other handler of the process.
+    resources: Arc<ServerContext>,
+}
+
+impl ServerArchiveEraser {
+    /// An eraser over `resources`' importer and originals store.
+    #[must_use]
+    pub const fn new(resources: Arc<ServerContext>) -> Self {
+        Self { resources }
+    }
+}
+
+#[async_trait]
+impl AccountArchiveEraser for ServerArchiveEraser {
+    async fn erase(&self, user_id: Uuid) -> AppResult<ArchiveErasure> {
+        let importer = self
+            .resources
+            .common
+            .archive_imports
+            .wiring()
+            .ok()
+            .map(|wiring| ops::importer(&self.resources, wiring));
+        let (records, jobs, blobs) =
+            erase_account(importer.as_ref(), &self.resources.common.originals, user_id)
+                .await
+                .map_err(|e| AppError::internal(format!("erasing the imported history: {e}")))?;
+        Ok(ArchiveErasure {
+            records,
+            jobs,
+            blobs,
+        })
+    }
 }
 
 /// Keep a failed erasure's `error` and hold it until its next attempt.

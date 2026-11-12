@@ -99,7 +99,7 @@ pub struct TurnState {
     /// Reads that succeeded this turn, by [`ReadFingerprint`], and whether
     /// their one repeat has been answered with a pointer back to them.
     reads: HashMap<ReadFingerprint, ReadSeen>,
-    /// Whether enforce mode has already denied a call this turn. Once it has, the
+    /// Whether the Guardian has already denied a call this turn. Once it has, the
     /// reply the athlete gets is about that call, so nothing further may commit
     /// behind it ([`super::DenyReason::TurnBlocked`]).
     blocked: bool,
@@ -166,7 +166,7 @@ impl TurnState {
         self.writes
     }
 
-    /// Whether enforce mode has already denied a call this turn.
+    /// Whether the Guardian has already denied a call this turn.
     #[must_use]
     pub const fn is_blocked(&self) -> bool {
         self.blocked
@@ -205,7 +205,7 @@ impl TurnState {
 #[derive(Debug)]
 pub struct GuardianTurns {
     inner: Mutex<Store>,
-    /// The first enforce-mode block of each real turn, set by the dispatch
+    /// The first block of each real turn, set by the dispatch
     /// chokepoint and taken when the turn's tool loop returns. A block that fires
     /// inside an ACP agent's tool-host session (a separate task) can't surface
     /// back through the subprocess, so the loop reads this to render a
@@ -225,7 +225,7 @@ pub struct GuardianTurns {
 pub enum CallFate {
     /// The call runs: budget is reserved.
     Runs,
-    /// Enforce mode denied it: nothing is reserved, and the turn stops
+    /// The Guardian denied it: nothing is reserved, and the turn stops
     /// committing ([`TurnState::is_blocked`]).
     Blocked,
     /// The caller only read the state; nothing changes.
@@ -305,7 +305,7 @@ impl GuardianTurns {
         }
     }
 
-    /// Record an enforce-mode block under `key`, the turn it fired in, so the
+    /// Record a block under `key`, the turn it fired in, so the
     /// turn's tool loop can render one that occurred inside an ACP agent's
     /// tool-host session (#10). The turn's FIRST block stands: it is what the
     /// athlete is told about, and everything after it was refused because of it. A
@@ -500,11 +500,11 @@ mod tests {
 
         store.record_block(&first_turn, denied(DenyReason::TurnBlocked));
         store.record_block(&first_turn, denied(DenyReason::BudgetExceeded));
-        store.record_block(&second_turn, denied(DenyReason::EgressForbidden));
+        store.record_block(&second_turn, denied(DenyReason::BudgetExceeded));
 
         assert_eq!(
             store.take_block(&second_turn),
-            Some(denied(DenyReason::EgressForbidden)),
+            Some(denied(DenyReason::BudgetExceeded)),
             "taking one turn's block leaves the other's"
         );
         assert_eq!(

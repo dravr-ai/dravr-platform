@@ -27,11 +27,10 @@ use crate::auth::middleware::admin_auth_middleware;
 use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
-    admin_rate_limit_override, admin_scope, agent_grading, api_keys, audit_trail, claim_verdicts,
-    coach_access, deletion_ledger, device_auth, device_web, engagement, feature_flags,
-    guardian_config, harness_config, memory_worker, myth_busting, new_users, provider_clone,
-    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
-    website,
+    admin_rate_limit_override, admin_scope, api_keys, audit_trail, claim_verdicts, coach_access,
+    connect_order, deletion_ledger, device_auth, device_web, engagement, feature_flags,
+    guardian_config, harness_config, memory_worker, new_users, provider_clone, provider_data,
+    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -47,8 +46,8 @@ impl AdminRoutes {
     ///
     /// Used by `pierre-cli` and B2B partners for API key provisioning, admin
     /// token mint/rotate, and initial setup. The human-facing admin web UI
-    /// (Claim Verdicts, Agent Grades, Myth Busting, Memory Worker, Harness
-    /// Config) is mounted separately at `/api/admin/...` via [`Self::cookie_admin_routes`].
+    /// (Claim Verdicts, Memory Worker, Harness Config) is mounted separately
+    /// at `/api/admin/...` via [`Self::cookie_admin_routes`].
     pub fn routes(context: AdminApiContext) -> Router {
         let auth_service = context.auth_service.clone();
         let context = Arc::new(context);
@@ -131,10 +130,10 @@ impl AdminRoutes {
     /// auth + `is_admin` check.
     ///
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
-    /// (users, auto-approval, admin tokens, Claim Verdicts, Agent Grades, Myth
-    /// Busting, Memory Worker, Harness Config). Every handler here is the one
-    /// handler for its operation: users, auto-approval, tokens and harness are also
-    /// mounted under `/admin` for `pierre-cli`'s bearer token
+    /// (users, auto-approval, admin tokens, Claim Verdicts, Memory Worker,
+    /// Harness Config). Every handler here is the one handler for its
+    /// operation: users, auto-approval, tokens and harness are also mounted
+    /// under `/admin` for `pierre-cli`'s bearer token
     /// ([`Self::console_user_routes`], [`Self::console_token_routes`],
     /// [`Self::settings_routes`]).
     ///
@@ -154,8 +153,6 @@ impl AdminRoutes {
         let claim_verdict_routes = Self::claim_verdict_routes(context.clone());
         let memory_worker_routes = Self::memory_worker_routes(context.clone());
         let scope_tenant_routes = Self::scope_tenant_routes(context.clone());
-        let myth_busting_routes = Self::myth_busting_routes(context.clone());
-        let agent_grading_routes = Self::agent_grading_routes(context.clone());
         let engagement_routes = Self::engagement_routes(context.clone());
         let harness_config_routes = Self::harness_config_routes(context.clone());
         let feature_flag_admin_routes = Self::feature_flag_admin_routes(context.clone());
@@ -167,8 +164,6 @@ impl AdminRoutes {
             .merge(claim_verdict_routes)
             .merge(memory_worker_routes)
             .merge(scope_tenant_routes)
-            .merge(myth_busting_routes)
-            .merge(agent_grading_routes)
             .merge(engagement_routes)
             .merge(harness_config_routes)
             .merge(feature_flag_admin_routes)
@@ -183,32 +178,12 @@ impl AdminRoutes {
         human_admin.layer(cookie_layer)
     }
 
-    /// Agent grading routes (cookie auth)
-    fn agent_grading_routes(context: Arc<AdminApiContext>) -> Router {
-        Router::new()
-            .route(
-                "/api/admin/agent-grading/summary",
-                get(agent_grading::handle_get_summary),
-            )
-            .with_state(context)
-    }
-
     /// Engagement screen route (cookie auth)
     fn engagement_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/engagement",
                 get(engagement::handle_get_engagement),
-            )
-            .with_state(context)
-    }
-
-    /// Myth-busting summary route (cookie auth)
-    fn myth_busting_routes(context: Arc<AdminApiContext>) -> Router {
-        Router::new()
-            .route(
-                "/api/admin/myth-busting/summary",
-                get(myth_busting::handle_get_summary),
             )
             .with_state(context)
     }
@@ -278,7 +253,8 @@ impl AdminRoutes {
     }
 
     /// Admin-token-only user routes: the listing, the per-user read and delete,
-    /// and the provider disconnect and onboarding reset `pierre-cli` drives. The operations the
+    /// and the provider disconnect, onboarding reset and account reset
+    /// `pierre-cli` drives. The operations the
     /// console shares are in [`Self::token_user_management_routes`].
     fn user_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
@@ -308,6 +284,13 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/onboarding/reset",
                 post(user_removal::handle_reset_user_onboarding),
+            )
+            // Start a whole account over: every provider disconnected, every
+            // row it owns wiped, the account and its sign-in kept (super-admin
+            // only inside the handler).
+            .route(
+                "/admin/users/{user_id}/reset",
+                post(user_removal::handle_reset_user),
             )
             .with_state(Arc::clone(&context))
             .merge(Self::token_user_management_routes(context))
@@ -526,6 +509,13 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/guardian",
                 put(guardian_config::handle_put_guardian_config),
+            )
+            // Which way a new Strava or Garmin connection goes first
+            // (carnet#1472). Super-admin only inside the handlers.
+            .route(
+                "/admin/settings/connect-order",
+                get(connect_order::handle_get_connect_order)
+                    .put(connect_order::handle_set_connect_order),
             )
             .with_state(context)
     }

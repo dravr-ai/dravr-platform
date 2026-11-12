@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.15.1"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.15.1#24dffd752b05a30e330efdcd82713bfdeb1cb487"
+version = "0.15.4"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.15.4#b073b0ae8d95595d83c7a97e94bf96df3ea549fa"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1374,8 +1374,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.46.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.46.0#54d1eb724e9fd7fe76de98b0210ae05e6faa97f0"
+version = "0.48.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.48.0#2e11c3447b88160645868ee45b8213b593df2214"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1439,7 +1439,7 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=d0c512f8a4d70aac1419081cd18b954421df6933#d0c512f8a4d70aac1419081cd18b954421df6933"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=9c96702ae28d126e72326454f5ecdf06226556c8#9c96702ae28d126e72326454f5ecdf06226556c8"
 
 [[package]]
 name = "dravr-enforme"
@@ -4261,6 +4261,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
+ "pierre-groups",
  "pierre-llm",
  "pierre-logging",
  "pierre-memory",

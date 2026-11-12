@@ -5692,6 +5692,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
         scheduled_for: "2026-09-10".to_owned(),
         status: "pushed".to_owned(),
         calendar_note: None,
+        envelope: None,
     })
     .expect("serializes");
     assert!(

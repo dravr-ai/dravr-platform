@@ -430,6 +430,13 @@ async fn sync_single_user_within(
 /// The tenant of the token row the sync reads is resolved first and recorded
 /// on the enclosing span, so every line the sync logs names it; the same
 /// tenant is the one a landed sync stamps and a failed one reports on.
+///
+/// Nobody waits on a scheduled sync, so it runs [`in_background`]: each of its
+/// provider requests is admitted only inside the background share of the
+/// app's windows, leaving the rest to the reads an athlete is waiting on. On
+/// 2026-11-10 the Intervals.icu pass ran at full share and, once a runaway
+/// backfill had spent the app's day, logged every athlete's sync as a spent
+/// foreground budget (carnet#1491).
 async fn sync_single_user(
     orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
@@ -445,7 +452,7 @@ async fn sync_single_user(
     log_smart_schedule_interval(user, provider_name);
 
     let start = Instant::now();
-    match orchestrator.sync_user(&user.user_id, provider_name).await {
+    match in_background(orchestrator.sync_user(&user.user_id, provider_name)).await {
         Ok(result) => {
             let elapsed = start.elapsed();
             SYNC_SUCCESSES.fetch_add(1, Ordering::Relaxed);
@@ -649,12 +656,17 @@ mod tests {
     use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
     use dravr_equilibre_sync::ContinuousMetricBatch;
     use http::HeaderMap;
+    use pierre_core::constants::rate_limits;
     use pierre_core::errors::AppError;
     use pierre_core::models::{
         StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, Tenant, UserOAuthToken,
     };
     use pierre_database::RepositoryRegistry;
     use pierre_logging::span_fields::{SpanFieldStorage, SpanFields};
+    use pierre_providers::request_budget::{
+        budget_counter_key, budget_period, ProviderRateLimiter, RequestBudget,
+        BACKGROUND_SHARE_PERCENT, ONE_DAY, PLATFORM_SCOPE,
+    };
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
     use serde_json::{Map, Value as Json};
@@ -701,6 +713,109 @@ mod tests {
             if creds.user_id == self.stalled {
                 pending::<()>().await;
             }
+            Ok(empty(creds, "sleep"))
+        }
+
+        async fn fetch_recovery(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredRecoveryMetrics>> {
+            Ok(empty(creds, "recovery"))
+        }
+
+        async fn fetch_health(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredHealthMetrics>> {
+            Ok(empty(creds, "health"))
+        }
+
+        async fn fetch_continuous(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<ContinuousMetricBatch>> {
+            Ok(empty(creds, "continuous"))
+        }
+
+        async fn on_connected(
+            &self,
+            _creds: &ProviderCredentials,
+            _webhook_url: &str,
+        ) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        async fn on_disconnected(&self, _creds: &ProviderCredentials) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        fn webhook_config(&self) -> Option<WebhookConfig> {
+            None
+        }
+
+        async fn validate_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        async fn parse_webhook(&self, _body: &[u8]) -> EnformeResult<Vec<WebhookEvent>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// An orchestrator syncing WHOOP through `provider`, over `repos`.
+    fn whoop_orchestrator(
+        repos: &Arc<RepositoryRegistry>,
+        provider: impl SyncProvider + 'static,
+    ) -> Arc<SyncOrchestrator> {
+        let storage = Arc::new(PierreSyncStorage::new(repos));
+        let deps = Arc::new(SyncDeps {
+            sleep: storage.clone(),
+            recovery: storage.clone(),
+            health: storage.clone(),
+            daily_activity: storage.clone(),
+            time_series: storage.clone(),
+            data_sources: storage.clone(),
+            cursors: storage.clone(),
+            credentials: storage.clone(),
+            connections: storage,
+        });
+        let provider: Box<dyn SyncProvider> = Box::new(provider);
+        let providers = HashMap::from([("whoop".to_owned(), provider)]);
+        Arc::new(SyncOrchestrator::new(
+            deps,
+            providers,
+            SyncConfig::from_env(),
+        ))
+    }
+
+    /// A WHOOP stand-in that asks `budget` to admit each sleep read, as a
+    /// real provider's HTTP client does before it sends, and records whether
+    /// it was admitted.
+    struct AdmitsEachRead {
+        budget: RequestBudget,
+        admitted: Arc<Mutex<Vec<bool>>>,
+    }
+
+    #[async_trait]
+    impl SyncProvider for AdmitsEachRead {
+        fn name(&self) -> &'static str {
+            "whoop"
+        }
+
+        fn supported_data_types(&self) -> &[DataType] {
+            &[DataType::Sleep]
+        }
+
+        async fn fetch_sleep(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredSleepSession>> {
+            let admitted = self.budget.admit("whoop").await.is_ok();
+            self.admitted.lock().unwrap().push(admitted);
             Ok(empty(creds, "sleep"))
         }
 
@@ -819,28 +934,13 @@ mod tests {
         let (next, next_tenant) = whoop_athlete(&repos).await;
 
         let read = Arc::new(Mutex::new(Vec::new()));
-        let storage = Arc::new(PierreSyncStorage::new(&repos));
-        let deps = Arc::new(SyncDeps {
-            sleep: storage.clone(),
-            recovery: storage.clone(),
-            health: storage.clone(),
-            daily_activity: storage.clone(),
-            time_series: storage.clone(),
-            data_sources: storage.clone(),
-            cursors: storage.clone(),
-            credentials: storage.clone(),
-            connections: storage,
-        });
-        let provider: Box<dyn SyncProvider> = Box::new(StallsFor {
-            stalled: stalled.to_string(),
-            read: Arc::clone(&read),
-        });
-        let providers = HashMap::from([("whoop".to_owned(), provider)]);
-        let orchestrator = Arc::new(SyncOrchestrator::new(
-            deps,
-            providers,
-            SyncConfig::from_env(),
-        ));
+        let orchestrator = whoop_orchestrator(
+            &repos,
+            StallsFor {
+                stalled: stalled.to_string(),
+                read: Arc::clone(&read),
+            },
+        );
 
         let auth_repos = repos.auth_repos();
         let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
@@ -918,28 +1018,13 @@ mod tests {
         let repos = Arc::clone(db.repositories());
         let (athlete, tenant) = whoop_athlete(&repos).await;
 
-        let storage = Arc::new(PierreSyncStorage::new(&repos));
-        let deps = Arc::new(SyncDeps {
-            sleep: storage.clone(),
-            recovery: storage.clone(),
-            health: storage.clone(),
-            daily_activity: storage.clone(),
-            time_series: storage.clone(),
-            data_sources: storage.clone(),
-            cursors: storage.clone(),
-            credentials: storage.clone(),
-            connections: storage,
-        });
-        let provider: Box<dyn SyncProvider> = Box::new(StallsFor {
-            stalled: String::new(),
-            read: Arc::new(Mutex::new(Vec::new())),
-        });
-        let providers = HashMap::from([("whoop".to_owned(), provider)]);
-        let orchestrator = Arc::new(SyncOrchestrator::new(
-            deps,
-            providers,
-            SyncConfig::from_env(),
-        ));
+        let orchestrator = whoop_orchestrator(
+            &repos,
+            StallsFor {
+                stalled: String::new(),
+                read: Arc::new(Mutex::new(Vec::new())),
+            },
+        );
         let auth_repos = repos.auth_repos();
         let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
         let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
@@ -987,5 +1072,71 @@ mod tests {
                 "bug: a sync line must name the provider: {line:?}"
             );
         }
+    }
+
+    // carnet#1491: the scheduled sync ran at the full share of the app's
+    // windows, so once the day was past its background share it kept taking
+    // the requests held for the reads athletes wait on.
+    #[tokio::test]
+    async fn a_scheduled_sync_takes_only_the_background_share_of_the_app() {
+        const APP: &str = "whoop-test-app";
+        let db = create_test_db().await.unwrap();
+        let repos = Arc::clone(db.repositories());
+        let (athlete, _) = whoop_athlete(&repos).await;
+        let limiter = Arc::new(ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        ));
+        let budget = RequestBudget::new(Arc::clone(&limiter), APP.to_owned(), None);
+        let background_share =
+            rate_limits::WHOOP_DEFAULT_DAILY_RATE_LIMIT * BACKGROUND_SHARE_PERCENT / 100;
+        repos
+            .usage_counters
+            .increment_counter(
+                PLATFORM_SCOPE,
+                PLATFORM_SCOPE,
+                &budget_counter_key("whoop", APP),
+                &budget_period(Utc::now(), ONE_DAY),
+                i64::from(background_share),
+            )
+            .await
+            .unwrap();
+
+        let admitted = Arc::new(Mutex::new(Vec::new()));
+        let orchestrator = whoop_orchestrator(
+            &repos,
+            AdmitsEachRead {
+                budget: budget.clone(),
+                admitted: Arc::clone(&admitted),
+            },
+        );
+        let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
+        let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
+        let user = ConnectedUser {
+            user_id: athlete.to_string(),
+            provider: "whoop".to_owned(),
+            connected_at: Utc::now(),
+            is_active: true,
+        };
+        sync_single_user_within(
+            &orchestrator,
+            &repos.auth_repos(),
+            &notifier,
+            &notices,
+            &user,
+            "whoop",
+            Duration::from_secs(30),
+        )
+        .await;
+
+        assert_eq!(
+            *admitted.lock().unwrap(),
+            vec![false],
+            "bug: the scheduled sync's read was admitted past the background share"
+        );
+        budget
+            .admit("whoop")
+            .await
+            .expect("a read an athlete waits on keeps the rest of the day");
     }
 }

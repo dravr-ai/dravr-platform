@@ -3,9 +3,10 @@
 
 // ABOUTME: Tests the chat "+" — new chat, new group chat by name, add someone to the open thread
 // ABOUTME: Covers the header "+" and the empty list's call to action, the platform menu both present, and the flows each action opens
+// ABOUTME: New chat creates a conversation beside the personal thread (carnet#1473), never a topic inside it
 
 import React from 'react';
-import { ActionSheetIOS } from 'react-native';
+import { ActionSheetIOS, Alert } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -114,8 +115,8 @@ describe('the chat "+"', () => {
     expect(getByTestId('conversations-screen')).toBeTruthy();
   });
 
-  // carnet#840: new chat is a new topic in the athlete's personal thread —
-  // never another thread — and the app lands there.
+  // carnet#1473: new chat is a conversation of its own, beside the personal
+  // thread, and the app lands there.
   // A look forges nothing: an athlete who has not begun gets the empty
   // thread, whose first send opens their personal thread.
   it('new chat opens an empty thread for an athlete who has not begun', async () => {
@@ -135,12 +136,9 @@ describe('the chat "+"', () => {
     expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 
-  it('new chat opens a topic in the personal thread and lands in it', async () => {
+  it('new chat creates a conversation beside the personal thread and lands in it', async () => {
     mockGetPersonalConversation.mockResolvedValue({ id: 'conv-personal', title: 'Dravr', personal: true });
-    mockOpenPersonalTopic.mockResolvedValue({
-      conversation: { id: 'conv-personal', title: 'Dravr', personal: true },
-      divider: null,
-    });
+    mockCreateConversation.mockResolvedValue({ id: 'conv-new', title: 'Dravr' });
     const { findByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('conversations-empty-start'));
@@ -149,11 +147,67 @@ describe('the chat "+"', () => {
     await waitFor(() =>
       expect(mockRouter.push).toHaveBeenCalledWith({
         pathname: CHAT_THREAD_ROUTE,
-        params: { conversationId: 'conv-personal' },
+        params: { conversationId: 'conv-new' },
       }),
     );
-    expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
-    expect(mockCreateConversation).not.toHaveBeenCalled();
+    // The server binds the selected agent and posts its welcome: the athlete
+    // does not speak first, and the personal thread gets no divider or rebind.
+    expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).toHaveBeenCalledWith(undefined);
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  // Turns red if "+" collapses back into one page: each press is a new thread.
+  it('two new chats in a row are two distinct conversations', async () => {
+    mockGetPersonalConversation.mockResolvedValue({ id: 'conv-personal', title: 'Dravr', personal: true });
+    mockCreateConversation
+      .mockResolvedValueOnce({ id: 'conv-first', title: 'Dravr' })
+      .mockResolvedValueOnce({ id: 'conv-second', title: 'Dravr' });
+    const { findByTestId } = render(withClient(<ConversationsScreen />));
+
+    fireEvent.press(await findByTestId('conversations-empty-start'));
+    presentedMenu().pick('New chat');
+    await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
+
+    fireEvent.press(await findByTestId('conversations-empty-start'));
+    presentedMenu().pick('New chat');
+    await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(2));
+
+    expect(mockRouter.push.mock.calls.map(([href]) => href.params.conversationId)).toEqual([
+      'conv-first',
+      'conv-second',
+    ]);
+    expect(mockCreateConversation).toHaveBeenCalledTimes(2);
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  // At the plan's cap the server refuses one more thread with a 429 naming the
+  // limit: the athlete is told which limit, with its counts, and goes nowhere.
+  it('new chat at the conversation cap says so and opens nothing', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockGetPersonalConversation.mockResolvedValue({ id: 'conv-personal', title: 'Dravr', personal: true });
+    mockCreateConversation.mockRejectedValue({
+      response: {
+        status: 429,
+        data: {
+          error: 'max_active_conversations quota exceeded: 10/10',
+          details: { limit_type: 'max_active_conversations', current: 10, limit: 10 },
+        },
+      },
+    });
+    const { findByTestId } = render(withClient(<ConversationsScreen />));
+
+    fireEvent.press(await findByTestId('conversations-empty-start'));
+    presentedMenu().pick('New chat');
+
+    await waitFor(() =>
+      expect(alert).toHaveBeenCalledWith(
+        'Conversation limit reached',
+        'Conversation limit reached (10/10). Delete an existing conversation to start a new one.',
+      ),
+    );
+    expect(mockRouter.push).not.toHaveBeenCalled();
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
   });
 
   // Turns red if "New group chat" regrows a picker or a createGroup call:

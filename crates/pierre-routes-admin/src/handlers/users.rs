@@ -262,6 +262,28 @@ pub async fn handle_get_user(
         .users
         .manages_roster_operator_grant(user_uuid)
         .await?;
+    // What would refuse a whole-account reset, which `pierre-cli user reset`
+    // previews without --yes instead of promising a wipe the server refuses:
+    // as it stands, and once the groups the account owns are archived
+    // (`--delete-owned-groups`), with those groups named.
+    let reset_blockers = context
+        .repos
+        .account_reset
+        .reset_blockers(user_uuid, false)
+        .await?;
+    let reset_blockers_with_owned_groups_deleted = context
+        .repos
+        .account_reset
+        .reset_blockers(user_uuid, true)
+        .await?;
+    let owned_active_groups: Vec<Value> = context
+        .repos
+        .account_reset
+        .owned_active_groups(user_uuid)
+        .await?
+        .into_iter()
+        .map(|group| json!({ "id": group.group_id, "name": group.name }))
+        .collect();
 
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
 
@@ -282,6 +304,9 @@ pub async fn handle_get_user(
                 "last_active": user.last_active.to_rfc3339(),
                 "connected_providers": connected_providers,
                 "kept_on_onboarding_reset": kept_on_onboarding_reset,
+                "reset_blockers": reset_blockers,
+                "reset_blockers_with_owned_groups_deleted": reset_blockers_with_owned_groups_deleted,
+                "owned_active_groups": owned_active_groups,
             })),
         },
         StatusCode::OK,

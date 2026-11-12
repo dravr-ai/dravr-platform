@@ -239,7 +239,7 @@ async function recoverFromRefusedTurn(
   );
 }
 
-/** What Home's "+" asks of the personal thread. */
+/** What onboarding's Start, or an athlete's first chat, asks of the personal thread. */
 export interface OpenTopicOptions {
   /** The agent the topic is with, when the athlete picked one. */
   agent_id?: string;
@@ -355,10 +355,13 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
     },
 
     /**
-     * Open a new topic in the personal thread — Home's "+". A divider row,
-     * after which the coach reads the thread afresh; with `agent_id` the
-     * thread is rebound to that agent, whose welcome opens the topic. No
-     * conversation is created, so no cap applies.
+     * Open a new topic in the personal thread — onboarding's Start, and the
+     * first chat of an athlete who has no personal thread yet (it forges one).
+     * A divider row, after which the coach reads the thread afresh; with
+     * `agent_id` the thread is rebound to that agent, whose welcome opens the
+     * topic. No cap applies. A new chat once the thread exists is
+     * `createConversation` instead, which leaves this thread as it was
+     * (carnet#1473).
      */
     async openPersonalTopic(options?: OpenTopicOptions): Promise<OpenTopicResponse> {
       const response = await axios.post<OpenTopicResponse>(

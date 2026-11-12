@@ -70,7 +70,9 @@ use pierre_providers::{ai_scope, backend_resolver};
 use pierre_tool_runtime::implementations::connection::{
     is_no_seat_refusal, is_notice_refusal, mint_oauth_authorize_url,
 };
-use pierre_tool_runtime::protocol::reauth_notice::reconnects_through_oauth;
+use pierre_tool_runtime::protocol::reauth_notice::{
+    new_strava_sign_in_falls_back, reconnects_through_oauth,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -129,7 +131,7 @@ pub struct AuthRecovery {
     /// underneath the offer and still owes every content-aware stage below.
     /// Also false on a hard signal whose mint failed: that reply names the
     /// dropped provider and carries no link, so it stays on the ordinary path
-    /// and the identity re-ask and post-processing both get their say over it.
+    /// and post-processing, the identity withhold included, gets its say over it.
     pub owns_reply: bool,
 }
 
@@ -387,8 +389,8 @@ fn parse_turn_user_id(raw: &str) -> Option<Uuid> {
 /// No [`ReconnectPrompt`]: there is no URL for a surface to draw a control
 /// around, and a control that goes nowhere is worse than the sentence.
 /// `owns_reply: false` whichever standing this is: a linkless sentence is not
-/// a finished turn — the bounded identity re-ask, then post-processing with
-/// its content blocks and guardrails, are what shape a reply the
+/// a finished turn — post-processing, with its identity withhold, content
+/// blocks and guardrails, is what shapes a reply the
 /// short-circuit hands out verbatim.
 fn deliver_linkless_sentence(
     deps: &AuthRecoveryDeps<'_>,
@@ -428,9 +430,13 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
     };
 }
 
-/// The URL the reconnect offer for `provider_slug` carries: the connect
-/// picker when the athlete moves to the provider's OAuth (`through_oauth`),
-/// else the provider's own reconnect ([`mint_reconnect_url`]).
+/// The URL the reconnect offer for `provider_slug` carries.
+///
+/// The connect picker when the athlete moves to the provider's OAuth
+/// (`through_oauth`), or makes a new Strava connection whose sign-in falls
+/// back to the OAuth ([`new_strava_sign_in_falls_back`]) — the picker carries
+/// that fallback, the bare sign-in page does not — else the provider's own
+/// reconnect ([`mint_reconnect_url`]).
 async fn mint_offer_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -439,7 +445,15 @@ async fn mint_offer_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    if through_oauth {
+    if through_oauth
+        || new_strava_sign_in_falls_back(
+            deps.tool_runtime,
+            user_id,
+            input.tool_tenant_id,
+            provider_slug,
+        )
+        .await
+    {
         mint_connect_picker_url(deps, user_id, input, profile).await
     } else {
         mint_reconnect_url(deps, provider_slug, user_id, input, profile).await

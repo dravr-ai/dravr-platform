@@ -281,8 +281,9 @@ impl CacheKey {
     /// tenant and for every provider.
     ///
     /// ISOLATION EXEMPTION: the pattern spans tenants on purpose. It serves
-    /// only the deletion of the account itself, which removes the user from
-    /// every tenant at once; the user id is the whole scope.
+    /// only the deletion of the account itself and its reset, each of which
+    /// removes the user's rows from every tenant at once; the user id is the
+    /// whole scope.
     #[must_use]
     pub fn every_entry_of_user(user_id: Uuid) -> String {
         format!("tenant:*:user:{user_id}:*")

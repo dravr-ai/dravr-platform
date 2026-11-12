@@ -62,8 +62,7 @@ impl EnvConfigError {
 /// Layered between per-tenant overrides and system-wide stored overrides:
 /// a pin is a deploy-time, fleet-wide decision, so it beats a runtime
 /// admin edit at the same (global) scope, while a tenant or per-user
-/// exemption still beats the pin. This mirrors how `GUARDIAN_*` env
-/// overrides sit above the persisted guardian document.
+/// exemption still beats the pin.
 #[derive(Debug, Clone, Default)]
 pub struct EnvConfigPins {
     values: HashMap<String, Value>,

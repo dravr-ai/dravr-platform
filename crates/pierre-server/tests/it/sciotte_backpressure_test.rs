@@ -33,7 +33,9 @@ use axum::http::{header, StatusCode};
 use dravr_sciotte::client::{ClientError, Exchange, Operation, RequestId, ServiceError};
 use pierre_core::errors::AppError;
 use pierre_providers::sciotte_error::to_app_error;
-use pierre_routes_auth::{friendly_login_failure_message, login_failure_response};
+use pierre_routes_auth::{
+    friendly_login_failure_message, login_failure_response, SIGN_IN_UNAVAILABLE_REASON,
+};
 use serde_json::{json, Value};
 use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
@@ -203,6 +205,11 @@ async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
         body["details"]["retry_after_secs"],
         Value::from(45),
         "the wait is machine-readable for the client too"
+    );
+    assert_eq!(
+        body["details"]["reason"],
+        Value::from(SIGN_IN_UNAVAILABLE_REASON),
+        "bug: a shed sign-in carries no reason, so a sign-in-first card cannot fall back to the OAuth (carnet#1477)"
     );
 }
 

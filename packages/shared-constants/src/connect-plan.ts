@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What a provider card offers — how it connects or reconnects, its history choices, the move to the official connection
+// ABOUTME: What a provider card offers — how it connects or reconnects, the sign-in its history needs, the move to the official connection
 // ABOUTME: The one decision both clients render from, so web and mobile cannot disagree on a tap, a pill or a refused grant
 
 import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
 import {
+  SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_PRESETS,
   cardHistoryState,
   intervalsConnectPath,
@@ -26,6 +27,7 @@ export type ConnectPlanCard = Pick<
   | 'own_app_required'
   | 'consent_required'
   | 'recommended_backend'
+  | 'seats_left'
   | 'migration'
   | 'history'
 >;
@@ -48,14 +50,6 @@ type ConnectPrimary =
   | { kind: 'intervals'; path: IntervalsConnectPath }
   | { kind: 'none' };
 
-/**
- * One way to bring in a card's past workouts: the one-time sign-in that copies
- * them, or the export of `source` (an `offered_archive_sources` key the server
- * put on the card). A client shows the export only while it carries that
- * source's copy (`importSourceCopy` in `@pierre/ui-logic`).
- */
-export type HistoryChoice = { kind: 'sign_in'; target: SciotteTarget } | { kind: 'archive'; source: string };
-
 /** What a provider card offers. */
 interface ConnectPlan {
   primary: ConnectPrimary;
@@ -66,7 +60,13 @@ interface ConnectPlan {
    * seat is free; `primary` is then that authorization.
    */
   migrate: boolean;
-  history: { state: HistoryState; choices: HistoryChoice[] };
+  /**
+   * The card's history: its state, and the account sign-in that copies it
+   * while it is still `needed` or did not finish (`null` otherwise). A
+   * Garmin grant receives only what the athlete records after connecting,
+   * so that sign-in follows the grant at once (carnet#1472).
+   */
+  history: { state: HistoryState; signIn: SciotteTarget | null };
 }
 
 /** Whether the server asks this card to move to its provider's official connection. */
@@ -110,28 +110,22 @@ function connectPrimary(card: ConnectPlanCard): ConnectPrimary {
 }
 
 /**
- * The card's history choices. The sign-in is offered while a connected card's
- * history is `needed` or did not finish, and the server names its target; the
- * export whenever the server put a source on the card, connected or not, so an
- * athlete can bring in an export before (or without) connecting.
+ * The account sign-in that copies a connected card's history: offered while
+ * that history is `needed` or did not finish, for the target the server names.
  */
-function historyChoices(card: ConnectPlanCard, state: HistoryState): HistoryChoice[] {
-  const choices: HistoryChoice[] = [];
+function historySignIn(card: ConnectPlanCard, state: HistoryState): SciotteTarget | null {
+  if (state !== 'needed' && state !== 'incomplete') return null;
   const signIn = card.history?.sign_in_target;
-  const target = signIn ? sciotteTargetForBackend(signIn) : null;
-  if ((state === 'needed' || state === 'incomplete') && target) choices.push({ kind: 'sign_in', target });
-  const source = card.history?.archive_source;
-  if (source) choices.push({ kind: 'archive', source });
-  return choices;
+  return signIn ? sciotteTargetForBackend(signIn) : null;
 }
 
-/** What `card` offers: how it connects or reconnects, whether it should move, and its history choices. */
+/** What `card` offers: how it connects or reconnects, whether it should move, and the sign-in its history needs. */
 export function connectPlan(card: ConnectPlanCard): ConnectPlan {
   const state = cardHistoryState(card);
   return {
     primary: connectPrimary(card),
     migrate: migrationAsked(card),
-    history: { state, choices: historyChoices(card, state) },
+    history: { state, signIn: historySignIn(card, state) },
   };
 }
 
@@ -218,4 +212,39 @@ export const SIGN_IN_OAUTH_REQUIRED = 'oauth_required' as const;
  */
 export function refusalReloadsCards(reason: string | null | undefined): boolean {
   return reason === OAUTH_NO_SEAT || reason === SIGN_IN_OAUTH_REQUIRED;
+}
+
+/**
+ * `details.reason` of a sign-in that could not complete for a reason that is
+ * not the athlete's credentials — the service failed, timed out or shed the
+ * login (mirrors the server's `SIGN_IN_UNAVAILABLE_REASON`).
+ */
+export const SIGN_IN_UNAVAILABLE = 'sign_in_unavailable' as const;
+
+/**
+ * The provider whose OAuth a failed account sign-in on `card` falls back to,
+ * or `null` (carnet#1477): a card not yet connected whose account sign-in goes
+ * first while an OAuth seat is free — `recommended_backend` `mirror` with
+ * `seats_left` above zero, which only the operator's sign-in-first order
+ * produces. With the pool full there is no OAuth to fall back to.
+ */
+export function oauthFallbackTarget(
+  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'recommended_backend' | 'seats_left'>,
+): SciotteTarget | null {
+  if (card.connected || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
+    return null;
+  }
+  const target = sciotteTargetForBackend(card.provider);
+  return target && DUAL_BACKEND_TARGETS.has(target) ? target : null;
+}
+
+/**
+ * Whether a refused sign-in falls back to its provider's OAuth when its card
+ * offers one ({@link oauthFallbackTarget}): the sign-in could not complete
+ * ({@link SIGN_IN_UNAVAILABLE}) or the provider stopped it at a challenge.
+ * Wrong credentials answer `status: failed`, never a refusal, so the athlete
+ * types them again instead.
+ */
+export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
+  return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;
 }

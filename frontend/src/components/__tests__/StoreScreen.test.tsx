@@ -140,6 +140,7 @@ vi.mock('../../services/api', () => ({
       conversation: { id: 'conv-personal', title: 'Marathon Coach', personal: true },
       divider: null,
     }),
+    getPersonalConversation: vi.fn(),
   },
 }));
 
@@ -230,6 +231,9 @@ describe('StoreScreen', () => {
     });
     vi.mocked(coachesApi.get).mockResolvedValue(editedCopyOfCoach1);
     vi.mocked(coachesApi.fork).mockResolvedValue(editedCopyOfCoach1);
+    // An athlete with no thread of their own yet, unless a test gives them one.
+    vi.mocked(chatApi.getPersonalConversation).mockResolvedValue(null);
+    vi.mocked(chatApi.createConversation).mockResolvedValue({ id: 'conv-new', title: 'Chat' } as never);
   });
 
   describe('rendering', () => {
@@ -518,7 +522,7 @@ describe('StoreScreen', () => {
       expect(screen.queryByText(/has been added to your agents/)).not.toBeInTheDocument();
     });
 
-    it('Open chat opens a topic bound to the installed agent in the personal thread and routes Home', async () => {
+    it('Open chat with no thread yet opens the personal thread bound to the installed agent and routes Home', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
@@ -528,8 +532,8 @@ describe('StoreScreen', () => {
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
 
       // Bound to the agent the install put on the team — the listing itself,
-      // no copy — so the server posts the agent's welcome, in the personal
-      // thread, never a second one.
+      // no copy — so the server posts the agent's welcome. It is the
+      // athlete's first chat, so it becomes their personal thread.
       await waitFor(() => {
         expect(chatApi.openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-1' });
       });
@@ -538,6 +542,49 @@ describe('StoreScreen', () => {
         expect(mockOnNavigate).toHaveBeenCalledWith('home/chat/conv-personal');
       });
       expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
+    });
+
+    // carnet#1473: a chat with the new agent is its own thread beside the
+    // personal one, which keeps the agent it has.
+    it('Open chat with a personal thread opens a new conversation bound to the installed agent and routes Home', async () => {
+      vi.mocked(chatApi.getPersonalConversation).mockResolvedValue({ id: 'conv-personal', personal: true } as never);
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+      await user.click(await screen.findByRole('button', { name: 'Add Agent' }));
+      await screen.findByTestId('post-install-hint');
+
+      await user.click(screen.getByRole('button', { name: 'Open chat' }));
+
+      await waitFor(() => {
+        expect(chatApi.createConversation).toHaveBeenCalledWith({ agent_id: 'coach-1' });
+      });
+      expect(chatApi.openPersonalTopic).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(mockOnNavigate).toHaveBeenCalledWith('home/chat/conv-new');
+      });
+      expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
+    });
+
+    it('Open chat at the conversation cap says so and stays on the hint', async () => {
+      vi.mocked(chatApi.getPersonalConversation).mockResolvedValue({ id: 'conv-personal', personal: true } as never);
+      vi.mocked(chatApi.createConversation).mockRejectedValue({
+        response: { status: 429, data: { details: { limit_type: 'max_active_conversations', limit: 20 } } },
+      });
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+      await user.click(await screen.findByRole('button', { name: 'Add Agent' }));
+      await screen.findByTestId('post-install-hint');
+
+      await user.click(screen.getByRole('button', { name: 'Open chat' }));
+
+      expect(
+        await screen.findByText(
+          "You've reached your limit of 20 active conversations. Delete one from the sidebar to start a new chat.",
+        ),
+      ).toBeInTheDocument();
+      expect(mockOnNavigate).not.toHaveBeenCalledWith(expect.stringMatching(/^home\/chat\//));
     });
 
     it('Dismiss hides the hint and leaves the agent installed', async () => {
@@ -551,6 +598,7 @@ describe('StoreScreen', () => {
 
       expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
       expect(chatApi.openPersonalTopic).not.toHaveBeenCalled();
+      expect(chatApi.createConversation).not.toHaveBeenCalled();
       expect(storeApi.uninstall).not.toHaveBeenCalled();
     });
   });
@@ -879,6 +927,7 @@ describe('StoreScreen', () => {
       expect(onPick.mock.calls[0][0]).toMatchObject({ id: 'coach-2', title: 'Nutrition Expert' });
       expect(storeApi.install).not.toHaveBeenCalled();
       expect(chatApi.openPersonalTopic).not.toHaveBeenCalled();
+      expect(chatApi.createConversation).not.toHaveBeenCalled();
       expect(mockOnNavigate).not.toHaveBeenCalled();
       // A pick never opens the detail view.
       expect(screen.queryByText('You are an expert marathon coach...')).not.toBeInTheDocument();

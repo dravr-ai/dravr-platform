@@ -1049,16 +1049,6 @@ impl FitnessProvider for IntervalsIcuProvider {
         // returns real data instead of synthetic zeros.
         let (oldest, newest) = activity_window(None, None);
         let activities = self.list_activities(oldest, newest, MAX_PAGE_LIMIT).await?;
-        let total_activities = activities.len() as u64;
-        let total_distance: f64 = activities
-            .iter()
-            .map(|a| a.distance_meters().unwrap_or(0.0))
-            .sum();
-        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
-        let total_elevation_gain: f64 = activities
-            .iter()
-            .map(|a| a.elevation_gain().unwrap_or(0.0))
-            .sum();
         // The rollup spans the lookback window, unless the listing hit its
         // page cap first: then only that many of the most recent count.
         let coverage = if activities.len() < MAX_PAGE_LIMIT {
@@ -1068,14 +1058,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         } else {
             StatsCoverage::recent(&activities)
         };
-        Ok(Stats {
-            total_activities,
-            total_distance,
-            total_duration,
-            total_elevation_gain,
-            coverage,
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(&activities, coverage))
     }
 
     // Every category: this is the reconcile's view of the calendar, and the

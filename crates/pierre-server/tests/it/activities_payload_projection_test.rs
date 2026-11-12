@@ -137,19 +137,20 @@ fn the_projection_drops_the_duplicate_copies_and_the_sidecars() {
     assert!(projected.get("token_estimate").is_none());
     assert!(projected.get("retrieval_context").is_none());
 
-    // Per-activity detail bodies go; the addressing fields stay.
+    // The numbers the prose list already carries go; the addressing fields
+    // stay, and so does what the athlete wrote, which the athlete-visible
+    // list never holds (carnet#1480: "Mal aux bras !" never reached the coach).
     let row = &projected["activities"][0];
-    for dropped in [
-        "distance_meters",
-        "average_heartrate",
-        "description",
-        "calories",
-    ] {
+    for dropped in ["distance_meters", "average_heartrate", "calories"] {
         assert!(
             row.get(dropped).is_none(),
             "{dropped} should not survive projection"
         );
     }
+    assert!(
+        row.get("description").is_some(),
+        "bug: the athlete's description must reach the model"
+    );
 }
 
 /// The one sidecar that survives, and the reason it has to.
@@ -276,8 +277,8 @@ fn the_api_loop_injects_the_projected_payload_not_the_whole_envelope() {
         "the duplicate rendering must not reach the prompt"
     );
     assert!(
-        !injected.contains("Felt strong through the back half"),
-        "per-activity detail bodies must not reach the prompt"
+        injected.contains("Felt strong through the back half"),
+        "bug: the athlete's description must reach the prompt"
     );
 
     // The prepended list is unaffected — it is read off the ORIGINAL response,
@@ -302,7 +303,10 @@ fn the_text_loop_and_the_recovery_reask_share_the_same_projection() {
     );
     assert!(!text.contains("retrieval_context"));
     assert!(!text.contains("activities_toon"));
-    assert!(!text.contains("Felt strong through the back half"));
+    assert!(
+        text.contains("Felt strong through the back half"),
+        "bug: the athlete's description must reach the text loop too"
+    );
 }
 
 // ============================================================================

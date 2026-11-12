@@ -9,7 +9,9 @@
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
-use pierre_providers::models::{PlannedSession, PlannedSessionKind, SportType, WorkoutStep};
+use pierre_providers::models::{
+    CalendarEventRef, PlannedSession, PlannedSessionKind, SportType, WorkoutStep,
+};
 use pierre_providers::ProviderRegistry;
 use secrecy::SecretString;
 use serde_json::Value;
@@ -476,4 +478,139 @@ async fn a_listing_cut_short_is_an_error_never_an_empty_calendar() {
         2,
         "the permission and the listing were each read once"
     );
+}
+
+/// A listed entry as Garmin's schedule listing gives it: identity only.
+fn listed(event_id: &str) -> CalendarEventRef {
+    CalendarEventRef {
+        provider_event_id: event_id.to_owned(),
+        external_id: None,
+        date: date(),
+        updated_at: None,
+    }
+}
+
+#[tokio::test]
+async fn a_detail_read_names_dravrs_workout_and_the_update_after_it_reads_nothing_again() {
+    let (base, stub) = stub(vec![
+        GRANTED,
+        (
+            "200 OK",
+            r#"{"workoutId":41,"ownerId":9000,"workoutName":"x","workoutProvider":"Dravr",
+                "workoutSourceId":"Dravr","createdDate":"2026-11-10T14:02:11.0",
+                "updatedDate":"2026-11-10T14:02:11.0"}"#,
+        ),
+        ("200 OK", ""),
+        (
+            "200 OK",
+            r#"{"scheduleId":77,"workoutId":41,"date":"2026-11-12"}"#,
+        ),
+    ])
+    .await;
+    let provider = provider(&base).await;
+    let event = provider
+        .calendar_event_detail(listed("41:77"))
+        .await
+        .unwrap();
+    assert_eq!(
+        event.external_id.as_deref(),
+        Some("Dravr"),
+        "Garmin files the workout under Dravr, the calendar's key for it"
+    );
+    assert_eq!(
+        (event.provider_event_id.as_str(), event.date),
+        ("41:77", date()),
+        "bug: the detail read changed the listed identity"
+    );
+    assert!(
+        event.updated_at.is_none(),
+        "no change stamp until Garmin's zone is known (registre#1389)"
+    );
+
+    provider
+        .update_planned_session("41:77", &session())
+        .await
+        .unwrap();
+    let requests = stub.await.unwrap();
+    assert_eq!(
+        requests.len(),
+        4,
+        "bug: the update read the workout again: {requests:#?}"
+    );
+    assert!(
+        requests[1].is("GET", "/training-api/workout/v2/41"),
+        "the detail read is the one workout read"
+    );
+    assert!(
+        requests[2].is("PUT", "/training-api/workout/v2/41"),
+        "the update sends with the workout the detail read kept"
+    );
+    assert_eq!(
+        requests[2].json()["ownerId"],
+        9000,
+        "bug: the kept workout lost the owner Garmin requires on an update"
+    );
+    assert!(
+        requests[3].is("PUT", "/training-api/schedule/77"),
+        "the schedule follows the workout"
+    );
+}
+
+#[tokio::test]
+async fn a_workout_another_app_or_the_athlete_made_names_no_writer() {
+    let (base, stub) = stub(vec![
+        GRANTED,
+        (
+            "200 OK",
+            r#"{"workoutId":51,"ownerId":9000,"workoutProvider":"TrainingPeaks",
+                "workoutSourceId":"TrainingPeaks","updatedDate":1731247331000}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":52,"ownerId":9000,"workoutName":"Hills"}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":53,"workoutProvider":"Dravr","workoutSourceId":"garmin-coach"}"#,
+        ),
+    ])
+    .await;
+    let provider = provider(&base).await;
+    for id in ["51:81", "52:82", "53:83"] {
+        let event = provider.calendar_event_detail(listed(id)).await.unwrap();
+        assert!(
+            event.external_id.is_none(),
+            "{id} is not filed under Dravr as both provider and source"
+        );
+    }
+    assert_eq!(
+        stub.await.unwrap().len(),
+        4,
+        "the permission once, then one read per entry"
+    );
+}
+
+#[tokio::test]
+async fn every_dravr_key_is_stored_as_the_one_tag_garmin_files_it_under() {
+    let (base, stub) = stub(vec![]).await;
+    let provider = provider(&base).await;
+    for key in [
+        session().external_id,
+        "dravr:plan:someone-else:2026-11-13:1".to_owned(),
+    ] {
+        assert_eq!(
+            provider.calendar_key(&key),
+            "Dravr",
+            "bug: Garmin keeps no per-entry key, so {key} must read as the source tag"
+        );
+    }
+    let err = provider
+        .calendar_event_detail(listed("dravr-123"))
+        .await
+        .expect_err("an id Garmin never gave");
+    assert!(
+        err.to_string().contains("not a Garmin calendar entry id"),
+        "bug: an id Garmin never gave was not refused as one: {err}"
+    );
+    assert!(stub.await.unwrap().is_empty(), "nothing was sent");
 }

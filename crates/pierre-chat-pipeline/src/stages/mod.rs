@@ -65,6 +65,8 @@ pub(crate) mod history_scope;
 pub mod introduction;
 pub mod memory;
 pub mod onboarding;
+/// Group-reply peer verifier: which claims about a named peer the evidence fails to support.
+pub mod peer_claim_verifier;
 /// Peer-mention grounding: a turn naming a roster member fetches their data.
 pub mod peer_grounding;
 pub mod persistence;

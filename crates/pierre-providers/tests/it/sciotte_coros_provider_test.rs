@@ -232,7 +232,18 @@ async fn a_coros_scrape_imports_its_session_as_coros_and_keeps_the_run_whole() {
     );
 
     assert_eq!(activity.name(), "Tempo Tuesday");
-    assert_eq!(activity.duration_seconds(), 3_540);
+    // The page shows 59:00 moving of a 60:00 outing: duration is the elapsed
+    // time, as every API provider reports it, with the moving time beside it.
+    assert_eq!(
+        activity.duration_seconds(),
+        3_600,
+        "bug: duration is elapsed time"
+    );
+    assert_eq!(
+        activity.moving_time_seconds(),
+        Some(3_540),
+        "bug: the page's moving time must sit beside the elapsed duration"
+    );
     assert_eq!(activity.distance_meters(), Some(10_204.56));
     assert_eq!(activity.max_heart_rate(), Some(176));
     assert_eq!(activity.calories(), Some(712));

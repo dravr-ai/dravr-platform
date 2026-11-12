@@ -29,9 +29,7 @@ use pierre_core::llm::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::{
-    NewConversation, PendingGuardianAction, AGENT_PROPOSAL_ACTION,
-};
+use pierre_database::repositories::{NewConversation, PendingAgentDraft, AGENT_PROPOSAL_ACTION};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
@@ -303,6 +301,10 @@ async fn create_over_http(resources: &Arc<ServerContext>, token: &str) -> Status
         .status()
 }
 
+/// A list page wide enough for every thread these tests own: the cap's worth
+/// and the archived ones beside them.
+const LIST_ALL: i64 = DEFAULT_MAX_ACTIVE_CONVERSATIONS * 2;
+
 /// "Active" means not archived: at the cap, archiving one thread frees the
 /// slot the next create takes, and `/api/usage/status` reports the same count
 /// the quota checks at every step.
@@ -325,7 +327,7 @@ async fn an_archived_thread_frees_its_slot_and_usage_reports_the_same_count() {
 
     let listed = repos
         .chat
-        .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(&user, tenant, LIST_ALL, 0, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(listed.items.len(), cap);
@@ -357,7 +359,7 @@ async fn an_archived_thread_frees_its_slot_and_usage_reports_the_same_count() {
     assert_eq!(
         repos
             .chat
-            .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
+            .list_conversations(&user, tenant, LIST_ALL, 0, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .items
@@ -452,7 +454,7 @@ async fn athlete_with_one_archived() -> (Arc<ServerContext>, String, TenantId, S
     let (resources, user, tenant) = athlete_with_threads_on(resources, cap).await;
     let chat = &resources.common.repos.chat;
     let archived = chat
-        .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(&user, tenant, LIST_ALL, 0, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .items[0]
@@ -607,7 +609,7 @@ async fn the_conversation_list_marks_the_archived_thread() {
     let (resources, _user, _tenant, archived, token) = athlete_with_one_archived().await;
     let response = ProviderToolRouter::build_http_app(&resources)
         .oneshot(
-            Request::get("/api/chat/conversations?limit=50")
+            Request::get(format!("/api/chat/conversations?limit={LIST_ALL}"))
                 .header(AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -791,7 +793,7 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
         let (resources, user, tenant, archived, token) = athlete_with_one_archived().await;
         let chat = &resources.common.repos.chat;
         let content = if command == "/confirm" {
-            let expired = PendingGuardianAction {
+            let expired = PendingAgentDraft {
                 id: Uuid::new_v4().simple().to_string(),
                 tenant_id: tenant.to_string(),
                 user_id: user.clone(),
@@ -802,7 +804,7 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
             resources
                 .common
                 .repos
-                .guardian_actions
+                .agent_drafts
                 .create_pending_action(&expired, Utc::now() - Duration::minutes(1))
                 .await
                 .unwrap();

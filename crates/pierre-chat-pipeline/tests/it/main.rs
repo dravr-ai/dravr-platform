@@ -34,7 +34,6 @@ mod surface_capability_catalogue_test;
 mod tool_discipline_shared_test;
 mod turn_directive_test;
 mod viz_blocks_test;
-mod viz_repair_test;
 mod viz_route_hydration_test;
 mod viz_schema_test;
 mod wire_shape_telemetry_test;

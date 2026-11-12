@@ -3,7 +3,7 @@
 
 // ABOUTME: Real-backend E2E for the admin-tab cookie-auth surface — no mocks.
 // ABOUTME: Logs into a live Pierre server, sweeps every /api/admin/... endpoint
-// ABOUTME: that backs the 8 admin tabs, asserts 200 + valid JSON envelope.
+// ABOUTME: that backs the admin tabs, asserts 200 + valid JSON envelope.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { signIn } from './first-party-sign-in';
@@ -58,30 +58,6 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     const body = await r.json();
     expect(body).toHaveProperty('verdicts');
     expect(Array.isArray(body.verdicts)).toBe(true);
-    await ctx.dispose();
-  });
-
-  test('coach grading summary returns 200', async () => {
-    const { ctx, tenantId } = await loginAndAuthedRequest();
-    const r = await ctx.get(
-      `/api/admin/agent-grading/summary?tenant_id=${tenantId}&limit=100`,
-    );
-    expect(r.status()).toBe(200);
-    const body = await r.json();
-    expect(body).toHaveProperty('grades');
-    expect(body).toHaveProperty('verdicts_scanned');
-    await ctx.dispose();
-  });
-
-  test('myth-busting summary returns 200', async () => {
-    const { ctx, tenantId } = await loginAndAuthedRequest();
-    const r = await ctx.get(
-      `/api/admin/myth-busting/summary?tenant_id=${tenantId}&limit=100`,
-    );
-    expect(r.status()).toBe(200);
-    const body = await r.json();
-    expect(body).toHaveProperty('recent_claims');
-    expect(body).toHaveProperty('top_agents');
     await ctx.dispose();
   });
 

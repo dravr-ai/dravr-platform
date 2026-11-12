@@ -27,7 +27,7 @@ use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 use tracing::field::{Field, Visit};
@@ -2953,5 +2953,190 @@ async fn a_grant_without_fitness_read_is_refused_the_plan_at_the_chokepoint() ->
     );
     let result = response.result.expect("the read returns a payload");
     assert_eq!(result["plan"], Value::Null);
+    Ok(())
+}
+
+// ============================================================================
+// Parametric workout families (carnet#1465)
+// ============================================================================
+
+/// Save `payload`, then read every week back.
+async fn save_and_read(payload: Value) -> Result<(Value, Value)> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(saved.success, "save failed: {:?}", saved.error);
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    Ok((
+        saved.result.expect("save result"),
+        get.result.expect("get result"),
+    ))
+}
+
+/// A cyclist's week built from families, with no steps written.
+fn family_payload() -> Value {
+    let mut payload = full_plan_payload();
+    let days = &mut payload["weeks"][0]["days"];
+    days[1]["template_slug"] = json!("vo2max_short");
+    days[1]["template_preset"] = json!("30_15");
+    days[1]["template_params"] = json!({"sets": 4});
+    days[2]["template_slug"] = json!("endurance");
+    days[2]["template_preset"] = json!("end_spinups");
+    payload
+}
+
+#[tokio::test]
+async fn a_family_day_without_steps_gets_its_presets_ride_session() -> Result<()> {
+    let (saved, fetched) = save_and_read(family_payload()).await?;
+    assert!(
+        saved.get("envelope").is_none(),
+        "default instances sit inside their envelope: {saved:#}"
+    );
+    let days = &fetched["weeks"][0]["days"];
+
+    let vo2 = &days[1];
+    assert_eq!(
+        vo2["template_preset"], "30_15",
+        "the preset the day named is stored"
+    );
+    let steps = vo2["steps"].as_array().expect("generated steps");
+    let groups: BTreeSet<u64> = steps
+        .iter()
+        .filter_map(|step| step["repeat_group"].as_u64())
+        .collect();
+    assert_eq!(groups.len(), 4, "sets = 4 is four real sets");
+    assert!(
+        steps
+            .iter()
+            .any(|step| step["target_zone"] == "100-110% MAP"),
+        "the ride form anchors on MAP: {steps:#?}"
+    );
+    assert_eq!(
+        vo2["envelope"]["generated"], true,
+        "steps the platform built are marked generated"
+    );
+    assert_eq!(
+        vo2["envelope"]["badge"]["status"], "trialled",
+        "the ride form of 30/15 carries its trial badge"
+    );
+
+    // carnet#1465: a cyclist's easy day resolves to a ride session, sized by
+    // the day's own duration, instead of an improvised one.
+    let easy = &days[2];
+    assert_eq!(easy["duration_min"], 105, "the day keeps its own duration");
+    let easy_steps = easy["steps"].as_array().expect("generated steps");
+    assert!(
+        easy_steps
+            .iter()
+            .any(|step| step["target_zone"] == "56-75% FTP"),
+        "the ride form's easy base anchors on FTP: {easy_steps:#?}"
+    );
+    assert!(
+        easy_steps.iter().all(|step| {
+            let zone = step["target_zone"].as_str().unwrap_or_default();
+            !zone.contains("pace") && !zone.contains("HRmax")
+        }),
+        "a bike day carries no run targets: {easy_steps:#?}"
+    );
+    let easy_seconds: u64 = easy_steps
+        .iter()
+        .map(|step| {
+            step["duration_seconds"].as_u64().unwrap_or_default()
+                * step["repeat"].as_u64().unwrap_or(1).max(1)
+        })
+        .sum();
+    assert_eq!(
+        easy_seconds,
+        105 * 60,
+        "the session fills the day's 105 minutes: {easy_steps:#?}"
+    );
+    assert!(
+        easy["envelope"].get("findings").is_none(),
+        "a default instance raises no envelope finding"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_edited_family_day_warns_and_is_relabelled() -> Result<()> {
+    // Zwift's "Tabata Style": 3 × 8 × 20/10 at 119/50 % FTP. On reps this
+    // short the body follows the average, about 72 % of MAP: threshold work.
+    let mut payload = full_plan_payload();
+    let day = &mut payload["weeks"][0]["days"][1];
+    day["template_slug"] = json!("vo2max_short");
+    day["template_preset"] = json!("20_10_submax");
+    day["duration_min"] = Value::Null;
+    let mut steps = vec![json!({"label": "Warm-up", "duration_seconds": 900, "target_zone": "Z2"})];
+    for set in 1..=3 {
+        steps.push(json!({"label": "Work", "duration_seconds": 20, "target_zone": "119% FTP", "repeat": 8, "repeat_group": set}));
+        steps.push(json!({"label": "Float", "duration_seconds": 10, "target_zone": "50% FTP", "repeat": 8, "repeat_group": set}));
+        if set < 3 {
+            steps.push(
+                json!({"label": "Between sets", "duration_seconds": 180, "target_zone": "Z1"}),
+            );
+        }
+    }
+    steps.push(json!({"label": "Cool-down", "duration_seconds": 600, "target_zone": "Z1"}));
+    day["steps"] = json!(steps);
+
+    let (saved, fetched) = save_and_read(payload).await?;
+    let notice = &saved["envelope"]["days"][0];
+    assert_eq!(
+        notice["date"], "2026-07-14",
+        "the notice names the edited day: {saved:#}"
+    );
+    assert_eq!(notice["relabelled_purpose"], "threshold", "{saved:#}");
+    let stored = &fetched["weeks"][0]["days"][1]["envelope"];
+    assert_eq!(
+        stored["relabelled_purpose"], "threshold",
+        "the relabel is stored on the day, not only warned"
+    );
+    assert_eq!(
+        stored["generated"], false,
+        "steps the coach wrote are not marked generated"
+    );
+    assert_eq!(
+        fetched["weeks"][0]["days"][1]["steps"]
+            .as_array()
+            .map(Vec::len),
+        Some(10),
+        "the coach's own steps are kept as written"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_legacy_slug_on_a_day_saves_as_its_family_preset() -> Result<()> {
+    let mut payload = full_plan_payload();
+    payload["weeks"][0]["days"][1]["template_slug"] = json!("vo2max_30_15");
+    let (_, fetched) = save_and_read(payload).await?;
+    let day = &fetched["weeks"][0]["days"][1];
+    assert_eq!(
+        day["template_slug"], "vo2max_30_15",
+        "the slug the day named is kept"
+    );
+    assert_eq!(
+        day["template_preset"], "30_15",
+        "the legacy slug resolves to the family preset that absorbed it"
+    );
+    assert_eq!(
+        day["steps"].as_array().map(Vec::len),
+        Some(10),
+        "warm-up, three series of work and float with two rests between, cool-down"
+    );
     Ok(())
 }

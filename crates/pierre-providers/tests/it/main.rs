@@ -41,7 +41,11 @@ mod sciotte_session_rotation_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_trainingpeaks_conversion_test;
 #[cfg(feature = "provider-strava")]
+mod strava_detail_gear_note_test;
+#[cfg(feature = "provider-strava")]
 mod strava_detail_read_test;
+#[cfg(feature = "provider-strava")]
+mod strava_list_fields_test;
 #[cfg(feature = "provider-strava")]
 mod strava_summary_polyline_test;
 #[cfg(feature = "provider-sciotte")]

@@ -38,9 +38,11 @@ pub(crate) const PERSONAL_CONVERSATION_SQL: &str = concat!(
 /// Designate one of the owner's threads their personal one. A room never
 /// qualifies, nor does a coach's thread about one athlete: the platform posts
 /// the owner's own notices into the personal thread. The partial unique index
-/// refuses a second personal thread for the same owner and tenant.
+/// refuses a second personal thread for the same owner and tenant, and a
+/// thread already designated is not designated again, so of two requests
+/// adopting the same thread only one is told it did.
 pub(crate) const DESIGNATE_PERSONAL_SQL: &str = r"
     UPDATE chat_conversations
     SET personal = TRUE
     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL
-      AND subject_user_id IS NULL";
+      AND subject_user_id IS NULL AND NOT personal";

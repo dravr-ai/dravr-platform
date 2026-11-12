@@ -213,6 +213,7 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "memory_extraction",
     "messaging_context",
     "outcome_judge",
+    "peer_claim_verifier",
     "persona_style_editor",
     "pierre_system",
     "platform_contract",
@@ -221,7 +222,6 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "tool_discipline_messaging",
     "tool_discipline_shared",
     "visual_blocks",
-    "viz_repair",
 ];
 
 /// Coaching personas the registry seeds beside the system prompts (casual,

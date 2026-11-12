@@ -1,5 +1,5 @@
 // ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its scheme's ink, name, one line, status, action
-// ABOUTME: Each row follows the card's connect plan: connect, reconnect, the move to the official connection, or bringing in its history
+// ABOUTME: Each row follows the card's connect plan: connect, reconnect, the move to the official connection, or the sign-in that copies its history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,7 @@ import {
   historyActionKey,
   historyImporting,
   noticeRequired,
+  oauthFallbackTarget,
   providerGlyphInk,
   refusalReturnsToCard,
   type CardStatus,
@@ -30,15 +31,13 @@ import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { ProviderNoticeDialog } from './ProviderNotice';
-import BringHistorySheet from './import/BringHistorySheet';
 import ProviderExportLink from './import/ProviderExportLink';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
-import { shownHistoryChoices } from '@pierre/ui-logic';
 import { useImportResultRefresh } from './import/useImportResultRefresh';
 import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
-  historyChoiceAfterGrant,
+  historySignInAfterGrant,
   refusalAnswer,
   startOAuthInThisTab,
   type OAuthResult,
@@ -54,12 +53,13 @@ const ROW_CLASS =
 const ROW_WRAPPER_CLASS = 'border-t ghost-border-faint first:border-t-0';
 
 /**
- * Whether `card` offers its history now: it is still needed or did not
- * finish, and the card has a way to bring it in that this build can show.
- * With none, the row offers neither "Add history" nor the sheet.
+ * The account sign-in that copies `card`'s history now, or `null`: its history
+ * is still needed or did not finish and the server names the sign-in. With
+ * none, the row offers no history action.
  */
-function offersHistoryNow(card: ProviderStatus, status: CardStatus): boolean {
-  return (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(card).length > 0;
+function historySignInNow(card: ProviderStatus, status: CardStatus): SciotteTarget | null {
+  if (status !== 'history_needed' && status !== 'history_incomplete') return null;
+  return connectPlan(card).history.signIn;
 }
 
 /** The card states a tap acts on; the others (connected, copying, copied) leave the row inert. */
@@ -72,11 +72,16 @@ const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'connect',
 ]);
 
-/** The account sign-in on screen, and whether it is a card's one-time history copy. */
+/**
+ * The account sign-in on screen, whether it is a card's one-time history
+ * copy, and the card whose OAuth a sign-in that cannot complete falls back to
+ * (`oauthFallbackTarget`, carnet#1477), when it may.
+ */
 interface SignInWindow {
   target: SciotteTarget;
   consentRequired: boolean;
   historyMode: boolean;
+  fallback: { provider: SciotteTarget; card: ProviderStatus } | null;
 }
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
@@ -153,8 +158,6 @@ export default function ProviderConnectionCards({
   const { t } = useTranslation();
   const { scheme } = useTheme();
   const [signIn, setSignIn] = useState<SignInWindow | null>(null);
-  // The card whose "Bring in your history" sheet is open.
-  const [historySheetCard, setHistorySheetCard] = useState<ProviderStatus | null>(null);
   // The card whose grant came back refused: its row says so and its tap tries again.
   const [refusedCard, setRefusedCard] = useState<string | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
@@ -172,7 +175,7 @@ export default function ProviderConnectionCards({
     tosConsent: boolean;
   } | null>(null);
   const queryClient = useQueryClient();
-  // The grant (by its result's timestamp) whose history sheet was already
+  // The grant (by its result's timestamp) whose history sign-in was already
   // opened, so a later focus does not reopen it while the result stays fresh.
   const chainedGrant = useRef<number | null>(null);
   useImportResultRefresh();
@@ -195,13 +198,23 @@ export default function ProviderConnectionCards({
     },
   });
 
-  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false) =>
-    setSignIn({ target, consentRequired: card?.consent_required ?? false, historyMode });
+  // Only the sign-in a card's own plan opens may fall back to its OAuth
+  // (`fromPlan`): one opened because the provider refused its grant would
+  // bounce the athlete between the two, and a history copy has its grant.
+  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false, fromPlan = false) => {
+    const oauth = card && fromPlan && !historyMode ? oauthFallbackTarget(card) : null;
+    setSignIn({
+      target,
+      consentRequired: card?.consent_required ?? false,
+      historyMode,
+      fallback: card && oauth ? { provider: oauth, card } : null,
+    });
+  };
 
   // The result a connect started here came back with (`settleOAuthReturn`).
   // A grant reloads the cards and, when the granted card still needs its
-  // history, opens its "Bring in your history" sheet once. A refused Strava
-  // or Garmin grant is answered on its card (`refusalAnswer`): Strava opens
+  // history, opens the sign-in that copies it, once (carnet#1472). A refused
+  // Strava or Garmin grant is answered on its card (`refusalAnswer`): Strava opens
   // its sign-in; Garmin follows its plan as the cards now read — the sign-in
   // when the seats ran out, else "didn't connect, try again" on the row.
   // Only refusals are consumed — a grant's entry is left for the success
@@ -224,10 +237,10 @@ export default function ProviderConnectionCards({
       if (result.success === true) {
         void refetch().then(({ data }) => {
           if (chainedGrant.current === result.timestamp) return;
-          const card = historyChoiceAfterGrant(result, data?.providers ?? []);
-          if (!card) return;
+          const chained = historySignInAfterGrant(result, data?.providers ?? []);
+          if (!chained) return;
           chainedGrant.current = result.timestamp;
-          setHistorySheetCard(card);
+          openSignIn(chained.card, chained.target, true);
         });
         void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
         return;
@@ -264,6 +277,15 @@ export default function ProviderConnectionCards({
     };
   }, [refetch, queryClient]);
 
+  // A sign-in that could not complete hands over to the card's OAuth
+  // (carnet#1477): the window closes and the authorization starts in its place.
+  const fallBackToOAuth =
+    ({ provider, card }: NonNullable<SignInWindow['fallback']>) =>
+    () => {
+      setSignIn(null);
+      connectViaOAuth(provider, card);
+    };
+
   // Launch the OAuth authorization flow for a provider: go, in this tab, to
   // the server's launch route, which 302s to the provider and returns here
   // (`startOAuthInThisTab`). `card` is the card tapped, whose own-app setup
@@ -284,9 +306,9 @@ export default function ProviderConnectionCards({
 
   // A tap follows what the card shows (`cardStatus`) and how it connects
   // (`connectPlan`): a connected WHOOP that owes its owner authorization asks
-  // for the notice; a card still needing its history opens the sheet; any
-  // card to connect, reconnect or move to its official connection follows
-  // its plan's primary way in. Connected cards are inert.
+  // for the notice; a card still needing its history opens the sign-in that
+  // copies it; any card to connect, reconnect or move to its official
+  // connection follows its plan's primary way in. Connected cards are inert.
   const handleConnect = (provider: ProviderStatus) => {
     const status = cardStatus(provider);
     if (status === 'authorize_owed') {
@@ -294,7 +316,8 @@ export default function ProviderConnectionCards({
       return;
     }
     if (status === 'history_needed' || status === 'history_incomplete') {
-      if (offersHistoryNow(provider, status)) setHistorySheetCard(provider);
+      const target = historySignInNow(provider, status);
+      if (target) openSignIn(provider, target, true);
       return;
     }
     if (!ACTIONABLE.has(status)) return;
@@ -312,7 +335,7 @@ export default function ProviderConnectionCards({
         return;
       case 'sign_in':
         // The provider's own account sign-in, after its notice when it has one.
-        openSignIn(provider, primary.target);
+        openSignIn(provider, primary.target, false, true);
         return;
       case 'intervals':
         // The authorization first while the server offers it, with the
@@ -358,10 +381,10 @@ export default function ProviderConnectionCards({
         const glyphInk = providerGlyphInk(provider.provider, scheme);
         const status = cardStatus(provider);
         const isNonOAuth = connectPlan(provider).primary.kind === 'none';
-        const offersHistory = offersHistoryNow(provider, status);
-        // A card whose history has no way in here is connected and inert.
-        const historyWithoutChoice = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
-        const actionable = ACTIONABLE.has(status) && !historyWithoutChoice;
+        const offersHistory = historySignInNow(provider, status) !== null;
+        // A card whose history has no sign-in to copy it is connected and inert.
+        const historyWithoutSignIn = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
+        const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
         const refused =
           refusedCard === provider.provider && (status === 'connect' || status === 'reconnect' || status === 'migrate');
         const name = { provider: provider.display_name };
@@ -421,7 +444,7 @@ export default function ProviderConnectionCards({
               )}
               {offersHistory && (
                 <span id={historyHintId} className="sr-only">
-                  {t(HISTORY_ACTION_KEYS.addAria, name)}
+                  {t(HISTORY_ACTION_KEYS.explainer, name)}
                 </span>
               )}
             </button>
@@ -465,14 +488,6 @@ export default function ProviderConnectionCards({
         </button>
       )}
 
-      {historySheetCard && (
-        <BringHistorySheet
-          card={historySheetCard}
-          onClose={() => setHistorySheetCard(null)}
-          onSignIn={(target) => openSignIn(historySheetCard, target, true)}
-        />
-      )}
-
       {/* The provider's own account sign-in */}
       <SciotteLoginModal
         isOpen={signIn !== null}
@@ -490,6 +505,7 @@ export default function ProviderConnectionCards({
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
+        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
       />
 
       <ProviderNoticeDialog

@@ -1,4 +1,4 @@
-// ABOUTME: Guardian security classification — the egress and blast-radius axis every tool declares for the dispatch-time guard.
+// ABOUTME: Guardian security classification — the blast-radius axis every tool declares for the dispatch-time guard.
 // ABOUTME: SecurityLabels bitflags + the RuntimeTool supertrait that forces every registered tool to classify itself.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -31,16 +31,12 @@ use dravr_tronc::mcp::tool::McpTool;
 pub use pierre_core::transport::TransportPolicy;
 
 bitflags! {
-    /// The Guardian's egress and blast-radius classification for a tool.
+    /// The Guardian's blast-radius classification for a tool.
     ///
     /// Empty (the common case) = an internal, reversible tool that costs no
     /// destructive budget. Flags are additive.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct SecurityLabels: u8 {
-        /// The tool sends data outbound to a third party (messaging / email /
-        /// push). Refused in every turn. None exist today; the label is armed so
-        /// the guard is in place before the tools are.
-        const EXTERNAL_SEND = 0b0000_0010;
         /// The tool performs an irreversible / destructive effect (deletes,
         /// disconnects). The Guardian caps these per turn.
         const IRREVERSIBLE = 0b0000_0100;
@@ -48,12 +44,6 @@ bitflags! {
 }
 
 impl SecurityLabels {
-    /// The tool sends data outbound to a third party (an egress sink).
-    #[must_use]
-    pub const fn is_external_send(self) -> bool {
-        self.contains(Self::EXTERNAL_SEND)
-    }
-
     /// The tool performs an irreversible / destructive effect.
     #[must_use]
     pub const fn is_irreversible(self) -> bool {

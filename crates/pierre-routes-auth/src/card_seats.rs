@@ -16,15 +16,19 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
+use pierre_auth::connect_order::{connect_order, new_connection_through_oauth, ConnectOrder};
 use pierre_auth::{garmin_seats, strava_pool};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 
-/// Seats left on each capped OAuth client.
+/// Seats left on each capped OAuth client, and the operator's connect order
+/// for each (carnet#1472).
 pub(crate) struct CardSeats {
     strava: u32,
     garmin: u32,
+    strava_order: ConnectOrder,
+    garmin_order: ConnectOrder,
 }
 
 impl CardSeats {
@@ -53,7 +57,13 @@ impl CardSeats {
                 0
             }
         };
-        Self { strava, garmin }
+        let settings = resources.repos.system_settings.as_ref();
+        Self {
+            strava,
+            garmin,
+            strava_order: connect_order(settings, oauth_providers::STRAVA).await,
+            garmin_order: connect_order(settings, oauth_providers::GARMIN).await,
+        }
     }
 
     /// Seats left on the Garmin client, as counted for this provider list.
@@ -61,12 +71,19 @@ impl CardSeats {
         self.garmin
     }
 
+    /// The operator's Garmin connect order, as read for this provider list.
+    pub(crate) const fn garmin_order(&self) -> ConnectOrder {
+        self.garmin_order
+    }
+
     /// The `recommended_backend` and `seats_left` of `provider_name`'s card,
     /// for an athlete whose own grant serves it when `grant_serves`.
     ///
     /// The Sciotte entries are the user-facing "Strava" and "Garmin" cards:
     /// `oauth` (the card's `hosted_login_target`) while seats remain, else
-    /// `mirror`. A card the athlete's own grant serves recommends `oauth`
+    /// `mirror`; with the operator's sign-in-first order
+    /// ([`ConnectOrder::SignInFirst`]) `mirror` whatever the seats. A card the
+    /// athlete's own grant serves recommends `oauth`
     /// whatever the pool holds: their reconnect re-signs the seat they hold
     /// ([`require_garmin_seat`] lets it through), while a usr/pwd session
     /// signed in beside that grant would serve nothing (carnet#1386). Any
@@ -76,12 +93,13 @@ impl CardSeats {
         provider_name: &str,
         grant_serves: bool,
     ) -> (Option<String>, Option<u32>) {
-        let left = match provider_name {
-            oauth_providers::SCIOTTE => self.strava,
-            oauth_providers::SCIOTTE_GARMIN => self.garmin,
+        let (left, order) = match provider_name {
+            oauth_providers::SCIOTTE => (self.strava, self.strava_order),
+            oauth_providers::SCIOTTE_GARMIN => (self.garmin, self.garmin_order),
             _ => return (None, None),
         };
-        let backend = if left > 0 || grant_serves {
+        let oauth_first = new_connection_through_oauth(order, left);
+        let backend = if oauth_first || grant_serves {
             "oauth"
         } else {
             "mirror"
@@ -124,6 +142,8 @@ mod tests {
         let seats = CardSeats {
             strava: 0,
             garmin: 3,
+            strava_order: ConnectOrder::OAuthFirst,
+            garmin_order: ConnectOrder::OAuthFirst,
         };
         assert_eq!(
             seats.recommendation(oauth_providers::SCIOTTE, false),
@@ -149,6 +169,8 @@ mod tests {
         let seats = CardSeats {
             strava: 0,
             garmin: 0,
+            strava_order: ConnectOrder::SignInFirst,
+            garmin_order: ConnectOrder::SignInFirst,
         };
         for card in [oauth_providers::SCIOTTE, oauth_providers::SCIOTTE_GARMIN] {
             assert_eq!(
@@ -157,5 +179,28 @@ mod tests {
                 "bug: the {card} card of a grant holder sends a reconnect to the usr/pwd login"
             );
         }
+    }
+
+    /// The operator's sign-in-first order (carnet#1472) sends a new
+    /// connection to the account sign-in with seats to spare, one provider at
+    /// a time.
+    #[test]
+    fn a_sign_in_first_order_recommends_the_mirror_whatever_the_seats() {
+        let seats = CardSeats {
+            strava: 5,
+            garmin: 5,
+            strava_order: ConnectOrder::SignInFirst,
+            garmin_order: ConnectOrder::OAuthFirst,
+        };
+        assert_eq!(
+            seats.recommendation(oauth_providers::SCIOTTE, false),
+            (Some("mirror".to_owned()), Some(5)),
+            "bug: a sign-in-first Strava card sends a new connection to the OAuth"
+        );
+        assert_eq!(
+            seats.recommendation(oauth_providers::SCIOTTE_GARMIN, false),
+            (Some("oauth".to_owned()), Some(5)),
+            "bug: Strava's order leaked into the Garmin card"
+        );
     }
 }

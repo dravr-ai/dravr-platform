@@ -161,9 +161,8 @@ pub const UNDISPOSED_FILTER: &str = undisposed_filter!();
 /// What [`ClaimVerdictRepository::list_verdicts_filtered`] narrows on.
 ///
 /// Every axis is optional. `limit` is floored at 1 by the repository; the
-/// ceiling is each caller's own, because the readers want different scans:
-/// the admin list serves at most 200 rows, while agent grading and
-/// myth-busting read up to their `MAX_VERDICTS_SCANNED` (1000 and 500).
+/// ceiling is each caller's own: the admin list serves at most 200 rows, and
+/// that cap lives in its handler, not here.
 #[derive(Debug, Clone, Default)]
 pub struct VerdictListFilter {
     /// Only rows with this status.
@@ -180,17 +179,6 @@ pub struct VerdictListFilter {
     pub user_id: Option<String>,
     /// Page size, floored at 1; the caller sets the ceiling.
     pub limit: i64,
-}
-
-impl VerdictListFilter {
-    /// The unfiltered recent scan: newest `limit` rows of the tenant.
-    #[must_use]
-    pub fn recent(limit: i64) -> Self {
-        Self {
-            limit,
-            ..Self::default()
-        }
-    }
 }
 
 /// Per-status counters rolled up over a verdict scan window.
@@ -240,8 +228,7 @@ pub struct VerdictCalibrationStats {
 /// A flagged verdict here is any whose status is `unsupported` or
 /// `contradicted`, the only rows a disposition says anything about. That is
 /// wider than what an athlete is warned about, which leaves out an unsupported
-/// training prescription, and wider than the myth-busting summary's set, which
-/// also leaves out a dismissed false positive. The screen labels this count
+/// training prescription. The screen labels this count
 /// "unsupported or contradicted".
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct VerdictHealthTotals {
@@ -415,17 +402,6 @@ pub trait ClaimVerdictRepository: status_counts::VerdictStatusCounts {
         scope: AdminScope,
         filter: &VerdictListFilter,
     ) -> AppResult<Vec<ClaimVerdict>>;
-
-    /// The most recent verdicts of `scope`, newest first — the unfiltered
-    /// scan agent grading and myth-busting read.
-    async fn list_recent_verdicts(
-        &self,
-        scope: AdminScope,
-        limit: i64,
-    ) -> AppResult<Vec<ClaimVerdict>> {
-        self.list_verdicts_filtered(scope, &VerdictListFilter::recent(limit))
-            .await
-    }
 
     /// Record support's judgement on a verdict and return the updated row.
     ///

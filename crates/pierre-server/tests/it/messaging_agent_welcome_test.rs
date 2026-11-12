@@ -44,7 +44,7 @@ mod messaging_welcome {
     use pierre_core::models::onboarding::GuidedFlow;
     use pierre_core::models::{PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
     use pierre_database::repositories::{
-        MessagingRepository, PendingGuardianAction, AGENT_PROPOSAL_ACTION,
+        MessagingRepository, PendingAgentDraft, AGENT_PROPOSAL_ACTION,
     };
 
     use crate::helpers::notify_capture::{capture_notify, only};
@@ -431,9 +431,9 @@ mod messaging_welcome {
         e2e.resources
             .common
             .repos
-            .guardian_actions
+            .agent_drafts
             .create_pending_action(
-                &PendingGuardianAction {
+                &PendingAgentDraft {
                     id: token.clone(),
                     tenant_id: owner.home_tenant.to_string(),
                     user_id: owner.user_id.to_string(),

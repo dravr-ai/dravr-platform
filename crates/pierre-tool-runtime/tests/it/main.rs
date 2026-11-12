@@ -13,6 +13,7 @@
 //! one, because the environment is shared by every test in a binary.
 
 mod activity_coverage_framing_test;
+mod activity_detail_athlete_text_test;
 #[cfg(feature = "tools-data")]
 mod activity_detail_route_overview_test;
 mod activity_float_precision_test;
@@ -25,6 +26,7 @@ mod activity_name_neutralized_test;
 mod activity_revalidation_dedup_test;
 #[cfg(feature = "tools-data")]
 mod activity_self_report_render_test;
+mod activity_summary_free_fields_test;
 #[cfg(feature = "tools-data")]
 mod backfill_coverage_logic_test;
 #[cfg(feature = "client-chat")]

@@ -7,7 +7,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::periodization::{EvidenceTier, PhaseFit, Progression, WorkoutParams};
+use pierre_core::models::periodization::{
+    EvidenceTier, Frames, PhaseFit, Progression, Regression, WorkoutParams,
+};
 use pierre_core::models::{
     IntensityDistribution, SportType, TenantId, UserId, WorkoutStep, WorkoutTargetZones,
     WorkoutTemplate,
@@ -16,6 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::Row;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::uuid_column::UuidColumn;
@@ -268,6 +271,11 @@ where
         fit,
         evidence_refs,
         is_compiled_in,
+        presets: Vec::new(),
+        aliases: BTreeMap::new(),
+        constraints: Vec::new(),
+        regression: Regression::default(),
+        frame: Frames::default(),
         updated_at,
     })
 }

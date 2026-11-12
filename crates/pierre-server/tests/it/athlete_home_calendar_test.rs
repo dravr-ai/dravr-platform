@@ -193,6 +193,8 @@ fn week_days(start: NaiveDate) -> Vec<PlannedDay> {
                 template_slug: None,
                 template_params: None,
                 template_source: None,
+                template_preset: None,
+                envelope: None,
             }
         })
         .collect()

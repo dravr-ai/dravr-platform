@@ -66,15 +66,16 @@ use super::training_plan_schema::{
 };
 use super::training_plan_state::plan_state_block;
 use super::training_plan_vision::{
-    check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
-    validate_flavour, validate_phase, validate_season_window, FlavourPayload,
+    check_phase_indexes, check_template_slugs, instantiate_template_days, resolve_flavour,
+    validate_day_template, validate_flavour, validate_phase, validate_season_window,
+    FlavourPayload,
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::training_plans_output::{
-    race_summary, saved_weeks, GetTrainingPlanResult, SaveTrainingPlanResult,
+    race_summary, saved_weeks, GetTrainingPlanResult, PlanEnvelopeReport, SaveTrainingPlanResult,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -184,7 +185,7 @@ const MAX_PHASES: usize = 24;
 /// hallucination, and each week costs two statements in the save transaction.
 const MAX_WEEKS: usize = 104;
 pub(super) const MAX_TARGET_HOURS: f32 = 60.0;
-const MAX_DURATION_MIN: u32 = 24 * 60;
+pub(super) const MAX_DURATION_MIN: u32 = 24 * 60;
 /// Fuelling ceilings. Nothing bounded what a plan could store, so a rate no
 /// gut can absorb reached the athlete's calendar unchallenged; these are the
 /// bound the save enforces.
@@ -959,6 +960,8 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .map_or(0, Vec::len);
             check_phase_indexes(&weeks, phase_count)?;
             check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
+            instantiate_template_days(&catalogue, &mut weeks)?;
+            let envelope = PlanEnvelopeReport::from_days(weeks.iter().flat_map(|w| &w.days));
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;
 
@@ -1095,6 +1098,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 "save_training_plan",
                 SaveTrainingPlanResult {
                     safety: (!safety.is_empty()).then_some(safety),
+                    envelope,
                     ignored_arguments,
                     plan_id: bundle.plan.id.clone(),
                     athlete: scope.acting_for().map(str::to_owned),

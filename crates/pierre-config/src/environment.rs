@@ -32,8 +32,6 @@ pub use pierre_auth::config::RateLimitConfig;
 pub use crate::database::{BackupConfig, DatabaseConfig, DatabaseUrl, PostgresPoolConfig};
 // Goal management
 pub use crate::goal_management::GoalManagementConfig;
-// Guardian tool-dispatch policy overrides
-pub use crate::guardian::GuardianSettings;
 // Request-path time bounds
 pub use crate::timeouts::ServerTimeouts;
 // How a chat turn sends its tool catalogue
@@ -142,8 +140,6 @@ pub struct ServerConfig {
     /// settings view, the health probe — is handed this value; nothing reads
     /// the variable again per request.
     pub llm_chain: LlmChain,
-    /// The operator's `GUARDIAN_*` tool-dispatch policy overrides
-    pub guardian: GuardianSettings,
     /// Request-path time bounds the operator retuned
     pub timeouts: ServerTimeouts,
     /// How a chat turn sends its tool catalogue
@@ -209,7 +205,6 @@ impl ServerConfig {
             resend_api_key: env::var("RESEND_API_KEY").ok().map(SecretString::from),
             resend_from_email: env::var("RESEND_FROM_EMAIL").ok(),
             llm_chain: LlmChain::from_env(),
-            guardian: GuardianSettings::from_env(),
             timeouts: ServerTimeouts::from_env(),
             chat_tools: ChatToolSettings::from_env(),
             webhooks: WebhookSecrets::from_env(),

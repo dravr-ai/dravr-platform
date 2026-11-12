@@ -3,11 +3,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, the provider-named label, a lapsed or challenged sign-in's copy, and the attempt cancel on pagehide
+// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { JSDOM, VirtualConsole } from 'jsdom';
+// jsdom has no navigation: its `Location` implementation is reached to record
+// where the page's script sends the browser.
+import { implForWrapper } from 'jsdom/lib/jsdom/living/generated/utils.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -72,30 +75,43 @@ function scriptStrings(page: Page): Record<string, string> {
     signInChallenged: text('hosted.common.signInChallenged'),
     stravaFallback: text('hosted.picker.stravaFallback'),
     signInIncomplete: text('hosted.picker.signInIncomplete'),
+    tagImportHistory: text('hosted.picker.tagImportHistory'),
+    tagHistoryImporting: text('hosted.picker.tagHistoryImporting'),
+    tagHistoryIncomplete: text('hosted.picker.tagHistoryIncomplete'),
+    tagMoveToOfficial: text('hosted.picker.tagMoveToOfficial'),
+    importExportLink: text('hosted.picker.importExportLink'),
+    historySignInNote: text('hosted.picker.historySignInNote'),
+    historyCopying: text('hosted.picker.historyCopying'),
+    oauthRetry: text('hosted.picker.oauthRetry'),
   };
 }
 
-/** The page as its renderer serves it, with English strings and one COROS card. */
-function renderPage(page: Page): string {
+/** The one COROS card the code-step tests pick. */
+const COROS_CARDS = [
+  {
+    provider: 'sciotte_coros',
+    display_name: PROVIDER,
+    description: '',
+    connected: false,
+    kind: 'credentials',
+    target: 'coros',
+    consent_required: false,
+    login_identifier: 'email',
+  },
+];
+
+/** The page as its renderer serves it, with English strings and `cards` (one COROS card by default). */
+function renderPage(page: Page, cards: unknown[] = COROS_CARDS): string {
   const values: Record<string, string> = {
     STRINGS_JSON: JSON.stringify(scriptStrings(page)),
     FLOW_EXPIRED_REASON: 'login_flow_expired',
     LOGIN_CHALLENGE_REASON: 'login_challenge',
     CODE_REJECTED_REASON: 'code_rejected',
+    OAUTH_REQUIRED_REASON: 'oauth_required',
+    SIGN_IN_UNAVAILABLE_REASON: 'sign_in_unavailable',
     CONSENT_REQUIRED: 'false',
     CONSENT_HIDDEN: ' hidden',
-    PROVIDERS_JSON: JSON.stringify([
-      {
-        provider: 'sciotte_coros',
-        display_name: PROVIDER,
-        description: '',
-        connected: false,
-        kind: 'credentials',
-        target: 'coros',
-        consent_required: false,
-        login_identifier: 'email',
-      },
-    ]),
+    PROVIDERS_JSON: JSON.stringify(cards),
     LINK_TOKEN: 'link-token',
     TARGET: 'coros',
     CHANNEL: 'telegram',
@@ -121,15 +137,23 @@ afterEach(() => {
   dom = null;
 });
 
-/** Load `page` with its script running against `answers`, popped in order per path. */
-function open(page: Page, answers: Record<string, Answer[]>) {
+/**
+ * Load `page` with its script running against `answers`, popped in order per
+ * path; `cards` and `search` (extra query, such as an OAuth return's) default
+ * to the code-step tests' one COROS card and none.
+ */
+function open(page: Page, answers: Record<string, Answer[]>, cards?: unknown[], search = '') {
   const calls: Array<{ path: string; body: unknown; keepalive?: boolean; authorization?: string }> = [];
+  const navigations: string[] = [];
   const virtualConsole = new VirtualConsole();
-  dom = new JSDOM(renderPage(page), {
+  dom = new JSDOM(renderPage(page, cards), {
     runScripts: 'dangerously',
-    url: `https://hosted.test/providers/${page}?token=link-token`,
+    url: `https://hosted.test/providers/${page}?token=link-token${search}`,
     virtualConsole,
     beforeParse(window) {
+      (implForWrapper(window.location) as { assign: (url: string) => void }).assign = (url) => {
+        navigations.push(url);
+      };
       Object.assign(window, {
         fetch: async (
           url: string,
@@ -159,7 +183,7 @@ function open(page: Page, answers: Record<string, Answer[]>) {
     byId(formId).dispatchEvent(new dom!.window.Event('submit', { bubbles: true, cancelable: true }));
   const visible = (id: string) => !byId(id).hidden;
   const hide = () => dom!.window.dispatchEvent(new dom!.window.Event('pagehide'));
-  return { document, byId, submit, visible, calls, hide };
+  return { document, byId, submit, visible, calls, hide, navigations };
 }
 
 const LOGIN = '/api/providers/sciotte/login';
@@ -286,5 +310,152 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — leaving th
     view.hide();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(view.calls).toEqual([]);
+  });
+});
+
+describe('connect_hosted — a Garmin grant whose history is needed (carnet#1472)', () => {
+  /** The Garmin card as the picker serves it after a grant, its history in `state`. */
+  const garminGrant = (state: 'needed' | 'incomplete', historySignIn = true) => [
+    {
+      provider: 'garmin',
+      display_name: 'Garmin',
+      description: '',
+      connected: true,
+      history_state: state,
+      history_sign_in: historySignIn,
+      archive_url: '/providers/connect/import?token=link-token&source=garmin_archive',
+      migrate: false,
+      kind: 'oauth',
+      target: 'garmin',
+      consent_required: false,
+      login_identifier: 'email_or_username',
+    },
+  ];
+  const historyNotice = `${fill(text('hosted.picker.historySignInNote'), 'Garmin')} ${fill(text('hosted.common.credentialsNote'), 'Garmin')}`;
+
+  it('goes straight into the Garmin sign-in, in history mode, when the grant comes back', async () => {
+    const view = open(
+      'connect_hosted',
+      { [LOGIN]: [{ status: 200, body: { status: 'connected', provider: 'sciotte_garmin' } }] },
+      garminGrant('needed'),
+      '&provider=garmin&success=true',
+    );
+
+    expect(view.visible('phase-credentials')).toBe(true);
+    expect(view.visible('phase-picker')).toBe(false);
+    expect(view.visible('phase-success')).toBe(false);
+    expect(view.byId('cred-notice').textContent).toBe(historyNotice);
+
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+    await vi.waitFor(() => expect(view.visible('phase-success')).toBe(true));
+    expect(view.calls[0].path).toBe(LOGIN);
+    expect(view.byId('success-message').textContent).toBe(text('hosted.picker.historyCopying'));
+  });
+
+  it.each(['needed', 'incomplete'] as const)('opens the same sign-in in one tap on a card whose history is %s', (state) => {
+    const view = open('connect_hosted', {}, garminGrant(state));
+    const card = view.document.querySelector('.provider-card') as HTMLButtonElement;
+    expect(card.disabled).toBe(false);
+
+    card.click();
+
+    expect(view.visible('phase-credentials')).toBe(true);
+    expect(view.byId('cred-notice').textContent).toBe(historyNotice);
+  });
+
+  it('opens no sign-in on the return for a card the server names none for', () => {
+    const view = open('connect_hosted', {}, garminGrant('needed', false), '&provider=garmin&success=true');
+    expect(view.visible('phase-credentials')).toBe(false);
+    expect(view.calls).toEqual([]);
+  });
+
+  it('leaves a card the server names no sign-in for inert to a tap', () => {
+    const view = open('connect_hosted', {}, garminGrant('needed', false));
+    const card = view.document.querySelector('.provider-card') as HTMLButtonElement;
+    expect(card.disabled).toBe(true);
+    card.click();
+    expect(view.visible('phase-credentials')).toBe(false);
+    expect(view.calls).toEqual([]);
+  });
+});
+
+describe('connect_hosted — a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
+  /** The Strava card as the picker serves it while its sign-in goes first; `fallback` as the server sets it. */
+  const stravaSignInFirst = (fallback: boolean) => [
+    {
+      provider: 'sciotte',
+      display_name: 'Strava',
+      description: '',
+      connected: false,
+      history_state: 'not_applicable',
+      history_sign_in: false,
+      migrate: false,
+      kind: 'credentials',
+      target: 'strava',
+      consent_required: false,
+      login_identifier: 'email',
+      oauth_fallback: fallback,
+    },
+  ];
+  const OAUTH_INIT = '/api/providers/connect/oauth-init/strava?token=link-token';
+
+  async function signIn(cards: unknown[], answer: Answer) {
+    const view = open('connect_hosted', { [LOGIN]: [answer] }, cards);
+    (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+    expect(view.visible('phase-credentials')).toBe(true);
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+    await vi.waitFor(() => expect(view.calls).toHaveLength(1));
+    return view;
+  }
+
+  it.each(['sign_in_unavailable', 'login_challenge'])('starts the Strava OAuth when the sign-in answers %s', async (reason) => {
+    const view = await signIn(stravaSignInFirst(true), {
+      status: 400,
+      body: { message: 'server prose', details: { reason } },
+    });
+
+    await vi.waitFor(() => expect(view.navigations).toEqual([OAUTH_INIT]));
+    expect(view.visible('phase-error')).toBe(false);
+  });
+
+  it('keeps wrong credentials on the page, for another try', async () => {
+    const view = await signIn(stravaSignInFirst(true), { status: 200, body: { status: 'failed', error: 'bad' } });
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.byId('error-message').textContent).toBe(fill(text('hosted.common.signInRejected'), 'Strava'));
+    expect(view.navigations).toEqual([]);
+  });
+
+  it('shows the failure on a card the server offers no fallback for', async () => {
+    const view = await signIn(stravaSignInFirst(false), {
+      status: 400,
+      body: { message: 'server prose', details: { reason: 'sign_in_unavailable' } },
+    });
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.byId('error-message').textContent).toBe(fill(text('hosted.common.signInUnavailable'), 'Strava'));
+    expect(view.navigations).toEqual([]);
+  });
+
+  it('never falls back from the sign-in a refused Strava grant opened', async () => {
+    const view = open(
+      'connect_hosted',
+      {
+        [LOGIN]: [{ status: 400, body: { message: 'server prose', details: { reason: 'sign_in_unavailable' } } }],
+      },
+      stravaSignInFirst(true),
+      '&provider=strava&success=false',
+    );
+    expect(view.visible('phase-credentials')).toBe(true);
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.navigations).toEqual([]);
   });
 });

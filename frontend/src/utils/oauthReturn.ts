@@ -112,18 +112,18 @@ export function returnToConnectStart(): void {
 }
 
 /**
- * The card whose "Bring in your history" sheet a completed grant opens, or
- * `null`: the granted provider's card — named by its key, or by the backend
- * that serves it (the Garmin grant serves the `sciotte_garmin` card) — read
- * after the grant, whose history is still `needed` and which offers a way to
- * bring it in this build can show (`cardAwaitingHistory`). Garmin's API
- * pushes only what the athlete records after connecting, so the athlete
- * chooses how to bring in what came before.
+ * The account sign-in a completed grant chains into, with the card it copies
+ * the history of, or `null`: the granted provider's card — named by its key,
+ * or by the backend that serves it (the Garmin grant serves the
+ * `sciotte_garmin` card) — read after the grant, whose history is still
+ * `needed` (`cardAwaitingHistory`). Garmin's API pushes only what the athlete
+ * records after connecting, so the Garmin sign-in that copies what came
+ * before opens at once, with nothing to choose (carnet#1472).
  */
-export function historyChoiceAfterGrant<T extends ConnectPlanCard>(
+export function historySignInAfterGrant<T extends ConnectPlanCard>(
   result: Pick<OAuthResult, 'provider' | 'success'>,
   providers: readonly T[],
-): T | null {
+): { card: T; target: SciotteTarget } | null {
   if (!result.success) return null;
   return cardAwaitingHistory(providers, result.provider) ?? null;
 }

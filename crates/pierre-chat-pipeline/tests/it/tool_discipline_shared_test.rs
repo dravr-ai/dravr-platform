@@ -134,8 +134,8 @@ fn no_surface_document_re_duplicates_a_shared_rule() {
         .collect();
     assert_eq!(
         shared_headings.len(),
-        5,
-        "expected the five shared sections, found {shared_headings:?}"
+        6,
+        "expected the six shared sections, found {shared_headings:?}"
     );
 
     for (surface, variant) in [

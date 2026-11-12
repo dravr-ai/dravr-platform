@@ -58,6 +58,7 @@ import { cachedConversations, useConversationList } from '../../hooks/useConvers
 import { useMarkConversationRead } from '../../hooks/useMarkConversationRead';
 import { useEarlierMessages } from '../../hooks/useEarlierMessages';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
+import { conversationCapOf } from './conversationCap';
 import { useGroup } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
 import { usePrivateLane } from '../../hooks/usePrivateLane';
@@ -106,8 +107,8 @@ export interface NewThreadOptions {
 
 /**
  * How a host opens a thread for a turn sent with none open, answering its id.
- * The Groups tab and an activity's view create one; Home opens a topic in the
- * athlete's personal thread.
+ * The Groups tab and an activity's view create one; Home creates one beside
+ * the athlete's personal thread, or opens that thread when they have none yet.
  */
 export type OpenThread = (request: { athlete_speaks_first?: boolean }) => Promise<{ id: string }>;
 
@@ -638,9 +639,9 @@ export function useChatThread({
   // Mutations. The server resolves the agent's system prompt at runtime from
   // the coaches table, and binds the athlete's own agent when none is named.
   const createConversation = useMutation<{ id: string }, Error, NewThreadOptions | void>({
-    // The host decides what a new thread is: Home opens a topic inside the
-    // athlete's personal thread; anywhere else the server creates the thread
-    // and names it — after its agent when one is attached, else for the
+    // The host decides what a new thread is: Home's first one opens the
+    // athlete's personal thread; every other one, here and on Home, the server
+    // creates and names — after its agent when one is attached, else for the
     // moment it starts in the viewer's language; a rename replaces that.
     mutationFn: (options) => openThread({ athlete_speaks_first: options?.athleteSpeaksFirst || undefined }),
     onSuccess: (data) => {
@@ -651,15 +652,11 @@ export function useChatThread({
       // The server caps active conversations (max_active_conversations) and
       // returns 429 QuotaExceeded once a user is at the limit. Without this the
       // agent click silently did nothing — surface a clear, actionable message.
-      // Keyed on the limit the server named, not on the status: a spent
-      // request budget is a 429 too, and it is not the conversation cap.
-      const details = (error as {
-        response?: { data?: { details?: { limit_type?: string; limit?: number } } };
-      }).response?.data?.details;
-      if (details?.limit_type === 'max_active_conversations') {
+      const cap = conversationCapOf(error);
+      if (cap) {
         showErrorToast(
           t('chat.conversationLimitTitle'),
-          t('chat.conversationLimitBody', { limit: details.limit ?? '' })
+          t('chat.conversationLimitBody', { limit: cap.limit ?? '' })
         );
         return;
       }

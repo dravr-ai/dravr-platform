@@ -781,8 +781,8 @@ async fn test_list_workout_templates_happy_path() -> Result<()> {
     let result = resp.result.unwrap();
     let count = result["count"].as_u64().expect("count field required");
     assert!(
-        count >= 37,
-        "expected the 37-template catalogue bank, got {count}"
+        count >= 34,
+        "expected the 34-file catalogue bank (eight of them families), got {count}"
     );
     let templates = result["templates"].as_array().expect("templates array");
     assert_eq!(templates.len() as u64, count);
@@ -794,7 +794,8 @@ async fn test_list_workout_templates_happy_path() -> Result<()> {
 #[tokio::test]
 async fn test_list_workout_templates_keeps_the_legacy_slugs() -> Result<()> {
     // The six slugs the prescription ledger and the calendar tests were
-    // written against kept their names and ids when the bank was regrown.
+    // written against still resolve: a file of its own, or a family's alias
+    // or preset key since the families absorbed them (carnet#1465).
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
@@ -807,12 +808,16 @@ async fn test_list_workout_templates_keeps_the_legacy_slugs() -> Result<()> {
         ))
         .await?;
     let result = resp.result.unwrap();
-    let slugs: Vec<&str> = result["templates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|t| t["slug"].as_str())
-        .collect();
+    let rows = result["templates"].as_array().unwrap();
+    let mut slugs: Vec<&str> = rows.iter().filter_map(|t| t["slug"].as_str()).collect();
+    for row in rows {
+        if let Some(aliases) = row["aliases"].as_object() {
+            slugs.extend(aliases.keys().map(String::as_str));
+        }
+        if let Some(presets) = row["presets"].as_array() {
+            slugs.extend(presets.iter().filter_map(|p| p["key"].as_str()));
+        }
+    }
     for legacy in [
         "long_run_z2",
         "threshold_4x8",

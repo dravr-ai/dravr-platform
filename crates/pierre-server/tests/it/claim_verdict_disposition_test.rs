@@ -61,6 +61,14 @@ fn other_tenant() -> TenantId {
     TenantId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap())
 }
 
+/// The newest `limit` verdicts of the tenant, with no axis narrowed.
+fn unfiltered(limit: i64) -> VerdictListFilter {
+    VerdictListFilter {
+        limit,
+        ..VerdictListFilter::default()
+    }
+}
+
 /// One flagged verdict's insert, with the knobs the tests vary.
 struct Seed<'a> {
     user_id: &'a str,
@@ -450,7 +458,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     // No filter: everything in the tenant, and nothing from the other one.
     let all = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(50))
+        .list_verdicts_filtered(tenant().into(), &unfiltered(50))
         .await?;
     assert_eq!(
         ids(all),
@@ -461,13 +469,6 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
             supported_u2.clone()
         ])
     );
-
-    // The provided `list_recent_verdicts` is the same scan.
-    let recent = repos
-        .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 50)
-        .await?;
-    assert_eq!(recent.len(), 4);
 
     let by_layer = repos
         .claim_verdicts
@@ -566,15 +567,14 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     // The limit is honoured and clamped to at least one.
     let one = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(0))
+        .list_verdicts_filtered(tenant().into(), &unfiltered(0))
         .await?;
     assert_eq!(one.len(), 1);
     Ok(())
 }
 
-/// Agent grading scans up to 1000 verdicts and myth-busting up to 500
-/// through `list_recent_verdicts`; the admin list's own 200 ceiling lives in
-/// its handler, not in the repository, so the wide scans keep their reach.
+/// The admin list's 200 ceiling lives in its handler, not in the repository:
+/// the repository binds whatever limit its caller asks for.
 #[tokio::test]
 async fn the_recent_scan_reaches_past_the_admin_lists_page_size() -> Result<()> {
     let db = common::create_test_database().await?;
@@ -585,13 +585,13 @@ async fn the_recent_scan_reaches_past_the_admin_lists_page_size() -> Result<()> 
 
     let wide = repos
         .claim_verdicts
-        .list_recent_verdicts(tenant().into(), 1000)
+        .list_verdicts_filtered(tenant().into(), &unfiltered(1000))
         .await?;
     assert_eq!(wide.len(), 201, "the caller's limit is bound as given");
 
     let page = repos
         .claim_verdicts
-        .list_verdicts_filtered(tenant().into(), &VerdictListFilter::recent(200))
+        .list_verdicts_filtered(tenant().into(), &unfiltered(200))
         .await?;
     assert_eq!(page.len(), 200, "a smaller limit is honoured");
     Ok(())
@@ -1506,8 +1506,8 @@ fn cookie_admin_router(resources: &Arc<ServerContext>) -> axum::Router {
 }
 
 /// The calibration read survives on the cookie-admin group while the eval
-/// fixture browser, the followup queue, the notes audit and the myth-busting
-/// promote route are gone.
+/// fixture browser, the followup queue, the notes audit, the myth-busting
+/// promote and summary routes and the agent-grading summary are gone.
 #[tokio::test]
 #[serial]
 async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Result<()> {
@@ -1532,6 +1532,8 @@ async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Re
         "/api/admin/agent-followups/pending",
         "/api/admin/agent-notes/audit",
         "/api/admin/myth-busting/promote-topic",
+        "/api/admin/myth-busting/summary",
+        "/api/admin/agent-grading/summary",
     ] {
         let response = AxumTestRequest::get(path)
             .header("authorization", &super_admin)

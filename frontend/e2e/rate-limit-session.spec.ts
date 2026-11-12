@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for a spent request budget: a 429 keeps the athlete signed in and reads as the usage quota
-// ABOUTME: Session restore answering 429 must not bounce to login; a 429 on new chat must not claim the conversation cap
+// ABOUTME: Session restore answering 429 must not bounce to login; a 429 on new chat names the conversation cap only when the server did
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, openHome, APP_SHELL_TIMEOUT_MS } from './test-helpers';
@@ -44,9 +44,8 @@ async function setupSpentBudgetMocks(page: Page) {
 
   // The budget is spent: restoring the session answers 429, not 401.
   await page.route('**/api/auth/session', fulfillBudgetSpent);
-  // Home's "+" opens a topic in the athlete's thread; the spent budget refuses it.
-  await page.route('**/api/chat/personal/topics', fulfillBudgetSpent);
-
+  // The athlete's thread is conv-1, so Home's "+" creates a conversation beside
+  // it (carnet#1473); the spent budget refuses it.
   await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
     if (request.method() === 'POST') {
       await fulfillBudgetSpent(route);
@@ -94,5 +93,40 @@ test.describe('Spent request budget', () => {
     ).toBeVisible();
     await expect(page.getByText('Could not start chat')).toBeVisible();
     await expect(page.getByText('Conversation limit reached')).toHaveCount(0);
+  });
+});
+
+test.describe('Active conversation cap', () => {
+  test('a new chat refused at the active conversation cap says the cap is reached', async ({ page }) => {
+    await setupSpentBudgetMocks(page);
+    // Registered last, so it answers the create in place of the spent budget.
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
+      if (request.method() !== 'POST') return route.fallback();
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'QuotaExceeded',
+          message: 'Active conversation limit reached',
+          details: { limit_type: 'max_active_conversations', current: 20, limit: 20 },
+          timestamp: '2026-09-25T12:00:00Z',
+        }),
+      });
+    });
+    await loginToDashboard(page);
+    await openHome(page);
+
+    await page.getByRole('button', { name: 'New', exact: true }).first().click();
+    await page
+      .getByRole('menu', { name: 'Start a conversation' })
+      .getByRole('menuitem', { name: 'New chat' })
+      .click();
+
+    await expect(page.getByText('Conversation limit reached')).toBeVisible();
+    await expect(
+      page.getByText("You've reached your limit of 20 active conversations. Delete one from the sidebar to start a new chat."),
+    ).toBeVisible();
+    // Home stays on the athlete's thread.
+    await expect(page).not.toHaveURL(/#home\/chat\/(?!conv-1)/);
   });
 });

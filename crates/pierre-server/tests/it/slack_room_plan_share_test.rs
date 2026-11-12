@@ -208,6 +208,8 @@ mod slack_room {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         };
         let goal = GoalRace {
             name: "Unbound XL".to_owned(),

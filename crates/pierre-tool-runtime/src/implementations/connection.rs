@@ -39,12 +39,13 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_auth::connect_order::{new_connection_through_oauth, strava_order_and_seats};
 /// The seat refusal [`mint_oauth_authorize_url`] answers with, read where its
 /// callers branch on it.
 pub use pierre_auth::garmin_seats::is_no_seat_refusal;
 use pierre_auth::garmin_seats::require_garmin_seat;
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
-use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
+use pierre_core::constants::oauth::providers::{SCIOTTE, SCIOTTE_GARMIN, STRAVA};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::Transport;
 use pierre_mcp_schema::PropertySchema;
@@ -143,6 +144,44 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
         "error_type": "oauth_configuration_error",
         "provider": provider,
     }))
+}
+
+/// Whether a chat connect of `provider` hands off to Strava's account sign-in.
+///
+/// It is Strava, the athlete holds no Strava grant in `tenant_id` (whose
+/// reconnect re-signs it through the OAuth), and a new connection signs in by
+/// the rule the Strava card reads ([`new_connection_through_oauth`]): the
+/// operator's order puts the sign-in first, or the OAuth pool is full.
+///
+/// A grant lookup that fails reads as held, so the athlete gets the OAuth
+/// this tool mints rather than a hand-off it cannot be sure of.
+async fn strava_signs_in_first(
+    ctx: &ToolExecutionContext,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> bool {
+    if provider != STRAVA {
+        return false;
+    }
+    let repos = ctx.resources.repos();
+    let grant_held = !matches!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, STRAVA)
+            .await,
+        Ok(None)
+    );
+    if grant_held {
+        return false;
+    }
+    let (order, seats) = strava_order_and_seats(
+        repos.system_settings.as_ref(),
+        repos.oauth_tokens.as_ref(),
+        &ctx.resources.config().oauth,
+    )
+    .await;
+    !new_connection_through_oauth(order, seats)
 }
 
 /// Mint a provider OAuth authorization URL and persist its CSRF state row.
@@ -519,6 +558,17 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                 );
                 return Err(AppError::provider_auth_required(mirror));
             }
+        }
+
+        // A new Strava connection that signs in by the card's rule — the
+        // operator's order puts the sign-in first, or the pool is full
+        // (carnet#1477) — goes through the hosted sign-in, as the card does.
+        if strava_signs_in_first(&ctx, user_uuid, tenant_id, provider).await {
+            info!(
+                user_id = %user_uuid,
+                "connect_provider: Strava's sign-in goes first, handing off to the hosted login"
+            );
+            return Err(AppError::provider_auth_required(SCIOTTE));
         }
 
         let redirect_url = args.get("redirect_url").and_then(Value::as_str);

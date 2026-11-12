@@ -17,10 +17,10 @@
 use std::collections::BTreeSet;
 
 use pierre_core::models::periodization::{
-    DaySubstitution, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
+    DaySubstitution, EnvelopeFinding, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
 use pierre_core::models::CalendarEventSource;
-use pierre_memory::training_plans::{GoalRace, PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_calendar_push::PushPreview;
 use pierre_services::plan_fueling::WithheldFueling;
@@ -160,6 +160,10 @@ pub struct PublishTrainingPlanResult {
     /// that went live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safety: Option<PlanSafetyReport>,
+    /// On `published`: what the envelope check found on the templated days
+    /// that went live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<PlanEnvelopeReport>,
     /// On `published`: what a push would now change, when the athlete's
     /// calendar already carries the plan. Publishing never writes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,6 +189,7 @@ impl PublishTrainingPlanResult {
             athlete_notified: None,
             conflict: None,
             safety: None,
+            envelope: None,
             calendar: None,
         }
     }
@@ -399,6 +404,69 @@ impl PlanSafetyReport {
     }
 }
 
+/// What the envelope check found on the days a save or publish wrote.
+///
+/// It sits beside `safety`: each templated session measured against its
+/// family's evidence envelope. Structured, never prose — the athlete-facing
+/// wording is the agent's, under the same framing rules as `safety`.
+///
+/// Every finding warns; a relabel also names the purpose the session now
+/// trains, which is what compliance and readiness read for that day. Absent
+/// when no day found anything.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PlanEnvelopeReport {
+    /// The days with findings, in plan order.
+    pub days: Vec<DayEnvelopeNotice>,
+}
+
+/// One day's envelope findings.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DayEnvelopeNotice {
+    /// The day, `YYYY-MM-DD`.
+    pub date: String,
+    /// The family the day names.
+    pub template_slug: String,
+    /// The preset it was measured against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// The purpose the session trains when an edit moved it to another
+    /// family.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relabelled_purpose: Option<WorkoutPurpose>,
+    /// What the check found.
+    pub findings: Vec<EnvelopeFinding>,
+    /// Why the save could not build the day's steps from its preset; the day
+    /// carries no steps until the agent writes them or shortens the day.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_generated: Option<String>,
+}
+
+impl PlanEnvelopeReport {
+    /// The report over `days`, or `None` when no day carries a finding. The
+    /// save stamps an envelope only on a day whose `template_slug` it
+    /// resolved, so every day reported names its family.
+    pub fn from_days<'a>(days: impl IntoIterator<Item = &'a PlannedDay>) -> Option<Self> {
+        let days: Vec<DayEnvelopeNotice> = days
+            .into_iter()
+            .filter_map(|day| {
+                let envelope = day.envelope.as_ref()?;
+                if envelope.findings.is_empty() && envelope.not_generated.is_none() {
+                    return None;
+                }
+                Some(DayEnvelopeNotice {
+                    date: day.date.clone(),
+                    template_slug: day.template_slug.clone()?,
+                    preset: envelope.preset.clone(),
+                    relabelled_purpose: envelope.relabelled_purpose,
+                    findings: envelope.findings.clone(),
+                    not_generated: envelope.not_generated.clone(),
+                })
+            })
+            .collect();
+        (!days.is_empty()).then_some(Self { days })
+    }
+}
+
 /// One week against its phase's targets.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WeekComplianceBlock {
@@ -445,6 +513,9 @@ pub struct SaveTrainingPlanResult {
     /// weeks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub safety: Option<PlanSafetyReport>,
+    /// What the envelope check found on the templated days just written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<PlanEnvelopeReport>,
     /// The plan that was written.
     pub plan_id: String,
     /// Whose plan it is.

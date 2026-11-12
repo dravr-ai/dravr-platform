@@ -18,9 +18,10 @@ use pierre_llm::prompts::{
     CONVERSATION_SUMMARY_PROMPT, ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT,
     INSIGHT_VALIDATION_PROMPT, LANGUAGE_CLASSIFICATION_PROMPT, MCP_SERVER_INSTRUCTIONS_PROMPT,
     MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, OUTCOME_JUDGE_PROMPT,
-    PERSONA_STYLE_EDITOR_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
-    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
-    TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT, VIZ_REPAIR_PROMPT,
+    PEER_CLAIM_VERIFIER_PROMPT, PERSONA_STYLE_EDITOR_PROMPT, PIERRE_SYSTEM_PROMPT,
+    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
+    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT,
+    VISUAL_BLOCKS_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -123,8 +124,8 @@ const COMPILED_IN_SYSTEM_PROMPTS: &[(&str, &str)] = &[
     ("claim_judge", CLAIM_JUDGE_PROMPT),
     ("mcp_server_instructions", MCP_SERVER_INSTRUCTIONS_PROMPT),
     ("persona_style_editor", PERSONA_STYLE_EDITOR_PROMPT),
-    ("viz_repair", VIZ_REPAIR_PROMPT),
     ("language_classification", LANGUAGE_CLASSIFICATION_PROMPT),
+    ("peer_claim_verifier", PEER_CLAIM_VERIFIER_PROMPT),
 ];
 
 impl PromptRegistry {
@@ -294,6 +295,13 @@ impl PromptRegistry {
         self.get_system_prompt("language_classification")
     }
 
+    /// Get the instructions for the call that checks a group reply's claims
+    /// about one peer, with `{{EVIDENCE}}`, `{{REPLY}}` and `{{PEER}}` left for
+    /// the caller to fill.
+    pub fn peer_claim_verifier_prompt(&self) -> String {
+        self.get_system_prompt("peer_claim_verifier")
+    }
+
     /// Get the instructions the MCP server advertises in `initialize`.
     pub fn mcp_server_instructions_prompt(&self) -> String {
         self.get_system_prompt("mcp_server_instructions")
@@ -303,12 +311,6 @@ impl PromptRegistry {
     /// `{{PERSONA}}` and `{{RULES}}` left for the caller to fill.
     pub fn persona_style_editor_prompt(&self) -> String {
         self.get_system_prompt("persona_style_editor")
-    }
-
-    /// Get the instructions for the `dravr-viz` repair re-ask, with
-    /// `{{RULES}}` left for the caller to fill.
-    pub fn viz_repair_prompt(&self) -> String {
-        self.get_system_prompt("viz_repair")
     }
 
     // ── Generic accessors ──────────────────────────────────────────────

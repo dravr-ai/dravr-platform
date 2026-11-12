@@ -7,13 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::Utc;
 use pierre_core::models::periodization::{
-    Contraindication, EvidenceTier, ParamRange, PhaseFit, PhaseKind, Progression, ProgressionLever,
-    ReadinessLevel, RpeRange, WorkoutParams, WorkoutPurpose,
+    Contraindication, EvidenceTier, Frames, ParamRange, PhaseFit, PhaseKind, Progression,
+    ProgressionLever, ReadinessLevel, Regression, RpeRange, WorkoutParams, WorkoutPurpose,
 };
 use pierre_core::models::{
     IntensityDistribution, SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
@@ -88,9 +89,15 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
             max_per_week: 3,
             min_spacing_hours: 0,
             contraindications: Vec::new(),
+            counts_as_quality: None,
         },
         evidence_refs: Vec::new(),
         is_compiled_in: false,
+        presets: Vec::new(),
+        aliases: BTreeMap::new(),
+        constraints: Vec::new(),
+        regression: Regression::default(),
+        frame: Frames::default(),
         updated_at: Utc::now(),
     }
 }
@@ -344,6 +351,7 @@ fn catalogue_template(tenant_id: TenantId, user_id: Uuid) -> WorkoutTemplate {
             default: 4,
         }),
         contacts: None,
+        set_rest_seconds: None,
         work_seconds: Some(ParamRange {
             min: 420,
             max: 600,
@@ -384,6 +392,7 @@ fn catalogue_template(tenant_id: TenantId, user_id: Uuid) -> WorkoutTemplate {
             Contraindication::NoviceFirstSeason,
             Contraindication::AcuteInjury,
         ],
+        counts_as_quality: None,
     };
     template.evidence_refs = vec![
         "evidence/sports_science/training_prescription/seiler-2013-interval-duration-4x8.md"

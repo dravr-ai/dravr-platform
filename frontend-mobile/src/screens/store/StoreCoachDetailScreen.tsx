@@ -18,7 +18,12 @@ import { Feather } from '@expo/vector-icons';
 import { coachesApi, storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
-import { useOpenPersonalTopic } from '../chat/usePersonalThread';
+import {
+  alertNewChatFailure,
+  useCreateConversation,
+  useFindPersonalThread,
+  useOpenPersonalTopic,
+} from '../chat/usePersonalThread';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
 import { Section, Row } from '../../components/ui';
@@ -56,7 +61,9 @@ export function StoreCoachDetailScreen() {
   // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
   const cardStyle = useCardStyle();
   const router = useRouter();
+  const findPersonalThread = useFindPersonalThread();
   const openPersonalTopic = useOpenPersonalTopic();
+  const createConversation = useCreateConversation();
   const { agentId } = useLocalSearchParams<{ agentId: string }>();
   const { isAuthenticated } = useAuth();
   // The action bar sits in the flow above the system tab bar; its own padding
@@ -115,22 +122,27 @@ export function StoreCoachDetailScreen() {
     }
   };
 
-  // t('discover.openChat') on the post-install hint: a new topic in the
-  // athlete's personal thread, bound to the agent the install returned — the
-  // catalogue agent itself for a membership, the copy for another workspace's
-  // listing. Binding it with the topic is what makes the server post the
-  // agent's welcome before the thread is read.
+  // t('discover.openChat') on the post-install hint: a new chat bound to the
+  // agent the install returned — the catalogue agent itself for a membership,
+  // the copy for another workspace's listing. An athlete with a personal
+  // thread gets a conversation of its own beside it, which is left untouched
+  // (carnet#1473); one without gets their personal thread opened with this
+  // agent, so their first chat becomes it. Either way binding the agent is what
+  // makes the server post its welcome before the thread is read.
   const handleOpenChat = async () => {
     if (!postInstall || openingChatRef.current) return;
     openingChatRef.current = true;
     setIsOpeningChat(true);
     try {
-      const personalThreadId = await openPersonalTopic({ agent_id: postInstall.id });
+      const options = { agent_id: postInstall.id };
+      const existing = await findPersonalThread();
+      const threadId =
+        existing === null ? await openPersonalTopic(options) : await createConversation(options);
       setPostInstall(null);
-      router.push(threadHref(personalThreadId));
+      router.push(threadHref(threadId));
     } catch (error) {
       console.error('Failed to open a chat with the installed agent:', error);
-      Alert.alert(t('common.error'), t('app.couldNotOpenChat'));
+      alertNewChatFailure(error, t);
     } finally {
       openingChatRef.current = false;
       setIsOpeningChat(false);

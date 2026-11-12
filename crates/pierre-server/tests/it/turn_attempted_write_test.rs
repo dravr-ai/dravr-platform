@@ -22,7 +22,7 @@ use pierre_chat_pipeline::{
     CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnOrigin, TurnRequest,
 };
-use pierre_config::environment::{GuardianSettings, ServerConfig};
+use pierre_config::environment::ServerConfig;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
     ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
@@ -46,7 +46,7 @@ use uuid::Uuid;
 use crate::common::{
     create_test_server_resources_with_chat_provider,
     create_test_server_resources_with_llm_and_config, create_test_tenant,
-    create_test_user_with_plan, test_server_config, test_server_config_with_guardian,
+    create_test_user_with_plan, set_destructive_budget, test_server_config,
 };
 use crate::helpers::axum_test::AxumTestRequest;
 
@@ -231,14 +231,11 @@ async fn turn_flag(thread: &Thread, content: &str) -> (Option<bool>, Option<Stri
 async fn a_turn_the_guardian_blocked_reads_back_as_attempted() {
     let thread = thread_with(
         ScriptedModel::calling(DESTRUCTIVE_TOOL),
-        test_server_config_with_guardian(GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        }),
+        test_server_config(),
         "attempted-write-blocked@test.com",
     )
     .await;
+    set_destructive_budget(&thread.resources, 0);
 
     let (attempted, finish_reason) = turn_flag(&thread, "Oublie cette routine.").await;
 

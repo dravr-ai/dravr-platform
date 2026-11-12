@@ -575,23 +575,10 @@ impl FitnessProvider for WhoopProvider {
             .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
             .await?;
 
-        let total_activities = activities.len() as u64;
-        let total_distance: f64 = activities
-            .iter()
-            .filter_map(Activity::distance_meters)
-            .sum();
-        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
-        let total_elevation_gain: f64 =
-            activities.iter().filter_map(Activity::elevation_gain).sum();
-
-        Ok(Stats {
-            total_activities,
-            total_distance,
-            total_duration,
-            total_elevation_gain,
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
     }
 }
 

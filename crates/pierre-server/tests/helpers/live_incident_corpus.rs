@@ -17,78 +17,30 @@
 //! verdict and no live run can see it. Each target uses part of this module,
 //! hence the module-level `dead_code` allowance.
 
+use crate::helpers::live_seed::{
+    create_athlete, create_group, day_at, seed_onboarded, seed_recipes, weekly_slots,
+    AthleteProfile, NewGroup, SavedRecipe,
+};
 use crate::helpers::sciotte_mock::seed_sciotte_session;
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Utc};
 use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
-use pierre_config::timeouts::ServerTimeouts;
-use pierre_core::models::groups::{
-    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-};
-use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User,
-    UserStatus, UserTier,
-};
+use pierre_core::models::groups::GroupRole;
+use pierre_core::models::recipes::MealTiming;
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::UserRole;
-use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
-use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::seed_models::SeedAgent;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_services::intake::{record_steps, STATUS_COMPLETE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
-use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 /// Slack signing secret for the synthetic workspace this lane drives.
 pub(crate) const SIGNING_SECRET: &str = "live_incident_eval_secret";
-
-/// How far past the server's turn watchdog the lane keeps waiting: room for
-/// the turn to start behind the webhook's acknowledgement and for the
-/// watchdog's closing notice to land. The real-Slack lane waits the same two
-/// minutes past it (`REPLY_WAIT_SECS` in `messaging_eval_real_slack_test.rs`).
-const TURN_WAIT_MARGIN: Duration = Duration::from_secs(120);
-
-/// How long the lane waits for one turn's delivered reply before recording
-/// the turn as an infra error.
-///
-/// Above the server's own ceiling on a messaging turn ([`turn_watchdog`],
-/// `MESSAGING_TURN_WATCHDOG_SECS`), read live so an operator who moves the
-/// ceiling moves this with it. Every turn has therefore ended — with its
-/// reply, or with the watchdog's notice — before the lane posts the next one.
-/// A wait below it lets a slow turn keep running past the point the lane
-/// gave up on it, and its reply then lands after the next inbound, where the
-/// lane reads it as that turn's answer and grades it against the wrong
-/// question: an infra delay reported as a coach failure, or a coach failure
-/// hidden behind the previous turn's good answer.
-///
-/// No single tier's cap is the right bound once the runtime fallback is
-/// armed: a `copilot_sdk` turn that times out at
-/// `EMBACLE_SDK_PROMPT_TIMEOUT_SECS` re-runs on the `claude_code` tier, so
-/// one healthy turn can run past every per-tier cap. The watchdog is the one
-/// bound every tier and every transport runs under.
-pub(crate) fn turn_timeout() -> Duration {
-    turn_timeout_under(&lane_timeouts())
-}
-
-/// [`turn_timeout`] for a server under `timeouts`.
-pub(crate) fn turn_timeout_under(timeouts: &ServerTimeouts) -> Duration {
-    turn_watchdog(timeouts).saturating_add(TURN_WAIT_MARGIN)
-}
-
-/// The time bounds the lane's servers run under: the operator's, read from
-/// the environment as a deployed server reads them at startup, so the lane
-/// waits out the same watchdog its servers apply.
-pub(crate) fn lane_timeouts() -> ServerTimeouts {
-    ServerTimeouts::from_env()
-}
 
 /// The seeded Sunday ride, in km. One constant so the fixture and the
 /// judge's ground truth cannot drift apart — a ground truth that disagrees
@@ -172,6 +124,37 @@ pub(crate) const SEEDED_RUN_NAME: &str = "Course";
 /// talks to and the name `first_reply_introduction` must hear.
 pub(crate) const EVAL_COACH_TITLE: &str = "Eval Coach";
 
+/// The athlete's saved recipes.
+///
+/// `dinner_recipe` asks the coach to find a recipe for tonight. A collection
+/// of zero gave that question nothing to find: `search_recipes` and
+/// `list_recipes` could only come back empty, so composing one from
+/// `get_recipe_constraints` was as good an answer as any. An athlete who asks
+/// "trouve-moi une recette" usually has some saved; one of these fits a meal
+/// after training.
+pub(crate) const SAVED_RECIPES: &[SavedRecipe] = &[
+    SavedRecipe {
+        name: "Bol riz, poulet et brocoli",
+        timing: MealTiming::PostTraining,
+        timing_label: "post_training",
+        ingredients: &[
+            ("riz basmati cuit", 200.0),
+            ("poitrine de poulet grillée", 150.0),
+            ("brocoli vapeur", 120.0),
+        ],
+    },
+    SavedRecipe {
+        name: "Gruau banane et beurre d'arachide",
+        timing: MealTiming::PreTraining,
+        timing_label: "pre_training",
+        ingredients: &[
+            ("flocons d'avoine", 80.0),
+            ("banane", 118.0),
+            ("beurre d'arachide", 16.0),
+        ],
+    },
+];
+
 /// The instant the fixture's activity history is measured back from.
 ///
 /// One per process, so the activity cache, the scraper stand-in and the
@@ -186,23 +169,9 @@ fn fixture_clock() -> DateTime<Utc> {
     *ANCHOR.get_or_init(Utc::now)
 }
 
-/// `hour:minute` UTC on the calendar day `days_ago` before [`fixture_clock`].
-///
-/// Each seeded activity starts at its own time of day. When every one was
-/// `fixture_clock` minus whole days, the whole history started at the minute
-/// the lane happened to run, and the judge read «every activity started at
-/// 14:54 UTC» as the fixture's only fact about a start (carnet#1038).
-fn seeded_day_at(days_ago: i64, hour: u32, minute: u32) -> DateTime<Utc> {
-    (fixture_clock() - ChronoDuration::days(days_ago))
-        .date_naive()
-        .and_hms_opt(hour, minute, 0)
-        .unwrap_or_else(|| panic!("{hour:02}:{minute:02} is not a time of day"))
-        .and_utc()
-}
-
 /// When the Sunday ride twin started, on both providers that recorded it.
 pub(crate) fn sunday_ride_start() -> DateTime<Utc> {
-    seeded_day_at(days_since_sunday(), 7, 30)
+    day_at(fixture_clock(), days_since_sunday(), 7, 30)
 }
 
 /// How much later each older week's runs start than the week after it, so
@@ -244,7 +213,12 @@ pub(crate) fn peer_runs() -> Vec<SeededRun> {
     let mut runs = vec![SeededRun {
         id: "eval-peer-run".to_owned(),
         days_ago: 1,
-        start: seeded_day_at(1, PEER_YESTERDAY_TIME.0, PEER_YESTERDAY_TIME.1),
+        start: day_at(
+            fixture_clock(),
+            1,
+            PEER_YESTERDAY_TIME.0,
+            PEER_YESTERDAY_TIME.1,
+        ),
         seconds: PEER_RUN_SECONDS,
         metres: PEER_RUN_METRES,
     }];
@@ -259,6 +233,14 @@ pub(crate) fn peer_runs() -> Vec<SeededRun> {
     runs
 }
 
+/// The runs on `days` (at `times`) of each of the last [`FIXTURE_WEEKS`] weeks,
+/// each older week [`WEEKLY_START_SHIFT_MINUTES`] later in the day, and
+/// Sunday skipped (see `seed_activities`).
+///
+/// Each seeded activity starts at its own time of day. When every one was
+/// `fixture_clock` minus whole days, the whole history started at the minute
+/// the lane happened to run, and the judge read «every activity started at
+/// 14:54 UTC» as the fixture's only fact about a start (carnet#1038).
 fn weekly_runs(
     prefix: &str,
     days: &[i64],
@@ -268,25 +250,27 @@ fn weekly_runs(
     seconds_per_day: u64,
 ) -> Vec<SeededRun> {
     let sunday_offset = days_since_sunday();
-    let mut runs = Vec::new();
-    for week in 0..FIXTURE_WEEKS {
-        let shift = u32::try_from(week).unwrap_or(0) * WEEKLY_START_SHIFT_MINUTES;
-        for (&day, &(hour, minute)) in days.iter().zip(times) {
-            let days_ago = week * 7 + day;
-            if days_ago % 7 == sunday_offset % 7 {
-                continue;
-            }
-            let minutes = hour * 60 + minute + shift;
-            runs.push(SeededRun {
-                id: format!("{prefix}-{week}-{day}"),
-                days_ago,
-                start: seeded_day_at(days_ago, minutes / 60, minutes % 60),
-                seconds: base_seconds + day as u64 * seconds_per_day,
-                metres: metres(day),
-            });
-        }
-    }
-    runs
+    let schedule: Vec<(i64, u32, u32)> = days
+        .iter()
+        .zip(times)
+        .map(|(&day, &(hour, minute))| (day, hour, minute))
+        .collect();
+    weekly_slots(
+        fixture_clock(),
+        FIXTURE_WEEKS,
+        &schedule,
+        WEEKLY_START_SHIFT_MINUTES,
+        |days_ago| days_ago % 7 == sunday_offset % 7,
+    )
+    .into_iter()
+    .map(|slot| SeededRun {
+        id: format!("{prefix}-{}-{}", slot.week, slot.day),
+        days_ago: slot.days_ago,
+        start: slot.start,
+        seconds: base_seconds + slot.day as u64 * seconds_per_day,
+        metres: metres(slot.day),
+    })
+    .collect()
 }
 
 // -----------------------------------------------------------------------
@@ -733,8 +717,11 @@ pub(crate) const CORPUS: &[Episode] = &[
         incident: "carnet#406 one search away: each turn needs a tool outside the loaded core",
         group: false,
         turns: &[
+            // estimate_vo2max reads a field test the athlete reports, never the
+            // recorded runs (a VO2max read from runs is predict_performance's
+            // VDOT), so the turn states the test it asks about.
             Turn {
-                user: "Estime ma VO2max à partir de mes sorties.",
+                user: "J'ai fait un test de Cooper: 2,8 km en 12 minutes. Estime ma VO2max.",
                 expect: &[
                     Expect::Calls(&["estimate_vo2max"]),
                     Expect::NoneOf(DISOWNED_TOOL),
@@ -973,59 +960,14 @@ impl Fixture {
     }
 }
 
-async fn create_athlete(
-    resources: &Arc<ServerContext>,
-    email: &str,
-    display: &str,
-) -> (Uuid, TenantId) {
-    let password_hash =
-        spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
-            .await
-            .unwrap();
-    let mut user = User::new(email.to_owned(), password_hash, Some(display.to_owned()));
-    user.is_admin = true;
-    user.role = UserRole::Admin;
-    // Enterprise, or the corpus cannot finish. Quota comes from the USER's
-    // tier, not the tenant's `plan` string — Starter is the default and caps
-    // `max_conversations_per_day` at 10 against an 11-turn corpus. The first
-    // ACP run truncated at turn 8 with «Tu as atteint la limite de
-    // conversation de ton forfait», which the lane correctly filed as
-    // infrastructure rather than as an agent regression — but four turns went
-    // ungraded because the fixture had put itself on the free tier.
-    user.tier = UserTier::Enterprise;
-    user.user_status = UserStatus::Active;
-    user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
-    let user_id = user.id;
-    resources.common.repos.users.create(&user).await.unwrap();
-
-    let tenant_id = TenantId::generate();
-    let tenant = Tenant {
-        id: tenant_id,
-        name: format!("Eval {display}"),
-        slug: format!("eval-{tenant_id}"),
-        domain: None,
-        plan: "professional".to_owned(),
-        owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    };
-    resources
-        .common
-        .repos
-        .tenants
-        .create(&tenant)
-        .await
-        .unwrap();
-    resources
-        .common
-        .repos
-        .users
-        .update_tenant_id(user_id, tenant_id)
-        .await
-        .unwrap();
-    (user_id, tenant_id)
-}
+/// Every athlete the corpus seeds: an admin, a default-cost password hash, a
+/// tenant named «Eval …».
+const EVAL_ATHLETE: AthleteProfile<'static> = AthleteProfile {
+    role: UserRole::Admin,
+    bcrypt_cost: bcrypt::DEFAULT_COST,
+    tenant_label: "Eval",
+    tenant_slug_prefix: "eval",
+};
 
 /// Wire a Slack channel config + a link binding a sender id to a user.
 async fn wire_slack(
@@ -1076,13 +1018,29 @@ async fn wire_slack(
 ///   "Philippe Tremblay", which is what the first live gate turn hit within
 ///   one minute of going up.
 pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
-    let (athlete, tenant) =
-        create_athlete(resources, "eval-athlete@dravr.test", ATHLETE_DISPLAY).await;
-    let (peer, _) = create_athlete(resources, "eval-peer@dravr.test", PEER_DISPLAY).await;
+    let (athlete, tenant) = create_athlete(
+        resources,
+        &EVAL_ATHLETE,
+        "eval-athlete@dravr.test",
+        ATHLETE_DISPLAY,
+    )
+    .await;
+    let (peer, _) = create_athlete(
+        resources,
+        &EVAL_ATHLETE,
+        "eval-peer@dravr.test",
+        PEER_DISPLAY,
+    )
+    .await;
     // The second, short-form identity for the same human. A roster with one
     // canonical spelling cannot reproduce the ambiguity a real one carries.
-    let (phil_alias, _) =
-        create_athlete(resources, "eval-phil@dravr.test", PHIL_ALIAS_DISPLAY).await;
+    let (phil_alias, _) = create_athlete(
+        resources,
+        &EVAL_ATHLETE,
+        "eval-phil@dravr.test",
+        PHIL_ALIAS_DISPLAY,
+    )
+    .await;
 
     // A connection with no token behind it is the documented dead-provider
     // state — `create_authenticated_provider` signals reauth, every live
@@ -1137,74 +1095,28 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     }
 
     seed_activities(resources, athlete, tenant, peer).await;
+    seed_recipes(resources, athlete, tenant, SAVED_RECIPES).await;
 
     let group_channel = "C_LIVE_INCIDENT_EVAL".to_owned();
     let dm_channel = "D_LIVE_INCIDENT_EVAL".to_owned();
 
     let agent = seed_agent(resources, athlete, tenant).await;
-    let group_id = Uuid::new_v4();
-    let now = Utc::now();
-    resources
-        .common
-        .repos
-        .groups
-        .create_group(
+    let group_id = create_group(
+        resources,
+        &NewGroup {
             tenant,
-            &CoachingGroup {
-                id: group_id,
-                tenant_id: tenant.to_string(),
-                name: "Eval Squad".to_owned(),
-                description: None,
-                agent_id: agent.to_string(),
-                owner_id: athlete,
-                coach_user_id: None,
-                // Peers must be readable or every comparison turn in the
-                // corpus degenerates into a consent refusal, which is not
-                // the behaviour under test.
-                peer_data_sharing: true,
-                // `All`, so a group turn is answered without an @mention —
-                // an unaddressed message in `Mentions` mode is silent BY
-                // DESIGN and would read here as a lost turn.
-                respond_mode: GroupRespondMode::All,
-                digest_mode: GroupDigestMode::Off,
-                max_members: 20,
-                is_active: true,
-                channel_type: Some("slack".to_owned()),
-                channel_chat_id: Some(group_channel.clone()),
-                created_at: now,
-                updated_at: now,
-            },
-        )
-        .await
-        .unwrap();
-
-    for (user, role, display) in [
-        (athlete, GroupRole::Owner, ATHLETE_DISPLAY),
-        (peer, GroupRole::Member, PEER_DISPLAY),
-        (phil_alias, GroupRole::Member, PHIL_ALIAS_DISPLAY),
-    ] {
-        resources
-            .common
-            .repos
-            .groups
-            .add_member(&GroupMember {
-                id: Uuid::new_v4(),
-                group_id,
-                user_id: user,
-                tenant_id: tenant.to_string(),
-                role,
-                peer_sharing_consent: true,
-                coach_sharing_consent: true,
-                coach_sharing_consent_at: None,
-                coach_consents: CoachConsents::default(),
-                consent_given_at: now,
-                joined_at: now,
-                left_at: None,
-                display_name: Some(display.to_owned()),
-            })
-            .await
-            .unwrap();
-    }
+            name: "Eval Squad",
+            agent,
+            owner: athlete,
+            channel: Some(("slack", group_channel.as_str())),
+            members: &[
+                (athlete, GroupRole::Owner, ATHLETE_DISPLAY),
+                (peer, GroupRole::Member, PEER_DISPLAY),
+                (phil_alias, GroupRole::Member, PHIL_ALIAS_DISPLAY),
+            ],
+        },
+    )
+    .await;
 
     seed_onboarded(resources, athlete, tenant).await;
     wire_slack(resources, tenant, athlete, "U_EVAL_JF", "JF").await;
@@ -1269,48 +1181,6 @@ async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Te
         .await
         .unwrap();
     id
-}
-
-/// Record the athlete as onboarded, as every athlete the incidents came from
-/// was.
-///
-/// A fresh DM otherwise opens the intake interview and then the pillars
-/// walk, and an interview owns its turns: it withholds the visual contract
-/// and reshapes the reply, so every DM episode would grade onboarding rather
-/// than the incident it replays. Intake ends with both steps complete —
-/// never `not_applicable`, the coach-who-does-not-train answer — and the walk
-/// is skipped once any pillar is covered.
-async fn seed_onboarded(resources: &Arc<ServerContext>, athlete: Uuid, tenant: TenantId) {
-    let repos = &resources.common.repos;
-    let user_id = athlete.to_string();
-    record_steps(
-        repos.user_onboarding.as_ref(),
-        &user_id,
-        Some(&tenant.to_string()),
-        STATUS_COMPLETE,
-        STATUS_COMPLETE,
-    )
-    .await
-    .unwrap();
-    repos
-        .memory
-        .upsert_user_fact(&UpsertUserFactParams {
-            tenant_id: tenant,
-            user_id: &user_id,
-            agent_id: None,
-            scope: MemoryScope::User,
-            kind: FactKind::Preference,
-            pillar: Some(Pillar::TrainingAndMovement),
-            predicate_code: PredicateCode::States,
-            object: "runs three times a week",
-            confidence: 0.9,
-            source: FactSource::Onboarding,
-            valid_until: None,
-            source_msg_id: None,
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
 }
 
 /// The activity history behind the corpus.
@@ -1455,6 +1325,20 @@ pub(crate) fn ground_truth() -> String {
          activities. Totals, paces, weekly hours and training-load figures computed from \
          this list are facts, not inventions; check them against it.\n",
     );
+    for saved in SAVED_RECIPES {
+        let ingredients: Vec<String> = saved
+            .ingredients
+            .iter()
+            .map(|(name, grams)| format!("{grams} g {name}"))
+            .collect();
+        let _ = writeln!(
+            truth,
+            "Athlete JF's saved recipe «{}» (meal timing {}): {}.",
+            saved.name,
+            saved.timing_label,
+            ingredients.join(", ")
+        );
+    }
     truth.push_str(&connections_line(
         ATHLETE_DISPLAY,
         ATHLETE_CONNECTIONS,
@@ -1514,13 +1398,20 @@ pub(crate) fn reconnect_alert(display: &str, providers: &[&str]) -> String {
     format!("{display} needs to reconnect: {}", providers.join(", "))
 }
 
-/// One ledger row: who, the date and start, distance, duration and pace.
+/// One ledger row: who, the date and start, the activity as the agent's tools
+/// show it, distance, duration and pace.
+///
+/// The sport and the provider are what the tools hand the agent for every
+/// seeded run (see [`seeded_run_activity`]). A ledger that said only «run
+/// «Course»» had the judge grade a correct «enregistrée sur Strava comme Run»
+/// as invented (run 42510466793): the judge is shown what the agent is shown
+/// (carnet#1037, carnet#1038).
 fn ledger_line(who: &str, run: &SeededRun) -> String {
     let km = run.metres / 1_000.0;
     let pace_seconds = (run.seconds as f64 / km).round() as u64;
     format!(
-        "{who}, {date}: run «{SEEDED_RUN_NAME}», {km} km in {hours}h{minutes:02} ({seconds} s), \
-         pace {pace_min}min{pace_sec:02}/km.\n",
+        "{who}, {date}: run «{SEEDED_RUN_NAME}» (a Strava activity, sport Run), {km} km in \
+         {hours}h{minutes:02} ({seconds} s), pace {pace_min}min{pace_sec:02}/km.\n",
         date = start_label(run.days_ago, run.start),
         hours = run.seconds / 3_600,
         minutes = run.seconds % 3_600 / 60,

@@ -12,6 +12,8 @@ pub(crate) mod a2a_backend;
 pub mod a2a_task_reaper;
 /// An account deletion in one transaction, with its hash-chained receipt and the chain's verifier.
 pub mod account_deletion;
+/// A whole-account reset in one transaction: every owned row wiped, the account and its sign-in kept.
+pub mod account_reset;
 /// Repository trait for historical activity backfills still owed (resumed by a sweep).
 pub mod activity_backfill_jobs;
 /// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
@@ -28,6 +30,8 @@ pub mod admin;
 pub mod admin_audit;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
+/// Repository trait for the agent drafts `/agent create` parks for `/confirm` and `/deny`.
+pub mod agent_drafts;
 /// The agent row decoders both backends share, emitted per backend.
 pub(crate) mod agent_rows;
 /// Repository traits for the agents catalogue and coaching groups.
@@ -109,8 +113,6 @@ pub mod garmin_push_inbox;
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
-/// Repository trait for the pending-action store behind `/confirm` and `/deny`.
-pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
@@ -274,6 +276,11 @@ pub use account_deletion::{
     verify_receipt_chain, AccountDeletion, AccountDeletionPlan, AccountDeletionRepository,
     ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, GENESIS_HASH,
 };
+pub use account_reset::{
+    AccountReset, AccountResetCommit, AccountResetRepository, AccountResetWipe, OwnedGroup,
+    POSTGRES_ACCOUNT_RESET, POSTGRES_ONLY_RESET_TABLES, RESET_BLOCKERS_SQL, RESET_KEEP,
+    SQLITE_ACCOUNT_RESET,
+};
 pub use activity_backfill_jobs::*;
 pub use activity_cache::*;
 pub use activity_conversations::*;
@@ -285,6 +292,7 @@ pub use admin_audit::{
     NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
 };
 pub use agent_artefacts::*;
+pub use agent_drafts::*;
 pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
@@ -316,7 +324,6 @@ pub use firebase_identity_deletions::{
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
-pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
 pub use impersonation::*;
@@ -349,6 +356,7 @@ pub use signup_cohort::{NewUserMilestones, NewUserTurn, SignupCohortRepository};
 pub use store_listings::*;
 pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;
+pub use system_settings::SystemSettingsRepository;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;

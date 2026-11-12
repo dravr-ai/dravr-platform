@@ -217,6 +217,8 @@ async fn season_authored_by(
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }];
     repos
         .training_plans

@@ -22,7 +22,8 @@ use crate::models::refresh_due;
 use crate::models::StatsCoverage;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, Stats,
+    TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
@@ -312,6 +313,15 @@ impl StravaProvider {
         .normalized_power_opt(activity.weighted_average_watts.map(f32_to_u32))
         .calories_opt(activity.calories.map(f32_to_u32))
         .suffer_score_opt(activity.suffer_score.map(f32_to_u32))
+        .moving_time_seconds_opt(
+            activity
+                .moving_time
+                .filter(|seconds| *seconds > 0)
+                .map(u64::from),
+        )
+        .workout_type_opt(activity.workout_type)
+        .trainer_opt(activity.trainer)
+        .commute_opt(activity.commute)
         .start_latitude_opt(
             activity
                 .start_latlng
@@ -367,6 +377,14 @@ impl StravaProvider {
                     .map(|name| name.trim().to_owned())
                     .filter(|name| !name.is_empty()),
             )
+            .private_note_opt(detailed.private_note.filter(|n| !n.trim().is_empty()))
+            .gear_opt(detailed.gear.and_then(|gear| {
+                let name = gear
+                    .name
+                    .map(|n| n.trim().to_owned())
+                    .filter(|n| !n.is_empty())?;
+                Some(GearRef { id: gear.id, name })
+            }))
             .perceived_exertion_opt(detailed.perceived_exertion.and_then(rpe_from_strava))
             .time_series_data_opt(streams)
             .build())
@@ -836,7 +854,7 @@ impl FitnessProvider for StravaProvider {
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         // Strava's /activities/{id} endpoint returns a richer payload than
         // the summary shape (splits, laps, segment efforts, elev_high/low,
-        // device_name, kudos/comments). Route the auto-promote path here
+        // device_name, kudos/comments). Route the recent-window detail path here
         // so the richer deserialization captures everything Strava returns
         // — even fields cageux does not yet model become available the
         // moment cageux grows the corresponding accessors (no server-side

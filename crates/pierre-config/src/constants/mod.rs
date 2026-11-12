@@ -60,7 +60,10 @@ pub mod usage_quotas {
     /// Maximum concurrent active conversations per user. Mirrors the
     /// `usage_quotas.max_active_conversations` parameter default. A value of
     /// `0` lifts the cap (see [`UNLIMITED_CONVERSATIONS`]).
-    pub const DEFAULT_MAX_ACTIVE_CONVERSATIONS: i64 = 10;
+    pub const DEFAULT_MAX_ACTIVE_CONVERSATIONS: i64 = 50;
+    /// The highest cap an admin may set short of lifting it: four times the
+    /// default, since every "+" is a conversation of its own (carnet#1473).
+    pub const MAX_ACTIVE_CONVERSATIONS_CEILING: i64 = 200;
     /// The `usage_quotas.max_active_conversations` value that means no cap.
     ///
     /// Written at user scope for an account that may open any number of

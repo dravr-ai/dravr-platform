@@ -1,4 +1,4 @@
-// ABOUTME: Admin guardian-config endpoint tests — authz, persistence, hot-install, env-pin shadowing
+// ABOUTME: Admin guardian-config endpoint tests — authz, persistence, hot-install, compare-and-set
 // ABOUTME: Direct handler calls against a wired AdminApiContext (feature_flags_admin_authz_test pattern)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,8 +11,8 @@
 //!
 //! Beyond authz, these pin the contract the CLI parses: the wire shape of the
 //! response, that a PUT persists the row AND hot-installs the policy the dispatch
-//! path reads, that a save is a compare-and-set, that high-impact edits are refused
-//! until explicit, that a field the policy does not read is refused, and what each
+//! path reads, that a save is a compare-and-set, that a field the policy does not
+//! read is refused, and what each
 //! write hands the audit recorder (the rows themselves are pinned through the app in
 //! `admin_audit_trail_test`).
 
@@ -53,8 +53,8 @@ use pierre_routes_admin::handlers::guardian_config::{
 use pierre_routes_admin::handlers::setting_revision::ExpectedRevision;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes, AuditDetail};
 use pierre_tool_runtime::guardian::{
-    GuardianConfigDocument, GuardianConfigRegistry, GuardianConfigSource, GuardianEnvOverrides,
-    GuardianMode, GuardianReloadOutcome, GUARDIAN_CONFIG_SETTING_KEY,
+    GuardianConfigDocument, GuardianConfigRegistry, GuardianReloadOutcome,
+    GUARDIAN_CONFIG_SETTING_KEY,
 };
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
@@ -62,8 +62,7 @@ use serial_test::serial;
 use uuid::Uuid;
 
 /// Build a fully-wired [`AdminApiContext`] with an explicit guardian
-/// registry, so tests can inject env-pinned variants without touching
-/// process env.
+/// registry.
 async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminApiContext> {
     let database = common::create_test_database().await.unwrap();
     let auth_manager = common::create_test_auth_manager();
@@ -91,14 +90,6 @@ async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminAp
         contremaitre_config: None,
         app_behavior: AppBehaviorConfig::default(),
     }))
-}
-
-fn env_free_registry() -> GuardianConfigRegistry {
-    GuardianConfigRegistry::with_env_overrides(
-        GuardianEnvOverrides::default(),
-        GuardianConfigDocument::default(),
-        GuardianConfigSource::Defaults,
-    )
 }
 
 /// Cookie-style super-admin token, mirroring what `cookie_admin_middleware`
@@ -149,34 +140,28 @@ fn revision(expected: Option<DateTime<Utc>>) -> ExpectedRevision {
     expected.map_or(ExpectedRevision::NoRow, ExpectedRevision::At)
 }
 
-/// A save of `document`, carrying the two assertions it makes.
+/// A save of `document`, naming the base it edits.
 fn put_request(
     document: &GuardianConfigDocument,
     expected_updated_at: ExpectedRevision,
-    acknowledge_impact: bool,
 ) -> Json<GuardianConfigPutRequest> {
     let GuardianConfigDocument {
-        schema_version,
-        mode,
         max_destructive_per_turn,
         max_writes_per_turn,
     } = *document;
     Json(GuardianConfigPutRequest {
-        schema_version,
-        mode,
         max_destructive_per_turn,
         max_writes_per_turn,
         expected_updated_at,
-        acknowledge_impact,
     })
 }
 
-/// A save from an editor that read `expected`, having acknowledged the impact.
-fn acknowledged(
+/// A save from an editor that read `expected`.
+fn save(
     document: &GuardianConfigDocument,
     expected: Option<DateTime<Utc>>,
 ) -> Json<GuardianConfigPutRequest> {
-    put_request(document, revision(expected), true)
+    put_request(document, revision(expected))
 }
 
 async fn get_config(context: &Arc<AdminApiContext>) -> Value {
@@ -197,9 +182,10 @@ fn token_of(response: &Value) -> Option<DateTime<Utc>> {
     })
 }
 
-fn observe() -> GuardianConfigDocument {
+/// A document whose destructive cap is away from the default.
+fn capped() -> GuardianConfigDocument {
     GuardianConfigDocument {
-        mode: Some(GuardianMode::Observe),
+        max_destructive_per_turn: Some(1),
         ..GuardianConfigDocument::default()
     }
 }
@@ -215,7 +201,7 @@ async fn stored_value(context: &AdminApiContext) -> Option<String> {
 
 #[tokio::test]
 async fn get_serves_defaults_with_wire_shape_the_clients_parse() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let resp = handle_get_guardian_config(State(context), Extension(super_admin_token()))
         .await
@@ -223,57 +209,54 @@ async fn get_serves_defaults_with_wire_shape_the_clients_parse() {
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["source"], "default");
     assert_eq!(json["updated_at"], Value::Null);
-    assert_eq!(json["config"]["schema_version"], 2);
+    assert_eq!(json["config"], json!({}));
+    let caps = json!({"max_destructive_per_turn": 3, "max_writes_per_turn": 50});
     assert_eq!(
-        json["effective"],
-        json!({"mode": "enforce", "max_destructive_per_turn": 3, "max_writes_per_turn": 50}),
-        "the whole policy, and nothing the Guardian no longer decides"
+        json["effective"], caps,
+        "the two caps, and nothing the Guardian no longer decides"
     );
-    assert_eq!(json["defaults"]["mode"], "enforce");
-    assert_eq!(json["defaults"]["max_destructive_per_turn"], 3);
-    assert_eq!(json["defaults"]["max_writes_per_turn"], 50);
-    assert_eq!(json["sources"]["mode"], "default");
-    assert_eq!(json["env_pinned"], Value::Array(vec![]));
+    assert_eq!(json["defaults"], caps);
     assert_eq!(json["in_sync"], true);
     assert_eq!(json["degraded"], false);
     assert_eq!(json["degraded_reason"], Value::Null);
-    assert!(json.get("plan_mode_armable").is_none());
     assert!(json["loaded_at"].is_string());
     assert!(json["instance_id"].as_str().unwrap().contains(':'));
-    assert!(json.get("stored_schema_version").is_none());
+    for retired in [
+        "source",
+        "sources",
+        "env_pinned",
+        "stored_schema_version",
+        "plan_mode_armable",
+    ] {
+        assert!(json.get(retired).is_none(), "{retired}: {json}");
+    }
 }
 
 #[tokio::test]
 async fn put_persists_the_row_and_hot_installs_the_policy() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let document = GuardianConfigDocument {
-        mode: Some(GuardianMode::Observe),
         max_destructive_per_turn: Some(4),
         ..GuardianConfigDocument::default()
     };
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(super_admin_with_account(&context).await),
-        Ok(acknowledged(&document, None)),
+        Ok(save(&document, None)),
     )
     .await
     .expect("super-admin PUT succeeds");
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["source"], "persisted");
-    assert_eq!(json["effective"]["mode"], "observe");
     assert_eq!(json["effective"]["max_destructive_per_turn"], 4);
-    assert_eq!(json["sources"]["mode"], "database");
     assert_eq!(json["in_sync"], true);
     assert!(json["updated_at"].is_string());
 
     // The dispatch path reads the NEW policy immediately (hot install)…
     let effective = context.guardian_config_registry.current_guardian();
-    assert_eq!(effective.policy().mode, GuardianMode::Observe);
     assert_eq!(effective.policy().max_destructive_per_turn, 4);
 
     // …and the row survives a restart (persisted + parseable).
@@ -284,11 +267,10 @@ async fn put_persists_the_row_and_hot_installs_the_policy() {
         .unwrap()
         .expect("row persisted");
     let stored: Value = serde_json::from_str(&row.value).unwrap();
-    assert_eq!(stored["mode"], "observe");
-    assert_eq!(stored["max_destructive_per_turn"], 4);
-    assert!(
-        stored.get("expected_updated_at").is_none() && stored.get("acknowledge_impact").is_none(),
-        "the save's assertions are not part of the document: {stored}"
+    assert_eq!(
+        stored,
+        json!({"max_destructive_per_turn": 4}),
+        "the document alone: no base, no retired keys"
     );
 
     // The response's token is the stored one, so the next save can use it.
@@ -297,15 +279,14 @@ async fn put_persists_the_row_and_hot_installs_the_policy() {
 
 #[tokio::test]
 async fn put_rejects_an_invalid_document_without_installing() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let refused = handle_put_guardian_config(
         State(context.clone()),
         Extension(super_admin_with_account(&context).await),
-        Ok(acknowledged(
+        Ok(save(
             &GuardianConfigDocument {
-                schema_version: 99,
-                mode: Some(GuardianMode::Observe),
+                max_writes_per_turn: Some(0),
                 ..GuardianConfigDocument::default()
             },
             None,
@@ -317,9 +298,9 @@ async fn put_rejects_an_invalid_document_without_installing() {
     assert_eq!(
         status,
         StatusCode::BAD_REQUEST,
-        "schema 99 must be rejected"
+        "a zero write budget must be rejected"
     );
-    assert!(body.to_string().contains("schema"), "{body}");
+    assert!(body.to_string().contains("max_writes_per_turn"), "{body}");
 
     // Nothing installed, nothing persisted.
     assert_eq!(
@@ -327,8 +308,8 @@ async fn put_rejects_an_invalid_document_without_installing() {
             .guardian_config_registry
             .current_guardian()
             .policy()
-            .mode,
-        GuardianMode::Enforce
+            .max_writes_per_turn,
+        50
     );
     assert!(context
         .database
@@ -340,7 +321,7 @@ async fn put_rejects_an_invalid_document_without_installing() {
 
 #[tokio::test]
 async fn plain_admin_is_denied_both_verbs() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let Err(err) =
         handle_get_guardian_config(State(context.clone()), Extension(plain_admin_token())).await
@@ -352,52 +333,13 @@ async fn plain_admin_is_denied_both_verbs() {
     let Err(err) = handle_put_guardian_config(
         State(context),
         Extension(plain_admin_token()),
-        Ok(acknowledged(&GuardianConfigDocument::default(), None)),
+        Ok(save(&GuardianConfigDocument::default(), None)),
     )
     .await
     else {
         panic!("plain admin must not write guardian config");
     };
     assert_eq!(err.code, ErrorCode::PermissionDenied);
-}
-
-#[tokio::test]
-async fn env_pinned_field_shadows_the_edit_and_says_so() {
-    let env = GuardianEnvOverrides {
-        mode: Some(GuardianMode::Enforce),
-        ..GuardianEnvOverrides::default()
-    };
-    let registry = GuardianConfigRegistry::with_env_overrides(
-        env,
-        GuardianConfigDocument::default(),
-        GuardianConfigSource::Defaults,
-    );
-    let context = build_context(registry).await;
-
-    let resp = handle_put_guardian_config(
-        State(context.clone()),
-        Extension(super_admin_with_account(&context).await),
-        Ok(acknowledged(&observe(), None)),
-    )
-    .await
-    .expect("PUT succeeds even when a field is env-pinned");
-    let (status, json) = body_json(resp).await;
-
-    assert_eq!(status, StatusCode::OK);
-    // The edit persisted…
-    assert_eq!(json["config"]["mode"], "observe");
-    // …but the env pin wins and the response says exactly that.
-    assert_eq!(json["effective"]["mode"], "enforce");
-    assert_eq!(json["sources"]["mode"], "env");
-    assert_eq!(json["env_pinned"][0], "mode");
-    assert_eq!(
-        context
-            .guardian_config_registry
-            .current_guardian()
-            .policy()
-            .mode,
-        GuardianMode::Enforce
-    );
 }
 
 // ============================================================================
@@ -408,13 +350,13 @@ async fn env_pinned_field_shadows_the_edit_and_says_so() {
 /// rather than wiping the first one's edit.
 #[tokio::test]
 async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
 
     let first = handle_put_guardian_config(
         State(context.clone()),
         Extension(admin_user.clone()),
-        Ok(acknowledged(&observe(), None)),
+        Ok(save(&capped(), None)),
     )
     .await
     .unwrap();
@@ -424,12 +366,12 @@ async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
 
     let winner = GuardianConfigDocument {
         max_writes_per_turn: Some(10),
-        ..observe()
+        ..capped()
     };
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(admin_user.clone()),
-        Ok(acknowledged(&winner, base)),
+        Ok(save(&winner, base)),
     )
     .await
     .unwrap();
@@ -438,12 +380,12 @@ async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
 
     let loser = GuardianConfigDocument {
         max_writes_per_turn: Some(20),
-        ..observe()
+        ..capped()
     };
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(admin_user),
-        Ok(acknowledged(&loser, base)),
+        Ok(save(&loser, base)),
     )
     .await
     .unwrap();
@@ -468,13 +410,12 @@ async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
 /// one that read no row, which is how the first save creates it.
 #[tokio::test]
 async fn a_save_naming_no_base_is_refused_and_null_means_no_row_was_read() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
 
     let missing: GuardianConfigPutRequest =
-        serde_json::from_value(json!({"mode": "observe"})).unwrap();
+        serde_json::from_value(json!({"max_writes_per_turn": 7})).unwrap();
     assert_eq!(missing.expected_updated_at, ExpectedRevision::Unnamed);
-    assert!(!missing.acknowledge_impact);
     let (status, json) = body_json(
         handle_put_guardian_config(
             State(context.clone()),
@@ -519,12 +460,11 @@ async fn a_save_naming_no_base_is_refused_and_null_means_no_row_was_read() {
 /// the empty pod's own assumption fails the compare.
 #[tokio::test]
 async fn an_instance_on_defaults_serves_the_row_and_cannot_overwrite_it_blind() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
     let saved_elsewhere = GuardianConfigDocument {
         max_destructive_per_turn: Some(5),
         max_writes_per_turn: Some(11),
-        ..GuardianConfigDocument::default()
     };
     let row_json = serde_json::to_string(&saved_elsewhere).unwrap();
     context
@@ -541,13 +481,13 @@ async fn an_instance_on_defaults_serves_the_row_and_cannot_overwrite_it_blind() 
         "this instance has not polled the row in"
     );
     assert_eq!(json["effective"]["max_destructive_per_turn"], 3);
-    assert_eq!(json["source"], "persisted");
+    assert!(json["updated_at"].is_string());
 
     let (status, _) = body_json(
         handle_put_guardian_config(
             State(context.clone()),
             Extension(admin_user),
-            Ok(acknowledged(&GuardianConfigDocument::default(), None)),
+            Ok(save(&GuardianConfigDocument::default(), None)),
         )
         .await
         .unwrap(),
@@ -571,7 +511,7 @@ async fn an_instance_on_defaults_serves_the_row_and_cannot_overwrite_it_blind() 
 /// editor would then save over the real one.
 #[tokio::test]
 async fn a_failed_row_read_is_an_error_not_a_default_document() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     match context.database.backend() {
         DatabaseBackend::SQLite(sqlite) => sqlite.pool().close().await,
         #[cfg(feature = "postgresql")]
@@ -603,7 +543,7 @@ fn tenant_scoped_token() -> ValidatedAdminToken {
 
 #[tokio::test]
 async fn a_tenant_scoped_token_holding_every_permission_is_refused_every_verb() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let Err(err) =
         handle_get_guardian_config(State(context.clone()), Extension(tenant_scoped_token())).await
@@ -615,7 +555,7 @@ async fn a_tenant_scoped_token_holding_every_permission_is_refused_every_verb() 
     let Err(err) = handle_put_guardian_config(
         State(context.clone()),
         Extension(tenant_scoped_token()),
-        Ok(acknowledged(&observe(), None)),
+        Ok(save(&capped(), None)),
     )
     .await
     else {
@@ -629,7 +569,7 @@ async fn a_tenant_scoped_token_holding_every_permission_is_refused_every_verb() 
 /// on `tenant_id` alone would lock the whole web console out of this tab.
 #[tokio::test]
 async fn a_console_super_admin_with_an_active_tenant_keeps_the_tab() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let console_session = ValidatedAdminToken {
         tenant_id: Some(Uuid::new_v4().to_string()),
         ..super_admin_with_account(&context).await
@@ -644,7 +584,7 @@ async fn a_console_super_admin_with_an_active_tenant_keeps_the_tab() {
         handle_put_guardian_config(
             State(context),
             Extension(console_session),
-            Ok(acknowledged(&observe(), None)),
+            Ok(save(&capped(), None)),
         )
         .await
         .unwrap(),
@@ -656,13 +596,13 @@ async fn a_console_super_admin_with_an_active_tenant_keeps_the_tab() {
 /// A token naming no account still saves: the audit recorder names the token.
 #[tokio::test]
 async fn a_service_token_naming_no_account_can_save() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
 
     let (status, _) = body_json(
         handle_put_guardian_config(
             State(context.clone()),
             Extension(super_admin_token()),
-            Ok(acknowledged(&observe(), None)),
+            Ok(save(&capped(), None)),
         )
         .await
         .unwrap(),
@@ -681,11 +621,9 @@ async fn a_service_token_naming_no_account_can_save() {
 /// see what is in force, and save over it with the row's own token.
 #[tokio::test]
 async fn a_corrupt_row_is_reported_and_can_be_saved_over() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
-    context
-        .guardian_config_registry
-        .install(observe(), GuardianConfigSource::Database);
+    context.guardian_config_registry.install(capped());
     context
         .database
         .set_system_setting(GUARDIAN_CONFIG_SETTING_KEY, "{not json")
@@ -700,15 +638,15 @@ async fn a_corrupt_row_is_reported_and_can_be_saved_over() {
         .contains("does not parse"));
     assert_eq!(json["in_sync"], false);
     assert_eq!(
-        json["config"]["mode"], "observe",
+        json["config"]["max_destructive_per_turn"], 1,
         "the editor starts from the last good document, not an empty form"
     );
-    assert_eq!(json["effective"]["mode"], "observe");
+    assert_eq!(json["effective"]["max_destructive_per_turn"], 1);
 
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(admin_user),
-        Ok(acknowledged(&observe(), token_of(&json))),
+        Ok(save(&capped(), token_of(&json))),
     )
     .await
     .unwrap();
@@ -723,26 +661,26 @@ async fn a_corrupt_row_is_reported_and_can_be_saved_over() {
     assert!(audit.summary.unwrap().contains("not a document"));
 }
 
-/// A client recovering from a foreign `schema_version` echoes what GET gives it, so
-/// GET must give it a version PUT accepts.
+/// A row an earlier binary wrote, in the shape it wrote (carnet#1471): GET serves
+/// what this binary reads of it, and a client echoing that saves, dropping the
+/// retired keys and anything else this binary does not read.
 #[tokio::test]
-async fn a_foreign_schema_version_does_not_lock_the_editor_out() {
-    let context = build_context(env_free_registry()).await;
+async fn a_row_an_earlier_binary_wrote_is_served_and_can_be_saved_over() {
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
     context
         .database
         .set_system_setting(
             GUARDIAN_CONFIG_SETTING_KEY,
-            r#"{"schema_version": 99, "mode": "observe", "future_rule": true}"#,
+            r#"{"schema_version": 2, "mode": "observe", "max_destructive_per_turn": 1, "future_rule": true}"#,
         )
         .await
         .unwrap();
 
     let json = get_config(&context).await;
-    assert_eq!(json["config"]["schema_version"], 2);
-    assert_eq!(json["config"]["mode"], "observe");
-    assert_eq!(json["stored_schema_version"], 99);
+    assert_eq!(json["config"], json!({"max_destructive_per_turn": 1}));
     assert_eq!(json["stored_unknown_fields"], json!(["future_rule"]));
+    assert_eq!(json["degraded"], false);
 
     let mut echoed = json["config"].clone();
     echoed["expected_updated_at"] = json["updated_at"].clone();
@@ -757,108 +695,29 @@ async fn a_foreign_schema_version_does_not_lock_the_editor_out() {
     let audit = audit_detail(&resp);
     let (status, saved) = body_json(resp).await;
     assert_eq!(status, StatusCode::OK, "{saved}");
-    assert!(saved.get("stored_schema_version").is_none());
+    assert!(saved.get("stored_unknown_fields").is_none());
     assert_eq!(
-        serde_json::from_str::<Value>(&stored_value(&context).await.unwrap()).unwrap()
-            ["schema_version"],
-        2
+        serde_json::from_str::<Value>(&stored_value(&context).await.unwrap()).unwrap(),
+        json!({"max_destructive_per_turn": 1})
     );
 
     // What the save dropped survives in the audit row.
-    assert_eq!(audit.before.unwrap()["future_rule"], true);
-    assert!(audit
-        .summary
-        .unwrap()
-        .contains("future_rule: true → dropped"));
-}
-
-// ============================================================================
-// High-impact edits
-// ============================================================================
-
-#[tokio::test]
-async fn an_unacknowledged_high_impact_edit_lists_each_field_and_writes_nothing() {
-    let context = build_context(env_free_registry()).await;
-    let admin_user = super_admin_with_account(&context).await;
-
-    let every_edit = GuardianConfigDocument {
-        mode: Some(GuardianMode::Observe),
-        max_destructive_per_turn: Some(0),
-        ..GuardianConfigDocument::default()
-    };
-    let (status, json) = body_json(
-        handle_put_guardian_config(
-            State(context.clone()),
-            Extension(admin_user.clone()),
-            Ok(put_request(&every_edit, ExpectedRevision::NoRow, false)),
-        )
-        .await
-        .unwrap(),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(json["code"], "guardian_config_impact_not_acknowledged");
-    let impacted = json["impacted_fields"].as_array().unwrap();
-    let fields: Vec<&str> = impacted
-        .iter()
-        .map(|impact| impact["field"].as_str().unwrap())
-        .collect();
-    assert_eq!(fields, ["mode", "max_destructive_per_turn"]);
-    assert_eq!(impacted[0]["from"], "enforce");
-    assert_eq!(impacted[0]["to"], "observe");
-    assert_eq!(impacted[1]["from"], "3");
-    assert_eq!(impacted[1]["to"], "0");
-    for impact in impacted {
-        assert_ne!(impact["effect"].as_str().unwrap(), "");
-    }
-    assert_eq!(stored_value(&context).await, None);
-    assert_eq!(
-        context
-            .guardian_config_registry
-            .current_guardian()
-            .policy()
-            .mode,
-        GuardianMode::Enforce
+    let before = audit.before.unwrap();
+    assert_eq!(before["future_rule"], true);
+    assert_eq!(before["mode"], "observe");
+    let summary = audit.summary.unwrap();
+    assert!(summary.contains("future_rule: true → dropped"), "{summary}");
+    assert!(
+        summary.contains(r#"mode: "observe" → dropped"#),
+        "{summary}"
     );
-
-    // Acknowledged, it lands; echoed back later, it asks nothing further.
-    let (status, saved) = body_json(
-        handle_put_guardian_config(
-            State(context.clone()),
-            Extension(admin_user.clone()),
-            Ok(acknowledged(&every_edit, None)),
-        )
-        .await
-        .unwrap(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-
-    let (status, _) = body_json(
-        handle_put_guardian_config(
-            State(context),
-            Extension(admin_user),
-            Ok(put_request(
-                &GuardianConfigDocument {
-                    max_writes_per_turn: Some(5),
-                    ..every_edit
-                },
-                revision(token_of(&saved)),
-                false,
-            )),
-        )
-        .await
-        .unwrap(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
 }
 
-/// The default-policy edit a super admin makes most: no acknowledgement needed.
+/// carnet#1471: a save needs its base and nothing more, a zero destructive budget
+/// included.
 #[tokio::test]
-async fn a_budget_edit_needs_no_acknowledgement() {
-    let context = build_context(env_free_registry()).await;
+async fn a_budget_edit_saves_on_its_base_alone() {
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
 
     let (status, json) = body_json(
@@ -868,11 +727,9 @@ async fn a_budget_edit_needs_no_acknowledgement() {
             Ok(put_request(
                 &GuardianConfigDocument {
                     max_writes_per_turn: Some(20),
-                    max_destructive_per_turn: Some(2),
-                    ..GuardianConfigDocument::default()
+                    max_destructive_per_turn: Some(0),
                 },
                 ExpectedRevision::NoRow,
-                false,
             )),
         )
         .await
@@ -881,8 +738,7 @@ async fn a_budget_edit_needs_no_acknowledgement() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["effective"]["max_writes_per_turn"], 20);
-    assert_eq!(json["effective"]["max_destructive_per_turn"], 2);
-    assert_eq!(json["effective"]["mode"], "enforce");
+    assert_eq!(json["effective"]["max_destructive_per_turn"], 0);
 }
 
 // ============================================================================
@@ -899,7 +755,7 @@ fn audit_detail(resp: &Response) -> AuditDetail {
 
 #[tokio::test]
 async fn a_save_hands_the_recorder_what_it_replaced_and_what_it_wrote() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
     let mut base = None;
     let mut details = Vec::new();
@@ -907,7 +763,7 @@ async fn a_save_hands_the_recorder_what_it_replaced_and_what_it_wrote() {
         let resp = handle_put_guardian_config(
             State(context.clone()),
             Extension(admin_user.clone()),
-            Ok(acknowledged(
+            Ok(save(
                 &GuardianConfigDocument {
                     max_writes_per_turn: Some(writes),
                     ..GuardianConfigDocument::default()
@@ -943,11 +799,11 @@ async fn a_save_hands_the_recorder_what_it_replaced_and_what_it_wrote() {
 
 #[tokio::test]
 async fn a_refused_save_names_the_action_and_carries_no_change() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(super_admin_token()),
-        Ok(put_request(&observe(), ExpectedRevision::Unnamed, true)),
+        Ok(put_request(&capped(), ExpectedRevision::Unnamed)),
     )
     .await
     .unwrap();
@@ -1339,23 +1195,23 @@ async fn the_console_serves_no_guardian_settings() -> Result<()> {
 }
 
 /// `Follow default` has to name what the field would follow, and that is not what
-/// this instance enforces while the row or an env pin says otherwise.
+/// this instance enforces while the row says otherwise.
 #[tokio::test]
 async fn defaults_stay_the_compiled_ones_when_the_row_changes_what_is_enforced() {
-    let context = build_context(env_free_registry()).await;
+    let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let admin_user = super_admin_with_account(&context).await;
     let resp = handle_put_guardian_config(
         State(context.clone()),
         Extension(admin_user),
-        Ok(acknowledged(&observe(), None)),
+        Ok(save(&capped(), None)),
     )
     .await
     .unwrap();
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["effective"]["mode"], "observe");
-    assert_eq!(json["defaults"]["mode"], "enforce");
+    assert_eq!(json["effective"]["max_destructive_per_turn"], 1);
+    assert_eq!(json["defaults"]["max_destructive_per_turn"], 3);
 }
 
 /// The extractor's rejection reaches the client as the admin API's own error
@@ -1413,16 +1269,25 @@ async fn a_body_naming_a_field_the_policy_does_not_read_is_refused_and_writes_no
 
     for (body, field) in [
         (
-            json!({"document": {"mode": "observe"}, "expected_updated_at": null}),
+            json!({"document": {"max_writes_per_turn": 9}, "expected_updated_at": null}),
             "document",
         ),
         (
-            json!({"mod": "observe", "expected_updated_at": null}),
-            "mod",
+            json!({"max_write_per_turn": 9, "expected_updated_at": null}),
+            "max_write_per_turn",
         ),
         (
             json!({"plan_mode": "enforce", "expected_updated_at": null}),
             "plan_mode",
+        ),
+        // Retired by carnet#1471: a client still sending them learns so.
+        (
+            json!({"mode": "observe", "expected_updated_at": null}),
+            "mode",
+        ),
+        (
+            json!({"max_writes_per_turn": 9, "acknowledge_impact": true, "expected_updated_at": null}),
+            "acknowledge_impact",
         ),
     ] {
         let refused = AxumTestRequest::put("/admin/settings/guardian")
@@ -1455,8 +1320,8 @@ async fn a_body_naming_a_field_the_policy_does_not_read_is_refused_and_writes_no
             .guardian_config_registry
             .current_guardian()
             .policy()
-            .mode,
-        GuardianMode::Enforce,
+            .max_writes_per_turn,
+        50,
         "and none installed a policy"
     );
     Ok(())

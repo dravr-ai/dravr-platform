@@ -39,8 +39,9 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::models::periodization::serde_num::{whole_u32_opt, whole_u8};
 use pierre_core::models::periodization::{
-    FlavourFamily, FlavourInputs, FlavourVerdict, LoadingPattern, Modifier, PhaseKind, Sequencing,
-    Share, TidTarget, WorkoutPurpose,
+    AnchorChoice, EnvelopeFinding, EnvelopeReport, EvidenceBadge, FlavourFamily, FlavourInputs,
+    FlavourVerdict, LoadingPattern, Modifier, Pacing, PhaseKind, PresetParams, Sequencing, Share,
+    TidTarget, WorkoutPurpose,
 };
 use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
@@ -362,6 +363,21 @@ pub struct TemplateParams {
         deserialize_with = "whole_u32_opt"
     )]
     pub duration_minutes: Option<u32>,
+    /// Rest between sets in seconds, for a family preset with sets.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub set_rest_seconds: Option<u32>,
+    /// How the main set is paced: `best_sustainable` (the trialled dose for
+    /// short reps) or `fixed` on the written target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pacing: Option<Pacing>,
+    /// The anchor the athlete wants targets written against (`critical_power`,
+    /// `max_heart_rate`, `rpe`, …); the preset's own when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<AnchorChoice>,
 }
 
 impl TemplateParams {
@@ -373,6 +389,69 @@ impl TemplateParams {
             && self.work_seconds.is_none()
             && self.rest_seconds.is_none()
             && self.duration_minutes.is_none()
+            && self.set_rest_seconds.is_none()
+            && self.pacing.is_none()
+            && self.anchor.is_none()
+    }
+
+    /// The values as the kernel's family generator reads them.
+    #[must_use]
+    pub const fn preset_params(&self) -> PresetParams {
+        PresetParams {
+            sets: self.sets,
+            reps: self.reps,
+            work_seconds: self.work_seconds,
+            rest_seconds: self.rest_seconds,
+            set_rest_seconds: self.set_rest_seconds,
+            duration_minutes: self.duration_minutes,
+            pacing: self.pacing,
+            anchor: self.anchor,
+        }
+    }
+}
+
+/// What the envelope check found on one planned day — the session measured
+/// against its family's evidence envelope, stamped by the save.
+///
+/// Every finding warns; a relabel also names the purpose the session now
+/// trains, which compliance and readiness read in place of the template's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DayEnvelope {
+    /// The preset the session was measured against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// The purpose the session trains when an edit moved it to another
+    /// family.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relabelled_purpose: Option<WorkoutPurpose>,
+    /// The preset's evidence badge in the day's sport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<EvidenceBadge>,
+    /// Whether the save generated the steps from the preset.
+    #[serde(default)]
+    pub generated: bool,
+    /// What the check found.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<EnvelopeFinding>,
+    /// Why the save could not build the day's steps from its preset, when it
+    /// could not: the generated session left the bounds a written one keeps.
+    /// The day then carries no steps and the agent is told so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_generated: Option<String>,
+}
+
+impl DayEnvelope {
+    /// The stored part of a kernel report.
+    #[must_use]
+    pub fn from_report(report: EnvelopeReport, generated: bool) -> Self {
+        Self {
+            preset: report.preset,
+            relabelled_purpose: report.relabelled_purpose,
+            badge: report.badge,
+            generated,
+            findings: report.findings,
+            not_generated: None,
+        }
     }
 }
 
@@ -428,6 +507,15 @@ pub struct PlannedDay {
     /// day names no template.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_source: Option<TemplateSource>,
+    /// The family preset this day instantiates (`30_15`, `end_spinups`),
+    /// when `template_slug` names a parametric family. A legacy slug the
+    /// family absorbed already names its preset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_preset: Option<String>,
+    /// What the envelope check found on the session — stamped by the save,
+    /// never taken from the payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<DayEnvelope>,
 }
 
 /// The authorship tier a day's template was found in at save time.

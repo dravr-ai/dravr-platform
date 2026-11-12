@@ -10,6 +10,8 @@ pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod canary;
 pub(crate) mod config;
+/// `pierre-cli settings connect-order`: which way a new Strava or Garmin connection goes first.
+pub(crate) mod connect_order;
 pub(crate) mod deletion;
 pub(crate) mod drift;
 pub(crate) mod garmin;
@@ -32,4 +34,6 @@ pub(crate) mod token;
 pub(crate) mod tool;
 pub(crate) mod user;
 pub(crate) mod user_admin;
+/// `pierre-cli user reset`: start a whole account over over the admin API.
+pub(crate) mod user_reset;
 pub(crate) mod zones;

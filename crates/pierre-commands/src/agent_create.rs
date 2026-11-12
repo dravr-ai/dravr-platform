@@ -27,7 +27,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
-use pierre_database::repositories::{PendingGuardianAction, AGENT_PROPOSAL_ACTION};
+use pierre_database::repositories::{PendingAgentDraft, AGENT_PROPOSAL_ACTION};
 use pierre_services::agent_generation::{
     agent_quota, conversation_excerpt, propose_agent, resolve_chat_provider, AgentProposal,
     ExcerptRequest, DEFAULT_MAX_MESSAGES,
@@ -188,7 +188,7 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
     let parked = ParkedProposal::from(proposal);
     let arguments = serde_json::to_value(&parked)
         .map_err(|e| AppError::internal(format!("serialize coach draft: {e}")))?;
-    let action = PendingGuardianAction {
+    let action = PendingAgentDraft {
         id: token.clone(),
         tenant_id: ctx.tenant_id.to_string(),
         user_id: ctx.user_id.to_string(),
@@ -198,7 +198,7 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
     };
     ctx.ctx
         .repos()
-        .guardian_actions
+        .agent_drafts
         .create_pending_action(
             &action,
             Utc::now() + Duration::minutes(PROPOSAL_TTL_MINUTES),
@@ -224,7 +224,7 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
 /// second — and attached exactly the way `/agent add` attaches one.
 pub(crate) async fn create_from_claimed_proposal(
     ctx: &PlatformCommandContext,
-    action: &PendingGuardianAction,
+    action: &PendingAgentDraft,
 ) -> Result<CommandResponse, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();

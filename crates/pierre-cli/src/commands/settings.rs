@@ -1,4 +1,4 @@
-// ABOUTME: `pierre-cli settings` — remote GET/PUT over /admin/settings/{harness,signup}, and the guardian verbs' entry
+// ABOUTME: `pierre-cli settings` — remote GET/PUT over /admin/settings/{harness,signup}, and the guardian and connect-order verbs' entry
 // ABOUTME: Sign-up gets typed flags, harness takes a whole JSON document, and Guardian has its own module
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use pierre_cli::remote::{CachedCredentials, RemoteClient};
 
-use super::guardian_settings;
+use super::{connect_order, guardian_settings};
 
 const HARNESS_PATH: &str = "/admin/settings/harness";
 /// What `settings harness show` prints for a document no row holds, and what
@@ -33,6 +33,13 @@ const SIGNUP_PATH: &str = "/admin/settings/signup";
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SettingsCommand {
+    /// Which way a new Strava or Garmin connection goes first: OAuth or the
+    /// account sign-in (super-admin)
+    ConnectOrder {
+        /// Verb to run against the connect order
+        #[command(subcommand)]
+        action: connect_order::ConnectOrderAction,
+    },
     /// Guardian security policy (mode and per-turn budgets)
     Guardian {
         /// Verb to run against the guardian settings
@@ -106,6 +113,7 @@ pub(super) fn client() -> AppResult<RemoteClient> {
 /// flag value fails to parse.
 pub(crate) async fn dispatch(command: SettingsCommand) -> AppResult<()> {
     match command {
+        SettingsCommand::ConnectOrder { action } => connect_order::dispatch(action).await,
         SettingsCommand::Guardian { action } => guardian_settings::dispatch(action).await,
         SettingsCommand::Harness { action } => match action {
             HarnessAction::Show => harness_show().await,

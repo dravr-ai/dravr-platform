@@ -36,8 +36,8 @@ pub(crate) const OAUTH_REQUIRED_REASON: &str = "oauth_required";
 ///
 /// Refused only when every one holds: `backend` is `sciotte_garmin`, the
 /// athlete holds no usr/pwd Garmin connection of their own (a connection or
-/// token row) in this tenant, holds no Garmin grant there, and a seat is
-/// free on the server's Garmin client.
+/// token row) in this tenant, holds no Garmin grant there, a seat is free on
+/// the server's Garmin client, and Garmin's OAuth goes first (carnet#1472).
 ///
 /// # Errors
 ///
@@ -55,6 +55,7 @@ pub(crate) async fn require_garmin_grant(
         || !garmin_oauth_required_for(
             resources.repos.oauth_tokens.as_ref(),
             resources.repos.provider_connections.as_ref(),
+            resources.repos.system_settings.as_ref(),
             &resources.config.oauth,
             user_id,
             tenant_id,

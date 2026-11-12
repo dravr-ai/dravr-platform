@@ -40,7 +40,8 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use super::capability_reask::{
-    reask_while_unavailable, reask_with_verified_data, reask_without_data,
+    reask_over_partial_window, reask_while_unavailable, reask_with_verified_data,
+    reask_without_data,
 };
 use super::capability_subject::{
     apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
@@ -48,6 +49,7 @@ use super::capability_subject::{
 use super::claim_density::{
     previous_reply_asserted_athlete_facts, previous_reply_asserted_unsupplied_facts,
 };
+use super::peer_claim_verifier::verify_peer_claims;
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerGroundingBlock, PeerMention,
     PEER_FETCH_TOOL,
@@ -227,6 +229,13 @@ pub async fn apply_capability_recovery(
         return;
     }
 
+    // The window was read; what it lacks cannot be fetched in this turn. The
+    // re-ask says what the covered dates support, and no more.
+    if matches!(trigger, RecoveryTrigger::CountOverPartialWindow) {
+        reask_over_partial_window(&deps, result).await;
+        return;
+    }
+
     // An ask about a roster peer is adjudicated with THAT peer's data. The
     // requester's own activities answer only an ask about the requester.
     let claimed_failure = matches!(trigger, RecoveryTrigger::ClaimedFailure);
@@ -320,11 +329,6 @@ async fn route_to_subject(
 /// The requester's own fetch succeeded, so the claim is disproven: re-ask
 /// with the data, and hold the replacement to the same standard as the reply
 /// it replaced.
-///
-/// The recovery stamp net in `run_recovery_and_post_process` re-checks the
-/// final content after the downstream identity re-ask, so a re-sample over the
-/// pre-recovery messages that brings back the disproven denial is stamped
-/// before it persists.
 async fn reground_requester(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
@@ -399,6 +403,14 @@ enum RecoveryTrigger {
     /// data ask — yet it is the strongest available signal that the model's
     /// grounding is wrong and needs re-fetching (registre#202).
     DisputedClaims,
+    /// A window this turn read was incomplete — a cached slice served while
+    /// the live read ran on, or a read that stopped at its row cap — and the
+    /// reply states figures. Structural, like the others: the replay of
+    /// 2026-11-09 stated 43 trail runs since 2020 from a 151-row cached
+    /// window, then 599 from the 2,000 rows the read stopped at, both as fact
+    /// (carnet#1481). The re-ask keeps what the covered dates support and
+    /// drops the counts and totals for the period asked.
+    CountOverPartialWindow,
 }
 
 impl RecoveryTrigger {
@@ -410,6 +422,7 @@ impl RecoveryTrigger {
             Self::DegenerateReply => "degenerate_reply",
             Self::UnverifiedPeerClaim => "unverified_peer_claim",
             Self::DisputedClaims => "disputed_claims",
+            Self::CountOverPartialWindow => "count_over_partial_window",
         }
     }
 }
@@ -558,6 +571,11 @@ fn recovery_trigger(
         && !peers_named_in_reply(deps, input, result).is_empty()
     {
         return Some(RecoveryTrigger::UnverifiedPeerClaim);
+    }
+    // A partial window this turn read, and figures in the reply: whatever
+    // they count, they count a slice, not the period asked.
+    if result.window_incomplete && result.content.bytes().any(|b| b.is_ascii_digit()) {
+        return Some(RecoveryTrigger::CountOverPartialWindow);
     }
     // Nothing was fetched and nothing was injected: whatever this reply says,
     // it stands on no evidence from this turn.
@@ -781,6 +799,12 @@ pub(super) fn repair_messages(
 /// corrected reply now, reply with the message text only") keeps it in
 /// chat-output behavior. English on purpose, like the access-failure re-ask.
 ///
+/// The payload is what the platform holds, not proof of a live read: a peer
+/// fetch serves the activity cache when the live fetch fails, so a prompt that
+/// called it "verified … fetched just now" had a coach retract a true "his
+/// Strava needs reconnecting" and claim a live fetch that never happened (run
+/// 42510466793). The prompt states neither, and forbids narrating either.
+///
 /// The flagged claims are the checker's verdict, not a fact: it can miss
 /// evidence the turn did read, and a re-ask that told the model to drop every
 /// flagged claim had it retract a correct start time under challenge
@@ -798,14 +822,17 @@ pub fn peer_repair_prompt(
     language_directive: &str,
 ) -> String {
     format!(
-        "Here are {peer_name}'s verified activities for the last four weeks, fetched just \
-         now:\n{payload}\n\nA check found no support for these claims your previous \
+        "Here are {peer_name}'s activities for the last four weeks as the platform holds \
+         them:\n{payload}\n\nA check found no support for these claims your previous \
          answer made about {peer_name}: {claims}.\n\nCheck each of them against the data above \
-         before you change it: keep a claim the data confirms, correct one it contradicts, and \
-         say plainly only what it cannot confirm. Then write the corrected reply to the \
-         athlete's last question now, using only the data above and the roster context. If \
-         your original reply included a dravr-viz chart or table, produce the corrected block \
-         again from this data. Reply with the message text only.\n\n{language_directive}",
+         and the roster context before you change it: keep a claim the data confirms or the \
+         roster context states, correct one either contradicts, and say plainly only what \
+         neither can confirm. Then write the \
+         corrected reply to the athlete's last question now, using only the data above and the \
+         roster context. Do not say how or when this data was fetched, or what state any of \
+         {peer_name}'s connections is in, beyond what the data and the roster context state. \
+         If your original reply included a dravr-viz chart or table, produce the corrected \
+         block again from this data. Reply with the message text only.\n\n{language_directive}",
         claims = unsupported.join("; "),
     )
 }
@@ -1047,72 +1074,6 @@ fn turn_evidence_with(llm_messages: &[ChatMessage], extra: &str) -> String {
         evidence.push_str(extra);
     }
     evidence
-}
-
-/// Ask the verifier model which claims about `peer` the evidence fails to
-/// support. Fail-open: a verifier outage or an unparseable verdict reports
-/// "supported" (and logs), because a flaky judge must never cost the athlete
-/// a legitimate reply. Runs on the turn's model; records on `deps.verifier_recorder`.
-pub(super) async fn verify_peer_claims(
-    deps: &CapabilityRecoveryDeps<'_>,
-    provider: &pierre_llm::ChatProvider,
-    evidence: &str,
-    reply: &str,
-    peer: &str,
-) -> Vec<String> {
-    let prompt = format!(
-        "You are a strict fact checker for a fitness coach.\n\nEVIDENCE (tool results and \
-         pre-loaded data from this conversation turn):\n{evidence}\n\nREPLY the coach wrote:\n\
-         {reply}\n\nList every specific numeric or factual claim the REPLY makes about \
-         \"{peer}\" that the EVIDENCE does not support, verbatim or by simple arithmetic \
-         (sums, averages, unit conversions) over evidence rows. General encouragement and \
-         advice are not claims. Respond with ONLY a JSON object of the form \
-         {{\"unsupported\": [\"<claim>\", ...]}} — and {{\"unsupported\": []}} when every \
-         claim is supported."
-    );
-    let request = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_model(deps.active_model);
-    match complete_recorded(provider, &request, Some(deps.verifier_recorder)).await {
-        Ok(verdict) => parse_unsupported_verdict(&verdict.content),
-        Err(e) => {
-            warn!(error = %e, "peer_claim_verifier_failed: treating the reply as supported");
-            Vec::new()
-        }
-    }
-}
-
-/// Extract the `unsupported` list from a verifier reply.
-///
-/// Tolerates prose around the JSON (first `{` to last `}`); anything that
-/// still fails to parse reports "supported" — the fail-open contract of
-/// [`verify_peer_claims`], surfaced here so it is unit-testable.
-#[must_use]
-pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
-    let Some(start) = text.find('{') else {
-        warn!("peer_claim_verdict_unparseable: no JSON object in the verifier reply");
-        return Vec::new();
-    };
-    let Some(end) = text.rfind('}') else {
-        warn!("peer_claim_verdict_unparseable: unterminated JSON in the verifier reply");
-        return Vec::new();
-    };
-    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&text[start..=end]);
-    match parsed {
-        Ok(value) => value
-            .get("unsupported")
-            .and_then(serde_json::Value::as_array)
-            .map(|claims| {
-                claims
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        Err(e) => {
-            warn!(error = %e, "peer_claim_verdict_unparseable: treating the reply as supported");
-            Vec::new()
-        }
-    }
 }
 
 #[cfg(test)]

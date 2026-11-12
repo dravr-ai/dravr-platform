@@ -104,6 +104,8 @@ fn day(date: NaiveDate, sport: &str, workout: &str, minutes: Option<u32>) -> Pla
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }
 }
 

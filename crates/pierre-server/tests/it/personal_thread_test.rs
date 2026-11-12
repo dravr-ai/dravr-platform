@@ -1,11 +1,13 @@
-// ABOUTME: Integration tests for the athlete's one personal thread — resolved on the server, divided by "+" and /reset
-// ABOUTME: Pins adoption, the cap-exempt forge, the race, topics and their dividers, the agent rebind, and the share refusal
+// ABOUTME: Integration tests for the athlete's one personal thread — resolved on the server, divided by topics and /reset
+// ABOUTME: Pins adoption and its divider, the cap-exempt forge, the race, topics, the rebind, the share refusal, and new chats beside it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! carnet#840, Personal Home step 2. The server names the athlete's one
-//! thread, and Home, "+", `/reset` and the coach's own posts all land in it.
+//! thread, and Home, `/reset`, onboarding's Start and the coach's own posts
+//! all land in it. A new chat once it exists is a conversation of its own,
+//! and leaves it untouched (carnet#1473).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -30,7 +32,7 @@ use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessageResponse,
     MessagesListResponse, OpenTopicResponse, PersonalThreadResponse, TurnResponse,
 };
-use pierre_services::personal_thread::{resolve_personal_thread, PersonalForge};
+use pierre_services::personal_thread::{resolve_dm_thread, resolve_personal_thread, PersonalForge};
 use serde_json::json;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
@@ -89,9 +91,14 @@ async fn seed_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, Ten
 }
 
 /// An agent the athlete owns, so it is one they can see and be welcomed by.
-async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
+async fn seed_agent(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+) -> String {
     let request = CreateAgentRequest {
-        title: "Tempo Coach".to_owned(),
+        title: title.to_owned(),
         description: Some("Threshold work, one week at a time.".to_owned()),
         system_prompt: "You are a test coach.".to_owned(),
         category: AgentCategory::Training,
@@ -203,6 +210,28 @@ fn dividers(rows: &[MessageResponse]) -> usize {
     rows.iter()
         .filter(|row| row.finish_reason.as_deref() == Some(DIVIDER_FINISH_REASON))
         .count()
+}
+
+/// The words the model reads of `thread` on its next turn.
+async fn prompt_history(
+    resources: &Arc<ServerContext>,
+    thread: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<String> {
+    get_conversation_history(
+        resources.common.repos.chat.as_ref(),
+        thread,
+        &user_id.to_string(),
+        tenant_id,
+        160,
+        &[],
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|row| row.content)
+    .collect()
 }
 
 #[tokio::test]
@@ -317,7 +346,7 @@ async fn a_thread_the_phone_opened_is_the_athletes_own_too() {
 }
 
 #[tokio::test]
-async fn looking_forges_nothing_and_plus_forges_one_thread_outside_the_cap() {
+async fn looking_forges_nothing_and_a_first_chat_forges_one_thread_outside_the_cap() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "forge@test.com").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
@@ -384,11 +413,16 @@ async fn first_requests_racing_each_other_settle_on_one_thread() {
 }
 
 #[tokio::test]
-async fn plus_opens_a_topic_and_never_a_second_rule_on_an_empty_one() {
+async fn a_topic_opens_with_a_rule_and_never_a_second_on_an_empty_one() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "plus@test.com").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let thread = create_thread(router.clone(), &auth, "Mine").await;
+    // Adopted while empty, so the turns below are the topic's own.
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
     say(
         &resources,
         &thread,
@@ -422,7 +456,7 @@ async fn plus_opens_a_topic_and_never_a_second_rule_on_an_empty_one() {
         .await
         .unwrap();
 
-    // Nothing said since: "+" again draws no second rule.
+    // Nothing said since: a second topic draws no second rule.
     let again = open_topic(router.clone(), &auth, json!({})).await;
     assert!(again.divider.is_none());
     let rows = messages(router, &auth, &thread).await;
@@ -440,29 +474,24 @@ async fn plus_opens_a_topic_and_never_a_second_rule_on_an_empty_one() {
     );
 
     // The model reads the topic afresh: nothing before the divider.
-    let history = get_conversation_history(
-        resources.common.repos.chat.as_ref(),
-        &thread,
-        &user_id.to_string(),
-        tenant_id,
-        160,
-        &[],
-    )
-    .await
-    .unwrap();
+    let history = prompt_history(&resources, &thread, user_id, tenant_id).await;
     assert!(
-        history.iter().all(|row| row.content != "How was my week?"),
+        history.iter().all(|row| row != "How was my week?"),
         "{history:?}"
     );
 }
 
 #[tokio::test]
-async fn plus_with_a_specialist_rebinds_the_thread_and_its_agent_opens_the_topic() {
+async fn a_topic_with_a_specialist_rebinds_the_thread_and_its_agent_opens_it() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "specialist@test.com").await;
-    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id, "Tempo Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let thread = create_thread(router.clone(), &auth, "Mine").await;
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
     say(
         &resources,
         &thread,
@@ -498,7 +527,7 @@ async fn plus_with_a_specialist_rebinds_the_thread_and_its_agent_opens_the_topic
 async fn the_threads_own_agent_opens_each_topic_once() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "each-topic@test.com").await;
-    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id, "Tempo Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     // Bound to the agent from the start, so its welcome opened the thread.
     let resp = AxumTestRequest::post("/api/chat/conversations")
@@ -509,6 +538,11 @@ async fn the_threads_own_agent_opens_each_topic_once() {
     assert_eq!(resp.status_code(), StatusCode::CREATED);
     let created: ConversationResponse = resp.json();
     let thread = created.id;
+    // Adopted on its welcome alone, which is no turn: no rule yet.
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
     say(
         &resources,
         &thread,
@@ -520,8 +554,8 @@ async fn the_threads_own_agent_opens_each_topic_once() {
     .await;
 
     // The introduction ledger is keyed by the topic, so the same agent opens
-    // the new one as it opened the thread — and only once, however often "+"
-    // is pressed before anyone speaks.
+    // the new one as it opened the thread — and only once, however often a
+    // topic is opened before anyone speaks.
     let divider = open_topic(router.clone(), &auth, json!({}))
         .await
         .divider
@@ -552,6 +586,8 @@ async fn reset_in_the_personal_thread_opens_a_topic_in_place() {
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "reset@test.com").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let thread = create_thread(router.clone(), &auth, "Mine").await;
+    let personal = get_personal(router.clone(), &auth).await.unwrap();
+    assert_eq!(personal.id, thread);
     say(
         &resources,
         &thread,
@@ -561,8 +597,6 @@ async fn reset_in_the_personal_thread_opens_a_topic_in_place() {
         "How was my week?",
     )
     .await;
-    let personal = get_personal(router.clone(), &auth).await.unwrap();
-    assert_eq!(personal.id, thread);
 
     let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{thread}/messages"))
         .header("authorization", &auth)
@@ -643,11 +677,17 @@ async fn the_personal_thread_cannot_be_shared() {
 }
 
 #[tokio::test]
-async fn plus_after_a_reset_draws_no_second_rule_over_the_reset_alone() {
+async fn a_topic_after_a_reset_draws_no_second_rule_over_the_reset_alone() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "reset-then-plus@test.com").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let thread = create_thread(router.clone(), &auth, "Mine").await;
+    // Home has opened it while empty, so it is the athlete's personal thread
+    // and the rule below is the one `/reset` draws.
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
     say(
         &resources,
         &thread,
@@ -666,11 +706,6 @@ async fn plus_after_a_reset_draws_no_second_rule_over_the_reset_alone() {
         "Solid: 62 km.",
     )
     .await;
-    // Home has opened it, so it is the athlete's personal thread.
-    assert_eq!(
-        get_personal(router.clone(), &auth).await.unwrap().id,
-        thread
-    );
 
     let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{thread}/messages"))
         .header("authorization", &auth)
@@ -710,13 +745,13 @@ async fn seed_coach_facing_agent(
         .to_string()
 }
 
-/// carnet#910: `+` with a coach-facing agent is refused to an athlete, as
-/// `/agent add` refuses it, and the thread keeps the agent it had.
+/// carnet#910: a topic with a coach-facing agent is refused to an athlete,
+/// as `/agent add` refuses it, and the thread keeps the agent it had.
 #[tokio::test]
-async fn plus_never_rebinds_an_athletes_thread_to_a_coach_facing_agent() {
+async fn a_topic_never_rebinds_an_athletes_thread_to_a_coach_facing_agent() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "athlete-910@test.com").await;
-    let own = seed_agent(&resources, user_id, tenant_id).await;
+    let own = seed_agent(&resources, user_id, tenant_id, "Tempo Coach").await;
     let coach_agent = seed_coach_facing_agent(&resources, user_id, tenant_id).await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     open_topic(router.clone(), &auth, json!({ "agent_id": own })).await;
@@ -736,7 +771,7 @@ async fn plus_never_rebinds_an_athletes_thread_to_a_coach_facing_agent() {
 
 /// A coach may bind the same agent: it is written for them.
 #[tokio::test]
-async fn plus_rebinds_a_coachs_thread_to_a_coach_facing_agent() {
+async fn a_topic_rebinds_a_coachs_thread_to_a_coach_facing_agent() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_athlete(&resources, "coach-910@test.com").await;
     resources
@@ -754,5 +789,288 @@ async fn plus_rebinds_a_coachs_thread_to_a_coach_facing_agent() {
     assert_eq!(
         opened.conversation.agent_id.as_deref(),
         Some(coach_agent.as_str())
+    );
+}
+
+/// carnet#1473: an ordinary chat adopted as the personal thread opens on a
+/// rule, so the coach does not answer an old exchange as current context.
+#[tokio::test]
+async fn adopting_a_thread_with_turns_opens_it_on_one_rule() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "adopt-rule@test.com").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let thread = create_thread(router.clone(), &auth, "September").await;
+    say(
+        &resources,
+        &thread,
+        user_id,
+        tenant_id,
+        "user",
+        "Taper for the September race?",
+    )
+    .await;
+    say(
+        &resources,
+        &thread,
+        user_id,
+        tenant_id,
+        "assistant",
+        "Cut volume by a third.",
+    )
+    .await;
+
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
+    let rows = messages(router.clone(), &auth, &thread).await;
+    assert_eq!(dividers(&rows), 1, "{rows:?}");
+    assert!(
+        rows.iter()
+            .any(|row| row.content == "Taper for the September race?"),
+        "the old exchange stays readable above the rule"
+    );
+    let history = prompt_history(&resources, &thread, user_id, tenant_id).await;
+    assert!(
+        history
+            .iter()
+            .all(|row| row != "Taper for the September race?" && row != "Cut volume by a third."),
+        "{history:?}"
+    );
+
+    // Asked again, on Home and by a writer, the designation holds and no
+    // second rule is drawn.
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
+    let forge = PersonalForge {
+        title_fallback: "Fallback",
+        guided_flow: false,
+        llm_chain: &resources.common.config.llm_chain,
+    };
+    let resolved = resolve_personal_thread(
+        &resources.common.repos,
+        &user_id.to_string(),
+        tenant_id,
+        forge,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resolved.conversation.id, thread);
+    assert!(!resolved.forged);
+    assert_eq!(dividers(&messages(router, &auth, &thread).await), 1);
+}
+
+#[tokio::test]
+async fn adopting_an_empty_thread_draws_no_rule() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, _, auth) = seed_athlete(&resources, "adopt-empty@test.com").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let thread = create_thread(router.clone(), &auth, "Blank").await;
+
+    assert_eq!(
+        get_personal(router.clone(), &auth).await.unwrap().id,
+        thread
+    );
+    assert_eq!(dividers(&messages(router, &auth, &thread).await), 0);
+}
+
+/// Only the call that designates a thread is told it did: a second
+/// designation of the same thread — a racing first request — answers false,
+/// so the adoption's divider is written once.
+#[tokio::test]
+async fn designating_the_personal_thread_again_is_not_a_second_adoption() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "designate-twice@test.com").await;
+    let user = user_id.to_string();
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let thread = create_thread(router, &auth, "Once").await;
+    let chat = &resources.common.repos.chat;
+
+    assert!(chat
+        .designate_personal_conversation(&thread, &user, tenant_id)
+        .await
+        .unwrap());
+    assert!(!chat
+        .designate_personal_conversation(&thread, &user, tenant_id)
+        .await
+        .unwrap());
+}
+
+/// The DM's own thread, adopted with its Telegram turns, carries on as the
+/// personal thread: it is the conversation the athlete is having right now, so
+/// no rule cuts the coach off from it.
+#[tokio::test]
+async fn a_dm_adopting_its_own_thread_keeps_the_conversation_going() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "dm-own@test.com").await;
+    let user = user_id.to_string();
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let dm = create_thread(router.clone(), &auth, "On Telegram").await;
+    assert!(resources
+        .common
+        .repos
+        .chat
+        .set_conversation_channel(&dm, &user, tenant_id, "telegram")
+        .await
+        .unwrap());
+    say(
+        &resources,
+        &dm,
+        user_id,
+        tenant_id,
+        "user",
+        "Sore calf after the long run",
+    )
+    .await;
+    say(
+        &resources,
+        &dm,
+        user_id,
+        tenant_id,
+        "assistant",
+        "Easy days until it settles.",
+    )
+    .await;
+
+    let forge = PersonalForge {
+        title_fallback: "Fallback",
+        guided_flow: false,
+        llm_chain: &resources.common.config.llm_chain,
+    };
+    let thread = resolve_dm_thread(&resources.common.repos, &user, tenant_id, Some(&dm), forge)
+        .await
+        .unwrap();
+    assert_eq!(thread.conversation.id, dm, "the Telegram history is kept");
+    assert!(
+        thread.conversation.personal,
+        "the DM's own thread becomes the personal thread"
+    );
+    assert_eq!(
+        dividers(&messages(router, &auth, &dm).await),
+        0,
+        "the DM's own thread carries on with no rule across it"
+    );
+    let history = prompt_history(&resources, &dm, user_id, tenant_id).await;
+    assert!(
+        history
+            .iter()
+            .any(|row| row == "Sore calf after the long run"),
+        "the coach still reads the exchange in progress: {history:?}"
+    );
+}
+
+/// A DM that finds a newer in-app chat than its own thread adopts that chat,
+/// and that chat opens on a rule: the DM never wrote in it, so its rows are
+/// not the athlete's current topic.
+#[tokio::test]
+async fn a_dm_adopting_an_in_app_chat_opens_it_on_a_rule() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "dm-rule@test.com").await;
+    let user = user_id.to_string();
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let dm = create_thread(router.clone(), &auth, "On Telegram").await;
+    assert!(resources
+        .common
+        .repos
+        .chat
+        .set_conversation_channel(&dm, &user, tenant_id, "telegram")
+        .await
+        .unwrap());
+    let in_app = create_thread(router.clone(), &auth, "Half marathon").await;
+    say(
+        &resources,
+        &in_app,
+        user_id,
+        tenant_id,
+        "user",
+        "A half in eight weeks",
+    )
+    .await;
+    say(
+        &resources,
+        &in_app,
+        user_id,
+        tenant_id,
+        "assistant",
+        "Then a tempo run each week.",
+    )
+    .await;
+
+    let forge = PersonalForge {
+        title_fallback: "Fallback",
+        guided_flow: false,
+        llm_chain: &resources.common.config.llm_chain,
+    };
+    let thread = resolve_dm_thread(&resources.common.repos, &user, tenant_id, Some(&dm), forge)
+        .await
+        .unwrap();
+    assert_eq!(thread.conversation.id, in_app, "the newer in-app chat wins");
+    assert!(
+        thread.conversation.personal,
+        "the adopted in-app chat becomes the personal thread"
+    );
+    assert_eq!(
+        dividers(&messages(router, &auth, &in_app).await),
+        1,
+        "an in-app chat the DM adopts opens on exactly one rule"
+    );
+    let history = prompt_history(&resources, &in_app, user_id, tenant_id).await;
+    assert!(
+        history.iter().all(|row| row != "A half in eight weeks"),
+        "{history:?}"
+    );
+}
+
+/// carnet#1473: once the personal thread exists, a new chat is its own
+/// conversation with the agent picked for it; the personal thread keeps its
+/// agent and draws no rule.
+#[tokio::test]
+async fn a_new_chat_is_its_own_conversation_and_leaves_the_personal_thread_alone() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "new-chat@test.com").await;
+    let tempo = seed_agent(&resources, user_id, tenant_id, "Tempo Coach").await;
+    let climbing = seed_agent(&resources, user_id, tenant_id, "Climbing Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let personal = create_thread(router.clone(), &auth, "Mine").await;
+    let before = get_personal(router.clone(), &auth).await.unwrap();
+    assert_eq!(before.id, personal);
+    say(
+        &resources,
+        &personal,
+        user_id,
+        tenant_id,
+        "user",
+        "How was my week?",
+    )
+    .await;
+    let rows_before = messages(router.clone(), &auth, &personal).await;
+
+    let mut opened = Vec::new();
+    for agent_id in [&tempo, &climbing] {
+        let resp = AxumTestRequest::post("/api/chat/conversations")
+            .header("authorization", &auth)
+            .json(&json!({ "agent_id": agent_id }))
+            .send(router.clone())
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::CREATED);
+        let created: ConversationResponse = resp.json();
+        assert_eq!(created.agent_id.as_deref(), Some(agent_id.as_str()));
+        assert!(!created.personal);
+        opened.push(created.id);
+    }
+    assert_ne!(opened[0], opened[1]);
+    assert!(opened.iter().all(|id| id != &personal), "{opened:?}");
+
+    let after = get_personal(router.clone(), &auth).await.unwrap();
+    assert_eq!(after.id, personal, "still the athlete's personal thread");
+    assert_eq!(after.agent_id, before.agent_id, "its agent was not rebound");
+    let rows_after = messages(router, &auth, &personal).await;
+    assert_eq!(dividers(&rows_after), 0, "no rule was drawn in it");
+    assert_eq!(
+        rows_after.iter().map(|row| &row.id).collect::<Vec<_>>(),
+        rows_before.iter().map(|row| &row.id).collect::<Vec<_>>(),
+        "nothing was written into it"
     );
 }

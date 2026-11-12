@@ -163,20 +163,19 @@ impl fmt::Debug for ToolLoopParams<'_> {
     }
 }
 
-/// A tool blocked by the runtime Guardian while in `enforce` mode.
+/// A tool blocked by the runtime Guardian.
 ///
 /// Surfaced out of the tool loop as an out-of-band signal (parallel to
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// The chokepoint raises one in `enforce` mode (the default); `observe` logs and
-/// falls through to execution.
+/// The chokepoint raises one whenever the Guardian denies a call.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
     pub tool_name: String,
     /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
-    /// `budget_exceeded`, `egress_forbidden`. Used for structured logging — never
+    /// `budget_exceeded`, `turn_blocked`. Used for structured logging — never
     /// shown verbatim to the user.
     pub reason: String,
     /// Registry names of the consequential calls that succeeded before the
@@ -229,6 +228,10 @@ pub struct ToolLoopResult {
     /// carrying both blanks: it did not answer what the athlete asked, and the
     /// provider that blanked it is the one to offer.
     pub served_without_provider: Option<String>,
+    /// Whether an activity window this turn read was incomplete (its
+    /// `coverage.complete` false): a count or total the reply states from it
+    /// is not a fact, and capability recovery re-asks a reply that states one.
+    pub window_incomplete: bool,
     /// The first tool the runtime Guardian blocked this turn (`enforce` mode).
     /// The chat pipeline detects this and short-circuits with a localized reply
     /// saying what went through before the block. `None` when nothing was denied.
@@ -265,6 +268,8 @@ pub(crate) struct ToolLoopTally {
     pub tools_called: Vec<String>,
     /// Backend key of a provider a window was served without.
     pub served_without_provider: Option<String>,
+    /// Whether a window read this turn was incomplete.
+    pub window_incomplete: bool,
     /// Provider warnings seen so far, deduplicated in first-seen order.
     pub provider_warnings: Vec<String>,
 }
@@ -296,6 +301,7 @@ impl ToolLoopTally {
             write_attempted: false,
             pending_provider_auth_required: Some(provider),
             served_without_provider: self.served_without_provider,
+            window_incomplete: self.window_incomplete,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -318,6 +324,7 @@ impl ToolLoopTally {
             write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
+            window_incomplete: self.window_incomplete,
             guardian_denied: Some(denial),
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -341,6 +348,7 @@ impl ToolLoopTally {
             write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
+            window_incomplete: self.window_incomplete,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -359,6 +367,7 @@ impl ToolLoopTally {
             write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: self.served_without_provider,
+            window_incomplete: self.window_incomplete,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: self.provider_warnings,
@@ -431,6 +440,7 @@ impl ToolLoopResult {
             served_without_provider: self
                 .served_without_provider
                 .or(prior.served_without_provider),
+            window_incomplete: prior.window_incomplete || self.window_incomplete,
             provider_warnings,
             ..self
         }
@@ -586,6 +596,7 @@ mod tests {
             tool_calls_count: u32::try_from(tools.len()).unwrap_or(u32::MAX),
             tools_called: tools.iter().map(|t| (*t).to_owned()).collect(),
             served_without_provider: None,
+            window_incomplete: false,
             provider_warnings: vec![warning.to_owned()],
         }
     }
@@ -604,6 +615,7 @@ mod tests {
             write_attempted: false,
             pending_provider_auth_required: None,
             served_without_provider: None,
+            window_incomplete: false,
             guardian_denied: None,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),
@@ -753,7 +765,7 @@ mod tests {
         let blocked = ToolLoopResult {
             guardian_denied: Some(GuardianDenial {
                 tool_name: "get_activities".to_owned(),
-                reason: "egress_forbidden".to_owned(),
+                reason: "budget_exceeded".to_owned(),
                 committed: Vec::new(),
                 unconfirmed: Vec::new(),
             }),

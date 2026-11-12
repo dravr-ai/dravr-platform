@@ -28,21 +28,16 @@
 # too?). Identity leaks are rare and concentrated, so the tenant_id/coach_id label
 # cardinality stays well within log-metric limits.
 #
-# It carries an alert policy (below). It did not until 2026-08-06, and the reason
-# it does now is that the thing it counts changed: the bounded re-ask lands before
-# post-processing, so a recovered turn never reaches log_identity_leak. What
-# increments this metric is therefore a leak that survived TWO completions and
-# cost an athlete their turn — roughly 0.25 events/month against the measured
-# 3.2% single-completion rate. Rare, user-visible, and actionable, which is
-# exactly what the measurement phase was waiting to establish. Severity stays
-# warn! (cfb2c8af9) so dravr-tronc's ErrorNotificationLayer does not firehose
-# #pierre-errors in parallel with the curated #dravr-signal notify.
+# It carries an alert policy (below). Every increment is a withheld reply: the
+# leak is never re-asked (carnet#1471), so each one cost an athlete their turn.
+# Severity stays warn! (cfb2c8af9) so dravr-tronc's ErrorNotificationLayer does
+# not firehose #pierre-errors in parallel with the curated #dravr-signal notify.
 
 resource "google_logging_metric" "coach_identity_leaks" {
   project = var.project_id
   name    = "dravr-coach-identity-leaks"
 
-  description = "Counts coach model-identity leaks that SURVIVED the bounded re-ask: model_identity_leak_confirmed WARNING lines from the ${var.service_name}-api service, where a coach reply identified as the underlying model/provider and was withheld at the response boundary. Un-deduped, all chat channels (web + messaging + backfill push), broken down by tenant_id/coach_id and the matched pattern_class/pattern_locale. Added 2026-07-24 as measurement-only to establish a rate before choosing a fix; that rate came back 7/217 guided-flow-inactive turns (3.2%) over 30 days, the re-ask shipped, and the metric now carries an alert policy because what it counts changed meaning."
+  description = "Counts coach model-identity leaks: model_identity_leak_confirmed WARNING lines from the ${var.service_name}-api service, where a coach reply identified as the underlying model/provider and was withheld at the response boundary, so the athlete lost the turn. Un-deduped, all chat channels (web + messaging + backfill push), broken down by tenant_id/coach_id and the matched pattern_class/pattern_locale."
 
   # Matched against the exact Cloud Logging JSON the GcpFormatter emits
   # (crates/pierre-logging/src/gcp.rs): the tracing target becomes the
@@ -96,56 +91,42 @@ resource "google_logging_metric" "coach_identity_leaks" {
   }
 }
 
-# Alert policy — added 2026-08-06, when what this metric counts changed.
+# Alert policy.
 #
-# The 2026-07-24 comment above deliberately left this metric un-alerted: at the
-# time it counted EVERY identity leak, the rate was unknown, and paging on a
-# signal of unknown frequency is how a channel becomes noise. That reasoning was
-# right, and it has now been discharged: the rate came back 7 leaks / 217
-# guided-flow-inactive turns (3.2%) over 30 days, and the bounded re-ask shipped
-# on the back of it.
-#
-# The re-ask runs BEFORE post-processing, so a turn that recovers never reaches
-# log_identity_leak and never increments this metric. That splits one signal into
-# two with very different meanings:
-#
-#   identity_leak_reask_recovered   first completion leaked, retry saved it   ~3.2%
-#   model_identity_leak_confirmed   BOTH leaked, the athlete lost their turn  ~0.1%
-#
-# This metric is now the second one. At ~240 messaging turns/month that is
-# roughly 0.25 expected events per month, so it is rare, it is user-visible
-# harm, and it is actionable — the three things the original comment was waiting
-# for. A sustained non-zero rate means either the re-ask regressed or the
-# underlying refusal rate moved.
+# A leak is withheld, never re-asked (carnet#1471), so every increment of the
+# metric is user-visible harm: the athlete received the localized "my reply
+# didn't go through" string. The identity anchor in the prompt keeps breaks rare,
+# so a sustained non-zero rate means the anchor regressed or the underlying
+# provider's refusal behaviour moved.
 #
 # Threshold is >1 per hour rather than >0: a single leak is the expected tail and
-# pages nobody at 3am, while two inside an hour is well outside the modelled rate
-# and means something changed.
+# pages nobody at 3am, while two inside an hour means something changed.
+#
+# The resource address keeps its original name so an apply updates the policy in
+# place instead of replacing it.
 resource "google_monitoring_alert_policy" "coach_identity_leak_survived_reask" {
   project      = var.project_id
-  display_name = "Coach identity leak survived the re-ask (athlete lost a turn)"
+  display_name = "Coach identity leak withheld (athlete lost a turn)"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      A coach reply identified as the underlying model/provider, the bounded
-      re-ask was attempted, and the SECOND completion leaked too. The athlete
-      received the localized "my reply didn't go through — resend" string and
-      lost their turn.
+      A coach reply identified as the underlying model/provider and was
+      withheld at the response boundary. The athlete received the localized
+      "my reply didn't go through — resend" string and lost their turn.
 
       This is user-visible harm, not a caught-and-handled event: the withhold
-      itself is correct behaviour, but reaching it means both completions broke.
+      itself is correct behaviour, but reaching it means the completion broke.
 
-      Expected rate is ~0.25/month. Two in an hour means something moved.
+      Two in an hour means something moved.
 
       What to do:
       1. Read `matched_context` on the `model_identity_leak_confirmed` line. An
          affirmative claim ("I'm GitHub Copilot CLI…") is a genuine break; a
          correct denial ("I'm not Copilot, I'm Dravr") that reached here is a
          detector bug and the negation guard is the place to look.
-      2. Check whether `identity_leak_reask_recovered` is still firing. If it
-         stopped entirely, the re-ask itself regressed — start at Stage 14a in
-         crates/pierre-chat-pipeline/src/lib.rs.
+      2. Check whether the identity anchor still reaches the prompt — start at
+         crates/pierre-chat-pipeline/src/stages/prompt_assembly.rs.
       3. Correlate with the pinned Copilot CLI version. The refusal is that
          product's prompt-injection guard, and its behaviour has changed across
          releases before.
@@ -157,7 +138,7 @@ resource "google_monitoring_alert_policy" "coach_identity_leak_survived_reask" {
   }
 
   conditions {
-    display_name = "More than one leak survived the re-ask within an hour"
+    display_name = "More than one leak withheld within an hour"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.coach_identity_leaks.name}\""

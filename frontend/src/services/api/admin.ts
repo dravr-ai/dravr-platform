@@ -1356,32 +1356,6 @@ export const adminApi = {
     return response.data;
   },
 
-  // ==================== MYTH-BUSTING SUMMARY (Phase D C13) ====================
-  async getMythBustingSummary(
-    tenantId?: string,
-    limit?: number,
-  ): Promise<MythBustingSummary> {
-    const query = scopeQuery(tenantId);
-    if (limit !== undefined) {
-      query.append('limit', String(limit));
-    }
-    const response = await axios.get(`/api/admin/myth-busting/summary?${query.toString()}`);
-    return response.data;
-  },
-
-  // ==================== COACH GRADING SUMMARY (Phase D C14) ====================
-  async getCoachGradingSummary(
-    tenantId?: string,
-    limit?: number,
-  ): Promise<AgentGradingSummary> {
-    const query = scopeQuery(tenantId);
-    if (limit !== undefined) {
-      query.append('limit', String(limit));
-    }
-    const response = await axios.get(`/api/admin/agent-grading/summary?${query.toString()}`);
-    return response.data;
-  },
-
   /** The Engagement screen's figures, every one in the scope the server grants. */
   async getEngagement(tenantId?: string): Promise<EngagementSummary> {
     const query = scopeQuery(tenantId);
@@ -1614,19 +1588,10 @@ export interface HarnessConfigResponse {
   in_force: HarnessInForce;
 }
 
-/** One high-impact edit a save must acknowledge. */
-export interface SettingImpact {
-  field: string;
-  from: string;
-  to: string;
-  effect: string;
-}
-
 /** The body of a refused setting save. Branch on `code`, never on the message. */
 export interface SettingRefusal {
   code: string;
   message: string;
-  impacted_fields?: SettingImpact[];
 }
 
 export const HARNESS_CONFIG_STALE = 'harness_config_stale';
@@ -1639,7 +1604,6 @@ export function harnessRefusalOf(err: unknown): SettingRefusal | null {
   return {
     code: data.code,
     message: typeof data.message === 'string' ? data.message : '',
-    impacted_fields: data.impacted_fields,
   };
 }
 
@@ -1690,49 +1654,6 @@ export interface ScopeTenant {
   slug: string;
 }
 
-/** One flagged claim in the scanned window. */
-export interface FlaggedClaim {
-  claim_excerpt: string;
-  status: string;
-  layer_fired: string;
-  category: string;
-  occurrences: number;
-  agent_count: number;
-  first_seen_at: string;
-  last_seen_at: string;
-}
-
-/** Aggregated stat for an agent with recurring unsupported claims. */
-export interface AgentPattern {
-  agent_id: string;
-  agent_name: string | null;
-  unsupported_total: number;
-  categories: string[];
-}
-
-/** Aggregated stat for a claim category. */
-export interface CategoryPattern {
-  category: string;
-  flagged_total: number;
-  agent_count: number;
-}
-
-/** Top-level wire response for `GET /admin/myth-busting/summary`. */
-export interface MythBustingSummary {
-  scope: AdminScope;
-  verdicts_scanned: number;
-  window_start: string | null;
-  window_end: string | null;
-  flagged_total: number;
-  distinct_claims: number;
-  recent_claims: FlaggedClaim[];
-  top_agents: AgentPattern[];
-  top_categories: CategoryPattern[];
-}
-
-/** Letter grade for an agent based on claim verdict history. */
-export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
-
 /** One agent on the Engagement leaderboard. */
 export interface EngagementAgent {
   id: string;
@@ -1751,30 +1672,4 @@ export interface EngagementSummary {
   published_agents: number;
   /** The 20 most used system agents, most used first, ties by title. */
   leaderboard: EngagementAgent[];
-}
-
-/** Per-agent grade row from `GET /admin/agent-grading/summary`. */
-export interface AgentGrade {
-  agent_id: string;
-  agent_name: string | null;
-  total_verdicts: number;
-  supported: number;
-  unsupported: number;
-  unsupported_prescription: number;
-  contradicted: number;
-  rhetorical: number;
-  unverifiable: number;
-  false_positives: number;
-  score: number;
-  grade: LetterGrade;
-}
-
-/** Top-level wire response for `GET /admin/agent-grading/summary`. */
-export interface AgentGradingSummary {
-  scope: AdminScope;
-  verdicts_scanned: number;
-  judge_era_after: string;
-  verdicts_before_judge_era: number;
-  unattributed_verdicts: number;
-  grades: AgentGrade[];
 }

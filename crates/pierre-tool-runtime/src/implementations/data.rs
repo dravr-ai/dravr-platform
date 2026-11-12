@@ -22,11 +22,12 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{RefreshConfig, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, error, field, info, warn, Span};
@@ -38,6 +39,7 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
+use crate::activity_detail_store::{store_detail, stored_details};
 use crate::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
@@ -53,18 +55,20 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{ok_typed, tool_result_to_response};
 use crate::implementations::activities_definition::get_activities_definition;
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
-use crate::implementations::activity_detail_promotion::promote_to_detail;
+use crate::implementations::activity_detail_promotion::{
+    detail_lookup_since, effective_mode, promote_to_detail, DetailPlan,
+};
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
     historical_window_read_limit, pagination_has_more, response_cache_eligible, window_fetch_limit,
-    PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
     try_get_cached_activities, ActivitiesResponseParams, AnalysisType, CachedActivitiesParams,
-    PaginationInfo,
+    CachedDetail, PaginationInfo,
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
@@ -81,9 +85,7 @@ use dravr_cageux::physiological_constants::api_limits::{
 use dravr_meteo::{provider_from_env, WeatherProvider};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::config::fitness::{
-    activity_detail_threshold, auto_promotes_to_detail, EXPENSIVE_DETAIL_PROMOTION_BUDGET,
-};
+use pierre_core::config::fitness::{EXPENSIVE_DETAIL_PROMOTION_BUDGET, EXPLICIT_DETAIL_CAP};
 use pierre_core::constants::oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
@@ -169,10 +171,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 "fetching activities from provider"
             );
 
-            // Mode/format determine the safe default limit. Track whether the
-            // caller explicitly picked a mode so we can auto-promote small-limit
-            // queries to detail without overriding explicit choices.
-            let mode_explicit = args.get("mode").is_some();
+            // Mode/format determine the safe default limit. Detail does not
+            // hang on the mode: the last fourteen days are always detailed,
+            // and `mode=detailed` details the older rows too, up to its cap.
             let mode = args
                 .get("mode")
                 .and_then(Value::as_str)
@@ -325,23 +326,21 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     }
                 };
 
-            // Auto-promote small-limit queries (e.g. "my last activity") to
-            // detailed mode — the provider list endpoint only returns a shallow
-            // summary, so we round-trip each id through get_activity_detailed.
-            // Callers who explicitly pass mode=summary retain the compact payload.
-            // ...bounded by what a round-trip costs on THIS provider. On an
-            // HTTP API a detail fetch is milliseconds; on a headless-browser
-            // provider it is a full page navigation. A live 2026-08-12
-            // Telegram turn returned its list in 37s and then spent 3m41s
-            // scraping 30 detail pages one at a time — 4m37s for an answer
-            // the list already supported.
+            // Every activity of the last fourteen days reaches the model with
+            // its detail (D1, 2026-11-10), and `mode=detailed` adds the older
+            // rows up to its cap. A detail read once is stored and served from
+            // the cache from then on, so a turn pays a provider read only for
+            // an activity no earlier turn read.
             //
-            // Detail is NOT dropped on expensive providers: it carries HR
-            // streams, laps and the real UTC start time the date-only list
-            // page lacks. It is rationed instead. The list is newest-first, so
-            // the budget spends itself on the activities an agent reasons
-            // about ("hier", "ma dernière sortie") and leaves the tail as
-            // summaries, which already carry HR, elevation, cadence and power.
+            // Reads are bounded by what a round-trip costs on THIS provider.
+            // On an HTTP API a detail fetch is milliseconds; on a
+            // headless-browser provider it is a full page navigation. A live
+            // 2026-08-12 Telegram turn returned its list in 37s and then spent
+            // 3m41s scraping 30 detail pages one at a time — 4m37s for an
+            // answer the list already supported. The list is newest-first, so
+            // a rationed budget spends itself on the activities an agent
+            // reasons about ("hier", "ma dernière sortie"); what it leaves is
+            // read on a later turn.
             let detail_is_cheap = context
                 .resources
                 .provider_registry()
@@ -350,14 +349,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     d.capabilities()
                         .contains(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
                 });
-            let detail_threshold = activity_detail_threshold();
-            let auto_promote_to_detail =
-                !mode_explicit && auto_promotes_to_detail(limit, detail_threshold);
-            let detail_budget = if detail_is_cheap {
-                usize::MAX
+            let detail_read_budget = if detail_is_cheap {
+                EXPLICIT_DETAIL_CAP
             } else {
                 EXPENSIVE_DETAIL_PROMOTION_BUDGET
             };
+            let detail_window_start = DetailPlan::window_start(Utc::now());
+            let explicit_detail_cap = (mode == "detailed").then_some(detail_read_budget);
 
             // Weather provider constructed once per request — both cache and
             // live response paths reuse it for the temperature backfill pass.
@@ -421,13 +419,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // external call would under-serve the athlete's own surfaces.
             let served_externally = ai_scope::exposure().is_some_and(|gate| gate.external);
 
-            // Cache hit short-circuits the auth+fetch round-trip. Skip when
-            // auto-promoting (the cache key omits mode, so a cached summary cannot
-            // satisfy a detail-promoted response) or for a historical window (it
-            // must route through the gate, not a stale cached response).
+            // Cache hit short-circuits the auth+fetch round-trip. The cached
+            // list is the summaries; the hit details the recent window from
+            // the stored details, without a provider read. Skipped for an
+            // explicit `mode=detailed` (it reads older rows' detail from the
+            // provider) and for a historical window (it must route through the
+            // gate, not a stale cached response).
             if !served_externally
                 && response_cache_eligible(
-                    auto_promote_to_detail,
+                    explicit_detail_cap.is_some(),
                     is_historical,
                     sort_by != "date_desc",
                 )
@@ -448,6 +448,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     weather_provider: weather_provider.clone(),
                     user_timezone: user_timezone.clone(),
                     locale: user_locale.clone(),
+                    asked: AskedWindow { after, before },
+                    detail: CachedDetail {
+                        repos: context.resources.repos(),
+                        tenant_id,
+                        window_start: detail_window_start,
+                        provider_names: &[provider_name.as_str(), display_provider.as_str()],
+                    },
                 })
                 .await
                 {
@@ -743,6 +750,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 tenant_id,
                                 params: query_params.clone(),
                                 attempt_started_at,
+                                conversation_id: context.conversation_id.clone(),
                             };
                             let budget = RefreshConfig::default().wait_for_refresh_timeout();
                             match read_live_window_within_budget(
@@ -945,8 +953,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let window_span = activity_date_span(&filtered_activities, user_timezone.as_deref());
             let window_totals = activity_window_totals(&filtered_activities);
 
-            // Write-through under the SAME eligibility as the read above: skip the
-            // auto-promoted detail payload (the key omits mode) and the historical
+            // Write-through under the SAME eligibility as the read above: the
+            // summaries are stored, never the details; an explicit
+            // `mode=detailed` is skipped like its read, and the historical
             // window (its serve never reads this cache, so a write here is dead —
             // it would only accrete never-read historical entries). A window a
             // sibling served for a missing primary is skipped too: the key is the
@@ -957,7 +966,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             if stood_in.is_none()
                 && !served_externally
                 && response_cache_eligible(
-                    auto_promote_to_detail,
+                    explicit_detail_cap.is_some(),
                     is_historical,
                     sort_by != "date_desc",
                 )
@@ -966,32 +975,57 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             }
             filtered_activities.truncate(limit);
 
-            // Auto-promote small-limit queries to detailed by issuing
-            // get_activity_detailed per id. N+1 fetch bounded by
-            // detail_threshold (default 20). The _detailed variant parses the
-            // richer detail-endpoint shape on providers that have one (Strava);
-            // providers without a detail endpoint inherit the default impl that
-            // forwards to get_activity.
-            let effective_mode = if let (true, Some(provider)) = (
-                auto_promote_to_detail && !filtered_activities.is_empty(),
-                provider.as_ref(),
-            ) {
-                filtered_activities = promote_to_detail(
-                    provider.as_ref(),
-                    &filtered_activities,
-                    detail_budget,
-                    &[provider_name.as_str(), display_provider.as_str()],
+            // Detail the last fourteen days (and, for `mode=detailed`, the
+            // newest rows up to its cap): stored details first, then provider
+            // reads within the budget, each stored for the next turn. The
+            // `_detailed` read parses the richer detail-endpoint shape on
+            // providers that have one (Strava); providers without one inherit
+            // the default that forwards to `get_activity`.
+            let provider_names = [provider_name.as_str(), display_provider.as_str()];
+            let detail_plan = DetailPlan {
+                window_start: detail_window_start,
+                explicit_cap: explicit_detail_cap,
+                read_budget: detail_read_budget,
+                provider_names: &provider_names,
+                terms: Some(context.resources.provider_registry().as_ref()),
+            };
+            let mut detailed_ids = HashSet::new();
+            if let (false, Some(provider)) = (filtered_activities.is_empty(), provider.as_ref()) {
+                let since = detail_lookup_since(&filtered_activities, &detail_plan);
+                let stored = stored_details(
+                    context.resources.repos(),
+                    context.resources.provider_registry().as_ref(),
+                    tenant_id,
+                    context.user_id,
+                    since,
                 )
                 .await;
+                let promoted = promote_to_detail(
+                    Some(provider.as_ref()),
+                    &filtered_activities,
+                    &detail_plan,
+                    &stored,
+                )
+                .await;
+                for fresh in &promoted.fresh {
+                    store_detail(
+                        context.resources.repos(),
+                        tenant_id,
+                        context.user_id,
+                        &provider_name,
+                        fresh,
+                    )
+                    .await;
+                }
+                detailed_ids = promoted.detailed_ids;
+                filtered_activities = promoted.activities;
                 debug!(
-                    count = filtered_activities.len(),
-                    threshold = detail_threshold,
-                    "Auto-promoted get_activities to detailed (N+1 fetch)"
+                    detailed = detailed_ids.len(),
+                    fresh_reads = promoted.fresh.len(),
+                    "get_activities detailed the recent window"
                 );
-                "detailed"
-            } else {
-                mode
-            };
+            }
+            let effective_mode = effective_mode(mode, &filtered_activities, &detailed_ids);
 
             let pagination =
                 create_pagination(filtered_activities.len(), window_total, provider_filled_page);
@@ -1024,6 +1058,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // never the internal "sciotte_garmin" the cache keys on).
                 provider_name: &source_label,
                 mode: effective_mode,
+                detailed_ids: &detailed_ids,
                 output_format,
                 pagination: Some(&pagination),
                 analysis_type,
@@ -1033,6 +1068,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_total: Some(window_total),
                 window_span,
                 window_totals: Some(window_totals),
+                asked: AskedWindow { after, before },
+                completeness: stood_in.as_ref().map_or(
+                    if provider_filled_page {
+                        Completeness::Incomplete(IncompleteReason::ReadCapped)
+                    } else {
+                        Completeness::Complete
+                    },
+                    PrimaryStandIn::completeness,
+                ),
                 merge_report: Some(&merge_report),
             });
 

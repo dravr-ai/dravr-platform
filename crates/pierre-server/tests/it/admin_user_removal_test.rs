@@ -66,6 +66,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::services::archive_import::sweeps::ServerArchiveEraser;
 use pierre_memory::training_plans::{GoalRace, PlannedDay, RacePriority};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_routes_admin::handlers::strava_pool::{
@@ -96,8 +97,8 @@ use pierre_test_support::account::delete_account;
 const REFRESH_TOKEN: &str = "refresh-material-do-not-log";
 
 /// The env Strava app every test in this binary configures.
-const ENV_CLIENT_ID: &str = "removal-test-client";
-const ENV_CLIENT_SECRET: &str = "removal-test-secret";
+pub(crate) const ENV_CLIENT_ID: &str = "removal-test-client";
+pub(crate) const ENV_CLIENT_SECRET: &str = "removal-test-secret";
 
 /// The pool app a seeded grant can name as its issuer, and its secret.
 const POOL_APP: &str = "201455";
@@ -107,14 +108,14 @@ const POOL_SECRET: &str = "poolsecretvaluewithlength30chr";
 /// with one status and hands the raw bytes back. A request is queued BEFORE
 /// its response is written, so once the disconnect has its answer the request
 /// is already here to read.
-struct RevokeStub {
-    url: String,
+pub(crate) struct RevokeStub {
+    pub(crate) url: String,
     requests: mpsc::UnboundedReceiver<String>,
 }
 
 impl RevokeStub {
     /// A stub that confirms every revocation.
-    async fn start() -> Self {
+    pub(crate) async fn start() -> Self {
         Self::answering("200 OK").await
     }
 
@@ -140,7 +141,7 @@ impl RevokeStub {
     }
 
     /// Every request received so far.
-    fn received(&mut self) -> Vec<String> {
+    pub(crate) fn received(&mut self) -> Vec<String> {
         let mut seen = Vec::new();
         while let Ok(raw) = self.requests.try_recv() {
             seen.push(raw);
@@ -182,7 +183,7 @@ async fn read_request(stream: &mut TcpStream) -> String {
 
 /// A server context whose own Strava app, the one the revocation's
 /// server-level fallback resolves, holds these client credentials.
-async fn resources() -> Arc<ServerContext> {
+pub(crate) async fn resources() -> Arc<ServerContext> {
     create_test_server_resources_with_config(test_server_config_with_app(
         "strava",
         ENV_CLIENT_ID,
@@ -194,7 +195,10 @@ async fn resources() -> Arc<ServerContext> {
 
 /// The disconnect chokepoint as the composition root builds it, with Strava's
 /// revocation endpoint pointed at `revoke_url`.
-fn chokepoint(resources: &Arc<ServerContext>, revoke_url: &str) -> Arc<dyn ProviderDisconnector> {
+pub(crate) fn chokepoint(
+    resources: &Arc<ServerContext>,
+    revoke_url: &str,
+) -> Arc<dyn ProviderDisconnector> {
     let mut config = (*resources.common.config).clone();
     revoke_url.clone_into(&mut config.external_services.strava_api.revoke_url);
     Arc::new(OAuthService::new(resources.data(), Arc::new(config)))
@@ -202,7 +206,10 @@ fn chokepoint(resources: &Arc<ServerContext>, revoke_url: &str) -> Arc<dyn Provi
 
 /// The admin context the composition root builds, with the disconnect
 /// chokepoint wired and Strava's revocation endpoint pointed at `revoke_url`.
-fn admin_context(resources: &Arc<ServerContext>, revoke_url: &str) -> Arc<AdminApiContext> {
+pub(crate) fn admin_context(
+    resources: &Arc<ServerContext>,
+    revoke_url: &str,
+) -> Arc<AdminApiContext> {
     admin_context_with(resources, chokepoint(resources, revoke_url))
 }
 
@@ -231,6 +238,10 @@ fn admin_context_with(
         app_behavior: resources.common.config.app_behavior.clone(),
     });
     context.provider_disconnector = Some(disconnector);
+    // The account reset's erasure, as the composition root wires it.
+    context.archive_eraser = Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
+    // The reset's owned-group archive, as the composition root wires it.
+    context.group_service = Some(Arc::clone(&resources.common.group_service));
     context.oauth.clone_from(&resources.common.config.oauth);
     Arc::new(context)
 }
@@ -256,25 +267,25 @@ fn scoped_manage_users_token(tenant_id: TenantId) -> ValidatedAdminToken {
     }
 }
 
-fn manage_users_token() -> ValidatedAdminToken {
+pub(crate) fn manage_users_token() -> ValidatedAdminToken {
     token_with(
         AdminPermissions::new(vec![AdminPermission::ManageUsers]),
         false,
     )
 }
 
-fn super_admin_token() -> ValidatedAdminToken {
+pub(crate) fn super_admin_token() -> ValidatedAdminToken {
     token_with(AdminPermissions::super_admin(), true)
 }
 
-async fn body_json(response: Response) -> Value {
+pub(crate) async fn body_json(response: Response) -> Value {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
 
 /// An active user with their own tenant, named so the seat listing can be
 /// read by email.
-async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId, String) {
+pub(crate) async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId, String) {
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
     let mut user = User::new(email.clone(), "hash".to_owned(), Some(label.to_owned()));
     user.user_status = UserStatus::Active;
@@ -301,7 +312,7 @@ async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId, 
 
 /// A Strava grant as the OAuth callback writes it: token row plus connection
 /// row. `app` is the pool app that issued it (`None` for the env app).
-async fn connect_strava(
+pub(crate) async fn connect_strava(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -316,7 +327,11 @@ async fn connect_strava(
 }
 
 /// A Strava token as the OAuth callback stores it, issued by `app`.
-fn strava_token(user_id: Uuid, tenant_id: TenantId, app: Option<&str>) -> UserOAuthToken {
+pub(crate) fn strava_token(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    app: Option<&str>,
+) -> UserOAuthToken {
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -368,7 +383,7 @@ async fn extra_tenant(repos: &RepositoryRegistry, owner: Uuid) -> TenantId {
 }
 
 /// A coaching group owned by `owner`, bound to a fresh agent in their tenant.
-async fn seed_group(
+pub(crate) async fn seed_group(
     repos: &RepositoryRegistry,
     owner: Uuid,
     tenant_id: TenantId,
@@ -422,7 +437,7 @@ async fn seed_group(
         .id
 }
 
-async fn join_group(
+pub(crate) async fn join_group(
     repos: &RepositoryRegistry,
     group_id: Uuid,
     user_id: Uuid,
@@ -460,7 +475,11 @@ fn delete_request() -> Json<DeleteUserRequest> {
 /// chokepoint sends: the stored refresh token, spent under the credentials of
 /// the app that issued the grant (`client_id`/`client_secret` as HTTP Basic),
 /// since Strava withdraws a grant only for the application that holds it.
-fn assert_one_strava_revocation(requests: &[String], client_id: &str, client_secret: &str) {
+pub(crate) fn assert_one_strava_revocation(
+    requests: &[String],
+    client_id: &str,
+    client_secret: &str,
+) {
     assert_eq!(
         requests.len(),
         1,
@@ -1281,6 +1300,8 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
         template_slug: None,
         template_params: None,
         template_source: None,
+        template_preset: None,
+        envelope: None,
     }];
     let week = |focus: &'static str| PlanWeekInput {
         week_start: "2026-11-02",
@@ -1816,7 +1837,7 @@ async fn delete_user(resources: &Arc<ServerContext>, user_id: Uuid) -> Response 
 }
 
 /// The blockers a refused delete names, as `(kind, detail)`.
-fn blockers_of(body: &Value) -> Vec<(String, String)> {
+pub(crate) fn blockers_of(body: &Value) -> Vec<(String, String)> {
     body["data"]["blockers"]
         .as_array()
         .unwrap_or_else(|| panic!("a refusal names its blockers: {body}"))
@@ -1831,7 +1852,7 @@ fn blockers_of(body: &Value) -> Vec<(String, String)> {
 }
 
 /// An agent `author` wrote in `tenant_id`, visible as `visibility` says.
-async fn seed_agent(
+pub(crate) async fn seed_agent(
     repos: &RepositoryRegistry,
     author: Uuid,
     tenant_id: TenantId,
@@ -2682,7 +2703,7 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
 }
 
 /// Promote a seeded user to an operator role.
-async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) {
+pub(crate) async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) {
     let mut user = repos.users.get_global(user_id).await.unwrap().unwrap();
     user.role = role;
     user.is_admin = true;
@@ -2790,7 +2811,11 @@ async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant
     }
 }
 
-async fn facts_of(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) -> Vec<FactKind> {
+pub(crate) async fn facts_of(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<FactKind> {
     repos
         .memory
         .list_user_facts(
@@ -2809,7 +2834,7 @@ async fn facts_of(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId
 }
 
 /// A conversation of `user_id`'s with a guided walk open in it.
-async fn conversation_mid_walk(
+pub(crate) async fn conversation_mid_walk(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -2839,7 +2864,10 @@ async fn conversation_mid_walk(
 
 /// A user who walked onboarding: both intake steps recorded, the facts above,
 /// a profile document, and a Strava grant.
-async fn seed_onboarded_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) {
+pub(crate) async fn seed_onboarded_user(
+    repos: &RepositoryRegistry,
+    label: &str,
+) -> (Uuid, TenantId) {
     let (user_id, tenant_id, _) = seed_user(repos, label).await;
     let user = user_id.to_string();
     let tenant = tenant_id.to_string();

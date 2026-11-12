@@ -22,7 +22,7 @@ mod inject_tests {
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-        MemberFitnessSnapshot, OvertrainingRiskLevel,
+        MemberFitnessSnapshot, OvertrainingRiskLevel, GROUP_CONTEXT_FOOTER,
     };
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -436,6 +436,17 @@ mod inject_tests {
         assert!(
             out.contains("PhilPeer needs to reconnect: whoop"),
             "alert must name the member and the dead provider, got: {out}"
+        );
+        // Inside the section the reply checks read as the platform's evidence,
+        // which ends at the footer: after it, a coach's true "PhilPeer needs to
+        // reconnect" was judged unsupported and repaired into a retraction.
+        let alert = out.find("PhilPeer needs to reconnect: whoop").unwrap();
+        let footer = out
+            .find(GROUP_CONTEXT_FOOTER)
+            .unwrap_or_else(|| panic!("the group section must close with its footer, got: {out}"));
+        assert!(
+            alert < footer && out[footer..].trim() == GROUP_CONTEXT_FOOTER,
+            "the alerts must close the group section ahead of its footer, got: {out}"
         );
     }
 

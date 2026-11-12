@@ -21,8 +21,6 @@ const ADMIN_TABS = [
   'claim-verdicts',
   'harness-config',
   'memory-worker',
-  'myth-busting',
-  'agent-grading',
   'activity',
   'engagement',
   'audit',
@@ -97,34 +95,6 @@ const USAGE_ANALYTICS = {
 async function mockRows(page: Page) {
   // E2E Vite answers an unmocked path with index.html and a 200, which reaches a
   // tab as a string and crashes it; the tabs below paint their rows from these.
-  await page.route('**/api/admin/myth-busting/summary**', (route) =>
-    route.fulfill(
-      json({
-        scope: { kind: 'tenant', tenant_id: 'tenant-a' },
-        verdicts_scanned: 40,
-        window_start: NOW,
-        window_end: NOW,
-        flagged_total: 2,
-        distinct_claims: 1,
-        recent_claims: [
-          {
-            claim_excerpt: 'Stretching prevents all injuries.',
-            status: 'contradicted',
-            layer_fired: 'judge',
-            category: 'recovery',
-            occurrences: 2,
-            agent_count: 1,
-            first_seen_at: NOW,
-            last_seen_at: NOW,
-          },
-        ],
-        top_agents: [
-          { agent_id: 'coach-1', agent_name: 'Recovery agent', unsupported_total: 2, categories: ['recovery'] },
-        ],
-        top_categories: [{ category: 'recovery', flagged_total: 2, agent_count: 1 }],
-      }),
-    ),
-  );
   await page.route('**/api/admin/audit-events**', (route) =>
     route.fulfill(
       json({
@@ -206,33 +176,6 @@ async function mockRows(page: Page) {
         verdicts: [VERDICT],
         total: 1,
         status_counts: { supported: 0, unsupported: 1, contradicted: 0, rhetorical: 0, unverifiable: 0 },
-      }),
-    ),
-  );
-  await page.route('**/api/admin/agent-grading/summary**', (route) =>
-    route.fulfill(
-      json({
-        scope: { kind: 'tenant', tenant_id: 'tenant-a' },
-        verdicts_scanned: 40,
-        judge_era_after: '2026-08-11',
-        verdicts_before_judge_era: 0,
-        unattributed_verdicts: 0,
-        grades: [
-          {
-            agent_id: 'coach-1',
-            agent_name: 'Recovery agent',
-            grade: 'B',
-            score: 0.81,
-            total_verdicts: 40,
-            supported: 30,
-            unsupported: 8,
-            unsupported_prescription: 0,
-            contradicted: 2,
-            rhetorical: 0,
-            unverifiable: 0,
-            false_positives: 0,
-          },
-        ],
       }),
     ),
   );
@@ -655,8 +598,6 @@ test('the table rows this gate depends on actually rendered', async ({ page }) =
   // above into a walk through empty states, and an empty state has no table body.
   for (const [tab, text] of [
     ['claim-verdicts', 'Take 5 g of creatine'],
-    ['agent-grading', 'coach-1'],
-    ['myth-busting', 'Stretching prevents all injuries.'],
     ['impersonation-log', 'athlete@test.com'],
     ['engagement', 'Marathon Agent'],
   ] as const) {

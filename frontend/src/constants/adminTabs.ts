@@ -16,8 +16,7 @@
 export const ADMIN_ONLY_TABS: ReadonlySet<string> = new Set([
   'users', 'agents', 'agent-store', 'configuration', 'user-tools', 'prompts',
   'platform-settings', 'claim-verdicts', 'harness-config',
-  'memory-worker', 'myth-busting',
-  'agent-grading', 'activity', 'engagement', 'connections',
+  'memory-worker', 'activity', 'engagement', 'connections',
   'analytics', 'billing', 'impersonation-log', 'audit',
 ]);
 

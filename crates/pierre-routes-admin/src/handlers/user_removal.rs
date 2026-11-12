@@ -1,4 +1,4 @@
-// ABOUTME: Admin routes that remove a user completely, disconnect one provider, or reset a user's onboarding
+// ABOUTME: Admin routes that remove a user completely, disconnect one provider, or reset a user's onboarding or account
 // ABOUTME: All go through the provider-disconnect chokepoint, so every grant they drop is revoked at the provider
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -40,13 +40,15 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_database::repositories::{subject_hash, DeletionActor};
+use pierre_services::account_reset::{self, AccountResetOutcome, OwnedGroups};
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
 };
 
 use super::api_keys::json_response;
-use super::types::{AdminResponse, DeleteUserRequest, ResetOnboardingRequest};
+use super::strava_pool::deny_if_not_super_admin;
+use super::types::{AdminResponse, DeleteUserRequest, ResetAccountRequest, ResetOnboardingRequest};
 use super::users::deny_without_manage_users;
 use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
@@ -82,7 +84,7 @@ fn interrupted(user_id: Uuid, interruption: &Interruption) -> Response {
 fn interrupted_as(
     user_id: Uuid,
     interruption: &Interruption,
-    describe: fn(&Interruption, &str) -> String,
+    describe: impl FnOnce(&Interruption, &str) -> String,
 ) -> Response {
     let error = &interruption.error;
     warn!(
@@ -502,4 +504,149 @@ pub async fn handle_reset_user_onboarding(
         StatusCode::OK,
     )
     .into_response())
+}
+
+/// `POST /admin/users/{user_id}/reset` — start a whole account over.
+///
+/// Super-admin only (403 otherwise, before the user is read). Refuses with
+/// 409, naming each, while the account owns or coaches an active group,
+/// created an invite to one, or authored an agent other users rely on;
+/// nothing is touched then. With `delete_owned_groups`, the active groups the
+/// account owns do not refuse: each is archived first through the owner's own
+/// delete (members released, invites deactivated, room history kept), and a
+/// group it only coaches still refuses. Otherwise every held provider — coaching
+/// platforms included — is disconnected through the chokepoint (revoked at
+/// the provider), its imported history and uploaded files are erased, and
+/// one transaction wipes every row the account owns. The account row, its sign-in,
+/// role, tier, tenant memberships and operator overrides stay; no tombstone,
+/// no deletion receipt and no Firebase deletion is written. A provider this
+/// build cannot revoke is kept and named. A reset that fails part-way is
+/// answered with the failing step's status and names what was already
+/// disconnected.
+///
+/// # Errors
+///
+/// Returns an invalid-input error for a malformed id, a not-found error for an
+/// unknown user, a resource-unavailable error when no archive eraser is
+/// wired, the account holds a provider and no chokepoint is wired, or
+/// `delete_owned_groups` is asked and no group service is wired, and a
+/// database error from the reads that precede any change.
+pub async fn handle_reset_user(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+    Json(request): Json<ResetAccountRequest>,
+) -> AppResult<Response> {
+    if let Some(denied) = deny_if_not_super_admin(&admin_token) {
+        return Ok(denied);
+    }
+
+    let ctx = context.as_ref();
+    let (user_uuid, user) = load_user(ctx, &user_id).await?;
+    let reason = request.reason.as_deref().unwrap_or("No reason provided");
+    let owned_groups = if request.delete_owned_groups {
+        let Some(groups) = ctx.group_service.as_deref() else {
+            return Err(AppError::resource_unavailable(
+                "Group archiving is not wired on this server; the reset cannot delete the groups the user owns",
+            ));
+        };
+        OwnedGroups::Archive(groups)
+    } else {
+        OwnedGroups::Refuse
+    };
+
+    let report = match account_reset::reset_account(
+        &ctx.repos,
+        ctx.provider_disconnector.as_deref(),
+        ctx.archive_eraser.as_deref(),
+        ctx.cache.as_deref(),
+        user_uuid,
+        owned_groups,
+    )
+    .await?
+    {
+        AccountResetOutcome::Blocked(refused) => {
+            info!(
+                user_id = %user_uuid,
+                blockers = refused.blockers.len(),
+                disconnected = refused.disconnected.len(),
+                token_id = %admin_token.token_id,
+                "Account reset refused: references must be reassigned first"
+            );
+            return Ok(refusal(
+                StatusCode::CONFLICT,
+                account_reset::blockers_message(&refused),
+                to_value(json!({
+                    "blockers": refused.blockers,
+                    "disconnected": refused.disconnected,
+                    "archive_erased": refused.archive_erased,
+                    "groups_archived": refused.groups_archived,
+                }))
+                .ok(),
+            ));
+        }
+        AccountResetOutcome::Interrupted(interrupted) => {
+            return Ok(interrupted_as(
+                user_uuid,
+                &interrupted.interruption,
+                |_, cause| account_reset::describe_interruption(&interrupted, cause),
+            ));
+        }
+        AccountResetOutcome::Reset(report) => report,
+    };
+
+    info!(
+        user_id = %user_uuid,
+        token_id = %admin_token.token_id,
+        reason = %reason,
+        "Account reset by operator"
+    );
+
+    // The account stays, so the trail names it by id (the route parameter);
+    // the operator's free-text reason stays out of it, as for a delete.
+    let audit = AuditDetail::new(
+        "user.reset",
+        format!(
+            "Reset an account: {} groups archived, {} providers disconnected, {} tables wiped",
+            report.groups_archived.len(),
+            report.disconnected.len(),
+            report.rows_changed.len()
+        ),
+    )
+    .target(json!({
+        "user_id": user_uuid.to_string(),
+        "groups_archived": report
+            .groups_archived
+            .iter()
+            .map(|group| group.group_id.as_str())
+            .collect::<Vec<_>>(),
+        "providers_disconnected": report.disconnected.len(),
+        "providers_kept": report.not_revocable.len(),
+        "rows_changed": report.rows_changed,
+    }));
+
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: format!("Account reset for {}", user.email),
+                data: to_value(json!({
+                    "user_id": user_uuid.to_string(),
+                    "email": user.email,
+                    "groups_archived": report.groups_archived,
+                    "disconnected": report.disconnected,
+                    "not_revocable": report.not_revocable,
+                    "still_connected": !report.not_revocable.is_empty(),
+                    "rows_changed": report.rows_changed,
+                    "archive_erased": report.archive_erased,
+                    "cache_entries_removed": report.cache_entries_removed,
+                    "identity_cache_evicted": report.identity_cache_evicted,
+                    "reason": reason,
+                }))
+                .ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }

@@ -18,6 +18,7 @@ const getConversationVerdicts = vi.fn();
 const listParticipants = vi.fn();
 const createConversation = vi.fn();
 const openPersonalTopic = vi.fn();
+const getPersonalConversation = vi.fn();
 const markConversationRead = vi.fn();
 const sendTurn = vi.fn();
 const listCoaches = vi.fn();
@@ -33,6 +34,7 @@ vi.mock('../../services/api', () => ({
     listParticipants: (...a: unknown[]) => listParticipants(...a),
     createConversation: (...a: unknown[]) => createConversation(...a),
     openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
+    getPersonalConversation: (...a: unknown[]) => getPersonalConversation(...a),
     markConversationRead: (...a: unknown[]) => markConversationRead(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
   },
@@ -96,6 +98,8 @@ describe('chat "+" menu', () => {
       conversation: { id: 'conv-personal', title: 'Dravr', personal: true },
       divider: null,
     });
+    // An athlete with no thread of their own yet, unless a test gives them one.
+    getPersonalConversation.mockResolvedValue(null);
     sendTurn.mockResolvedValue(undefined);
   });
 
@@ -110,7 +114,23 @@ describe('chat "+" menu', () => {
     expect(items).toEqual(['New chat', 'New group chat']);
   });
 
-  it('opens a new topic in the personal thread from "New chat", never another thread', async () => {
+  it('opens a new conversation from "New chat" beside the athlete\'s personal thread, never a topic in it', async () => {
+    getPersonalConversation.mockResolvedValue({ id: CONVERSATION_ID, title: 'Sunday long run', personal: true });
+    const onSelectConversation = vi.fn();
+    const user = userEvent.setup();
+    renderChatTab(CONVERSATION_ID, { onSelectConversation });
+
+    await user.click((await screen.findAllByRole('button', { name: 'New' }))[0]);
+    await user.click(screen.getByRole('menuitem', { name: 'New chat' }));
+
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
+    expect(openPersonalTopic).not.toHaveBeenCalled();
+    // Nothing is waiting to be sent, so the new thread's agent opens it with its welcome.
+    expect(createConversation.mock.calls[0][0].athlete_speaks_first).toBeFalsy();
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+  });
+
+  it('opens the personal thread from "New chat" for an athlete who has none yet', async () => {
     const onSelectConversation = vi.fn();
     const user = userEvent.setup();
     renderChatTab(null, { onSelectConversation });
@@ -120,7 +140,6 @@ describe('chat "+" menu', () => {
 
     await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
     expect(createConversation).not.toHaveBeenCalled();
-    // Nothing is waiting to be sent, so the thread's agent opens the topic with its welcome.
     expect(openPersonalTopic.mock.calls[0][0].athlete_speaks_first).toBeFalsy();
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-personal'));
   });
@@ -136,10 +155,10 @@ describe('chat "+" menu', () => {
     await user.type(await screen.findByTestId('group-name-input'), 'Sunday Riders');
     await user.click(screen.getByTestId('group-name-submit'));
 
-    // Home holds the personal thread, so the command lands there, in a topic
-    // of its own — the command carries the group, and the server files the
-    // room beside the thread. It is the topic's first turn, so the athlete
-    // speaks first and no agent welcome lands over its answer.
+    // The athlete has no thread yet, so the command opens their personal
+    // thread — the command carries the group, and the server files the room
+    // beside the thread. It is the thread's first turn, so the athlete speaks
+    // first and no agent welcome lands over its answer.
     await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
     expect(openPersonalTopic.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
     expect(createConversation).not.toHaveBeenCalled();
@@ -227,8 +246,8 @@ describe('chat "+" menu', () => {
   });
 
   it('reads the conversation cap in its own words when a room cannot be opened', async () => {
-    // A room is a thread of its own, so it is the one start the cap still
-    // refuses: Home's "+" opens a topic in the personal thread instead.
+    // A room is a thread of its own, so the cap refuses it as it refuses a
+    // new chat (carnet#1473); a room says so in its own words.
     createConversation.mockRejectedValue({
       response: {
         status: 429,

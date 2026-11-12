@@ -171,7 +171,7 @@ bitflags::bitflags! {
         /// list — true for HTTP APIs, false for a headless-browser scrape
         /// where each detail is a full page navigation.
         ///
-        /// `get_activities` auto-promotes small result sets to detailed, an
+        /// `get_activities` details the activities of the last fourteen days, an
         /// N+1 that is milliseconds on an API and minutes on a scrape: a live
         /// 2026-08-12 Telegram turn spent 3m41s of its 4m37s scraping 30
         /// detail pages one at a time, after the list had already returned in
@@ -189,8 +189,9 @@ bitflags::bitflags! {
         /// `ProviderFactory::delegated_reads`. The coach's credential may be
         /// an OAuth grant or an API key (`CredentialKind`).
         const COACH_ROSTER = 0b0000_0001_0000_0000;
-        /// Provider writes its training calendar — `list_calendar_events`,
-        /// `push_planned_session`, `update_planned_session` and
+        /// Provider writes its training calendar — `list_calendar_events`
+        /// (with `calendar_event_detail` when its listing names identity
+        /// only), `push_planned_session`, `update_planned_session` and
         /// `delete_planned_sessions` on `FitnessProvider` — so the plan push
         /// and `prescribe_workout` can target it.
         ///

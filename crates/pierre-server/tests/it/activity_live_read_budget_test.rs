@@ -16,6 +16,8 @@
 use crate::common;
 
 use std::sync::Arc;
+#[cfg(feature = "client-messaging")]
+use std::sync::Mutex;
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
@@ -33,6 +35,8 @@ use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use pierre_tool_runtime::activity_fetch::{refresh_stale_head, StaleReason};
+#[cfg(feature = "client-messaging")]
+use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
@@ -138,6 +142,7 @@ fn window(user_id: Uuid, tenant_id: TenantId) -> OwnedLiveRead {
             offset: None,
         },
         attempt_started_at: Utc::now(),
+        conversation_id: None,
     }
 }
 
@@ -308,4 +313,101 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
     let behind =
         refresh_stale_head(&runtime, PROVIDER, user_id, tenant_id, closed, &mut served).await;
     assert_eq!(behind, None, "a closed window is never behind");
+}
+
+/// Every follow-up the detached read sent, as (conversation, provider, count).
+#[cfg(feature = "client-messaging")]
+#[derive(Default)]
+struct RecordingNotifier {
+    sent: Mutex<Vec<(String, String, usize)>>,
+}
+
+#[cfg(feature = "client-messaging")]
+#[async_trait]
+impl BackfillNotifier for RecordingNotifier {
+    async fn push_backfill_complete(
+        &self,
+        _user_id: Uuid,
+        _tenant_id: TenantId,
+        pierre_conversation_id: &str,
+        provider: &str,
+        _after_ts: i64,
+        activity_count: usize,
+    ) {
+        self.sent.lock().unwrap().push((
+            pierre_conversation_id.to_owned(),
+            provider.to_owned(),
+            activity_count,
+        ));
+    }
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(&self, _: Uuid, _: TenantId, _: &str) -> usize {
+        0
+    }
+}
+
+/// The turn told the athlete its window was incomplete; once the detached
+/// read lands, the conversation that asked is answered, exactly once
+/// (carnet#1481). A read the turn waited for posts nothing.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_detached_read_answers_the_conversation_once_it_lands() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
+    let notifier = Arc::new(RecordingNotifier::default());
+    let mut context = (*resources).clone();
+    context.mcp.backfill_notifier = Some(notifier.clone());
+    let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
+    runtime
+        .repos()
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, PROVIDER, &[activity("cached", 3)])
+        .await
+        .unwrap();
+
+    let mut read = window(user_id, tenant_id);
+    read.conversation_id = Some("conv-1".to_owned());
+    let gate = Arc::new(Notify::new());
+    let outcome = read_live_window_within_budget(
+        &runtime,
+        gated(&gate, vec![activity("cached", 3), activity("fresh", 0)]),
+        read,
+        BUDGET,
+    )
+    .await;
+    assert!(
+        matches!(outcome, BudgetedRead::Cached(_)),
+        "bug: the turn must answer from the cache past its budget"
+    );
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: nothing is posted before the read lands"
+    );
+
+    gate.notify_one();
+    let posted = timeout(StdDuration::from_secs(10), async {
+        loop {
+            if !notifier.sent.lock().unwrap().is_empty() {
+                return;
+            }
+            sleep(StdDuration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        posted.is_ok(),
+        "bug: the landed read never answered the conversation"
+    );
+    sleep(StdDuration::from_millis(200)).await;
+    let sent = notifier.sent.lock().unwrap().clone();
+    assert_eq!(
+        sent,
+        vec![("conv-1".to_owned(), PROVIDER.to_owned(), 2)],
+        "bug: exactly one follow-up, to the conversation that asked"
+    );
 }

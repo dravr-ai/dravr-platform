@@ -41,16 +41,9 @@ pub(crate) const CAPABILITY_REASK_CALL_TYPE: &str = "reask_capability_recovery";
 /// about a named group peer.
 pub(crate) const PEER_CLAIM_VERIFIER_CALL_TYPE: &str = "peer_claim_verifier";
 
-/// `call_type` of the one re-sample of a reply that broke the persona's
-/// identity.
-pub(crate) const IDENTITY_LEAK_REASK_CALL_TYPE: &str = "reask_identity_leak";
-
 /// `call_type` of the rewrite that brings a strict persona's reply inside its
 /// output-format contract.
 pub(crate) const PERSONA_REWRITE_CALL_TYPE: &str = "reask_persona_conformance";
-
-/// `call_type` of the re-ask that repairs visual blocks the schema refused.
-pub(crate) const VIZ_REPAIR_CALL_TYPE: &str = "viz_repair";
 
 /// The `llm_usage` recorder for one of `input`'s LLM calls, typed `call_type`.
 ///

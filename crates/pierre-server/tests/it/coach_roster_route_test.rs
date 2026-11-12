@@ -334,6 +334,8 @@ mod coach_roster_route_tests {
             template_slug: None,
             template_params: None,
             template_source: None,
+            template_preset: None,
+            envelope: None,
         }
     }
 

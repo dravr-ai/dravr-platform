@@ -9330,11 +9330,11 @@
             "type": "string"
           },
           "limit": {
-            "description": "Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.",
+            "description": "Maximum activities (1-400): 1 for 'last activity'; a window (this week/month) gets `after`/`before` and 50. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.",
             "type": "integer"
           },
           "mode": {
-            "description": "'summary' (default, minimal fields) or 'detailed' (full activity data).",
+            "description": "'summary' (default; the last 14 days always carry detail) or 'detailed' (older rows too, 30 max).",
             "type": "string"
           },
           "offset": {
@@ -9465,7 +9465,7 @@
             "description": "Context metadata for activity retrieval responses\nProvides LLMs with guidance on data sufficiency and whether to fetch more",
             "properties": {
               "advice": {
-                "description": "Actionable advice for the LLM when the requested payload shape\nhas trade-offs it should be aware of.\n\nPopulated when `limit > activity_detail_threshold`: the response\nis summary-mode, so fields like splits, laps, segment efforts,\nand full time-series are absent. The sentence tells the LLM what\nis still available (HR, elevation, cadence, power, calories in\nthe expanded summary) and how to narrow if it needs\nper-activity depth. `None` when no trade-off applies\n(auto-promoted queries).",
+                "description": "Actionable advice for the LLM when the requested payload shape\nhas trade-offs it should be aware of.\n\nPopulated when the response is summary-mode: the last 14 days carry\nfull detail and older rows only scalar fields. The sentence tells\nthe LLM what each row carries and how to read an older row's\ndetail. `None` when every row is detailed.",
                 "type": [
                   "string",
                   "null"
@@ -15621,6 +15621,66 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorChoice": {
+            "description": "Which anchor a user wants targets written against.",
+            "oneOf": [
+              {
+                "const": "preset",
+                "description": "The preset's own anchor.",
+                "type": "string"
+              },
+              {
+                "const": "ftp",
+                "description": "Functional threshold power.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_pace",
+                "description": "Threshold pace.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "`vVO2max` or MAS.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate.",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_reserve",
+                "description": "Heart-rate reserve.",
+                "type": "string"
+              },
+              {
+                "const": "rpe",
+                "description": "Perceived exertion.",
+                "type": "string"
+              }
+            ]
+          },
           "CalendarBlock": {
             "description": "Dravr's record of what Dravr pushed to the athlete's calendar provider.\n\nNot a view of their calendar. Nothing here reads what the athlete entered\nthemselves, so an empty `entries` says nothing about whether they have a\nrace — which is exactly what `scope` exists to say out loud.",
             "properties": {
@@ -15773,6 +15833,78 @@
               }
             ]
           },
+          "ConstraintAction": {
+            "description": "What a rule does when it fires. There is no block (founder decision D3).",
+            "oneOf": [
+              {
+                "const": "warn",
+                "description": "Tell the athlete and coach; the session stands as written.",
+                "type": "string"
+              },
+              {
+                "const": "relabel",
+                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
+                "type": "string"
+              }
+            ]
+          },
+          "DayEnvelope": {
+            "description": "What the envelope check found on one planned day — the session measured\nagainst its family's evidence envelope, stamped by the save.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which compliance and readiness read in place of the template's.",
+            "properties": {
+              "badge": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/EvidenceBadge"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The preset's evidence badge in the day's sport."
+              },
+              "findings": {
+                "description": "What the check found.",
+                "items": {
+                  "$ref": "#/$defs/EnvelopeFinding"
+                },
+                "type": "array"
+              },
+              "generated": {
+                "default": false,
+                "description": "Whether the save generated the steps from the preset.",
+                "type": "boolean"
+              },
+              "not_generated": {
+                "description": "Why the save could not build the day's steps from its preset, when it\ncould not: the generated session left the bounds a written one keeps.\nThe day then carries no steps and the agent is told so.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "preset": {
+                "description": "The preset the session was measured against.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relabelled_purpose": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose the session trains when an edit moved it to another\nfamily."
+              }
+            },
+            "required": [
+              "generated"
+            ],
+            "type": "object"
+          },
           "DayReplacement": {
             "description": "What the athlete's bank — the agent's package, then the catalogue — offers\nfor a day whose template sits above today's readiness level.",
             "properties": {
@@ -15911,6 +16043,70 @@
             ],
             "type": "object"
           },
+          "EnvelopeFinding": {
+            "description": "One thing the check found. Always a warning; a relabel also names the\npurpose the session now trains.",
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/ConstraintAction",
+                "description": "Warn, or warn and relabel."
+              },
+              "bound": {
+                "description": "The bound it crossed.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "code": {
+                "$ref": "#/$defs/FindingCode",
+                "description": "What it is about — the key a localized notice is written under."
+              },
+              "evidence": {
+                "description": "The studies the bound is derived from.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "description": "The parameter or quantity measured (`reps`, `cycle_mean_pct`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "measured": {
+                "description": "What was measured.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One deterministic English sentence, for logs and for the model;\nathlete-facing text is localized from `code`.",
+                "type": "string"
+              },
+              "relabel_to": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose a relabel files the session under."
+              }
+            },
+            "required": [
+              "code",
+              "action",
+              "message"
+            ],
+            "type": "object"
+          },
           "EventClass": {
             "description": "The goal event's class (python `VOCAB[\"event_class\"]`).",
             "oneOf": [
@@ -15987,6 +16183,61 @@
               {
                 "const": "no_race",
                 "description": "No race on the horizon.",
+                "type": "string"
+              }
+            ]
+          },
+          "EvidenceBadge": {
+            "description": "Where one sport's evidence for a preset sits.",
+            "properties": {
+              "acute_only": {
+                "description": "Every study in this sport ran a single session.",
+                "type": "boolean"
+              },
+              "basis": {
+                "description": "The studies the badge rests on, as cited (`Rønnestad 2015 [RCT]`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "caveat": {
+                "description": "What the evidence does not cover.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/$defs/EvidenceStatus",
+                "description": "Trialled, transposed or convention."
+              },
+              "uncontrolled_only": {
+                "description": "Every study in this sport was pre/post without a comparator.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "EvidenceStatus": {
+            "description": "Where a preset's evidence sits in one sport (the three founder badges).",
+            "oneOf": [
+              {
+                "const": "trialled",
+                "description": "A study in this sport ran the format, or its defining parameter,\nand measured an outcome relevant to its purpose.",
+                "type": "string"
+              },
+              {
+                "const": "transposed",
+                "description": "Such a study exists only in the other sport; the preset reaches\nthis sport through the transposition rules.",
+                "type": "string"
+              },
+              {
+                "const": "convention",
+                "description": "Only practice, review, consensus or platform convention.",
                 "type": "string"
               }
             ]
@@ -16084,6 +16335,121 @@
               "note"
             ],
             "type": "object"
+          },
+          "FindingCode": {
+            "description": "What a finding is about.",
+            "oneOf": [
+              {
+                "const": "param_out_of_range",
+                "description": "A parameter left its preset's range.",
+                "type": "string"
+              },
+              {
+                "const": "params_disagree_with_steps",
+                "description": "The stated parameters and the written steps describe different sessions.",
+                "type": "string"
+              },
+              {
+                "const": "left_purpose",
+                "description": "The steps train a different family than the template's.",
+                "type": "string"
+              },
+              {
+                "const": "unknown_preset",
+                "description": "The request named a preset the family does not hold.",
+                "type": "string"
+              },
+              {
+                "const": "sport_not_offered",
+                "description": "The family has no form for the requested sport.",
+                "type": "string"
+              },
+              {
+                "const": "map_without_definition",
+                "description": "A MAP target, but the athlete's MAP states no definition.",
+                "type": "string"
+              },
+              {
+                "const": "under_dosed",
+                "description": "Supra-threshold reps below the anaerobic-capacity floor with long rest.",
+                "type": "string"
+              },
+              {
+                "const": "work_range",
+                "description": "C1.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_floor",
+                "description": "C2.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_ceiling",
+                "description": "C3.",
+                "type": "string"
+              },
+              {
+                "const": "cycle_mean_floor",
+                "description": "C4.",
+                "type": "string"
+              },
+              {
+                "const": "on_intensity_window",
+                "description": "C5.",
+                "type": "string"
+              },
+              {
+                "const": "true_tabata",
+                "description": "C6.",
+                "type": "string"
+              },
+              {
+                "const": "hr_rep_target",
+                "description": "C8.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "C9.",
+                "type": "string"
+              },
+              {
+                "const": "gps_short_reps",
+                "description": "C10.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_ceiling",
+                "description": "C11.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_floor",
+                "description": "C12.",
+                "type": "string"
+              },
+              {
+                "const": "one_to_one_long_rep",
+                "description": "C13.",
+                "type": "string"
+              },
+              {
+                "const": "duration_ceiling",
+                "description": "The session ran past its family's duration ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "steady_ceiling",
+                "description": "A steady segment rose past its family's ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "insert_quality_cap",
+                "description": "Too much time above LT1 inside an easy session.",
+                "type": "string"
+              }
+            ]
           },
           "FlavourFamily": {
             "description": "The intensity-distribution family a flavour belongs to (python `VOCAB[\"family\"]`).",
@@ -16558,6 +16924,21 @@
               }
             ]
           },
+          "Pacing": {
+            "description": "How a preset's main set is paced.",
+            "oneOf": [
+              {
+                "const": "fixed",
+                "description": "Hold the written target.",
+                "type": "string"
+              },
+              {
+                "const": "best_sustainable",
+                "description": "The hardest effort the athlete can repeat for the whole set, with\nthe written target as a floor. Fixed %MAP 30/15 gave 420 s above\n90 % `VO2max` against 1130 s self-paced (Appelhans 2025).",
+                "type": "string"
+              }
+            ]
+          },
           "PhaseKind": {
             "description": "The kind of a season phase (python `VOCAB[\"phase_kind\"]`).",
             "oneOf": [
@@ -16955,6 +17336,17 @@
                   "null"
                 ]
               },
+              "envelope": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DayEnvelope"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the envelope check found on the session — stamped by the save,\nnever taken from the payload."
+              },
               "fueling": {
                 "anyOf": [
                   {
@@ -16992,6 +17384,13 @@
                   }
                 ],
                 "description": "The values this day fills the template's ranges with."
+              },
+              "template_preset": {
+                "description": "The family preset this day instantiates (`30_15`, `end_spinups`),\nwhen `template_slug` names a parametric family. A legacy slug the\nfamily absorbed already names its preset.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "template_slug": {
                 "description": "The catalogue template this day instantiates, when it does — the\nslug `list_workout_templates` lists. Absent for a rest day and for a\nsession the agent wrote without a template, which the compliance\nverdict then counts as unclassified rather than guesses at.",
@@ -17411,6 +17810,17 @@
           "TemplateParams": {
             "description": "The parameters a planned day fills in on its template, inside the\ntemplate's ranges — what makes template use measurable at save time.",
             "properties": {
+              "anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorChoice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The anchor the athlete wants targets written against (`critical_power`,\n`max_heart_rate`, `rpe`, …); the preset's own when absent."
+              },
               "duration_minutes": {
                 "description": "Session duration in minutes, for continuous templates.",
                 "format": "uint32",
@@ -17419,6 +17829,17 @@
                   "integer",
                   "null"
                 ]
+              },
+              "pacing": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pacing"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How the main set is paced: `best_sustainable` (the trialled dose for\nshort reps) or `fixed` on the written target."
               },
               "reps": {
                 "description": "Repetitions per set.",
@@ -17431,6 +17852,15 @@
               },
               "rest_seconds": {
                 "description": "Recovery interval in seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "set_rest_seconds": {
+                "description": "Rest between sets in seconds, for a family preset with sets.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": [
@@ -17843,7 +18273,7 @@
             ]
           },
           "WorkoutPurpose": {
-            "description": "What a session is for — the 19-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
+            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
             "oneOf": [
               {
                 "const": "recovery",
@@ -17938,6 +18368,16 @@
               {
                 "const": "downhill",
                 "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
+                "type": "string"
+              },
+              {
+                "const": "anaerobic_capacity",
+                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
+                "type": "string"
+              },
+              {
+                "const": "race_prep",
+                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
                 "type": "string"
               }
             ]
@@ -21493,7 +21933,7 @@
     },
     {
       "name": "list_workout_templates",
-      "description": "List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones prescribe_workout pushes.",
+      "description": "List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones prescribe_workout pushes.",
       "inputSchema": {
         "properties": {
           "detail": {
@@ -21505,7 +21945,7 @@
             "type": "string"
           },
           "purpose": {
-            "description": "Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill.",
+            "description": "Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep.",
             "type": "string"
           },
           "sport": {
@@ -21518,6 +21958,233 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorChoice": {
+            "description": "Which anchor a user wants targets written against.",
+            "oneOf": [
+              {
+                "const": "preset",
+                "description": "The preset's own anchor.",
+                "type": "string"
+              },
+              {
+                "const": "ftp",
+                "description": "Functional threshold power.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_pace",
+                "description": "Threshold pace.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "`vVO2max` or MAS.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate.",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_reserve",
+                "description": "Heart-rate reserve.",
+                "type": "string"
+              },
+              {
+                "const": "rpe",
+                "description": "Perceived exertion.",
+                "type": "string"
+              }
+            ]
+          },
+          "Constraint": {
+            "description": "A rule an instance is measured against.",
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/ConstraintAction",
+                "description": "Warn or relabel."
+              },
+              "evidence": {
+                "description": "The studies the rule is derived from.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max": {
+                "description": "The rule's upper bound, in its own unit.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "max_work_seconds": {
+                "description": "The work-bout length the rule is scoped to, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "min": {
+                "description": "The rule's lower bound, in its own unit.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rule": {
+                "$ref": "#/$defs/ConstraintRule",
+                "description": "Which rule."
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Only for this sport family."
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose a relabel files the session under."
+              }
+            },
+            "required": [
+              "rule",
+              "action"
+            ],
+            "type": "object"
+          },
+          "ConstraintAction": {
+            "description": "What a rule does when it fires. There is no block (founder decision D3).",
+            "oneOf": [
+              {
+                "const": "warn",
+                "description": "Tell the athlete and coach; the session stands as written.",
+                "type": "string"
+              },
+              {
+                "const": "relabel",
+                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
+                "type": "string"
+              }
+            ]
+          },
+          "ConstraintRule": {
+            "description": "A rule a family applies to any instance, generated or coach-written.\n\nThe rule ids follow the short-interval set of the research note (C1–C13)\nplus the boundaries of the other families.",
+            "oneOf": [
+              {
+                "const": "work_range",
+                "description": "C1: work bout outside `min..=max` seconds.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_floor",
+                "description": "C2: rest longer than work on short reps below `max` % of the\naerobic maximum.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_ceiling",
+                "description": "C3: work:rest above `max`.",
+                "type": "string"
+              },
+              {
+                "const": "cycle_mean_floor",
+                "description": "C4 (revised): cycle mean below `min` % of the aerobic maximum on\nactive floats and work of at most `max_work_seconds`, outside the\ntrialled envelope.",
+                "type": "string"
+              },
+              {
+                "const": "on_intensity_window",
+                "description": "C5: on-intensity outside the preset's own window; at or above\n`min` % of the aerobic maximum it may relabel.",
+                "type": "string"
+              },
+              {
+                "const": "true_tabata",
+                "description": "C6: 20/10 passive at or above `min` % of the aerobic maximum is\ntrue Tabata — one set only.",
+                "type": "string"
+              },
+              {
+                "const": "hr_rep_target",
+                "description": "C8: heart rate as the rep target on reps of at most\n`max_work_seconds`.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "C9: fixed pacing where best sustainable is the trialled dose.",
+                "type": "string"
+              },
+              {
+                "const": "gps_short_reps",
+                "description": "C10: running reps under `max_work_seconds` with no distance.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_ceiling",
+                "description": "C11: work time above `max` minutes.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_floor",
+                "description": "C12: work time below `min` minutes.",
+                "type": "string"
+              },
+              {
+                "const": "one_to_one_long_rep",
+                "description": "C13: 1:1 work:rest on reps of `min` seconds or longer.",
+                "type": "string"
+              },
+              {
+                "const": "duration_ceiling",
+                "description": "The session runs past `max` minutes.",
+                "type": "string"
+              },
+              {
+                "const": "steady_ceiling",
+                "description": "A steady segment longer than `max_work_seconds` above `max` % of\nCP or CS.",
+                "type": "string"
+              },
+              {
+                "const": "insert_quality_cap",
+                "description": "More than `max` minutes above LT1 inside an easy session.",
+                "type": "string"
+              }
+            ]
+          },
           "Contraindication": {
             "description": "A reason a flavour or template does not fit an athlete (python `VOCAB[\"contraindication\"]`).",
             "oneOf": [
@@ -21554,6 +22221,61 @@
               {
                 "const": "recovery_limited",
                 "description": "Recovery-limited athlete.",
+                "type": "string"
+              }
+            ]
+          },
+          "EvidenceBadge": {
+            "description": "Where one sport's evidence for a preset sits.",
+            "properties": {
+              "acute_only": {
+                "description": "Every study in this sport ran a single session.",
+                "type": "boolean"
+              },
+              "basis": {
+                "description": "The studies the badge rests on, as cited (`Rønnestad 2015 [RCT]`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "caveat": {
+                "description": "What the evidence does not cover.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/$defs/EvidenceStatus",
+                "description": "Trialled, transposed or convention."
+              },
+              "uncontrolled_only": {
+                "description": "Every study in this sport was pre/post without a comparator.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "EvidenceStatus": {
+            "description": "Where a preset's evidence sits in one sport (the three founder badges).",
+            "oneOf": [
+              {
+                "const": "trialled",
+                "description": "A study in this sport ran the format, or its defining parameter,\nand measured an outcome relevant to its purpose.",
+                "type": "string"
+              },
+              {
+                "const": "transposed",
+                "description": "Such a study exists only in the other sport; the preset reaches\nthis sport through the transposition rules.",
+                "type": "string"
+              },
+              {
+                "const": "convention",
+                "description": "Only practice, review, consensus or platform convention.",
                 "type": "string"
               }
             ]
@@ -21598,6 +22320,103 @@
               }
             ]
           },
+          "Frame": {
+            "description": "The warm-up and cool-down an interval preset is framed by.",
+            "properties": {
+              "cooldown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Cool-down."
+              },
+              "warmup": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Warm-up."
+              }
+            },
+            "type": "object"
+          },
+          "Frames": {
+            "description": "The frame per sport family.",
+            "properties": {
+              "ride": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Frame"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Ride frame."
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Frame"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Run frame."
+              },
+              "swim": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Frame"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Swim frame."
+              }
+            },
+            "type": "object"
+          },
+          "HrRole": {
+            "description": "What heart rate may steer in a session, by rep length.",
+            "oneOf": [
+              {
+                "const": "target",
+                "description": "A band to hold, judged from minute 3.",
+                "type": "string"
+              },
+              {
+                "const": "ceiling",
+                "description": "A ceiling to stay under, with a drift check.",
+                "type": "string"
+              },
+              {
+                "const": "rep_end_check",
+                "description": "A check at the end of each rep.",
+                "type": "string"
+              },
+              {
+                "const": "session_outcome",
+                "description": "A check on the session as a whole: reps under 2–3 min.",
+                "type": "string"
+              },
+              {
+                "const": "not_used",
+                "description": "Not used: sprints under 30 s.",
+                "type": "string"
+              }
+            ]
+          },
           "IntensityDistribution": {
             "description": "Intensity distribution model for a workout (Seiler-influenced).",
             "oneOf": [
@@ -21624,6 +22443,21 @@
               {
                 "const": "pyramid",
                 "description": "Mixed pyramid distribution.",
+                "type": "string"
+              }
+            ]
+          },
+          "Pacing": {
+            "description": "How a preset's main set is paced.",
+            "oneOf": [
+              {
+                "const": "fixed",
+                "description": "Hold the written target.",
+                "type": "string"
+              },
+              {
+                "const": "best_sustainable",
+                "description": "The hardest effort the athlete can repeat for the whole set, with\nthe written target as a floor. Fixed %MAP 30/15 gave 420 s above\n90 % `VO2max` against 1130 s self-paced (Appelhans 2025).",
                 "type": "string"
               }
             ]
@@ -21667,6 +22501,13 @@
                   "$ref": "#/$defs/Contraindication"
                 },
                 "type": "array"
+              },
+              "counts_as_quality": {
+                "description": "Whether the template counts against the hard-session cap when that\ndiffers from what its purpose says; a preset may override it.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
               },
               "max_per_week": {
                 "default": 7,
@@ -21757,6 +22598,179 @@
               }
             ]
           },
+          "PresetAlias": {
+            "description": "A legacy slug that resolves to a preset.",
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/PresetParams",
+                "default": {},
+                "description": "Values the old file fixed (its default instance)."
+              },
+              "preset": {
+                "description": "The preset it resolves to.",
+                "type": "string"
+              },
+              "sport": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SportType"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The sport the old file was written for, when it pins one."
+              }
+            },
+            "required": [
+              "preset",
+              "params"
+            ],
+            "type": "object"
+          },
+          "PresetParams": {
+            "description": "The values one instance is built with; each absent value takes the\neffective range's default.",
+            "properties": {
+              "anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AnchorChoice"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The anchor targets are written against."
+              },
+              "duration_minutes": {
+                "description": "Whole-session (continuous, insert) duration, minutes.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pacing": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pacing"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Pacing of the main set."
+              },
+              "reps": {
+                "description": "Reps per set.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rest_seconds": {
+                "description": "Rest between reps, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "set_rest_seconds": {
+                "description": "Rest between sets, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sets": {
+                "description": "Sets.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "work_seconds": {
+                "description": "Work bout, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "PresetShape": {
+            "description": "How a preset's steps are built.",
+            "oneOf": [
+              {
+                "const": "continuous",
+                "description": "One steady block of `duration_minutes` at the base target.",
+                "type": "string"
+              },
+              {
+                "const": "intervals",
+                "description": "`sets × (reps × cycle)` with `set_rest_seconds` between sets,\nframed by the family's warm-up and cool-down.",
+                "type": "string"
+              },
+              {
+                "const": "insert",
+                "description": "A steady base of `duration_minutes` with `reps × cycle` set in\nits middle (spin-ups, strides, a light-tempo insert).",
+                "type": "string"
+              },
+              {
+                "const": "fixed",
+                "description": "The realization's literal steps, as written: a multi-part session\n(an opener, a priming warm-up) whose parts do not scale with\nthe range parameters.",
+                "type": "string"
+              }
+            ]
+          },
+          "PresetSummary": {
+            "description": "One preset of a family, as an agent chooses it.",
+            "properties": {
+              "badges": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/EvidenceStatus"
+                },
+                "description": "Where its evidence sits in each sport it is written for:\n`trialled`, `transposed` or `convention`.",
+                "type": "object"
+              },
+              "counts_as_quality": {
+                "description": "Whether it counts against the hard-session cap.",
+                "type": "boolean"
+              },
+              "key": {
+                "description": "The key `preset` takes.",
+                "type": "string"
+              },
+              "name": {
+                "description": "Display name.",
+                "type": "string"
+              },
+              "readiness_min": {
+                "$ref": "#/$defs/ReadinessLevel",
+                "description": "The lowest readiness level it may be scheduled at."
+              }
+            },
+            "required": [
+              "key",
+              "name",
+              "readiness_min",
+              "counts_as_quality",
+              "badges"
+            ],
+            "type": "object"
+          },
           "Progression": {
             "description": "How a template grows week over week.",
             "properties": {
@@ -21825,6 +22839,11 @@
                 "const": "add_load",
                 "description": "More load on the bar.",
                 "type": "string"
+              },
+              {
+                "const": "operator",
+                "description": "A variation operator: varied intensity within reps, or a\ndecreasing-duration ladder.",
+                "type": "string"
               }
             ]
           },
@@ -21853,6 +22872,228 @@
               }
             ]
           },
+          "Realization": {
+            "description": "One sport's form of a preset.",
+            "properties": {
+              "badge": {
+                "$ref": "#/$defs/EvidenceBadge",
+                "description": "Where this sport's evidence sits."
+              },
+              "base": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RoleSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The steady target (continuous and insert shapes)."
+              },
+              "cooldown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Cool-down, overriding the family frame (intervals only)."
+              },
+              "cycle": {
+                "description": "The repeated roles in order (intervals and insert shapes).",
+                "items": {
+                  "$ref": "#/$defs/RoleSpec"
+                },
+                "type": "array"
+              },
+              "hr_role": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HrRole"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What heart rate may steer."
+              },
+              "note": {
+                "description": "Session-level coaching note.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "params": {
+                "$ref": "#/$defs/WorkoutParams",
+                "default": {
+                  "intensity": {}
+                },
+                "description": "Ranges for this sport, narrowing the preset's key by key."
+              },
+              "set_rest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RoleSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Target between sets; the last cycle role's when absent."
+              },
+              "steps": {
+                "description": "The literal steps (fixed shape).",
+                "items": {
+                  "$ref": "#/$defs/WorkoutStep"
+                },
+                "type": "array"
+              },
+              "trialled_envelope": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TrialledEnvelope"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The trialled window in this sport."
+              },
+              "warmup": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StepSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Warm-up, overriding the family frame (intervals only)."
+              }
+            },
+            "required": [
+              "badge",
+              "params"
+            ],
+            "type": "object"
+          },
+          "Regression": {
+            "description": "How a family steps down, in order.",
+            "properties": {
+              "order": {
+                "default": [],
+                "description": "The levers, in order.",
+                "items": {
+                  "$ref": "#/$defs/RegressionLever"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "order"
+            ],
+            "type": "object"
+          },
+          "RegressionLever": {
+            "description": "A lever a family's regression pulls, in order.",
+            "oneOf": [
+              {
+                "const": "passive_rest",
+                "description": "Passive instead of active float.",
+                "type": "string"
+              },
+              {
+                "const": "lower_amplitude",
+                "description": "Lower amplitude at the same mean.",
+                "type": "string"
+              },
+              {
+                "const": "drop_set",
+                "description": "One set fewer.",
+                "type": "string"
+              },
+              {
+                "const": "drop_rep",
+                "description": "One rep fewer.",
+                "type": "string"
+              },
+              {
+                "const": "shorten_rep_same_ratio",
+                "description": "Shorter bouts at the same ratio.",
+                "type": "string"
+              },
+              {
+                "const": "lower_intensity",
+                "description": "Intensity down a step.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "Fixed pacing instead of best sustainable.",
+                "type": "string"
+              },
+              {
+                "const": "shorten",
+                "description": "Shorter session.",
+                "type": "string"
+              },
+              {
+                "const": "lengthen_rest",
+                "description": "Longer rest.",
+                "type": "string"
+              },
+              {
+                "const": "swap_down",
+                "description": "Swap to the family below.",
+                "type": "string"
+              }
+            ]
+          },
+          "RoleSpec": {
+            "description": "One role in a cycle, or a steady base.",
+            "properties": {
+              "label": {
+                "description": "Label shown on the step.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "note": {
+                "description": "Coaching note.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pacing": {
+                "$ref": "#/$defs/Pacing",
+                "default": "fixed",
+                "description": "How the role is paced."
+              },
+              "seconds": {
+                "description": "Fixed length in seconds. Absent, the first unfixed role takes\n`work_seconds` and the second `rest_seconds`.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "target": {
+                "description": "Target in the intensity grammar.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target",
+              "pacing"
+            ],
+            "type": "object"
+          },
           "RpeRange": {
             "description": "A perceived-exertion band on the 1–10 scale.",
             "properties": {
@@ -21876,6 +23117,26 @@
               "max"
             ],
             "type": "object"
+          },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
           },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
@@ -22070,6 +23331,40 @@
               }
             ]
           },
+          "StepSpec": {
+            "description": "A step of fixed length: a warm-up or a cool-down.",
+            "properties": {
+              "label": {
+                "description": "Label; the step's role name when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "note": {
+                "description": "Coaching note.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "description": "Length in seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "target": {
+                "description": "Target in the intensity grammar.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "seconds",
+              "target"
+            ],
+            "type": "object"
+          },
           "TemplateFit": {
             "description": "How a phase fits into a plan.",
             "properties": {
@@ -22128,6 +23423,62 @@
             "required": [
               "order",
               "max_weekly_step"
+            ],
+            "type": "object"
+          },
+          "TrialledEnvelope": {
+            "description": "The parameter window a trial actually ran, inside which a derived rule\nnever overrides the trial (rule C4's fourth scope condition).",
+            "properties": {
+              "reps": {
+                "description": "Reps per set, inclusive.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "rest_seconds": {
+                "description": "Rest seconds, inclusive.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "sets": {
+                "description": "Sets, inclusive.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "work_seconds": {
+                "description": "Work seconds, inclusive.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "work_seconds",
+              "rest_seconds",
+              "reps",
+              "sets"
             ],
             "type": "object"
           },
@@ -22211,6 +23562,17 @@
                 ],
                 "description": "Perceived exertion band — endurance purposes only."
               },
+              "set_rest_seconds": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ParamRange"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Rest between sets in seconds — the axis `rest_seconds` used to stand\nin for in one file and not in the next."
+              },
               "sets": {
                 "anyOf": [
                   {
@@ -22239,8 +23601,104 @@
             ],
             "type": "object"
           },
+          "WorkoutPreset": {
+            "description": "A named session inside a family.",
+            "properties": {
+              "constraints": {
+                "description": "Rules on top of the family's.",
+                "items": {
+                  "$ref": "#/$defs/Constraint"
+                },
+                "type": "array"
+              },
+              "counts_as_quality": {
+                "description": "Whether it counts against the hard-session cap when that differs\nfrom what the family's purpose says (quality embedded in a long\nride; a light insert that does not count).",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "key": {
+                "description": "Key, unique in the family (`30_15`, `end_steady`).",
+                "type": "string"
+              },
+              "name": {
+                "description": "Display name.",
+                "type": "string"
+              },
+              "params": {
+                "$ref": "#/$defs/WorkoutParams",
+                "default": {
+                  "intensity": {}
+                },
+                "description": "Ranges narrowing the family axes, for every sport."
+              },
+              "readiness_min": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReadinessLevel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Readiness floor; may raise the family's, never lower it."
+              },
+              "ride": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Realization"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The ride form."
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Realization"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The run form."
+              },
+              "shape": {
+                "$ref": "#/$defs/PresetShape",
+                "description": "How its steps are built."
+              },
+              "summary": {
+                "description": "One line on what it is for.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "swim": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Realization"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The swim form."
+              }
+            },
+            "required": [
+              "key",
+              "name",
+              "shape",
+              "params"
+            ],
+            "type": "object"
+          },
           "WorkoutPurpose": {
-            "description": "What a session is for — the 19-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
+            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
             "oneOf": [
               {
                 "const": "recovery",
@@ -22335,6 +23793,16 @@
               {
                 "const": "downhill",
                 "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
+                "type": "string"
+              },
+              {
+                "const": "anaerobic_capacity",
+                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
+                "type": "string"
+              },
+              {
+                "const": "race_prep",
+                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
                 "type": "string"
               }
             ]
@@ -22431,6 +23899,13 @@
           "WorkoutTemplate": {
             "description": "Endurance workout template — declarative, repeatable structured session.\n\nThe catalogue bank (`training_catalogue/workouts/*.toml` in the platform,\n`training/workouts/*.toml` in contremaitre) deserializes into this struct\nvia [`WorkoutTemplate::from_toml`]; the platform's\n`TrainingCatalogueRegistry` holds the parsed set. User-authored rows live\nin the `workout_templates` database table.",
             "properties": {
+              "aliases": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/PresetAlias"
+                },
+                "description": "Legacy slugs that resolve to a preset, each with the values its old\nfile fixed.",
+                "type": "object"
+              },
               "caveat": {
                 "description": "What the evidence does not cover — required at grey or coach judgement.",
                 "type": [
@@ -22438,8 +23913,16 @@
                   "null"
                 ]
               },
+              "constraints": {
+                "description": "Rules every instance is measured against; they warn or relabel and\nnever refuse.",
+                "items": {
+                  "$ref": "#/$defs/Constraint"
+                },
+                "type": "array"
+              },
               "duration_minutes": {
-                "description": "Total expected duration in minutes (sum of step durations).",
+                "default": 0,
+                "description": "Total expected duration in minutes (sum of step durations). A family\nfile may leave it out; the parser fills it from the default preset.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
@@ -22468,6 +23951,10 @@
                 },
                 "description": "Where it fits."
               },
+              "frame": {
+                "$ref": "#/$defs/Frames",
+                "description": "The warm-up and cool-down interval presets are framed by, per sport."
+              },
               "id": {
                 "description": "Stable identifier (UUID for DB rows, deterministic UUID for catalogue templates).",
                 "format": "uuid",
@@ -22493,6 +23980,13 @@
                 },
                 "description": "Parameter ranges the coach fills in."
               },
+              "presets": {
+                "description": "Named presets: present, the template is a parametric family whose\n`params` are the outer axes each preset narrows.",
+                "items": {
+                  "$ref": "#/$defs/WorkoutPreset"
+                },
+                "type": "array"
+              },
               "progression": {
                 "$ref": "#/$defs/Progression",
                 "default": {
@@ -22504,6 +23998,10 @@
               "purpose": {
                 "$ref": "#/$defs/WorkoutPurpose",
                 "description": "What the session is for."
+              },
+              "regression": {
+                "$ref": "#/$defs/Regression",
+                "description": "How the family steps down."
               },
               "slug": {
                 "description": "URL-safe slug (`long_run_z2`, `threshold_4x8`, …) — unique per scope.",
@@ -22522,7 +24020,8 @@
                 "type": "array"
               },
               "structure": {
-                "description": "Ordered list of steps that make up the workout.",
+                "default": [],
+                "description": "Ordered list of steps that make up the workout. A family file may\nleave it out; the parser fills it with the default preset's steps.",
                 "items": {
                   "$ref": "#/$defs/WorkoutStep"
                 },
@@ -22530,6 +24029,7 @@
               },
               "target_zones": {
                 "$ref": "#/$defs/WorkoutTargetZones",
+                "default": {},
                 "description": "Per-template target-zone overlay."
               },
               "tenant_id": {
@@ -22627,6 +24127,13 @@
           "WorkoutTemplateSummary": {
             "description": "The fields an agent picks a session by, without its steps.\n\nThe default `detail` mode. A full template carries the whole step list,\nwhich is long, and an agent choosing between sessions does not need it.",
             "properties": {
+              "aliases": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "For a family: the legacy slugs it absorbed, each naming its preset.",
+                "type": "object"
+              },
               "caveat": {
                 "description": "What to watch for when prescribing it; absent when there is nothing.",
                 "type": [
@@ -22662,6 +24169,13 @@
               },
               "params": {
                 "description": "The parameters that shape it, as the bank defines them."
+              },
+              "presets": {
+                "description": "For a parametric family: its named presets, each a session to prescribe\nby `template_slug` plus `preset`. Empty for a single-session template.",
+                "items": {
+                  "$ref": "#/$defs/PresetSummary"
+                },
+                "type": "array"
               },
               "progression": {
                 "$ref": "#/$defs/TemplateProgression",
@@ -23381,6 +24895,10 @@
             "description": "Date to schedule it on, YYYY-MM-DD.",
             "type": "string"
           },
+          "preset": {
+            "description": "A family's preset key; its default if omitted.",
+            "type": "string"
+          },
           "provider": {
             "description": "Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks.",
             "type": "string"
@@ -23401,7 +24919,7 @@
                 "type": "string"
               },
               "purpose": {
-                "description": "What the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill. Omitted, it follows from intensity_distribution.",
+                "description": "What the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep. Omitted, it follows from intensity_distribution.",
                 "type": "string"
               },
               "sport": {
@@ -23460,6 +24978,49 @@
             ],
             "type": "object"
           },
+          "sport": {
+            "description": "ride | run | swim: the preset's form.",
+            "type": "string"
+          },
+          "template_params": {
+            "description": "Values filling the template's ranges (list_workout_templates shows ranges and defaults).",
+            "properties": {
+              "anchor": {
+                "description": "preset | ftp | critical_power | map | threshold_pace | critical_speed | vvo2max | threshold_heart_rate | max_heart_rate | heart_rate_reserve | rpe",
+                "type": "string"
+              },
+              "duration_minutes": {
+                "description": "Session duration in minutes, for a continuous template.",
+                "type": "integer"
+              },
+              "pacing": {
+                "description": "fixed | best_sustainable.",
+                "type": "string"
+              },
+              "reps": {
+                "description": "Repetitions per set.",
+                "type": "integer"
+              },
+              "rest_seconds": {
+                "description": "Recovery interval in seconds.",
+                "type": "integer"
+              },
+              "set_rest_seconds": {
+                "description": "Rest between sets, seconds.",
+                "type": "integer"
+              },
+              "sets": {
+                "description": "Sets, when the template has them.",
+                "type": "integer"
+              },
+              "work_seconds": {
+                "description": "Work interval in seconds.",
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "template_slug": {
             "description": "A stored template's slug: from the workout bank (list_workout_templates) or a session you prescribed this athlete before. Use `session` for anything new.",
             "type": "string"
@@ -23471,6 +25032,774 @@
         "type": "object"
       },
       "outputSchema": {
+        "$defs": {
+          "ConstraintAction": {
+            "description": "What a rule does when it fires. There is no block (founder decision D3).",
+            "oneOf": [
+              {
+                "const": "warn",
+                "description": "Tell the athlete and coach; the session stands as written.",
+                "type": "string"
+              },
+              {
+                "const": "relabel",
+                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
+                "type": "string"
+              }
+            ]
+          },
+          "DerivedValues": {
+            "description": "The quantities of a step list the rules read. Percentages of the aerobic\nmaximum are of MAP on the bike and `vVO2max` on foot and in the water.",
+            "properties": {
+              "aerobic_max": {
+                "description": "What the aerobic maximum is: `MAP` or `vVO2max`.",
+                "type": "string"
+              },
+              "amplitude_pct": {
+                "description": "Work minus mean rest, points of the aerobic maximum.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cycle_mean_pct": {
+                "description": "Time-weighted mean of one cycle, % of the aerobic maximum; only for\nexternal targets and active floats.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "external": {
+                "description": "Whether the work target is power or speed.",
+                "type": "boolean"
+              },
+              "float_active": {
+                "description": "Whether every rest role is an active float (≥ ~30 % of the anchor).",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "minutes_above_lt1": {
+                "description": "Time above LT1 across the session, minutes.",
+                "format": "float",
+                "type": "number"
+              },
+              "on_time_minutes": {
+                "description": "Work time across the main cycle, minutes.",
+                "format": "float",
+                "type": "number"
+              },
+              "ratio": {
+                "description": "Work over rest.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "reps": {
+                "description": "Reps per set of the main cycle.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rest_pct": {
+                "description": "Mean rest target, % of the aerobic maximum.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rest_seconds": {
+                "description": "Everything else in one cycle, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "roles": {
+                "description": "Roles in the main cycle (2 for on/off, 3 for 10-20-30).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sets": {
+                "description": "Sets of the main cycle.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total_minutes": {
+                "description": "The whole session, minutes.",
+                "format": "float",
+                "type": "number"
+              },
+              "work_all_out": {
+                "description": "Whether the work target asks for an all-out effort.",
+                "type": "boolean"
+              },
+              "work_has_distance": {
+                "description": "Whether the work step carries a distance.",
+                "type": "boolean"
+              },
+              "work_on_course": {
+                "description": "Whether the work step's note sends the athlete to a measured course.",
+                "type": "boolean"
+              },
+              "work_on_heart_rate": {
+                "description": "Whether the work target is a heart-rate one.",
+                "type": "boolean"
+              },
+              "work_pct": {
+                "description": "Work target, % of the aerobic maximum.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "work_seconds": {
+                "description": "Work bout, seconds.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "sets",
+              "reps",
+              "roles",
+              "work_seconds",
+              "rest_seconds",
+              "external",
+              "work_all_out",
+              "work_has_distance",
+              "work_on_course",
+              "work_on_heart_rate",
+              "on_time_minutes",
+              "total_minutes",
+              "minutes_above_lt1",
+              "aerobic_max"
+            ],
+            "type": "object"
+          },
+          "EnvelopeFinding": {
+            "description": "One thing the check found. Always a warning; a relabel also names the\npurpose the session now trains.",
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/ConstraintAction",
+                "description": "Warn, or warn and relabel."
+              },
+              "bound": {
+                "description": "The bound it crossed.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "code": {
+                "$ref": "#/$defs/FindingCode",
+                "description": "What it is about — the key a localized notice is written under."
+              },
+              "evidence": {
+                "description": "The studies the bound is derived from.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "description": "The parameter or quantity measured (`reps`, `cycle_mean_pct`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "measured": {
+                "description": "What was measured.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One deterministic English sentence, for logs and for the model;\nathlete-facing text is localized from `code`.",
+                "type": "string"
+              },
+              "relabel_to": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose a relabel files the session under."
+              }
+            },
+            "required": [
+              "code",
+              "action",
+              "message"
+            ],
+            "type": "object"
+          },
+          "EnvelopeReport": {
+            "description": "The envelope check's result for one instance.",
+            "properties": {
+              "anchor_basis": {
+                "description": "Which anchor ratios the percentages rest on.",
+                "type": "string"
+              },
+              "badge": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/EvidenceBadge"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The preset's evidence badge in this sport."
+              },
+              "derived": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DerivedValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The derived quantities."
+              },
+              "family": {
+                "description": "The family (template slug).",
+                "type": "string"
+              },
+              "findings": {
+                "description": "What the check found.",
+                "items": {
+                  "$ref": "#/$defs/EnvelopeFinding"
+                },
+                "type": "array"
+              },
+              "preset": {
+                "description": "The preset measured against.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "purpose": {
+                "$ref": "#/$defs/WorkoutPurpose",
+                "description": "The template's purpose."
+              },
+              "relabelled_purpose": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose the instance trains instead, when a rule relabelled it."
+              },
+              "sport": {
+                "$ref": "#/$defs/SportType",
+                "description": "The sport."
+              }
+            },
+            "required": [
+              "family",
+              "sport",
+              "purpose",
+              "anchor_basis",
+              "findings"
+            ],
+            "type": "object"
+          },
+          "EvidenceBadge": {
+            "description": "Where one sport's evidence for a preset sits.",
+            "properties": {
+              "acute_only": {
+                "description": "Every study in this sport ran a single session.",
+                "type": "boolean"
+              },
+              "basis": {
+                "description": "The studies the badge rests on, as cited (`Rønnestad 2015 [RCT]`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "caveat": {
+                "description": "What the evidence does not cover.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/$defs/EvidenceStatus",
+                "description": "Trialled, transposed or convention."
+              },
+              "uncontrolled_only": {
+                "description": "Every study in this sport was pre/post without a comparator.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "EvidenceStatus": {
+            "description": "Where a preset's evidence sits in one sport (the three founder badges).",
+            "oneOf": [
+              {
+                "const": "trialled",
+                "description": "A study in this sport ran the format, or its defining parameter,\nand measured an outcome relevant to its purpose.",
+                "type": "string"
+              },
+              {
+                "const": "transposed",
+                "description": "Such a study exists only in the other sport; the preset reaches\nthis sport through the transposition rules.",
+                "type": "string"
+              },
+              {
+                "const": "convention",
+                "description": "Only practice, review, consensus or platform convention.",
+                "type": "string"
+              }
+            ]
+          },
+          "FindingCode": {
+            "description": "What a finding is about.",
+            "oneOf": [
+              {
+                "const": "param_out_of_range",
+                "description": "A parameter left its preset's range.",
+                "type": "string"
+              },
+              {
+                "const": "params_disagree_with_steps",
+                "description": "The stated parameters and the written steps describe different sessions.",
+                "type": "string"
+              },
+              {
+                "const": "left_purpose",
+                "description": "The steps train a different family than the template's.",
+                "type": "string"
+              },
+              {
+                "const": "unknown_preset",
+                "description": "The request named a preset the family does not hold.",
+                "type": "string"
+              },
+              {
+                "const": "sport_not_offered",
+                "description": "The family has no form for the requested sport.",
+                "type": "string"
+              },
+              {
+                "const": "map_without_definition",
+                "description": "A MAP target, but the athlete's MAP states no definition.",
+                "type": "string"
+              },
+              {
+                "const": "under_dosed",
+                "description": "Supra-threshold reps below the anaerobic-capacity floor with long rest.",
+                "type": "string"
+              },
+              {
+                "const": "work_range",
+                "description": "C1.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_floor",
+                "description": "C2.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_ceiling",
+                "description": "C3.",
+                "type": "string"
+              },
+              {
+                "const": "cycle_mean_floor",
+                "description": "C4.",
+                "type": "string"
+              },
+              {
+                "const": "on_intensity_window",
+                "description": "C5.",
+                "type": "string"
+              },
+              {
+                "const": "true_tabata",
+                "description": "C6.",
+                "type": "string"
+              },
+              {
+                "const": "hr_rep_target",
+                "description": "C8.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "C9.",
+                "type": "string"
+              },
+              {
+                "const": "gps_short_reps",
+                "description": "C10.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_ceiling",
+                "description": "C11.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_floor",
+                "description": "C12.",
+                "type": "string"
+              },
+              {
+                "const": "one_to_one_long_rep",
+                "description": "C13.",
+                "type": "string"
+              },
+              {
+                "const": "duration_ceiling",
+                "description": "The session ran past its family's duration ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "steady_ceiling",
+                "description": "A steady segment rose past its family's ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "insert_quality_cap",
+                "description": "Too much time above LT1 inside an easy session.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportType": {
+            "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
+            "oneOf": [
+              {
+                "const": "run",
+                "description": "Running activity",
+                "type": "string"
+              },
+              {
+                "const": "ride",
+                "description": "Cycling/biking activity",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming activity",
+                "type": "string"
+              },
+              {
+                "const": "walk",
+                "description": "Walking activity",
+                "type": "string"
+              },
+              {
+                "const": "hike",
+                "description": "Hiking activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_ride",
+                "description": "Indoor/trainer cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_run",
+                "description": "Treadmill running activity",
+                "type": "string"
+              },
+              {
+                "const": "workout",
+                "description": "Generic workout/exercise activity",
+                "type": "string"
+              },
+              {
+                "const": "yoga",
+                "description": "Yoga practice",
+                "type": "string"
+              },
+              {
+                "const": "ebike_ride",
+                "description": "Electric bike ride",
+                "type": "string"
+              },
+              {
+                "const": "mountain_bike",
+                "description": "Mountain biking activity",
+                "type": "string"
+              },
+              {
+                "const": "gravel_ride",
+                "description": "Gravel cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "cross_country_skiing",
+                "description": "Cross-country skiing",
+                "type": "string"
+              },
+              {
+                "const": "alpine_skiing",
+                "description": "Alpine/downhill skiing",
+                "type": "string"
+              },
+              {
+                "const": "snowboarding",
+                "description": "Snowboarding activity",
+                "type": "string"
+              },
+              {
+                "const": "snowshoe",
+                "description": "Snowshoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "ice_skating",
+                "description": "Ice skating activity",
+                "type": "string"
+              },
+              {
+                "const": "backcountry_skiing",
+                "description": "Backcountry skiing",
+                "type": "string"
+              },
+              {
+                "const": "kayaking",
+                "description": "Kayaking activity",
+                "type": "string"
+              },
+              {
+                "const": "canoeing",
+                "description": "Canoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "rowing",
+                "description": "Rowing activity",
+                "type": "string"
+              },
+              {
+                "const": "paddleboarding",
+                "description": "Stand-up paddleboarding",
+                "type": "string"
+              },
+              {
+                "const": "surfing",
+                "description": "Surfing activity",
+                "type": "string"
+              },
+              {
+                "const": "kitesurfing",
+                "description": "Kitesurfing activity",
+                "type": "string"
+              },
+              {
+                "const": "strength_training",
+                "description": "Weight/strength training",
+                "type": "string"
+              },
+              {
+                "const": "crossfit",
+                "description": "`CrossFit` workout",
+                "type": "string"
+              },
+              {
+                "const": "pilates",
+                "description": "Pilates session",
+                "type": "string"
+              },
+              {
+                "const": "rock_climbing",
+                "description": "Rock climbing activity",
+                "type": "string"
+              },
+              {
+                "const": "trail_running",
+                "description": "Trail running",
+                "type": "string"
+              },
+              {
+                "const": "soccer",
+                "description": "Soccer/football",
+                "type": "string"
+              },
+              {
+                "const": "basketball",
+                "description": "Basketball",
+                "type": "string"
+              },
+              {
+                "const": "tennis",
+                "description": "Tennis",
+                "type": "string"
+              },
+              {
+                "const": "golf",
+                "description": "Golf",
+                "type": "string"
+              },
+              {
+                "const": "skateboarding",
+                "description": "Skateboarding",
+                "type": "string"
+              },
+              {
+                "const": "inline_skating",
+                "description": "Inline skating",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Other activity type not covered by standard categories",
+                "properties": {
+                  "other": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "other"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WorkoutPurpose": {
+            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
+            "oneOf": [
+              {
+                "const": "recovery",
+                "description": "Easy movement that costs nothing.",
+                "type": "string"
+              },
+              {
+                "const": "endurance",
+                "description": "Steady aerobic work below LT1.",
+                "type": "string"
+              },
+              {
+                "const": "endurance_long",
+                "description": "The long session of the week.",
+                "type": "string"
+              },
+              {
+                "const": "tempo",
+                "description": "Sustained work between LT1 and LT2.",
+                "type": "string"
+              },
+              {
+                "const": "sweet_spot",
+                "description": "The 88–94 % FTP band, long reps.",
+                "type": "string"
+              },
+              {
+                "const": "threshold",
+                "description": "Work at or around LT2.",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_long",
+                "description": "Long intervals at ~90 % of maximum (4 × 8 min).",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_short",
+                "description": "Short intervals above threshold (30/15, 30/30).",
+                "type": "string"
+              },
+              {
+                "const": "sprint",
+                "description": "Maximal efforts with full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "neuromuscular",
+                "description": "Strides and hill sprints: form and recruitment, not fatigue.",
+                "type": "string"
+              },
+              {
+                "const": "race_specific",
+                "description": "Race-pace work the goal event asks for.",
+                "type": "string"
+              },
+              {
+                "const": "brick",
+                "description": "Bike-to-run transition session.",
+                "type": "string"
+              },
+              {
+                "const": "strength_aa",
+                "description": "Anatomical adaptation — light load, high reps, movement quality.",
+                "type": "string"
+              },
+              {
+                "const": "strength_max",
+                "description": "Maximal strength — heavy load, low reps, full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "strength_maint",
+                "description": "In-season strength maintenance.",
+                "type": "string"
+              },
+              {
+                "const": "plyometric",
+                "description": "Plyometrics — jumps and contacts.",
+                "type": "string"
+              },
+              {
+                "const": "mobility",
+                "description": "Mobility and core.",
+                "type": "string"
+              },
+              {
+                "const": "uphill",
+                "description": "Sustained climbing effort — steep uphill running or power-hiking\nheld for minutes at a time, the demand a mountain course makes.",
+                "type": "string"
+              },
+              {
+                "const": "downhill",
+                "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
+                "type": "string"
+              },
+              {
+                "const": "anaerobic_capacity",
+                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
+                "type": "string"
+              },
+              {
+                "const": "race_prep",
+                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
+                "type": "string"
+              }
+            ]
+          }
+        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
@@ -23487,6 +25816,17 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "envelope": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/EnvelopeReport"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the envelope check found on a family session: each finding\nwarns, and a relabel names the purpose the session now trains.\nStructured, never prose; absent when nothing was found."
               },
               "name": {
                 "description": "Its display name.",
@@ -23672,6 +26012,21 @@
               }
             ]
           },
+          "ConstraintAction": {
+            "description": "What a rule does when it fires. There is no block (founder decision D3).",
+            "oneOf": [
+              {
+                "const": "warn",
+                "description": "Tell the athlete and coach; the session stands as written.",
+                "type": "string"
+              },
+              {
+                "const": "relabel",
+                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
+                "type": "string"
+              }
+            ]
+          },
           "CrowdedWeek": {
             "description": "One week whose hard sessions sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
             "oneOf": [
@@ -23755,6 +26110,57 @@
             ],
             "type": "object"
           },
+          "DayEnvelopeNotice": {
+            "description": "One day's envelope findings.",
+            "properties": {
+              "date": {
+                "description": "The day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "findings": {
+                "description": "What the check found.",
+                "items": {
+                  "$ref": "#/$defs/EnvelopeFinding"
+                },
+                "type": "array"
+              },
+              "not_generated": {
+                "description": "Why the save could not build the day's steps from its preset; the day\ncarries no steps until the agent writes them or shortens the day.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "preset": {
+                "description": "The preset it was measured against.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relabelled_purpose": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose the session trains when an edit moved it to another\nfamily."
+              },
+              "template_slug": {
+                "description": "The family the day names.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "template_slug",
+              "findings"
+            ],
+            "type": "object"
+          },
           "DraftConflict": {
             "description": "One week the coach drafted whose live version the athlete changed since.",
             "properties": {
@@ -23812,6 +26218,201 @@
               "updated_at",
               "conflicts",
               "season_relaid"
+            ],
+            "type": "object"
+          },
+          "EnvelopeFinding": {
+            "description": "One thing the check found. Always a warning; a relabel also names the\npurpose the session now trains.",
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/ConstraintAction",
+                "description": "Warn, or warn and relabel."
+              },
+              "bound": {
+                "description": "The bound it crossed.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "code": {
+                "$ref": "#/$defs/FindingCode",
+                "description": "What it is about — the key a localized notice is written under."
+              },
+              "evidence": {
+                "description": "The studies the bound is derived from.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "description": "The parameter or quantity measured (`reps`, `cycle_mean_pct`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "measured": {
+                "description": "What was measured.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One deterministic English sentence, for logs and for the model;\nathlete-facing text is localized from `code`.",
+                "type": "string"
+              },
+              "relabel_to": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose a relabel files the session under."
+              }
+            },
+            "required": [
+              "code",
+              "action",
+              "message"
+            ],
+            "type": "object"
+          },
+          "FindingCode": {
+            "description": "What a finding is about.",
+            "oneOf": [
+              {
+                "const": "param_out_of_range",
+                "description": "A parameter left its preset's range.",
+                "type": "string"
+              },
+              {
+                "const": "params_disagree_with_steps",
+                "description": "The stated parameters and the written steps describe different sessions.",
+                "type": "string"
+              },
+              {
+                "const": "left_purpose",
+                "description": "The steps train a different family than the template's.",
+                "type": "string"
+              },
+              {
+                "const": "unknown_preset",
+                "description": "The request named a preset the family does not hold.",
+                "type": "string"
+              },
+              {
+                "const": "sport_not_offered",
+                "description": "The family has no form for the requested sport.",
+                "type": "string"
+              },
+              {
+                "const": "map_without_definition",
+                "description": "A MAP target, but the athlete's MAP states no definition.",
+                "type": "string"
+              },
+              {
+                "const": "under_dosed",
+                "description": "Supra-threshold reps below the anaerobic-capacity floor with long rest.",
+                "type": "string"
+              },
+              {
+                "const": "work_range",
+                "description": "C1.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_floor",
+                "description": "C2.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_ceiling",
+                "description": "C3.",
+                "type": "string"
+              },
+              {
+                "const": "cycle_mean_floor",
+                "description": "C4.",
+                "type": "string"
+              },
+              {
+                "const": "on_intensity_window",
+                "description": "C5.",
+                "type": "string"
+              },
+              {
+                "const": "true_tabata",
+                "description": "C6.",
+                "type": "string"
+              },
+              {
+                "const": "hr_rep_target",
+                "description": "C8.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "C9.",
+                "type": "string"
+              },
+              {
+                "const": "gps_short_reps",
+                "description": "C10.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_ceiling",
+                "description": "C11.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_floor",
+                "description": "C12.",
+                "type": "string"
+              },
+              {
+                "const": "one_to_one_long_rep",
+                "description": "C13.",
+                "type": "string"
+              },
+              {
+                "const": "duration_ceiling",
+                "description": "The session ran past its family's duration ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "steady_ceiling",
+                "description": "A steady segment rose past its family's ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "insert_quality_cap",
+                "description": "Too much time above LT1 inside an easy session.",
+                "type": "string"
+              }
+            ]
+          },
+          "PlanEnvelopeReport": {
+            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. Structured, never prose — the athlete-facing\nwording is the agent's, under the same framing rules as `safety`.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
+            "properties": {
+              "days": {
+                "description": "The days with findings, in plan order.",
+                "items": {
+                  "$ref": "#/$defs/DayEnvelopeNotice"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "days"
             ],
             "type": "object"
           },
@@ -24041,6 +26642,116 @@
                 "type": "string"
               }
             ]
+          },
+          "WorkoutPurpose": {
+            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
+            "oneOf": [
+              {
+                "const": "recovery",
+                "description": "Easy movement that costs nothing.",
+                "type": "string"
+              },
+              {
+                "const": "endurance",
+                "description": "Steady aerobic work below LT1.",
+                "type": "string"
+              },
+              {
+                "const": "endurance_long",
+                "description": "The long session of the week.",
+                "type": "string"
+              },
+              {
+                "const": "tempo",
+                "description": "Sustained work between LT1 and LT2.",
+                "type": "string"
+              },
+              {
+                "const": "sweet_spot",
+                "description": "The 88–94 % FTP band, long reps.",
+                "type": "string"
+              },
+              {
+                "const": "threshold",
+                "description": "Work at or around LT2.",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_long",
+                "description": "Long intervals at ~90 % of maximum (4 × 8 min).",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_short",
+                "description": "Short intervals above threshold (30/15, 30/30).",
+                "type": "string"
+              },
+              {
+                "const": "sprint",
+                "description": "Maximal efforts with full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "neuromuscular",
+                "description": "Strides and hill sprints: form and recruitment, not fatigue.",
+                "type": "string"
+              },
+              {
+                "const": "race_specific",
+                "description": "Race-pace work the goal event asks for.",
+                "type": "string"
+              },
+              {
+                "const": "brick",
+                "description": "Bike-to-run transition session.",
+                "type": "string"
+              },
+              {
+                "const": "strength_aa",
+                "description": "Anatomical adaptation — light load, high reps, movement quality.",
+                "type": "string"
+              },
+              {
+                "const": "strength_max",
+                "description": "Maximal strength — heavy load, low reps, full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "strength_maint",
+                "description": "In-season strength maintenance.",
+                "type": "string"
+              },
+              {
+                "const": "plyometric",
+                "description": "Plyometrics — jumps and contacts.",
+                "type": "string"
+              },
+              {
+                "const": "mobility",
+                "description": "Mobility and core.",
+                "type": "string"
+              },
+              {
+                "const": "uphill",
+                "description": "Sustained climbing effort — steep uphill running or power-hiking\nheld for minutes at a time, the demand a mountain course makes.",
+                "type": "string"
+              },
+              {
+                "const": "downhill",
+                "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
+                "type": "string"
+              },
+              {
+                "const": "anaerobic_capacity",
+                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
+                "type": "string"
+              },
+              {
+                "const": "race_prep",
+                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -24082,6 +26793,17 @@
           "draft_id": {
             "description": "The draft acted on.",
             "type": "string"
+          },
+          "envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlanEnvelopeReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On `published`: what the envelope check found on the templated days\nthat went live."
           },
           "message": {
             "description": "What happened, in words to relay to the coach.",
@@ -25866,7 +28588,7 @@
                       "type": "string"
                     },
                     "session_mix": {
-                      "description": "{purpose: weight} over the workout purposes this phase draws sessions from: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility | uphill | downhill.",
+                      "description": "{purpose: weight} over the workout purposes this phase draws sessions from: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility | uphill | downhill | anaerobic_capacity | race_prep.",
                       "type": "object"
                     },
                     "skeleton_id": {
@@ -26136,9 +28858,17 @@
                       "template_params": {
                         "description": "Values filling the template's ranges (list_workout_templates shows ranges and defaults).",
                         "properties": {
+                          "anchor": {
+                            "description": "preset | ftp | critical_power | map | threshold_pace | critical_speed | vvo2max | threshold_heart_rate | max_heart_rate | heart_rate_reserve | rpe",
+                            "type": "string"
+                          },
                           "duration_minutes": {
                             "description": "Session duration in minutes, for a continuous template.",
                             "type": "integer"
+                          },
+                          "pacing": {
+                            "description": "fixed | best_sustainable.",
+                            "type": "string"
                           },
                           "reps": {
                             "description": "Repetitions per set.",
@@ -26146,6 +28876,10 @@
                           },
                           "rest_seconds": {
                             "description": "Recovery interval in seconds.",
+                            "type": "integer"
+                          },
+                          "set_rest_seconds": {
+                            "description": "Rest between sets, seconds.",
                             "type": "integer"
                           },
                           "sets": {
@@ -26159,6 +28893,10 @@
                         },
                         "required": [],
                         "type": "object"
+                      },
+                      "template_preset": {
+                        "description": "A family's preset key; omit steps and the save builds them.",
+                        "type": "string"
                       },
                       "template_slug": {
                         "description": "The catalogue template this day instantiates (a list_workout_templates slug). Give it for every quality session built from the bank.",
@@ -26255,6 +28993,21 @@
               }
             ]
           },
+          "ConstraintAction": {
+            "description": "What a rule does when it fires. There is no block (founder decision D3).",
+            "oneOf": [
+              {
+                "const": "warn",
+                "description": "Tell the athlete and coach; the session stands as written.",
+                "type": "string"
+              },
+              {
+                "const": "relabel",
+                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
+                "type": "string"
+              }
+            ]
+          },
           "CrowdedWeek": {
             "description": "One week whose hard sessions sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
             "oneOf": [
@@ -26335,6 +29088,252 @@
             },
             "required": [
               "week_start"
+            ],
+            "type": "object"
+          },
+          "DayEnvelopeNotice": {
+            "description": "One day's envelope findings.",
+            "properties": {
+              "date": {
+                "description": "The day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "findings": {
+                "description": "What the check found.",
+                "items": {
+                  "$ref": "#/$defs/EnvelopeFinding"
+                },
+                "type": "array"
+              },
+              "not_generated": {
+                "description": "Why the save could not build the day's steps from its preset; the day\ncarries no steps until the agent writes them or shortens the day.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "preset": {
+                "description": "The preset it was measured against.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relabelled_purpose": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose the session trains when an edit moved it to another\nfamily."
+              },
+              "template_slug": {
+                "description": "The family the day names.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "template_slug",
+              "findings"
+            ],
+            "type": "object"
+          },
+          "EnvelopeFinding": {
+            "description": "One thing the check found. Always a warning; a relabel also names the\npurpose the session now trains.",
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/ConstraintAction",
+                "description": "Warn, or warn and relabel."
+              },
+              "bound": {
+                "description": "The bound it crossed.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "code": {
+                "$ref": "#/$defs/FindingCode",
+                "description": "What it is about — the key a localized notice is written under."
+              },
+              "evidence": {
+                "description": "The studies the bound is derived from.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "key": {
+                "description": "The parameter or quantity measured (`reps`, `cycle_mean_pct`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "measured": {
+                "description": "What was measured.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One deterministic English sentence, for logs and for the model;\nathlete-facing text is localized from `code`.",
+                "type": "string"
+              },
+              "relabel_to": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WorkoutPurpose"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The purpose a relabel files the session under."
+              }
+            },
+            "required": [
+              "code",
+              "action",
+              "message"
+            ],
+            "type": "object"
+          },
+          "FindingCode": {
+            "description": "What a finding is about.",
+            "oneOf": [
+              {
+                "const": "param_out_of_range",
+                "description": "A parameter left its preset's range.",
+                "type": "string"
+              },
+              {
+                "const": "params_disagree_with_steps",
+                "description": "The stated parameters and the written steps describe different sessions.",
+                "type": "string"
+              },
+              {
+                "const": "left_purpose",
+                "description": "The steps train a different family than the template's.",
+                "type": "string"
+              },
+              {
+                "const": "unknown_preset",
+                "description": "The request named a preset the family does not hold.",
+                "type": "string"
+              },
+              {
+                "const": "sport_not_offered",
+                "description": "The family has no form for the requested sport.",
+                "type": "string"
+              },
+              {
+                "const": "map_without_definition",
+                "description": "A MAP target, but the athlete's MAP states no definition.",
+                "type": "string"
+              },
+              {
+                "const": "under_dosed",
+                "description": "Supra-threshold reps below the anaerobic-capacity floor with long rest.",
+                "type": "string"
+              },
+              {
+                "const": "work_range",
+                "description": "C1.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_floor",
+                "description": "C2.",
+                "type": "string"
+              },
+              {
+                "const": "ratio_ceiling",
+                "description": "C3.",
+                "type": "string"
+              },
+              {
+                "const": "cycle_mean_floor",
+                "description": "C4.",
+                "type": "string"
+              },
+              {
+                "const": "on_intensity_window",
+                "description": "C5.",
+                "type": "string"
+              },
+              {
+                "const": "true_tabata",
+                "description": "C6.",
+                "type": "string"
+              },
+              {
+                "const": "hr_rep_target",
+                "description": "C8.",
+                "type": "string"
+              },
+              {
+                "const": "fixed_pacing",
+                "description": "C9.",
+                "type": "string"
+              },
+              {
+                "const": "gps_short_reps",
+                "description": "C10.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_ceiling",
+                "description": "C11.",
+                "type": "string"
+              },
+              {
+                "const": "on_time_floor",
+                "description": "C12.",
+                "type": "string"
+              },
+              {
+                "const": "one_to_one_long_rep",
+                "description": "C13.",
+                "type": "string"
+              },
+              {
+                "const": "duration_ceiling",
+                "description": "The session ran past its family's duration ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "steady_ceiling",
+                "description": "A steady segment rose past its family's ceiling.",
+                "type": "string"
+              },
+              {
+                "const": "insert_quality_cap",
+                "description": "Too much time above LT1 inside an easy session.",
+                "type": "string"
+              }
+            ]
+          },
+          "PlanEnvelopeReport": {
+            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. Structured, never prose — the athlete-facing\nwording is the agent's, under the same framing rules as `safety`.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
+            "properties": {
+              "days": {
+                "description": "The days with findings, in plan order.",
+                "items": {
+                  "$ref": "#/$defs/DayEnvelopeNotice"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "days"
             ],
             "type": "object"
           },
@@ -26567,6 +29566,116 @@
                 "type": "string"
               }
             ]
+          },
+          "WorkoutPurpose": {
+            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
+            "oneOf": [
+              {
+                "const": "recovery",
+                "description": "Easy movement that costs nothing.",
+                "type": "string"
+              },
+              {
+                "const": "endurance",
+                "description": "Steady aerobic work below LT1.",
+                "type": "string"
+              },
+              {
+                "const": "endurance_long",
+                "description": "The long session of the week.",
+                "type": "string"
+              },
+              {
+                "const": "tempo",
+                "description": "Sustained work between LT1 and LT2.",
+                "type": "string"
+              },
+              {
+                "const": "sweet_spot",
+                "description": "The 88–94 % FTP band, long reps.",
+                "type": "string"
+              },
+              {
+                "const": "threshold",
+                "description": "Work at or around LT2.",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_long",
+                "description": "Long intervals at ~90 % of maximum (4 × 8 min).",
+                "type": "string"
+              },
+              {
+                "const": "vo2max_short",
+                "description": "Short intervals above threshold (30/15, 30/30).",
+                "type": "string"
+              },
+              {
+                "const": "sprint",
+                "description": "Maximal efforts with full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "neuromuscular",
+                "description": "Strides and hill sprints: form and recruitment, not fatigue.",
+                "type": "string"
+              },
+              {
+                "const": "race_specific",
+                "description": "Race-pace work the goal event asks for.",
+                "type": "string"
+              },
+              {
+                "const": "brick",
+                "description": "Bike-to-run transition session.",
+                "type": "string"
+              },
+              {
+                "const": "strength_aa",
+                "description": "Anatomical adaptation — light load, high reps, movement quality.",
+                "type": "string"
+              },
+              {
+                "const": "strength_max",
+                "description": "Maximal strength — heavy load, low reps, full recovery.",
+                "type": "string"
+              },
+              {
+                "const": "strength_maint",
+                "description": "In-season strength maintenance.",
+                "type": "string"
+              },
+              {
+                "const": "plyometric",
+                "description": "Plyometrics — jumps and contacts.",
+                "type": "string"
+              },
+              {
+                "const": "mobility",
+                "description": "Mobility and core.",
+                "type": "string"
+              },
+              {
+                "const": "uphill",
+                "description": "Sustained climbing effort — steep uphill running or power-hiking\nheld for minutes at a time, the demand a mountain course makes.",
+                "type": "string"
+              },
+              {
+                "const": "downhill",
+                "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
+                "type": "string"
+              },
+              {
+                "const": "anaerobic_capacity",
+                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
+                "type": "string"
+              },
+              {
+                "const": "race_prep",
+                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -26593,6 +29702,17 @@
           "draft": {
             "description": "`true` when a group's human coach saved for a coached athlete: the\nsave went into the coach's draft, which the athlete does not see\nuntil the coach publishes it with `publish_training_plan`. `plan_id`\nis then the draft's.",
             "type": "boolean"
+          },
+          "envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlanEnvelopeReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the envelope check found on the templated days just written."
           },
           "goal_fact_id": {
             "description": "The living goal fact the plan is anchored to, when one was recorded.",

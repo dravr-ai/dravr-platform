@@ -223,7 +223,10 @@ jobs:
 
   build-server:
     name: Build Server (thin release)
-    runs-on: ubuntu-latest
+    # The binary runs in the Playwright job below, pinned to 24.04: built on
+    # 26.04 it needs GLIBC_2.43, which 24.04 lacks. The image is in the reuse
+    # and cache keys, so a binary or build tree from another image never lands.
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.build == 'true'
     timeout-minutes: 45  # a release build off the restored target/
@@ -245,7 +248,7 @@ jobs:
         uses: ./.github/actions/prebuilt-server
         with:
           prefix: server-e2e-binaries
-          variant: ${{ runner.os }}-${{ runner.arch }}-release-default-features
+          variant: ${{ runner.os }}-ubuntu-24.04-${{ runner.arch }}-release-default-features
           extra-paths: .github/workflows/server-e2e.yml
           path: target/release
 
@@ -277,9 +280,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-mobile-server-1.99.1-
+            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-
 
       - name: Build Pierre server and CLI (thin release)
         if: steps.prebuilt.outputs.hit != 'true'
@@ -297,15 +300,21 @@ jobs:
       # fat 113 MB (ceiling 115, run 42080359585), thin 139 MB, so
       # 139 x 115/113 = 141. Re-scaled on 2026-11-06 from main's fat 114 MB
       # (runs 42323514435, 42316877305) and thin 141 MB: 141 x 115/114 = 142.
-      # Move both ceilings together.
+      # Re-scaled on 2026-11-11 from one commit's pair (27a5f46ad, the
+      # workout-family landing): fat 115 MB passing its ceiling (run
+      # 43079527898) and thin 143 MB (run 43079527897), so 143 x 115/115 =
+      # 143. The shipped ceiling then moved to 118 for the families'
+      # catalogue (ci-backend.yml); the per-sport coverage landing measured
+      # fat 116 MB (run 43112901530) and thin 143 MB (run 43112910642), so
+      # 143 x 118/116 = 145. Move both ceilings together.
       - name: Check the server binary size (thin release)
         run: |
           BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
-          MAX_SIZE_MB=142
+          MAX_SIZE_MB=145
           WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
           echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
           if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
-            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 115MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
+            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 118MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
             exit 1
           fi
           if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
@@ -331,7 +340,9 @@ jobs:
 
   playwright:
     name: Playwright Integration Tests (Real Server)
-    runs-on: ubuntu-latest
+    # Playwright ships no chromium for ubuntu-latest's 26.04 image
+    # ("Playwright does not support chromium on ubuntu26.04-x64", 2026-11-10).
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.playwright == 'true'
     timeout-minutes: 45

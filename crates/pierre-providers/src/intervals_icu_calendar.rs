@@ -137,22 +137,44 @@ const fn family_basis(family: TargetFamily) -> ThresholdBasis {
 /// A percentage band in the DSL's own spelling, suffixed with the threshold
 /// it is of. The workout-builder text reads a bare `88-93%` as a percent of
 /// FTP, `95-100% LTHR` as a percent of threshold heart rate (`% HR` alone is
-/// a percent of maximum heart rate, which no band in the grammar names) and
+/// a percent of maximum heart rate) and
 /// `90-95% Pace` as a percent of threshold pace, read as speed so a higher
 /// percent is faster — the reading [`ThresholdBasis::Pace`] states. Source:
 /// the Intervals.icu "Workout Builder Syntax Quick Guide"
 /// (forum.intervals.icu/t/123701) and "Workout builder"
 /// (forum.intervals.icu/t/1163).
-fn percent_target(low: u16, high: u16, basis: ThresholdBasis) -> String {
+///
+/// The bases the parametric families added go out only where the DSL has a
+/// native form that resolves against the athlete's own Intervals.icu data:
+/// `% HR` (of maximum heart rate) and `% MMP <duration>` (of best power for
+/// the duration). A MAP band goes out as `% MMP 5m`, best five-minute power
+/// standing in for maximal aerobic power — the research note's "cheapest
+/// existing export" for MAP-anchored reps, and a number Intervals.icu holds,
+/// not one Dravr computed. CP, CS, vVO2max and heart-rate reserve have no
+/// native form; converting them would push Dravr's own default ratios into
+/// a payload that carries none today, so they go out open (founders' open
+/// decision on pushing new bases: convert only at high anchor confidence,
+/// and no stored anchor carries a confidence yet).
+fn percent_target(low: u16, high: u16, basis: ThresholdBasis) -> Option<String> {
     let band = if low == high {
         format!("{low}%")
     } else {
         format!("{low}-{high}%")
     };
     match basis {
-        ThresholdBasis::Ftp => band,
-        ThresholdBasis::Pace => format!("{band} Pace"),
-        ThresholdBasis::HeartRate => format!("{band} LTHR"),
+        ThresholdBasis::Ftp => Some(band),
+        ThresholdBasis::Pace => Some(format!("{band} Pace")),
+        ThresholdBasis::HeartRate => Some(format!("{band} LTHR")),
+        ThresholdBasis::MaxHeartRate => Some(format!("{band} HR")),
+        ThresholdBasis::Map => Some(format!("{band} MMP 5m")),
+        ThresholdBasis::Mmp { seconds } if seconds % 60 == 0 => {
+            Some(format!("{band} MMP {}m", seconds / 60))
+        }
+        ThresholdBasis::Mmp { seconds } => Some(format!("{band} MMP {seconds}s")),
+        ThresholdBasis::CriticalPower
+        | ThresholdBasis::CriticalSpeed
+        | ThresholdBasis::VVo2max
+        | ThresholdBasis::HeartRateReserve => None,
     }
 }
 
@@ -168,25 +190,22 @@ fn dsl_target(target_zone: &str, family: TargetFamily) -> Option<String> {
     match RelativeIntensity::parse(target_zone)? {
         RelativeIntensity::Zone(n) => Some(zone_target(n, family)),
         RelativeIntensity::HeartRateZone(n) => Some(zone_target(n, TargetFamily::HeartRate)),
-        RelativeIntensity::SweetSpot => Some(match family {
+        RelativeIntensity::SweetSpot => match family {
             TargetFamily::Power => percent_target(88, 94, ThresholdBasis::Ftp),
-            other => zone_target(3, other),
-        }),
+            other => Some(zone_target(3, other)),
+        },
         RelativeIntensity::Percent {
             low,
             high,
             threshold,
-        } => Some(percent_target(
-            low,
-            high,
-            threshold.unwrap_or_else(|| family_basis(family)),
-        )),
+        } => percent_target(low, high, threshold.unwrap_or_else(|| family_basis(family))),
         // The workout-builder text has no perceived-exertion target: its
         // targets are power, heart rate and pace (percent, absolute or zone),
         // and neither syntax guide names an RPE form. An RPE step therefore
         // goes out timed and untargeted, the way a prose label does, and the
-        // athlete still reads the step's label and note.
-        RelativeIntensity::Rpe(_) => None,
+        // athlete still reads the step's label and note. No lactate target
+        // either: a lactate band is a test-and-adjust cue read the same way.
+        RelativeIntensity::Rpe(_) | RelativeIntensity::Lactate { .. } => None,
     }
 }
 
@@ -395,6 +414,29 @@ impl IntervalsIcuEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_basis_goes_out_only_in_a_form_the_dsl_resolves() {
+        let power = |label: &str| dsl_target(label, TargetFamily::Power);
+        assert_eq!(power("90-95% HRmax").as_deref(), Some("90-95% HR"));
+        assert_eq!(power("100-110% MAP").as_deref(), Some("100-110% MMP 5m"));
+        assert_eq!(power("95% MMP 5m").as_deref(), Some("95% MMP 5m"));
+        assert_eq!(power("120% MMP 30s").as_deref(), Some("120% MMP 30s"));
+        for open in [
+            "105% CP",
+            "95-100% CS",
+            "100% vVO2max",
+            "70% HRR",
+            "2.0 mmol/L",
+        ] {
+            assert_eq!(power(open), None, "{open} goes out untargeted");
+        }
+        assert_eq!(
+            power("95-100% threshold HR").as_deref(),
+            Some("95-100% LTHR"),
+            "threshold heart rate keeps its own suffix"
+        );
+    }
 
     #[test]
     fn every_sport_dravr_writes_reads_back_as_itself() {

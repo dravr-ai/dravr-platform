@@ -1,5 +1,5 @@
 // ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches chat
-// ABOUTME: Mirrors the web OnboardingConnectProvider flow: each card's connect plan, the history sheet after a grant, BYO for Whoop, awaiting-consent overlay
+// ABOUTME: Mirrors the web OnboardingConnectProvider flow: each card's connect plan, the history sign-in after a grant, BYO for Whoop, awaiting-consent overlay
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,7 +23,6 @@ import { Button, StatusDot } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
-import { BringHistorySheet } from '../../components/BringHistorySheet';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
@@ -42,6 +41,7 @@ import { useSignInModal } from '../../hooks/useSignInModal';
 import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
+import type { SciotteTarget } from '@pierre/shared-types';
 import {
   COACH_PLATFORM_PROVIDERS,
   HISTORY_ACTION_KEYS,
@@ -64,7 +64,6 @@ import {
   describeApiError,
   importTombstoneFromReturn,
   refusalReason,
-  shownHistoryChoices,
 } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
@@ -107,8 +106,6 @@ export function OnboardingConnectScreen() {
   // whether it copies the history of a row already connected.
   const signIn = useSignInModal();
   const { open: openSignIn, openFor: openSignInFor } = signIn;
-  // The connected row whose "Bring in your history" sheet is open.
-  const [historySheetFor, setHistorySheetFor] = useState<ExtendedProviderStatus | null>(null);
   // The row whose connect came back refused, and why when the server named
   // it: it says so, and a tap on that line starts its connect again.
   const [refusedCard, setRefusedCard] = useState<RefusedConnect | null>(null);
@@ -249,11 +246,11 @@ export function OnboardingConnectScreen() {
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
-            // A grant whose history is still needed opens the sheet that
-            // brings it in (carnet#1386).
+            // A grant whose history is still needed opens the sign-in that
+            // copies it, at once (carnet#1472).
             const served = await finalizeConnection();
             const owed = cardAwaitingHistory(served, providerId);
-            if (owed) setHistorySheetFor(owed);
+            if (owed) openSignIn(owed.target, owed.card, true);
           } else if (error) {
             // A refused Strava grant falls back to the Strava sign-in, which
             // serves the same data. A Garmin grant refused because the seats
@@ -299,7 +296,7 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection, language, openSignInFor, providers, showRefusal, t],
+    [finalizeConnection, language, openSignIn, openSignInFor, providers, showRefusal, t],
   );
   // The start-fresh action runs the connect again from inside the callback
   // that defined it, so it reads the current one through a ref.
@@ -320,6 +317,14 @@ export function OnboardingConnectScreen() {
     continueConnect(provider, false);
   };
 
+  // A sign-in that could not complete hands over to its provider's OAuth
+  // (carnet#1477): the window closes and the authorization starts instead.
+  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+    const card = cardForSlug(provider, providers);
+    signIn.close();
+    void launchOAuth(provider, card?.display_name ?? provider);
+  };
+
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     // The card's `connectPlan` decides: the Strava and Garmin cards (named for
@@ -329,7 +334,7 @@ export function OnboardingConnectScreen() {
     const primary = connectPlan(provider).primary;
     switch (primary.kind) {
       case 'sign_in':
-        openSignIn(primary.target, provider);
+        openSignIn(primary.target, provider, false, true);
         return;
       case 'intervals':
         // Intervals.icu leads with the athlete's authorization while the
@@ -367,10 +372,10 @@ export function OnboardingConnectScreen() {
     const isConnected = provider.connected;
     const status = cardStatus(provider);
     // A connected grant whose history is still needed, or whose copy did not
-    // finish, opens the sheet that brings it in (carnet#1386); a row served by
+    // finish, opens the sign-in that copies it (carnet#1472); a row served by
     // a sign-in alone asks to move to the official connection.
-    const offersHistory =
-      (status === 'history_needed' || status === 'history_incomplete') && shownHistoryChoices(provider).length > 0;
+    const historySignIn =
+      status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
     const exportSource = cardExportSource(provider);
 
     return (
@@ -436,12 +441,12 @@ export function OnboardingConnectScreen() {
               <Text className="text-sm font-medium text-text-secondary">
                 {t('app.connected')}
               </Text>
-              {offersHistory && (
+              {historySignIn && (
                 <Text
                   className="text-md font-medium text-primary"
-                  onPress={() => setHistorySheetFor(provider)}
+                  onPress={() => openSignIn(historySignIn, provider, true)}
                   accessibilityRole="button"
-                  accessibilityHint={t(HISTORY_ACTION_KEYS.addAria, { provider: provider.display_name })}
+                  accessibilityHint={t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name })}
                   testID={`provider-action-${provider.provider}`}
                 >
                   {t(historyActionKey(provider))}
@@ -562,13 +567,6 @@ export function OnboardingConnectScreen() {
         </View>
       </ScrollView>
 
-      <BringHistorySheet
-        card={historySheetFor}
-        onboarding
-        onClose={() => setHistorySheetFor(null)}
-        onSignIn={(target, card) => openSignIn(target, card, true)}
-      />
-
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
@@ -579,6 +577,7 @@ export function OnboardingConnectScreen() {
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
+        onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         onOAuthRequired={() => {
           const target = signIn.target;
           const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;

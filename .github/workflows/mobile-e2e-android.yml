@@ -44,7 +44,11 @@ jobs:
     name: Build Server (Linux)
     # Main only: the cron always is; a dispatch from another ref skips the lane.
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # One image with server-e2e.yml's build-server, which restores this
+    # job's cache: a target/ built on 26.04 links GLIBC_2.43, which the 24.04
+    # Playwright job cannot load. A 24.04 binary still runs on the 26.04 e2e
+    # job below.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -70,9 +74,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-mobile-server-1.99.1-
+            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-
 
       # pierre-cli gets the e2e-seeded-sessions feature, which adds the
       # `user mint-session` command the control process mints every seeded
@@ -92,7 +96,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Upload server binaries
         uses: actions/upload-artifact@v4

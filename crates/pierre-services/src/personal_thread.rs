@@ -1,5 +1,5 @@
 // ABOUTME: The athlete's one personal thread — designated once on the server, adopted from their newest 1:1 thread or forged
-// ABOUTME: Home, "+", /reset and the coach's own posts land in it; a new topic is a divider row inside it, never a new thread
+// ABOUTME: Home, /reset and the coach's own posts land in it; a new chat is a new conversation, /reset a divider inside it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,22 +9,30 @@
 //! Every athlete has one continuous conversation with Dravr per tenant. It is
 //! named once, by the `chat_conversations.personal` flag, and everything that
 //! needs "the athlete's thread" asks for it here: Home, the coach's own posts,
-//! and "+". None of them picks or forges one of its own, so a post lands in
-//! the thread Home shows.
+//! onboarding's Start, and an athlete's first chat. None of them picks or
+//! forges one of its own, so a post lands in the thread Home shows.
+//!
+//! A new chat for an athlete who already has the thread is not here at all:
+//! it is a conversation of its own, `POST /api/chat/conversations`, bound to
+//! the agent the athlete picked, and the personal thread is left as it was
+//! (carnet#1473).
 //!
 //! The first time it is asked, the server adopts the athlete's newest in-app
 //! thread that is theirs alone and about no single activity. Older threads are
 //! left as they are and stay readable. The designation is settled by a unique
 //! index, so two first requests racing each other end on the same thread.
+//! A thread adopted with turns in it opens on a divider row the adoption
+//! writes, once, so the coach starts afresh instead of reading an old
+//! exchange as the athlete's current context.
 //!
 //! Looking is not starting: [`find_personal_thread`] never forges, so Home
 //! opens on its empty pane for an athlete who has not begun. Only something
-//! that writes into the thread — "+", a tapped starter, the coach's own post —
-//! forges one, through [`resolve_personal_thread`].
+//! that writes into the thread — a first chat, a tapped starter, the coach's
+//! own post — forges one, through [`resolve_personal_thread`].
 //!
 //! The athlete's messaging DM writes into it too, through
 //! [`resolve_dm_thread`], which adopts the thread the DM was already writing
-//! into when that is the athlete's most recent one.
+//! into when that is the athlete's most recent one, with the same divider.
 //!
 //! Starting over inside it is [`open_topic`]: a divider row, after which the
 //! model reads the thread from the divider on (see
@@ -52,8 +60,9 @@ use crate::conversation_forge::{
 /// The athlete's personal thread in `tenant_id`, when they have one.
 ///
 /// The designated thread, else their newest in-app thread that is theirs
-/// alone, adopted now. `None` when they have none — nothing is forged for a
-/// look.
+/// alone, adopted now. `None` when they have none — no thread is forged for
+/// a look. Adopting one with turns in it writes its divider row, the one
+/// write a look can make, and only on the call that adopts it.
 ///
 /// # Errors
 ///
@@ -122,7 +131,7 @@ pub struct PersonalForge<'a> {
     pub title_fallback: &'a str,
     /// Whether it carries the guided walk for an athlete who has answered
     /// nothing yet — what a thread the platform opens on its own carries. A
-    /// thread the athlete opened with "+" never did.
+    /// thread the athlete opened with a new chat never did.
     pub guided_flow: bool,
     /// The chain the server read at boot; its head's model is the one a
     /// forged thread records.
@@ -173,7 +182,9 @@ pub async fn resolve_personal_thread(
 /// threads that are the athlete's alone — their newest in-app one and the one
 /// the DM has been writing into, `dm_thread` — is adopted, so an athlete who
 /// has only ever written on Telegram keeps their history rather than meeting
-/// an empty thread. With neither, one is forged as for any other first write.
+/// an empty thread; a divider row opens it afresh, as any adoption with turns
+/// does, so that history is read but no longer answered as current. With
+/// neither, one is forged as for any other first write.
 ///
 /// # Errors
 ///
@@ -207,15 +218,23 @@ pub async fn resolve_dm_thread(
     let Some(candidate) = newest_of(in_app, dm) else {
         return forge_personal(repos, user_id, tenant_id, forge).await;
     };
-    let adopted = chat
-        .designate_personal_conversation(&candidate.id, user_id, tenant_id)
-        .await?;
-    info!(
+    // The DM's own thread is the conversation the athlete is having right
+    // now: it carries on as the personal thread, with no rule across it. An
+    // in-app chat that wins instead is an older one the DM never wrote in.
+    let opening = if dm_thread == Some(candidate.id.as_str()) {
+        AdoptedOpening::Continues
+    } else {
+        AdoptedOpening::Afresh
+    };
+    adopt(
+        repos,
+        &candidate,
         user_id,
-        conversation_id = %candidate.id,
-        adopted,
-        "personal thread: adopted for the athlete's messaging DM"
-    );
+        tenant_id,
+        opening,
+        "personal thread: adopted for the athlete's messaging DM",
+    )
+    .await?;
     // A refused designation is a racing request that designated first; the
     // winner is read either way.
     designated(repos, user_id, tenant_id)
@@ -266,16 +285,64 @@ async fn adopt_newest(
     else {
         return Ok(false);
     };
-    let adopted = chat
+    adopt(
+        repos,
+        &candidate,
+        user_id,
+        tenant_id,
+        AdoptedOpening::Afresh,
+        "personal thread: adopted the athlete's newest own thread",
+    )
+    .await?;
+    Ok(true)
+}
+
+/// How an adopted thread opens as the personal thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdoptedOpening {
+    /// An older chat becomes the personal thread: the coach starts afresh
+    /// after a divider rather than reading it as the current topic.
+    Afresh,
+    /// The conversation the athlete is having right now — their DM's own
+    /// thread — carries on as the personal thread, with no rule across it.
+    Continues,
+}
+
+/// Designate `candidate` as the athlete's personal thread and, when this call
+/// designated it, it opens [`AdoptedOpening::Afresh`] and it holds turns,
+/// write the divider row it opens on: the thread was an ordinary chat until
+/// now, and the coach starts afresh rather than reading that chat as the
+/// athlete's current context. Its rows stay readable above the rule.
+///
+/// A refused designation is a racing request that designated a thread first
+/// — another one, or this same one — and writes nothing, so two first
+/// requests adopting one thread draw a single rule.
+async fn adopt(
+    repos: &RepositoryRegistry,
+    candidate: &ConversationRecord,
+    user_id: &str,
+    tenant_id: TenantId,
+    opening: AdoptedOpening,
+    message: &str,
+) -> AppResult<()> {
+    let adopted = repos
+        .chat
         .designate_personal_conversation(&candidate.id, user_id, tenant_id)
         .await?;
+    let draws_rule = adopted && opening == AdoptedOpening::Afresh;
+    let divider = if draws_rule && topic_has_turns(repos, candidate, user_id, tenant_id).await? {
+        Some(write_divider(repos, candidate, user_id, tenant_id).await?)
+    } else {
+        None
+    };
     info!(
         user_id,
         conversation_id = %candidate.id,
         adopted,
-        "personal thread: adopted the athlete's newest own thread"
+        divider_id = divider.as_ref().map(|row| row.id.as_str()),
+        "{message}"
     );
-    Ok(true)
+    Ok(())
 }
 
 /// Forge the athlete's personal thread, outside the cap, and designate it.
@@ -344,9 +411,10 @@ async fn designated(
 /// How a new topic opens.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TopicOpening<'a> {
-    /// The agent the topic is with, when the athlete chose one ("+" from the
-    /// Store, or with a specialist picked). The thread is rebound to it, the
-    /// same rebind `/agent add` makes; `None` keeps the thread's agent.
+    /// The agent the topic is with, when the athlete chose one (onboarding's
+    /// Start with its lead, or a first chat with a specialist picked). The
+    /// thread is rebound to it, the same rebind `/agent add` makes; `None`
+    /// keeps the thread's agent.
     pub agent_id: Option<&'a str>,
     /// Whether the guided walk may start, for an athlete who still owes it —
     /// what a fresh thread opened by `/reset` carries.
@@ -376,9 +444,10 @@ pub struct OpenedTopic {
 /// topic names one, and ends a guided walk in progress — restarting it when
 /// `opening` allows and the athlete still owes it, as a fresh thread would.
 ///
-/// A current topic nobody has spoken in yet — a thread just forged, or "+"
-/// pressed twice — gets no second divider: it already is a fresh start, and
-/// a rule with nothing above it but another rule tells the athlete nothing.
+/// A current topic nobody has spoken in yet — a thread just forged or just
+/// adopted, or `/reset` sent twice — gets no second divider: it already is a
+/// fresh start, and a rule with nothing above it but another rule tells the
+/// athlete nothing.
 ///
 /// # Errors
 ///

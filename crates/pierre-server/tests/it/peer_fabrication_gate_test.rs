@@ -21,13 +21,12 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use pierre_chat_pipeline::stages::capability_recovery::{
-    parse_unsupported_verdict, peer_repair_prompt,
-};
+use pierre_chat_pipeline::stages::capability_recovery::peer_repair_prompt;
 use pierre_chat_pipeline::stages::capability_subject::{
     resolve_ask_subject, subject_reask_instruction, AskSubject, OwnActivities,
     SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
 };
+use pierre_chat_pipeline::stages::peer_claim_verifier::parse_unsupported_verdict;
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
 use pierre_core::models::MemberFitnessSnapshot;
@@ -180,6 +179,17 @@ fn repair_prompt_is_chat_shaped() {
     assert!(
         prompt.contains("keep a claim the data confirms"),
         "the repair must check each flagged claim against the payload, not drop it"
+    );
+    // The payload may be the activity cache a failed live fetch fell back to:
+    // told it was "fetched just now", a repaired reply retracted a true
+    // "his Strava needs reconnecting" and claimed a live read (run 42510466793).
+    assert!(
+        !prompt.contains("fetched just now") && !prompt.contains("verified"),
+        "the repair must not assert where or when the payload was read: {prompt}"
+    );
+    assert!(
+        prompt.contains("Do not say how or when this data was fetched"),
+        "the repair forbids narrating the payload's provenance: {prompt}"
     );
 }
 

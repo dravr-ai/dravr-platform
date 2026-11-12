@@ -118,9 +118,8 @@ context, not a competing identity.";
 /// - this block in the slot: 13 / 768 = 1.69%
 ///
 /// Fisher exact two-tailed p = 1.9e-6; the absolute reduction is 4.8 points,
-/// 95% CI [2.9, 6.8]. With the bounded re-ask in
-/// `reask_after_identity_leak` on top, the turn-loss rate an athlete actually
-/// experiences goes from ~0.42% to ~0.03%.
+/// 95% CI [2.9, 6.8]. A break that still happens is withheld at the response
+/// boundary (post-processing Stage 15.4); it is not re-asked.
 ///
 /// Sample size was the whole difficulty. At 100 runs per arm the same
 /// comparison read 1/100 against 3/100 — p = 0.62, indistinguishable from

@@ -64,7 +64,8 @@ impl OutputFormat {
 /// header and the row bodies cannot disagree about which columns exist.
 const COLUMNS: [&str; 5] = ["email", "tier", "id", "display_name", "last_active"];
 
-fn field(user: &Value, key: &str) -> String {
+/// The string at `key` in `user`, empty when absent or not a string.
+pub(crate) fn field(user: &Value, key: &str) -> String {
     user.get(key)
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -368,7 +369,7 @@ pub(crate) struct ResetOnboardingArgs {
 }
 
 /// One `{tenant_id, provider}` entry as a readable line.
-fn provider_line(entry: &Value) -> String {
+pub(crate) fn provider_line(entry: &Value) -> String {
     format!(
         "{} (tenant {})",
         field(entry, "provider"),
@@ -380,7 +381,7 @@ fn provider_line(entry: &Value) -> String {
 /// line. Only a `revoked` status is reported as revoked: anything else,
 /// including a status this build does not know, says the grant may still be
 /// authorized at the provider.
-fn disconnected_line(entry: &Value) -> String {
+pub(crate) fn disconnected_line(entry: &Value) -> String {
     let held = provider_line(entry);
     let revocation = entry.get("revocation").unwrap_or(&Value::Null);
     match revocation.get("status").and_then(Value::as_str) {
@@ -399,7 +400,7 @@ fn disconnected_line(entry: &Value) -> String {
 }
 
 /// The `{tenant_id, provider}` entries under `data.<key>`.
-fn provider_entries(body: &Value, key: &str) -> Vec<Value> {
+pub(crate) fn provider_entries(body: &Value, key: &str) -> Vec<Value> {
     body.get("data")
         .and_then(|d| d.get(key))
         .and_then(Value::as_array)
@@ -521,7 +522,7 @@ pub(crate) async fn delete_user(
 /// What the reset leaves for the clients to forget: both keep per-user "step
 /// done" flags that only ever move toward done, so a reset account still skips
 /// those steps on a browser or device that already walked them.
-const CLIENT_FLAGS_NOTE: &str = "The web app and the mobile app keep their own per-user step flags: \
+pub(crate) const CLIENT_FLAGS_NOTE: &str = "The web app and the mobile app keep their own per-user step flags: \
 clear the site data for the web app (or use a private window) and sign out of or reinstall the mobile app \
 before walking onboarding again.";
 
@@ -852,7 +853,7 @@ fn write_allowed(
 /// The server's own sentence for a write, falling back to the whole body when
 /// a response arrives in a shape this build does not know — printing nothing
 /// would read as success.
-fn message_or_json(body: &Value) -> String {
+pub(crate) fn message_or_json(body: &Value) -> String {
     body.get("message").and_then(Value::as_str).map_or_else(
         || serde_json::to_string_pretty(body).unwrap_or_default(),
         ToOwned::to_owned,

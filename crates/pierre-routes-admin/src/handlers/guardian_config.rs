@@ -1,5 +1,5 @@
 // ABOUTME: Admin route surfacing the Guardian security-policy configuration (system_settings.guardian_config)
-// ABOUTME: GET the row with the effective policy, and a compare-and-set PUT with an impact gate, recorded on the audit trail
+// ABOUTME: GET the row with the effective caps, and a compare-and-set PUT, recorded on the audit trail
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,16 +11,14 @@
 //! `pierre-cli`. The policy is global, so a token scoped to one tenant is refused.
 //!
 //! GET answers two questions that can differ: `config` and `updated_at` are the
-//! stored row, which is what an editor must start from, and `effective`,
-//! `sources`, `env_pinned` and `loaded_at` are what THIS instance enforces. A
-//! `GUARDIAN_*` env var pins its field for the life of the process, so an admin
-//! edit to a pinned field persists but is shadowed until the pin is lifted.
-//! `in_sync` says whether this instance has caught up with the row.
+//! stored row, which is what an editor must start from, and `effective` and
+//! `loaded_at` are what THIS instance enforces. `in_sync` says whether this
+//! instance has caught up with the row.
 //!
 //! PUT is a compare-and-set ([`super::setting_revision`]), so an instance that
-//! booted on defaults cannot write them over the row either. A high-impact edit
-//! also needs `acknowledge_impact`. A body with a field this policy does not read
-//! is refused, so a misspelled or misplaced field never saves as "unset".
+//! booted on defaults cannot write them over the row either. A body with a field
+//! this policy does not read is refused, so a misspelled or misplaced field never
+//! saves as "unset".
 //!
 //! The registry install swaps THIS instance's snapshot; every other instance
 //! picks the row up on its poll.
@@ -42,9 +40,8 @@ use axum::{
 use pierre_database::database::system_settings::SystemSetting;
 use pierre_logging::host_identity;
 use pierre_tool_runtime::guardian::{
-    high_impact_changes, parse_persisted_document, validate_document, GuardianConfigDocument,
-    GuardianConfigSource, GuardianFieldSources, GuardianMode, GuardianPolicy,
-    GUARDIAN_CONFIG_SCHEMA_VERSION, GUARDIAN_CONFIG_SETTING_KEY,
+    parse_persisted_document, validate_document, GuardianConfigDocument, GuardianPolicy,
+    GUARDIAN_CONFIG_SETTING_KEY,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,7 +50,7 @@ use tracing::{error, info, warn};
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
 
-use super::setting_revision::{impact_refusal, malformed_refusal, stale_refusal, ExpectedRevision};
+use super::setting_revision::{malformed_refusal, stale_refusal, ExpectedRevision};
 use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
@@ -63,23 +60,14 @@ const AUDIT_ACTION: &str = "guardian.config.update";
 /// Wire response wrapper for both GET and PUT.
 #[derive(Debug, Serialize)]
 pub struct GuardianConfigResponse {
-    /// The stored document at the current schema version, env overrides NOT
-    /// folded in: what an editor starts from. When the row does not parse, the
-    /// document this instance last held, with `degraded` set.
+    /// The stored document: what an editor starts from. When the row does not
+    /// parse, the document this instance last held, with `degraded` set.
     pub config: GuardianConfigDocument,
-    /// The policy this instance enforces right now (defaults ← config ← env).
+    /// The caps this instance enforces right now (the defaults with `config`
+    /// over them).
     pub effective: GuardianPolicy,
-    /// The compiled-in defaults: what a field left unset follows when no env var
-    /// pins it. Not the same thing as `effective`.
+    /// The compiled-in defaults: what a field left unset follows.
     pub defaults: GuardianPolicy,
-    /// Which resolution layer won each field on this instance.
-    pub sources: GuardianFieldSources,
-    /// Fields pinned by `GUARDIAN_*` env vars — edits to these persist but
-    /// stay shadowed until the env pin is lifted.
-    pub env_pinned: Vec<&'static str>,
-    /// `"persisted"` when a row exists, `"default"` when no admin has ever
-    /// written one.
-    pub source: &'static str,
     /// RFC3339 timestamp of the last write, or `None` when no row exists. The
     /// concurrency token: echo it verbatim as `expected_updated_at`.
     pub updated_at: Option<String>,
@@ -96,19 +84,12 @@ pub struct GuardianConfigResponse {
     pub degraded: bool,
     /// Why, when `degraded`.
     pub degraded_reason: Option<String>,
-    /// The version the row carries, when it is not the current one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stored_schema_version: Option<u32>,
     /// Keys in the row this binary does not read, and which a save would drop.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stored_unknown_fields: Vec<String>,
 }
 
-const fn current_schema_version() -> u32 {
-    GUARDIAN_CONFIG_SCHEMA_VERSION
-}
-
-/// Body of a `PUT`: the document's fields and the save's two assertions. Only the
+/// Body of a `PUT`: the document's fields and the base the save edits. Only the
 /// document is persisted.
 ///
 /// Spelled out rather than flattened from the document, because serde cannot deny
@@ -117,12 +98,6 @@ const fn current_schema_version() -> u32 {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GuardianConfigPutRequest {
-    /// The document's schema version.
-    #[serde(default = "current_schema_version")]
-    pub schema_version: u32,
-    /// Override for [`GuardianPolicy::mode`].
-    #[serde(default)]
-    pub mode: Option<GuardianMode>,
     /// Override for [`GuardianPolicy::max_destructive_per_turn`].
     #[serde(default)]
     pub max_destructive_per_turn: Option<u16>,
@@ -132,17 +107,10 @@ pub struct GuardianConfigPutRequest {
     /// The version the editor read.
     #[serde(default)]
     pub expected_updated_at: ExpectedRevision,
-    /// The super admin has read what the high-impact edits in this save do.
-    #[serde(default)]
-    pub acknowledge_impact: bool,
 }
 
 const STALE_CODE: &str = "guardian_config_stale";
-const IMPACT_CODE: &str = "guardian_config_impact_not_acknowledged";
 const MALFORMED_CODE: &str = "guardian_config_malformed";
-const IMPACT_MESSAGE: &str = "This save changes what athletes can do on every turn. Read each \
-                              impacted field, then repeat the save with acknowledge_impact set \
-                              to true.";
 const STALE_MESSAGE: &str = "The Guardian policy changed since you read it, and nothing was \
                              saved. Reload it, reapply your edit, and save again.";
 const UNNAMED_BASE_MESSAGE: &str = "A save must say which version it edits, and nothing was \
@@ -162,14 +130,6 @@ async fn read_row(context: &AdminApiContext) -> AppResult<Option<SystemSetting>>
         })
 }
 
-/// What an edit is measured against: the row's document, or the defaults when
-/// there is no row or it does not parse, which is all that is known to be in force.
-fn stored_document(row: Option<&SystemSetting>) -> GuardianConfigDocument {
-    row.and_then(|row| parse_persisted_document(&row.value).ok())
-        .map(|persisted| persisted.document)
-        .unwrap_or_default()
-}
-
 fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> GuardianConfigResponse {
     let registry = &context.guardian_config_registry;
     let snapshot = registry.current();
@@ -179,12 +139,9 @@ fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> Guard
         .as_ref()
         .and_then(|parsed| parsed.as_ref().err())
         .map(|e| format!("the stored row does not parse ({e})"));
-    let (stored_schema_version, stored_unknown_fields) = match &parsed {
-        Some(Ok(persisted)) => (
-            persisted.stored_schema_version,
-            persisted.unknown_fields.clone(),
-        ),
-        _ => (None, Vec::new()),
+    let stored_unknown_fields = match &parsed {
+        Some(Ok(persisted)) => persisted.unknown_fields.clone(),
+        _ => Vec::new(),
     };
     let row_document = match parsed {
         Some(Ok(persisted)) => Some(persisted.document),
@@ -205,13 +162,6 @@ fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> Guard
         config: row_document.unwrap_or_else(|| (*snapshot.document).clone()),
         effective: snapshot.guardian.policy().clone(),
         defaults: GuardianPolicy::default(),
-        sources: snapshot.field_sources,
-        env_pinned: snapshot.field_sources.env_pinned(),
-        source: if row.is_some() {
-            "persisted"
-        } else {
-            "default"
-        },
         updated_at: row.map(|row| row.updated_at.to_rfc3339()),
         loaded_at: snapshot.loaded_at.to_rfc3339(),
         instance_id: format!(
@@ -222,7 +172,6 @@ fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> Guard
         in_sync,
         degraded: degraded_reason.is_some(),
         degraded_reason,
-        stored_schema_version,
         stored_unknown_fields,
     }
 }
@@ -256,17 +205,15 @@ pub async fn handle_get_guardian_config(
 ///
 /// Validates, compare-and-sets the row, then installs the new snapshot
 /// (write-then-install, so a DB failure leaves both stores on the previous
-/// values). The response reflects the post-install effective policy, so an
-/// env-pinned field shows its pinned value with `sources.<field> == "env"` —
-/// never the shadowed edit.
+/// values). The response reflects the post-install effective policy.
 ///
 /// # Errors
 ///
 /// Returns an error when the caller lacks `ManageConfiguration`, the token is
 /// scoped to one tenant, or the `system_settings` access fails. The refusals of a
 /// save are responses, so each one reaches the audit trail under this policy's
-/// action: a document that fails validation is a 400, a stale or missing token and
-/// an unacknowledged high-impact edit are 409s, and a body that does not parse,
+/// action: a document that fails validation is a 400, a stale or missing token is
+/// a 409, and a body that does not parse,
 /// or names a field this policy does not read, has the 409's shape, so its message
 /// reaches the client.
 pub async fn handle_put_guardian_config(
@@ -288,16 +235,11 @@ pub async fn handle_put_guardian_config(
         }
     };
     let GuardianConfigPutRequest {
-        schema_version,
-        mode,
         max_destructive_per_turn,
         max_writes_per_turn,
         expected_updated_at,
-        acknowledge_impact,
     } = request;
     let document = GuardianConfigDocument {
-        schema_version,
-        mode,
         max_destructive_per_turn,
         max_writes_per_turn,
     };
@@ -321,15 +263,6 @@ pub async fn handle_put_guardian_config(
     if row.as_ref().map(|row| row.updated_at) != expected {
         return Ok(refused_save(stale_refusal(STALE_CODE, STALE_MESSAGE)));
     }
-    let impacts = high_impact_changes(&stored_document(row.as_ref()), &document);
-    if !acknowledge_impact && !impacts.is_empty() {
-        return Ok(refused_save(impact_refusal(
-            IMPACT_CODE,
-            IMPACT_MESSAGE,
-            impacts,
-        )));
-    }
-
     let serialized = serde_json::to_string(&document).map_err(|e| {
         error!(error = %e, "failed to serialize guardian config");
         AppError::internal(format!("Failed to serialize guardian config: {e}"))
@@ -348,9 +281,7 @@ pub async fn handle_put_guardian_config(
 
     warn_on_dropped_fields(row.as_ref());
     let document_after = serde_json::to_value(&document).unwrap_or(Value::Null);
-    context
-        .guardian_config_registry
-        .install(document, GuardianConfigSource::AdminUpdate);
+    context.guardian_config_registry.install(document);
     let audit = saved_detail(row.as_ref(), &document_after);
 
     let written = SystemSetting {
@@ -437,10 +368,8 @@ fn log_save(admin_token: &ValidatedAdminToken, response: &GuardianConfigResponse
     let effective = &response.effective;
     info!(
         token_id = %admin_token.token_id,
-        mode = effective.mode.as_str(),
         max_destructive_per_turn = effective.max_destructive_per_turn,
         max_writes_per_turn = effective.max_writes_per_turn,
-        env_pinned = ?response.env_pinned,
         "admin updated guardian config"
     );
 }

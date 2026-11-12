@@ -30,7 +30,6 @@ use crate::protocol::provider_offer::{
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::ReadSubject;
-use crate::reconnect::offer_in_payload;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
@@ -58,6 +57,7 @@ use uuid::Uuid;
 
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
+mod turn_signals;
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -538,7 +538,10 @@ impl UniversalExecutor {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
-        let result = self.dispatch(request).instrument(span.clone()).await;
+        // Boxed: a tool body may dispatch another tool through here
+        // (`analyze_activity` → `get_activity_intelligence`), and an inline
+        // `dispatch` future would ride in that body's future and its callers'.
+        let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
         record_outcome(&span, &result);
         result
     }
@@ -567,7 +570,7 @@ impl UniversalExecutor {
         let mut args = request.parameters;
         let tool_name = request.tool_name;
 
-        // ── Guardian: dispatch-time budget/egress + tenant allowlist ──
+        // ── Guardian: dispatch-time per-turn budgets + tenant allowlist ──
         // Every transport funnels through here, so this single check covers the
         // chat ReAct loop, MCP-direct, A2A, and an ACP agent's tool-host session
         // with no bypass.
@@ -671,7 +674,7 @@ impl UniversalExecutor {
         // coach's calls, on the coach's turn.
         let turn_key = TurnKey::new(parties.requester_tenant, resolved_turn_token.clone());
 
-        // Budget / egress — mode-gated (observe logs, enforce blocks).
+        // Per-turn budgets, always enforced.
         // The decision + atomic budget-reserve is the shared `guardian_gate`
         // so no dispatch path can bypass it. decide + reserve run under one store lock so
         // concurrent same-turn dispatch (an ACP tool-host session / A2A pipelining
@@ -688,23 +691,13 @@ impl UniversalExecutor {
         match outcome {
             GateOutcome::Proceed => {}
             GateOutcome::Blocked(reason) => {
-                // #10: record the block under the turn it fired in, so the turn's
-                // tool loop surfaces a deterministic refusal for one raised inside
-                // an ACP agent's tool-host session (a separate task that can't
-                // return this out-of-band). A `TurnBlocked` refusal is a
-                // consequence of the block already recorded, never the first.
-                if reason != DenyReason::TurnBlocked {
-                    self.record_turn_block(
-                        &turn_key,
-                        HeadlessBlock {
-                            tool_name: tool_name.clone(),
-                            reason,
-                        },
-                    );
-                }
                 // Blocked before execution: nothing ran, nothing was reserved.
-                return Ok(refusal_response::guardian_denied_response(
-                    &tool_name, reason,
+                return Ok(self.refuse_blocked(
+                    &turn_key,
+                    parties.requester_tenant,
+                    &protocol,
+                    &tool_name,
+                    reason,
                 ));
             }
         }
@@ -940,15 +933,12 @@ impl UniversalExecutor {
         // for it, and most turns prefetch, so it would ask an athlete with one
         // dead connection to reconnect on every message.
         if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
-            if let Some(slug) = universal
-                .result
-                .as_ref()
-                .and_then(|payload| offer_in_payload(&tool_name, payload))
-            {
-                self.resources
-                    .reconnect_offers()
-                    .record_offer(&turn_key, slug);
-            }
+            turn_signals::record(
+                &*self.resources,
+                &turn_key,
+                &tool_name,
+                universal.result.as_ref(),
+            );
         }
 
         self.record_dispatch(DispatchRecord {
@@ -1071,6 +1061,44 @@ impl UniversalExecutor {
     #[must_use]
     pub fn turn_token(&self) -> Option<&str> {
         self.turn_token.as_deref()
+    }
+
+    /// Answer a call the Guardian blocked: tell operators, leave the block for
+    /// the turn's tool loop, and refuse the call in-band.
+    fn refuse_blocked(
+        &self,
+        turn_key: &TurnKey,
+        tenant: Option<Uuid>,
+        channel: &str,
+        tool_name: &str,
+        reason: DenyReason,
+    ) -> UniversalResponse {
+        // Operators see every block, whatever transport raised it.
+        let tenant_id = tenant.map(|t| t.to_string()).unwrap_or_default();
+        info!(
+            target: "notify",
+            event = "guardian.denied",
+            tenant_id = %tenant_id,
+            channel = %channel,
+            tool_name = %tool_name,
+            reason = reason.as_str(),
+            "guardian denied tool dispatch"
+        );
+        // #10: record the block under the turn it fired in, so the turn's tool
+        // loop surfaces a deterministic refusal for one raised inside an ACP
+        // agent's tool-host session (a separate task that can't return this
+        // out-of-band). A `TurnBlocked` refusal is a consequence of the block
+        // already recorded, never the first.
+        if reason != DenyReason::TurnBlocked {
+            self.record_turn_block(
+                turn_key,
+                HeadlessBlock {
+                    tool_name: tool_name.to_owned(),
+                    reason,
+                },
+            );
+        }
+        refusal_response::guardian_denied_response(tool_name, reason)
     }
 
     /// Record `block` for the turn's tool loop to render, when this call runs in

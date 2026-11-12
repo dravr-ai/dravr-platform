@@ -133,20 +133,10 @@ pub const KEY_HOSTED_PICKER_OAUTH_RETRY: &str = "hosted.picker.oauthRetry";
 /// Key: "Have an export? Import it" No format placeholders.
 pub const KEY_HOSTED_PICKER_IMPORT_EXPORT_LINK: &str = "hosted.picker.importExportLink";
 
-// ── The picker's history step, after a grant whose history is not in ──
+// ── The one-time sign-in that copies a grant's history (carnet#1472) ──
 
-/// Key: "Bring in your `{0}` history"
-pub const KEY_HOSTED_PICKER_HISTORY_TITLE: &str = "hosted.picker.historyTitle";
-/// Key: "`{0}` sends what you record from today. Choose how to add what came before."
-pub const KEY_HOSTED_PICKER_HISTORY_BODY: &str = "hosted.picker.historyBody";
-/// Key: "Sign in once to copy your past workouts" No format placeholders.
-pub const KEY_HOSTED_PICKER_HISTORY_SIGN_IN: &str = "hosted.picker.historySignIn";
 /// Key: "Sign in once to copy your history; `{0}` keeps your new workouts coming."
 pub const KEY_HOSTED_PICKER_HISTORY_SIGN_IN_NOTE: &str = "hosted.picker.historySignInNote";
-/// Key: "Import your `{0}` export"
-pub const KEY_HOSTED_PICKER_HISTORY_IMPORT_EXPORT: &str = "hosted.picker.historyImportExport";
-/// Key: "Not now" No format placeholders.
-pub const KEY_HOSTED_PICKER_HISTORY_NOT_NOW: &str = "hosted.picker.historyNotNow";
 /// Key: "Copying your history — this runs once." No format placeholders.
 pub const KEY_HOSTED_PICKER_HISTORY_COPYING: &str = "hosted.picker.historyCopying";
 
@@ -465,7 +455,7 @@ pub const IMPORT_GARMIN_FAILURES: [(&str, &str); 7] = [
 
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 95] = [
+pub const TEMPLATE_KEYS: [&str; 93] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -503,8 +493,6 @@ pub const TEMPLATE_KEYS: [&str; 95] = [
     KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD,
     KEY_HOSTED_PICKER_STRAVA_FALLBACK,
     KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE,
-    KEY_HOSTED_PICKER_HISTORY_SIGN_IN,
-    KEY_HOSTED_PICKER_HISTORY_NOT_NOW,
     KEY_HOSTED_PICKER_HISTORY_COPYING,
     KEY_HOSTED_LOGIN_PAGE_TITLE,
     KEY_HOSTED_INTERVALS_PAGE_TITLE,

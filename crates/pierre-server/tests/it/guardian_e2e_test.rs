@@ -10,13 +10,13 @@
 //! Guardian enforcement e2e.
 //!
 //! Drives a real `ServerContext`-backed `UniversalExecutor` (the one true
-//! dispatch chokepoint every transport funnels through) in `enforce` mode and
-//! asserts the runtime Guardian blocks a consequential tool while leaving reads
+//! dispatch chokepoint every transport funnels through) and asserts the runtime Guardian blocks a consequential tool while leaving reads
 //! untouched, then drives the same block through `POST /mcp` to pin what an MCP
 //! client receives. A chat turn's tool batch reports the blocked call to the
 //! athlete's trail as never run, and its siblings after it not at all.
 
 use crate::common;
+use crate::helpers::notify_capture::{capture_notify, named, only};
 
 use pierre_core::permissions::scopes::OAuthScope;
 
@@ -25,13 +25,13 @@ use axum::body::{to_bytes, Body};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{Request, StatusCode};
 use common::{
-    create_test_server_resources_with_config, create_test_server_resources_with_llm_and_tools,
-    create_test_user, generate_delegated_test_token, test_server_config_with_guardian,
+    create_test_server_resources, create_test_server_resources_with_llm_and_tools,
+    create_test_server_resources_with_no_destructive_budget, create_test_user,
+    generate_delegated_test_token,
 };
 use dravr_tronc::mcp::schema::{Tool as McpToolDefinition, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use futures_util::stream;
-use pierre_config::environment::GuardianSettings;
 use pierre_core::errors::AppError;
 use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
 use pierre_llm::{
@@ -113,18 +113,11 @@ fn guardian_error_code(response: &UniversalResponse) -> Option<String> {
 
 #[tokio::test]
 async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
-    // Enforce mode with a zero destructive budget, the GUARDIAN_* overrides
-    // the server's config carries.
+    // A zero destructive budget, as an operator's stored document would set.
     common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
     let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
@@ -223,18 +216,50 @@ async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
     );
 }
 
+/// carnet#1471: a block is a catalogued notify event, so operators see every one
+/// whatever transport raised it, and each later refusal it causes too.
+#[tokio::test]
+async fn a_block_fires_the_guardian_denied_event() {
+    common::init_server_config();
+    let resources = create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let executor = turn_executor(&resources, "notified-turn");
+
+    // Installed after the fixtures, before the code under test.
+    let (events, _guard) = capture_notify();
+    let denied = executor
+        .execute_tool(request(
+            "disconnect_provider",
+            json!({ "provider": "strava" }),
+            user_id,
+            tenant,
+        ))
+        .await
+        .expect("dispatch returns an in-band response");
+    assert_eq!(guardian_reason(&denied), Some("budget_exceeded"));
+
+    let event = only(&events, "guardian.denied");
+    assert_eq!(event.field("tenant_id"), tenant.to_string());
+    assert_eq!(event.field("channel"), "chat");
+    assert_eq!(event.field("tool_name"), "disconnect_provider");
+    assert_eq!(event.field("reason"), "budget_exceeded");
+    assert!(
+        named(&events, "messaging.tool_executed").is_empty(),
+        "a blocked call dispatched nothing"
+    );
+}
+
 #[tokio::test]
 async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
     common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings {
-            mode: Some("enforce".to_owned()),
-            max_destructive_per_turn: Some("0".to_owned()),
-            ..GuardianSettings::default()
-        },
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources");
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
@@ -295,11 +320,9 @@ async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
 #[tokio::test]
 async fn every_destructive_annotation_and_irreversible_label_agree() {
     common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings::default(),
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
     let registry = resources.mcp.tool_registry.clone();
 
     let disagreements: Vec<String> = registry
@@ -331,13 +354,9 @@ async fn every_destructive_annotation_and_irreversible_label_agree() {
 /// destructive call is the turn's block.
 async fn enforcing_with_no_destructive_budget() -> Arc<ServerContext> {
     common::init_server_config();
-    create_test_server_resources_with_config(test_server_config_with_guardian(GuardianSettings {
-        mode: Some("enforce".to_owned()),
-        max_destructive_per_turn: Some("0".to_owned()),
-        ..GuardianSettings::default()
-    }))
-    .await
-    .expect("server resources")
+    create_test_server_resources_with_no_destructive_budget()
+        .await
+        .expect("server resources")
 }
 
 fn turn_executor(resources: &Arc<ServerContext>, turn: &str) -> UniversalToolExecutor {
@@ -881,11 +900,9 @@ async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
 #[tokio::test]
 async fn both_plan_tools_say_the_push_is_a_separate_step() {
     common::init_server_config();
-    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
-        GuardianSettings::default(),
-    ))
-    .await
-    .expect("server resources");
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
     for tool in ["publish_training_plan", "push_training_plan"] {
         let description = resources
             .mcp

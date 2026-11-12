@@ -13,9 +13,11 @@
 //! target zones and the step list, and mirroring that here would have been a
 //! second copy of the workout bank's shape.
 
+use std::collections::BTreeMap;
+
 use pierre_core::models::periodization::{
-    EvidenceTier, IntensityDistribution, PhaseKind, ProgressionLever, ReadinessLevel,
-    WorkoutPurpose,
+    EnvelopeReport, EvidenceStatus, EvidenceTier, IntensityDistribution, PhaseKind,
+    ProgressionLever, ReadinessLevel, WorkoutPurpose,
 };
 use pierre_core::models::{SportType, WorkoutTemplate};
 use serde::Serialize;
@@ -67,6 +69,29 @@ pub struct WorkoutTemplateSummary {
     pub progression: TemplateProgression,
     /// Whether it ships with the platform rather than being athlete-authored.
     pub is_compiled_in: bool,
+    /// For a parametric family: its named presets, each a session to prescribe
+    /// by `template_slug` plus `preset`. Empty for a single-session template.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub presets: Vec<PresetSummary>,
+    /// For a family: the legacy slugs it absorbed, each naming its preset.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<String, String>,
+}
+
+/// One preset of a family, as an agent chooses it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PresetSummary {
+    /// The key `preset` takes.
+    pub key: String,
+    /// Display name.
+    pub name: String,
+    /// The lowest readiness level it may be scheduled at.
+    pub readiness_min: ReadinessLevel,
+    /// Whether it counts against the hard-session cap.
+    pub counts_as_quality: bool,
+    /// Where its evidence sits in each sport it is written for:
+    /// `trialled`, `transposed` or `convention`.
+    pub badges: BTreeMap<String, EvidenceStatus>,
 }
 
 /// How a session is made harder from one week to the next.
@@ -155,6 +180,11 @@ pub struct PrescribeWorkoutResult {
     /// passed over for this one, saying where it went instead (carnet#1393).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_note: Option<String>,
+    /// What the envelope check found on a family session: each finding
+    /// warns, and a relabel names the purpose the session now trains.
+    /// Structured, never prose; absent when nothing was found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<EnvelopeReport>,
 }
 
 /// What `withdraw_prescribed_workout` answers with.

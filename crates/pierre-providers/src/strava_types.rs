@@ -69,6 +69,10 @@ pub struct StravaActivityResponse {
     pub(crate) utc_offset: Option<f64>,
     pub(crate) distance: Option<f32>,
     pub(crate) elapsed_time: Option<u32>,
+    /// Seconds spent moving: `elapsed_time` minus the stops Strava
+    /// subtracted. A long gap between the two is the athlete stopped or
+    /// doing something other than the sport, which elapsed time alone hides.
+    pub(crate) moving_time: Option<u32>,
     pub(crate) total_elevation_gain: Option<f32>,
     pub(crate) average_speed: Option<f32>,
     pub(crate) max_speed: Option<f32>,
@@ -83,6 +87,13 @@ pub struct StravaActivityResponse {
     /// watts it estimated from speed and grade omit the field.
     pub(crate) weighted_average_watts: Option<f32>,
     pub(crate) suffer_score: Option<f32>,
+    /// Strava's workout tag: for runs 0 default, 1 race, 2 long run,
+    /// 3 workout; for rides 10 default, 11 race, 12 workout.
+    pub(crate) workout_type: Option<u32>,
+    /// Recorded on an indoor trainer or treadmill.
+    pub(crate) trainer: Option<bool>,
+    /// The athlete flagged the activity as a commute.
+    pub(crate) commute: Option<bool>,
 
     // Location and GPS data from summary endpoint
     pub(crate) start_latlng: Option<Vec<f64>>,
@@ -167,6 +178,15 @@ pub struct StravaSegmentEffort {
     pub average_watts: Option<f32>,
 }
 
+/// The gear a detailed activity names: Strava's summary gear shape.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StravaGear {
+    /// Strava's gear id (`b12345` for a bike, `g12345` for shoes)
+    pub id: Option<String>,
+    /// The gear's display name as the athlete set it
+    pub name: Option<String>,
+}
+
 /// Detailed activity response from GET /activities/{id} endpoint
 /// Includes all summary fields plus additional detail-only fields like splits, laps, and segment efforts
 #[derive(Debug, Clone, Deserialize)]
@@ -200,6 +220,13 @@ pub struct DetailedActivityResponse {
     pub device_name: Option<String>,
     /// The athlete's free-text notes on the activity. Untrusted text.
     pub description: Option<String>,
+    /// The athlete's private note, which only the athlete sees on Strava.
+    /// Untrusted, and the athlete's alone.
+    #[serde(default)]
+    pub private_note: Option<String>,
+    /// The gear the activity was recorded with (`{ id, name, … }`).
+    #[serde(default)]
+    pub gear: Option<StravaGear>,
     /// The athlete's Perceived Exertion, the 1–10 slider value, `null` when
     /// unset. Undocumented by Strava and absent from the list endpoint, so
     /// only a detail read carries it (see `strava_self_report`).

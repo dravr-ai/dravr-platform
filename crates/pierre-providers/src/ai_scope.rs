@@ -375,6 +375,14 @@ pub fn serving_external() -> bool {
     exposure().is_some_and(|gate| gate.external)
 }
 
+/// Whether a read made now must withhold what only the athlete may read (the
+/// private note): it is served over an external transport, or it is a human
+/// coach's read of the athlete.
+#[must_use]
+pub fn withholds_athlete_only_fields() -> bool {
+    serving_external() || human_coach::human_coach_read()
+}
+
 /// Add `withheld` to the enclosing tally — for a read that tallied in a scope
 /// of its own. Nothing happens where no tally is kept.
 pub fn record_withheld(withheld: Withheld) {

@@ -206,22 +206,10 @@ const COMMIT = {
     subject:
       "feat(llm): each LLM stage has its own model; side calls bill own rows",
   },
-  "55bd5df59": {
-    sha: "55bd5df59",
-    date: "2026-05-07",
-    subject:
-      "feat(admin): myth-busting promote + followups scheduler + notes suppress Three Outstanding-items shipped: POST /api/admin/myth-busting/promote-topic appends a recurring claim to harness_config.guardrails.blocked_topics + installs the new HarnessConfigRegistry snapshot (idempotent, case-insensitive); services::coach_followup_scheduler ticks every 60s, fetches due_at <= now pending followups via list_due_followups, dispatches a coach_followup_due push and marks delivered_at; coach_notes gains a suppressed BOOL column (SQLite + PG migrations) with admin POST /suppress|/unsuppress route + list_coach_notes filters out suppressed rows so memory recall stops re-injecting flagged content. 15 backend integration tests + frontend Promote/Suppress buttons. Chrome DevTools sweep validated all three end-to-end.",
-  },
   "549875a76": {
     sha: "549875a76",
     date: "2026-05-28",
     subject: "fix(evals): run claim-verifier consistency + LLM-judge layers",
-  },
-  "0e0146eea": {
-    sha: "0e0146eea",
-    date: "2026-06-05",
-    subject:
-      "fix(dd): remediate all technical-pitch due-diligence findings (P0-P3 + deferred) Squash of feature/pitch-findings-p0-p2-fixes closing every Appendix A finding: P0 (2) security holes, P1 (11) features built for real, P2 (14) scaffold/quality, P3 tech-debt; plus the goals PostgreSQL migration (set_goal was broken on Cloud Run, caught by the new schema-parity guard) and threshold_estimation wired into export_dossier; sole deliberate keep is the oauth2_auth_codes/authorization_codes table-name divergence (ADR-018); post_process.rs conflict kept both Stage 16a acronym expansion and strict-mode conformance.",
   },
   "1e950d038": {
     sha: "1e950d038",
@@ -485,50 +473,6 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       COMMIT["2d3619d11"],
       COMMIT["49556a316"],
       COMMIT["e5f1b3144"],
-      COMMIT["304c4ca17"],
-    ],
-  },
-  "myth-busting": {
-    question:
-      "Which claims were athletes recently warned about, from which agents, and in which categories?",
-    theory:
-      "A claim is a whole sentence of an agent reply, so the same words rarely repeat and an occurrence count shows no pattern. The screen therefore lists recent flagged claims by date, read from the claim checker's verdicts on each load, with no worker of its own.",
-    computation: [
-      SCOPE_BAR,
-      "Scan: the newest 500 claim_verdicts rows. There is no date filter; the window shown runs from the oldest to the newest row scanned.",
-      "Warned: contradicted, or unsupported outside training advice, and not marked a false positive.",
-      "Two claims are the same when their words match after lowercasing and removing punctuation.",
-      "Recent claims: top 10 by latest occurrence. Top agents and top categories: top 10 by warned count; verdicts with no agent are left out of the agent list.",
-      "A read beyond the operator's own tenant is recorded in the audit trail. Refreshes every 2 minutes.",
-    ],
-    since: BEFORE_IMPORT,
-    commits: [
-      COMMIT["55bd5df59"],
-      COMMIT["549875a76"],
-      COMMIT["eb43745d7"],
-      COMMIT["cc4ca386a"],
-      COMMIT["8e82d8b3c"],
-      COMMIT["304c4ca17"],
-    ],
-  },
-  "agent-grading": {
-    question: "Which agents make the least supported factual claims?",
-    theory:
-      "Each agent is graded from the claim checker's verdicts on its replies, recomputed on every load. Only verdicts from the LLM judge era count: before eb43745d7 (2026-08-11) an inconclusive claim was recorded as unsupported, so the two periods measure different things. The weights and bands are engineering choices, not a published standard.",
-    computation: [
-      SCOPE_BAR,
-      "Scan: the newest 500 verdicts. Only those from 2026-08-12 00:00 UTC on count; older ones and judge-era verdicts with no agent are reported separately.",
-      "Score = (supported + 0.25 × unsupported − contradicted) / (supported + unsupported + contradicted), clamped to 0..1, and 0.5 when nothing is scored.",
-      "Not scored: rhetorical, unverifiable, unsupported training advice (which has no corpus to cite) and false positives.",
-      "Grade: Provisional under 3 scored verdicts, else A ≥ 0.90, B ≥ 0.75, C ≥ 0.60, D ≥ 0.40, F below. Sorted worst first; Low grades counts D and F.",
-      "The grade does not reorder the agent store.",
-    ],
-    since: BEFORE_IMPORT,
-    commits: [
-      COMMIT["2d3619d11"],
-      COMMIT["0e0146eea"],
-      COMMIT["eb43745d7"],
-      COMMIT["86901370d"],
       COMMIT["304c4ca17"],
     ],
   },

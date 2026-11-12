@@ -31,11 +31,14 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId, UserOAuthToken};
 use pierre_database::repositories::CaptureFreshness;
 use pierre_mcp_server::routes::admin::diagnostics::partition_stale_captures;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::request_budget::{
+    refused_before_send, ProviderRateLimiter, RequestBudget, ONE_DAY,
+};
 use pierre_providers::sciotte_error::coach_account_error;
 use pierre_tool_runtime::activity_fetch::sync_verdict::{
     record_head_outcome, HeadRead, HeadVerdict,
@@ -551,6 +554,79 @@ async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
         page.field("cause").contains("500 from the scraper"),
         "bug: the page names what failed, got: {}",
         page.field("cause")
+    );
+}
+
+/// The 2026-11-10 digest: a chat read refused by the app's spent Strava
+/// budget paged "head read failed" once per athlete, beside the limiter's own
+/// "Provider request budget spent" page for the same budget. The limiter's
+/// refusal is recorded, so the backoff spaces the reads, but logged at
+/// `warn`; a `429` Strava itself answered is not the limiter's and still
+/// pages.
+#[tokio::test]
+async fn a_spent_budget_pages_once_through_the_limiter_and_a_provider_429_still_pages() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = tenant_of(&runtime, user_id).await;
+    let head = ActivityQueryParams {
+        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        before: None,
+        limit: Some(50),
+        offset: None,
+    };
+    let repos = runtime.repos();
+    let limiter = Arc::new(ProviderRateLimiter::new(
+        Arc::clone(&repos.usage_counters),
+        Arc::clone(&repos.provider_connections),
+    ));
+    limiter.set_budgets("strava", &[(1, ONE_DAY)]);
+    let budget = RequestBudget::new(limiter, "digest-app".to_owned(), None);
+    budget.admit("strava").await.expect("the day's one request");
+    let refusal = budget
+        .admit("strava")
+        .await
+        .expect_err("the spent day refuses a foreground read");
+    assert!(
+        refused_before_send(&refusal),
+        "bug: the limiter's refusal must say it was never sent"
+    );
+
+    let (events, _guard) = capture_logs();
+    record_head_outcome(&runtime, user_id, tenant, "strava", &head, &Err(refusal)).await;
+    assert!(
+        named(&events, HEAD_READ_FAILED).is_empty(),
+        "bug: a spent budget pages twice, once per athlete beside the limiter's own page"
+    );
+    let refused = named(
+        &events,
+        "Live activity head read refused by the provider request budget; the athlete is served from the cache",
+    );
+    assert_eq!(refused.len(), 1, "bug: the refusal stays traceable");
+    assert_eq!(refused[0].level, Level::WARN);
+    assert!(
+        runtime
+            .repos()
+            .activity_cache
+            .latest_activity_fetch_failure(user_id, &tenant, "strava")
+            .await
+            .expect("read failure record")
+            .is_some(),
+        "bug: the refused read must still be recorded so the backoff spaces it"
+    );
+
+    let strava_429 = AppError::new(
+        ErrorCode::ExternalRateLimited,
+        "Strava answered 429 after retries",
+    );
+    assert!(!refused_before_send(&strava_429));
+    record_head_outcome(&runtime, user_id, tenant, "strava", &head, &Err(strava_429)).await;
+    assert_eq!(
+        named(&events, HEAD_READ_FAILED).len(),
+        1,
+        "bug: a 429 Strava itself answered is a failed read the operator must hear about"
     );
 }
 

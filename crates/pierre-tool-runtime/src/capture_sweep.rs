@@ -65,6 +65,7 @@ use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
 use pierre_providers::backend_resolver::session_beside_grant;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget::in_background;
 use serde::Serialize;
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -330,12 +331,29 @@ pub struct RefreshReport {
 /// write-through path; an auth-shaped failure flags the connection with
 /// [`FLAG_REASON`] and the sweep moves on.
 ///
+/// Nobody waits on the sweep, so it runs [`in_background`]: each provider
+/// request it makes is admitted only inside the background share of the
+/// signing app's windows, and the rest stays with the reads an athlete is
+/// waiting on. On 2026-11-10 it read every Strava head at the full share, and
+/// once a runaway backfill had spent the app's day each read was refused as a
+/// spent foreground budget (carnet#1491).
+///
 /// # Errors
 ///
 /// Returns an error only when the connection snapshot itself cannot be read. A
 /// per-connection failure is reported in [`RefreshReport::connections`], never
 /// propagated — one dead provider must not stop the sweep of every other.
 pub async fn refresh_captures(
+    runtime: &Arc<dyn ToolRuntime>,
+    budget: SweepBudget,
+    selection: SweepSelection,
+) -> AppResult<RefreshReport> {
+    in_background(sweep(runtime, budget, selection)).await
+}
+
+/// [`refresh_captures`]' walk, run in whatever share of the budget the caller
+/// gives it.
+async fn sweep(
     runtime: &Arc<dyn ToolRuntime>,
     budget: SweepBudget,
     selection: SweepSelection,

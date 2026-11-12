@@ -53,13 +53,17 @@
 //! grant withdrawn since (Garmin's `412`) is refused the same way.
 //!
 //! The schedule listing names each entry's workout, schedule and day and
-//! nothing else, so the reconcile matches its ledger by provider id alone:
-//! an entry the athlete removed is written again, a changed one updated in
-//! place, a withdrawn one deleted. A listed entry carries no change stamp
-//! and no key of Dravr's, which reading every workout in the window would
-//! cost (one call per entry, against Garmin's per-athlete daily allowance),
-//! so an edit made in Garmin Connect is not told apart from Dravr's own
-//! write, and an entry whose ledger row was lost is not adopted.
+//! nothing else, so the reconcile matches its ledger by provider id: an
+//! entry the athlete removed is written again, a changed one updated in
+//! place, a withdrawn one deleted. Who wrote an entry is read from its
+//! workout ([`FitnessProvider::calendar_event_detail`]) only where the
+//! reconcile needs it, never across the window (Garmin's daily allowance).
+//! No key of Dravr's is sent, so a lost entry is recognised by its writer:
+//! every workout Dravr sends is filed under the provider and source `Dravr`,
+//! this calendar's [`FitnessProvider::calendar_key`], paired with the lost
+//! key on its date. An update reuses the detail read's workout (one call,
+//! not two). Its change stamp is logged, never compared: an edit made in
+//! Garmin Connect is not told apart from Dravr's own write.
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
@@ -89,15 +93,16 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 use tracing::{debug, info, instrument, warn};
 
 mod training;
 mod wire;
 
-use training::{EventId, Permissions, Schedule, StoredWorkout};
+use training::{EventId, Permissions, Schedule, StoredWorkout, WORKOUT_PROVIDER};
 use wire::GarminUserIdResponse;
 
 /// The path the Health API sits under on Garmin's API host; the Training
@@ -136,6 +141,9 @@ pub struct GarminProvider {
     /// Whether the athlete granted Dravr `WORKOUT_IMPORT`, read once per
     /// provider before the first calendar call.
     workout_import: OnceCell<bool>,
+    /// Workouts a detail read fetched, by workout id, each taken by the
+    /// update that follows it so the update sends without reading again.
+    read_workouts: Mutex<HashMap<i64, StoredWorkout>>,
 }
 
 impl fmt::Debug for GarminProvider {
@@ -179,6 +187,7 @@ impl GarminProvider {
             token_refresh_callback: OnceLock::new(),
             stores: OnceLock::new(),
             workout_import: OnceCell::new(),
+            read_workouts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -378,6 +387,32 @@ impl GarminProvider {
             to.format("%Y-%m-%d")
         ))
         .await
+    }
+
+    /// The workout `workout_id` as Garmin holds it: the one a detail read
+    /// kept for this update when there is one, else read now.
+    async fn stored_workout(&self, workout_id: i64) -> AppResult<StoredWorkout> {
+        match self.take_kept_workout(workout_id).await {
+            Some(workout) => Ok(workout),
+            None => self.read_workout(workout_id).await,
+        }
+    }
+
+    /// Take the workout a detail read kept for `workout_id`, if any.
+    async fn take_kept_workout(&self, workout_id: i64) -> Option<StoredWorkout> {
+        self.read_workouts.lock().await.remove(&workout_id)
+    }
+
+    /// Read the workout `workout_id`, logging Garmin's stamps on it.
+    async fn read_workout(&self, workout_id: i64) -> AppResult<StoredWorkout> {
+        let path = format!("training-api/workout/v2/{workout_id}");
+        let body = self
+            .training_call(Method::GET, &path, None)
+            .await?
+            .unwrap_or_default();
+        let workout: StoredWorkout = decode(&path, &body)?;
+        workout.log_stamps("read");
+        Ok(workout)
     }
 
     /// Put `workout_id` on `date` and return the schedule's id. A create
@@ -592,23 +627,23 @@ impl FitnessProvider for GarminProvider {
     /// pushed, never a lifetime.
     async fn get_stats(&self) -> AppResult<Stats> {
         let activities = self.cached()?.all().await?;
-        Ok(Stats {
-            total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
-            total_distance: activities
-                .iter()
-                .filter_map(Activity::distance_meters)
-                .sum(),
-            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
-            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
-            coverage: StatsCoverage::recent(&activities),
-            year_to_date: None,
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            StatsCoverage::recent(&activities),
+        ))
+    }
+
+    /// Garmin files every workout of Dravr's under the provider and source
+    /// [`WORKOUT_PROVIDER`] and keeps no per-entry key, so that tag is the key
+    /// its calendar stores for every entry: the reconcile pairs it with a lost
+    /// key by date.
+    fn calendar_key(&self, _external_id: &str) -> String {
+        WORKOUT_PROVIDER.to_owned()
     }
 
     /// Every schedule in the window, by the workout and schedule it pairs.
-    /// LIMITATION(registre#1389): `GarminProvider::list_calendar_events` sets no `external_id` and no `updated_at`.
-    /// Garmin's listing names no writer and no change (see the module's
-    /// "training calendar").
+    /// Identity only: Garmin's listing names no writer and no change;
+    /// [`FitnessProvider::calendar_event_detail`] reads the writer per entry.
     #[instrument(
         skip(self),
         fields(provider = "garmin", api_call = "list_calendar_events")
@@ -634,6 +669,35 @@ impl FitnessProvider for GarminProvider {
             .collect())
     }
 
+    /// The entry with its writer, read from its workout: [`WORKOUT_PROVIDER`]
+    /// as its `external_id` when Garmin files the workout under Dravr, none
+    /// when another app or the athlete made it. The workout read is kept for
+    /// an update that follows, which then sends without reading it again.
+    /// LIMITATION(registre#1389): `GarminProvider::calendar_event_detail` sets no `updated_at`, so an edit made in Garmin Connect is not told apart from Dravr's own last write.
+    /// Garmin documents the workout's `updatedDate` without a zone; read in
+    /// the wrong one, every update would count as the athlete's edit, or none
+    /// would. Every workout Garmin returns — on a create, a read, or an update
+    /// it answers with the workout — logs its stamps beside Dravr's clock
+    /// ([`StoredWorkout::log_stamps`]) so a live push settles the zone.
+    #[instrument(
+        skip(self, event),
+        fields(provider = "garmin", api_call = "calendar_event_detail")
+    )]
+    async fn calendar_event_detail(&self, event: CalendarEventRef) -> AppResult<CalendarEventRef> {
+        let id = EventId::parse(&event.provider_event_id)?;
+        self.ensure_workout_import().await?;
+        let workout = self.read_workout(id.workout_id).await?;
+        let external_id = workout.is_dravrs().then(|| WORKOUT_PROVIDER.to_owned());
+        self.read_workouts
+            .lock()
+            .await
+            .insert(id.workout_id, workout);
+        Ok(CalendarEventRef {
+            external_id,
+            ..event
+        })
+    }
+
     /// LIMITATION(registre#1390): `GarminProvider::push_planned_session` sends without Dravr's own transfer consent.
     /// Create the workout, then schedule it on the session's day. A schedule
     /// that fails takes its workout with it, so the library never holds a
@@ -653,6 +717,7 @@ impl FitnessProvider for GarminProvider {
             .await?
             .unwrap_or_default();
         let workout: StoredWorkout = decode("workoutportal/workout/v2", &created)?;
+        workout.log_stamps("created");
         match self.schedule(workout.workout_id, session.date).await {
             Ok(schedule_id) => Ok(EventId {
                 workout_id: workout.workout_id,
@@ -675,7 +740,8 @@ impl FitnessProvider for GarminProvider {
 
     /// Replace the workout in place under the id and owner Garmin gave it,
     /// then move its schedule to the session's day (a replaced prescription
-    /// can name another).
+    /// can name another). The workout is the one a detail read just kept, or
+    /// read now.
     #[instrument(
         skip(self, session),
         fields(provider = "garmin", api_call = "update_planned_session")
@@ -691,13 +757,10 @@ impl FitnessProvider for GarminProvider {
         }
         self.ensure_workout_import().await?;
         let path = format!("training-api/workout/v2/{}", id.workout_id);
-        let current = self
-            .training_call(Method::GET, &path, None)
-            .await?
-            .unwrap_or_default();
-        let stored: StoredWorkout = decode(&path, &current)?;
+        let stored = self.stored_workout(id.workout_id).await?;
         let body = training::updated_workout_body(session, &stored)?;
-        self.training_call(Method::PUT, &path, Some(&body)).await?;
+        let answer = self.training_call(Method::PUT, &path, Some(&body)).await?;
+        StoredWorkout::log_update_answer(answer.as_deref());
         let schedule = training::schedule_body(id.workout_id, session.date, Some(id.schedule_id));
         self.training_call(
             Method::PUT,

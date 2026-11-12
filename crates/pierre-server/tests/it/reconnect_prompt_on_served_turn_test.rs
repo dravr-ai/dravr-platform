@@ -119,6 +119,7 @@ pub(crate) fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoop
         write_attempted: false,
         pending_provider_auth_required: blank.map(str::to_owned),
         served_without_provider: served.map(str::to_owned),
+        window_incomplete: false,
         guardian_denied: None,
         capability_claim_unverified: false,
         provider_warnings: Vec::new(),
@@ -694,7 +695,7 @@ async fn a_turn_carrying_both_signals_takes_the_blank_path() {
 ///
 /// The short-circuit above stage 14a exists for the ONE shape it was built for:
 /// a blanked turn carrying a minted link. A linkless fallback taking it too
-/// would skip the identity re-ask and every post-processing stage, and leave the
+/// would skip every post-processing stage, the identity withhold included, and leave the
 /// envelope with no content blocks — so `owns_reply` stays false here and the
 /// turn walks the ordinary path.
 #[tokio::test]
@@ -710,8 +711,8 @@ async fn a_failed_mint_on_a_blank_turn_falls_through_to_post_processing() {
 
     assert!(
         !recovery.owns_reply,
-        "a linkless reconnect sentence must fall through to the identity re-ask \
-         and post-processing, exactly as the ordinary reply path does"
+        "a linkless reconnect sentence must fall through to post-processing, \
+         exactly as the ordinary reply path does"
     );
     assert!(
         recovery.prompt.is_none(),

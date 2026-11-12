@@ -34,6 +34,10 @@ pub(crate) mod identity_toolkit_stub;
 /// Answers the turn's language-classification call so a scripted mock keeps
 /// its script for the turn.
 pub(crate) mod language_classification;
+/// The live lanes' waits and per-turn usage reads (contremaitre overlay, turn wait, `llm_usage`).
+pub(crate) mod live_lane;
+/// The live lanes' seeding mechanics (athletes, onboarding, recipes, groups, run schedules).
+pub(crate) mod live_seed;
 pub(crate) mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod messaging_webhooks;
