@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -805,6 +805,9 @@ const SESSION_DEAD: u8 = 2;
 const SESSION_INCOMPLETE: u8 = 3;
 /// No activities, over a window the cache holds the session's rows in.
 const SESSION_EMPTY: u8 = 4;
+/// A `500` on the list, while a read by id answers the ride it names, with
+/// the device that recorded it.
+const SESSION_DETAILS_ONLY: u8 = 5;
 
 /// The id of the ride the Strava API stand-in answers with.
 const GRANT_RIDE: &str = "4001";
@@ -815,12 +818,15 @@ const SESSION_RIDE: &str = "21550000001";
 struct ScraperStandIn {
     answer: AtomicU8,
     reads: AtomicUsize,
+    /// Reads by id the stand-in answered.
+    detail_reads: AtomicUsize,
 }
 
 async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
     let scraper = Arc::new(ScraperStandIn {
         answer: AtomicU8::new(answer),
         reads: AtomicUsize::new(0),
+        detail_reads: AtomicUsize::new(0),
     });
     let app = Router::new()
         .route(
@@ -852,7 +858,7 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                     )
                 };
                 match scraper.answer.load(Ordering::SeqCst) {
-                    SESSION_FAILS => (
+                    SESSION_FAILS | SESSION_DETAILS_ONLY => (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({ "error": "the browser closed under the read" })),
                     ),
@@ -868,20 +874,42 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
         )
         .route(
             "/api/activities/{id}",
-            get(|State(scraper): State<Arc<ScraperStandIn>>| async move {
-                // A session Strava no longer honours refuses a read by id as
-                // it refuses its list; any other session finds no such ride.
-                if scraper.answer.load(Ordering::SeqCst) == SESSION_DEAD {
-                    return (
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({ "error": "session_expired" })),
-                    );
-                }
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({ "error": "activity_not_found" })),
-                )
-            }),
+            get(
+                |State(scraper): State<Arc<ScraperStandIn>>, Path(id): Path<String>| async move {
+                    // A session Strava no longer honours refuses a read by id as
+                    // it refuses its list; any other session finds no such ride,
+                    // unless the test lets it read the ride the id names.
+                    match scraper.answer.load(Ordering::SeqCst) {
+                        SESSION_DEAD => {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({ "error": "session_expired" })),
+                            );
+                        }
+                        SESSION_DETAILS_ONLY => {
+                            scraper.detail_reads.fetch_add(1, Ordering::SeqCst);
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "id": id,
+                                    "name": "Sortie longue",
+                                    "sport_type": "ride",
+                                    "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                                    "duration_seconds": 10_800,
+                                    "provider": "strava",
+                                    "distance_meters": 80_000.0,
+                                    "device_name": "Wahoo ELEMNT BOLT"
+                                })),
+                            );
+                        }
+                        _ => {}
+                    }
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({ "error": "activity_not_found" })),
+                    )
+                },
+            ),
         )
         .with_state(Arc::clone(&scraper));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1597,4 +1625,49 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
     );
     assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 1);
     assert!(pair.failure_recorded("sciotte").await);
+}
+
+/// A ride the grant listed while the session's list fails, detailed by the
+/// session's read by id, keeps that detail beside the grant's row it details,
+/// as the activity view keeps it: the next turn serves it from the store and
+/// scrapes nothing. Before, the session's answer looked for a session row of
+/// the ride, found none, and was dropped, so every turn scraped it again.
+#[tokio::test]
+async fn a_session_detail_of_a_ride_the_grant_listed_is_kept_and_not_scraped_again() {
+    let pair = Pair::new("session-detail", SESSION_DETAILS_ONLY, false).await;
+    let runtime = pair.runtime();
+    let ctx = ToolContext::new()
+        .with_user(pair.user_id.to_string())
+        .with_tenant(pair.tenant.to_string())
+        .with_auth_method("jwt_bearer");
+
+    for turn in 1..=2 {
+        let response = GetActivitiesTool
+            .execute(&runtime, &ctx, json!({ "limit": 10 }))
+            .await;
+        let payload = response
+            .structured_content
+            .expect("tool result carries structured content");
+        let ride = payload["activities"]
+            .as_array()
+            .unwrap_or_else(|| panic!("activities on turn {turn}: {payload}"))
+            .iter()
+            .find(|a| a["id"].as_str() == Some(GRANT_RIDE))
+            .unwrap_or_else(|| panic!("the grant's ride is served on turn {turn}: {payload}"))
+            .clone();
+        assert_eq!(
+            ride["device_name"], "Wahoo ELEMNT BOLT",
+            "the session's detail reaches the ride on turn {turn}: {ride}"
+        );
+    }
+    assert_eq!(
+        pair.scraper.detail_reads.load(Ordering::SeqCst),
+        1,
+        "bug: the session's detail of the grant's ride was dropped and scraped again"
+    );
+    assert_eq!(
+        pair.detail_read(GRANT_RIDE).await,
+        vec![("strava".to_owned(), true)],
+        "bug: the detail is not kept beside the row it details"
+    );
 }

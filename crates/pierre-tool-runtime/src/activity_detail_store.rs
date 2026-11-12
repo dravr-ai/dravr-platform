@@ -26,7 +26,7 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityDetail;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::mirror_backend_for;
+use pierre_providers::backend_resolver::{history_keys, mirror_backend_for};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -70,6 +70,24 @@ pub fn answered_key<'a>(listed_under: &'a str, detailed: &'a Activity) -> &'a st
     } else {
         listed_under
     }
+}
+
+/// The cache key of the row a summary listed by `listed_by` (its
+/// `Activity::provider`) lives under, in a window `serving` read.
+///
+/// A window a session reads serves its grant's rows too
+/// (`backend_resolver::history_keys`): a ride only the Strava grant listed
+/// is a `strava` row in a `sciotte` window, and its detail belongs beside
+/// that row, as the activity view keeps it, whichever half of the pair read
+/// the detail ([`answered_key`] keeps a grant's answer under the grant). Any
+/// other summary is `serving`'s own row: a capture names the scraper
+/// (`sciotte`), never the session key it is cached under.
+#[must_use]
+pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
+    history_keys(serving)
+        .into_iter()
+        .find(|key| *key == listed_by)
+        .unwrap_or(serving)
 }
 
 /// Keep what a detail read of one cached activity found, beside the row its
@@ -258,13 +276,25 @@ mod tests {
 
     #[test]
     fn a_grants_answer_for_the_session_is_kept_under_the_grant() {
-        assert_eq!(answered_key("sciotte", &read_by("strava")), "strava");
+        assert_eq!(
+            answered_key("sciotte", &read_by("strava")),
+            "strava",
+            "bug: Strava API data the grant answered was kept under the session's key"
+        );
     }
 
     #[test]
     fn every_other_answer_is_kept_under_the_row_it_details() {
-        assert_eq!(answered_key("sciotte", &read_by("sciotte")), "sciotte");
-        assert_eq!(answered_key("strava", &read_by("strava")), "strava");
+        assert_eq!(
+            answered_key("sciotte", &read_by("sciotte")),
+            "sciotte",
+            "bug: the session's own answer left the session's row"
+        );
+        assert_eq!(
+            answered_key("strava", &read_by("strava")),
+            "strava",
+            "bug: the grant's answer for its own row left that row"
+        );
         assert_eq!(
             answered_key("sciotte_garmin", &read_by("sciotte")),
             "sciotte_garmin",
@@ -272,7 +302,42 @@ mod tests {
         );
         assert_eq!(
             answered_key("intervals_icu", &read_by("strava")),
-            "intervals_icu"
+            "intervals_icu",
+            "bug: a provider outside a mirror pair keeps its answer under its own row"
+        );
+        assert_eq!(
+            answered_key("strava", &read_by("sciotte")),
+            "strava",
+            "bug: the session's detail of a row the grant listed left that row"
+        );
+    }
+
+    #[test]
+    fn a_summary_is_stored_under_the_key_its_row_lives_under() {
+        assert_eq!(
+            listed_key("sciotte", "strava"),
+            "strava",
+            "bug: a ride the grant listed is detailed beside a session row that does not exist"
+        );
+        assert_eq!(
+            listed_key("sciotte", "sciotte"),
+            "sciotte",
+            "bug: the session's own ride left the session's row"
+        );
+        assert_eq!(
+            listed_key("sciotte_garmin", "sciotte"),
+            "sciotte_garmin",
+            "bug: a Garmin capture names the scraper, and lives under the session's key"
+        );
+        assert_eq!(
+            listed_key("sciotte_garmin", "garmin"),
+            "garmin",
+            "bug: a ride Garmin's grant pushed is detailed beside a session row that does not exist"
+        );
+        assert_eq!(
+            listed_key("intervals_icu", "strava"),
+            "intervals_icu",
+            "bug: a provider outside a mirror pair reads only its own key"
         );
     }
 }

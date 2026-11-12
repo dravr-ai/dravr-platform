@@ -39,7 +39,7 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
-use crate::activity_detail_store::{store_detail, stored_details};
+use crate::activity_detail_store::{listed_key, store_detail, stored_details};
 use crate::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
@@ -1025,12 +1025,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     &stored,
                 )
                 .await;
-                for fresh in &promoted.fresh {
+                // Each detail goes beside the row its summary was listed
+                // under: a ride the grant listed is a grant row in the
+                // session's window (carnet#1494).
+                for (listed_by, fresh) in &promoted.fresh {
                     store_detail(
                         context.resources.repos(),
                         tenant_id,
                         context.user_id,
-                        &provider_name,
+                        listed_key(&provider_name, listed_by),
                         fresh,
                     )
                     .await;
