@@ -55,7 +55,7 @@ use pierre_llm::prompts::{get_coaching_persona_prompt, PLATFORM_CONTRACT_PROMPT}
 /// `tests/fixtures/endurance-agent/en.md` so a future reshape of the prompt
 /// fails this test loudly rather than silently passing on stale content. Bump
 /// the fixture in lockstep with the contremaitre push.
-const ENDURANCE_AGENT_EN: &str = include_str!("../fixtures/endurance-coach/en.md");
+const ENDURANCE_AGENT_EN: &str = include_str!("../fixtures/endurance-agent/en.md");
 
 /// Build the full system prompt the LLM would see for `persona` when
 /// the user's active agent is endurance-agent. Mirrors the production
