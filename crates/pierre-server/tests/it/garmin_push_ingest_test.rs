@@ -39,8 +39,8 @@ use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
 use pierre_core::models::{
-    Activity, ConnectionStatus, ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics,
-    TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionStatus, ConnectionType, DataSource, DeviceType, SportType,
+    StoredRecoveryMetrics, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::WellnessWriteMode;
@@ -105,6 +105,47 @@ async fn context_over(
     common::create_test_server_resources_with_config_and_records(config, records)
         .await
         .unwrap()
+}
+
+/// [`context`] with a notification service over its own database, so the
+/// reconnect notices a test expects can be counted.
+async fn context_with_notices(
+    api_base: Option<&str>,
+) -> (Arc<ServerContext>, Arc<NotificationService>) {
+    let mut with_notices: ServerContext = (*context(api_base).await).clone();
+    let service = Arc::new(match with_notices.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
+    });
+    with_notices.common.notification_service = Some(Arc::clone(&service));
+    (Arc::new(with_notices), service)
+}
+
+/// How many reconnect notices `service` stored for the athlete.
+async fn reconnect_notices(
+    service: &NotificationService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> usize {
+    let (rows, _, _) = service
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    rows.iter()
+        .filter(|row| row.notification_type == "provider_needs_reauth")
+        .count()
 }
 
 /// Seed an athlete connected through the Garmin API: a `garmin` token that
@@ -1298,6 +1339,123 @@ async fn a_deregistration_deletes_the_garmin_api_connection_but_not_the_usr_pwd_
     assert_eq!(purges[0].reason, "provider_revoked");
 }
 
+/// A deregistration withdraws the grant through the same chokepoint as a
+/// Strava deauthorization (carnet#1494): an athlete the grant served alone is
+/// told once to sign in again, however often Garmin redelivers it, and one
+/// whose usr/pwd session serves beside the grant is told nothing and keeps
+/// the session and its rows.
+#[tokio::test]
+async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session() {
+    let (resources, service) = context_with_notices(None).await;
+    let (alone, alone_tenant) = seed_athlete(&resources).await;
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    assert_eq!(
+        reconnect_notices(&service, alone, alone_tenant).await,
+        1,
+        "bug: a grant-only athlete Garmin deregistered is told other than once"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .provider_connections
+            .get_for_user(alone, Some(alone_tenant))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the grant's connection is deleted"
+    );
+
+    let (resources, service) = context_with_notices(None).await;
+    let (beside, beside_tenant) = seed_athlete(&resources).await;
+    store_token(&resources, beside, beside_tenant, "sciotte_garmin", None).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            beside,
+            beside_tenant,
+            "sciotte_garmin",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            beside,
+            &beside_tenant,
+            "sciotte_garmin",
+            &[ActivityBuilder::new(
+                "880001",
+                "Captured ride",
+                SportType::Ride,
+                Utc::now() - ChronoDuration::days(1),
+                3_600,
+                "sciotte",
+            )
+            .build()],
+        )
+        .await
+        .unwrap();
+    push(
+        &resources,
+        "deregistrations",
+        json!([{ "userId": GARMIN_USER }]),
+    )
+    .await;
+    assert_eq!(
+        reconnect_notices(&service, beside, beside_tenant).await,
+        0,
+        "bug: an athlete whose session serves is asked to reconnect"
+    );
+    let kept: Vec<String> = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(beside, Some(beside_tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect();
+    assert_eq!(
+        kept,
+        ["sciotte_garmin"],
+        "bug: the session went with the grant"
+    );
+    let captured = resources
+        .common
+        .repos
+        .activity_cache
+        .get_cached_activities(
+            beside,
+            &beside_tenant,
+            Some("sciotte_garmin"),
+            Utc::now() - ChronoDuration::days(30),
+            Utc::now() + ChronoDuration::days(1),
+            100,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        captured.len(),
+        1,
+        "bug: the session's rows went with the grant"
+    );
+}
+
 #[tokio::test]
 async fn a_withdrawn_permission_purges_that_data_and_refuses_later_pushes_of_it() {
     let resources = context(None).await;
@@ -2451,20 +2609,7 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
 async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     let start = Utc::now() - ChronoDuration::days(3);
     let (base, hits) = mock_garmin_files(FitWorkout::ride(start, 120).encode()).await;
-    // A notification service over the same database, so the notices the flag
-    // sends can be counted.
-    let mut with_notices: ServerContext = (*context(Some(&base)).await).clone();
-    let service = Arc::new(match with_notices.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
-        }
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => {
-            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
-        }
-    });
-    with_notices.common.notification_service = Some(Arc::clone(&service));
-    let resources = Arc::new(with_notices);
+    let (resources, service) = context_with_notices(Some(&base)).await;
     let (user_id, user, tenant_id) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("garmin-refused-{}@example.com", Uuid::new_v4()),
@@ -2528,23 +2673,9 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     );
 
     push(&resources, "activityFiles", file_push(2)).await;
-    let (rows, _, _) = service
-        .list_notifications(
-            user_id,
-            CommereTenantId(tenant_id.as_uuid()),
-            50,
-            0,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-    let notices = rows
-        .iter()
-        .filter(|row| row.notification_type == "provider_needs_reauth")
-        .count();
     assert_eq!(
-        notices, 1,
+        reconnect_notices(&service, user_id, tenant_id).await,
+        1,
         "bug: two refusals of one dead grant must send its reconnect notice once"
     );
 
