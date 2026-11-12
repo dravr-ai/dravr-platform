@@ -182,7 +182,10 @@ async fn persist_fetched(
             tenant_id,
             provider_name,
             &fetched.activities,
-            WriteThrough { read: params },
+            WriteThrough {
+                read: params,
+                announces_sessions: true,
+            },
         )
         .await;
     } else {

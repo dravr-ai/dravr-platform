@@ -1602,6 +1602,7 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
         params: Pair::head(),
         attempt_started_at: Utc::now(),
         conversation_id: None,
+        ask: None,
     };
 
     let outcome = timeout(

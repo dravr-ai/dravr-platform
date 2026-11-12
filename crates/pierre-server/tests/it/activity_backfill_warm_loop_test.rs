@@ -151,6 +151,7 @@ async fn job_on_file(database: &Database, user_id: Uuid, tenant: TenantId, provi
             .unwrap(),
     };
     rows > 0
+}
 
 /// Connect `provider` for the athlete under a live scrape session `session`.
 async fn connect(

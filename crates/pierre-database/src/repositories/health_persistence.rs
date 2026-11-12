@@ -82,9 +82,9 @@ pub(crate) const UPSERT_DATA_SOURCE_SQL: &str = r"
 /// earliest day a marked source holds.
 mod lookups;
 pub(crate) use lookups::{
-    FIND_HEALTH_SNAPSHOT_TENANT_SQL, FIND_RECOVERY_METRIC_TENANT_SQL,
-    FIND_SLEEP_SESSION_TENANT_SQL, GET_RECOVERY_ORIGINS_SQL, GET_SLEEP_ORIGINS_SQL,
-    LIST_DATA_SOURCES_SQL,
+    EARLIEST_SOURCE_DATED_SQL, EARLIEST_SOURCE_SLEEP_SQL, FIND_HEALTH_SNAPSHOT_TENANT_SQL,
+    FIND_RECOVERY_METRIC_TENANT_SQL, FIND_SLEEP_SESSION_TENANT_SQL, GET_RECOVERY_ORIGINS_SQL,
+    GET_SLEEP_ORIGINS_SQL, LIST_DATA_SOURCES_SQL,
 };
 
 // ============================================================================
@@ -607,6 +607,42 @@ macro_rules! impl_health_persistence_repositories {
                     .map_err(|e| AppError::database(format!("Failed to list data sources: {e}")))?;
 
                 rows.iter().map(data_source_from_row).collect()
+            }
+
+            async fn earliest_source_day(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                source: &str,
+            ) -> AppResult<Option<NaiveDate>> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read a source's earliest day: {e}"))
+                };
+                let night: Option<DateTime<Utc>> = sqlx::query_scalar(EARLIEST_SOURCE_SLEEP_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(source)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(failed)?;
+                let mut earliest = night.map(|end| end.date_naive());
+                for statement in EARLIEST_SOURCE_DATED_SQL {
+                    let day: Option<NaiveDate> = sqlx::query_scalar(statement)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id.to_string())
+                        .bind(provider)
+                        .bind(source)
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                    earliest = match (earliest, day) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    };
+                }
+                Ok(earliest)
             }
         }
 

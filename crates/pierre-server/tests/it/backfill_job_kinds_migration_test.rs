@@ -282,10 +282,7 @@ async fn migrates_on_postgres(url: &str) {
     for (_, sql) in &pending {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }
-    let kinds_sql = &pending
-        .last()
-        .expect("the kinds migration is among them")
-        .1;
+    let kinds_sql = &pending.last().expect("the kinds migration is among them").1;
     let after = postgres_texts(&pool, UNIQUE_CONSTRAINTS_SQL).await;
     assert_eq!(
         after,

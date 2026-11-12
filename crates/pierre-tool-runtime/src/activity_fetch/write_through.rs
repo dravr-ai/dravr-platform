@@ -33,6 +33,10 @@ use crate::runtime::ToolRuntime;
 pub struct WriteThrough<'a> {
     /// The window the provider was read for.
     pub read: &'a ActivityQueryParams,
+    /// Whether a new training session among the rows delivers the athlete's
+    /// `per_session` digest ([`lands_a_session`]). `false` for a history
+    /// walk, which copies the past and announces nothing (carnet#1482).
+    pub announces_sessions: bool,
 }
 
 /// Warm the provider-agnostic activity cache after a successful live fetch so
@@ -66,14 +70,15 @@ pub(crate) async fn write_through_activity_cache(
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
     #[cfg(feature = "client-notifications")]
-    let landed = lands_a_session(
-        auth_service.runtime(),
-        user_id,
-        &tenant_id,
-        provider,
-        activities,
-    )
-    .await;
+    let landed = write.announces_sessions
+        && lands_a_session(
+            auth_service.runtime(),
+            user_id,
+            &tenant_id,
+            provider,
+            activities,
+        )
+        .await;
     let stamp = head_sync_stamp(
         cache.as_ref(),
         user_id,

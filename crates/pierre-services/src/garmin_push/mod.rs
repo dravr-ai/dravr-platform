@@ -79,7 +79,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DataSource, DeviceType, TenantId};
@@ -109,6 +109,30 @@ pub use consent::shares_wellness;
 /// wellness reaches exactly those rows
 /// (`ProviderDataRepository::purge_user_provider_source_wellness`).
 pub(crate) const API_SOURCE_MARKER: &str = GARMIN;
+
+/// The earliest day the push holds the owner's wellness in `tenant_id`.
+///
+/// It is the first night, recovery, body or daily-activity row filed under
+/// the API's marked data source ([`API_SOURCE_MARKER`]); `None` when the push
+/// holds no wellness for them there.
+///
+/// A history walk's wellness copy reads it so it never writes a day the
+/// push already holds, however the grant's connection was restamped since
+/// (carnet#1482).
+///
+/// # Errors
+///
+/// Returns a database error when a wellness table cannot be read.
+pub async fn first_pushed_wellness_day(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<Option<NaiveDate>> {
+    repos
+        .data_sources
+        .earliest_source_day(user_id, &tenant_id, GARMIN, API_SOURCE_MARKER)
+        .await
+}
 
 /// A summary type Garmin pushes and Dravr ingests, by the key its batches
 /// carry.

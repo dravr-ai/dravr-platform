@@ -130,6 +130,7 @@ impl Attempt {
             Ok(HeadRead {
                 activities,
                 verdict: HeadVerdict::Complete | HeadVerdict::Incomplete,
+                ..
             }) => Self::Landed(activities.len()),
             Err(e) if e.provider_auth_required_provider().is_some() => Self::AuthRequired,
             Ok(HeadRead {

@@ -327,6 +327,7 @@ async fn served_head(
         Ok(HeadRead {
             activities,
             verdict: HeadVerdict::Complete | HeadVerdict::Incomplete,
+            ..
         }) => Some(activities),
         Ok(HeadRead {
             verdict: HeadVerdict::EmptyOverCached { .. },
