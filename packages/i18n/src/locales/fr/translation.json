@@ -2854,6 +2854,12 @@
       "push_title": "Ton historique est prêt",
       "ready": "✅ Ton historique est prêt — {0} activités récupérées. Redemande-moi ce que tu cherchais."
     },
+    "history_walk": {
+      "complete": "✅ Ton historique depuis {0} est là : {1} activités."
+    },
+    "live_read": {
+      "overtaken": "✅ Les données de ta question précédente sont arrivées."
+    },
     "capability": {
       "refusal": "Je ne peux pas faire ça avec les outils dont je dispose."
     },

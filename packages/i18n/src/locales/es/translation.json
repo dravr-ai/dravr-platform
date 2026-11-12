@@ -2854,6 +2854,12 @@
       "push_title": "Tu historial está listo",
       "ready": "✅ Tu historial está listo — {0} actividades cargadas. Vuelve a preguntarme lo que buscabas."
     },
+    "history_walk": {
+      "complete": "✅ Tu historial desde {0} ya está aquí: {1} actividades."
+    },
+    "live_read": {
+      "overtaken": "✅ Ya llegaron los datos de tu pregunta anterior."
+    },
     "capability": {
       "refusal": "No puedo hacerlo con las herramientas que tengo."
     },

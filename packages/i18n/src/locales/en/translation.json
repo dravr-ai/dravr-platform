@@ -2854,6 +2854,12 @@
       "push_title": "Your history is ready",
       "ready": "✅ Your history is ready — {0} activities loaded. Ask me again what you were looking for."
     },
+    "history_walk": {
+      "complete": "✅ Your history back to {0} is in: {1} activities."
+    },
+    "live_read": {
+      "overtaken": "✅ The data for your earlier question has landed."
+    },
     "capability": {
       "refusal": "I can't do that with the tools I have."
     },
