@@ -136,14 +136,17 @@ pub fn served_without_notes(payload: &Value) -> Vec<&str> {
 const ACTIVITY_ADDRESSING_FIELDS: [&str; 4] = ["id", "name", "sport_type", "start_date"];
 
 /// The per-activity fields the prose list cannot carry and the model needs:
-/// what the athlete wrote (fenced as athlete text by the serializer), the gear
-/// and device, the moving time beside the elapsed one, the workout tag, and the
-/// segment efforts of a detailed row. The athlete-visible prose list never
-/// holds free text, so these reach the model only here.
-const ACTIVITY_CONTEXT_FIELDS: [&str; 10] = [
+/// what the athlete wrote (fenced as athlete text by the serializer), the
+/// comments under the activity (a TrainingPeaks athlete or coach comment, a
+/// COROS note, each fenced the same way), the gear and device, the moving time
+/// beside the elapsed one, the workout tag, and the segment efforts of a
+/// detailed row. The athlete-visible prose list never holds free text, so
+/// these reach the model only here.
+const ACTIVITY_CONTEXT_FIELDS: [&str; 11] = [
     "description",
     "description_excerpt",
     "private_note",
+    "comments",
     "gear",
     "device_name",
     "moving_time_seconds",
@@ -161,8 +164,11 @@ const MAX_ATHLETE_NOTES: usize = 15;
 ///
 /// Each line names the session and carries the text exactly as the serializer
 /// fenced it (`<athlete_text …>`), so it reaches the model as something the
-/// athlete wrote, never as an instruction. The athlete-visible list never holds
-/// it.
+/// athlete wrote, never as an instruction: the description, the private note,
+/// and the comments under the session, each comment after its author. A
+/// TrainingPeaks or COROS session often carries comments and no description,
+/// so a session with comments alone has its line too. The athlete-visible
+/// list never holds it.
 #[must_use]
 pub fn athlete_notes(payload: &Value) -> Vec<String> {
     let Some(rows) = payload.get("activities").and_then(Value::as_array) else {
@@ -173,21 +179,50 @@ pub fn athlete_notes(payload: &Value) -> Vec<String> {
             let text = row
                 .get("description")
                 .or_else(|| row.get("description_excerpt"))
-                .and_then(Value::as_str)?;
+                .and_then(Value::as_str);
+            let comments = comment_lines(row);
+            if text.is_none() && comments.is_empty() {
+                return None;
+            }
             let name = row.get("name").and_then(Value::as_str).unwrap_or_default();
             let date = row
                 .get("start_date_local")
                 .or_else(|| row.get("start_date"))
                 .and_then(Value::as_str)
                 .map_or("", |d| d.get(..10).unwrap_or(d));
-            let note = row
-                .get("private_note")
-                .and_then(Value::as_str)
-                .map_or_else(String::new, |n| format!(" private note: {n}"));
-            Some(format!("- {name} ({date}): {text}{note}"))
+            let mut said: Vec<String> = text.map(str::to_owned).into_iter().collect();
+            if let Some(note) = row.get("private_note").and_then(Value::as_str) {
+                said.push(format!("private note: {note}"));
+            }
+            if !comments.is_empty() {
+                said.push(format!("comments: {}", comments.join(" | ")));
+            }
+            Some(format!("- {name} ({date}): {}", said.join(" ")))
         })
         .take(MAX_ATHLETE_NOTES)
         .collect()
+}
+
+/// A row's comments as the serializer left them, each `author: text`, or the
+/// text alone when the comment names no author.
+fn comment_lines(row: &Value) -> Vec<String> {
+    row.get("comments")
+        .and_then(Value::as_array)
+        .map(|thread| {
+            thread
+                .iter()
+                .filter_map(|comment| {
+                    let text = comment.get("text").and_then(Value::as_str)?;
+                    Some(
+                        comment
+                            .get("author")
+                            .and_then(Value::as_str)
+                            .map_or_else(|| text.to_owned(), |author| format!("{author}: {text}")),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Reduce a `get_activities` payload to what a model needs, leaving every other
@@ -439,6 +474,33 @@ mod tests {
             notes[0].starts_with("- Bûcheronner ! (2026-11-07): <athlete_text"),
             "bug: the note names its session and keeps the fence: {}",
             notes[0]
+        );
+    }
+
+    /// A TrainingPeaks or COROS session often carries comments and no
+    /// description: its comments still reach the model, each after its author.
+    #[test]
+    fn a_session_with_comments_alone_has_its_note() {
+        let payload = json!({
+            "activity_list": "1. [run] Seuil - 2026-11-08 …",
+            "activities": [{
+                "id": "tp-1",
+                "name": "Seuil",
+                "start_date": "2026-11-08T12:00:00Z",
+                "comments": [
+                    { "author": "athlete", "text": "<athlete_text>Jambes lourdes</athlete_text>" },
+                    { "text": "<athlete_text>Bien géré</athlete_text>" }
+                ]
+            }]
+        });
+        let notes = athlete_notes(&payload);
+        assert_eq!(
+            notes,
+            vec![
+                "- Seuil (2026-11-08): comments: athlete: <athlete_text>Jambes lourdes</athlete_text> | <athlete_text>Bien géré</athlete_text>"
+                    .to_owned()
+            ],
+            "bug: a session's comments never reached the model"
         );
     }
 

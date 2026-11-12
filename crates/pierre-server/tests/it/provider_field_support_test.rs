@@ -37,7 +37,7 @@ use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::field_dictionary::served_header;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::tool_results::project_activities_payload;
+use pierre_tool_runtime::tool_results::{athlete_notes, project_activities_payload};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -134,6 +134,44 @@ fn a_provider_read_one_way_has_only_that_mode() {
         field_support(&registry, "peloton", None),
         None,
         "an unknown name has no dictionary"
+    );
+}
+
+/// TrainingPeaks and COROS keep the athlete's words as comments (directive
+/// 10): both declare them, and a row's comments survive the projection the
+/// model reads and the notes the prefetch appends.
+#[test]
+fn trainingpeaks_and_coros_comments_reach_the_model() {
+    let registry = ProviderRegistry::new();
+    for provider in ["trainingpeaks", "coros"] {
+        let support = field_support(&registry, provider, Some(FieldMode::Mirror)).unwrap();
+        let mirror = support.mirror.expect("the provider is scraped");
+        assert!(
+            mirror.supplied().contains(ActivityFields::COMMENTS),
+            "bug: {provider} does not declare the comments its capture carries"
+        );
+    }
+
+    let envelope = json!({
+        "activity_list": "1. [run] Seuil - 2026-11-08 …",
+        "activities": [{
+            "id": "tp-1",
+            "name": "Seuil",
+            "sport_type": "run",
+            "start_date": "2026-11-08T12:00:00Z",
+            "comments": [{ "author": "coach", "text": "<athlete_text>Bien géré</athlete_text>" }]
+        }]
+    });
+    let projected = project_activities_payload("get_activities", &envelope)
+        .expect("a real get_activities envelope is recognised");
+    assert_eq!(
+        projected["activities"][0]["comments"], envelope["activities"][0]["comments"],
+        "bug: the projection dropped the comments the model needs"
+    );
+    let notes = athlete_notes(&envelope);
+    assert!(
+        notes.len() == 1 && notes[0].contains("coach: <athlete_text>Bien géré"),
+        "bug: the prefetch notes dropped a session's comments: {notes:?}"
     );
 }
 
