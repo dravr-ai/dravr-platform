@@ -130,6 +130,8 @@ fn zone(target_type: &str, zone: u8) -> Map<String, Value> {
     target
 }
 
+/// LIMITATION(registre#1532): a pushed Garmin run shows a neutral title and none of its steps in Garmin Connect, though `workout_body` renders them; `step_target` also gives a run step with a generic zone (Z2, tempo) no target.
+///
 /// A step's target fields, or `None` when the step goes out open: Garmin
 /// resolves a zone against the zones the athlete keeps in Garmin Connect and
 /// a percent against the FTP it holds for them, so no threshold of Dravr's
