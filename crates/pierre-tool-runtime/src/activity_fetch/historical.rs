@@ -12,8 +12,8 @@ use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_database::repositories::{historical_depth_covered, BackfillJobKind, BackfillJobState};
-use pierre_services::training_history_read::history_store_keys;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_services::training_history_read::history_store_keys;
 use tracing::{info, warn};
 use uuid::Uuid;
 

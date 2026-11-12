@@ -53,10 +53,10 @@ use std::time::Duration;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_services::training_history_read::history_store_keys;
 use pierre_providers::core::FitnessProvider;
 use pierre_services::periodic::spawn_periodic;
 use pierre_services::personal_bests::{seed_stream_sources, SeedPause, SeedProgress};
+use pierre_services::training_history_read::history_store_keys;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{info, warn};
