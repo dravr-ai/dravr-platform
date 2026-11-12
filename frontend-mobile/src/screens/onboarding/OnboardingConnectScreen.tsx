@@ -50,7 +50,6 @@ import {
   cardStatus,
   connectPlan,
   credentialFallbackOnRefusal,
-  historyActionKey,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
@@ -367,10 +366,9 @@ export function OnboardingConnectScreen() {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
     const status = cardStatus(provider);
-    // A connected grant whose history is still needed, or whose copy did not
-    // finish, opens the sign-in that copies it (carnet#1472).
-    const historySignIn =
-      status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
+    // A connected grant whose history is still needed opens the sign-in that
+    // brings it in (carnet#1472).
+    const historySignIn = status === 'history_needed' ? connectPlan(provider).history.signIn : null;
     const exportSource = cardExportSource(provider);
 
     return (
@@ -430,7 +428,7 @@ export function OnboardingConnectScreen() {
                   accessibilityHint={t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name })}
                   testID={`provider-action-${provider.provider}`}
                 >
-                  {t(historyActionKey(provider))}
+                  {t(HISTORY_ACTION_KEYS.add)}
                 </Text>
               )}
             </View>

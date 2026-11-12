@@ -76,8 +76,6 @@ function scriptStrings(page: Page): Record<string, string> {
     stravaFallback: text('hosted.picker.stravaFallback'),
     signInIncomplete: text('hosted.picker.signInIncomplete'),
     tagImportHistory: text('hosted.picker.tagImportHistory'),
-    tagHistoryImporting: text('hosted.picker.tagHistoryImporting'),
-    tagHistoryIncomplete: text('hosted.picker.tagHistoryIncomplete'),
     importExportLink: text('hosted.picker.importExportLink'),
     historySignInNote: text('hosted.picker.historySignInNote'),
     historyCopying: text('hosted.picker.historyCopying'),
@@ -313,7 +311,7 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — leaving th
 
 describe('connect_hosted — a Garmin grant whose history is needed (carnet#1472)', () => {
   /** The Garmin card as the picker serves it after a grant, its history in `state`. */
-  const garminGrant = (state: 'needed' | 'incomplete', historySignIn = true) => [
+  const garminGrant = (state: 'needed', historySignIn = true) => [
     {
       provider: 'garmin',
       display_name: 'Garmin',
@@ -352,8 +350,8 @@ describe('connect_hosted — a Garmin grant whose history is needed (carnet#1472
     expect(view.byId('success-message').textContent).toBe(text('hosted.picker.historyCopying'));
   });
 
-  it.each(['needed', 'incomplete'] as const)('opens the same sign-in in one tap on a card whose history is %s', (state) => {
-    const view = open('connect_hosted', {}, garminGrant(state));
+  it('opens the same sign-in in one tap on a card whose history is needed', () => {
+    const view = open('connect_hosted', {}, garminGrant('needed'));
     const card = view.document.querySelector('.provider-card') as HTMLButtonElement;
     expect(card.disabled).toBe(false);
 

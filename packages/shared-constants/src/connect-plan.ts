@@ -53,8 +53,8 @@ type ConnectPrimary =
 interface ConnectPlan {
   primary: ConnectPrimary;
   /**
-   * The card's history: its state, and the account sign-in that copies it
-   * while it is still `needed` or did not finish (`null` otherwise). A
+   * The card's history: its state, and the account sign-in that brings it
+   * in while it is still `needed` (`null` otherwise). A
    * Garmin grant receives only what the athlete records after connecting,
    * so that sign-in follows the grant at once (carnet#1472).
    */
@@ -89,11 +89,11 @@ function connectPrimary(card: ConnectPlanCard): ConnectPrimary {
 }
 
 /**
- * The account sign-in that copies a connected card's history: offered while
- * that history is `needed` or did not finish, for the target the server names.
+ * The account sign-in that brings a connected card's history in: offered
+ * while that history is `needed`, for the target the server names.
  */
 function historySignIn(card: ConnectPlanCard, state: HistoryState): SciotteTarget | null {
-  if (state !== 'needed' && state !== 'incomplete') return null;
+  if (state !== 'needed') return null;
   const signIn = card.history?.sign_in_target;
   return signIn ? sciotteTargetForBackend(signIn) : null;
 }
@@ -118,8 +118,6 @@ export type CardStatus =
   | 'authorize_owed'
   | 'reconnect'
   | 'history_needed'
-  | 'history_incomplete'
-  | 'history_importing'
   | 'history_imported'
   | 'connected'
   | 'connect';

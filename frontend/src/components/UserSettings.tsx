@@ -49,11 +49,9 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
-  HISTORY_IMPORTING_REFRESH_MS,
   cardStatus,
   connectPlan,
   oauthFallbackTarget,
-  historyImporting,
   intervalsConnectPath,
   noticeRequired,
 } from '@pierre/shared-constants';
@@ -220,9 +218,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     // elsewhere (onboarding/chat OAuth, which uses a different query key) would
     // otherwise show stale t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
-    // A card copying its history is read again until the copy settles.
-    refetchInterval: (query) =>
-      historyImporting(query.state.data?.providers ?? []) ? HISTORY_IMPORTING_REFRESH_MS : false,
   });
 
   // The cards render as the server serves them: it withholds the raw rows a

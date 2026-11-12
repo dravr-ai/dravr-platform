@@ -10,12 +10,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  AppState,
   Modal,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -34,7 +33,6 @@ import type { SciotteTarget } from '@pierre/shared-types';
 import {
   AI_CONSENT_KEYS,
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
   HISTORY_LINE_KEYS,
   OAUTH_NO_SEAT,
   cardForSlug,
@@ -44,8 +42,6 @@ import {
   connectPlan,
   credentialFallbackOnRefusal,
   delegationRefusalKey,
-  historyActionKey,
-  historyImporting,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
@@ -163,19 +159,6 @@ export function ConnectionsScreen() {
       loadConnectionStatus();
     }
   }, [isAuthenticated, loadConnectionStatus]);
-
-  // A row copying its history is read again, while this screen is in view and
-  // the app is not in the background, until the copy settles (carnet#1386).
-  const importing = historyImporting(providers);
-  useFocusEffect(
-    useCallback(() => {
-      if (!importing) return undefined;
-      const timer = setInterval(() => {
-        if (AppState.currentState !== 'background') void loadConnectionStatus({ quiet: true });
-      }, HISTORY_IMPORTING_REFRESH_MS);
-      return () => clearInterval(timer);
-    }, [importing, loadConnectionStatus]),
-  );
 
   // Safety net: auto-clear the post-connect spinner after 6 seconds so the
   // user is never pinned on it. The connection-status refetch normally
@@ -511,18 +494,16 @@ export function ConnectionsScreen() {
       );
     } else if (isConnected) {
       // A push-fed grant (Garmin) carries only what comes after it: while the
-      // history is needed, or its last copy did not finish, the row opens the
-      // sign-in that copies it; disconnecting stays in the row's menu
-      // (carnet#1472).
-      const historySignIn =
-        status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
+      // history is needed, the row opens the sign-in that brings it in;
+      // disconnecting stays in the row's menu (carnet#1472).
+      const historySignIn = status === 'history_needed' ? connectPlan(provider).history.signIn : null;
       trailing = (
         <>
           <StatusDot tone="success" />
           <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
           {historySignIn
             ? action(
-                t(historyActionKey(provider)),
+                t(HISTORY_ACTION_KEYS.add),
                 () => signIn.open(historySignIn, provider, true),
                 t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name }),
               )
@@ -588,11 +569,8 @@ export function ConnectionsScreen() {
             {historyState !== 'not_applicable' && (
               <View testID={`provider-history-${id}`}>
                 <View className="flex-row items-center gap-1.5">
-                  {(historyState === 'needed' || historyState === 'incomplete') && <StatusDot tone="warning" />}
-                  <Text
-                    className={`text-sm ${historyState === 'imported' ? 'text-text-tertiary' : 'text-text-secondary'}`}
-                    accessibilityLiveRegion={historyState === 'importing' ? 'polite' : undefined}
-                  >
+                  {historyState === 'needed' && <StatusDot tone="warning" />}
+                  <Text className={`text-sm ${historyState === 'imported' ? 'text-text-tertiary' : 'text-text-secondary'}`}>
                     {t(HISTORY_LINE_KEYS[historyState], { provider: provider.display_name })}
                   </Text>
                 </View>

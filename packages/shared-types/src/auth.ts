@@ -451,13 +451,11 @@ export interface ExtendedProviderStatus {
 
 /**
  * Where a provider card's history stands: `needed` while the grant serves and
- * nothing from before it is held, `importing` while a one-time copy runs,
- * `incomplete` when the last copy ended before the history landed,
- * `imported` once a sign-in's copy or an imported export is held (the
- * grant's own pushes never count), `not_applicable` for a card whose ongoing
+ * nothing from before it is held, `imported` once rows a sign-in stored or an
+ * imported export are held (the grant's own pushes never count), `not_applicable` for a card whose ongoing
  * source reads history itself.
  */
-export type HistoryState = 'needed' | 'importing' | 'incomplete' | 'imported' | 'not_applicable';
+export type HistoryState = 'needed' | 'imported' | 'not_applicable';
 
 /** A provider card's history: where it stands and how it can be brought in. */
 export interface HistoryStatus {

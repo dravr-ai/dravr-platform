@@ -64,23 +64,16 @@ const garminSession = (overrides: Partial<ConnectPlanCard> = {}): ConnectPlanCar
   });
 
 describe('connectPlan — Garmin grant holder (carnet#1386)', () => {
-  it('names the Garmin sign-in that copies the history while it is needed (carnet#1472)', () => {
+  it('names the Garmin sign-in that brings the history in while it is needed (carnet#1472)', () => {
     const plan = connectPlan(garminGrant('needed'));
     expect(plan.primary).toEqual({ kind: 'oauth', provider: 'garmin' });
     expect(plan.history).toEqual({ state: 'needed', signIn: 'garmin' });
     expect(cardStatus(garminGrant('needed'))).toBe('history_needed');
   });
 
-  it('names it again after a copy that did not finish', () => {
-    expect(connectPlan(garminGrant('incomplete')).history.signIn).toBe('garmin');
-    expect(cardStatus(garminGrant('incomplete'))).toBe('history_incomplete');
-  });
-
-  it('names no sign-in while the copy runs or once the history is in', () => {
-    for (const state of ['importing', 'imported'] as const) {
-      expect(connectPlan(garminGrant(state)).history).toEqual({ state, signIn: null });
-      expect(cardStatus(garminGrant(state))).toBe(`history_${state}`);
-    }
+  it('names no sign-in once the history is in', () => {
+    expect(connectPlan(garminGrant('imported')).history).toEqual({ state: 'imported', signIn: null });
+    expect(cardStatus(garminGrant('imported'))).toBe('history_imported');
   });
 
   it('reconnects a flagged grant through the Garmin sign-in, whatever the seats (carnet#1494)', () => {

@@ -170,7 +170,6 @@ export {
 export {
   AI_CONSENT_KEYS,
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
   HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
@@ -181,8 +180,6 @@ export {
   SCIOTTE_LOGIN_PRESETS,
   aiConsentCards,
   cardHistoryState,
-  historyActionKey,
-  historyImporting,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,

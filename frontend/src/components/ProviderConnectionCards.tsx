@@ -12,13 +12,9 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
-  HISTORY_LINE_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
   cardStatus,
   connectPlan,
-  historyActionKey,
-  historyImporting,
   noticeRequired,
   oauthFallbackTarget,
   providerGlyphInk,
@@ -53,21 +49,20 @@ const ROW_CLASS =
 const ROW_WRAPPER_CLASS = 'border-t ghost-border-faint first:border-t-0';
 
 /**
- * The account sign-in that copies `card`'s history now, or `null`: its history
- * is still needed or did not finish and the server names the sign-in. With
- * none, the row offers no history action.
+ * The account sign-in that brings `card`'s history in now, or `null`: its
+ * history is still needed and the server names the sign-in. With none, the
+ * row offers no history action.
  */
 function historySignInNow(card: ProviderStatus, status: CardStatus): SciotteTarget | null {
-  if (status !== 'history_needed' && status !== 'history_incomplete') return null;
+  if (status !== 'history_needed') return null;
   return connectPlan(card).history.signIn;
 }
 
-/** The card states a tap acts on; the others (connected, copying, copied) leave the row inert. */
+/** The card states a tap acts on; the others (connected, history in) leave the row inert. */
 const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'authorize_owed',
   'reconnect',
   'history_needed',
-  'history_incomplete',
   'connect',
 ]);
 
@@ -185,14 +180,12 @@ export default function ProviderConnectionCards({
   // screen does not see — the hosted connect page a chat link opens, on
   // another device — so it asks while no connection has landed yet, and stops
   // the moment one arrives rather than ticking for as long as the screen is
-  // mounted. A card copying its history is read again until the copy settles.
-  // A connect started here returns to this tab, which reloads the status.
+  // mounted. A connect started here returns to this tab, which reloads the status.
   const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: query => {
       const cards = query.state.data?.providers ?? [];
-      if (historyImporting(cards)) return HISTORY_IMPORTING_REFRESH_MS;
       return cards.some(p => p.connected) ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
     },
   });
@@ -314,7 +307,7 @@ export default function ProviderConnectionCards({
       setNoticeProvider(provider.provider);
       return;
     }
-    if (status === 'history_needed' || status === 'history_incomplete') {
+    if (status === 'history_needed') {
       const target = historySignInNow(provider, status);
       if (target) openSignIn(provider, target, true);
       return;
@@ -382,7 +375,7 @@ export default function ProviderConnectionCards({
         const isNonOAuth = connectPlan(provider).primary.kind === 'none';
         const offersHistory = historySignInNow(provider, status) !== null;
         // A card whose history has no sign-in to copy it is connected and inert.
-        const historyWithoutSignIn = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
+        const historyWithoutSignIn = status === 'history_needed' && !offersHistory;
         const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
         const refused =
           refusedCard === provider.provider && (status === 'connect' || status === 'reconnect');
@@ -405,7 +398,7 @@ export default function ProviderConnectionCards({
               aria-label={
                 status === 'authorize_owed'
                   ? t('providers.authorizeToKeepSyncing', name)
-                  : offersHistory || status === 'reconnect' || status === 'history_importing' || refused
+                  : offersHistory || status === 'reconnect' || refused
                   ? undefined
                   : provider.connected
                   ? t('providers.isConnectedAria', name)
@@ -433,7 +426,7 @@ export default function ProviderConnectionCards({
               {actionable && status !== 'authorize_owed' && !isNonOAuth && (
                 <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
                   {offersHistory
-                    ? t(historyActionKey(provider))
+                    ? t(HISTORY_ACTION_KEYS.add)
                     : status === 'reconnect'
                       ? t('app.reconnect')
                       : t('providers.connect')}
@@ -583,10 +576,7 @@ function RowStatus({
       return line('bg-warning', t('providers.authorizeToKeepSyncing', name), `provider-authorization-owed-${provider}`);
     case 'reconnect':
       return line('bg-warning', t('providers.reconnectNeeded'), `provider-reconnect-needed-${provider}`);
-    case 'history_importing':
-      return line(null, t(HISTORY_LINE_KEYS.importing, name), `provider-history-importing-${provider}`, true);
     case 'history_needed':
-    case 'history_incomplete':
     case 'history_imported':
     case 'connected':
       return line('bg-success', t('providers.connected'));

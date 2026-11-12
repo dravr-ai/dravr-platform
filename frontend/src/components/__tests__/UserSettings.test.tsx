@@ -14,7 +14,6 @@ import { ToastProvider } from '../ui';
 import { userApi } from '../../services/api';
 import { i18n } from '@pierre/i18n';
 import { OAUTH_RESULT_FRESH_MS, OAUTH_RESULT_KEY } from '../../utils/oauthReturn';
-import { HISTORY_IMPORTING_REFRESH_MS } from '@pierre/shared-constants';
 import type { HistoryState } from '@pierre/shared-types';
 
 // Mock lazy-loaded components
@@ -1380,38 +1379,12 @@ describe('UserSettings Component', () => {
       const line = (state: Exclude<HistoryState, 'not_applicable'>) =>
         i18n.t(`providers.history.${state}`, { provider: 'Garmin' });
 
-      it('says the copy is running, quietly, with nothing to do', async () => {
-        getProvidersStatus.mockResolvedValue({ providers: [garminWith('importing'), card('whoop', 'WHOOP')] });
-        await openProviders();
-
-        const history = await screen.findByTestId('provider-history-sciotte_garmin');
-        expect(history).toHaveAttribute('data-state', 'importing');
-        expect(within(history).getByRole('status')).toHaveTextContent(line('importing'));
-        expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
-        expect(history).not.toHaveTextContent(i18n.t('providers.history.explainer', { provider: 'Garmin' }));
-      });
-
       it('confirms the history is in, and asks for nothing', async () => {
         getProvidersStatus.mockResolvedValue({ providers: [garminWith('imported'), card('whoop', 'WHOOP')] });
         await openProviders();
 
         expect(await screen.findByTestId('provider-history-sciotte_garmin')).toHaveTextContent(line('imported'));
         expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
-      });
-
-      it('offers to try again when the copy did not finish, its tap opening the login in history mode', async () => {
-        getProvidersStatus.mockResolvedValue({ providers: [garminWith('incomplete'), card('whoop', 'WHOOP')] });
-        await openProviders();
-
-        expect(await screen.findByTestId('provider-history-sciotte_garmin')).toHaveTextContent(line('incomplete'));
-        const retry = screen.getByTestId('provider-history-add-sciotte_garmin');
-        expect(retry).toHaveTextContent(i18n.t('providers.history.retry'));
-        await userEvent.setup().click(retry);
-
-        const modal = await screen.findByTestId('sciotte-modal');
-        expect(modal).toHaveTextContent('garmin');
-        expect(modal).toHaveAttribute('data-history-mode', 'true');
-        expect(assign).not.toHaveBeenCalled();
       });
 
       it('says the history is missing on the card, its action titled with what the sign-in does', async () => {
@@ -1435,30 +1408,6 @@ describe('UserSettings Component', () => {
         expect(screen.queryByTestId('provider-history-sciotte_garmin')).not.toBeInTheDocument();
         expect(screen.queryByTestId('provider-history-whoop')).not.toBeInTheDocument();
         expect(screen.queryByTestId('provider-history-add-sciotte_garmin')).not.toBeInTheDocument();
-      });
-
-      it('reads the cards again while the copy runs, and stops once it settles', async () => {
-        vi.useFakeTimers({ shouldAdvanceTime: true });
-        try {
-          getProvidersStatus.mockResolvedValue({ providers: [garminWith('importing'), card('whoop', 'WHOOP')] });
-          await openProviders();
-          await screen.findByTestId('provider-history-sciotte_garmin');
-          const before = getProvidersStatus.mock.calls.length;
-
-          getProvidersStatus.mockResolvedValue({ providers: [garminWith('imported'), card('whoop', 'WHOOP')] });
-          await act(async () => {
-            await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS);
-          });
-          await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBe(before + 1));
-          expect(await screen.findByTestId('provider-history-sciotte_garmin')).toHaveAttribute('data-state', 'imported');
-
-          await act(async () => {
-            await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS * 2);
-          });
-          expect(getProvidersStatus.mock.calls.length).toBe(before + 1);
-        } finally {
-          vi.useRealTimers();
-        }
       });
     });
 

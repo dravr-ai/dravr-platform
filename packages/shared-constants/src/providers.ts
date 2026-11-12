@@ -221,37 +221,21 @@ export function cardHistoryState(card: Pick<ExtendedProviderStatus, 'connected' 
  * history is `not_applicable` shows none. Each takes `{ provider }`.
  */
 export const HISTORY_LINE_KEYS: Readonly<Record<Exclude<HistoryState, 'not_applicable'>, string>> = {
-  importing: 'providers.history.importing',
   imported: 'providers.history.imported',
-  incomplete: 'providers.history.incomplete',
   needed: 'providers.history.needed',
 };
 
 /**
  * The words of the card's history action and the line that explains the
- * one-time sign-in it opens (`connectPlan(card).history.signIn`). The
- * action's accessible name is its visible words (`historyActionKey`), so
+ * sign-in it opens (`connectPlan(card).history.signIn`). The action's
+ * accessible name is its visible words (`HISTORY_ACTION_KEYS.add`), so
  * `explainer` is only ever a hint or a description, never a label that
  * replaces them (WCAG 2.5.3, label in name).
  */
 export const HISTORY_ACTION_KEYS = {
   add: 'providers.history.add',
-  retry: 'providers.history.retry',
   explainer: 'providers.history.explainer',
 } as const;
-
-/** The words on a card's history action: try again after a copy that did not finish, otherwise add the history. */
-export function historyActionKey(card: Pick<ExtendedProviderStatus, 'connected' | 'history'>): string {
-  return cardHistoryState(card) === 'incomplete' ? HISTORY_ACTION_KEYS.retry : HISTORY_ACTION_KEYS.add;
-}
-
-/** How often the provider cards are read again while a card's history is copying. */
-export const HISTORY_IMPORTING_REFRESH_MS = 15_000;
-
-/** Whether any of `cards` is copying its history, so the list is worth reading again. */
-export function historyImporting(cards: readonly Pick<ExtendedProviderStatus, 'connected' | 'history'>[]): boolean {
-  return cards.some((card) => cardHistoryState(card) === 'importing');
-}
 
 /**
  * Whether connecting `provider` must first show its notice: the card says the

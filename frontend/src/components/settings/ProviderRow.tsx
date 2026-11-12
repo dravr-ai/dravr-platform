@@ -14,7 +14,6 @@ import {
   coachPlatformName,
   countKey,
   delegationRefusalKey,
-  historyActionKey,
   providerGlyphInk,
   providerScopeLabelKey,
 } from '@pierre/shared-constants';
@@ -69,9 +68,8 @@ export default function ProviderRow({
   const archiveSource = cardExportSource(provider);
   const importedCount = archiveSource ? importedHistoryCount(importsOverview, archiveSource) : 0;
   // A card offers its history only while the server names the sign-in that
-  // copies it; with none, it offers no history action.
-  const offersHistory =
-    (status === 'history_needed' || status === 'history_incomplete') && connectPlan(provider).history.signIn !== null;
+  // brings it in; with none, it offers no history action.
+  const offersHistory = status === 'history_needed' && connectPlan(provider).history.signIn !== null;
   // A connected card whose connection still serves: its actions are the
   // history, the AI consent and the disconnect. Every other card — to
   // connect, to reconnect, owing its authorization — shows its connect action.
@@ -207,7 +205,7 @@ export default function ProviderRow({
                   aria-describedby={historyLineId(provider.provider)}
                   title={t(HISTORY_ACTION_KEYS.explainer, name)}
                 >
-                  {t(historyActionKey(provider))}
+                  {t(HISTORY_ACTION_KEYS.add)}
                 </Button>
               )}
               {connectable && (
