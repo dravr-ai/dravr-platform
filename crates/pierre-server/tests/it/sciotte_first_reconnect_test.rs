@@ -353,8 +353,9 @@ async fn a_reclaim_or_a_revocation_keeps_the_session_and_the_athletes_disconnect
 
 /// A grant-only athlete whose grant the provider revoked is told once to sign
 /// in again: the withdrawal is the claim, so a redelivered event sends
-/// nothing. An athlete whose session serves beside the grant is told
-/// nothing.
+/// nothing. An athlete whose session serves beside the Garmin grant is told
+/// once too, that the reads go on and only the grant's workout and calendar
+/// writes need it again (JF's directive 8), and a redelivery sends nothing.
 #[tokio::test]
 async fn a_withdrawn_grant_tells_a_grant_only_athlete_once() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
@@ -387,19 +388,21 @@ async fn a_withdrawn_grant_tells_a_grant_only_athlete_once() {
     let (beside, _user, beside_tenant, _token) = athlete(&resources).await;
     hold_session(&resources, beside, beside_tenant, LIVE_SESSION).await;
     hold_grant(&resources, beside, beside_tenant).await;
-    withdrawal
-        .disconnect(
-            beside,
-            oauth_providers::GARMIN,
-            beside_tenant,
-            DisconnectReason::ProviderRevoked,
-        )
-        .await
-        .unwrap();
+    for _delivery in 0..2 {
+        withdrawal
+            .disconnect(
+                beside,
+                oauth_providers::GARMIN,
+                beside_tenant,
+                DisconnectReason::ProviderRevoked,
+            )
+            .await
+            .unwrap();
+    }
     assert_eq!(
         reconnect_notices(&resources, beside, beside_tenant).await,
-        0,
-        "bug: an athlete whose session serves is asked to reconnect"
+        1,
+        "bug: an athlete whose session serves is not told once that Garmin's writes stopped"
     );
 }
 
