@@ -38,7 +38,7 @@ use uuid::Uuid;
 
 use crate::card_seats::require_garmin_seat;
 use crate::oauth::require_oauth_start_notice;
-use crate::sciotte::LinkContext;
+use crate::sciotte_caller::LinkContext;
 use crate::AuthRoutesContext;
 
 /// The authorization a completed sign-in is followed by.
@@ -47,7 +47,8 @@ pub(crate) struct OAuthFollowOn {
     /// The provider whose OAuth to start (`garmin`).
     pub(crate) provider: &'static str,
     /// The authorization URL itself, for the hosted sign-in a provider's own
-    /// link opened, whose token cannot start an authorization. Absent for
+    /// link opened, whose token cannot start an authorization, and for any
+    /// hosted sign-in a takeover concluded, whose page is gone. Absent for
     /// every other client, which starts it its own way.
     #[serde(skip_serializing_if = "Option::is_none")]
     authorization_url: Option<String>,
@@ -116,7 +117,7 @@ pub(crate) async fn oauth_follow_on(
         .await
         .ok()?;
     let authorization_url = match link {
-        Some(link) if link.target != CONNECT_PROVIDER => {
+        Some(link) if link.target != CONNECT_PROVIDER || link.on_takeover_page => {
             mint_follow_on_url(resources, user_id, tenant_id, grant, link).await
         }
         _ => None,

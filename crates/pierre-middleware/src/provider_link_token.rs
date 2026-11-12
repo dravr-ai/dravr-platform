@@ -483,6 +483,143 @@ pub fn verify_import_link_token(
     Ok(data.claims)
 }
 
+/// Lifetime of a *takeover* link-token (10 minutes): long enough to answer a
+/// provider's robot check, short enough that a leaked one names a login that
+/// is already over.
+pub const TAKEOVER_LINK_TOKEN_TTL_MINUTES: i64 = 10;
+
+/// Audience of a takeover link-token. It differs from the hosted-login and the
+/// import audiences, so neither verifier accepts a takeover token and
+/// [`verify_takeover_link_token`] accepts nothing else.
+const TAKEOVER_LINK_TOKEN_AUDIENCE: &str = "pierre-login-takeover";
+
+/// Scope claim of a takeover link-token.
+pub const TAKEOVER_SCOPE: &str = "provider:sciotte:takeover";
+
+/// The channel a sign-in came from, carried through a takeover so its
+/// success still posts back to the conversation that asked for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeoverLink {
+    /// Channel slug of the link the sign-in opened from (e.g. "slack")
+    pub channel: String,
+    /// Optional channel thread/DM id the confirmation goes to
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_thread: Option<String>,
+    /// Target platform the link was minted for
+    pub target: String,
+}
+
+/// Claims of a takeover link-token: one athlete's sign-in parked at a
+/// provider's robot check, which only the takeover socket accepts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TakeoverTokenClaims {
+    /// Subject — the `user_id` the sign-in is for
+    pub sub: String,
+    /// The sign-in's `tenant_id`
+    pub tid: String,
+    /// Backend provider the parked login signs in to (e.g. "garmin")
+    pub tgt: String,
+    /// The sign-in window's attempt id, which a close of the takeover cancels
+    pub att: String,
+    /// The channel the sign-in came from, when it came from one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<TakeoverLink>,
+    /// Always [`TAKEOVER_SCOPE`]
+    pub scope: String,
+    /// Unique token id
+    pub jti: String,
+    /// Issuer
+    pub iss: String,
+    /// Audience
+    pub aud: String,
+    /// Issued-at (unix seconds)
+    pub iat: i64,
+    /// Expiry (unix seconds)
+    pub exp: i64,
+}
+
+/// Arguments for minting a takeover link-token.
+#[derive(Debug)]
+pub struct MintTakeoverTokenArgs<'a> {
+    /// The athlete signing in
+    pub user_id: Uuid,
+    /// The sign-in's tenant
+    pub tenant_id: Uuid,
+    /// Backend provider the parked login signs in to
+    pub provider: &'a str,
+    /// The sign-in window's attempt id
+    pub attempt_id: &'a str,
+    /// The channel the sign-in came from, when it came from one
+    pub link: Option<TakeoverLink>,
+}
+
+/// Mint a *takeover* link-token for the sign-in a provider's robot check
+/// parked.
+///
+/// Minted in-process by the login step that parked the sign-in, never over
+/// HTTP. It is narrower than every other link-token: its own audience and
+/// [`TAKEOVER_SCOPE`] reach only the takeover socket, it names one attempt of
+/// one athlete's sign-in, and it lives [`TAKEOVER_LINK_TOKEN_TTL_MINUTES`]. It
+/// is not nonce-burned: the flow it names is what makes it single-use. The
+/// first socket takes that flow, closing it ends the sign-in, and nothing
+/// answers for the flow after.
+///
+/// # Errors
+///
+/// An internal error when JWT encoding fails.
+pub fn mint_takeover_link_token(
+    args: &MintTakeoverTokenArgs<'_>,
+    admin_jwt_secret: &str,
+) -> AppResult<String> {
+    let now = Utc::now();
+    let claims = TakeoverTokenClaims {
+        sub: args.user_id.to_string(),
+        tid: args.tenant_id.to_string(),
+        tgt: args.provider.to_owned(),
+        att: args.attempt_id.to_owned(),
+        link: args.link.clone(),
+        scope: TAKEOVER_SCOPE.to_owned(),
+        jti: Uuid::new_v4().to_string(),
+        iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
+        aud: TAKEOVER_LINK_TOKEN_AUDIENCE.to_owned(),
+        iat: now.timestamp(),
+        exp: (now + Duration::minutes(TAKEOVER_LINK_TOKEN_TTL_MINUTES)).timestamp(),
+    };
+    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    encode(&Header::new(Algorithm::HS256), &claims, &key)
+        .map_err(|e| AppError::internal(format!("Failed to encode takeover link-token: {e}")))
+}
+
+/// Verify a takeover link-token.
+///
+/// Only a token [`mint_takeover_link_token`] minted passes: a hosted-login,
+/// connect or import token is refused by its audience, before its scope is
+/// read.
+///
+/// # Errors
+///
+/// [`AppError::auth_invalid`] if the token is malformed, expired,
+/// signature-invalid, or not a takeover token.
+pub fn verify_takeover_link_token(
+    token: &str,
+    admin_jwt_secret: &str,
+) -> AppResult<TakeoverTokenClaims> {
+    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+    validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
+    validation.set_audience(&[TAKEOVER_LINK_TOKEN_AUDIENCE]);
+    let data = decode::<TakeoverTokenClaims>(token, &key, &validation)
+        .map_err(|e| AppError::auth_invalid(format!("Invalid takeover link-token: {e}")))?;
+    if data.claims.scope != TAKEOVER_SCOPE {
+        return Err(AppError::auth_invalid(format!(
+            "Takeover link-token scope '{}' is not '{TAKEOVER_SCOPE}'",
+            data.claims.scope
+        )));
+    }
+    Ok(data.claims)
+}
+
 /// Extract a Bearer link-token from an `Authorization` header value, if present
 #[must_use]
 pub fn extract_bearer_link_token(authorization_header: Option<&str>) -> Option<&str> {
@@ -670,6 +807,105 @@ mod tests {
         assert!(
             mint_import_link_token(&claims, SOURCE, SECRET).is_err(),
             "a provider token was narrowed into an import token"
+        );
+    }
+
+    fn takeover_args() -> MintTakeoverTokenArgs<'static> {
+        MintTakeoverTokenArgs {
+            user_id: Uuid::nil(),
+            tenant_id: Uuid::max(),
+            provider: "garmin",
+            attempt_id: "attempt-0001",
+            link: Some(TakeoverLink {
+                channel: "slack".to_owned(),
+                channel_thread: Some("T1".to_owned()),
+                target: "garmin".to_owned(),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_takeover_token_carries_the_attempt_and_its_channel() {
+        let token = mint_takeover_link_token(&takeover_args(), "secret").unwrap();
+        let claims = verify_takeover_link_token(&token, "secret").unwrap();
+        assert_eq!(
+            claims.sub,
+            Uuid::nil().to_string(),
+            "the token names its athlete"
+        );
+        assert_eq!(
+            claims.tid,
+            Uuid::max().to_string(),
+            "the token names its tenant"
+        );
+        assert_eq!(claims.tgt, "garmin", "the token names its provider");
+        assert_eq!(claims.att, "attempt-0001", "the token names its attempt");
+        assert_eq!(claims.scope, TAKEOVER_SCOPE, "the token is takeover-scoped");
+        assert_eq!(
+            claims.link.as_ref().map(|link| link.channel.as_str()),
+            Some("slack"),
+            "the token carries the channel its sign-in came from"
+        );
+        assert_eq!(
+            claims.exp - claims.iat,
+            TAKEOVER_LINK_TOKEN_TTL_MINUTES * 60,
+            "the token lives the takeover TTL"
+        );
+    }
+
+    #[test]
+    fn a_takeover_token_opens_nothing_else_and_nothing_else_opens_a_takeover() {
+        let takeover = mint_takeover_link_token(&takeover_args(), "secret").unwrap();
+        assert!(
+            verify_link_token(&takeover, "secret", "sciotte").is_err(),
+            "a takeover token opened a hosted sign-in"
+        );
+        assert!(
+            verify_link_token(&takeover, "secret", CONNECT_PROVIDER).is_err(),
+            "a takeover token opened a connect link"
+        );
+        assert!(
+            verify_import_link_token(&takeover, "secret", "strava_archive").is_err(),
+            "a takeover token opened an import"
+        );
+
+        let connect =
+            mint_connect_link_token(Uuid::nil(), Uuid::nil(), "slack", None, "secret").unwrap();
+        assert!(
+            verify_takeover_link_token(&connect, "secret").is_err(),
+            "a connect token opened a takeover"
+        );
+        assert!(
+            verify_takeover_link_token(&takeover, "another-secret").is_err(),
+            "a takeover token passed under another secret"
+        );
+    }
+
+    #[test]
+    fn an_expired_takeover_token_is_refused() {
+        let now = Utc::now();
+        let claims = TakeoverTokenClaims {
+            sub: Uuid::nil().to_string(),
+            tid: Uuid::nil().to_string(),
+            tgt: "garmin".to_owned(),
+            att: "attempt-0001".to_owned(),
+            link: None,
+            scope: TAKEOVER_SCOPE.to_owned(),
+            jti: Uuid::new_v4().to_string(),
+            iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
+            aud: TAKEOVER_LINK_TOKEN_AUDIENCE.to_owned(),
+            iat: (now - Duration::minutes(20)).timestamp(),
+            exp: (now - Duration::minutes(10)).timestamp(),
+        };
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+        assert!(
+            verify_takeover_link_token(&token, "secret").is_err(),
+            "an expired takeover token was accepted"
         );
     }
 }

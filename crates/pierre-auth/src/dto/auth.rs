@@ -421,12 +421,14 @@ pub struct ForgotPasswordResponse {
 /// Session restore response for authenticated users
 ///
 /// Returned by `GET /api/auth/session` to restore sessions using httpOnly cookies.
-/// Provides user info and a fresh JWT for WebSocket authentication.
+/// Provides user info and a fresh JWT, which the mobile app stores to slide
+/// its session.
 #[derive(Debug, Serialize)]
 pub struct SessionResponse {
     /// Authenticated user information
     pub user: UserInfo,
-    /// Fresh JWT token for WebSocket authentication (not stored in cookies)
+    /// Fresh JWT for the restored session: the mobile app stores it to slide
+    /// its session; the web reads its cookie instead
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
     pub access_token: SecretString,
     /// Fresh CSRF token for request validation

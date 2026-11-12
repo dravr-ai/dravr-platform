@@ -727,6 +727,7 @@ mod sciotte_login_error_handling_test;
 mod sciotte_provider_consent_test;
 mod sciotte_reauth_locale_test;
 mod sciotte_rotated_session_row_test;
+mod sciotte_takeover_test;
 mod scope_rail_turn_test;
 mod scrape_health_sync_test;
 mod scrape_session_reauth_attribution_test;

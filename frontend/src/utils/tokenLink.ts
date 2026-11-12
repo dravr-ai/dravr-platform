@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The mailed single-use links' shape — their landing paths and the token each carries in its fragment
-// ABOUTME: Mirrors the paths and the #token= fragment the server builds for invitations and address confirmation
+// ABOUTME: The token links' shape — their landing paths and the token each carries in its fragment
+// ABOUTME: Mirrors the paths and the #token= fragment the server builds for invitations, address confirmation and login takeovers
 
 /**
  * The invitation landing. The server builds the link (`invitation_url` in
@@ -19,10 +19,18 @@ export const ACCEPT_INVITATION_PATH = '/accept-invite';
 export const VERIFY_EMAIL_PATH = '/verify-email';
 
 /**
- * Every landing whose fragment (`#token=…`) carries a single-use token, never
- * a dashboard route.
+ * The login-takeover page: a sign-in a provider's robot check parked, for the
+ * athlete to answer (ADR-034). The server builds the link (`TAKEOVER_PAGE` in
+ * `crates/pierre-routes-auth/src/sciotte.rs`), so the two must name the same
+ * path.
  */
-export const TOKEN_LINK_PATHS: readonly string[] = [ACCEPT_INVITATION_PATH, VERIFY_EMAIL_PATH];
+export const TAKEOVER_PATH = '/sign-in-check';
+
+/**
+ * Every landing whose fragment (`#token=…`) carries a token, never a
+ * dashboard route.
+ */
+export const TOKEN_LINK_PATHS: readonly string[] = [ACCEPT_INVITATION_PATH, VERIFY_EMAIL_PATH, TAKEOVER_PATH];
 
 /** Read a mailed link's token from its fragment (`#token=…`), or `null`. */
 export function parseLinkToken(hash: string): string | null {

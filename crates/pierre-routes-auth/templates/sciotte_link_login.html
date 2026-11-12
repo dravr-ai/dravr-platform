@@ -175,6 +175,16 @@
                 } catch (_) { /* best effort */ }
             }
             window.addEventListener('pagehide', cancelAttempt);
+            // Back from the takeover page (ADR-034), restored from the
+            // back-forward cache: the takeover ended there and cancelled its
+            // attempt, so this page shows why the sign-in stopped, and a
+            // retry names a new attempt.
+            window.addEventListener('pageshow', (event) => {
+                if (!event.persisted || currentPhase !== 'takeover') return;
+                attemptId = mintAttemptId();
+                document.getElementById('error-message').textContent = failureText({ reason: CONFIG.loginChallengeReason });
+                showPhase('error');
+            });
 
             const phases = ['credentials', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
@@ -277,6 +287,19 @@
                         showPhase('number-match');
                         // Auto-poll once on arrival
                         setTimeout(() => selectTwoFactor('poll'), 150);
+                        break;
+                    case 'takeover_required':
+                        // The provider asks the athlete to prove they are not
+                        // a robot: its page opens on the takeover page, where
+                        // they answer it (ADR-034). Leaving here must not
+                        // cancel the sign-in the takeover continues, so the
+                        // page stops counting as live before it navigates.
+                        if (typeof data.takeover_url === 'string' && data.takeover_url) {
+                            currentPhase = 'takeover';
+                            window.location.assign(data.takeover_url);
+                        } else {
+                            showFailure({ reason: CONFIG.loginChallengeReason });
+                        }
                         break;
                     case 'failed':
                         showFailure({ rejected: true });

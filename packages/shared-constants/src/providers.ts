@@ -196,6 +196,19 @@ export const SCIOTTE_LOGIN_FLOW_EXPIRED = 'login_flow_expired' as const;
 export const SCIOTTE_LOGIN_CHALLENGE = 'login_challenge' as const;
 
 /**
+ * `details.reason` of the answer a takeover ends with when it ended with no
+ * outcome from the scraper (its socket closed, or it refused the flow).
+ * Mirrors the server's `TAKEOVER_ENDED_REASON` (`sciotte_takeover.rs`).
+ */
+export const SCIOTTE_TAKEOVER_ENDED = 'takeover_ended' as const;
+
+/**
+ * The most UTF-8 bytes one takeover `text` input may carry. Mirrors sciotte's
+ * `TAKEOVER_MAX_TEXT_BYTES`; longer text goes as several messages.
+ */
+export const SCIOTTE_TAKEOVER_MAX_TEXT_BYTES = 1024;
+
+/**
  * The credential-login target for a provider card, or `null` for a provider
  * that connects some other way (OAuth, an API key).
  */

@@ -4,12 +4,13 @@
 // ABOUTME: Names one opening of a sign-in window with an attempt id, and cancels that attempt on close
 // ABOUTME: Closing the window mid-login asks the server to stop it, since a dropped connection never reaches it
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 /**
  * The sign-in window phases in which the server holds the attempt: a step
- * in flight (`logging-in`, `verifying`, a phone approval being polled), or a
- * flow parked on a 2FA pick or a code.
+ * in flight (`logging-in`, `verifying`, a phone approval being polled), a
+ * flow parked on a 2FA pick or a code, or a browser parked at a provider's
+ * robot check that the athlete is answering (`takeover`, ADR-034).
  */
 const LIVE_PHASES: ReadonlySet<string> = new Set([
   'logging-in',
@@ -18,6 +19,7 @@ const LIVE_PHASES: ReadonlySet<string> = new Set([
   'waiting-approval',
   'number-match',
   'otp',
+  'takeover',
 ]);
 
 /** Whether closing the window in `phase` leaves a login running on the server. */
@@ -40,6 +42,21 @@ export interface SignInAttemptOptions {
 }
 
 /**
+ * The attempt id of a window's current opening, and the way to start a new
+ * attempt in the same opening.
+ */
+export interface SignInAttempt {
+  /** The current attempt id; `undefined` between a close and the next opening. */
+  (): string | undefined;
+  /**
+   * Start a new attempt while the window stays open: the server ended the
+   * last one itself (a takeover that closed cancels its attempt there), and
+   * every step naming it from then on is refused. Nothing is cancelled.
+   */
+  renew: () => void;
+}
+
+/**
  * The attempt id of the window's current opening, cancelled when it closes.
  *
  * Every opening (`open` turning true) mints a fresh id, which each step of
@@ -55,7 +72,7 @@ export interface SignInAttemptOptions {
 export function useSignInAttempt(
   open: boolean,
   options: SignInAttemptOptions,
-): () => string | undefined {
+): SignInAttempt {
   const attemptId = useRef<string | null>(null);
   const latest = useRef(options);
 
@@ -81,5 +98,9 @@ export function useSignInAttempt(
 
   useEffect(() => endAttempt, [endAttempt]);
 
-  return useCallback(() => attemptId.current ?? undefined, []);
+  const current = useCallback(() => attemptId.current ?? undefined, []);
+  const renew = useCallback(() => {
+    if (attemptId.current !== null) attemptId.current = latest.current.mintAttemptId();
+  }, []);
+  return useMemo(() => Object.assign(current, { renew }), [current, renew]);
 }

@@ -106,6 +106,8 @@ mod registration_sign_in;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_caller;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_cancel;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted;
@@ -117,6 +119,8 @@ mod sciotte_installer;
 mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_takeover;
 mod short_link;
 #[cfg(feature = "provider-sciotte")]
 mod sign_in_grant;
@@ -473,6 +477,12 @@ impl AuthRoutes {
             .route(
                 "/api/providers/sciotte/cancel",
                 post(sciotte_cancel::handle_sciotte_cancel),
+            )
+            // Under /ws, so the frontend's nginx `location /ws` carries the
+            // upgrade (ADR-034).
+            .route(
+                "/ws/providers/sciotte/takeover",
+                get(sciotte_takeover::handle_sciotte_takeover_ws),
             )
             // Channel-initiated hosted credential sign-in pages. Their
             // link-tokens are minted in-process by the messaging pipeline and
