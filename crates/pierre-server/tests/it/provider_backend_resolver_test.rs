@@ -31,6 +31,7 @@ use common::{create_test_server_resources, create_test_user};
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{
     ActivityBuilder, Athlete, ConnectionType, SportType, TenantId, UserOAuthToken,
 };
@@ -2529,9 +2530,12 @@ fn history_keys_serve_both_halves_of_a_pair_from_the_session() {
 
 /// A write goes to the backend of the athlete's read plan that carries its
 /// capability (carnet#1494): a Garmin workout keeps going to the grant while
-/// the session serves the reads; without a capable backend in the plan, the
-/// plan's primary, whose refusal names the capability; a mirror named
-/// directly and a provider with no mirror are left as named.
+/// the session serves the reads; a mirror named directly and a provider with
+/// no mirror are left as named. A write only the pair's grant makes is
+/// refused while the grant is not live, never sent to the session that
+/// cannot make it (JF's directive 8): a session alone, and a session beside
+/// a dead grant. Strava's grant writes nothing its session cannot, so it is
+/// never owed.
 #[tokio::test]
 async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
     let resources = create_test_server_resources().await.unwrap();
@@ -2546,6 +2550,12 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
             .await
         }
     };
+    let owed = |refused: AppError| {
+        assert_eq!(refused.code, ErrorCode::NoProviderConnected, "{refused:?}");
+        let details = refused.details.expect("the refusal names the grant");
+        assert_eq!(details["reason"], backend_resolver::GRANT_OWED_REASON);
+        details["provider"].as_str().unwrap().to_owned()
+    };
     let calendar = ProviderCapabilities::CALENDAR_WRITE;
 
     let (both, both_tenant) = athlete(&resources, "write-both@example.com").await;
@@ -2558,7 +2568,9 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
     )
     .await;
     assert_eq!(
-        write(both, both_tenant, oauth_providers::GARMIN, calendar).await,
+        write(both, both_tenant, oauth_providers::GARMIN, calendar)
+            .await
+            .unwrap(),
         oauth_providers::GARMIN,
         "bug: a Garmin workout went to the session that serves the reads"
     );
@@ -2569,9 +2581,41 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
         "the reads stay on the session"
     );
     assert_eq!(
-        write(both, both_tenant, oauth_providers::SCIOTTE_GARMIN, calendar).await,
+        write(both, both_tenant, oauth_providers::SCIOTTE_GARMIN, calendar)
+            .await
+            .unwrap(),
         oauth_providers::SCIOTTE_GARMIN,
         "a mirror named directly is left as named"
+    );
+    assert_eq!(
+        backend_resolver::grant_owed(repos, &registry, both, both_tenant, oauth_providers::GARMIN)
+            .await,
+        None,
+        "a live grant is owed nothing"
+    );
+
+    // The grant dies beside the live session: the write is refused with the
+    // grant named, never sent to the session.
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            both,
+            both_tenant,
+            oauth_providers::GARMIN,
+            Some("refresh_refused"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let refused = write(both, both_tenant, oauth_providers::GARMIN, calendar)
+        .await
+        .expect_err("bug: a workout for a dead Garmin grant went to the session");
+    assert_eq!(owed(refused), oauth_providers::GARMIN);
+    assert_eq!(
+        backend_resolver::grant_owed(repos, &registry, both, both_tenant, oauth_providers::GARMIN)
+            .await,
+        Some(oauth_providers::GARMIN),
+        "bug: a dead grant beside a live session is not owed"
     );
 
     let (session, session_tenant) = athlete(&resources, "write-session@example.com").await;
@@ -2582,16 +2626,17 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
         oauth_providers::SCIOTTE_GARMIN,
     )
     .await;
-    assert_eq!(
-        write(session, session_tenant, oauth_providers::GARMIN, calendar).await,
-        oauth_providers::SCIOTTE_GARMIN,
-        "bug: with no capable backend in the plan the write must name the primary"
-    );
+    let refused = write(session, session_tenant, oauth_providers::GARMIN, calendar)
+        .await
+        .expect_err("bug: a workout for a session-only Garmin went to the session");
+    assert_eq!(owed(refused), oauth_providers::GARMIN);
 
     let (grant, grant_tenant) = athlete(&resources, "write-grant@example.com").await;
     hold(&resources, grant, grant_tenant, oauth_providers::GARMIN).await;
     assert_eq!(
-        write(grant, grant_tenant, oauth_providers::GARMIN, calendar).await,
+        write(grant, grant_tenant, oauth_providers::GARMIN, calendar)
+            .await
+            .unwrap(),
         oauth_providers::GARMIN
     );
     assert_eq!(
@@ -2601,7 +2646,8 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
             oauth_providers::TRAININGPEAKS,
             ProviderCapabilities::PLANNED_WORKOUTS
         )
-        .await,
+        .await
+        .unwrap(),
         oauth_providers::SCIOTTE_TRAININGPEAKS,
         "bug: TrainingPeaks' planned calendar is its mirror's"
     );
@@ -2612,9 +2658,30 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
             oauth_providers::INTERVALS_ICU,
             ProviderCapabilities::PLANNED_WORKOUTS
         )
-        .await,
+        .await
+        .unwrap(),
         oauth_providers::INTERVALS_ICU,
         "a provider with no mirror is left as named"
+    );
+
+    let (strava, strava_tenant) = athlete(&resources, "write-strava@example.com").await;
+    hold(&resources, strava, strava_tenant, oauth_providers::SCIOTTE).await;
+    assert_eq!(
+        write(strava, strava_tenant, oauth_providers::STRAVA, calendar)
+            .await
+            .unwrap(),
+        oauth_providers::SCIOTTE,
+        "bug: Strava's grant was owed for a write it cannot make either"
+    );
+    assert_eq!(
+        backend_resolver::grant_writes_beside_mirror(&registry, oauth_providers::STRAVA),
+        None,
+        "bug: Strava's grant writes nothing its session cannot"
+    );
+    assert_eq!(
+        backend_resolver::grant_writes_beside_mirror(&registry, oauth_providers::SCIOTTE_GARMIN),
+        Some(oauth_providers::GARMIN),
+        "either half of the Garmin pair names its grant"
     );
 }
 

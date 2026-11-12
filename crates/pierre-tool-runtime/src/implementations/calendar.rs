@@ -22,6 +22,7 @@ use pierre_services::plan_calendar_push::{
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::oauth_authorize::with_grant_link;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 
@@ -258,17 +259,7 @@ pub(super) async fn calendar_target(
 ) -> AppResult<CalendarResolution> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
-        Some(name) => Some(
-            write_backend(
-                context.resources.repos(),
-                registry,
-                user_id,
-                tenant_id,
-                name,
-                ProviderCapabilities::CALENDAR_WRITE,
-            )
-            .await,
-        ),
+        Some(name) => Some(named_write_backend(context, tenant_id, user_id, name).await?),
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;
@@ -449,6 +440,35 @@ pub(super) async fn calendars_held(
         .collect())
 }
 
+/// The backend a calendar write to `name` goes to ([`write_backend`]).
+///
+/// # Errors
+///
+/// The refusal of a write only the provider's own grant makes while the
+/// athlete's grant is not live, carrying that grant's authorization link
+/// ([`with_grant_link`]).
+async fn named_write_backend(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    name: &str,
+) -> AppResult<String> {
+    let resources = context.resources.as_ref();
+    match write_backend(
+        resources.repos(),
+        resources.provider_registry(),
+        user_id,
+        tenant_id,
+        name,
+        ProviderCapabilities::CALENDAR_WRITE,
+    )
+    .await
+    {
+        Ok(backend) => Ok(backend),
+        Err(refused) => Err(with_grant_link(resources, user_id, tenant_id, refused).await),
+    }
+}
+
 /// What recording `name`, as the athlete or their coach names it, as the
 /// athlete's calendar resolves to among `which`.
 ///
@@ -464,15 +484,7 @@ pub(super) async fn calendar_to_record(
     which: CalendarConnections,
 ) -> AppResult<CalendarToRecord> {
     let registry = context.resources.provider_registry();
-    let requested = write_backend(
-        context.resources.repos(),
-        registry,
-        user_id,
-        tenant_id,
-        name,
-        ProviderCapabilities::CALENDAR_WRITE,
-    )
-    .await;
+    let requested = named_write_backend(context, tenant_id, user_id, name).await?;
     let rows = connections(context, tenant_id, user_id).await?;
     let backends = backends_among(registry, &rows, which);
     let backend = named_calendar(registry, &backends, &requested)?;

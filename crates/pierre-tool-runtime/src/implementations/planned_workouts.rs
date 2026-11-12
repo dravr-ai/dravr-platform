@@ -72,6 +72,7 @@ use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use super::oauth_authorize::with_grant_link;
 use async_trait::async_trait;
 use chrono::{Days, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -888,7 +889,7 @@ async fn named_planned_backend(
     requested: &str,
 ) -> AppResult<String> {
     let registry = context.resources.provider_registry();
-    let backend = write_backend(
+    let backend = match write_backend(
         context.resources.repos(),
         registry,
         user_id,
@@ -896,7 +897,13 @@ async fn named_planned_backend(
         requested,
         ProviderCapabilities::PLANNED_WORKOUTS,
     )
-    .await;
+    .await
+    {
+        Ok(backend) => backend,
+        Err(refused) => {
+            return Err(with_grant_link(context.resources.as_ref(), user_id, tenant, refused).await)
+        }
+    };
     if has_planned_calendar(registry, &backend) {
         Ok(backend)
     } else {

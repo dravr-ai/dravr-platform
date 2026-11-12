@@ -25,6 +25,7 @@ use tracing::{error, info, warn};
 
 use super::calendar::{calendars_held, recorded_calendar, CalendarConnections};
 use super::field_dictionary::{dictionary, FieldDictionary};
+pub use super::oauth_authorize::mint_oauth_authorize_url;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -44,7 +45,6 @@ use pierre_auth::connect_order::{new_connection_through_oauth, order_and_seats};
 /// The seat refusal [`mint_oauth_authorize_url`] answers with, read where its
 /// callers branch on it.
 pub use pierre_auth::garmin_seats::is_no_seat_refusal;
-use pierre_auth::garmin_seats::require_garmin_seat;
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
 use pierre_core::errors::{AppError, AppResult};
@@ -54,8 +54,8 @@ use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::ProviderRegistry;
-use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
-use pierre_services::provider_notice::{require_notice_accepted, NOTICE_REFUSAL_ACTION};
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_notice::NOTICE_REFUSAL_ACTION;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
 
@@ -181,76 +181,6 @@ async fn signs_in_first(
     )
     .await;
     !new_connection_through_oauth(order, seats)
-}
-
-/// Mint a provider OAuth authorization URL and persist its CSRF state row.
-///
-/// Shared by `connect_provider` (interactive connect) and the chat auth-recovery stage
-/// (reconnect a dead OAuth provider). Applies the provider's notice precondition
-/// ([`require_notice_accepted`]) first, then mints the URL through the authorize builder
-/// every surface shares ([`OAuthService::get_auth_url`]): the client the code exchange will
-/// resolve, the provider's endpoints, scopes and PKCE, and the state row the callback
-/// redeems. Returns `(authorization_url, state)`.
-///
-/// Neither caller can carry an acceptance: the notice (WHOOP's owner authorization) is
-/// accepted by ticking it on a connect surface that shows it — the app's connect screens
-/// or the hosted connect picker — never by a model's tool argument. So a provider whose
-/// notice is outstanding for the account is refused here, and nothing is minted.
-///
-/// Garmin's OAuth takes a seat of a capped pool, so its authorization URL is minted only
-/// while [`require_garmin_seat`] lets this athlete through — the rule every other surface
-/// that starts Garmin's OAuth reads. With the pool full the caller offers the usr/pwd
-/// sign-in instead.
-///
-/// # Errors
-///
-/// Returns the precondition's refusal (`details.action = "accept_provider_notice"`) while
-/// the provider's notice is outstanding, the seat refusal ([`is_no_seat_refusal`]) for a
-/// Garmin athlete with no grant while the pool is full, or an error if no OAuth app (the
-/// user's own, the tenant's or the server's) is configured for the provider, the
-/// authorization URL cannot be generated, or the CSRF state row cannot be persisted.
-pub async fn mint_oauth_authorize_url(
-    resources: &dyn ToolRuntime,
-    user_id: uuid::Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    redirect_url: Option<&str>,
-) -> AppResult<(String, String)> {
-    let brand = resources
-        .provider_registry()
-        .get_descriptor(provider)
-        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned());
-    require_notice_accepted(
-        resources.repos(),
-        tenant_id.as_uuid(),
-        user_id,
-        provider,
-        &brand,
-        false,
-    )
-    .await?;
-    require_garmin_seat(
-        resources.repos().oauth_tokens.as_ref(),
-        resources.repos().provider_connections.as_ref(),
-        &resources.config().oauth,
-        user_id,
-        tenant_id,
-        provider,
-    )
-    .await?;
-
-    let authorization = OAuthService::new(resources.data(), resources.config().clone())
-        .get_auth_url(
-            user_id,
-            tenant_id,
-            provider,
-            AuthUrlOptions {
-                return_redirect: redirect_url,
-            },
-        )
-        .await?;
-
-    Ok((authorization.authorization_url, authorization.state))
 }
 
 /// Whether `error` is the notice precondition's refusal rather than a failure

@@ -46,6 +46,7 @@ use std::iter;
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -694,6 +695,13 @@ pub async fn resolve_backend(
 /// reads. When neither does, the plan's primary, whose refusal names the
 /// capability. A mirror named directly and a provider with no mirror are
 /// returned unchanged, as [`resolve_backend`] returns them.
+///
+/// # Errors
+///
+/// The [`grant_owed_refusal`] when only the pair's grant carries
+/// `capability` and the athlete's grant is not live (JF's directive 8): the
+/// write is never sent to a session that cannot make it, and the refusal
+/// names the authorization to connect again.
 pub async fn write_backend(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
@@ -701,14 +709,106 @@ pub async fn write_backend(
     tenant_id: TenantId,
     requested: &str,
     capability: ProviderCapabilities,
-) -> String {
+) -> AppResult<String> {
     if mirror_backend_for(requested).is_none() {
-        return requested.to_owned();
+        return Ok(requested.to_owned());
     }
     let plan = read_plan(repos, user_id, tenant_id, requested).await;
-    plan.carrying(registry, capability)
-        .unwrap_or(&plan.primary)
-        .to_owned()
+    if let Some(backend) = plan.carrying(registry, capability) {
+        return Ok(backend.to_owned());
+    }
+    match grant_writes_beside_mirror(registry, requested) {
+        Some(grant)
+            if registry
+                .get_capabilities(grant)
+                .is_some_and(|carried| carried.contains(capability)) =>
+        {
+            Err(grant_owed_refusal(registry, grant))
+        }
+        _ => Ok(plan.primary),
+    }
+}
+
+/// What only a pair's own OAuth grant writes and its mirror cannot: the
+/// training calendar (Garmin's workout and calendar push).
+const GRANT_ONLY_WRITES: ProviderCapabilities = ProviderCapabilities::CALENDAR_WRITE;
+
+/// `details.reason` of [`grant_owed_refusal`].
+pub const GRANT_OWED_REASON: &str = "grant_owed";
+
+/// The OAuth grant of `provider`'s pair when it writes what the pair's
+/// mirror cannot, else `None`. Accepts either half of a pair.
+///
+/// Garmin's: its session reads everything the athlete records, and only its
+/// grant pushes workouts and writes the calendar. So Garmin connects and
+/// reconnects by its hosted sign-in first and its OAuth grant after it, and
+/// the grant is owed while it is not live (JF's directive 8). Strava's grant
+/// writes nothing its session cannot, so it is never owed.
+#[must_use]
+pub fn grant_writes_beside_mirror(
+    registry: &ProviderRegistry,
+    provider: &str,
+) -> Option<&'static str> {
+    let user_facing = user_facing_name(provider);
+    let mirror = mirror_backend_for(user_facing)?;
+    let grant = OAUTH_SERVED
+        .iter()
+        .copied()
+        .find(|served| *served == user_facing)?;
+    let writes = |backend: &str| {
+        registry
+            .get_capabilities(backend)
+            .map_or_else(ProviderCapabilities::empty, |carried| {
+                carried.intersection(GRANT_ONLY_WRITES)
+            })
+    };
+    (!writes(grant).difference(writes(mirror)).is_empty()).then_some(grant)
+}
+
+/// The grant `provider`'s athlete still owes for its writes in this tenant.
+///
+/// A [`grant_writes_beside_mirror`] grant whose half is not live (absent,
+/// flagged or revoked), whatever the session's state. `None` when the
+/// provider has no such grant or the athlete's grant is live. A store that
+/// cannot be read reads the grant as live: nothing is asked on a guess.
+pub async fn grant_owed(
+    repos: &RepositoryRegistry,
+    registry: &ProviderRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Option<&'static str> {
+    let grant = grant_writes_beside_mirror(registry, provider)?;
+    let mirror = mirror_backend_for(grant)?;
+    let halves = PairHalves::read(repos, user_id, tenant_id, grant, mirror).await;
+    (halves.grant != Half::Live).then_some(grant)
+}
+
+/// The refusal of a write only `grant`, the pair's own authorization, makes
+/// while the athlete's grant is not live.
+///
+/// `NoProviderConnected`, which reaches the model verbatim, with
+/// `details.action` `connect_provider`, `details.reason`
+/// [`GRANT_OWED_REASON`] and `details.provider` the grant: the caller that
+/// can mint the grant's authorization link adds it.
+#[must_use]
+pub fn grant_owed_refusal(registry: &ProviderRegistry, grant: &str) -> AppError {
+    let display = registry.get_display_name(grant).unwrap_or(grant);
+    let mut refusal = AppError::new(
+        ErrorCode::NoProviderConnected,
+        format!(
+            "{display} takes workouts and calendar writes only through its own authorization \
+             ({grant}), which the athlete has not connected or must connect again. Their \
+             {display} sign-in keeps the reads coming; this write needs {display} connected \
+             again through its authorization."
+        ),
+    );
+    refusal.details = Some(Box::new(serde_json::json!({
+        "action": "connect_provider",
+        "reason": GRANT_OWED_REASON,
+        "provider": grant,
+    })));
+    refusal
 }
 
 /// Connection status for a user-facing provider after mirror coalescing.

@@ -152,7 +152,7 @@ async fn put_calendar(
         update.provider.trim(),
         ProviderCapabilities::CALENDAR_WRITE,
     )
-    .await;
+    .await?;
     let owned = own_backends(&resources, tenant_id, auth.user_id).await?;
     let backends: Vec<&str> = owned.iter().map(String::as_str).collect();
     let backend = named_calendar(registry, &backends, &requested)?;
