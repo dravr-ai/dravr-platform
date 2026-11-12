@@ -752,6 +752,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                     stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Timeout));
                                     break 'live (rows, None);
                                 }
+                                // A read already running landed over this window.
+                                BudgetedRead::Landed(rows) => break 'live (rows, None),
                             }
                         } else {
                             let live = LiveRead {

@@ -38,7 +38,8 @@
 //! process-local dedup the inline path waits on.
 
 use pierre_core::permissions::scopes::OAuthScope;
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -53,6 +54,7 @@ use pierre_database::repositories::{
 };
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use pierre_providers::request_budget::in_background;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, instrument, warn};
@@ -140,28 +142,83 @@ pub fn backfill_covered_floor_ts(
 /// In-flight job keys (`user_id:provider:kind`) so repeated asks while a job is
 /// already paginating a user's history don't stack duplicate scrapes. Each
 /// kind holds its own key, as it holds its own row: a chat's live read never
-/// waits behind a history walk of the same provider.
-static IN_FLIGHT_BACKFILLS: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+/// waits behind a history walk of the same provider. The key is held for the
+/// whole run, a landed live read's follow-up included, and tells whoever
+/// watches it how far the run has got.
+static IN_FLIGHT_BACKFILLS: LazyLock<Mutex<HashMap<String, watch::Sender<InFlight>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How far a run holding its in-flight key has got. A watcher keeps the last
+/// state after the run released its key.
+#[derive(Debug, Clone)]
+pub(crate) enum InFlight {
+    /// The run is reading.
+    Running,
+    /// A live read landed: it read `params` and its provider answered
+    /// `count` activities, written through. What is left of the run is
+    /// settling its row and its follow-up, which reads that window again.
+    Landed {
+        params: ActivityQueryParams,
+        count: usize,
+    },
+}
+
+/// Taking an in-flight key.
+enum Claim {
+    /// This caller holds the key now.
+    Claimed,
+    /// A run here holds it; how far it has got, from now on.
+    Held(watch::Receiver<InFlight>),
+}
 
 fn in_flight_key(user_id: Uuid, provider: &str, kind: BackfillJobKind) -> String {
     format!("{user_id}:{provider}:{kind}")
 }
 
+/// Take `key`, or watch the run in this process that holds it: one lock, so
+/// a watcher never misses the run it lost the key to.
+fn claim(key: &str) -> Claim {
+    match IN_FLIGHT_BACKFILLS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(key.to_owned())
+    {
+        Entry::Vacant(vacant) => {
+            vacant.insert(watch::Sender::new(InFlight::Running));
+            Claim::Claimed
+        }
+        Entry::Occupied(held) => Claim::Held(held.get().subscribe()),
+    }
+}
+
 /// Take the process-local in-flight claim for `key`; `false` when a run in
 /// this process already holds it.
 fn claim_in_flight(key: &str) -> bool {
-    IN_FLIGHT_BACKFILLS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(key.to_owned())
+    matches!(claim(key), Claim::Claimed)
 }
 
+/// Give `key` back. Its watchers see the channel close, after the last
+/// state the run reached.
 fn release_in_flight(key: &str) {
     IN_FLIGHT_BACKFILLS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(key);
+}
+
+/// Mark the run holding `key` as landed (see [`InFlight::Landed`]). A key no
+/// run holds is left alone: only its holder settles it.
+fn mark_in_flight_landed(key: &str, params: &ActivityQueryParams, count: usize) {
+    if let Some(state) = IN_FLIGHT_BACKFILLS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(key)
+    {
+        state.send_replace(InFlight::Landed {
+            params: params.clone(),
+            count,
+        });
+    }
 }
 
 /// How long one runner holds a job row before the resume sweep may take it.
@@ -264,26 +321,45 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
         );
         return false;
     }
-    enqueue(job, None).await
+    matches!(enqueue(job, None).await, Enqueued::Started)
+}
+
+/// What asking for a job came to.
+enum Enqueued {
+    /// This ask recorded and spawned the run.
+    Started,
+    /// A job of the kind already runs in this process; the ask comes back
+    /// unstarted and unrecorded, with its handoff and a watch on that run.
+    InFlightHere(
+        ActivityBackfillJob,
+        Option<live_read::LiveReadHandoff>,
+        watch::Receiver<InFlight>,
+    ),
+    /// One is owed in the ledger — running on another instance, or waiting
+    /// for the resume sweep. Recording a live read's ask rebound that row to
+    /// it, so its follow-up answers this ask. The ask comes back with its
+    /// handoff.
+    Owed(ActivityBackfillJob, Option<live_read::LiveReadHandoff>),
 }
 
 /// Take the in-flight key, record the row, and spawn the run: the one path
-/// every new job takes, whatever its kind. `false` when a job of the kind is
-/// already in flight here or owed elsewhere. A live read asked while one runs
-/// here rebinds that one's row to this ask ([`live_read`]).
-async fn enqueue(job: ActivityBackfillJob, handoff: Option<live_read::LiveReadHandoff>) -> bool {
+/// every new job takes, whatever its kind. A job of the kind already in
+/// flight here or owed elsewhere comes back unstarted; a live read asked
+/// while one runs here is not rebound to it until its turn stops waiting
+/// ([`live_read::JoinedRead`]).
+async fn enqueue(
+    job: ActivityBackfillJob,
+    handoff: Option<live_read::LiveReadHandoff>,
+) -> Enqueued {
     let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
-    if !claim_in_flight(&key) {
-        if job.kind == BackfillJobKind::LiveRead {
-            rebind_live_read(&job).await;
-        }
+    if let Claim::Held(run) = claim(&key) {
         info!(
             user_id = %job.user_id,
             provider = %job.provider_name,
             kind = %job.kind,
             "Activity job already in flight — skipping duplicate"
         );
-        return false;
+        return Enqueued::InFlightHere(job, handoff, run);
     }
 
     let recorded = match record_backfill_job(&job).await {
@@ -295,12 +371,12 @@ async fn enqueue(job: ActivityBackfillJob, handoff: Option<live_read::LiveReadHa
                 provider = %job.provider_name,
                 "Activity backfill already owed on another instance — skipping duplicate"
             );
-            return false;
+            return Enqueued::Owed(job, handoff);
         }
         Recorded::Unrecorded => None,
     };
     spawn_backfill_run(job, key, recorded, handoff);
-    true
+    Enqueued::Started
 }
 
 /// Point the live read this instance runs for the pair at `job`'s newer ask.
@@ -608,11 +684,7 @@ async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOu
     let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
     let mut waited = StdDuration::ZERO;
     loop {
-        let claimed = IN_FLIGHT_BACKFILLS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(key.clone());
-        if claimed {
+        if claim_in_flight(&key) {
             break;
         }
         if waited >= IN_FLIGHT_WAIT_CAP {
@@ -627,10 +699,7 @@ async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOu
         waited += IN_FLIGHT_WAIT_POLL;
     }
     let outcome = run_activity_backfill(&job).await;
-    IN_FLIGHT_BACKFILLS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&key);
+    release_in_flight(&key);
     outcome
 }
 

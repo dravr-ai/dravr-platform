@@ -15,6 +15,12 @@
 //! the cache and the read is owed to the conversation. Only then does the
 //! landed read post a follow-up — to the ask the row is bound to when it
 //! finishes, which a newer ask rebinds.
+//!
+//! An ask that finds a read of the pair already running joins it
+//! ([`JoinedRead`]). A read that landed here over the ask's window answers
+//! it as current: that is how its own follow-up's re-ask of the question,
+//! asked while the run still holds the pair, reads the rows the run just
+//! wrote.
 
 use std::fmt;
 
@@ -22,14 +28,16 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{BackfillJobKind, JobLease, LiveReadAsk};
 use pierre_providers::ai_scope;
+use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 use super::{
-    enqueue, job_row, keep_backfill_lease, notify_backfill_reauth, remove_backfill_job,
-    settle_backfill_job, ActivityBackfillJob, BackfillRunOutcome,
+    enqueue, in_flight_key, job_row, keep_backfill_lease, mark_in_flight_landed,
+    notify_backfill_reauth, rebind_live_read, remove_backfill_job, settle_backfill_job,
+    ActivityBackfillJob, BackfillRunOutcome, Enqueued, InFlight,
 };
 use crate::activity_fetch::read_live_window;
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
@@ -90,9 +98,9 @@ pub enum LiveReadStart {
     /// turn stopped waiting, and the read then owes the conversation a
     /// follow-up.
     Started(oneshot::Receiver<LiveReadOutput>),
-    /// A live read of the pair is already owed. An ask with a conversation
-    /// rebound it, so the follow-up answers this ask once it lands.
-    Joined,
+    /// A live read of the pair already runs here or is owed: this ask joined
+    /// it, and waits on it through the [`JoinedRead`].
+    Joined(Box<JoinedRead>),
 }
 
 /// Record `job` (a [`BackfillJobKind::LiveRead`]) and start its first
@@ -107,11 +115,82 @@ pub async fn start_live_read(
         authenticated,
         reply,
     };
-    if enqueue(job, Some(handoff)).await {
-        LiveReadStart::Started(answer)
-    } else {
-        LiveReadStart::Joined
+    let (job, handoff, here) = match enqueue(job, Some(handoff)).await {
+        Enqueued::Started => return LiveReadStart::Started(answer),
+        Enqueued::InFlightHere(job, handoff, run) => (job, handoff, Some(run)),
+        Enqueued::Owed(job, handoff) => (job, handoff, None),
+    };
+    LiveReadStart::Joined(Box::new(JoinedRead {
+        job,
+        authenticated: handoff.and_then(|handoff| handoff.authenticated),
+        here,
+    }))
+}
+
+/// An ask that found a live read of its pair already running, here or owed
+/// in the ledger, and was not started.
+///
+/// The read is rebound to this ask when the turn answers without it
+/// ([`Self::owe_follow_up`]); an ask joined to a read owed elsewhere was
+/// rebound to it as it was recorded.
+pub struct JoinedRead {
+    job: ActivityBackfillJob,
+    authenticated: Option<Authenticated>,
+    /// The run joined, when it runs in this process.
+    here: Option<watch::Receiver<InFlight>>,
+}
+
+impl fmt::Debug for JoinedRead {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinedRead")
+            .field("job", &self.job)
+            .field("authenticated", &self.authenticated)
+            .field("here", &self.here.as_ref().map(|run| run.borrow().clone()))
+            .finish()
     }
+}
+
+impl JoinedRead {
+    /// Whether the read joined landed here, reading a window that holds this
+    /// ask's: the rows it wrote through are then as current as a read of
+    /// this ask's own. Still true once the run has ended.
+    #[must_use]
+    pub fn landed_over_its_window(&self) -> bool {
+        self.here.as_ref().is_some_and(|run| match &*run.borrow() {
+            InFlight::Landed { params, count } => covers(params, *count, &self.job.query_params),
+            InFlight::Running => false,
+        })
+    }
+
+    /// The turn stops waiting: the read joined owes this ask its follow-up
+    /// once it lands. A read running here is rebound to it now; one owed
+    /// elsewhere was rebound as this ask was recorded.
+    pub async fn owe_follow_up(&self) {
+        if self.here.is_some() {
+            rebind_live_read(&self.job).await;
+        }
+    }
+}
+
+/// Whether a read of `read` that answered `landed` activities saw every
+/// activity of `asked`: its window holds `asked`'s, it began at the newest,
+/// and it either ran out of activities before its limit or reached as far
+/// down as `asked` pages.
+fn covers(read: &ActivityQueryParams, landed: usize, asked: &ActivityQueryParams) -> bool {
+    let from = read
+        .after
+        .is_none_or(|after| asked.after.is_some_and(|from| from >= after));
+    let to = read
+        .before
+        .is_none_or(|before| asked.before.is_some_and(|to| to <= before));
+    let from_the_newest = read.offset.unwrap_or(0) == 0;
+    let deep_enough = read.limit.is_none_or(|limit| {
+        landed < limit
+            || asked
+                .limit
+                .is_some_and(|rows| asked.offset.unwrap_or(0).saturating_add(rows) <= limit)
+    });
+    from && to && from_the_newest && deep_enough
 }
 
 /// How an attempt ended, for its row.
@@ -173,6 +252,16 @@ pub(super) async fn run_live_read(
         .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
     let output = read_once(job, authenticated, attempt_started_at).await;
     let attempt = Attempt::of(&output.read);
+    if let Attempt::Landed(count) = attempt {
+        // Before anything is answered: the follow-up re-asks the question
+        // while this run still holds the pair, and that ask reads what
+        // landed rather than joining a read that is over.
+        mark_in_flight_landed(
+            &in_flight_key(job.user_id, &job.provider_name, job.kind),
+            &job.query_params,
+            count,
+        );
+    }
     let delivered = reply.is_some_and(|reply| reply.send(output).is_ok());
     match (attempt, recorded) {
         (Attempt::Landed(count), Some((lease, _))) => {
@@ -401,4 +490,76 @@ async fn follow_up(job: &ActivityBackfillJob, ask: &LiveReadAsk, activity_count:
             asked_message_id: ask.asked_message_id.as_deref(),
         })
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(
+        after: Option<i64>,
+        before: Option<i64>,
+        limit: Option<usize>,
+    ) -> ActivityQueryParams {
+        ActivityQueryParams {
+            limit,
+            offset: None,
+            before,
+            after,
+        }
+    }
+
+    #[test]
+    fn a_read_covers_a_later_ask_of_its_window() {
+        let read = window(Some(1_000), None, Some(50));
+        assert!(covers(&read, 12, &window(Some(1_000), None, Some(50))));
+        assert!(
+            covers(&read, 12, &window(Some(1_060), None, Some(200))),
+            "a read that ran out before its limit saw the whole window, whatever the ask's limit"
+        );
+        assert!(covers(
+            &read,
+            12,
+            &window(Some(1_060), Some(5_000), Some(10))
+        ));
+    }
+
+    #[test]
+    fn a_read_does_not_cover_what_it_did_not_reach() {
+        let read = window(Some(1_000), None, Some(50));
+        assert!(
+            !covers(&read, 12, &window(Some(900), None, Some(50))),
+            "older than the read's floor"
+        );
+        assert!(
+            !covers(&read, 12, &window(None, None, Some(50))),
+            "an unbounded ask reaches below any floor"
+        );
+        assert!(
+            !covers(&read, 50, &window(Some(1_000), None, Some(200))),
+            "a read cut at its limit did not reach the bottom of a deeper ask"
+        );
+        assert!(covers(&read, 50, &window(Some(1_000), None, Some(50))));
+        let paged = ActivityQueryParams {
+            offset: Some(10),
+            ..window(Some(1_000), None, Some(50))
+        };
+        assert!(
+            !covers(&read, 50, &paged),
+            "a page below the read's limit was not read"
+        );
+        let closed = window(Some(1_000), Some(4_000), Some(50));
+        assert!(
+            !covers(&closed, 12, &window(Some(1_000), None, Some(50))),
+            "newer than a closed read's top"
+        );
+        let skipped = ActivityQueryParams {
+            offset: Some(5),
+            ..read
+        };
+        assert!(
+            !covers(&skipped, 12, &window(Some(1_000), None, Some(50))),
+            "a read that skipped its newest rows"
+        );
+    }
 }

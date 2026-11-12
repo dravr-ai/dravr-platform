@@ -718,3 +718,166 @@ async fn a_read_that_expires_after_a_reconnect_leaves_the_new_connection_alone()
         "bug: a reconnected athlete is told to reconnect"
     );
 }
+
+/// What a turn was answered with, in a form a test can hold on to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Answer {
+    /// The turn's own read answered.
+    Answered(Vec<String>),
+    /// The cached window answered, labelled stale; a follow-up is owed.
+    Cached(Vec<String>),
+    /// A read already running landed over the window and answered, current.
+    Landed(Vec<String>),
+}
+
+fn answer_of(outcome: BudgetedRead) -> Answer {
+    let owned = |rows: &[Activity]| ids(rows).into_iter().map(str::to_owned).collect();
+    match outcome {
+        BudgetedRead::Answered { read, .. } => Answer::Answered(owned(&read.unwrap().activities)),
+        BudgetedRead::Cached(rows) => Answer::Cached(owned(&rows)),
+        BudgetedRead::Landed(rows) => Answer::Landed(owned(&rows)),
+    }
+}
+
+/// A notifier that does what the chat pipeline does with a landed read's
+/// follow-up: it re-asks the question, in process, while the read's run
+/// still holds the pair, through a provider that must not be read again.
+#[cfg(feature = "client-messaging")]
+struct ReaskingNotifier {
+    runtime: std::sync::OnceLock<Arc<dyn ToolRuntime>>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    unread: Arc<Notify>,
+    re_asks: Mutex<Vec<Answer>>,
+}
+
+#[cfg(feature = "client-messaging")]
+#[async_trait]
+impl BackfillNotifier for ReaskingNotifier {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        let runtime = Arc::clone(self.runtime.get().expect("the runtime is set"));
+        let re_ask = timeout(
+            StdDuration::from_secs(5),
+            read_live_window_within_budget(
+                &runtime,
+                gated(&self.unread, vec![activity("other", 0)]),
+                asked(
+                    self.user_id,
+                    self.tenant_id,
+                    completion.pierre_conversation_id,
+                    completion.asked_message_id.unwrap_or("msg-re-ask"),
+                ),
+                BUDGET,
+            ),
+        )
+        .await
+        .expect("bug: the re-ask waited on a read instead of the rows that just landed");
+        self.re_asks.lock().unwrap().push(answer_of(re_ask));
+    }
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// The read outlived its turn and lands; its follow-up re-asks the question
+/// while the run still holds the pair. The re-ask is answered with the rows
+/// that just landed, as current — never as a read that could not refresh —
+/// and nothing reads the provider a second time. Once the run is over, the
+/// next ask reads live again.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_follow_ups_re_ask_reads_what_just_landed_as_current() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
+    let notifier = Arc::new(ReaskingNotifier {
+        runtime: std::sync::OnceLock::new(),
+        user_id,
+        tenant_id,
+        unread: Arc::new(Notify::new()),
+        re_asks: Mutex::new(Vec::new()),
+    });
+    let mut context = (*resources).clone();
+    context.mcp.backfill_notifier = Some(notifier.clone());
+    let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
+    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+    runtime
+        .repos()
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, PROVIDER, &[activity("cached", 3)])
+        .await
+        .unwrap();
+
+    let gate = Arc::new(Notify::new());
+    let first = read_live_window_within_budget(
+        &runtime,
+        gated(&gate, vec![activity("cached", 3), activity("fresh", 0)]),
+        asked(user_id, tenant_id, "conv-1", "msg-1"),
+        BUDGET,
+    )
+    .await;
+    assert_eq!(
+        answer_of(first),
+        Answer::Cached(vec!["cached".to_owned()]),
+        "the turn answers from the cache past its budget"
+    );
+
+    gate.notify_one();
+    let re_asked = timeout(StdDuration::from_secs(10), async {
+        while notifier.re_asks.lock().unwrap().is_empty() {
+            sleep(StdDuration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(re_asked.is_ok(), "bug: the landed read never followed up");
+    assert_eq!(
+        notifier.re_asks.lock().unwrap().as_slice(),
+        [Answer::Landed(vec![
+            "cached".to_owned(),
+            "fresh".to_owned()
+        ])],
+        "bug: the follow-up's re-ask must read what just landed as current, not as stale"
+    );
+
+    // The run gives the pair back once its follow-up is done: the next ask
+    // reads live instead of joining a run that is over.
+    sleep(StdDuration::from_millis(200)).await;
+    let open = Arc::new(Notify::new());
+    open.notify_one();
+    let next = read_live_window_within_budget(
+        &runtime,
+        gated(
+            &open,
+            vec![
+                activity("cached", 3),
+                activity("fresh", 0),
+                activity("newest", 0),
+            ],
+        ),
+        asked(user_id, tenant_id, "conv-1", "msg-2"),
+        StdDuration::from_secs(10),
+    )
+    .await;
+    assert_eq!(
+        answer_of(next),
+        Answer::Answered(vec![
+            "cached".to_owned(),
+            "fresh".to_owned(),
+            "newest".to_owned()
+        ]),
+        "bug: an ask after the run ended must read live"
+    );
+}

@@ -15,18 +15,18 @@ use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::{ai_scope, CoreFitnessProvider};
 use tokio::sync::oneshot::error::RecvError;
-use tokio::time::timeout;
+use tokio::time::{timeout, timeout_at, Instant};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::pushed::serving_slug;
 use super::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use super::{
-    read_live_window, serve_after_failed_read, serve_flagged_session, serve_stale_activities,
-    stale_head_params, FailedRead,
+    read_cached_page, read_live_window, serve_after_failed_read, serve_flagged_session,
+    serve_stale_activities, stale_head_params, FailedRead,
 };
 use crate::activity_backfill::live_read::{
-    start_live_read, Authenticated, LiveReadOutput, LiveReadStart,
+    start_live_read, Authenticated, JoinedRead, LiveReadOutput, LiveReadStart,
 };
 use crate::activity_backfill::{provider_tenant_id_str, ActivityBackfillJob};
 use crate::context::TurnAsk;
@@ -68,6 +68,10 @@ pub enum BudgetedRead {
     /// already running, and the provider's own cached window answered. The
     /// read runs on as a job, and its write-through lands for the next turn.
     Cached(Vec<Activity>),
+    /// A live read of the provider that was already running here landed over
+    /// this window: the rows it wrote through answer, as current as the
+    /// turn's own read would be, and nothing is owed.
+    Landed(Vec<Activity>),
 }
 
 impl fmt::Debug for BudgetedRead {
@@ -79,6 +83,7 @@ impl fmt::Debug for BudgetedRead {
                 .field("provider", &provider.as_ref().map(|p| p.name()))
                 .finish(),
             Self::Cached(activities) => f.debug_tuple("Cached").field(activities).finish(),
+            Self::Landed(activities) => f.debug_tuple("Landed").field(activities).finish(),
         }
     }
 }
@@ -104,7 +109,8 @@ impl fmt::Debug for BudgetedRead {
 /// budget.
 ///
 /// A read of the provider already running here takes this ask over instead,
-/// and the turn answers from the cache at once.
+/// and the turn answers from the cache at once — or, when that read landed
+/// over this window, with what it wrote, as current.
 ///
 /// The read runs unfiltered, as a cache write does, on another task than the
 /// turn's: what it answers is filtered here, back in the turn.
@@ -144,21 +150,23 @@ pub async fn read_live_window_within_budget(
         provider,
         attempt_started_at: read.attempt_started_at,
     };
+    let deadline = Instant::now() + budget;
     let job = live_read_job(runtime, read);
     let mut answer = match start_live_read(job, Some(authenticated)).await {
         LiveReadStart::Started(answer) => answer,
-        LiveReadStart::Joined => {
-            info!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                "a live activity read of this provider is already running; answering from the cached window"
-            );
-            let cached =
-                serve_stale_activities(runtime, &provider_slug, user_id, tenant_id, &params).await;
-            return BudgetedRead::Cached(cached.unwrap_or_default());
+        LiveReadStart::Joined(joined) => {
+            return answer_joined(
+                runtime,
+                &joined,
+                &provider_slug,
+                user_id,
+                tenant_id,
+                &params,
+            )
+            .await;
         }
     };
-    if let Ok(landed) = timeout(budget, &mut answer).await {
+    if let Ok(landed) = timeout_at(deadline, &mut answer).await {
         return answered(runtime, landed);
     }
     if let Some(cached) =
@@ -180,6 +188,34 @@ pub async fn read_live_window_within_budget(
         return BudgetedRead::Cached(cached);
     }
     answered(runtime, answer.await)
+}
+
+/// Answer an ask that joined a live read of the pair already running.
+///
+/// A read that landed over this window and is settling — its follow-up's
+/// re-ask of the question lands here — answers with what it wrote, as
+/// current. Otherwise the cached window answers at once, and the running
+/// read owes this ask its follow-up.
+async fn answer_joined(
+    runtime: &Arc<dyn ToolRuntime>,
+    joined: &JoinedRead,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    params: &ActivityQueryParams,
+) -> BudgetedRead {
+    if joined.landed_over_its_window() {
+        let rows = read_cached_page(runtime, provider_slug, user_id, tenant_id, params).await;
+        return BudgetedRead::Landed(rows.unwrap_or_default());
+    }
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        "a live activity read of this provider is already running; answering from the cached window"
+    );
+    joined.owe_follow_up().await;
+    let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await;
+    BudgetedRead::Cached(cached.unwrap_or_default())
 }
 
 /// The job a live read runs as.
