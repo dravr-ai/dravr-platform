@@ -472,3 +472,76 @@ async fn a_rebind_only_moves_an_owed_live_read_and_finishing_returns_its_ask() {
         "bug: a finished live read leaves no row"
     );
 }
+
+/// A walk asked again after one ended (a new connection) starts from the
+/// top: the ended row's cursor and progress are replaced, so the sweep that
+/// resumes the new walk never reads on from the old walk's floor and calls
+/// the history walked without listing it.
+#[tokio::test]
+async fn a_walk_asked_after_one_ended_starts_from_the_top() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut ended = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
+    ended.leased_until_ms = now_ms() + 10 * 60_000;
+    assert!(
+        ledger.record_backfill_job(&ended).await.unwrap(),
+        "bug: the first walk is recorded"
+    );
+    let holder = JobLease {
+        id: ended.id.clone(),
+        token: ended.lease_token.clone().unwrap(),
+    };
+    let last_step = JobProgressStep {
+        before_ts: 1_400_000_000,
+        months_walked: 48,
+        rows_landed: 30,
+        secs_per_unit: Some(2.0),
+        floor: None,
+    };
+    assert!(
+        ledger
+            .end_history_walk(&holder, last_step)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the lease holder ends the walk"
+    );
+    assert_eq!(
+        ledger
+            .backfill_job_state(user, tenant, PROVIDER, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap(),
+        Some(BackfillJobState::Walked),
+        "bug: an ended walk is kept as walked"
+    );
+
+    let mut again = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
+    again.before_ts = None;
+    again.after_ts = Some(946_684_800);
+    again.attempts = 0;
+    assert!(
+        ledger.record_backfill_job(&again).await.unwrap(),
+        "bug: a new walk replaces the ended row"
+    );
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    assert_eq!(claimed.len(), 1, "bug: the new walk is owed");
+    assert_eq!(
+        claimed[0].before_ts, None,
+        "bug: the new walk reads from the top, not below the ended walk's floor"
+    );
+    assert_eq!(
+        claimed[0].after_ts,
+        Some(946_684_800),
+        "bug: the new walk takes its own floor"
+    );
+    assert_eq!(
+        ledger
+            .job_progress(user, tenant, PROVIDER, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap(),
+        Some(JobProgress::default()),
+        "bug: the new walk's progress starts at zero"
+    );
+}
