@@ -22,6 +22,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use pierre_core::civil_time::local_date;
 use pierre_core::constants::oauth_providers::GarminContribution;
+use pierre_core::models::coverage::{Coverage, IncompleteReason};
 use pierre_core::models::Activity;
 use pierre_database::repositories::sport_type_string;
 use serde::Serialize;
@@ -81,20 +82,6 @@ pub struct SportVolume {
     pub elevation_gain_meters: f64,
 }
 
-/// How far back the stored history reaches, as far as the volume needs to
-/// know.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VolumeCoverage {
-    /// The cache holds activities from before the window: every week of it is
-    /// vouched for.
-    Whole,
-    /// The stored history begins on this day: weeks before the one it falls
-    /// in are absent.
-    From(NaiveDate),
-    /// Nothing is stored.
-    Nothing,
-}
-
 /// The Monday of the week `date` falls in.
 #[must_use]
 pub fn monday_of(date: NaiveDate) -> NaiveDate {
@@ -122,26 +109,31 @@ pub fn day_start_utc(date: NaiveDate, zone: Tz) -> DateTime<Utc> {
 /// Sum `sessions`, one per workout, into weeks on the athlete's calendar.
 ///
 /// The sessions are already merged across providers. The weeks run from the
-/// first one `coverage` vouches for to the week of `today`, in `zone`; a
-/// session outside those weeks, or after `today`, is left out.
+/// first one `coverage` vouches for to the week of `today`, in `zone`: the
+/// window's start when it is complete, the week of its `trustworthy_from`
+/// when the stored history (or the read) stops short of it, none when
+/// nothing is stored. A session outside those weeks, or after `today`, is
+/// left out.
 #[must_use]
 pub fn volume_from_sessions(
     today: NaiveDate,
     zone: Tz,
     sessions: &[Activity],
-    coverage: VolumeCoverage,
+    coverage: &Coverage,
 ) -> TrainingVolume {
     let opens = window_start(today);
-    let first_week = match coverage {
-        VolumeCoverage::Nothing => {
+    let first_week = match coverage.completeness.reason() {
+        Some(IncompleteReason::NoStoredActivities) => {
             return TrainingVolume {
                 today,
                 weeks: Vec::new(),
                 garmin_contribution: None,
             }
         }
-        VolumeCoverage::Whole => opens,
-        VolumeCoverage::From(day) => monday_of(day).max(opens),
+        None => opens,
+        Some(_) => coverage
+            .trustworthy_from
+            .map_or(opens, |day| monday_of(day).max(opens)),
     };
     let last_week = monday_of(today);
     if first_week > last_week {
@@ -196,6 +188,7 @@ pub fn volume_from_sessions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::models::coverage::{Completeness, CoverageWindow};
     use pierre_core::models::{ActivityBuilder, SportType};
 
     fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
@@ -238,9 +231,37 @@ mod tests {
         ymd(TODAY.0, TODAY.1, TODAY.2)
     }
 
+    /// The cache holds activities from before the window.
+    fn whole() -> Coverage {
+        Coverage::complete(CoverageWindow::default())
+    }
+
+    /// The stored history begins on `day`.
+    fn from(day: NaiveDate) -> Coverage {
+        Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::ShallowHistory),
+            window: CoverageWindow {
+                oldest: Some(day),
+                ..CoverageWindow::default()
+            },
+            trustworthy_from: Some(day),
+            pending: None,
+        }
+    }
+
+    /// Nothing is stored.
+    fn nothing() -> Coverage {
+        Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+            window: CoverageWindow::default(),
+            trustworthy_from: None,
+            pending: None,
+        }
+    }
+
     #[test]
     fn a_whole_history_spans_twelve_monday_weeks_ending_this_week() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], VolumeCoverage::Whole);
+        let volume = volume_from_sessions(today(), Tz::UTC, &[], &whole());
         assert_eq!(volume.weeks.len(), 12);
         assert_eq!(volume.weeks[11].week_start, ymd(2026, 10, 5));
         assert_eq!(volume.weeks[0].week_start, ymd(2026, 7, 20));
@@ -292,7 +313,7 @@ mod tests {
                 None,
             ),
         ];
-        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, VolumeCoverage::Whole);
+        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &whole());
         let this_week = &volume.weeks[11];
         assert_eq!(
             this_week.sports,
@@ -340,19 +361,14 @@ mod tests {
             Some(10_000.0),
             None,
         )];
-        let volume = volume_from_sessions(today(), zone, &sessions, VolumeCoverage::Whole);
+        let volume = volume_from_sessions(today(), zone, &sessions, &whole());
         assert_eq!(volume.weeks[11].sports, []);
         assert_eq!(volume.weeks[10].sports.len(), 1);
     }
 
     #[test]
     fn weeks_before_the_stored_history_are_absent_not_zero() {
-        let volume = volume_from_sessions(
-            today(),
-            Tz::UTC,
-            &[],
-            VolumeCoverage::From(ymd(2026, 9, 24)),
-        );
+        let volume = volume_from_sessions(today(), Tz::UTC, &[], &from(ymd(2026, 9, 24)));
         let starts: Vec<_> = volume.weeks.iter().map(|week| week.week_start).collect();
         assert_eq!(
             starts,
@@ -362,14 +378,13 @@ mod tests {
 
     #[test]
     fn a_history_older_than_the_window_still_opens_on_the_window() {
-        let volume =
-            volume_from_sessions(today(), Tz::UTC, &[], VolumeCoverage::From(ymd(2025, 1, 1)));
+        let volume = volume_from_sessions(today(), Tz::UTC, &[], &from(ymd(2025, 1, 1)));
         assert_eq!(volume.weeks.len(), 12);
     }
 
     #[test]
     fn nothing_stored_answers_no_weeks() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], VolumeCoverage::Nothing);
+        let volume = volume_from_sessions(today(), Tz::UTC, &[], &nothing());
         assert_eq!(volume.weeks, []);
     }
 
@@ -393,7 +408,7 @@ mod tests {
                 None,
             ),
         ];
-        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, VolumeCoverage::Whole);
+        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &whole());
         assert!(volume.weeks.iter().all(|week| week.sports.is_empty()));
     }
 
